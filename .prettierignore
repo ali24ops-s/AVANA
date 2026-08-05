@@ -1,0 +1,8 @@
+node_modules
+dist
+coverage
+*.tsbuildinfo
+package-lock.json
+.env
+.secretlintignore
+.husky/pre-commit

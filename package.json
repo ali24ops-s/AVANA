@@ -1,0 +1,65 @@
+{
+  "name": "avana",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "database"
+  ],
+  "engines": {
+    "node": ">=22.0.0",
+    "npm": ">=10.0.0"
+  },
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "type-check": "npm run type-check --workspaces --if-present",
+    "test": "vitest run",
+    "test:watch": "vitest watch",
+    "lint": "eslint .",
+    "format": "prettier --write \"**/*.{ts,tsx,js,json,md,yml,yaml,css,html}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,json,md,yml,yaml,css,html}\"",
+    "secrets": "secretlint \"**/*\"",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:seed": "tsx database/seeds/seed.ts",
+    "db:studio": "drizzle-kit studio"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@fastify/cors": "^11.3.0",
+    "@fastify/helmet": "^13.1.0",
+    "@fastify/rate-limit": "^11.1.0",
+    "@secretlint/secretlint-rule-preset-recommend": "^13.0.2",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.0",
+    "@types/pg": "^8.20.0",
+    "@vitest/coverage-v8": "^3.2.6",
+    "drizzle-kit": "^0.31.10",
+    "eslint": "^9.39.1",
+    "eslint-plugin-no-secrets": "^2.2.1",
+    "husky": "^9.1.7",
+    "jsdom": "^26.1.0",
+    "lint-staged": "^17.1.0",
+    "pino": "^10.3.1",
+    "prettier": "^3.9.5",
+    "secretlint": "^13.0.2",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.23.1",
+    "typescript-eslint": "^8.47.0",
+    "vitest": "^3.2.6"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,json,md,yml,yaml,css,html}": [
+      "prettier --write"
+    ],
+    "*.{ts,tsx}": [
+      "eslint --fix"
+    ]
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.45.2",
+    "pg": "^8.22.0"
+  }
+}

@@ -1,0 +1,1100 @@
+openapi: 3.1.0
+info:
+  title: AVANA API
+  version: 1.0.0
+  description: AVANA API contract (Sprint 1 foundations)
+servers:
+  - url: https://api.example.invalid
+
+paths:
+  /v1/health:
+    get:
+      operationId: health
+      summary: Liveness
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /v1/readiness:
+    get:
+      operationId: readiness
+      summary: Readiness
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /v1/auth/sign-in:
+    post:
+      operationId: signIn
+      summary: Sign in with email
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SignInRequest"
+      responses:
+        "200":
+          description: Signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SignInResponse"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /v1/auth/sign-out:
+    post:
+      operationId: signOut
+      summary: Sign out (revoke session)
+      responses:
+        "204":
+          description: Signed out (no content)
+        "401":
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /v1/me:
+    get:
+      operationId: getMe
+      summary: Current user (session-based)
+      security: []
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MeResponse"
+        "401":
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /v1/organizations:
+    get:
+      operationId: listOrganizations
+      summary: List organizations visible to the actor
+      responses:
+        "200":
+          description: List
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrganizationListResponse"
+        "401":
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    post:
+      operationId: createOrganization
+      summary: Create an organization and initial admin membership
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateOrganizationRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrganizationResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Organization name conflicts with an existing slug
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /v1/organizations/{organizationId}:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+    get:
+      operationId: getOrganization
+      summary: Get an organization through the actor's membership scope
+      responses:
+        "200":
+          description: Organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrganizationResponse"
+        "400":
+          description: Invalid organization ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Organization not found or not visible to the actor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /v1/organizations/{organizationId}/members:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+    get:
+      operationId: listOrganizationMemberships
+      summary: List memberships as an organization administrator
+      responses:
+        "200":
+          description: Membership list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MembershipListResponse"
+        "401":
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Organization role does not permit membership reads
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Organization not found or not visible to the actor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /v1/organizations/{organizationId}/courses:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+    get:
+      operationId: listCourses
+      summary: List courses scoped to an organization
+      responses:
+        "200":
+          description: List
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CourseListResponse"
+        "400":
+          description: Invalid organization ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Organization not found or not visible to the actor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+    post:
+      operationId: createCourse
+      summary: Create a course inside an organization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCourseRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CourseResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Organization not found or not visible to the actor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /v1/organizations/{organizationId}/courses/{courseId}:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+      - $ref: "#/components/parameters/CourseId"
+    get:
+      operationId: getCourse
+      summary: Get a course scoped to an organization
+      responses:
+        "200":
+          description: Course
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CourseResponse"
+        "400":
+          description: Invalid ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Course not found or not visible to the actor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+    patch:
+      operationId: updateCourse
+      summary: Update a course where permitted
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateCourseRequest"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CourseResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Role does not permit course updates
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Course not found or not visible to the actor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+    delete:
+      operationId: archiveCourse
+      summary: Archive a course (soft delete)
+      responses:
+        "204":
+          description: Archived (no content)
+        "400":
+          description: Invalid ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Role does not permit course archiving
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Course not found or not visible to the actor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /v1/courses/{courseId}/progress:
+    parameters:
+      - $ref: "#/components/parameters/CourseId"
+    get:
+      operationId: getCourseProgress
+      summary: Get the current student's course progress
+      responses:
+        "200":
+          description: Course progress
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CourseProgressResponse"
+        "401":
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Course not found or not visible to the actor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /v1/courses/{courseId}/lessons/{lessonId}/progress:
+    parameters:
+      - $ref: "#/components/parameters/CourseId"
+      - $ref: "#/components/parameters/LessonId"
+    post:
+      operationId: completeLesson
+      summary: Mark a lesson completed for the current student
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompleteLessonRequest"
+      responses:
+        "200":
+          description: Lesson completion state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LessonProgressResponse"
+        "401":
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Course or lesson not found or not visible to the actor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /v1/organizations/{organizationId}/courses/{courseId}/content:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+      - $ref: "#/components/parameters/CourseId"
+    get:
+      operationId: getCourseContent
+      summary: Get course content with all lessons (including drafts) for editors
+      responses:
+        "200":
+          description: Course content
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CourseContentResponse"
+        "400":
+          description: Invalid ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Role does not permit content reads
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Course not found or not visible to the actor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /v1/organizations/{organizationId}/courses/{courseId}/modules/{moduleId}/lessons:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+      - $ref: "#/components/parameters/CourseId"
+      - name: moduleId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: createContentLesson
+      summary: Create a new draft lesson inside a module
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateContentLessonRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContentLessonResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Role does not permit content writes
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Course or module not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /v1/organizations/{organizationId}/courses/{courseId}/modules/{moduleId}/lessons/{lessonId}:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+      - $ref: "#/components/parameters/CourseId"
+      - name: moduleId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - $ref: "#/components/parameters/LessonId"
+    patch:
+      operationId: updateContentLesson
+      summary: Update a lesson (draft or published)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateContentLessonRequest"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContentLessonResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Role does not permit content writes
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Lesson not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /v1/organizations/{organizationId}/courses/{courseId}/modules/{moduleId}/lessons/{lessonId}/publish:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+      - $ref: "#/components/parameters/CourseId"
+      - name: moduleId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - $ref: "#/components/parameters/LessonId"
+    post:
+      operationId: publishLesson
+      summary: Publish a draft lesson
+      responses:
+        "200":
+          description: Published
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContentLessonResponse"
+        "400":
+          description: Lesson has empty title or content
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Role does not permit content publishing
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Lesson not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+components:
+  securitySchemes: {}
+
+  parameters:
+    OrganizationId:
+      name: organizationId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    CourseId:
+      name: courseId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+    LessonId:
+      name: lessonId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  schemas:
+    HealthResponse:
+      type: object
+      additionalProperties: false
+      required: ["ok", "request_id"]
+      properties:
+        ok:
+          type: boolean
+          const: true
+        request_id:
+          type: string
+          description: Correlation/request id propagated by API.
+
+    ErrorEnvelope:
+      type: object
+      additionalProperties: false
+      required: ["error", "request_id"]
+      properties:
+        request_id:
+          type: string
+        error:
+          type: object
+          additionalProperties: false
+          required: ["code", "message"]
+          properties:
+            code:
+              type: string
+              enum:
+                - bad_request
+                - unauthorized
+                - forbidden
+                - not_found
+                - conflict
+                - unprocessable
+                - internal_error
+            message:
+              type: string
+            details:
+              type: object
+              additionalProperties:
+                oneOf:
+                  - type: string
+                  - type: number
+                  - type: boolean
+                  - type: integer
+                  - type: null
+
+    Pagination:
+      type: object
+      additionalProperties: false
+      required: ["limit", "next_cursor"]
+      properties:
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+        next_cursor:
+          type: string
+          nullable: true
+
+    SignInRequest:
+      type: object
+      additionalProperties: false
+      required: ["email"]
+      properties:
+        email:
+          type: string
+          format: email
+          description: Verified email address
+
+    SignInResponse:
+      type: object
+      additionalProperties: false
+      required: ["request_id", "user"]
+      properties:
+        request_id:
+          type: string
+        user:
+          $ref: "#/components/schemas/UserResource"
+
+    MeResponse:
+      type: object
+      additionalProperties: false
+      required: ["user", "request_id"]
+      properties:
+        request_id:
+          type: string
+        user:
+          $ref: "#/components/schemas/UserResource"
+
+    UserResource:
+      type: object
+      additionalProperties: false
+      required: ["id", "email", "role"]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+          enum:
+            [
+              student,
+              teacher,
+              course_editor,
+              organization_admin,
+              support_agent,
+              platform_admin,
+            ]
+
+    OrganizationResource:
+      type: object
+      additionalProperties: false
+      required: ["id", "name"]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+
+    CreateOrganizationRequest:
+      type: object
+      additionalProperties: false
+      required: ["name"]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+
+    OrganizationResponse:
+      type: object
+      additionalProperties: false
+      required: ["organization", "request_id"]
+      properties:
+        request_id:
+          type: string
+        organization:
+          $ref: "#/components/schemas/OrganizationResource"
+
+    OrganizationMembershipResource:
+      type: object
+      additionalProperties: false
+      required: ["id", "user_id", "role"]
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        role:
+          type: string
+          enum: [student, course_editor, organization_admin]
+
+    MembershipListResponse:
+      type: object
+      additionalProperties: false
+      required: ["items", "pagination", "request_id"]
+      properties:
+        request_id:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrganizationMembershipResource"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+
+    OrganizationListResponse:
+      type: object
+      additionalProperties: false
+      required: ["items", "pagination", "request_id"]
+      properties:
+        request_id:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrganizationResource"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+
+    CourseResource:
+      type: object
+      additionalProperties: false
+      required: ["id", "title", "created_at", "updated_at"]
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        subject:
+          type: string
+          nullable: true
+        exam_at:
+          type: string
+          nullable: true
+          description: UTC ISO datetime
+        created_at:
+          type: string
+          description: UTC ISO datetime
+        updated_at:
+          type: string
+          description: UTC ISO datetime
+        archived:
+          type: boolean
+
+    CourseResponse:
+      type: object
+      additionalProperties: false
+      required: ["course", "request_id"]
+      properties:
+        request_id:
+          type: string
+        course:
+          $ref: "#/components/schemas/CourseResource"
+
+    CourseListResponse:
+      type: object
+      additionalProperties: false
+      required: ["items", "pagination", "request_id"]
+      properties:
+        request_id:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/CourseResource"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+
+    CreateCourseRequest:
+      type: object
+      additionalProperties: false
+      required: ["title", "subject", "exam_at"]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        subject:
+          type: string
+          nullable: true
+        exam_at:
+          type: string
+          nullable: true
+          description: UTC ISO datetime
+
+    CompleteLessonRequest:
+      type: object
+      additionalProperties: false
+      required: ["completed"]
+      properties:
+        completed:
+          type: boolean
+          const: true
+
+    LessonProgressResponse:
+      type: object
+      additionalProperties: false
+      required: ["lesson_id", "completed", "completed_at"]
+      properties:
+        lesson_id:
+          type: string
+          format: uuid
+        completed:
+          type: boolean
+        completed_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+
+    CourseProgressResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - course_id
+        - total_lessons
+        - completed_lessons
+        - percentage
+      properties:
+        course_id:
+          type: string
+          format: uuid
+        total_lessons:
+          type: integer
+          minimum: 0
+        completed_lessons:
+          type: integer
+          minimum: 0
+        percentage:
+          type: integer
+          minimum: 0
+          maximum: 100
+
+    CourseContentResponse:
+      type: object
+      additionalProperties: false
+      required: ["request_id", "course", "modules"]
+      properties:
+        request_id:
+          type: string
+        course:
+          type: object
+          additionalProperties: false
+          required: ["id", "title", "subject"]
+          properties:
+            id:
+              type: string
+              format: uuid
+            title:
+              type: string
+            subject:
+              type: string
+              nullable: true
+        modules:
+          type: array
+          items:
+            $ref: "#/components/schemas/ContentModuleResource"
+
+    ContentModuleResource:
+      type: object
+      additionalProperties: false
+      required: ["id", "course_id", "title", "description", "sort_order", "lessons"]
+      properties:
+        id:
+          type: string
+          format: uuid
+        course_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: string
+          nullable: true
+        sort_order:
+          type: integer
+        lessons:
+          type: array
+          items:
+            $ref: "#/components/schemas/ContentLessonResource"
+
+    ContentLessonResource:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - module_id
+        - title
+        - content_type
+        - content_markdown
+        - sort_order
+        - estimated_minutes
+        - publication_status
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        module_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        content_type:
+          type: string
+          enum: ["markdown"]
+        content_markdown:
+          type: string
+        sort_order:
+          type: integer
+        estimated_minutes:
+          type: integer
+          nullable: true
+        publication_status:
+          type: string
+          enum: ["draft", "published"]
+        created_at:
+          type: string
+          description: UTC ISO datetime
+        updated_at:
+          type: string
+          description: UTC ISO datetime
+
+    CreateContentLessonRequest:
+      type: object
+      additionalProperties: false
+      required: ["title"]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 255
+        content_markdown:
+          type: string
+        estimated_minutes:
+          type: integer
+          nullable: true
+
+    UpdateContentLessonRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 255
+        content_markdown:
+          type: string
+        estimated_minutes:
+          type: integer
+          nullable: true
+
+    ContentLessonResponse:
+      type: object
+      additionalProperties: false
+      required: ["request_id", "lesson"]
+      properties:
+        request_id:
+          type: string
+        lesson:
+          $ref: "#/components/schemas/ContentLessonResource"
+
+
+    UpdateCourseRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        subject:
+          type: string
+          nullable: true
+        exam_at:
+          type: string
+          nullable: true
+          description: UTC ISO datetime

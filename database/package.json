@@ -1,0 +1,20 @@
+{
+  "name": "@avana/database",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    "./client": {
+      "import": "./client.ts",
+      "types": "./client.ts"
+    },
+    "./schema": {
+      "import": "./schema/index.js",
+      "types": "./schema/index.js"
+    }
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.45.2",
+    "pg": "^8.22.0"
+  }
+}
