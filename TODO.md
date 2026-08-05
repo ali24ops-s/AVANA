@@ -2,12 +2,12 @@
 
 ## Steps
 
-- [ ] 1. Verify no `.git` directory exists (stop immediately if present)
-- [ ] 2. Enhance `.gitignore` (append cache + local db rules, keep existing entries)
-- [ ] 3. Run `git init`
-- [ ] 4. Stage all files with `git add -A`
-- [ ] 5. Create initial commit `Initial AVANA repository`
-- [ ] 6. Print git status, current branch, latest commit hash, number of tracked files
+- [x] 1. Verify no `.git` directory exists (stop immediately if present)
+- [x] 2. Enhance `.gitignore` (append cache + local db rules, keep existing entries)
+- [x] 3. Run `git init`
+- [x] 4. Stage all files with `git add -A`
+- [x] 5. Create initial commit `Initial AVANA repository`
+- [x] 6. Print git status, current branch, latest commit hash, number of tracked files
 
 ## Constraints
 
