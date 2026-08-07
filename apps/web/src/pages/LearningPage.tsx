@@ -27,6 +27,8 @@ import {
   Trophy,
 } from "lucide-react";
 import { MarkdownRenderer } from "../components/markdown/MarkdownRenderer.js";
+import { ManageContentLink } from "../components/content/ManageContentLink.js";
+import { useAuth } from "../providers/AuthProvider.js";
 import { createApiClient, getApiBaseUrl } from "../lib/api/client.js";
 import { createLearningApi } from "../lib/api/learning.js";
 import type { CourseLearnResponse } from "@avana/contracts";
@@ -60,6 +62,7 @@ function useCourseLearning(courseId: string | undefined) {
 
 export function LearningPage() {
   const { courseId } = useParams<{ courseId: string }>();
+  const { memberships } = useAuth();
   const { data, isLoading, isError, error } = useCourseLearning(courseId);
   const queryClient = useQueryClient();
   const apiClient = createApiClient({ baseUrl: getApiBaseUrl() });
@@ -212,7 +215,15 @@ export function LearningPage() {
       </Link>
 
       {/* Course header with progress bar */}
-      <CourseHeader course={course} progress={progress} />
+      <CourseHeader
+        course={course}
+        progress={progress}
+        manageLink={
+          courseId ? (
+            <ManageContentLink courseId={courseId} memberships={memberships} />
+          ) : null
+        }
+      />
 
       {/* Two-column layout: sidebar + content */}
       <div className="flex flex-col lg:flex-row gap-6">
@@ -303,9 +314,11 @@ export function LearningPage() {
 function CourseHeader({
   course,
   progress,
+  manageLink,
 }: {
   course: CourseData;
   progress: CourseLearnResponse["progress"];
+  manageLink?: React.ReactNode;
 }) {
   const examDate = course.exam_at
     ? new Date(course.exam_at).toLocaleDateString("en-US", {
@@ -329,12 +342,15 @@ function CourseHeader({
             {course.subject ?? "No subject"}
           </p>
         </div>
-        {examDate && (
-          <div className="hidden sm:flex items-center gap-2 text-xs text-[var(--color-text-muted)] flex-shrink-0">
-            <FileText className="w-4 h-4" />
-            <span>Exam: {examDate}</span>
-          </div>
-        )}
+        <div className="flex items-center gap-3 flex-shrink-0">
+          {examDate && (
+            <div className="hidden sm:flex items-center gap-2 text-xs text-[var(--color-text-muted)] flex-shrink-0">
+              <FileText className="w-4 h-4" />
+              <span>Exam: {examDate}</span>
+            </div>
+          )}
+          {manageLink}
+        </div>
       </div>
 
       {/* Progress bar */}

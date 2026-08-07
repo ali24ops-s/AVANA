@@ -33,6 +33,24 @@ export class InMemoryModuleStore implements ModuleStore {
   insert(module: ModuleRecord): void {
     this.modules.set(module.id, { ...module });
   }
+
+  async create(module: ModuleRecord): Promise<ModuleRecord> {
+    this.modules.set(module.id, { ...module });
+    return { ...module };
+  }
+
+  async update(module: ModuleRecord): Promise<ModuleRecord> {
+    this.modules.set(module.id, { ...module });
+    return { ...module };
+  }
+
+  async delete(moduleId: ModuleId): Promise<void> {
+    const existing = this.modules.get(moduleId);
+    if (existing) {
+      existing.deletedAt = new Date().toISOString();
+      this.modules.set(moduleId, { ...existing });
+    }
+  }
 }
 
 export class InMemoryLessonStore implements LessonStore {

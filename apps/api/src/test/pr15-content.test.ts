@@ -225,7 +225,8 @@ describe("PR5-A: Content authoring API", () => {
           lessons: Array<{
             id: string;
             title: string;
-            publicationStatus: string;
+            content_markdown: string;
+            publication_status: string;
           }>;
         }>;
       };
@@ -233,8 +234,11 @@ describe("PR5-A: Content authoring API", () => {
       expect(body.course.title).toBe("Test Course");
       expect(body.modules).toHaveLength(1);
       expect(body.modules[0].lessons).toHaveLength(2);
-      expect(body.modules[0].lessons[0].publicationStatus).toBe("published");
-      expect(body.modules[0].lessons[1].publicationStatus).toBe("draft");
+      // Contract uses snake_case and content_markdown is always a string
+      expect(body.modules[0].lessons[0].content_markdown).toBe("# Published");
+      expect(body.modules[0].lessons[0].publication_status).toBe("published");
+      expect(body.modules[0].lessons[1].content_markdown).toBe("# Draft");
+      expect(body.modules[0].lessons[1].publication_status).toBe("draft");
       await app.close();
     });
 
@@ -319,10 +323,10 @@ describe("PR5-A: Content authoring API", () => {
       expect(res.statusCode).toBe(201);
       const body = JSON.parse(res.body) as {
         request_id: string;
-        lesson: { id: string; title: string; publicationStatus: string };
+        lesson: { id: string; title: string; publication_status: string };
       };
       expect(body.lesson.title).toBe("New Lesson");
-      expect(body.lesson.publicationStatus).toBe("draft");
+      expect(body.lesson.publication_status).toBe("draft");
       await app.close();
     });
 
@@ -390,10 +394,10 @@ describe("PR5-A: Content authoring API", () => {
       expect(res.statusCode).toBe(200);
       const body = JSON.parse(res.body) as {
         request_id: string;
-        lesson: { id: string; title: string; publicationStatus: string };
+        lesson: { id: string; title: string; publication_status: string };
       };
       expect(body.lesson.title).toBe("Updated Title");
-      expect(body.lesson.publicationStatus).toBe("draft"); // Still draft after update
+      expect(body.lesson.publication_status).toBe("draft"); // Still draft after update
       await app.close();
     });
 
@@ -411,9 +415,9 @@ describe("PR5-A: Content authoring API", () => {
       });
 
       const body = JSON.parse(res.body) as {
-        lesson: { publicationStatus: string };
+        lesson: { publication_status: string };
       };
-      expect(body.lesson.publicationStatus).toBe("draft");
+      expect(body.lesson.publication_status).toBe("draft");
       await app.close();
     });
   });
@@ -437,9 +441,9 @@ describe("PR5-A: Content authoring API", () => {
       expect(res.statusCode).toBe(200);
       const body = JSON.parse(res.body) as {
         request_id: string;
-        lesson: { id: string; title: string; publicationStatus: string };
+        lesson: { id: string; title: string; publication_status: string };
       };
-      expect(body.lesson.publicationStatus).toBe("published");
+      expect(body.lesson.publication_status).toBe("published");
       await app.close();
     });
 
@@ -491,9 +495,9 @@ describe("PR5-A: Content authoring API", () => {
 
       expect(res.statusCode).toBe(200);
       const body = JSON.parse(res.body) as {
-        lesson: { publicationStatus: string };
+        lesson: { publication_status: string };
       };
-      expect(body.lesson.publicationStatus).toBe("published");
+      expect(body.lesson.publication_status).toBe("published");
       await app.close();
     });
   });

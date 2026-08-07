@@ -123,6 +123,45 @@ export class DrizzleModuleStore implements ModuleStore {
     if (!row) return undefined;
     return toModuleRecord(row);
   }
+
+  async create(module: ModuleRecord): Promise<ModuleRecord> {
+    const [row] = await this.db
+      .insert(modules)
+      .values({
+        id: module.id,
+        courseId: module.courseId,
+        title: module.title,
+        description: module.description,
+        sortOrder: module.sortOrder,
+        createdAt: new Date(module.createdAt),
+        updatedAt: new Date(module.updatedAt),
+      })
+      .returning();
+
+    return toModuleRecord(row);
+  }
+
+  async update(module: ModuleRecord): Promise<ModuleRecord> {
+    const [row] = await this.db
+      .update(modules)
+      .set({
+        title: module.title,
+        description: module.description,
+        sortOrder: module.sortOrder,
+        updatedAt: new Date(module.updatedAt),
+      })
+      .where(eq(modules.id, module.id))
+      .returning();
+
+    return toModuleRecord(row);
+  }
+
+  async delete(moduleId: ModuleId): Promise<void> {
+    await this.db
+      .update(modules)
+      .set({ deletedAt: new Date() })
+      .where(eq(modules.id, moduleId));
+  }
 }
 
 // ---------------------------------------------------------------------------

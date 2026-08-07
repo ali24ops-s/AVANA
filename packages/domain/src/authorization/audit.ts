@@ -37,6 +37,9 @@ export type AuditAction =
   | "course.created"
   | "course.updated"
   | "course.archived"
+  | "module.created"
+  | "module.updated"
+  | "module.deleted"
   | "lesson.created"
   | "lesson.updated"
   | "lesson.published"
@@ -259,6 +262,64 @@ export function auditCourseArchived(
     action: "course.archived",
     entityType: "course",
     entityId: courseId,
+    createdAt: utcNow(),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Module audit helpers (PR5-D4)
+// ---------------------------------------------------------------------------
+
+export function auditModuleCreated(
+  actorId: UserId,
+  organizationId: OrganizationId,
+  courseId: CourseId,
+  moduleId: ModuleId,
+  title: string,
+  description: string | null,
+): AuditEvent {
+  return {
+    actorId,
+    organizationId,
+    action: "module.created",
+    entityType: "module",
+    entityId: moduleId,
+    details: { course_id: courseId, title, description },
+    createdAt: utcNow(),
+  };
+}
+
+export function auditModuleUpdated(
+  actorId: UserId,
+  organizationId: OrganizationId,
+  courseId: CourseId,
+  moduleId: ModuleId,
+  changes: Record<string, string | number | boolean | null | undefined>,
+): AuditEvent {
+  return {
+    actorId,
+    organizationId,
+    action: "module.updated",
+    entityType: "module",
+    entityId: moduleId,
+    details: { course_id: courseId, ...changes },
+    createdAt: utcNow(),
+  };
+}
+
+export function auditModuleDeleted(
+  actorId: UserId,
+  organizationId: OrganizationId,
+  courseId: CourseId,
+  moduleId: ModuleId,
+): AuditEvent {
+  return {
+    actorId,
+    organizationId,
+    action: "module.deleted",
+    entityType: "module",
+    entityId: moduleId,
+    details: { course_id: courseId },
     createdAt: utcNow(),
   };
 }

@@ -12,18 +12,48 @@ import type { IdentityAdapter } from "@avana/domain";
 import { DomainError } from "@avana/domain";
 import type { SessionService } from "./session-service.js";
 import type { UserStore } from "./user-store.js";
+import type { OrganizationStore } from "../organizations/organization-store.js";
 
 export interface AuthRouteOptions {
   identityAdapter: IdentityAdapter;
   sessionService: SessionService;
   userStore: UserStore;
+  /**
+   * Optional organization store used to resolve the user's organization
+   * membership roles for auth responses. When present, the response includes
+   * a `memberships` array of `{ organization_id, role }` entries derived from
+   * the user's memberships. The base user role is returned unchanged on
+   * `user.role`.
+   */
+  organizationStore?: OrganizationStore;
+}
+
+/**
+ * Resolve the current user's organization memberships into a compact
+ * `{ organization_id, role }` shape for the auth response.
+ */
+async function resolveMemberships(
+  organizationStore: OrganizationStore | undefined,
+  userId: string,
+): Promise<Array<{ organization_id: string; role: string }>> {
+  if (!organizationStore) {
+    return [];
+  }
+  const memberships = await organizationStore.listMembershipsByUserId(
+    userId as Parameters<OrganizationStore["listMembershipsByUserId"]>[0],
+  );
+  return memberships.map((m) => ({
+    organization_id: m.organizationId,
+    role: m.role,
+  }));
 }
 
 export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
   app,
   opts,
 ) => {
-  const { identityAdapter, sessionService, userStore } = opts;
+  const { identityAdapter, sessionService, userStore, organizationStore } =
+    opts;
 
   /**
    * GET /v1/me — Returns the current authenticated user.
@@ -46,6 +76,11 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
       throw new DomainError("unauthorized", "Not signed in");
     }
 
+    const memberships = await resolveMemberships(
+      organizationStore,
+      userRecord.id,
+    );
+
     return {
       request_id: request.id,
       user: {
@@ -53,6 +88,7 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
         email: userRecord.email,
         role: userRecord.role,
       },
+      memberships,
     };
   });
 
@@ -102,6 +138,11 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
       maxAge: config.maxAgeMs / 1000,
     });
 
+    const memberships = await resolveMemberships(
+      organizationStore,
+      userRecord.id,
+    );
+
     return {
       request_id: request.id,
       user: {
@@ -109,6 +150,7 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
         email: userRecord.email,
         role: userRecord.role,
       },
+      memberships,
     };
   });
 

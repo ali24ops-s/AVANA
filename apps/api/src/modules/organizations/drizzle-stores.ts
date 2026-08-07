@@ -197,6 +197,15 @@ export class DrizzleOrganizationStore implements OrganizationStore {
     return rows.map(toMembershipRecord);
   }
 
+  async listMembershipsByUserId(userId: UserId): Promise<MembershipRecord[]> {
+    const rows = await this.db
+      .select()
+      .from(organizationMemberships)
+      .where(eq(organizationMemberships.userId, userId));
+
+    return rows.map(toMembershipRecord);
+  }
+
   async findMembership(
     organizationId: OrganizationId,
     userId: UserId,

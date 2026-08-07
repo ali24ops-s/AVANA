@@ -45,6 +45,7 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       config: opts.config,
       sessionStore: opts.sessionStore,
       userStore: opts.userStore,
+      organizationStore: opts.organizationStore,
     });
   }
 

@@ -28,6 +28,11 @@ function main() {
     "/v1/readiness",
     "/v1/me",
     "ErrorEnvelope",
+    "/v1/courses/{courseId}/learn",
+    "CourseLearnResponse",
+    "ModuleResource",
+    "LessonResource",
+    "CourseLearnProgress",
   ];
   for (const token of mustContain) {
     if (!raw.includes(token)) {

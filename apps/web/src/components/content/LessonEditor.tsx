@@ -69,7 +69,9 @@ function parseEstimatedMinutes(value: string): number | null {
 function getInitialFormState(lesson: LessonData): FormState {
   return {
     title: lesson.title,
-    contentMarkdown: lesson.content_markdown,
+    // Normalize missing markdown to an empty string so the editor never
+    // holds a null/undefined value (which would crash on .trim()).
+    contentMarkdown: lesson.content_markdown ?? "",
     estimatedMinutes:
       lesson.estimated_minutes !== null ? String(lesson.estimated_minutes) : "",
   };
@@ -77,7 +79,7 @@ function getInitialFormState(lesson: LessonData): FormState {
 
 function isDirty(form: FormState, lesson: LessonData): boolean {
   if (form.title !== lesson.title) return true;
-  if (form.contentMarkdown !== lesson.content_markdown) return true;
+  if (form.contentMarkdown !== (lesson.content_markdown ?? "")) return true;
   const formMinutes = parseEstimatedMinutes(form.estimatedMinutes);
   if (Number.isNaN(formMinutes)) return true;
   if (formMinutes !== lesson.estimated_minutes) return true;

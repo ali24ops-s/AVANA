@@ -25,13 +25,19 @@ import {
   ChevronRight,
   Clock,
   Eye,
+  FolderPlus,
+  Pencil,
   Plus,
+  Save,
+  Trash2,
+  X,
 } from "lucide-react";
 import { createApiClient, getApiBaseUrl } from "../lib/api/client.js";
 import { createOrganizationApi } from "../lib/api/organizations.js";
 import { createContentApi } from "../lib/api/content.js";
 import { LessonEditor } from "../components/content/LessonEditor.js";
 import { NewLessonDialog } from "../components/content/NewLessonDialog.js";
+import { NewModuleDialog } from "../components/content/NewModuleDialog.js";
 import type {
   ContentModuleResource,
   ContentLessonResource,
@@ -117,6 +123,88 @@ export function CourseContentPage() {
   const [createLessonError, setCreateLessonError] = useState<string | null>(
     null,
   );
+
+  // Whether the "New Module" dialog is open
+  const [newModuleOpen, setNewModuleOpen] = useState(false);
+  // Server error message for the new module dialog
+  const [createModuleError, setCreateModuleError] = useState<string | null>(
+    null,
+  );
+  // The id of the module currently being edited inline (null = not editing)
+  const [editingModuleId, setEditingModuleId] = useState<string | null>(null);
+  // The id of the module pending deletion confirmation (null = none)
+  const [deletingModuleId, setDeletingModuleId] = useState<string | null>(null);
+
+  // Create module mutation
+  const createModuleMutation = useMutation({
+    mutationFn: ({
+      title,
+      description,
+    }: {
+      title: string;
+      description: string;
+    }) =>
+      contentApi.createModule(organization!.id, courseId!, {
+        title: title.trim(),
+        description: description.trim() === "" ? null : description.trim(),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["course-content", organization?.id, courseId],
+      });
+      setNewModuleOpen(false);
+      setCreateModuleError(null);
+    },
+    onError: (error: Error) => {
+      setCreateModuleError(error.message ?? "Failed to create module");
+    },
+  });
+
+  // Update module mutation (inline edit)
+  const updateModuleMutation = useMutation({
+    mutationFn: ({
+      moduleId,
+      title,
+      description,
+    }: {
+      moduleId: string;
+      title: string;
+      description: string;
+    }) =>
+      contentApi.updateModule(organization!.id, courseId!, moduleId, {
+        title: title.trim(),
+        description: description.trim() === "" ? null : description.trim(),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["course-content", organization?.id, courseId],
+      });
+      setEditingModuleId(null);
+    },
+    onError: (error: Error) => {
+      // Surface the error to the inline editor via the module state
+      setModuleEditError(error.message ?? "Failed to update module");
+    },
+  });
+
+  // Delete module mutation (soft-delete)
+  const deleteModuleMutation = useMutation({
+    mutationFn: (moduleId: string) =>
+      contentApi.deleteModule(organization!.id, courseId!, moduleId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["course-content", organization?.id, courseId],
+      });
+      setDeletingModuleId(null);
+    },
+    onError: (error: Error) => {
+      setCreateModuleError(error.message ?? "Failed to delete module");
+      setDeletingModuleId(null);
+    },
+  });
+
+  // Local error to show inline in the module editor
+  const [moduleEditError, setModuleEditError] = useState<string | null>(null);
 
   // Create lesson mutation
   const createLessonMutation = useMutation({
@@ -339,10 +427,23 @@ export function CourseContentPage() {
         <aside className="w-full lg:w-80 xl:w-96 flex-shrink-0">
           <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] overflow-hidden sticky top-24">
             <div className="p-4 border-b border-[var(--color-border)]">
-              <h2 className="font-semibold text-sm text-[var(--color-text)]">
-                Course Content
-              </h2>
-              <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="font-semibold text-sm text-[var(--color-text)]">
+                  Course Content
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCreateModuleError(null);
+                    setNewModuleOpen(true);
+                  }}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 transition-colors flex-shrink-0"
+                >
+                  <FolderPlus className="w-3.5 h-3.5" />
+                  New Module
+                </button>
+              </div>
+              <p className="text-xs text-[var(--color-text-muted)] mt-1">
                 {totalLessons} lesson{totalLessons !== 1 ? "s" : ""} across{" "}
                 {modules.length} module{modules.length !== 1 ? "s" : ""}
               </p>
@@ -392,6 +493,31 @@ export function CourseContentPage() {
                       setCreateLessonError(null);
                       setNewLessonModuleId(mod.id);
                     }}
+                    isEditing={editingModuleId === mod.id}
+                    editError={moduleEditError}
+                    isUpdating={updateModuleMutation.isPending}
+                    isDeleting={deletingModuleId === mod.id}
+                    isDeletePending={deleteModuleMutation.isPending}
+                    onStartEdit={() => {
+                      setModuleEditError(null);
+                      setEditingModuleId(mod.id);
+                    }}
+                    onCancelEdit={() => {
+                      setModuleEditError(null);
+                      setEditingModuleId(null);
+                    }}
+                    onSaveEdit={(moduleTitle, moduleDescription) =>
+                      updateModuleMutation.mutate({
+                        moduleId: mod.id,
+                        title: moduleTitle,
+                        description: moduleDescription,
+                      })
+                    }
+                    onDeleteModule={() => setDeletingModuleId(mod.id)}
+                    onCancelDelete={() => setDeletingModuleId(null)}
+                    onConfirmDelete={() =>
+                      deleteModuleMutation.mutate(deletingModuleId!)
+                    }
                   />
                 ))}
               </nav>
@@ -458,6 +584,28 @@ export function CourseContentPage() {
           }}
         />
       )}
+
+      {/* New Module dialog */}
+      {organization && (
+        <NewModuleDialog
+          open={newModuleOpen}
+          courseTitle={course.title}
+          isPending={createModuleMutation.isPending}
+          serverError={createModuleError}
+          onSubmit={(data) => {
+            createModuleMutation.mutate({
+              title: data.title,
+              description: data.description,
+            });
+          }}
+          onClose={() => {
+            if (!createModuleMutation.isPending) {
+              setNewModuleOpen(false);
+              setCreateModuleError(null);
+            }
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -473,6 +621,17 @@ function ModuleSection({
   onToggle,
   onSelectLesson,
   onCreateLesson,
+  isEditing,
+  editError,
+  isUpdating,
+  isDeleting,
+  isDeletePending,
+  onStartEdit,
+  onCancelEdit,
+  onSaveEdit,
+  onDeleteModule,
+  onCancelDelete,
+  onConfirmDelete,
 }: {
   module: ModuleData;
   isExpanded: boolean;
@@ -480,6 +639,17 @@ function ModuleSection({
   onToggle: () => void;
   onSelectLesson: (lessonId: string) => void;
   onCreateLesson: () => void;
+  isEditing: boolean;
+  editError: string | null;
+  isUpdating: boolean;
+  isDeleting: boolean;
+  isDeletePending: boolean;
+  onStartEdit: () => void;
+  onCancelEdit: () => void;
+  onSaveEdit: (title: string, description: string) => void;
+  onDeleteModule: () => void;
+  onCancelDelete: () => void;
+  onConfirmDelete: () => void;
 }) {
   return (
     <div className="rounded-xl overflow-hidden">
@@ -513,6 +683,74 @@ function ModuleSection({
         </span>
       </button>
 
+      {/* Module action buttons (edit / delete) */}
+      <div className="flex items-center gap-1 px-3 pb-1">
+        <button
+          type="button"
+          onClick={onStartEdit}
+          aria-label={`Edit module ${module.title}`}
+          className="p-1.5 rounded-lg text-[var(--color-text-muted)] hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 transition-colors"
+        >
+          <Pencil className="w-3.5 h-3.5" />
+        </button>
+        <button
+          type="button"
+          onClick={onDeleteModule}
+          aria-label={`Delete module ${module.title}`}
+          className="p-1.5 rounded-lg text-[var(--color-text-muted)] hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      {/* Inline edit form */}
+      {isEditing && (
+        <ModuleEditForm
+          module={module}
+          isUpdating={isUpdating}
+          serverError={editError}
+          onCancel={onCancelEdit}
+          onSave={onSaveEdit}
+        />
+      )}
+
+      {/* Delete confirmation */}
+      {isDeleting && (
+        <div className="mx-3 mb-2 p-3 rounded-lg border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/20">
+          <p className="text-sm text-red-700 dark:text-red-400 mb-2">
+            Delete module "{module.title}"? This is permanent.
+          </p>
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={onCancelDelete}
+              disabled={isDeletePending}
+              className="px-3 py-1.5 rounded-lg text-xs text-[var(--color-text)] hover:bg-[var(--color-border)] transition-colors disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={onConfirmDelete}
+              disabled={isDeletePending}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-red-500 hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed text-white transition-colors"
+            >
+              {isDeletePending ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Delete
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Lesson list (visible when expanded) */}
       {isExpanded && (
         <div className="ml-2 mt-1 space-y-0.5 pb-1">
@@ -535,6 +773,122 @@ function ModuleSection({
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Module inline edit form
+// ---------------------------------------------------------------------------
+
+function ModuleEditForm({
+  module,
+  isUpdating,
+  serverError,
+  onCancel,
+  onSave,
+}: {
+  module: ModuleData;
+  isUpdating: boolean;
+  serverError: string | null;
+  onCancel: () => void;
+  onSave: (title: string, description: string) => void;
+}) {
+  const [title, setTitle] = useState(module.title);
+  const [description, setDescription] = useState(module.description ?? "");
+  const [errors, setErrors] = useState<{ title?: string }>({});
+
+  const handleSave = () => {
+    if (title.trim().length === 0) {
+      setErrors({ title: "Module title is required" });
+      return;
+    }
+    setErrors({});
+    onSave(title, description);
+  };
+
+  return (
+    <div className="mx-3 mb-2 p-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-background)] space-y-2">
+      {serverError && (
+        <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400 text-xs">
+          <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+          <span>{serverError}</span>
+        </div>
+      )}
+      <div>
+        <label
+          htmlFor={`module-title-${module.id}`}
+          className="block text-xs font-medium text-[var(--color-text)] mb-1"
+        >
+          Title
+        </label>
+        <input
+          id={`module-title-${module.id}`}
+          type="text"
+          value={title}
+          onChange={(e) => {
+            setTitle(e.target.value);
+            if (errors.title)
+              setErrors((prev) => ({ ...prev, title: undefined }));
+          }}
+          disabled={isUpdating}
+          autoFocus
+          className={`w-full px-2.5 py-1.5 rounded-lg bg-[var(--color-surface)] border text-sm text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:opacity-60 ${
+            errors.title ? "border-red-400" : "border-[var(--color-border)]"
+          }`}
+        />
+        {errors.title && (
+          <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+            <AlertCircle className="w-3 h-3" />
+            {errors.title}
+          </p>
+        )}
+      </div>
+      <div>
+        <label
+          htmlFor={`module-description-${module.id}`}
+          className="block text-xs font-medium text-[var(--color-text)] mb-1"
+        >
+          Description
+        </label>
+        <textarea
+          id={`module-description-${module.id}`}
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          disabled={isUpdating}
+          rows={2}
+          className="w-full px-2.5 py-1.5 rounded-lg bg-[var(--color-surface)] border border-[var(--color-border)] text-sm text-[var(--color-text)] leading-relaxed resize-y focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:opacity-60"
+        />
+      </div>
+      <div className="flex items-center justify-end gap-2 pt-1">
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={isUpdating}
+          className="px-3 py-1.5 rounded-lg text-xs text-[var(--color-text)] hover:bg-[var(--color-border)] transition-colors disabled:opacity-50"
+        >
+          <X className="w-3.5 h-3.5 inline mr-1" />
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={isUpdating}
+          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-500 hover:bg-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed text-white transition-colors"
+        >
+          {isUpdating ? (
+            <>
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              Saving...
+            </>
+          ) : (
+            <>
+              <Save className="w-3.5 h-3.5" />
+              Save
+            </>
+          )}
+        </button>
+      </div>
     </div>
   );
 }

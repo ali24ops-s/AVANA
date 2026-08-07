@@ -11,13 +11,21 @@ import {
   type UserId,
   defaultPolicy,
   DomainError,
+  auditModuleCreated,
+  auditModuleUpdated,
+  auditModuleDeleted,
   auditLessonCreated,
   auditLessonUpdated,
   auditLessonPublished,
 } from "@avana/domain";
 import type { CourseStore } from "../courses/course-store.js";
 import type { OrganizationStore } from "../organizations/organization-store.js";
-import type { ModuleStore, LessonStore, LessonRecord } from "./learning-store.js";
+import type {
+  ModuleStore,
+  LessonStore,
+  LessonRecord,
+  ModuleRecord,
+} from "./learning-store.js";
 import type { AuditService } from "../../observability/audit-service.js";
 
 type ContentMetadata = { length: number; hash: string };
@@ -33,23 +41,23 @@ function metadataEquals(a: ContentMetadata, b: ContentMetadata): boolean {
 
 export type ContentLessonRecord = {
   id: string;
-  moduleId: string;
+  module_id: string;
   title: string;
-  contentType: string;
-  contentMarkdown: string;
-  sortOrder: number;
-  estimatedMinutes: number | null;
-  publicationStatus: "draft" | "published";
-  createdAt: string;
-  updatedAt: string;
+  content_type: "markdown";
+  content_markdown: string;
+  sort_order: number;
+  estimated_minutes: number | null;
+  publication_status: "draft" | "published";
+  created_at: string;
+  updated_at: string;
 };
 
 export type ContentModuleRecord = {
   id: string;
-  courseId: string;
+  course_id: string;
   title: string;
   description: string | null;
-  sortOrder: number;
+  sort_order: number;
   lessons: ContentLessonRecord[];
 };
 
@@ -64,6 +72,17 @@ export type ContentLessonResponse = {
   lesson: ContentLessonRecord;
 };
 
+export type ContentModuleResponse = {
+  request_id: string;
+  module: {
+    id: string;
+    course_id: string;
+    title: string;
+    description: string | null;
+    sort_order: number;
+  };
+};
+
 export class ContentService {
   constructor(
     private readonly courseStore: CourseStore,
@@ -74,15 +93,34 @@ export class ContentService {
     private readonly auditService?: AuditService,
   ) {}
 
-  private async authorize(actor: Actor, organizationId: OrganizationId, action: AuthAction, context: Partial<AuthContext> = {}): Promise<void> {
-    const membership = await this.organizationStore.findMembership(organizationId, actor.userId);
-    if (!membership) throw new DomainError("not_found", "Organization not found");
+  private async authorize(
+    actor: Actor,
+    organizationId: OrganizationId,
+    action: AuthAction,
+    context: Partial<AuthContext> = {},
+  ): Promise<void> {
+    const membership = await this.organizationStore.findMembership(
+      organizationId,
+      actor.userId,
+    );
+    if (!membership)
+      throw new DomainError("not_found", "Organization not found");
     const scopedActor = { ...actor, role: membership.role as Actor["role"] };
-    this.policy.require(action, scopedActor, { organizationId, ...context } as AuthContext);
+    this.policy.require(action, scopedActor, {
+      organizationId,
+      ...context,
+    } as AuthContext);
   }
 
-  private async resolveCourse(courseId: CourseId, organizationId: OrganizationId, actorUserId: UserId) {
-    const course = await this.courseStore.findByIdForUser(courseId, actorUserId);
+  private async resolveCourse(
+    courseId: CourseId,
+    organizationId: OrganizationId,
+    actorUserId: UserId,
+  ) {
+    const course = await this.courseStore.findByIdForUser(
+      courseId,
+      actorUserId,
+    );
     if (!course || course.deletedAt || course.organizationId !== organizationId)
       throw new DomainError("not_found", "Course not found");
     return course;
@@ -104,19 +142,35 @@ export class ContentService {
 
   private toContentLesson(lesson: LessonRecord): ContentLessonRecord {
     return {
-      id: lesson.id, moduleId: lesson.moduleId, title: lesson.title,
-      contentType: lesson.contentType, contentMarkdown: lesson.contentMarkdown,
-      sortOrder: lesson.sortOrder, estimatedMinutes: lesson.estimatedMinutes,
-      publicationStatus: lesson.publicationStatus,
-      createdAt: lesson.createdAt, updatedAt: lesson.updatedAt,
+      id: lesson.id,
+      module_id: lesson.moduleId,
+      title: lesson.title,
+      content_type: "markdown",
+      content_markdown: lesson.contentMarkdown,
+      sort_order: lesson.sortOrder,
+      estimated_minutes: lesson.estimatedMinutes,
+      publication_status: lesson.publicationStatus,
+      created_at: lesson.createdAt,
+      updated_at: lesson.updatedAt,
     };
   }
 
-  async getCourseContent(actor: Actor, organizationId: OrganizationId, courseId: CourseId, requestId: string): Promise<CourseContentResponse> {
+  async getCourseContent(
+    actor: Actor,
+    organizationId: OrganizationId,
+    courseId: CourseId,
+    requestId: string,
+  ): Promise<CourseContentResponse> {
     await this.authorize(actor, organizationId, "content:write", { courseId });
-    const course = await this.resolveCourse(courseId, organizationId, actor.userId);
+    const course = await this.resolveCourse(
+      courseId,
+      organizationId,
+      actor.userId,
+    );
     const modules = await this.moduleStore.listByCourse(courseId);
-    const activeModules = modules.filter((m) => m.deletedAt === null).sort((a, b) => a.sortOrder - b.sortOrder);
+    const activeModules = modules
+      .filter((m) => m.deletedAt === null)
+      .sort((a, b) => a.sortOrder - b.sortOrder);
     const moduleIds = activeModules.map((m) => m.id) as ModuleId[];
     const allLessons = await this.lessonStore.listByModules(moduleIds);
     const activeLessons = allLessons.filter((l) => l.deletedAt === null);
@@ -126,41 +180,245 @@ export class ContentService {
       existing.push(lesson);
       lessonsByModuleId.set(lesson.moduleId, existing);
     }
-    for (const [, lessons] of lessonsByModuleId) lessons.sort((a, b) => a.sortOrder - b.sortOrder);
+    for (const [, lessons] of lessonsByModuleId)
+      lessons.sort((a, b) => a.sortOrder - b.sortOrder);
     const moduleResources: ContentModuleRecord[] = activeModules.map((mod) => ({
-      id: mod.id, courseId: mod.courseId, title: mod.title,
-      description: mod.description, sortOrder: mod.sortOrder,
-      lessons: (lessonsByModuleId.get(mod.id) ?? []).map((l) => this.toContentLesson(l)),
+      id: mod.id,
+      course_id: mod.courseId,
+      title: mod.title,
+      description: mod.description,
+      sort_order: mod.sortOrder,
+      lessons: (lessonsByModuleId.get(mod.id) ?? []).map((l) =>
+        this.toContentLesson(l),
+      ),
     }));
-    return { request_id: requestId, course: { id: course.id, title: course.name, subject: course.subject }, modules: moduleResources };
+    return {
+      request_id: requestId,
+      course: { id: course.id, title: course.name, subject: course.subject },
+      modules: moduleResources,
+    };
   }
 
-  async createLesson(actor: Actor, organizationId: OrganizationId, courseId: CourseId, moduleId: ModuleId, title: string, contentMarkdown: string | undefined, estimatedMinutes: number | null | undefined): Promise<ContentLessonResponse> {
-    await this.authorize(actor, organizationId, "content:write", { courseId, moduleId });
+  async createModule(
+    actor: Actor,
+    organizationId: OrganizationId,
+    courseId: CourseId,
+    title: string,
+    description: string | null | undefined,
+  ): Promise<ContentModuleResponse> {
+    await this.authorize(actor, organizationId, "content:write", { courseId });
+    await this.resolveCourse(courseId, organizationId, actor.userId);
+    if (!title || title.trim().length === 0)
+      throw new DomainError("bad_request", "Module title is required");
+    if (title.trim().length > 255)
+      throw new DomainError(
+        "bad_request",
+        "Module title must not exceed 255 characters",
+      );
+    const existingModules = await this.moduleStore.listByCourse(courseId);
+    const activeExisting = existingModules.filter((m) => m.deletedAt === null);
+    const nextSortOrder =
+      activeExisting.length > 0
+        ? Math.max(...activeExisting.map((m) => m.sortOrder)) + 1
+        : 0;
+    const now = new Date().toISOString();
+    const moduleId = randomUUID() as ModuleId;
+    const moduleRecord: ModuleRecord = {
+      id: moduleId,
+      courseId,
+      title: title.trim(),
+      description: description ?? null,
+      sortOrder: nextSortOrder,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    };
+    await this.moduleStore.create(moduleRecord);
+    if (this.auditService) {
+      await this.auditService.emit([
+        auditModuleCreated(
+          actor.userId,
+          organizationId,
+          courseId,
+          moduleId,
+          title.trim(),
+          description ?? null,
+        ),
+      ]);
+    }
+    return {
+      request_id: "",
+      module: {
+        id: moduleRecord.id,
+        course_id: moduleRecord.courseId,
+        title: moduleRecord.title,
+        description: moduleRecord.description,
+        sort_order: moduleRecord.sortOrder,
+      },
+    };
+  }
+
+  async updateModule(
+    actor: Actor,
+    organizationId: OrganizationId,
+    courseId: CourseId,
+    moduleId: ModuleId,
+    updates: { title?: string; description?: string | null },
+  ): Promise<ContentModuleResponse> {
+    await this.authorize(actor, organizationId, "content:write", { courseId });
+    await this.resolveCourse(courseId, organizationId, actor.userId);
+    const mod = await this.resolveModule(moduleId, courseId);
+    const changes: Record<
+      string,
+      string | number | boolean | null | undefined
+    > = {};
+    if (updates.title !== undefined) {
+      const trimmed = updates.title.trim();
+      if (trimmed.length === 0)
+        throw new DomainError("bad_request", "Module title cannot be empty");
+      if (trimmed.length > 255)
+        throw new DomainError(
+          "bad_request",
+          "Module title must not exceed 255 characters",
+        );
+      mod.title = trimmed;
+      changes.title = trimmed;
+    }
+    if (updates.description !== undefined) {
+      mod.description = updates.description;
+      changes.description = updates.description;
+    }
+    if (Object.keys(changes).length === 0)
+      return {
+        request_id: "",
+        module: {
+          id: mod.id,
+          course_id: mod.courseId,
+          title: mod.title,
+          description: mod.description,
+          sort_order: mod.sortOrder,
+        },
+      };
+    mod.updatedAt = new Date().toISOString();
+    await this.moduleStore.update(mod);
+    if (this.auditService) {
+      await this.auditService.emit([
+        auditModuleUpdated(
+          actor.userId,
+          organizationId,
+          courseId,
+          moduleId,
+          changes,
+        ),
+      ]);
+    }
+    return {
+      request_id: "",
+      module: {
+        id: mod.id,
+        course_id: mod.courseId,
+        title: mod.title,
+        description: mod.description,
+        sort_order: mod.sortOrder,
+      },
+    };
+  }
+
+  async deleteModule(
+    actor: Actor,
+    organizationId: OrganizationId,
+    courseId: CourseId,
+    moduleId: ModuleId,
+  ): Promise<void> {
+    await this.authorize(actor, organizationId, "content:write", { courseId });
+    await this.resolveCourse(courseId, organizationId, actor.userId);
+    const mod = await this.resolveModule(moduleId, courseId);
+    mod.deletedAt = new Date().toISOString();
+    mod.updatedAt = mod.deletedAt;
+    await this.moduleStore.update(mod);
+    if (this.auditService) {
+      await this.auditService.emit([
+        auditModuleDeleted(actor.userId, organizationId, courseId, moduleId),
+      ]);
+    }
+  }
+
+  async createLesson(
+    actor: Actor,
+    organizationId: OrganizationId,
+    courseId: CourseId,
+    moduleId: ModuleId,
+    title: string,
+    contentMarkdown: string | undefined,
+    estimatedMinutes: number | null | undefined,
+  ): Promise<ContentLessonResponse> {
+    await this.authorize(actor, organizationId, "content:write", {
+      courseId,
+      moduleId,
+    });
     await this.resolveCourse(courseId, organizationId, actor.userId);
     await this.resolveModule(moduleId, courseId);
-    if (!title || title.trim().length === 0) throw new DomainError("bad_request", "Lesson title is required");
-    if (title.trim().length > 255) throw new DomainError("bad_request", "Lesson title must not exceed 255 characters");
+    if (!title || title.trim().length === 0)
+      throw new DomainError("bad_request", "Lesson title is required");
+    if (title.trim().length > 255)
+      throw new DomainError(
+        "bad_request",
+        "Lesson title must not exceed 255 characters",
+      );
     const existingLessons = await this.lessonStore.listByModule(moduleId);
     const activeExisting = existingLessons.filter((l) => l.deletedAt === null);
-    const nextSortOrder = activeExisting.length > 0 ? Math.max(...activeExisting.map((l) => l.sortOrder)) + 1 : 0;
+    const nextSortOrder =
+      activeExisting.length > 0
+        ? Math.max(...activeExisting.map((l) => l.sortOrder)) + 1
+        : 0;
     const now = new Date().toISOString();
     const lessonId = randomUUID() as LessonId;
     const lessonRecord: LessonRecord = {
-      id: lessonId, moduleId, title: title.trim(), contentType: "markdown",
-      contentMarkdown: contentMarkdown ?? "", sortOrder: nextSortOrder,
-      estimatedMinutes: estimatedMinutes ?? null, publicationStatus: "draft",
-      createdAt: now, updatedAt: now, deletedAt: null,
+      id: lessonId,
+      moduleId,
+      title: title.trim(),
+      contentType: "markdown",
+      contentMarkdown: contentMarkdown ?? "",
+      sortOrder: nextSortOrder,
+      estimatedMinutes: estimatedMinutes ?? null,
+      publicationStatus: "draft",
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
     };
     await this.lessonStore.create(lessonRecord);
     if (this.auditService) {
-      await this.auditService.emit([auditLessonCreated(actor.userId, organizationId, courseId, moduleId, lessonId, title.trim())]);
+      await this.auditService.emit([
+        auditLessonCreated(
+          actor.userId,
+          organizationId,
+          courseId,
+          moduleId,
+          lessonId,
+          title.trim(),
+        ),
+      ]);
     }
     return { request_id: "", lesson: this.toContentLesson(lessonRecord) };
   }
 
-  async updateLesson(actor: Actor, organizationId: OrganizationId, courseId: CourseId, moduleId: ModuleId, lessonId: LessonId, updates: { title?: string; contentMarkdown?: string; estimatedMinutes?: number | null; }): Promise<ContentLessonResponse> {
-    await this.authorize(actor, organizationId, "content:write", { courseId, moduleId, lessonId });
+  async updateLesson(
+    actor: Actor,
+    organizationId: OrganizationId,
+    courseId: CourseId,
+    moduleId: ModuleId,
+    lessonId: LessonId,
+    updates: {
+      title?: string;
+      contentMarkdown?: string;
+      estimatedMinutes?: number | null;
+    },
+  ): Promise<ContentLessonResponse> {
+    await this.authorize(actor, organizationId, "content:write", {
+      courseId,
+      moduleId,
+      lessonId,
+    });
     await this.resolveCourse(courseId, organizationId, actor.userId);
     await this.resolveModule(moduleId, courseId);
     const lesson = await this.resolveLesson(lessonId, moduleId);
@@ -168,8 +426,13 @@ export class ContentService {
     let contentMetadata: { length: number; hash: string } | undefined;
     if (updates.title !== undefined) {
       const trimmed = updates.title.trim();
-      if (trimmed.length === 0) throw new DomainError("bad_request", "Lesson title cannot be empty");
-      if (trimmed.length > 255) throw new DomainError("bad_request", "Lesson title must not exceed 255 characters");
+      if (trimmed.length === 0)
+        throw new DomainError("bad_request", "Lesson title cannot be empty");
+      if (trimmed.length > 255)
+        throw new DomainError(
+          "bad_request",
+          "Lesson title must not exceed 255 characters",
+        );
       lesson.title = trimmed;
       changedFields.push("title");
     }
@@ -184,28 +447,66 @@ export class ContentService {
       lesson.estimatedMinutes = updates.estimatedMinutes;
       changedFields.push("estimated_minutes");
     }
-    if (changedFields.length === 0) return { request_id: "", lesson: this.toContentLesson(lesson) };
+    if (changedFields.length === 0)
+      return { request_id: "", lesson: this.toContentLesson(lesson) };
     lesson.updatedAt = new Date().toISOString();
     await this.lessonStore.update(lesson);
     if (this.auditService) {
-      await this.auditService.emit([auditLessonUpdated(actor.userId, organizationId, courseId, moduleId, lessonId, changedFields, contentMetadata)]);
+      await this.auditService.emit([
+        auditLessonUpdated(
+          actor.userId,
+          organizationId,
+          courseId,
+          moduleId,
+          lessonId,
+          changedFields,
+          contentMetadata,
+        ),
+      ]);
     }
     return { request_id: "", lesson: this.toContentLesson(lesson) };
   }
 
-  async publishLesson(actor: Actor, organizationId: OrganizationId, courseId: CourseId, moduleId: ModuleId, lessonId: LessonId): Promise<ContentLessonResponse> {
-    await this.authorize(actor, organizationId, "content:publish", { courseId, moduleId, lessonId });
+  async publishLesson(
+    actor: Actor,
+    organizationId: OrganizationId,
+    courseId: CourseId,
+    moduleId: ModuleId,
+    lessonId: LessonId,
+  ): Promise<ContentLessonResponse> {
+    await this.authorize(actor, organizationId, "content:publish", {
+      courseId,
+      moduleId,
+      lessonId,
+    });
     await this.resolveCourse(courseId, organizationId, actor.userId);
     await this.resolveModule(moduleId, courseId);
     const lesson = await this.resolveLesson(lessonId, moduleId);
-    if (!lesson.title || lesson.title.trim().length === 0) throw new DomainError("bad_request", "Cannot publish a lesson without a title");
-    if (!lesson.contentMarkdown || lesson.contentMarkdown.trim().length === 0) throw new DomainError("bad_request", "Cannot publish a lesson without content");
-    if (lesson.publicationStatus === "published") return { request_id: "", lesson: this.toContentLesson(lesson) };
+    if (!lesson.title || lesson.title.trim().length === 0)
+      throw new DomainError(
+        "bad_request",
+        "Cannot publish a lesson without a title",
+      );
+    if (!lesson.contentMarkdown || lesson.contentMarkdown.trim().length === 0)
+      throw new DomainError(
+        "bad_request",
+        "Cannot publish a lesson without content",
+      );
+    if (lesson.publicationStatus === "published")
+      return { request_id: "", lesson: this.toContentLesson(lesson) };
     lesson.publicationStatus = "published";
     lesson.updatedAt = new Date().toISOString();
     await this.lessonStore.update(lesson);
     if (this.auditService) {
-      await this.auditService.emit([auditLessonPublished(actor.userId, organizationId, courseId, moduleId, lessonId)]);
+      await this.auditService.emit([
+        auditLessonPublished(
+          actor.userId,
+          organizationId,
+          courseId,
+          moduleId,
+          lessonId,
+        ),
+      ]);
     }
     return { request_id: "", lesson: this.toContentLesson(lesson) };
   }

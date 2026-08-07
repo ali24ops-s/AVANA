@@ -58,6 +58,9 @@ export interface OrganizationStore {
   /** List memberships for an organization. */
   listMemberships(organizationId: OrganizationId): Promise<MembershipRecord[]>;
 
+  /** List all memberships for a user (across organizations). */
+  listMembershipsByUserId(userId: UserId): Promise<MembershipRecord[]>;
+
   /** Find a membership by user and organization. */
   findMembership(
     organizationId: OrganizationId,

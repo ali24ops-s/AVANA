@@ -13,19 +13,21 @@ import type { SessionStore } from "./session-store.js";
 import type { UserStore } from "./user-store.js";
 import { authRoutes } from "./auth-routes.js";
 import type { AuthRouteOptions } from "./auth-routes.js";
+import type { OrganizationStore } from "../organizations/organization-store.js";
 import type { ApiConfig } from "../../config.js";
 
 export interface IdentityPluginOptions {
   config: ApiConfig;
   sessionStore: SessionStore;
   userStore: UserStore;
+  organizationStore?: OrganizationStore;
 }
 
 export async function registerIdentityModule(
   app: FastifyInstance,
   options: IdentityPluginOptions,
 ): Promise<void> {
-  const { config, sessionStore, userStore } = options;
+  const { config, sessionStore, userStore, organizationStore } = options;
 
   // Register cookie parsing plugin
   await app.register(fastifyCookie);
@@ -43,6 +45,7 @@ export async function registerIdentityModule(
     identityAdapter,
     sessionService,
     userStore,
+    organizationStore,
   };
   await app.register(authRoutes, authOpts);
 }

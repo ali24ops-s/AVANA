@@ -59,6 +59,15 @@ export interface ModuleStore {
 
   /** Find a module by ID. */
   findById(moduleId: ModuleId): Promise<ModuleRecord | undefined>;
+
+  /** Insert a new module record. */
+  create(module: ModuleRecord): Promise<ModuleRecord>;
+
+  /** Update an existing module record completely. */
+  update(module: ModuleRecord): Promise<ModuleRecord>;
+
+  /** Soft-delete (archive) a module. */
+  delete(moduleId: ModuleId): Promise<void>;
 }
 
 export interface LessonStore {

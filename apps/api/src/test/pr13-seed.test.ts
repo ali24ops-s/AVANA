@@ -89,11 +89,16 @@ describe("PR-13: Development seed data", () => {
         payload: { email: "alice@example.com", name: "Alice" },
       });
       expect(signInRes.statusCode).toBe(200);
-      const signInBody = JSON.parse(signInRes.body) as {
+            const signInBody = JSON.parse(signInRes.body) as {
         user: { id: string; email: string; role: string };
+        memberships: Array<{ organization_id: string; role: string }>;
       };
       expect(signInBody.user.email).toBe("alice@example.com");
+      // The base user.role stays "student"; the organization_admin role is
+      // exposed via the memberships array (PR5-D2 role resolution).
       expect(signInBody.user.role).toBe("student");
+      expect(signInBody.memberships).toHaveLength(1);
+      expect(signInBody.memberships[0]!.role).toBe("organization_admin");
 
       await app.close();
     });

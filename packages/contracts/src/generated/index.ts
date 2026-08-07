@@ -52,9 +52,19 @@ export type UserResource = {
   role: Role;
 };
 
+/**
+ * A single organization membership with its role, exposed in authenticated
+ * auth responses so the frontend can resolve per-organization permissions.
+ */
+export type UserMembership = {
+  organization_id: UUID;
+  role: Role;
+};
+
 export type MeResponse = {
   request_id: string;
   user: UserResource;
+  memberships: UserMembership[];
 };
 
 export type OrganizationResource = {
@@ -133,6 +143,7 @@ export type SignInRequest = {
 export type SignInResponse = {
   request_id: string;
   user: UserResource;
+  memberships: UserMembership[];
 };
 
 // ---------------------------------------------------------------------------
@@ -251,4 +262,31 @@ export type UpdateContentLessonRequest = {
 export type ContentLessonResponse = {
   request_id: string;
   lesson: ContentLessonResource;
+};
+
+// ---------------------------------------------------------------------------
+// PR5-D4 Module CRUD contract types
+// ---------------------------------------------------------------------------
+
+export type ContentModuleSummary = {
+  id: UUID;
+  course_id: UUID;
+  title: string;
+  description: string | null;
+  sort_order: number;
+};
+
+export type CreateContentModuleRequest = {
+  title: string;
+  description?: string | null;
+};
+
+export type UpdateContentModuleRequest = {
+  title?: string;
+  description?: string | null;
+};
+
+export type ContentModuleResponse = {
+  request_id: string;
+  module: ContentModuleSummary;
 };

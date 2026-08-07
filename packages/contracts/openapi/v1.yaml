@@ -376,6 +376,38 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /v1/courses/{courseId}/learn:
+    parameters:
+      - $ref: "#/components/parameters/CourseId"
+    get:
+      operationId: getCourseLearning
+      summary: Get the full course learning structure with modules, lessons, and the current student's completion status
+      responses:
+        "200":
+          description: Course learning structure
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CourseLearnResponse"
+        "400":
+          description: Invalid course ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Course not found or not visible to the actor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /v1/courses/{courseId}/progress:
     parameters:
       - $ref: "#/components/parameters/CourseId"
@@ -474,16 +506,132 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /v1/organizations/{organizationId}/courses/{courseId}/modules:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+      - $ref: "#/components/parameters/CourseId"
+    post:
+      operationId: createContentModule
+      summary: Create a new module inside a course
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateContentModuleRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContentModuleResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Role does not permit content writes
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Course not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /v1/organizations/{organizationId}/courses/{courseId}/modules/{moduleId}:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+      - $ref: "#/components/parameters/CourseId"
+      - $ref: "#/components/parameters/ModuleId"
+    patch:
+      operationId: updateContentModule
+      summary: Update a module (title/description)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateContentModuleRequest"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContentModuleResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Role does not permit content writes
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Module not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: deleteContentModule
+      summary: Soft-delete (archive) a module
+      responses:
+        "204":
+          description: Archived (no content)
+        "400":
+          description: Invalid ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Role does not permit content writes
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Module not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /v1/organizations/{organizationId}/courses/{courseId}/modules/{moduleId}/lessons:
     parameters:
       - $ref: "#/components/parameters/OrganizationId"
       - $ref: "#/components/parameters/CourseId"
-      - name: moduleId
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
+      - $ref: "#/components/parameters/ModuleId"
     post:
       operationId: createContentLesson
       summary: Create a new draft lesson inside a module
@@ -529,12 +677,7 @@ paths:
     parameters:
       - $ref: "#/components/parameters/OrganizationId"
       - $ref: "#/components/parameters/CourseId"
-      - name: moduleId
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
+      - $ref: "#/components/parameters/ModuleId"
       - $ref: "#/components/parameters/LessonId"
     patch:
       operationId: updateContentLesson
@@ -581,12 +724,7 @@ paths:
     parameters:
       - $ref: "#/components/parameters/OrganizationId"
       - $ref: "#/components/parameters/CourseId"
-      - name: moduleId
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
+      - $ref: "#/components/parameters/ModuleId"
       - $ref: "#/components/parameters/LessonId"
     post:
       operationId: publishLesson
@@ -644,6 +782,14 @@ components:
 
     LessonId:
       name: lessonId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+    ModuleId:
+      name: moduleId
       in: path
       required: true
       schema:
@@ -723,22 +869,30 @@ components:
     SignInResponse:
       type: object
       additionalProperties: false
-      required: ["request_id", "user"]
+      required: ["request_id", "user", "memberships"]
       properties:
         request_id:
           type: string
         user:
           $ref: "#/components/schemas/UserResource"
+        memberships:
+          type: array
+          items:
+            $ref: "#/components/schemas/UserMembership"
 
     MeResponse:
       type: object
       additionalProperties: false
-      required: ["user", "request_id"]
+      required: ["user", "memberships", "request_id"]
       properties:
         request_id:
           type: string
         user:
           $ref: "#/components/schemas/UserResource"
+        memberships:
+          type: array
+          items:
+            $ref: "#/components/schemas/UserMembership"
 
     UserResource:
       type: object
@@ -751,6 +905,26 @@ components:
         email:
           type: string
           format: email
+        role:
+          type: string
+          enum:
+            [
+              student,
+              teacher,
+              course_editor,
+              organization_admin,
+              support_agent,
+              platform_admin,
+            ]
+
+    UserMembership:
+      type: object
+      additionalProperties: false
+      required: ["organization_id", "role"]
+      properties:
+        organization_id:
+          type: string
+          format: uuid
         role:
           type: string
           enum:
@@ -952,6 +1126,116 @@ components:
           minimum: 0
           maximum: 100
 
+    CourseLearnResponse:
+      type: object
+      additionalProperties: false
+      required: ["request_id", "course", "modules", "progress"]
+      properties:
+        request_id:
+          type: string
+        course:
+          type: object
+          additionalProperties: false
+          required: ["id", "title", "subject", "exam_at"]
+          properties:
+            id:
+              type: string
+              format: uuid
+            title:
+              type: string
+            subject:
+              type: string
+              nullable: true
+            exam_at:
+              type: string
+              nullable: true
+              description: UTC ISO datetime
+        modules:
+          type: array
+          items:
+            $ref: "#/components/schemas/ModuleResource"
+        progress:
+          $ref: "#/components/schemas/CourseLearnProgress"
+
+    ModuleResource:
+      type: object
+      additionalProperties: false
+      required: ["id", "title", "description", "sort_order", "lessons"]
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: string
+          nullable: true
+        sort_order:
+          type: integer
+        lessons:
+          type: array
+          items:
+            $ref: "#/components/schemas/LessonResource"
+
+    LessonResource:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - module_id
+        - title
+        - content_type
+        - content_markdown
+        - sort_order
+        - estimated_minutes
+        - completed
+        - completed_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        module_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        content_type:
+          type: string
+          enum: ["markdown"]
+        content_markdown:
+          type: string
+        sort_order:
+          type: integer
+        estimated_minutes:
+          type: integer
+          nullable: true
+        completed:
+          type: boolean
+        completed_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+
+    CourseLearnProgress:
+      type: object
+      additionalProperties: false
+      required:
+        - total_lessons
+        - completed_lessons
+        - progress_percent
+      properties:
+        total_lessons:
+          type: integer
+          minimum: 0
+        completed_lessons:
+          type: integer
+          minimum: 0
+        progress_percent:
+          type: integer
+          minimum: 0
+          maximum: 100
+
     CourseContentResponse:
       type: object
       additionalProperties: false
@@ -980,7 +1264,8 @@ components:
     ContentModuleResource:
       type: object
       additionalProperties: false
-      required: ["id", "course_id", "title", "description", "sort_order", "lessons"]
+      required:
+        ["id", "course_id", "title", "description", "sort_order", "lessons"]
       properties:
         id:
           type: string
@@ -999,6 +1284,60 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ContentLessonResource"
+
+    ContentModuleSummary:
+      type: object
+      additionalProperties: false
+      required: ["id", "course_id", "title", "description", "sort_order"]
+      properties:
+        id:
+          type: string
+          format: uuid
+        course_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: string
+          nullable: true
+        sort_order:
+          type: integer
+
+    CreateContentModuleRequest:
+      type: object
+      additionalProperties: false
+      required: ["title"]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 255
+        description:
+          type: string
+          nullable: true
+
+    UpdateContentModuleRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 255
+        description:
+          type: string
+          nullable: true
+
+    ContentModuleResponse:
+      type: object
+      additionalProperties: false
+      required: ["request_id", "module"]
+      properties:
+        request_id:
+          type: string
+        module:
+          $ref: "#/components/schemas/ContentModuleSummary"
 
     ContentLessonResource:
       type: object
@@ -1081,7 +1420,6 @@ components:
           type: string
         lesson:
           $ref: "#/components/schemas/ContentLessonResource"
-
 
     UpdateCourseRequest:
       type: object

@@ -3,7 +3,7 @@
  *
  * Centralises auth state for the application:
  *  - Fetches /v1/me on mount to determine auth state
- *  - Exposes user, loading, error, signIn, signOut
+ *  - Exposes user, memberships, loading, error, signIn, signOut
  *  - Handles loading, success, error, and unauthorized states
  */
 
@@ -19,11 +19,13 @@ import {
 import { createApiClient, getApiBaseUrl } from "../lib/api/client.js";
 import { createAuthApi } from "../lib/api/auth.js";
 import { ApiError } from "../lib/api/errors.js";
-import type { UserResource } from "@avana/contracts";
+import type { UserMembership, UserResource } from "@avana/contracts";
 
 export type AuthState = {
   /** Current authenticated user, or null if not authenticated. */
   user: UserResource | null;
+  /** Organization memberships (with roles) for the authenticated user. */
+  memberships: UserMembership[];
   /** True while initial auth check is in progress. */
   isLoading: boolean;
   /** Error that occurred during sign-in or initial auth check. */
@@ -42,6 +44,7 @@ const AuthContext = createContext<AuthState | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserResource | null>(null);
+  const [memberships, setMemberships] = useState<UserMembership[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -61,15 +64,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const response = await authApi.getMe();
       setUser(response.user);
+      setMemberships(response.memberships ?? []);
       setError(null);
     } catch (err) {
       if (err instanceof ApiError && err.code === "unauthorized") {
         // Not signed in — this is expected, not an error
         setUser(null);
+        setMemberships([]);
         setError(null);
       } else {
         // Real error
         setUser(null);
+        setMemberships([]);
         setError(err instanceof ApiError ? err.message : "Failed to load user");
       }
     } finally {
@@ -89,6 +95,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const response = await authApi.signIn(email);
         setUser(response.user);
+        setMemberships(response.memberships ?? []);
       } catch (err) {
         const message =
           err instanceof ApiError ? err.message : "Sign in failed";
@@ -108,11 +115,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Even if the API call fails, clear local state
     }
     setUser(null);
+    setMemberships([]);
     setError(null);
   }, [authApi]);
 
   const value: AuthState = {
     user,
+    memberships,
     isLoading,
     error,
     isAuthenticated: user !== null,

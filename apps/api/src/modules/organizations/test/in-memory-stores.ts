@@ -66,6 +66,12 @@ export class InMemoryOrganizationStore implements OrganizationStore {
     );
   }
 
+  async listMembershipsByUserId(userId: UserId): Promise<MembershipRecord[]> {
+    return Array.from(this.memberships.values()).filter(
+      (m) => m.userId === userId,
+    );
+  }
+
   async findMembership(
     organizationId: OrganizationId,
     userId: UserId,

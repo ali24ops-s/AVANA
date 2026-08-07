@@ -7,8 +7,11 @@
 import type {
   CourseContentResponse,
   ContentLessonResponse,
+  ContentModuleResponse,
   CreateContentLessonRequest,
+  CreateContentModuleRequest,
   UpdateContentLessonRequest,
+  UpdateContentModuleRequest,
 } from "@avana/contracts";
 import type { ApiClient } from "./client.js";
 
@@ -24,6 +27,51 @@ export function createContentApi(client: ApiClient) {
     ): Promise<CourseContentResponse> {
       return client.get<CourseContentResponse>(
         `/v1/organizations/${organizationId}/courses/${courseId}/content`,
+      );
+    },
+
+    /**
+     * POST /v1/organizations/:organizationId/courses/:courseId/modules
+     * — Create a new module in the specified course.
+     */
+    createModule(
+      organizationId: string,
+      courseId: string,
+      data: CreateContentModuleRequest,
+    ): Promise<ContentModuleResponse> {
+      return client.post<ContentModuleResponse>(
+        `/v1/organizations/${organizationId}/courses/${courseId}/modules`,
+        data,
+      );
+    },
+
+    /**
+     * PATCH /v1/organizations/:organizationId/courses/:courseId/modules/:moduleId
+     * — Update a module title and/or description.
+     */
+    updateModule(
+      organizationId: string,
+      courseId: string,
+      moduleId: string,
+      data: UpdateContentModuleRequest,
+    ): Promise<ContentModuleResponse> {
+      return client.patch<ContentModuleResponse>(
+        `/v1/organizations/${organizationId}/courses/${courseId}/modules/${moduleId}`,
+        data,
+      );
+    },
+
+    /**
+     * DELETE /v1/organizations/:organizationId/courses/:courseId/modules/:moduleId
+     * — Soft-delete (archive) a module.
+     */
+    deleteModule(
+      organizationId: string,
+      courseId: string,
+      moduleId: string,
+    ): Promise<void> {
+      return client.delete<void>(
+        `/v1/organizations/${organizationId}/courses/${courseId}/modules/${moduleId}`,
       );
     },
 
