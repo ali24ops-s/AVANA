@@ -220,14 +220,39 @@ export class GenerationService {
     } else {
       const firstBrace = jsonStr.indexOf("{");
       const lastBrace = jsonStr.lastIndexOf("}");
-      if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+      const firstBracket = jsonStr.indexOf("[");
+      const lastBracket = jsonStr.lastIndexOf("]");
+
+      if (
+        firstBracket !== -1 &&
+        lastBracket !== -1 &&
+        lastBracket > firstBracket &&
+        (firstBrace === -1 || firstBracket < firstBrace)
+      ) {
+        jsonStr = jsonStr.slice(firstBracket, lastBracket + 1).trim();
+      } else if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
         jsonStr = jsonStr.slice(firstBrace, lastBrace + 1).trim();
       }
     }
 
+    const normalizeResult = (val: unknown): unknown => {
+      if (Array.isArray(val)) {
+        if (typeDesc.includes("flashcard")) {
+          return { kind: "flashcards_batch", cards: val };
+        }
+        if (typeDesc.includes("quiz")) {
+          return { kind: "quizzes_batch", questions: val };
+        }
+        if (typeDesc.includes("session")) {
+          return { kind: "sessions_batch", sessions: val };
+        }
+      }
+      return val;
+    };
+
     // Attempt 1: Standard JSON parse
     try {
-      const parsed = JSON.parse(jsonStr);
+      const parsed = normalizeResult(JSON.parse(jsonStr));
       if (typeof parsed === "object" && parsed !== null) {
         return parsed as T;
       }
@@ -238,7 +263,7 @@ export class GenerationService {
     // Attempt 2: Remove trailing commas
     try {
       const noTrailingCommas = jsonStr.replace(/,\s*([}\]])/g, "$1");
-      const parsed = JSON.parse(noTrailingCommas);
+      const parsed = normalizeResult(JSON.parse(noTrailingCommas));
       if (typeof parsed === "object" && parsed !== null) {
         return parsed as T;
       }
@@ -257,7 +282,7 @@ export class GenerationService {
             .replace(/\r/g, "\\n")
             .replace(/\t/g, "\\t");
         });
-      const parsed = JSON.parse(escapedStrings);
+      const parsed = normalizeResult(JSON.parse(escapedStrings));
       if (typeof parsed === "object" && parsed !== null) {
         return parsed as T;
       }
@@ -360,15 +385,15 @@ export class GenerationService {
     if (typeDesc.includes("flashcard")) {
       const cardMatches = [
         ...jsonStr.matchAll(
-          /{\s*(?:"sessionIndex"\s*:\s*(\d+)\s*,\s*)?"question"\s*:\s*"([^"]+)"\s*,\s*"answer"\s*:\s*"([^"]+)"(?:\s*,\s*"explanation"\s*:\s*"([^"]*)")?(?:\s*,\s*"cardType"\s*:\s*"([^"]*)")?(?:\s*,\s*"difficulty"\s*:\s*"([^"]*)")?\s*}/g,
+          /{\s*(?:"sessionIndex"\s*:\s*(\d+)\s*,\s*)?"question"\s*:\s*"([\s\S]*?)"\s*,\s*"answer"\s*:\s*"([\s\S]*?)"(?:\s*,\s*"explanation"\s*:\s*"([\s\S]*?)")?(?:\s*,\s*"cardType"\s*:\s*"([\s\S]*?)")?(?:\s*,\s*"difficulty"\s*:\s*"([\s\S]*?)")?\s*}/g,
         ),
       ];
       if (cardMatches.length > 0) {
         const cards = cardMatches.map((m) => ({
           sessionIndex: m[1] ? parseInt(m[1], 10) : undefined,
-          question: m[2],
-          answer: m[3],
-          explanation: m[4] || undefined,
+          question: m[2].replace(/\\"/g, '"').replace(/\\n/g, "\n"),
+          answer: m[3].replace(/\\"/g, '"').replace(/\\n/g, "\n"),
+          explanation: m[4] ? m[4].replace(/\\"/g, '"').replace(/\\n/g, "\n") : undefined,
           cardType: (m[5] as unknown as "key_fact") || "key_fact",
           difficulty: (m[6] as unknown as "medium") || "medium",
         }));

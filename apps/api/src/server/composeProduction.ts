@@ -228,6 +228,9 @@ export async function composeProduction(
     provider: config.generation.aiProvider,
     geminiApiKey: config.generation.geminiApiKey,
     geminiModel: config.generation.geminiModel,
+    cloudflareAccountId: config.generation.cloudflareAccountId,
+    cloudflareApiToken: config.generation.cloudflareApiToken,
+    cloudflareAiModel: config.generation.cloudflareAiModel,
   });
 
   // BullMQ generation queue (Redis-backed producer).

@@ -80,11 +80,14 @@ export async function composeLocalDev(
   const quizQuestionStore = new InMemoryQuizQuestionStore();
   const quizAttemptStore = new InMemoryQuizAttemptStore(quizStore);
 
-  // Model gateway (mock provider in dev).
+  // Model gateway (mock provider in dev, or real gemini/cloudflare if configured).
   const gateway = createModelGateway({
     provider: config.generation.aiProvider,
     geminiApiKey: config.generation.geminiApiKey,
     geminiModel: config.generation.geminiModel,
+    cloudflareAccountId: config.generation.cloudflareAccountId,
+    cloudflareApiToken: config.generation.cloudflareApiToken,
+    cloudflareAiModel: config.generation.cloudflareAiModel,
   });
 
   const auditStore = new InMemoryAuditStore();

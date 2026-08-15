@@ -69,6 +69,9 @@ export type ApiConfig = {
     queueName: string;
     geminiApiKey?: string;
     geminiModel: string;
+    cloudflareAccountId?: string;
+    cloudflareApiToken?: string;
+    cloudflareAiModel: string;
   };
 };
 
@@ -213,6 +216,13 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
       queueName: getOptionalString(env, "AI_GENERATION_QUEUE", "content_generate"),
       geminiApiKey: env.GEMINI_API_KEY,
       geminiModel: getOptionalString(env, "GEMINI_MODEL", "gemini-3.6-flash"),
+      cloudflareAccountId: env.CLOUDFLARE_ACCOUNT_ID,
+      cloudflareApiToken: env.CLOUDFLARE_API_TOKEN,
+      cloudflareAiModel: getOptionalString(
+        env,
+        "CLOUDFLARE_AI_MODEL",
+        "@cf/zai-org/glm-4.7-flash",
+      ),
     },
   };
 }

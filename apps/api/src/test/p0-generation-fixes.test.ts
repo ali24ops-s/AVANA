@@ -103,18 +103,21 @@ describe("AVANA Generation Pipeline P0 Fixes", () => {
           const reqType = (req.jsonSchema as { type?: string })?.type ?? "unknown";
           recordedPrompts.push({ type: reqType, prompt: userMsg });
 
-          if (reqType === "outline") {
+          if (reqType === "outline" || reqType === "content_plan") {
             return {
               text: JSON.stringify({
-                kind: "outline",
+                kind: "content_plan",
                 moduleTitle: "فصل اول: فارماکولوژی داروهای قلبی",
-                outline: [
+                sessions: [
                   {
+                    index: 0,
                     title: "جلسه ۱: داروهای مسدودکننده بتا",
                     description: "بررسی مکانیسم سلولی مهار گیرنده بتا و موارد مصرف در نارسایی قلبی",
                     relevantChunkIds: ["chunk-1", "chunk-2"],
+                    coreConcepts: [{ id: "c-1", name: "مکانیسم اثر", category: "mechanism", description: "مهار بتا", sourceChunkIds: ["chunk-1"] }],
                   },
                 ],
+                highYieldFacts: [],
                 citationChunkIds: ["chunk-1", "chunk-2"],
               }),
               model: "test-model",
@@ -123,13 +126,19 @@ describe("AVANA Generation Pipeline P0 Fixes", () => {
             };
           }
 
-          if (reqType === "session") {
+          if (reqType === "session" || reqType === "sessions_batch") {
             return {
               text: JSON.stringify({
-                kind: "session",
-                title: "جلسه ۱: داروهای مسدودکننده بتا",
-                contentMarkdown:
-                  "# جلسه ۱: داروهای مسدودکننده بتا\n\n## مکانیسم اثر\nداروهای بتا بلاکر با مهار رقابتی اثر کاتکول‌آمین‌ها بر گیرنده‌های بتا-۱ سبب کاهش ضربان و کاهش برون‌ده قلبی می‌شوند.\n\n## نکات پرتکرار آزمون\nدر بیماران آسم و برونکواسپاسم، بتا بلاکرهای غیراختصاصی مانند پروپرانولول کنتراندیکه مطلق هستند.",
+                kind: "sessions_batch",
+                sessions: [
+                  {
+                    sessionIndex: 0,
+                    title: "جلسه ۱: داروهای مسدودکننده بتا",
+                    contentMarkdown:
+                      "# جلسه ۱: داروهای مسدودکننده بتا\n\n## مکانیسم اثر\nداروهای بتا بلاکر با مهار رقابتی اثر کاتکول‌آمین‌ها بر گیرنده‌های بتا-۱ سبب کاهش ضربان و کاهش برون‌ده قلبی می‌شوند.\n\n## نکات پرتکرار آزمون\nدر بیماران آسم و برونکواسپاسم، بتا بلاکرهای غیراختصاصی مانند پروپرانولول کنتراندیکه مطلق هستند.",
+                    citationChunkIds: ["chunk-1", "chunk-2"],
+                  },
+                ],
                 citationChunkIds: ["chunk-1", "chunk-2"],
               }),
               model: "test-model",
@@ -138,12 +147,13 @@ describe("AVANA Generation Pipeline P0 Fixes", () => {
             };
           }
 
-          if (reqType === "flashcard_topic") {
+          if (reqType === "flashcard_topic" || reqType === "flashcards_batch") {
             return {
               text: JSON.stringify({
-                kind: "flashcard",
+                kind: "flashcards_batch",
                 cards: [
                   {
+                    sessionIndex: 0,
                     question: "مکانیسم اثر داروهای بتا بلاکر چیست؟",
                     answer: "مهار رقابتی اثر کاتکول‌آمین‌ها بر گیرنده‌های بتا-۱.",
                     explanation: "بر اساس درس تدوین‌شده.",
@@ -159,12 +169,13 @@ describe("AVANA Generation Pipeline P0 Fixes", () => {
             };
           }
 
-          if (reqType === "quiz_topic") {
+          if (reqType === "quiz_topic" || reqType === "quizzes_batch") {
             return {
               text: JSON.stringify({
-                kind: "quiz",
+                kind: "quizzes_batch",
                 questions: [
                   {
+                    sessionIndex: 0,
                     question: "کدام دارو در بیماران با سابقه برونکواسپاسم کنتراندیکه است؟",
                     questionType: "multiple_choice",
                     choices: ["پروپرانولول", "متوپرولول", "آتنولول", "اسمولول"],
@@ -243,20 +254,24 @@ describe("AVANA Generation Pipeline P0 Fixes", () => {
       expect(result.contents.length).toBe(3);
 
       // Verify Flashcard Prompt
-      const flashcardPrompt = recordedPrompts.find((p) => p.type === "flashcard_topic");
+      const flashcardPrompt = recordedPrompts.find(
+        (p) => p.type === "flashcard_topic" || p.type === "flashcards_batch",
+      );
       expect(flashcardPrompt).toBeDefined();
-      expect(flashcardPrompt!.prompt).toContain("TOPIC LESSON CONTENT:");
+      expect(flashcardPrompt!.prompt).toContain("Lesson Excerpt:");
       expect(flashcardPrompt!.prompt).toContain("در بیماران آسم و برونکواسپاسم، بتا بلاکرهای غیراختصاصی");
-      expect(flashcardPrompt!.prompt).toContain("SOURCE CHUNKS FOR THIS TOPIC:");
-      expect(flashcardPrompt!.prompt).toContain("متن منبع چانک شماره یک در ارتباط با گیرنده‌های بتا");
+      expect(flashcardPrompt!.prompt).toContain("AVAILABLE CHUNK IDs:");
+      expect(flashcardPrompt!.prompt).toContain("chunk-1");
 
       // Verify Quiz Prompt
-      const quizPrompt = recordedPrompts.find((p) => p.type === "quiz_topic");
+      const quizPrompt = recordedPrompts.find(
+        (p) => p.type === "quiz_topic" || p.type === "quizzes_batch",
+      );
       expect(quizPrompt).toBeDefined();
-      expect(quizPrompt!.prompt).toContain("TOPIC LESSON CONTENT:");
+      expect(quizPrompt!.prompt).toContain("Lesson Excerpt:");
       expect(quizPrompt!.prompt).toContain("داروهای بتا بلاکر با مهار رقابتی اثر کاتکول‌آمین‌ها");
-      expect(quizPrompt!.prompt).toContain("SOURCE CHUNKS FOR THIS TOPIC:");
-      expect(quizPrompt!.prompt).toContain("متن منبع چانک شماره دو در ارتباط با عوارض جانبی");
+      expect(quizPrompt!.prompt).toContain("AVAILABLE CHUNK IDs:");
+      expect(quizPrompt!.prompt).toContain("chunk-2");
     });
 
     it("Test 4: Later Chunks (Chunk 9-12) are correctly routed to Topic Flashcards/Quizzes and never sliced out", async () => {
@@ -273,18 +288,21 @@ describe("AVANA Generation Pipeline P0 Fixes", () => {
           const reqType = (req.jsonSchema as { type?: string })?.type ?? "unknown";
           recordedPrompts.push({ type: reqType, prompt: userMsg });
 
-          if (reqType === "outline") {
+          if (reqType === "outline" || reqType === "content_plan") {
             return {
               text: JSON.stringify({
-                kind: "outline",
+                kind: "content_plan",
                 moduleTitle: "کتاب جامع پزشکی",
-                outline: [
+                sessions: [
                   {
+                    index: 0,
                     title: "جلسه پایانی: مباحث پیشرفته بخش چهارم",
                     description: "بررسی اختصاصی فصول انتهای کتاب",
                     relevantChunkIds: ["chunk-9", "chunk-10", "chunk-11", "chunk-12"],
+                    coreConcepts: [{ id: "c-1", name: "مباحث پیشرفته", category: "key_fact", description: "چانک ۹ تا ۱۲", sourceChunkIds: ["chunk-9", "chunk-10", "chunk-11", "chunk-12"] }],
                   },
                 ],
+                highYieldFacts: [],
                 citationChunkIds: ["chunk-9", "chunk-10", "chunk-11", "chunk-12"],
               }),
               model: "test-model",
@@ -293,12 +311,18 @@ describe("AVANA Generation Pipeline P0 Fixes", () => {
             };
           }
 
-          if (reqType === "session") {
+          if (reqType === "session" || reqType === "sessions_batch") {
             return {
               text: JSON.stringify({
-                kind: "session",
-                title: "جلسه پایانی: مباحث پیشرفته بخش چهارم",
-                contentMarkdown: "# جلسه پایانی\n\nمتن تفصیلی آموزش مباحث پیشرفته چانک‌های ۹ تا ۱۲.",
+                kind: "sessions_batch",
+                sessions: [
+                  {
+                    sessionIndex: 0,
+                    title: "جلسه پایانی: مباحث پیشرفته بخش چهارم",
+                    contentMarkdown: "# جلسه پایانی\n\nمتن تفصیلی آموزش مباحث پیشرفته چانک‌های ۹ تا ۱۲.",
+                    citationChunkIds: ["chunk-9", "chunk-10", "chunk-11", "chunk-12"],
+                  },
+                ],
                 citationChunkIds: ["chunk-9", "chunk-10", "chunk-11", "chunk-12"],
               }),
               model: "test-model",
@@ -307,12 +331,13 @@ describe("AVANA Generation Pipeline P0 Fixes", () => {
             };
           }
 
-          if (reqType === "flashcard_topic") {
+          if (reqType === "flashcard_topic" || reqType === "flashcards_batch") {
             return {
               text: JSON.stringify({
-                kind: "flashcard",
+                kind: "flashcards_batch",
                 cards: [
                   {
+                    sessionIndex: 0,
                     question: "نکته کلیدی در چانک ۱۰ چیست؟",
                     answer: "پاسخ از چانک ۱۰.",
                     explanation: "مستند به چانک ۱۰.",
@@ -328,12 +353,13 @@ describe("AVANA Generation Pipeline P0 Fixes", () => {
             };
           }
 
-          if (reqType === "quiz_topic") {
+          if (reqType === "quiz_topic" || reqType === "quizzes_batch") {
             return {
               text: JSON.stringify({
-                kind: "quiz",
+                kind: "quizzes_batch",
                 questions: [
                   {
+                    sessionIndex: 0,
                     question: "یافته کلیدی در صفحه ۱۱ کدام است؟",
                     questionType: "multiple_choice",
                     choices: ["الف", "ب", "ج", "د"],
@@ -401,19 +427,23 @@ describe("AVANA Generation Pipeline P0 Fixes", () => {
 
       expect(result.contents.length).toBe(2);
 
-      // Verify Flashcard Prompt includes Chunk 9-12 and NOT restricted to Chunk 0-7
-      const flashcardPrompt = recordedPrompts.find((p) => p.type === "flashcard_topic");
+      // Verify Flashcard Prompt includes Chunk 9-12
+      const flashcardPrompt = recordedPrompts.find(
+        (p) => p.type === "flashcard_topic" || p.type === "flashcards_batch",
+      );
       expect(flashcardPrompt).toBeDefined();
-      expect(flashcardPrompt!.prompt).toContain("محتوای اختصاصی و فکت‌های علمی مربوط به چانک شماره 10");
-      expect(flashcardPrompt!.prompt).toContain("محتوای اختصاصی و فکت‌های علمی مربوط به چانک شماره 12");
-      expect(flashcardPrompt!.prompt).not.toContain("محتوای اختصاصی و فکت‌های علمی مربوط به چانک شماره 1 در صفحه 1");
+      expect(flashcardPrompt!.prompt).toContain("جلسه 3: بخش شماره 9، بخش شماره 10");
+      expect(flashcardPrompt!.prompt).toContain("chunk-10");
+      expect(flashcardPrompt!.prompt).toContain("chunk-12");
 
       // Verify Quiz Prompt includes Chunk 9-12
-      const quizPrompt = recordedPrompts.find((p) => p.type === "quiz_topic");
+      const quizPrompt = recordedPrompts.find(
+        (p) => p.type === "quiz_topic" || p.type === "quizzes_batch",
+      );
       expect(quizPrompt).toBeDefined();
-      expect(quizPrompt!.prompt).toContain("محتوای اختصاصی و فکت‌های علمی مربوط به چانک شماره 9");
-      expect(quizPrompt!.prompt).toContain("محتوای اختصاصی و فکت‌های علمی مربوط به چانک شماره 11");
-      expect(quizPrompt!.prompt).not.toContain("محتوای اختصاصی و فکت‌های علمی مربوط به چانک شماره 2 در صفحه 2");
+      expect(quizPrompt!.prompt).toContain("جلسه 3: بخش شماره 9، بخش شماره 10");
+      expect(quizPrompt!.prompt).toContain("chunk-9");
+      expect(quizPrompt!.prompt).toContain("chunk-11");
 
       // Verify Citations include chunk-9 .. chunk-12
       const flashcardContent = result.contents.find((c) => c.type === "flashcard");
