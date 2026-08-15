@@ -10,6 +10,8 @@ export default tseslint.config(
       "**/coverage/**",
       "**/node_modules/**",
       "**/migrations/**",
+      "**/scripts/**",
+      "storage/**",
     ],
   },
   js.configs.recommended,

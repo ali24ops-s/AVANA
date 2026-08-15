@@ -1,9 +1,7 @@
 /**
  * Course detail page.
  *
- * Displays detailed information about a specific course.
- * Shows loading, error, and not-found states.
- * Course editing is out of scope for Sprint 1 PR-10.
+ * Displays detailed information about a specific course in Persian.
  */
 
 import { useParams, Link } from "react-router-dom";
@@ -12,9 +10,10 @@ import {
   BookOpen,
   Loader2,
   AlertCircle,
-  ArrowLeft,
+  ArrowRight,
   Calendar,
   FileText,
+  GraduationCap,
 } from "lucide-react";
 import { createApiClient, getApiBaseUrl } from "../lib/api/client.js";
 import { createOrganizationApi } from "../lib/api/organizations.js";
@@ -45,7 +44,7 @@ export function CourseDetailPage() {
   if (orgQuery.isLoading || courseQuery.isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
+        <Loader2 className="w-8 h-8 animate-spin text-[#008080]" />
       </div>
     );
   }
@@ -53,20 +52,29 @@ export function CourseDetailPage() {
   // Error state
   if (courseQuery.isError) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 text-center">
-        <AlertCircle className="w-12 h-12 text-red-400 mb-4" />
-        <h2 className="text-lg font-semibold text-[var(--color-text)]">
-          Failed to load course
+      <div className="flex flex-col items-center justify-center py-20 text-center bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] p-8">
+        <AlertCircle className="w-12 h-12 text-red-500 mb-4" />
+        <h2 className="text-lg font-bold text-[var(--color-text)]">
+          خطا در دریافت اطلاعات دوره
         </h2>
-        <p className="text-sm text-[var(--color-text-muted)] mt-1">
-          {courseQuery.error?.message ?? "An error occurred"}
+        <p className="text-xs text-[var(--color-text-muted)] mt-1">
+          {courseQuery.error?.message ?? "خطایی در دریافت اطلاعات رخ داد."}
         </p>
-        <Link
-          to="/"
-          className="mt-4 px-4 py-2 bg-[var(--color-text)] text-[var(--color-background)] rounded-xl text-sm font-medium"
-        >
-          Back to courses
-        </Link>
+        <div className="flex items-center gap-3 mt-4">
+          <button
+            type="button"
+            onClick={() => void courseQuery.refetch()}
+            className="px-4 py-2 bg-[#008080] hover:bg-[#006666] text-white rounded-xl text-xs font-semibold"
+          >
+            تلاش مجدد
+          </button>
+          <Link
+            to="/courses"
+            className="px-4 py-2 bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-[var(--color-text)] rounded-xl text-xs font-semibold"
+          >
+            بازگشت به دوره‌ها
+          </Link>
+        </div>
       </div>
     );
   }
@@ -75,32 +83,32 @@ export function CourseDetailPage() {
 
   if (!course) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 text-center">
+      <div className="flex flex-col items-center justify-center py-20 text-center bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] p-8">
         <BookOpen className="w-12 h-12 text-[var(--color-text-muted)] mb-4" />
-        <h2 className="text-lg font-semibold text-[var(--color-text)]">
-          Course not found
+        <h2 className="text-lg font-bold text-[var(--color-text)]">
+          دوره یافت نشد
         </h2>
-        <p className="text-sm text-[var(--color-text-muted)] mt-1">
-          This course could not be found.
+        <p className="text-xs text-[var(--color-text-muted)] mt-1">
+          دوره مورد نظر یافت نشد یا دسترسی به آن امکان‌پذیر نیست.
         </p>
         <Link
-          to="/"
-          className="mt-4 px-4 py-2 bg-[var(--color-text)] text-[var(--color-background)] rounded-xl text-sm font-medium"
+          to="/courses"
+          className="mt-4 px-4 py-2 bg-[#008080] text-white rounded-xl text-xs font-semibold"
         >
-          Back to courses
+          بازگشت به دوره‌ها
         </Link>
       </div>
     );
   }
 
-  const createdDate = new Date(course.created_at).toLocaleDateString("en-US", {
+  const createdDate = new Date(course.created_at).toLocaleDateString("fa-IR", {
     month: "long",
     day: "numeric",
     year: "numeric",
   });
 
   const examDate = course.exam_at
-    ? new Date(course.exam_at).toLocaleDateString("en-US", {
+    ? new Date(course.exam_at).toLocaleDateString("fa-IR", {
         month: "long",
         day: "numeric",
         year: "numeric",
@@ -111,32 +119,32 @@ export function CourseDetailPage() {
     <div className="max-w-3xl mx-auto space-y-6">
       {/* Back link */}
       <Link
-        to="/"
-        className="inline-flex items-center gap-2 text-sm text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors"
+        to="/courses"
+        className="inline-flex items-center gap-2 text-xs font-semibold text-[var(--color-text-muted)] hover:text-[#008080] transition-colors"
       >
-        <ArrowLeft className="w-4 h-4" />
-        Back to courses
+        <ArrowRight className="w-4 h-4" />
+        <span>بازگشت به دوره‌ها</span>
       </Link>
 
       {/* Course header */}
-      <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-8">
+      <div className="bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] p-8 shadow-sm">
         <div className="flex items-start gap-4">
-          <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center flex-shrink-0">
-            <BookOpen className="w-7 h-7 text-white" />
+          <div className="w-14 h-14 rounded-2xl bg-[#a7d0e6]/30 text-[#008080] flex items-center justify-center flex-shrink-0">
+            <GraduationCap className="w-7 h-7" />
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold text-[var(--color-text)] truncate">
+              <h1 className="text-2xl font-extrabold text-[var(--color-text)] truncate">
                 {course.title}
               </h1>
               {course.archived && (
-                <span className="text-xs px-2.5 py-1 rounded-full bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 flex-shrink-0">
-                  Archived
+                <span className="text-xs px-2.5 py-1 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300 font-medium flex-shrink-0">
+                  بایگانی شده
                 </span>
               )}
             </div>
-            <p className="text-[var(--color-text-muted)] mt-1">
-              {course.subject ?? "No subject"}
+            <p className="text-xs text-[var(--color-text-muted)] mt-1">
+              {course.subject ?? "دوره تخصصی"}
             </p>
           </div>
         </div>
@@ -146,8 +154,8 @@ export function CourseDetailPage() {
           <div className="flex items-center gap-3">
             <Calendar className="w-5 h-5 text-[var(--color-text-muted)]" />
             <div>
-              <p className="text-xs text-[var(--color-text-muted)]">Created</p>
-              <p className="text-sm font-medium text-[var(--color-text)]">
+              <p className="text-xs text-[var(--color-text-muted)]">تاریخ ایجاد</p>
+              <p className="text-sm font-semibold text-[var(--color-text)]">
                 {createdDate}
               </p>
             </div>
@@ -157,9 +165,9 @@ export function CourseDetailPage() {
               <FileText className="w-5 h-5 text-[var(--color-text-muted)]" />
               <div>
                 <p className="text-xs text-[var(--color-text-muted)]">
-                  Exam date
+                  تاریخ آزمون
                 </p>
-                <p className="text-sm font-medium text-[var(--color-text)]">
+                <p className="text-sm font-semibold text-[var(--color-text)]">
                   {examDate}
                 </p>
               </div>

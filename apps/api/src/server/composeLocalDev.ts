@@ -16,7 +16,28 @@ import {
   InMemoryModuleStore,
   InMemoryLessonStore,
   InMemoryProgressStore,
+  InMemoryDocumentStore,
+  InMemoryDocumentChunkStore,
 } from "../modules/learning/test/in-memory-stores.js";
+import {
+  InMemoryGeneratedContentStore,
+  InMemoryGeneratedContentCitationStore,
+  InMemoryGenerationJobStore,
+} from "../modules/generation/test/in-memory-stores.js";
+import {
+  InMemoryFlashcardStore,
+  InMemoryFlashcardReviewStore,
+  InMemoryQuizStore,
+  InMemoryQuizQuestionStore,
+  InMemoryQuizAttemptStore,
+} from "../modules/study/test/in-memory-stores.js";
+import {
+  createModelGateway,
+  InMemoryGenerationQueue,
+  GenerationService,
+} from "../modules/generation/index.js";
+import { defaultPolicy } from "@avana/domain";
+import { LocalStorageProvider } from "../modules/storage/index.js";
 import { InMemoryAuditStore } from "../observability/test/in-memory-stores.js";
 import { AuditService } from "../observability/audit-service.js";
 import { seedLocalDevData } from "../dev/seed.js";
@@ -45,8 +66,48 @@ export async function composeLocalDev(
   const moduleStore = new InMemoryModuleStore();
   const lessonStore = new InMemoryLessonStore();
   const progressStore = new InMemoryProgressStore();
+  const documentStore = new InMemoryDocumentStore();
+  const documentChunkStore = new InMemoryDocumentChunkStore();
+  const generatedContentStore = new InMemoryGeneratedContentStore();
+  const generatedContentCitationStore =
+    new InMemoryGeneratedContentCitationStore();
+  const generationJobStore = new InMemoryGenerationJobStore();
+
+  // Study stores
+  const flashcardStore = new InMemoryFlashcardStore();
+  const flashcardReviewStore = new InMemoryFlashcardReviewStore();
+  const quizStore = new InMemoryQuizStore();
+  const quizQuestionStore = new InMemoryQuizQuestionStore();
+  const quizAttemptStore = new InMemoryQuizAttemptStore(quizStore);
+
+  // Model gateway (mock provider in dev).
+  const gateway = createModelGateway({
+    provider: config.generation.aiProvider,
+    geminiApiKey: config.generation.geminiApiKey,
+    geminiModel: config.generation.geminiModel,
+  });
+
   const auditStore = new InMemoryAuditStore();
   const auditService = new AuditService(auditStore);
+
+  const generationService = new GenerationService(
+    generatedContentStore,
+    generatedContentCitationStore,
+    gateway,
+    documentStore,
+    documentChunkStore,
+    defaultPolicy,
+    auditService,
+    organizationStore,
+  );
+
+  // In-memory generation queue with background execution.
+  const queue = new InMemoryGenerationQueue(generationJobStore, generationService);
+
+  // Local filesystem storage for document uploads (dev).
+  const storageProvider = new LocalStorageProvider(
+    config.storage.local.directory,
+  );
 
   const v1Options: V1RouteOptions = {
     config,
@@ -57,6 +118,19 @@ export async function composeLocalDev(
     moduleStore,
     lessonStore,
     progressStore,
+    documentStore,
+    documentChunkStore,
+    storageProvider,
+    generatedContentStore,
+    generatedContentCitationStore,
+    generationJobStore,
+    queue,
+    gateway,
+    flashcardStore,
+    flashcardReviewStore,
+    quizStore,
+    quizQuestionStore,
+    quizAttemptStore,
     auditService,
   };
 

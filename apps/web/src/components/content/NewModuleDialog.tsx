@@ -1,12 +1,5 @@
 /**
  * NewModuleDialog — Modal form for creating a new module within a course.
- *
- * PR5-D4: Module CRUD — create.
- * - Fields: title, description
- * - Client-side validation with inline error messages
- * - Loading state while creating
- * - Disables duplicate submissions while pending
- * - Displays server validation errors
  */
 
 import { useState } from "react";
@@ -33,9 +26,9 @@ interface FormErrors {
 function validate(form: NewModuleFormData): FormErrors {
   const errors: FormErrors = {};
   if (form.title.trim().length === 0) {
-    errors.title = "Module title is required";
+    errors.title = "عنوان فصل الزامی است.";
   } else if (form.title.trim().length > 255) {
-    errors.title = "Title must not exceed 255 characters";
+    errors.title = "عنوان فصل نباید بیشتر از ۲۵۵ کاراکتر باشد.";
   }
   return errors;
 }
@@ -71,41 +64,42 @@ export function NewModuleDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm font-sans"
       role="dialog"
       aria-modal="true"
       aria-labelledby="new-module-dialog-title"
+      dir="rtl"
     >
-      <div className="w-full max-w-lg bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] shadow-xl overflow-hidden">
+      <div className="w-full max-w-lg bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] shadow-2xl overflow-hidden">
         {/* Dialog header */}
-        <div className="px-6 py-4 border-b border-[var(--color-border)] flex items-start justify-between gap-4">
+        <div className="px-6 py-5 border-b border-[var(--color-border)] flex items-start justify-between gap-4">
           <div>
             <h2
               id="new-module-dialog-title"
-              className="text-lg font-bold text-[var(--color-text)]"
+              className="text-base font-bold text-[var(--color-text)]"
             >
-              New Module
+              افزودن فصل جدید
             </h2>
-            <p className="text-sm text-[var(--color-text-muted)] mt-0.5">
-              {courseTitle}
+            <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
+              دوره: {courseTitle}
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
             disabled={isPending}
-            aria-label="Close"
-            className="p-1.5 rounded-lg text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-border)] transition-colors disabled:opacity-50"
+            aria-label="بستن"
+            className="p-1.5 rounded-xl text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] transition-colors disabled:opacity-50"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Dialog body */}
-        <div className="px-6 py-4 space-y-4">
+        <div className="px-6 py-5 space-y-4">
           {/* Server error */}
           {serverError && (
-            <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400 text-sm">
+            <div className="flex items-start gap-2 p-3 rounded-2xl bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400 text-xs font-medium border border-red-200 dark:border-red-800">
               <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
               <span>{serverError}</span>
             </div>
@@ -115,19 +109,19 @@ export function NewModuleDialog({
           <div>
             <label
               htmlFor="new-module-title"
-              className="block text-sm font-medium text-[var(--color-text)] mb-1"
+              className="block text-xs font-semibold text-[var(--color-text)] mb-1.5"
             >
-              Title
+              عنوان فصل *
             </label>
             <input
               id="new-module-title"
               type="text"
               value={title}
               onChange={(e) => handleTitleChange(e.target.value)}
-              placeholder="Module title"
+              placeholder="مثال: فارماکولوژی سیستم قلبی عروقی"
               disabled={isPending}
               autoFocus
-              className={`w-full px-3 py-2 rounded-lg bg-[var(--color-background)] border text-sm text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:opacity-60 ${
+              className={`w-full px-3.5 py-2.5 rounded-xl bg-[var(--color-surface-warm)] border text-sm text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-[#008080] disabled:opacity-60 ${
                 errors.title ? "border-red-400" : "border-[var(--color-border)]"
               }`}
             />
@@ -143,47 +137,47 @@ export function NewModuleDialog({
           <div>
             <label
               htmlFor="new-module-description"
-              className="block text-sm font-medium text-[var(--color-text)] mb-1"
+              className="block text-xs font-semibold text-[var(--color-text)] mb-1.5"
             >
-              Description
+              توضیحات فصل (اختیاری)
             </label>
             <textarea
               id="new-module-description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Optional module description"
+              placeholder="توضیح کوتاه درباره مباحث این فصل..."
               disabled={isPending}
               rows={3}
-              className="w-full px-3 py-2 rounded-lg bg-[var(--color-background)] border border-[var(--color-border)] text-sm text-[var(--color-text)] leading-relaxed resize-y focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:opacity-60"
+              className="w-full px-3.5 py-2.5 rounded-xl bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-xs text-[var(--color-text)] leading-relaxed resize-none focus:outline-none focus:ring-2 focus:ring-[#008080] disabled:opacity-60"
             />
           </div>
         </div>
 
         {/* Dialog footer */}
-        <div className="px-6 py-4 border-t border-[var(--color-border)] flex items-center justify-end gap-2">
+        <div className="px-6 py-4 border-t border-[var(--color-border)] bg-[var(--color-surface-warm)] flex items-center justify-end gap-2">
           <button
             type="button"
             onClick={onClose}
             disabled={isPending}
-            className="px-4 py-2 rounded-lg text-sm text-[var(--color-text)] hover:bg-[var(--color-border)] transition-colors disabled:opacity-50"
+            className="px-4 py-2 rounded-xl text-xs font-bold text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors disabled:opacity-50"
           >
-            Cancel
+            انصراف
           </button>
           <button
             type="button"
             onClick={handleSubmit}
             disabled={isPending}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-indigo-500 hover:bg-indigo-600 disabled:bg-[var(--color-border)] text-white disabled:text-[var(--color-text-muted)] transition-colors disabled:cursor-not-allowed text-sm font-medium"
+            className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-[#008080] hover:bg-[#006666] text-white disabled:opacity-50 transition-colors disabled:cursor-not-allowed text-xs font-bold shadow-sm"
           >
             {isPending ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                Creating...
+                <span>در حال ایجاد...</span>
               </>
             ) : (
               <>
                 <FolderPlus className="w-4 h-4" />
-                Create Module
+                <span>ایجاد فصل</span>
               </>
             )}
           </button>

@@ -5,7 +5,15 @@
  * Supports pre-loading seed data for integration tests.
  */
 
-import type { CourseId, LessonId, ModuleId, UserId } from "@avana/domain";
+import type {
+  CourseId,
+  DocumentChunkId,
+  DocumentId,
+  LessonId,
+  ModuleId,
+  OrganizationId,
+  UserId,
+} from "@avana/domain";
 import type {
   ModuleRecord,
   LessonRecord,
@@ -13,6 +21,10 @@ import type {
   ModuleStore,
   LessonStore,
   ProgressStore,
+  DocumentRecord,
+  DocumentChunkRecord,
+  DocumentStore,
+  DocumentChunkStore,
 } from "../learning-store.js";
 
 export class InMemoryModuleStore implements ModuleStore {
@@ -161,5 +173,171 @@ export class InMemoryProgressStore implements ProgressStore {
   /** Clear all progress records (for test isolation). */
   clear(): void {
     this.progressRecords.clear();
+  }
+}
+
+export class InMemoryDocumentStore implements DocumentStore {
+  private documents: Map<string, DocumentRecord> = new Map();
+
+  async findByIdForOrganization(
+    id: DocumentId,
+    organizationId: OrganizationId,
+  ): Promise<DocumentRecord | undefined> {
+    const record = this.documents.get(id);
+    if (
+      !record ||
+      record.organizationId !== organizationId ||
+      record.deletedAt
+    ) {
+      return undefined;
+    }
+    return { ...record };
+  }
+
+  async findByIdForOwner(
+    id: DocumentId,
+    organizationId: OrganizationId,
+    ownerUserId: UserId,
+  ): Promise<DocumentRecord | undefined> {
+    const record = this.documents.get(id);
+    if (
+      !record ||
+      record.organizationId !== organizationId ||
+      record.ownerUserId !== ownerUserId ||
+      record.deletedAt
+    ) {
+      return undefined;
+    }
+    return { ...record };
+  }
+
+  async listByOrganization(
+    organizationId: OrganizationId,
+    courseId?: CourseId,
+  ): Promise<DocumentRecord[]> {
+    return Array.from(this.documents.values())
+      .filter(
+        (d) =>
+          d.organizationId === organizationId &&
+          d.deletedAt === null &&
+          (courseId === undefined || d.courseId === courseId),
+      )
+      .map((d) => ({ ...d }));
+  }
+
+  async listByOwner(
+    organizationId: OrganizationId,
+    ownerUserId: UserId,
+  ): Promise<DocumentRecord[]> {
+    return Array.from(this.documents.values())
+      .filter(
+        (d) =>
+          d.organizationId === organizationId &&
+          d.ownerUserId === ownerUserId &&
+          d.deletedAt === null,
+      )
+      .map((d) => ({ ...d }));
+  }
+
+  async findByOrganizationAndSha256(
+    organizationId: OrganizationId,
+    sha256: string,
+  ): Promise<DocumentRecord | undefined> {
+    for (const d of this.documents.values()) {
+      if (
+        d.organizationId === organizationId &&
+        d.sha256 === sha256 &&
+        d.deletedAt === null
+      ) {
+        return { ...d };
+      }
+    }
+    return undefined;
+  }
+
+  /** Directly insert a document record (used for seeding). */
+  insert(document: DocumentRecord): void {
+    this.documents.set(document.id, { ...document });
+  }
+
+  /** Get all stored documents (for test assertions). */
+  getAll(): DocumentRecord[] {
+    return Array.from(this.documents.values()).map((d) => ({ ...d }));
+  }
+
+  async create(document: DocumentRecord): Promise<DocumentRecord> {
+    for (const [id, d] of this.documents.entries()) {
+      if (
+        d.organizationId === document.organizationId &&
+        d.sha256 === document.sha256 &&
+        d.deletedAt !== null
+      ) {
+        this.documents.delete(id);
+      }
+    }
+    this.documents.set(document.id, { ...document });
+    return { ...document };
+  }
+
+  async update(document: DocumentRecord): Promise<DocumentRecord> {
+    this.documents.set(document.id, { ...document });
+    return { ...document };
+  }
+
+  async delete(documentId: DocumentId): Promise<void> {
+    const existing = this.documents.get(documentId);
+    if (existing) {
+      existing.deletedAt = new Date().toISOString();
+      this.documents.set(documentId, { ...existing });
+    }
+  }
+}
+
+export class InMemoryDocumentChunkStore implements DocumentChunkStore {
+  private chunks: Map<string, DocumentChunkRecord> = new Map();
+
+  async listByDocument(documentId: DocumentId): Promise<DocumentChunkRecord[]> {
+    return Array.from(this.chunks.values())
+      .filter((c) => c.documentId === documentId)
+      .sort((a, b) => a.sequence - b.sequence)
+      .map((c) => ({ ...c }));
+  }
+
+  async findByIdForOrganization(
+    id: DocumentChunkId,
+    organizationId: OrganizationId,
+  ): Promise<DocumentChunkRecord | undefined> {
+    const record = this.chunks.get(id);
+    if (!record || record.organizationId !== organizationId) {
+      return undefined;
+    }
+    return { ...record };
+  }
+
+  /** Directly insert a chunk record (used for seeding). */
+  insert(chunk: DocumentChunkRecord): void {
+    this.chunks.set(chunk.id, { ...chunk });
+  }
+
+  async createMany(
+    chunks: DocumentChunkRecord[],
+  ): Promise<DocumentChunkRecord[]> {
+    for (const chunk of chunks) {
+      this.chunks.set(chunk.id, { ...chunk });
+    }
+    return chunks.map((c) => ({ ...c }));
+  }
+
+  async deleteByDocument(documentId: DocumentId): Promise<void> {
+    for (const [id, chunk] of this.chunks) {
+      if (chunk.documentId === documentId) {
+        this.chunks.delete(id);
+      }
+    }
+  }
+
+  /** Clear all chunks (for test isolation). */
+  clear(): void {
+    this.chunks.clear();
   }
 }

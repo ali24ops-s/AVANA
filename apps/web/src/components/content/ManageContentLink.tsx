@@ -3,11 +3,7 @@
  *
  * A navigation entry that points to the course content management page
  * (`/courses/:courseId/manage`). It is only rendered for users who have
- * content management permissions based on their organization membership roles
- * (`organization_admin` or `course_editor`).
- *
- * For learners (and users without management permissions) the component
- * renders nothing, keeping the learner experience unchanged.
+ * content management permissions based on their organization membership roles.
  */
 
 import { Link } from "react-router-dom";
@@ -29,10 +25,10 @@ export function ManageContentLink({
   return (
     <Link
       to={`/courses/${courseId}/manage`}
-      className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 transition-colors flex-shrink-0"
+      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-[#008080] border border-[#008080]/30 hover:bg-[#008080]/10 transition-colors flex-shrink-0"
     >
-      <Settings2 className="w-4 h-4" />
-      Manage Content
+      <Settings2 className="w-3.5 h-3.5" />
+      <span>مدیریت محتوا</span>
     </Link>
   );
 }

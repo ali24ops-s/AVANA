@@ -290,3 +290,386 @@ export type ContentModuleResponse = {
   request_id: string;
   module: ContentModuleSummary;
 };
+
+// ---------------------------------------------------------------------------
+// PR6-2 Document upload pipeline contract types
+// ---------------------------------------------------------------------------
+
+export type DocumentStatus =
+  | "uploaded"
+  | "pending_validation"
+  | "validating"
+  | "pending_extraction"
+  | "extracting"
+  | "pending_chunking"
+  | "chunking"
+  | "extracted"
+  | "pending_generation"
+  | "generating"
+  | "review_pending"
+  | "ready"
+  | "failed";
+
+export type DocumentResource = {
+  id: UUID;
+  organization_id: UUID;
+  course_id: UUID | null;
+  owner_user_id: UUID;
+  original_name: string;
+  mime_type: string;
+  size_bytes: number;
+  sha256: string;
+  status: DocumentStatus;
+  error_code: string | null;
+  retry_count: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type UploadIntentRequest = {
+  original_name: string;
+  mime_type: string;
+  size_bytes: number;
+};
+
+export type UploadIntentResponse = {
+  request_id: string;
+  document_id: UUID;
+  storage_key: string;
+  upload_url: string | null;
+  expires_at: string;
+};
+
+export type ConfirmUploadResponse = {
+  request_id: string;
+  duplicate: boolean;
+  document: DocumentResource;
+};
+
+export type DocumentListResponse = {
+  request_id: string;
+  items: DocumentResource[];
+  pagination: Pagination;
+};
+
+export type DocumentGetResponse = {
+  request_id: string;
+  document: DocumentResource;
+};
+
+// ---------------------------------------------------------------------------
+// PR6-3 Document text extraction contract types
+// ---------------------------------------------------------------------------
+
+export type DocumentStatusResource = {
+  document_id: UUID;
+  organization_id: UUID;
+  status: DocumentStatus;
+  page_count: number | null;
+  chunk_count: number | null;
+  error_code: string | null;
+  retry_count: number;
+  updated_at: string;
+};
+
+export type DocumentStatusResponse = {
+  request_id: string;
+  status: DocumentStatusResource;
+};
+
+// ---------------------------------------------------------------------------
+// PR6-4 AI Model Gateway + Generated Content contract types
+// ---------------------------------------------------------------------------
+
+/**
+ * Extensible union of AI-generated content types. Only "lesson" is enabled in
+ * PR6-4; flashcard/quiz/recommendation are activated in later PRs.
+ */
+export type GeneratedContentType =
+  "lesson" | "flashcard" | "quiz" | "recommendation";
+
+/**
+ * AI artifact lifecycle (separate from the document processing lifecycle).
+ */
+export type GeneratedContentStatus =
+  "draft" | "accepted" | "rejected" | "edited" | "regenerating";
+
+export type CitationResource = {
+  document_chunk_id: UUID;
+};
+
+export type TokenUsage = {
+  input_tokens: number;
+  output_tokens: number;
+};
+
+export type GeneratedContentResource = {
+  id: UUID;
+  document_id: UUID;
+  course_id: UUID;
+  type: GeneratedContentType;
+  status: GeneratedContentStatus;
+  payload: Record<string, unknown>;
+  prompt_version: string | null;
+  model: string | null;
+  token_usage: TokenUsage;
+  citations: CitationResource[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type GenerateContentRequest = {
+  types?: GeneratedContentType[];
+  prompt_version?: string;
+};
+
+export type GenerateContentResponse = {
+  request_id: string;
+  contents: GeneratedContentResource[];
+  document_status: DocumentStatus;
+};
+
+export type GeneratedContentListResponse = {
+  request_id: string;
+  contents: GeneratedContentResource[];
+};
+
+export type GeneratedContentResponse = {
+  request_id: string;
+  content: GeneratedContentResource;
+};
+
+// ---------------------------------------------------------------------------
+// PR6-6 Human review & acceptance contract types
+// ---------------------------------------------------------------------------
+
+export type ReviewQueueResource = {
+  id: UUID;
+  document_id: UUID;
+  course_id: UUID;
+  type: GeneratedContentType;
+  status: GeneratedContentStatus;
+  title: string;
+  updated_at: string;
+};
+
+export type ReviewQueueResponse = {
+  request_id: string;
+  pending: ReviewQueueResource[];
+};
+
+export type SourceChunkResource = {
+  id: UUID;
+  sequence: number;
+  heading: string | null;
+  content: string;
+  start_page: number;
+  end_page: number;
+};
+
+export type GenerationInfoResource = {
+  model: string | null;
+  prompt_version: string | null;
+  token_usage: TokenUsage;
+};
+
+export type GeneratedContentReviewResource = {
+  request_id: string;
+  content: GeneratedContentResource;
+  source_chunks: SourceChunkResource[];
+  generation: GenerationInfoResource;
+};
+
+export type GeneratedContentReviewResponse = {
+  request_id: string;
+  content: GeneratedContentResource;
+  source_chunks: SourceChunkResource[];
+  generation: GenerationInfoResource;
+};
+
+export type EditGeneratedContentRequest = {
+  payload: Record<string, unknown>;
+};
+
+export type AcceptContentResponse = {
+  request_id: string;
+  content_id: UUID;
+  status: "accepted";
+  materialized_lesson_id: UUID | null;
+};
+
+export type RejectContentRequest = {
+  reason: string;
+};
+
+export type RejectContentResponse = {
+  request_id: string;
+  content_id: UUID;
+  status: "rejected";
+};
+
+export type RegenerateContentResponse = {
+  request_id: string;
+  content_id: UUID;
+  job_id: string;
+  status: "regenerating";
+};
+
+// ---------------------------------------------------------------------------
+// PR6-7 Study consumption & analytics contract types
+// ---------------------------------------------------------------------------
+
+export type FlashcardRating = "again" | "hard" | "good" | "easy";
+
+export type FlashcardResource = {
+  id: UUID;
+  organization_id: UUID;
+  course_id: UUID;
+  document_id: UUID;
+  generated_content_id: UUID | null;
+  question: string;
+  answer: string;
+  explanation: string | null;
+  card_type: string;
+  difficulty: string;
+  due_at: string;
+  interval_days: number;
+  ease_factor: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type FlashcardListResponse = {
+  request_id: string;
+  flashcards: FlashcardResource[];
+  next_review_count: number;
+};
+
+export type FlashcardReviewQueueResponse = {
+  request_id: string;
+  due_cards: FlashcardResource[];
+};
+
+export type SubmitFlashcardReviewRequest = {
+  rating: FlashcardRating;
+  reaction_ms?: number;
+};
+
+export type SubmitFlashcardReviewResponse = {
+  request_id: string;
+  success: boolean;
+};
+
+export type QuizQuestionResource = {
+  id: UUID;
+  quiz_id: UUID;
+  generated_content_id: UUID | null;
+  question: string;
+  question_type: string;
+  choices: string[] | null;
+  correct_answer?: unknown;
+  explanation: string | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type QuizResource = {
+  id: UUID;
+  organization_id: UUID;
+  course_id: UUID;
+  document_id: UUID;
+  title: string;
+  status: "draft" | "published";
+  created_at: string;
+  updated_at: string;
+};
+
+export type QuizDetailResource = QuizResource & {
+  questions: QuizQuestionResource[];
+};
+
+export type QuizListResponse = {
+  request_id: string;
+  quizzes: QuizResource[];
+};
+
+export type QuizResponse = {
+  request_id: string;
+  quiz: QuizDetailResource;
+};
+
+export type QuizQuestionAnswerInput = {
+  questionId: UUID;
+  answer: unknown;
+};
+
+export type SubmitQuizAttemptRequest = {
+  answers: QuizQuestionAnswerInput[];
+};
+
+export type QuizAttemptResult = {
+  attemptId: UUID;
+  quizId: UUID;
+  score: number;
+  correct: number;
+  total: number;
+  answers: Record<string, unknown>;
+  completedAt: string;
+};
+
+export type SubmitQuizAttemptResponse = {
+  request_id: string;
+  attempt: QuizAttemptResult;
+};
+
+export type QuizAttemptResource = {
+  id: UUID;
+  quizId: UUID;
+  userId: UUID;
+  score: number;
+  answers: Record<string, unknown>;
+  startedAt: string;
+  completedAt: string;
+};
+
+export type QuizAttemptResponse = {
+  request_id: string;
+  attempt: QuizAttemptResource;
+};
+
+export type StudyAnalytics = {
+  total_lessons: number;
+  completed_lessons: number;
+  lesson_progress_percent: number;
+  total_flashcards: number;
+  reviewed_flashcards: number;
+  flashcard_mastery_percent: number;
+  total_quizzes: number;
+  attempts_taken: number;
+  average_quiz_score: number;
+  weak_areas: string[];
+  recommended_next_steps: string[];
+};
+
+export type StudyAnalyticsResponse = {
+  request_id: string;
+  analytics: StudyAnalytics;
+};
+
+export type StudyRecommendationResource = {
+  id: string;
+  summary: string;
+  topics: string[];
+  source:
+    | "accepted_lesson"
+    | "flashcard_review"
+    | "quiz_attempt"
+    | "recommendation";
+};
+
+export type StudyRecommendationsResponse = {
+  request_id: string;
+  recommendations: StudyRecommendationResource[];
+};
+

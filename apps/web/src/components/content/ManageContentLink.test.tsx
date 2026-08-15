@@ -1,11 +1,5 @@
 /**
  * ManageContentLink tests.
- *
- * Verifies the "Manage Content" navigation entry:
- *  - Renders for users with content management permissions (based on their
- *    organization membership roles)
- *  - Links to /courses/:courseId/manage
- *  - Is absent for learners / users without permissions
  */
 
 import { describe, expect, it, afterEach } from "vitest";
@@ -38,35 +32,35 @@ describe("ManageContentLink", () => {
 
   it("renders a link that points to /courses/:courseId/manage for organization_admin", () => {
     renderLink(membershipsOf("organization_admin"));
-    const link = screen.getByRole("link", { name: /manage content/i });
+    const link = screen.getByRole("link", { name: /مدیریت محتوا/i });
     expect(link).toHaveAttribute("href", "/courses/course-1/manage");
   });
 
   it("renders a link for course_editor", () => {
     renderLink(membershipsOf("course_editor"));
     expect(
-      screen.getByRole("link", { name: /manage content/i }),
+      screen.getByRole("link", { name: /مدیریت محتوا/i }),
     ).toBeInTheDocument();
   });
 
   it("does not render anything for a student", () => {
     renderLink(membershipsOf("student"));
     expect(
-      screen.queryByRole("link", { name: /manage content/i }),
+      screen.queryByRole("link", { name: /مدیریت محتوا/i }),
     ).not.toBeInTheDocument();
   });
 
   it("does not render anything when memberships is undefined", () => {
     renderLink(undefined);
     expect(
-      screen.queryByRole("link", { name: /manage content/i }),
+      screen.queryByRole("link", { name: /مدیریت محتوا/i }),
     ).not.toBeInTheDocument();
   });
 
   it("does not render anything when memberships is empty", () => {
     renderLink([]);
     expect(
-      screen.queryByRole("link", { name: /manage content/i }),
+      screen.queryByRole("link", { name: /مدیریت محتوا/i }),
     ).not.toBeInTheDocument();
   });
 });

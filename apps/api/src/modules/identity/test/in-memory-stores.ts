@@ -95,4 +95,9 @@ export class InMemoryUserStore implements UserStore {
     this.users.set(id, record);
     return record;
   }
+
+  /** Directly insert a user record (used for seeding editor/admin roles in tests). */
+  insert(record: UserRecord): void {
+    this.users.set(record.id, { ...record });
+  }
 }

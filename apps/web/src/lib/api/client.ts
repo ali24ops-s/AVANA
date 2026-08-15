@@ -54,10 +54,13 @@ export function createApiClient(options: ApiClientOptions) {
     const { method = "GET", body, headers: extraHeaders } = opts;
 
     const headers: Record<string, string> = {
-      "Content-Type": "application/json",
       "x-request-id": crypto.randomUUID(),
       ...extraHeaders,
     };
+
+    if (body !== undefined) {
+      headers["Content-Type"] = "application/json";
+    }
 
     // Attach CSRF token for state-changing requests
     if (options.csrfToken && ["POST", "PATCH", "DELETE"].includes(method)) {
@@ -76,11 +79,70 @@ export function createApiClient(options: ApiClientOptions) {
       return undefined as T;
     }
 
-    const data = await response.json();
+    let data: unknown;
+    try {
+      if (typeof response.text === "function") {
+        const text = await response.text();
+        data = text ? JSON.parse(text) : undefined;
+      } else if (typeof response.json === "function") {
+        data = await response.json();
+      }
+    } catch {
+      data = null;
+    }
 
     if (!response.ok) {
-      const envelope = data as ErrorEnvelope;
-      throw new ApiError(envelope);
+      if (
+        data &&
+        typeof data === "object" &&
+        "error" in data &&
+        data.error &&
+        typeof (data as ErrorEnvelope).error === "object"
+      ) {
+        throw new ApiError(data as ErrorEnvelope);
+      }
+
+      // Map raw HTTP status codes to typed ApiError
+      const requestId =
+        response.headers.get("x-request-id") || crypto.randomUUID();
+      const codeByStatus: Record<number, ErrorEnvelope["error"]["code"]> = {
+        400: "bad_request",
+        401: "unauthorized",
+        403: "forbidden",
+        404: "not_found",
+        409: "conflict",
+        413: "bad_request",
+        422: "unprocessable",
+        500: "internal_error",
+        502: "internal_error",
+        503: "internal_error",
+        504: "internal_error",
+      };
+
+      const messageByStatus: Record<number, string> = {
+        401: "You are not authorized. Please sign in.",
+        403: "You do not have permission to perform this action.",
+        404: "The requested resource was not found.",
+        413: "The uploaded file is too large.",
+        502: "Service temporarily unavailable. Please try again later.",
+        503: "Service temporarily unavailable. Please try again later.",
+        504: "Gateway timeout. Please try again later.",
+      };
+
+      const code = codeByStatus[response.status] || "internal_error";
+      const message =
+        messageByStatus[response.status] ||
+        (response.status >= 500
+          ? "A server error occurred. Please try again later."
+          : `Request failed with status ${response.status}`);
+
+      throw new ApiError({
+        request_id: requestId,
+        error: {
+          code,
+          message,
+        },
+      });
     }
 
     return data as T;

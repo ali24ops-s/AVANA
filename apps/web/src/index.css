@@ -1,34 +1,42 @@
 @import "tailwindcss";
 
 :root {
-  --color-primary: #6366f1;
-  --color-primary-dark: #4f46e5;
-  --color-secondary: #8b5cf6;
-  --color-accent: #06b6d4;
+  /* Palette Specification */
+  --color-primary: #008080;
+  --color-primary-dark: #006666;
+  --color-primary-light: #e6f2f2;
+  --color-secondary: #a7d0e6;
+  --color-secondary-dark: #7cb5d3;
+  --color-secondary-light: #eef6fa;
+  --color-background: #f0e6d2;
   --color-surface: #ffffff;
-  --color-background: #fafafa;
-  --color-text: #0f172a;
-  --color-text-muted: #64748b;
-  --color-border: #e2e8f0;
-  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-  --shadow-lg:
-    0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
-  --shadow-xl:
-    0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+  --color-surface-warm: #f9f5ed;
+  --color-text: #202428;
+  --color-text-muted: #5b6268;
+  --color-border: #ded6c4;
+  --color-border-subtle: #eae3d5;
+
+  --shadow-sm: 0 1px 2px 0 rgb(32 36 40 / 0.05);
+  --shadow-md: 0 4px 6px -1px rgb(32 36 40 / 0.08), 0 2px 4px -2px rgb(32 36 40 / 0.06);
+  --shadow-lg: 0 10px 15px -3px rgb(32 36 40 / 0.08), 0 4px 6px -4px rgb(32 36 40 / 0.05);
+  --shadow-xl: 0 20px 25px -5px rgb(32 36 40 / 0.08), 0 8px 10px -6px rgb(32 36 40 / 0.04);
 }
 
 .dark {
-  --color-surface: #0f172a;
-  --color-background: #020617;
-  --color-text: #f8fafc;
-  --color-text-muted: #94a3b8;
-  --color-border: #1e293b;
+  --color-surface: #1e242b;
+  --color-surface-warm: #181d23;
+  --color-background: #12161a;
+  --color-text: #f0f4f8;
+  --color-text-muted: #9aa5b1;
+  --color-border: #2d3742;
+  --color-border-subtle: #232c35;
 }
 
 * {
   font-family:
+    "Vazirmatn",
     "Inter",
+    system-ui,
     -apple-system,
     BlinkMacSystemFont,
     "Segoe UI",
@@ -41,11 +49,14 @@ body {
   color: var(--color-text);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  direction: rtl;
+  text-align: right;
 }
 
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
@@ -68,7 +79,9 @@ body {
 
 /* Prose styling for rich text content */
 .prose {
-  line-height: 1.75;
+  line-height: 1.85;
+  text-align: right;
+  direction: rtl;
 }
 
 .prose p {
@@ -76,7 +89,7 @@ body {
 }
 
 .prose strong {
-  font-weight: 600;
+  font-weight: 700;
   color: inherit;
 }
 
@@ -92,9 +105,9 @@ body {
 }
 
 .prose th {
-  font-weight: 600;
-  text-align: left;
-  background-color: var(--color-background);
+  font-weight: 700;
+  text-align: right;
+  background-color: var(--color-surface-warm);
 }
 
 /* Smooth transitions for all interactive elements */
@@ -104,10 +117,6 @@ a {
     color, background-color, border-color, box-shadow, transform;
   transition-duration: 150ms;
   transition-timing-function: ease-in-out;
-}
-
-.dark ::-webkit-scrollbar-thumb {
-  background: #334155;
 }
 
 /* Smooth transitions for dark mode */

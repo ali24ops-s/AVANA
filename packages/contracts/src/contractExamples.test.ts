@@ -3,6 +3,8 @@ import type {
   CourseLearnResponse,
   CourseLearnProgress,
   ErrorEnvelope,
+  GeneratedContentResource,
+  GenerateContentResponse,
   LessonResource,
   ModuleResource,
   Pagination,
@@ -74,5 +76,71 @@ describe("contracts (Sprint 1 PR 4) - type examples", () => {
     // Contract uses snake_case field names matching the API serialization.
     expect("module_id" in response.modules[0].lessons[0]).toBe(true);
     expect("sort_order" in response.modules[0]).toBe(true);
+  });
+});
+
+describe("contracts (PR6-4) - generated content type examples", () => {
+  it("models a generated lesson content resource", () => {
+    const content: GeneratedContentResource = {
+      id: "550e8400-e29b-41d4-a716-446655440010",
+      document_id: "550e8400-e29b-41d4-a716-446655440011",
+      course_id: "550e8400-e29b-41d4-a716-446655440012",
+      type: "lesson",
+      status: "draft",
+      payload: {
+        kind: "lesson",
+        title: "Generated Lesson",
+        contentMarkdown: "# Lesson",
+        citationChunkIds: ["550e8400-e29b-41d4-a716-446655440013"],
+      },
+      prompt_version: "v1",
+      model: "mock-1",
+      token_usage: { input_tokens: 45, output_tokens: 120 },
+      citations: [
+        { document_chunk_id: "550e8400-e29b-41d4-a716-446655440013" },
+      ],
+      created_at: "2024-01-01T00:00:00.000Z",
+      updated_at: "2024-01-01T00:00:00.000Z",
+    };
+
+    expect(content.type).toBe("lesson");
+    expect(content.status).toBe("draft");
+    expect(content.payload.kind).toBe("lesson");
+    expect(content.token_usage.output_tokens).toBe(120);
+    expect(content.citations[0].document_chunk_id).toBe(
+      "550e8400-e29b-41d4-a716-446655440013",
+    );
+  });
+
+  it("models a generate content response", () => {
+    const response: GenerateContentResponse = {
+      request_id: "550e8400-e29b-41d4-a716-446655440010",
+      contents: [
+        {
+          id: "550e8400-e29b-41d4-a716-446655440010",
+          document_id: "550e8400-e29b-41d4-a716-446655440011",
+          course_id: "550e8400-e29b-41d4-a716-446655440012",
+          type: "lesson",
+          status: "draft",
+          payload: {
+            kind: "lesson",
+            title: "Generated Lesson",
+            contentMarkdown: "# Lesson",
+            citationChunkIds: [],
+          },
+          prompt_version: "v1",
+          model: "mock-1",
+          token_usage: { input_tokens: 10, output_tokens: 120 },
+          citations: [],
+          created_at: "2024-01-01T00:00:00.000Z",
+          updated_at: "2024-01-01T00:00:00.000Z",
+        },
+      ],
+      document_status: "review_pending",
+    };
+
+    expect(response.contents).toHaveLength(1);
+    expect(response.document_status).toBe("review_pending");
+    expect(response.contents[0].type).toBe("lesson");
   });
 });

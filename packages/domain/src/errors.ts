@@ -11,6 +11,7 @@ export type DomainErrorCode =
   | "not_found"
   | "conflict"
   | "unprocessable"
+  | "rate_limit_exceeded"
   | "internal_error";
 
 export interface DomainErrorDetails {

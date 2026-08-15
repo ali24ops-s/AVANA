@@ -8,9 +8,15 @@
  * on read to match the domain shape expected by in-memory stores.
  */
 
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import type { DbClient } from "@avana/database/client";
-import { modules, lessons, lessonProgress } from "@avana/database/schema";
+import {
+  modules,
+  lessons,
+  lessonProgress,
+  documents,
+  documentChunks,
+} from "@avana/database/schema";
 import type {
   ModuleRecord,
   LessonRecord,
@@ -18,8 +24,20 @@ import type {
   ModuleStore,
   LessonStore,
   ProgressStore,
+  DocumentRecord,
+  DocumentChunkRecord,
+  DocumentStore,
+  DocumentChunkStore,
 } from "./learning-store.js";
-import type { CourseId, LessonId, ModuleId, UserId } from "@avana/domain";
+import type {
+  CourseId,
+  DocumentChunkId,
+  DocumentId,
+  LessonId,
+  ModuleId,
+  OrganizationId,
+  UserId,
+} from "@avana/domain";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -92,6 +110,76 @@ function toProgressRecord(row: {
     completedAt: row.completedAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// AI Learning Engine helpers (PR6-1)
+// ---------------------------------------------------------------------------
+
+function toDocumentRecord(row: {
+  id: string;
+  organizationId: string;
+  courseId: string | null;
+  ownerUserId: string;
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+  sha256: string;
+  storageKey: string;
+  pageCount: number | null;
+  status: string;
+  errorCode: string | null;
+  retryCount: number;
+  createdAt: Date;
+  updatedAt: Date;
+  deletedAt: Date | null;
+}): DocumentRecord {
+  return {
+    id: row.id as DocumentId,
+    organizationId: row.organizationId as OrganizationId,
+    courseId: (row.courseId as CourseId | null) ?? null,
+    ownerUserId: row.ownerUserId as UserId,
+    originalName: row.originalName,
+    mimeType: row.mimeType,
+    sizeBytes: row.sizeBytes,
+    sha256: row.sha256,
+    storageKey: row.storageKey,
+    pageCount: row.pageCount,
+    status: row.status as DocumentRecord["status"],
+    errorCode: row.errorCode,
+    retryCount: row.retryCount,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+    deletedAt: row.deletedAt?.toISOString() ?? null,
+  };
+}
+
+function toDocumentChunkRecord(row: {
+  id: string;
+  documentId: string;
+  organizationId: string;
+  sequence: number;
+  heading: string | null;
+  content: string;
+  startPage: number;
+  endPage: number;
+  tokenEstimate: number;
+  contentHash: string;
+  createdAt: Date;
+}): DocumentChunkRecord {
+  return {
+    id: row.id as DocumentChunkId,
+    documentId: row.documentId as DocumentId,
+    organizationId: row.organizationId as OrganizationId,
+    sequence: row.sequence,
+    heading: row.heading,
+    content: row.content,
+    startPage: row.startPage,
+    endPage: row.endPage,
+    tokenEstimate: row.tokenEstimate,
+    contentHash: row.contentHash,
+    createdAt: row.createdAt.toISOString(),
   };
 }
 
@@ -338,5 +426,257 @@ export class DrizzleProgressStore implements ProgressStore {
       .returning();
 
     return toProgressRecord(row);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// DrizzleDocumentStore
+// ---------------------------------------------------------------------------
+
+export class DrizzleDocumentStore implements DocumentStore {
+  constructor(private readonly db: DbClient) {}
+
+  async findByIdForOrganization(
+    id: DocumentId,
+    organizationId: OrganizationId,
+  ): Promise<DocumentRecord | undefined> {
+    const row = await this.db
+      .select()
+      .from(documents)
+      .where(
+        and(
+          eq(documents.id, id),
+          eq(documents.organizationId, organizationId),
+          isNull(documents.deletedAt),
+        ),
+      )
+      .limit(1)
+      .then((rows) => rows[0]);
+
+    if (!row) return undefined;
+    return toDocumentRecord(row);
+  }
+
+  async findByIdForOwner(
+    id: DocumentId,
+    organizationId: OrganizationId,
+    ownerUserId: UserId,
+  ): Promise<DocumentRecord | undefined> {
+    const row = await this.db
+      .select()
+      .from(documents)
+      .where(
+        and(
+          eq(documents.id, id),
+          eq(documents.organizationId, organizationId),
+          eq(documents.ownerUserId, ownerUserId),
+          isNull(documents.deletedAt),
+        ),
+      )
+      .limit(1)
+      .then((rows) => rows[0]);
+
+    if (!row) return undefined;
+    return toDocumentRecord(row);
+  }
+
+  async listByOrganization(
+    organizationId: OrganizationId,
+    courseId?: CourseId,
+  ): Promise<DocumentRecord[]> {
+    const conditions = [
+      eq(documents.organizationId, organizationId),
+      isNull(documents.deletedAt),
+    ];
+    if (courseId) {
+      conditions.push(eq(documents.courseId, courseId));
+    }
+
+    const rows = await this.db
+      .select()
+      .from(documents)
+      .where(and(...conditions))
+      .orderBy(asc(documents.createdAt));
+
+    return rows.map(toDocumentRecord);
+  }
+
+  async listByOwner(
+    organizationId: OrganizationId,
+    ownerUserId: UserId,
+  ): Promise<DocumentRecord[]> {
+    const rows = await this.db
+      .select()
+      .from(documents)
+      .where(
+        and(
+          eq(documents.organizationId, organizationId),
+          eq(documents.ownerUserId, ownerUserId),
+          isNull(documents.deletedAt),
+        ),
+      )
+      .orderBy(asc(documents.createdAt));
+
+    return rows.map(toDocumentRecord);
+  }
+
+  async findByOrganizationAndSha256(
+    organizationId: OrganizationId,
+    sha256: string,
+  ): Promise<DocumentRecord | undefined> {
+    const row = await this.db
+      .select()
+      .from(documents)
+      .where(
+        and(
+          eq(documents.organizationId, organizationId),
+          eq(documents.sha256, sha256),
+          isNull(documents.deletedAt),
+        ),
+      )
+      .limit(1)
+      .then((rows) => rows[0]);
+
+    if (!row) return undefined;
+    return toDocumentRecord(row);
+  }
+
+  async create(document: DocumentRecord): Promise<DocumentRecord> {
+    const existing = await this.db
+      .select()
+      .from(documents)
+      .where(
+        and(
+          eq(documents.organizationId, document.organizationId),
+          eq(documents.sha256, document.sha256),
+        ),
+      )
+      .limit(1)
+      .then((rows) => rows[0]);
+
+    if (existing && existing.deletedAt) {
+      await this.db
+        .delete(documents)
+        .where(eq(documents.id, existing.id));
+    }
+
+    const [row] = await this.db
+      .insert(documents)
+      .values({
+        id: document.id,
+        organizationId: document.organizationId,
+        courseId: document.courseId,
+        ownerUserId: document.ownerUserId,
+        originalName: document.originalName,
+        mimeType: document.mimeType,
+        sizeBytes: document.sizeBytes,
+        sha256: document.sha256,
+        storageKey: document.storageKey,
+        pageCount: document.pageCount,
+        status: document.status,
+        errorCode: document.errorCode,
+        retryCount: document.retryCount,
+        createdAt: new Date(document.createdAt),
+        updatedAt: new Date(document.updatedAt),
+        deletedAt: null,
+      })
+      .returning();
+
+    return toDocumentRecord(row);
+  }
+
+  async update(document: DocumentRecord): Promise<DocumentRecord> {
+    const [row] = await this.db
+      .update(documents)
+      .set({
+        courseId: document.courseId,
+        pageCount: document.pageCount,
+        status: document.status,
+        errorCode: document.errorCode,
+        retryCount: document.retryCount,
+        updatedAt: new Date(document.updatedAt),
+      })
+      .where(eq(documents.id, document.id))
+      .returning();
+
+    return toDocumentRecord(row);
+  }
+
+  async delete(documentId: DocumentId): Promise<void> {
+    await this.db
+      .update(documents)
+      .set({ deletedAt: new Date() })
+      .where(eq(documents.id, documentId));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// DrizzleDocumentChunkStore
+// ---------------------------------------------------------------------------
+
+export class DrizzleDocumentChunkStore implements DocumentChunkStore {
+  constructor(private readonly db: DbClient) {}
+
+  async listByDocument(documentId: DocumentId): Promise<DocumentChunkRecord[]> {
+    const rows = await this.db
+      .select()
+      .from(documentChunks)
+      .where(eq(documentChunks.documentId, documentId))
+      .orderBy(asc(documentChunks.sequence));
+
+    return rows.map(toDocumentChunkRecord);
+  }
+
+  async findByIdForOrganization(
+    id: DocumentChunkId,
+    organizationId: OrganizationId,
+  ): Promise<DocumentChunkRecord | undefined> {
+    const row = await this.db
+      .select()
+      .from(documentChunks)
+      .where(
+        and(
+          eq(documentChunks.id, id),
+          eq(documentChunks.organizationId, organizationId),
+        ),
+      )
+      .limit(1)
+      .then((rows) => rows[0]);
+
+    if (!row) return undefined;
+    return toDocumentChunkRecord(row);
+  }
+
+  async createMany(
+    chunks: DocumentChunkRecord[],
+  ): Promise<DocumentChunkRecord[]> {
+    if (chunks.length === 0) return [];
+
+    const rows = await this.db
+      .insert(documentChunks)
+      .values(
+        chunks.map((chunk) => ({
+          id: chunk.id,
+          documentId: chunk.documentId,
+          organizationId: chunk.organizationId,
+          sequence: chunk.sequence,
+          heading: chunk.heading ? chunk.heading.replace(/\0/g, "") : null,
+          content: chunk.content.replace(/\0/g, ""),
+          startPage: chunk.startPage,
+          endPage: chunk.endPage,
+          tokenEstimate: chunk.tokenEstimate,
+          contentHash: chunk.contentHash,
+          createdAt: new Date(chunk.createdAt),
+        })),
+      )
+      .returning();
+
+    return rows.map(toDocumentChunkRecord);
+  }
+
+  async deleteByDocument(documentId: DocumentId): Promise<void> {
+    await this.db
+      .delete(documentChunks)
+      .where(eq(documentChunks.documentId, documentId));
   }
 }

@@ -48,6 +48,8 @@ const allActions: AuthAction[] = [
   "progress:read",
   "content:write",
   "content:publish",
+  "document:upload",
+  "document:read",
 ];
 
 describe("RoleBasedPolicy", () => {

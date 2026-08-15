@@ -35,6 +35,13 @@ import { DomainError } from "../errors.js";
  * - learning:read — view course learning structure and lesson content
  * - progress:write — mark a lesson as complete/incomplete (self only)
  * - progress:read — view own progress
+ *
+ * PR6-4 (AI generation) adds:
+ * - content:generate — propose AI-generated content drafts
+ * - content:review — list/read generated content drafts
+ * - content:accept — accept a draft (future PR)
+ * - content:reject — reject a draft (future PR)
+ * - content:regenerate — regenerate a draft (future PR)
  */
 export type AuthAction =
   | "org:create"
@@ -53,7 +60,18 @@ export type AuthAction =
   | "progress:write"
   | "progress:read"
   | "content:write"
-  | "content:publish";
+  | "content:publish"
+  | "document:upload"
+  | "document:read"
+  | "content:generate"
+  | "content:review"
+  | "content:accept"
+  | "content:reject"
+  | "content:regenerate"
+  | "content:edit"
+  | "flashcard:review"
+  | "quiz:attempt"
+  | "study:read";
 
 // ---------------------------------------------------------------------------
 // Actor
@@ -136,6 +154,12 @@ export interface AuthorizationPolicy {
  * | progress:read             | ✓       | ✓             | ✓         |
  * | content:write             | ✗       | ✓             | ✓         |
  * | content:publish           | ✗       | ✓             | ✓         |
+ * | content:generate          | ✓       | ✓             | ✓         |
+ * | content:review            | ✓       | ✓             | ✓         |
+ * | content:accept            | ✗       | ✓             | ✓         |
+ * | content:reject            | ✗       | ✓             | ✓         |
+ * | content:regenerate        | ✗       | ✓             | ✓         |
+ * | content:edit              | ✗       | ✓             | ✓         |
  *
  * org:create is handled specially — any authenticated user can create
  * an organization (they become the admin).
@@ -143,6 +167,10 @@ export interface AuthorizationPolicy {
  * Sprint 2 note: progress:write and progress:read are always scoped to
  * the requesting user. One student cannot modify another student's progress.
  * This is enforced at the route/service layer, not the policy layer.
+ *
+ * PR6-4 note: ownership scoping for generated content is enforced at the
+ * service layer (matching the existing findByIdForOwner pattern); the policy
+ * layer only grants the action to the supported roles.
  */
 export class RoleBasedPolicy implements AuthorizationPolicy {
   private readonly rolePermissions: Map<Role, Set<AuthAction>>;
@@ -161,6 +189,13 @@ export class RoleBasedPolicy implements AuthorizationPolicy {
         "learning:read",
         "progress:write",
         "progress:read",
+        "document:upload",
+        "document:read",
+        "content:generate",
+        "content:review",
+        "flashcard:review",
+        "quiz:attempt",
+        "study:read",
       ]),
     );
 
@@ -178,6 +213,17 @@ export class RoleBasedPolicy implements AuthorizationPolicy {
         "progress:read",
         "content:write",
         "content:publish",
+        "document:upload",
+        "document:read",
+        "content:generate",
+        "content:review",
+        "content:accept",
+        "content:reject",
+        "content:regenerate",
+        "content:edit",
+        "flashcard:review",
+        "quiz:attempt",
+        "study:read",
       ]),
     );
 
@@ -200,6 +246,17 @@ export class RoleBasedPolicy implements AuthorizationPolicy {
         "progress:read",
         "content:write",
         "content:publish",
+        "document:upload",
+        "document:read",
+        "content:generate",
+        "content:review",
+        "content:accept",
+        "content:reject",
+        "content:regenerate",
+        "content:edit",
+        "flashcard:review",
+        "quiz:attempt",
+        "study:read",
       ]),
     );
 

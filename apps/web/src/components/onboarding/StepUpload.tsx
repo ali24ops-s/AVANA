@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 import { motion } from "framer-motion";
-import { Upload, FileText, X, ArrowRight, Sparkles } from "lucide-react";
+import { Upload, FileText, X, ArrowLeft, Sparkles } from "lucide-react";
 
 export function StepUpload() {
   const [isDragOver, setIsDragOver] = useState(false);
@@ -20,7 +20,6 @@ export function StepUpload() {
     e.preventDefault();
     setIsDragOver(false);
 
-    // Simulate file handling
     if (e.dataTransfer.files.length > 0) {
       const newFileNames = Array.from(e.dataTransfer.files).map((f) => f.name);
       setFiles((prev) => [...prev, ...newFileNames]);
@@ -28,16 +27,18 @@ export function StepUpload() {
   }, []);
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8" dir="rtl">
       {/* Header */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         className="text-center space-y-3"
       >
-        <h2 className="text-3xl font-bold">Upload Your Lecture</h2>
-        <p className="text-lg text-[var(--color-text-muted)]">
-          Drag & drop your PDF slides or click to browse.
+        <h2 className="text-2xl sm:text-3xl font-black text-[var(--color-text)]">
+          بارگذاری جزوه یا اسلایدهای درسی
+        </h2>
+        <p className="text-sm sm:text-base text-[var(--color-text-muted)] leading-relaxed">
+          فایل‌های PDF جزوات و اسلایدهای درسی خود را برای ساخت بسته یادگیری هوشمند بارگذاری کنید.
         </p>
       </motion.div>
 
@@ -52,23 +53,23 @@ export function StepUpload() {
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
           animate={{
-            borderColor: isDragOver ? "#6366f1" : undefined,
+            borderColor: isDragOver ? "#008080" : undefined,
             backgroundColor: isDragOver
-              ? "rgba(99, 102, 241, 0.05)"
+              ? "rgba(0, 128, 128, 0.08)"
               : undefined,
-            scale: isDragOver ? 1.02 : 1,
+            scale: isDragOver ? 1.01 : 1,
           }}
-          className={`relative border-2 border-dashed rounded-2xl p-12 text-center cursor-pointer transition-colors ${
+          className={`relative border-2 border-dashed rounded-3xl p-10 text-center cursor-pointer transition-colors ${
             isDragOver
-              ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-950/30"
-              : "border-[var(--color-border)] hover:border-[var(--color-text-muted)]"
+              ? "border-[#008080] bg-[#008080]/10"
+              : "border-[var(--color-border)] hover:border-[#008080] bg-[var(--color-surface)]"
           }`}
           onClick={() => document.getElementById("file-upload")?.click()}
         >
           <input
             id="file-upload"
             type="file"
-            accept=".pdf,.pptx,.ppt"
+            accept=".pdf,.pptx,.ppt,.docx"
             multiple
             className="hidden"
             onChange={(e) => {
@@ -84,28 +85,26 @@ export function StepUpload() {
           {/* Upload Icon */}
           <motion.div
             animate={{ y: isDragOver ? -5 : 0 }}
-            className="mb-6 inline-block"
+            className="mb-4 inline-block"
           >
             <div
-              className={`w-20 h-20 rounded-full mx-auto flex items-center justify-center ${
+              className={`w-16 h-16 rounded-2xl mx-auto flex items-center justify-center ${
                 isDragOver
-                  ? "bg-indigo-100 dark:bg-indigo-900"
-                  : "bg-[var(--color-background)]"
+                  ? "bg-[#a7d0e6]/40 text-[#008080]"
+                  : "bg-[#a7d0e6]/25 text-[#008080]"
               }`}
             >
-              <Upload
-                className={`w-10 h-10 ${isDragOver ? "text-indigo-500" : "text-[var(--color-text-muted)]"}`}
-              />
+              <Upload className="w-8 h-8" />
             </div>
           </motion.div>
 
-          <p className="text-lg font-semibold mb-2">
+          <p className="text-base font-bold text-[var(--color-text)] mb-1">
             {isDragOver
-              ? "Drop your files here"
-              : "Drop files here or click to upload"}
+              ? "فایل‌ها را اینجا رها کنید"
+              : "فایل‌ها را به این قسمت بکشید یا برای انتخاب کلیک کنید"}
           </p>
-          <p className="text-[var(--color-text-muted)]">
-            Supports PDF, PPT, PPTX • Max 10MB each
+          <p className="text-xs text-[var(--color-text-muted)] font-mono" dir="ltr">
+            پشتیبانی از PDF، PPTX، DOCX تا حداکثر ۵۰ مگابایت
           </p>
         </motion.div>
 
@@ -121,19 +120,23 @@ export function StepUpload() {
                 key={`${fileName}-${index}`}
                 initial={{ opacity: 0, x: -20 }}
                 animate={{ opacity: 1, x: 0 }}
-                className="flex items-center gap-3 p-4 bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)]"
+                className="flex items-center gap-3 p-3.5 bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)]"
               >
-                <div className="w-10 h-10 rounded-lg bg-red-100 dark:bg-red-900/30 flex items-center justify-center flex-shrink-0">
+                <div className="w-9 h-9 rounded-xl bg-red-100 dark:bg-red-900/30 flex items-center justify-center flex-shrink-0">
                   <FileText className="w-5 h-5 text-red-500" />
                 </div>
-                <span className="font-medium truncate">{fileName}</span>
+                <span className="font-semibold text-xs text-[var(--color-text)] truncate" dir="ltr">
+                  {fileName}
+                </span>
                 <button
-                  onClick={() =>
-                    setFiles((prev) => prev.filter((_, i) => i !== index))
-                  }
-                  className="ml-auto p-1 rounded hover:bg-[var(--color-border)] transition-colors"
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setFiles((prev) => prev.filter((_, i) => i !== index));
+                  }}
+                  className="mr-auto p-1.5 rounded-lg hover:bg-[var(--color-surface-warm)] transition-colors text-[var(--color-text-muted)] hover:text-red-500"
                 >
-                  <X className="w-4 h-4 text-[var(--color-text-muted)]" />
+                  <X className="w-4 h-4" />
                 </button>
               </motion.div>
             ))}
@@ -146,36 +149,40 @@ export function StepUpload() {
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.3 }}
-        className="bg-[var(--color-surface)] rounded-2xl p-6 border border-[var(--color-border)]"
+        className="bg-[var(--color-surface)] rounded-3xl p-6 border border-[var(--color-border)] space-y-4 shadow-sm"
       >
-        <div className="flex items-center gap-2 mb-4">
-          <Sparkles className="w-5 h-5 text-indigo-500" />
-          <span className="font-semibold">What happens next</span>
+        <div className="flex items-center gap-2">
+          <Sparkles className="w-4 h-4 text-[#008080]" />
+          <span className="font-bold text-sm text-[var(--color-text)]">
+            مراحل تولید بسته یادگیری
+          </span>
         </div>
 
-        <div className="grid sm:grid-cols-3 gap-4 text-sm">
+        <div className="grid sm:grid-cols-3 gap-3 text-xs">
           {[
             {
-              icon: "🧠",
-              label: "AI analyzes content",
-              desc: "Extracts key concepts",
+              step: "۱",
+              label: "استخراج و تحلیل محتوا",
+              desc: "خواندن متن و شناسایی سرفصل‌ها",
             },
             {
-              icon: "📝",
-              label: "Creates materials",
-              desc: "Lessons, flashcards, quizzes",
+              step: "۲",
+              label: "تولید مواد آموزشی",
+              desc: "ایجاد درس‌ها، فلش‌کارت‌ها و آزمون‌ها",
             },
             {
-              icon: "🎯",
-              label: "Your workspace ready",
-              desc: "Start studying immediately",
+              step: "۳",
+              label: "شروع مطالعه هدفمند",
+              desc: "مرور تعاملی و ثبت پیشرفت",
             },
           ].map((item) => (
-            <div key={item.label} className="flex items-start gap-3">
-              <span className="text-xl">{item.icon}</span>
+            <div key={item.label} className="flex items-start gap-2.5 p-3 rounded-2xl bg-[var(--color-surface-warm)] border border-[var(--color-border)]">
+              <span className="w-6 h-6 rounded-lg bg-[#008080] text-white flex items-center justify-center font-bold text-xs flex-shrink-0">
+                {item.step}
+              </span>
               <div>
-                <p className="font-medium">{item.label}</p>
-                <p className="text-[var(--color-text-muted)]">{item.desc}</p>
+                <p className="font-bold text-[var(--color-text)]">{item.label}</p>
+                <p className="text-[var(--color-text-muted)] text-[11px] mt-0.5">{item.desc}</p>
               </div>
             </div>
           ))}
@@ -189,29 +196,24 @@ export function StepUpload() {
         transition={{ delay: 0.4 }}
         whileHover={{
           scale: 1.01,
-          boxShadow: "0 20px 40px -15px rgba(99, 102, 241, 0.5)",
         }}
         whileTap={{ scale: 0.99 }}
         disabled={files.length === 0}
-        className={`w-full py-5 rounded-2xl font-semibold text-xl flex items-center justify-center gap-3 shadow-xl transition-all ${
+        className={`w-full py-4 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-md transition-all ${
           files.length > 0
-            ? "bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-indigo-500/25 cursor-pointer"
+            ? "bg-[#008080] hover:bg-[#006666] text-white cursor-pointer"
             : "bg-[var(--color-border)] text-[var(--color-text-muted)] cursor-not-allowed"
         }`}
       >
         {files.length > 0 ? (
           <>
-            Generate Study Materials
-            <ArrowRight className="w-6 h-6" />
+            <span>تولید محتوای آموزشی و شروع یادگیری</span>
+            <ArrowLeft className="w-4 h-4" />
           </>
         ) : (
-          "Select a file to continue"
+          "برای ادامه یک فایل انتخاب کنید"
         )}
       </motion.button>
-
-      <p className="text-center text-xs text-[var(--color-text-muted)]">
-        By uploading, you agree to our Terms of Service and Privacy Policy
-      </p>
     </div>
   );
 }

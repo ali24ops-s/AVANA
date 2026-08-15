@@ -1,11 +1,5 @@
 /**
  * Authenticated Shell tests.
- *
- * Tests:
- *  - Authenticated shell rendering with user info
- *  - Loading state display
- *  - Sign-out button visibility
- *  - Navigation links
  */
 
 import { describe, expect, it, vi, beforeEach } from "vitest";
@@ -35,8 +29,6 @@ function renderWithProviders(ui: ReactNode) {
   );
 }
 
-// Helper to get the last matching element (handles React 19 double-render)
-
 describe("AuthenticatedShell", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -53,7 +45,7 @@ describe("AuthenticatedShell", () => {
       </AuthProvider>,
     );
 
-    expect(screen.getByText("Loading your account...")).toBeInTheDocument();
+    expect(screen.getByText("در حال بارگذاری حساب کاربری...")).toBeInTheDocument();
   });
 
   it("renders user email from /v1/me on success", async () => {
@@ -108,7 +100,8 @@ describe("AuthenticatedShell", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("Courses")).toBeInTheDocument();
+      expect(screen.getByText("دوره‌ها")).toBeInTheDocument();
+      expect(screen.getByText("خانه")).toBeInTheDocument();
     });
   });
 
@@ -136,8 +129,7 @@ describe("AuthenticatedShell", () => {
     );
 
     await waitFor(() => {
-      // Use getAllByText since React 19 may produce duplicates
-      const buttons = screen.getAllByText("Sign out");
+      const buttons = screen.getAllByText("خروج");
       expect(buttons.length).toBeGreaterThanOrEqual(1);
     });
   });

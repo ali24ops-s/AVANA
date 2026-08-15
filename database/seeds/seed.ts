@@ -22,6 +22,11 @@ function localConnectionString(): string {
 const connectionString = process.env.DATABASE_URL ?? localConnectionString();
 
 async function main() {
+  if (process.env.NODE_ENV === "production") {
+    console.error("ERROR: Development seed script must NOT be run in production.");
+    process.exit(1);
+  }
+
   const { db, close } = createDbClient(connectionString);
 
   try {

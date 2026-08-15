@@ -24,9 +24,28 @@ import {
   DrizzleModuleStore,
   DrizzleLessonStore,
   DrizzleProgressStore,
+  DrizzleDocumentStore,
+  DrizzleDocumentChunkStore,
 } from "../modules/learning/drizzle-stores.js";
+import {
+  DrizzleGeneratedContentStore,
+  DrizzleGeneratedContentCitationStore,
+  DrizzleGenerationJobStore,
+} from "../modules/generation/drizzle-stores.js";
+import {
+  DrizzleFlashcardStore,
+  DrizzleFlashcardReviewStore,
+  DrizzleQuizStore,
+  DrizzleQuizQuestionStore,
+  DrizzleQuizAttemptStore,
+} from "../modules/study/drizzle-stores.js";
+import {
+  createModelGateway,
+  BullMqGenerationQueue,
+} from "../modules/generation/index.js";
 import { DrizzleAuditStore } from "../observability/drizzle-stores.js";
 import { AuditService } from "../observability/audit-service.js";
+import { LocalStorageProvider } from "../modules/storage/index.js";
 import { seedLocalDevData } from "../dev/seed.js";
 import type { V1RouteOptions } from "../routes/v1.js";
 import type { ApiConfig } from "../config.js";
@@ -197,6 +216,39 @@ export async function composeProduction(
   const moduleStore = new DrizzleModuleStore(db);
   const lessonStore = new DrizzleLessonStore(db);
   const progressStore = new DrizzleProgressStore(db);
+  const documentStore = new DrizzleDocumentStore(db);
+  const documentChunkStore = new DrizzleDocumentChunkStore(db);
+
+  // AI generation stores + gateway (mock provider in this PR).
+  const generatedContentStore = new DrizzleGeneratedContentStore(db);
+  const generatedContentCitationStore =
+    new DrizzleGeneratedContentCitationStore(db);
+  const generationJobStore = new DrizzleGenerationJobStore(db);
+  const gateway = createModelGateway({
+    provider: config.generation.aiProvider,
+    geminiApiKey: config.generation.geminiApiKey,
+    geminiModel: config.generation.geminiModel,
+  });
+
+  // BullMQ generation queue (Redis-backed producer).
+  const queue = new BullMqGenerationQueue({
+    jobStore: generationJobStore,
+    connection: { url: config.redis.url },
+    queueName: config.generation.queueName,
+  });
+
+  // Local filesystem storage for document uploads (dev/single-node).
+  const storageProvider = new LocalStorageProvider(
+    config.storage.local.directory,
+  );
+
+  // Study stores (PR6-7)
+  const flashcardStore = new DrizzleFlashcardStore(db);
+  const flashcardReviewStore = new DrizzleFlashcardReviewStore(db);
+  const quizStore = new DrizzleQuizStore(db);
+  const quizQuestionStore = new DrizzleQuizQuestionStore(db);
+  const quizAttemptStore = new DrizzleQuizAttemptStore(db);
+
   const auditStore = new DrizzleAuditStore(db);
   const auditService = new AuditService(auditStore);
 
@@ -209,6 +261,19 @@ export async function composeProduction(
     moduleStore,
     lessonStore,
     progressStore,
+    documentStore,
+    documentChunkStore,
+    storageProvider,
+    generatedContentStore,
+    generatedContentCitationStore,
+    generationJobStore,
+    queue,
+    gateway,
+    flashcardStore,
+    flashcardReviewStore,
+    quizStore,
+    quizQuestionStore,
+    quizAttemptStore,
     auditService,
   };
 

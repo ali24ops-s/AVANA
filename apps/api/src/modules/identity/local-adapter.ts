@@ -24,7 +24,9 @@ export class LocalIdentityAdapter implements IdentityAdapter {
    * @param allowedDomains - Email domains that are considered verified.
    *                         Defaults to ["example.com"] in test mode.
    */
-  constructor(private readonly allowedDomains: string[] = ["example.com"]) {}
+  constructor(
+    private readonly allowedDomains: string[] = ["example.com", "avana.dev"],
+  ) {}
 
   async verifyIdentity(
     credentials: AuthenticationCredentials,

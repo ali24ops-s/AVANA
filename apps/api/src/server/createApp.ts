@@ -1,5 +1,6 @@
 import fastify from "fastify";
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
+import multipart from "@fastify/multipart";
 import type pino from "pino";
 import type { ApiConfig } from "../config.js";
 import { requestIdPlugin } from "../http/requestId.js";
@@ -95,6 +96,14 @@ export function createApp({
   // Register global security middleware (Helmet, CORS, rate-limit)
   void app.register(securityPlugin, { config });
 
+  // Register multipart parsing for document uploads (max 50 MB).
+  void app.register(multipart, {
+    limits: {
+      fileSize: 50 * 1024 * 1024,
+      files: 1,
+    },
+  });
+
   // Apply error handler directly on the root app (not as a child plugin)
   // so it catches errors from ALL child contexts and plugins.
   app.setErrorHandler(
@@ -112,7 +121,23 @@ export function createApp({
         return;
       }
 
+      const fastifyStatus = (err as { statusCode?: number }).statusCode;
+      if (fastifyStatus && fastifyStatus >= 400 && fastifyStatus < 500) {
+        writeErrorEnvelope(
+          reply,
+          request,
+          "bad_request",
+          err.message,
+          fastifyStatus,
+        );
+        return;
+      }
+
       // Fallback for unknown errors.
+      request.log?.error(err);
+      if (config.nodeEnv !== "production") {
+        process.stderr.write(`[unhandled-error] ${err?.stack || err?.message || String(err)}\n`);
+      }
       writeErrorEnvelope(
         reply,
         request,

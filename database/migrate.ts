@@ -1,0 +1,57 @@
+/* eslint-disable no-console */
+import { createDbClient } from "./client.js";
+import { up as up0001 } from "./migrations/0001_init.js";
+import { up as up0002 } from "./migrations/0002_auth.js";
+import { up as up0003 } from "./migrations/0003_learning_core.js";
+import { up as up0004 } from "./migrations/0004_lesson_publication.js";
+import { up as up0005 } from "./migrations/0005_ai_learning_engine.js";
+import { up as up0006 } from "./migrations/0006_generation_idempotency.js";
+import { up as up0007 } from "./migrations/0007_generation_jobs.js";
+import { up as up0008 } from "./migrations/0008_content_review.js";
+import { up as up0009 } from "./migrations/0009_study_consumption.js";
+
+function localConnectionString(): string {
+  const user = "avana";
+  const password = "avana";
+  const host = "127.0.0.1";
+  const port = "5432";
+  const db = "avana";
+  return `postgres://${user}:${password}@${host}:${port}/${db}`;
+}
+
+const connectionString = process.env.DATABASE_URL ?? localConnectionString();
+
+async function runMigrations() {
+  console.log("Running AVANA database migrations...");
+  const { db, close } = createDbClient(connectionString);
+
+  try {
+    console.log("Applying 0001_init...");
+    await up0001(db);
+    console.log("Applying 0002_auth...");
+    await up0002(db);
+    console.log("Applying 0003_learning_core...");
+    await up0003(db);
+    console.log("Applying 0004_lesson_publication...");
+    await up0004(db);
+    console.log("Applying 0005_ai_learning_engine...");
+    await up0005(db);
+    console.log("Applying 0006_generation_idempotency...");
+    await up0006(db);
+    console.log("Applying 0007_generation_jobs...");
+    await up0007(db);
+    console.log("Applying 0008_content_review...");
+    await up0008(db);
+    console.log("Applying 0009_study_consumption...");
+    await up0009(db);
+
+    console.log("All database migrations applied successfully.");
+  } catch (error) {
+    console.error("Migration failed:", error);
+    process.exit(1);
+  } finally {
+    await close();
+  }
+}
+
+runMigrations();

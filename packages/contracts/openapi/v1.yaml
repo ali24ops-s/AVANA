@@ -761,6 +761,974 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /v1/organizations/{organizationId}/documents/upload-intent:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+    post:
+      operationId: createDocumentUploadIntent
+      summary: Begin a document upload (validate metadata, return storage intent)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UploadIntentRequest"
+      responses:
+        "200":
+          description: Upload intent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadIntentResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Role does not permit document uploads
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Organization not found or not visible to the actor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /v1/organizations/{organizationId}/documents:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+    get:
+      operationId: listDocuments
+      summary: List the actor's uploaded documents within an organization
+      responses:
+        "200":
+          description: Document list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentListResponse"
+        "401":
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Organization not found or not visible to the actor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    post:
+      operationId: uploadDocument
+      summary: Upload a document (multipart) and persist file + metadata
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                course_id:
+                  type: string
+                  format: uuid
+      responses:
+        "200":
+          description: Duplicate upload — existing document returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfirmUploadResponse"
+        "201":
+          description: Uploaded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfirmUploadResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Role does not permit document uploads
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Organization not found or not visible to the actor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /v1/organizations/{organizationId}/documents/{documentId}:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+      - $ref: "#/components/parameters/DocumentId"
+    get:
+      operationId: getDocument
+      summary: Get a single document (org-scoped, non-disclosing 404)
+      responses:
+        "200":
+          description: Document
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentGetResponse"
+        "400":
+          description: Invalid ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Document not found or not visible to the actor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: deleteDocument
+      summary: Soft-delete a document and remove its file
+      responses:
+        "204":
+          description: Deleted (no content)
+        "400":
+          description: Invalid ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Document not found or not visible to the actor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /v1/organizations/{organizationId}/documents/{documentId}/extract:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+      - $ref: "#/components/parameters/DocumentId"
+    post:
+      operationId: extractDocument
+      summary: Trigger text extraction for a document (worker-ready)
+      responses:
+        "200":
+          description: Extraction triggered; current status returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentStatusResponse"
+        "400":
+          description: Invalid ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Document not found or not visible to the actor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /v1/organizations/{organizationId}/documents/{documentId}/status:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+      - $ref: "#/components/parameters/DocumentId"
+    get:
+      operationId: getDocumentStatus
+      summary: Get extraction lifecycle state, page/chunk counts, errors, and retries
+      responses:
+        "200":
+          description: Extraction status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentStatusResponse"
+        "400":
+          description: Invalid ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Document not found or not visible to the actor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /v1/organizations/{organizationId}/courses/{courseId}/documents/{documentId}/generate:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+      - $ref: "#/components/parameters/CourseId"
+      - $ref: "#/components/parameters/DocumentId"
+    post:
+      operationId: generateContent
+      summary: Synchronously generate AI content drafts for a document (mock provider, PR6-4)
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenerateContentRequest"
+      responses:
+        "200":
+          description: Generated content drafts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenerateContentResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Role does not permit content generation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Document not found or not visible to the actor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Document is not in a generatable state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /v1/organizations/{organizationId}/courses/{courseId}/documents/{documentId}/generated:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+      - $ref: "#/components/parameters/CourseId"
+      - $ref: "#/components/parameters/DocumentId"
+    get:
+      operationId: listGeneratedContent
+      summary: List generated content drafts + citations for a document
+      responses:
+        "200":
+          description: Generated content list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeneratedContentListResponse"
+        "400":
+          description: Invalid ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Role does not permit content review
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Document not found or not visible to the actor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /v1/organizations/{organizationId}/courses/{courseId}/documents/{documentId}/generated/{contentId}:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+      - $ref: "#/components/parameters/CourseId"
+      - $ref: "#/components/parameters/DocumentId"
+      - $ref: "#/components/parameters/GeneratedContentId"
+    get:
+      operationId: getGeneratedContent
+      summary: Get a single generated content with citations
+      responses:
+        "200":
+          description: Generated content
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeneratedContentResponse"
+        "400":
+          description: Invalid ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Role does not permit content review
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Generated content not found or not visible to the actor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /v1/organizations/{organizationId}/courses/{courseId}/generated/review-queue:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+      - $ref: "#/components/parameters/CourseId"
+    get:
+      operationId: getGeneratedReviewQueue
+      summary: List AI-generated content pending review for a course (draft/edited)
+      responses:
+        "200":
+          description: Review queue
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewQueueResponse"
+        "400":
+          description: Invalid ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Role does not permit content review
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Course not found or not visible to the actor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /v1/organizations/{organizationId}/courses/{courseId}/generated/{contentId}:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+      - $ref: "#/components/parameters/CourseId"
+      - $ref: "#/components/parameters/GeneratedContentId"
+    get:
+      operationId: getGeneratedContentForReview
+      summary: Get a single generated content with citations, source chunks, metadata, and generation info for review
+      responses:
+        "200":
+          description: Generated content review view
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeneratedContentReviewResource"
+        "400":
+          description: Invalid ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Role does not permit content review
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Generated content not found or not visible to the actor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    patch:
+      operationId: editGeneratedContent
+      summary: Edit a generated content before acceptance (editor modification)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EditGeneratedContentRequest"
+      responses:
+        "200":
+          description: Edited generated content
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeneratedContentReviewResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Role does not permit content editing
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Generated content not found or not visible to the actor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Content is not in an editable state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /v1/organizations/{organizationId}/courses/{courseId}/generated/{contentId}/accept:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+      - $ref: "#/components/parameters/CourseId"
+      - $ref: "#/components/parameters/GeneratedContentId"
+    post:
+      operationId: acceptGeneratedContent
+      summary: Accept a generated content (draft → accepted). Materializes a lesson into the Learning Core.
+      responses:
+        "200":
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AcceptContentResponse"
+        "401":
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Role does not permit content acceptance
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Generated content not found or not visible to the actor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Content is not in an acceptable state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /v1/organizations/{organizationId}/courses/{courseId}/generated/{contentId}/reject:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+      - $ref: "#/components/parameters/CourseId"
+      - $ref: "#/components/parameters/GeneratedContentId"
+    post:
+      operationId: rejectGeneratedContent
+      summary: Reject a generated content (draft/edited → rejected). Requires a rejection reason.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RejectContentRequest"
+      responses:
+        "200":
+          description: Rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RejectContentResponse"
+        "400":
+          description: Rejection reason is required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Role does not permit content rejection
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Generated content not found or not visible to the actor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Content is not in a rejectable state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /v1/organizations/{organizationId}/courses/{courseId}/generated/{contentId}/regenerate:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+      - $ref: "#/components/parameters/CourseId"
+      - $ref: "#/components/parameters/GeneratedContentId"
+    post:
+      operationId: regenerateGeneratedContent
+      summary: Request async regeneration of a generated content
+      responses:
+        "202":
+          description: Regeneration accepted (async job)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegenerateContentResponse"
+        "401":
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Role does not permit content regeneration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Generated content not found or not visible to the actor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Content is already being regenerated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /v1/organizations/{organizationId}/courses/{courseId}/flashcards:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+      - $ref: "#/components/parameters/CourseId"
+    get:
+      operationId: listFlashcards
+      summary: List all flashcards for a course and due count
+      responses:
+        "200":
+          description: List of flashcards
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FlashcardListResponse"
+        "401":
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Organization or course not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /v1/organizations/{organizationId}/courses/{courseId}/flashcards/review-queue:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+      - $ref: "#/components/parameters/CourseId"
+    get:
+      operationId: listFlashcardsForReview
+      summary: List due flashcards for spaced-repetition review
+      responses:
+        "200":
+          description: Due flashcards
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FlashcardReviewQueueResponse"
+        "401":
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Organization or course not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /v1/organizations/{organizationId}/courses/{courseId}/flashcards/{flashcardId}/review:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+      - $ref: "#/components/parameters/CourseId"
+      - $ref: "#/components/parameters/FlashcardId"
+    post:
+      operationId: submitFlashcardReview
+      summary: Submit a flashcard review rating
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmitFlashcardReviewRequest"
+      responses:
+        "200":
+          description: Review submitted successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubmitFlashcardReviewResponse"
+        "400":
+          description: Invalid input or rating
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Flashcard not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /v1/organizations/{organizationId}/courses/{courseId}/quizzes:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+      - $ref: "#/components/parameters/CourseId"
+    get:
+      operationId: listQuizzes
+      summary: List published quizzes for a course
+      responses:
+        "200":
+          description: List of quizzes
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuizListResponse"
+        "401":
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Organization or course not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /v1/organizations/{organizationId}/courses/{courseId}/quizzes/{quizId}:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+      - $ref: "#/components/parameters/CourseId"
+      - $ref: "#/components/parameters/QuizId"
+    get:
+      operationId: getQuiz
+      summary: Get published quiz with questions
+      responses:
+        "200":
+          description: Quiz details and questions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuizResponse"
+        "401":
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Quiz not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /v1/organizations/{organizationId}/courses/{courseId}/quizzes/{quizId}/attempts:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+      - $ref: "#/components/parameters/CourseId"
+      - $ref: "#/components/parameters/QuizId"
+    post:
+      operationId: submitQuizAttempt
+      summary: Submit answers for a quiz attempt
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmitQuizAttemptRequest"
+      responses:
+        "200":
+          description: Attempt scored and submitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubmitQuizAttemptResponse"
+        "400":
+          description: Invalid input or answers
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Quiz not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Unprocessable entity
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /v1/organizations/{organizationId}/courses/{courseId}/quizzes/{quizId}/attempts/{attemptId}:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+      - $ref: "#/components/parameters/CourseId"
+      - $ref: "#/components/parameters/QuizId"
+      - $ref: "#/components/parameters/QuizAttemptId"
+    get:
+      operationId: getQuizAttempt
+      summary: Get a specific quiz attempt result
+      responses:
+        "200":
+          description: Quiz attempt result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuizAttemptResponse"
+        "401":
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Quiz attempt not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /v1/organizations/{organizationId}/courses/{courseId}/study/analytics:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+      - $ref: "#/components/parameters/CourseId"
+    get:
+      operationId: getStudyAnalytics
+      summary: Get aggregated study analytics for course
+      responses:
+        "200":
+          description: Course study analytics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StudyAnalyticsResponse"
+        "401":
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Organization or course not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /v1/organizations/{organizationId}/courses/{courseId}/study/recommendations:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationId"
+      - $ref: "#/components/parameters/CourseId"
+    get:
+      operationId: getStudyRecommendations
+      summary: Get study recommendations for course
+      responses:
+        "200":
+          description: Course study recommendations
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StudyRecommendationsResponse"
+        "401":
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Organization or course not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
 components:
   securitySchemes: {}
 
@@ -790,6 +1758,46 @@ components:
 
     ModuleId:
       name: moduleId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+    DocumentId:
+      name: documentId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+    GeneratedContentId:
+      name: contentId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+    FlashcardId:
+      name: flashcardId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+    QuizId:
+      name: quizId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+    QuizAttemptId:
+      name: attemptId
       in: path
       required: true
       schema:
@@ -1421,6 +2429,204 @@ components:
         lesson:
           $ref: "#/components/schemas/ContentLessonResource"
 
+    DocumentStatusResource:
+      type: object
+      additionalProperties: false
+      required:
+        - document_id
+        - organization_id
+        - status
+        - page_count
+        - chunk_count
+        - error_code
+        - retry_count
+        - updated_at
+      properties:
+        document_id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/DocumentStatus"
+        page_count:
+          type: integer
+          nullable: true
+          minimum: 0
+        chunk_count:
+          type: integer
+          nullable: true
+          minimum: 0
+        error_code:
+          type: string
+          nullable: true
+        retry_count:
+          type: integer
+          minimum: 0
+        updated_at:
+          type: string
+          description: UTC ISO datetime
+
+    DocumentStatusResponse:
+      type: object
+      additionalProperties: false
+      required: ["request_id", "status"]
+      properties:
+        request_id:
+          type: string
+        status:
+          $ref: "#/components/schemas/DocumentStatusResource"
+
+    DocumentStatus:
+      type: string
+      enum:
+        - uploaded
+        - pending_validation
+        - validating
+        - pending_extraction
+        - extracting
+        - pending_chunking
+        - chunking
+        - extracted
+        - pending_generation
+        - generating
+        - review_pending
+        - ready
+        - failed
+
+    DocumentResource:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - organization_id
+        - course_id
+        - owner_user_id
+        - original_name
+        - mime_type
+        - size_bytes
+        - sha256
+        - status
+        - error_code
+        - retry_count
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        course_id:
+          type: string
+          format: uuid
+          nullable: true
+        owner_user_id:
+          type: string
+          format: uuid
+        original_name:
+          type: string
+        mime_type:
+          type: string
+        size_bytes:
+          type: integer
+          minimum: 0
+        sha256:
+          type: string
+          description: SHA-256 content hash for duplicate detection
+        status:
+          $ref: "#/components/schemas/DocumentStatus"
+        error_code:
+          type: string
+          nullable: true
+        retry_count:
+          type: integer
+          minimum: 0
+        created_at:
+          type: string
+          description: UTC ISO datetime
+        updated_at:
+          type: string
+          description: UTC ISO datetime
+
+    UploadIntentRequest:
+      type: object
+      additionalProperties: false
+      required: ["original_name", "mime_type", "size_bytes"]
+      properties:
+        original_name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        mime_type:
+          type: string
+        size_bytes:
+          type: integer
+          minimum: 1
+
+    UploadIntentResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - request_id
+        - document_id
+        - storage_key
+        - upload_url
+        - expires_at
+      properties:
+        request_id:
+          type: string
+        document_id:
+          type: string
+          format: uuid
+        storage_key:
+          type: string
+        upload_url:
+          type: string
+          nullable: true
+        expires_at:
+          type: string
+          description: UTC ISO datetime
+
+    ConfirmUploadResponse:
+      type: object
+      additionalProperties: false
+      required: ["request_id", "duplicate", "document"]
+      properties:
+        request_id:
+          type: string
+        duplicate:
+          type: boolean
+          description: True when an existing document with the same SHA-256 was returned
+        document:
+          $ref: "#/components/schemas/DocumentResource"
+
+    DocumentListResponse:
+      type: object
+      additionalProperties: false
+      required: ["request_id", "items", "pagination"]
+      properties:
+        request_id:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/DocumentResource"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+
+    DocumentGetResponse:
+      type: object
+      additionalProperties: false
+      required: ["request_id", "document"]
+      properties:
+        request_id:
+          type: string
+        document:
+          $ref: "#/components/schemas/DocumentResource"
+
     UpdateCourseRequest:
       type: object
       additionalProperties: false
@@ -1436,3 +2642,741 @@ components:
           type: string
           nullable: true
           description: UTC ISO datetime
+
+    # -------------------------------------------------------------------
+    # PR6-4 Generated Content (AI generation) contract types
+    # -------------------------------------------------------------------
+
+    GeneratedContentType:
+      type: string
+      description: Extensible union of AI-generated content types. Only "lesson" is enabled in PR6-4; flashcard/quiz/recommendation are added in later PRs.
+      enum:
+        - lesson
+        - flashcard
+        - quiz
+        - recommendation
+
+    GeneratedContentStatus:
+      type: string
+      description: AI artifact lifecycle (separate from the document processing lifecycle).
+      enum:
+        - draft
+        - accepted
+        - rejected
+        - edited
+        - regenerating
+
+    CitationResource:
+      type: object
+      additionalProperties: false
+      required: ["document_chunk_id"]
+      properties:
+        document_chunk_id:
+          type: string
+          format: uuid
+
+    TokenUsage:
+      type: object
+      additionalProperties: false
+      required: ["input_tokens", "output_tokens"]
+      properties:
+        input_tokens:
+          type: integer
+          minimum: 0
+        output_tokens:
+          type: integer
+          minimum: 0
+
+    GeneratedContentResource:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - document_id
+        - course_id
+        - type
+        - status
+        - payload
+        - prompt_version
+        - model
+        - token_usage
+        - citations
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        document_id:
+          type: string
+          format: uuid
+        course_id:
+          type: string
+          format: uuid
+        type:
+          $ref: "#/components/schemas/GeneratedContentType"
+        status:
+          $ref: "#/components/schemas/GeneratedContentStatus"
+        payload:
+          type: object
+          additionalProperties: true
+          description: Typed content payload (discriminated by type).
+        prompt_version:
+          type: string
+          nullable: true
+        model:
+          type: string
+          nullable: true
+        token_usage:
+          $ref: "#/components/schemas/TokenUsage"
+        citations:
+          type: array
+          items:
+            $ref: "#/components/schemas/CitationResource"
+        created_at:
+          type: string
+          description: UTC ISO datetime
+        updated_at:
+          type: string
+          description: UTC ISO datetime
+
+    GenerateContentRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        types:
+          type: array
+          description: Content types to generate. Defaults to ["lesson"] when omitted.
+          items:
+            $ref: "#/components/schemas/GeneratedContentType"
+        prompt_version:
+          type: string
+          description: Prompt version used for regeneration/cost analysis.
+
+    GenerateContentResponse:
+      type: object
+      additionalProperties: false
+      required: ["request_id", "contents", "document_status"]
+      properties:
+        request_id:
+          type: string
+        contents:
+          type: array
+          items:
+            $ref: "#/components/schemas/GeneratedContentResource"
+        document_status:
+          $ref: "#/components/schemas/DocumentStatus"
+
+    GeneratedContentListResponse:
+      type: object
+      additionalProperties: false
+      required: ["request_id", "contents"]
+      properties:
+        request_id:
+          type: string
+        contents:
+          type: array
+          items:
+            $ref: "#/components/schemas/GeneratedContentResource"
+
+    GeneratedContentResponse:
+      type: object
+      additionalProperties: false
+      required: ["request_id", "content"]
+      properties:
+        request_id:
+          type: string
+        content:
+          $ref: "#/components/schemas/GeneratedContentResource"
+
+    # -------------------------------------------------------------------
+    # PR6-6 Human review & acceptance contract types
+    # -------------------------------------------------------------------
+
+    ReviewQueueResource:
+      type: object
+      additionalProperties: false
+      required: ["id", "document_id", "course_id", "type", "status", "title", "updated_at"]
+      properties:
+        id:
+          type: string
+          format: uuid
+        document_id:
+          type: string
+          format: uuid
+        course_id:
+          type: string
+          format: uuid
+        type:
+          $ref: "#/components/schemas/GeneratedContentType"
+        status:
+          $ref: "#/components/schemas/GeneratedContentStatus"
+        title:
+          type: string
+        updated_at:
+          type: string
+          description: UTC ISO datetime
+
+    ReviewQueueResponse:
+      type: object
+      additionalProperties: false
+      required: ["request_id", "pending"]
+      properties:
+        request_id:
+          type: string
+        pending:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReviewQueueResource"
+
+    SourceChunkResource:
+      type: object
+      additionalProperties: false
+      required: ["id", "sequence", "heading", "content", "start_page", "end_page"]
+      properties:
+        id:
+          type: string
+          format: uuid
+        sequence:
+          type: integer
+        heading:
+          type: string
+          nullable: true
+        content:
+          type: string
+        start_page:
+          type: integer
+        end_page:
+          type: integer
+
+    GenerationInfoResource:
+      type: object
+      additionalProperties: false
+      required: ["model", "prompt_version", "token_usage"]
+      properties:
+        model:
+          type: string
+          nullable: true
+        prompt_version:
+          type: string
+          nullable: true
+        token_usage:
+          $ref: "#/components/schemas/TokenUsage"
+
+    GeneratedContentReviewResource:
+      type: object
+      additionalProperties: false
+      required: ["request_id", "content", "source_chunks", "generation"]
+      properties:
+        request_id:
+          type: string
+        content:
+          $ref: "#/components/schemas/GeneratedContentResource"
+        source_chunks:
+          type: array
+          items:
+            $ref: "#/components/schemas/SourceChunkResource"
+        generation:
+          $ref: "#/components/schemas/GenerationInfoResource"
+
+    GeneratedContentReviewResponse:
+      type: object
+      additionalProperties: false
+      required: ["request_id", "content", "source_chunks", "generation"]
+      properties:
+        request_id:
+          type: string
+        content:
+          $ref: "#/components/schemas/GeneratedContentResource"
+        source_chunks:
+          type: array
+          items:
+            $ref: "#/components/schemas/SourceChunkResource"
+        generation:
+          $ref: "#/components/schemas/GenerationInfoResource"
+
+    EditGeneratedContentRequest:
+      type: object
+      additionalProperties: false
+      required: ["payload"]
+      properties:
+        payload:
+          type: object
+          additionalProperties: true
+          description: The edited typed content payload.
+
+    AcceptContentResponse:
+      type: object
+      additionalProperties: false
+      required: ["request_id", "content_id", "status", "materialized_lesson_id"]
+      properties:
+        request_id:
+          type: string
+        content_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          const: accepted
+        materialized_lesson_id:
+          type: string
+          format: uuid
+          nullable: true
+
+    RejectContentRequest:
+      type: object
+      additionalProperties: false
+      required: ["reason"]
+      properties:
+        reason:
+          type: string
+          minLength: 1
+
+    RejectContentResponse:
+      type: object
+      additionalProperties: false
+      required: ["request_id", "content_id", "status"]
+      properties:
+        request_id:
+          type: string
+        content_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          const: rejected
+
+    RegenerateContentResponse:
+      type: object
+      additionalProperties: false
+      required: ["request_id", "content_id", "job_id", "status"]
+      properties:
+        request_id:
+          type: string
+        content_id:
+          type: string
+          format: uuid
+        job_id:
+          type: string
+        status:
+          type: string
+          const: regenerating
+
+    FlashcardRating:
+      type: string
+      enum:
+        - again
+        - hard
+        - good
+        - easy
+
+    FlashcardResource:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - organization_id
+        - course_id
+        - document_id
+        - question
+        - answer
+        - card_type
+        - difficulty
+        - due_at
+        - interval_days
+        - ease_factor
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        course_id:
+          type: string
+          format: uuid
+        document_id:
+          type: string
+          format: uuid
+        generated_content_id:
+          type: string
+          format: uuid
+          nullable: true
+        question:
+          type: string
+        answer:
+          type: string
+        explanation:
+          type: string
+          nullable: true
+        card_type:
+          type: string
+        difficulty:
+          type: string
+        due_at:
+          type: string
+          format: date-time
+        interval_days:
+          type: integer
+        ease_factor:
+          type: number
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    FlashcardListResponse:
+      type: object
+      additionalProperties: false
+      required: ["request_id", "flashcards", "next_review_count"]
+      properties:
+        request_id:
+          type: string
+        flashcards:
+          type: array
+          items:
+            $ref: "#/components/schemas/FlashcardResource"
+        next_review_count:
+          type: integer
+
+    FlashcardReviewQueueResponse:
+      type: object
+      additionalProperties: false
+      required: ["request_id", "due_cards"]
+      properties:
+        request_id:
+          type: string
+        due_cards:
+          type: array
+          items:
+            $ref: "#/components/schemas/FlashcardResource"
+
+    SubmitFlashcardReviewRequest:
+      type: object
+      additionalProperties: false
+      required: ["rating"]
+      properties:
+        rating:
+          $ref: "#/components/schemas/FlashcardRating"
+        reaction_ms:
+          type: integer
+          nullable: true
+
+    SubmitFlashcardReviewResponse:
+      type: object
+      additionalProperties: false
+      required: ["request_id", "success"]
+      properties:
+        request_id:
+          type: string
+        success:
+          type: boolean
+
+    QuizQuestionResource:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - quiz_id
+        - question
+        - question_type
+        - sort_order
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        quiz_id:
+          type: string
+          format: uuid
+        generated_content_id:
+          type: string
+          format: uuid
+          nullable: true
+        question:
+          type: string
+        question_type:
+          type: string
+        choices:
+          type: array
+          items:
+            type: string
+          nullable: true
+        correct_answer: {}
+        explanation:
+          type: string
+          nullable: true
+        sort_order:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    QuizResource:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - organization_id
+        - course_id
+        - document_id
+        - title
+        - status
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        course_id:
+          type: string
+          format: uuid
+        document_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        status:
+          type: string
+          enum: ["draft", "published"]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    QuizDetailResource:
+      allOf:
+        - $ref: "#/components/schemas/QuizResource"
+        - type: object
+          additionalProperties: false
+          required: ["questions"]
+          properties:
+            questions:
+              type: array
+              items:
+                $ref: "#/components/schemas/QuizQuestionResource"
+
+    QuizListResponse:
+      type: object
+      additionalProperties: false
+      required: ["request_id", "quizzes"]
+      properties:
+        request_id:
+          type: string
+        quizzes:
+          type: array
+          items:
+            $ref: "#/components/schemas/QuizResource"
+
+    QuizResponse:
+      type: object
+      additionalProperties: false
+      required: ["request_id", "quiz"]
+      properties:
+        request_id:
+          type: string
+        quiz:
+          $ref: "#/components/schemas/QuizDetailResource"
+
+    QuizQuestionAnswerInput:
+      type: object
+      additionalProperties: false
+      required: ["questionId"]
+      properties:
+        questionId:
+          type: string
+          format: uuid
+        answer: {}
+
+    SubmitQuizAttemptRequest:
+      type: object
+      additionalProperties: false
+      required: ["answers"]
+      properties:
+        answers:
+          type: array
+          items:
+            $ref: "#/components/schemas/QuizQuestionAnswerInput"
+
+    QuizAttemptResult:
+      type: object
+      additionalProperties: false
+      required:
+        - attemptId
+        - quizId
+        - score
+        - correct
+        - total
+        - answers
+        - completedAt
+      properties:
+        attemptId:
+          type: string
+          format: uuid
+        quizId:
+          type: string
+          format: uuid
+        score:
+          type: number
+        correct:
+          type: integer
+        total:
+          type: integer
+        answers:
+          type: object
+          additionalProperties: true
+        completedAt:
+          type: string
+          format: date-time
+
+    SubmitQuizAttemptResponse:
+      type: object
+      additionalProperties: false
+      required: ["request_id", "attempt"]
+      properties:
+        request_id:
+          type: string
+        attempt:
+          $ref: "#/components/schemas/QuizAttemptResult"
+
+    QuizAttemptResource:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - quizId
+        - userId
+        - score
+        - answers
+        - startedAt
+        - completedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        quizId:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        score:
+          type: number
+        answers:
+          type: object
+          additionalProperties: true
+        startedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+
+    QuizAttemptResponse:
+      type: object
+      additionalProperties: false
+      required: ["request_id", "attempt"]
+      properties:
+        request_id:
+          type: string
+        attempt:
+          $ref: "#/components/schemas/QuizAttemptResource"
+
+    StudyAnalytics:
+      type: object
+      additionalProperties: false
+      required:
+        - total_lessons
+        - completed_lessons
+        - lesson_progress_percent
+        - total_flashcards
+        - reviewed_flashcards
+        - flashcard_mastery_percent
+        - total_quizzes
+        - attempts_taken
+        - average_quiz_score
+        - weak_areas
+        - recommended_next_steps
+      properties:
+        total_lessons:
+          type: integer
+        completed_lessons:
+          type: integer
+        lesson_progress_percent:
+          type: number
+        total_flashcards:
+          type: integer
+        reviewed_flashcards:
+          type: integer
+        flashcard_mastery_percent:
+          type: number
+        total_quizzes:
+          type: integer
+        attempts_taken:
+          type: integer
+        average_quiz_score:
+          type: number
+        weak_areas:
+          type: array
+          items:
+            type: string
+        recommended_next_steps:
+          type: array
+          items:
+            type: string
+
+    StudyAnalyticsResponse:
+      type: object
+      additionalProperties: false
+      required: ["request_id", "analytics"]
+      properties:
+        request_id:
+          type: string
+        analytics:
+          $ref: "#/components/schemas/StudyAnalytics"
+
+    StudyRecommendationResource:
+      type: object
+      additionalProperties: false
+      required: ["id", "summary", "topics", "source"]
+      properties:
+        id:
+          type: string
+        summary:
+          type: string
+        topics:
+          type: array
+          items:
+            type: string
+        source:
+          type: string
+          enum:
+            - accepted_lesson
+            - flashcard_review
+            - quiz_attempt
+            - recommendation
+
+    StudyRecommendationsResponse:
+      type: object
+      additionalProperties: false
+      required: ["request_id", "recommendations"]
+      properties:
+        request_id:
+          type: string
+        recommendations:
+          type: array
+          items:
+            $ref: "#/components/schemas/StudyRecommendationResource"

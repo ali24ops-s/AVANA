@@ -12,12 +12,13 @@ export class ApiError extends Error {
   public readonly details?: ErrorEnvelope["error"]["details"];
   public readonly requestId: string;
 
-  constructor(envelope: ErrorEnvelope) {
-    super(envelope.error.message);
+  constructor(envelope?: Partial<ErrorEnvelope> | null) {
+    const message = envelope?.error?.message || "An unexpected error occurred";
+    super(message);
     this.name = "ApiError";
-    this.code = envelope.error.code;
-    this.details = envelope.error.details;
-    this.requestId = envelope.request_id;
+    this.code = envelope?.error?.code ?? "internal_error";
+    this.details = envelope?.error?.details;
+    this.requestId = envelope?.request_id ?? "";
 
     // Maintain prototype chain for instanceof checks
     Object.setPrototypeOf(this, ApiError.prototype);
@@ -38,6 +39,7 @@ export class ApiError extends Error {
       case "unprocessable":
         return 422;
       case "internal_error":
+      default:
         return 500;
     }
   }

@@ -1,12 +1,5 @@
 /**
  * NewLessonDialog — Modal form for creating a new lesson within a module.
- *
- * PR5-C3: Create lesson.
- * - Fields: title, markdown, estimated minutes
- * - Client-side validation with inline error messages
- * - Loading state while creating
- * - Disables duplicate submissions while pending
- * - Displays server validation errors
  */
 
 import { useState } from "react";
@@ -43,14 +36,14 @@ function parseEstimatedMinutes(value: string): number | null {
 function validate(form: NewLessonFormData): FormErrors {
   const errors: FormErrors = {};
   if (form.title.trim().length === 0) {
-    errors.title = "Lesson title is required";
+    errors.title = "عنوان درس الزامی است.";
   } else if (form.title.trim().length > 255) {
-    errors.title = "Title must not exceed 255 characters";
+    errors.title = "عنوان درس نباید بیشتر از ۲۵۵ کاراکتر باشد.";
   }
   if (form.estimatedMinutes.trim() !== "") {
     const parsed = parseEstimatedMinutes(form.estimatedMinutes);
     if (Number.isNaN(parsed)) {
-      errors.estimatedMinutes = "Must be a positive whole number or empty";
+      errors.estimatedMinutes = "مدت زمان باید یک عدد صحیح مثبت باشد.";
     }
   }
   return errors;
@@ -101,41 +94,42 @@ export function NewLessonDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm font-sans"
       role="dialog"
       aria-modal="true"
       aria-labelledby="new-lesson-dialog-title"
+      dir="rtl"
     >
-      <div className="w-full max-w-lg bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] shadow-xl overflow-hidden">
+      <div className="w-full max-w-lg bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] shadow-2xl overflow-hidden">
         {/* Dialog header */}
-        <div className="px-6 py-4 border-b border-[var(--color-border)] flex items-start justify-between gap-4">
+        <div className="px-6 py-5 border-b border-[var(--color-border)] flex items-start justify-between gap-4">
           <div>
             <h2
               id="new-lesson-dialog-title"
-              className="text-lg font-bold text-[var(--color-text)]"
+              className="text-base font-bold text-[var(--color-text)]"
             >
-              New Lesson
+              افزودن درس جدید
             </h2>
-            <p className="text-sm text-[var(--color-text-muted)] mt-0.5">
-              {moduleTitle}
+            <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
+              فصل: {moduleTitle}
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
             disabled={isPending}
-            aria-label="Close"
-            className="p-1.5 rounded-lg text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-border)] transition-colors disabled:opacity-50"
+            aria-label="بستن"
+            className="p-1.5 rounded-xl text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] transition-colors disabled:opacity-50"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Dialog body */}
-        <div className="px-6 py-4 space-y-4">
+        <div className="px-6 py-5 space-y-4">
           {/* Server error */}
           {serverError && (
-            <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400 text-sm">
+            <div className="flex items-start gap-2 p-3 rounded-2xl bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400 text-xs font-medium border border-red-200 dark:border-red-800">
               <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
               <span>{serverError}</span>
             </div>
@@ -145,19 +139,19 @@ export function NewLessonDialog({
           <div>
             <label
               htmlFor="new-lesson-title"
-              className="block text-sm font-medium text-[var(--color-text)] mb-1"
+              className="block text-xs font-semibold text-[var(--color-text)] mb-1.5"
             >
-              Title
+              عنوان درس *
             </label>
             <input
               id="new-lesson-title"
               type="text"
               value={title}
               onChange={(e) => handleFieldChange("title", e.target.value)}
-              placeholder="Lesson title"
+              placeholder="مثال: مکانیسم اثر مسدودکننده‌های گیرنده بتا"
               disabled={isPending}
               autoFocus
-              className={`w-full px-3 py-2 rounded-lg bg-[var(--color-background)] border text-sm text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:opacity-60 ${
+              className={`w-full px-3.5 py-2.5 rounded-xl bg-[var(--color-surface-warm)] border text-sm text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-[#008080] disabled:opacity-60 ${
                 errors.title ? "border-red-400" : "border-[var(--color-border)]"
               }`}
             />
@@ -173,19 +167,19 @@ export function NewLessonDialog({
           <div>
             <label
               htmlFor="new-lesson-markdown"
-              className="block text-sm font-medium text-[var(--color-text)] mb-1"
+              className="block text-xs font-semibold text-[var(--color-text)] mb-1.5"
             >
-              Markdown
+              محتوای درس (فرمت Markdown)
             </label>
             <textarea
               id="new-lesson-markdown"
               value={contentMarkdown}
               onChange={(e) => setContentMarkdown(e.target.value)}
-              placeholder="Write your lesson content in markdown..."
+              placeholder="محتوای آموزشی درس را به صورت Markdown وارد کنید..."
               disabled={isPending}
               rows={6}
-              className="w-full px-3 py-2 rounded-lg bg-[var(--color-background)] border border-[var(--color-border)] text-sm text-[var(--color-text)] font-mono leading-relaxed resize-y focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:opacity-60"
-              spellCheck
+              dir="auto"
+              className="w-full px-3.5 py-2.5 rounded-xl bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-xs text-[var(--color-text)] font-mono leading-relaxed resize-none focus:outline-none focus:ring-2 focus:ring-[#008080] disabled:opacity-60"
             />
           </div>
 
@@ -193,9 +187,9 @@ export function NewLessonDialog({
           <div>
             <label
               htmlFor="new-lesson-minutes"
-              className="block text-sm font-medium text-[var(--color-text)] mb-1"
+              className="block text-xs font-semibold text-[var(--color-text)] mb-1.5"
             >
-              Estimated minutes
+              زمان تخمینی مطالعه (دقیقه)
             </label>
             <input
               id="new-lesson-minutes"
@@ -205,9 +199,10 @@ export function NewLessonDialog({
               onChange={(e) =>
                 handleFieldChange("estimatedMinutes", e.target.value)
               }
-              placeholder="Optional"
+              placeholder="اختیاری (مثال: ۱۵)"
               disabled={isPending}
-              className={`w-32 px-3 py-2 rounded-lg bg-[var(--color-background)] border text-sm text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:opacity-60 ${
+              dir="ltr"
+              className={`w-36 px-3.5 py-2.5 rounded-xl bg-[var(--color-surface-warm)] border text-sm text-[var(--color-text)] text-right focus:outline-none focus:ring-2 focus:ring-[#008080] disabled:opacity-60 ${
                 errors.estimatedMinutes
                   ? "border-red-400"
                   : "border-[var(--color-border)]"
@@ -223,30 +218,30 @@ export function NewLessonDialog({
         </div>
 
         {/* Dialog footer */}
-        <div className="px-6 py-4 border-t border-[var(--color-border)] flex items-center justify-end gap-2">
+        <div className="px-6 py-4 border-t border-[var(--color-border)] bg-[var(--color-surface-warm)] flex items-center justify-end gap-2">
           <button
             type="button"
             onClick={onClose}
             disabled={isPending}
-            className="px-4 py-2 rounded-lg text-sm text-[var(--color-text)] hover:bg-[var(--color-border)] transition-colors disabled:opacity-50"
+            className="px-4 py-2 rounded-xl text-xs font-bold text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors disabled:opacity-50"
           >
-            Cancel
+            انصراف
           </button>
           <button
             type="button"
             onClick={handleSubmit}
             disabled={isPending}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-indigo-500 hover:bg-indigo-600 disabled:bg-[var(--color-border)] text-white disabled:text-[var(--color-text-muted)] transition-colors disabled:cursor-not-allowed text-sm font-medium"
+            className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-[#008080] hover:bg-[#006666] text-white disabled:opacity-50 transition-colors disabled:cursor-not-allowed text-xs font-bold shadow-sm"
           >
             {isPending ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                Creating...
+                <span>در حال ایجاد...</span>
               </>
             ) : (
               <>
                 <Plus className="w-4 h-4" />
-                Create Lesson
+                <span>ایجاد درس</span>
               </>
             )}
           </button>

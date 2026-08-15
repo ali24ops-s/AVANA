@@ -1,3 +1,16 @@
+import path from "node:path";
+import { loadMonorepoEnv } from "@avana/config";
+
+function resolveStorageDirectory(dir: string): string {
+  if (path.isAbsolute(dir)) {
+    return dir;
+  }
+  const cwd = process.cwd();
+  if (cwd.endsWith("/apps/api") || cwd.endsWith("/apps/worker")) {
+    return path.resolve(cwd, "../..", dir);
+  }
+  return path.resolve(cwd, dir);
+}
 export type SessionConfig = {
   cookieName: string;
   secure: boolean;
@@ -43,11 +56,29 @@ export type ApiConfig = {
   database: {
     url: string;
   };
+  storage: {
+    local: {
+      directory: string;
+    };
+  };
+  redis: {
+    url: string;
+  };
+  generation: {
+    aiProvider: string;
+    queueName: string;
+    geminiApiKey?: string;
+    geminiModel: string;
+  };
 };
 
-function getOptionalString(name: string, fallback: string): string {
-  const v = process.env[name];
-  return v ?? fallback;
+function getOptionalString(
+  env: NodeJS.ProcessEnv,
+  name: string,
+  fallback: string,
+): string {
+  const v = env[name];
+  return v !== undefined && v !== "" ? v : fallback;
 }
 
 function parsePort(raw: string): number {
@@ -63,6 +94,8 @@ function parsePort(raw: string): number {
 }
 
 export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
+  loadMonorepoEnv();
+
   const nodeEnvRaw = env.NODE_ENV;
   const nodeEnv = (
     nodeEnvRaw === "production" ||
@@ -78,11 +111,12 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     );
   }
 
-  const host = getOptionalString("AVANA_API_HOST", "127.0.0.1");
-  const portRaw = getOptionalString("AVANA_API_PORT", "3000");
+  const host = getOptionalString(env, "AVANA_API_HOST", "127.0.0.1");
+  const portRaw = getOptionalString(env, "AVANA_API_PORT", "3000");
   const port = parsePort(portRaw);
 
   const jsonBodyLimitRaw = getOptionalString(
+    env,
     "AVANA_HTTP_JSON_BODY_LIMIT",
     "1mb",
   );
@@ -104,6 +138,7 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
 
   const isProd = nodeEnv === "production";
   const corsOrigins = getOptionalString(
+    env,
     "AVANA_CORS_ORIGIN",
     isProd
       ? "https://app.avana.ai"
@@ -121,7 +156,7 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     return `postgres://${user}:${password}@${host}:${port}/${db}?sslmode=disable`;
   }
 
-  const databaseUrl = getOptionalString("DATABASE_URL", localDatabaseUrl());
+  const databaseUrl = getOptionalString(env, "DATABASE_URL", localDatabaseUrl());
 
   return {
     nodeEnv,
@@ -142,14 +177,14 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
       },
     },
     session: {
-      cookieName: getOptionalString("AVANA_SESSION_COOKIE", "avana_session"),
+      cookieName: getOptionalString(env, "AVANA_SESSION_COOKIE", "avana_session"),
       secure: isProd,
       sameSite: "lax",
       maxAgeMs: 7 * 24 * 60 * 60 * 1000, // 7 days
       path: "/",
     },
     csrf: {
-      cookieName: getOptionalString("AVANA_CSRF_COOKIE", "avana_csrf"),
+      cookieName: getOptionalString(env, "AVANA_CSRF_COOKIE", "avana_csrf"),
       headerName: "x-csrf-token",
       tokenExpiryMs: 24 * 60 * 60 * 1000, // 24 hours
       secure: isProd,
@@ -158,6 +193,26 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     },
     database: {
       url: databaseUrl,
+    },
+    storage: {
+      local: {
+        directory: resolveStorageDirectory(
+          getOptionalString(
+            env,
+            "AVANA_STORAGE_LOCAL_DIRECTORY",
+            "./storage/uploads",
+          ),
+        ),
+      },
+    },
+    redis: {
+      url: getOptionalString(env, "REDIS_URL", "redis://localhost:6379"),
+    },
+    generation: {
+      aiProvider: getOptionalString(env, "AI_PROVIDER", "mock"),
+      queueName: getOptionalString(env, "AI_GENERATION_QUEUE", "content_generate"),
+      geminiApiKey: env.GEMINI_API_KEY,
+      geminiModel: getOptionalString(env, "GEMINI_MODEL", "gemini-3.6-flash"),
     },
   };
 }

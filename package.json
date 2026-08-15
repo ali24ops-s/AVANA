@@ -21,10 +21,10 @@
     "format": "prettier --write \"**/*.{ts,tsx,js,json,md,yml,yaml,css,html}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,json,md,yml,yaml,css,html}\"",
     "secrets": "secretlint \"**/*\"",
-    "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
+    "db:generate": "drizzle-kit generate --config=database/drizzle.config.ts",
+    "db:migrate": "tsx database/migrate.ts",
     "db:seed": "tsx database/seeds/seed.ts",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio --config=database/drizzle.config.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

@@ -2,13 +2,12 @@
  * Course list page.
  *
  * Displays courses for the current user's organization.
- * Shows loading, empty, error, and populated states.
- * Course creation is out of scope for Sprint 1 PR-10.
+ * Shows loading, empty, error, and populated states in Persian.
  */
 
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { BookOpen, Loader2, AlertCircle, FileQuestion } from "lucide-react";
+import { BookOpen, Loader2, AlertCircle, FileQuestion, GraduationCap, ChevronLeft } from "lucide-react";
 import { useAuth } from "../providers/AuthProvider.js";
 import { createApiClient, getApiBaseUrl } from "../lib/api/client.js";
 import { createOrganizationApi } from "../lib/api/organizations.js";
@@ -17,7 +16,6 @@ import type { OrganizationResource, CourseResource } from "@avana/contracts";
 
 /**
  * Hook to fetch the first organization for the current user.
- * In Sprint 1, users typically belong to one organization.
  */
 function useOrganization() {
   const apiClient = createApiClient({ baseUrl: getApiBaseUrl() });
@@ -55,7 +53,7 @@ export function CourseListPage() {
   if (isAuthLoading || orgQuery.isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
+        <Loader2 className="w-8 h-8 animate-spin text-[#008080]" />
       </div>
     );
   }
@@ -65,8 +63,17 @@ export function CourseListPage() {
     return (
       <StateCard
         icon={AlertCircle}
-        title="Failed to load organization"
-        description="Please try signing out and back in."
+        title="خطا در بارگذاری سازمان"
+        description="لطفاً اتصال اینترنت خود را بررسی کرده و دوباره تلاش کنید."
+        action={
+          <button
+            type="button"
+            onClick={() => void orgQuery.refetch()}
+            className="px-4 py-2 bg-[#008080] hover:bg-[#006666] text-white rounded-xl text-xs font-semibold"
+          >
+            تلاش مجدد
+          </button>
+        }
       />
     );
   }
@@ -76,8 +83,17 @@ export function CourseListPage() {
     return (
       <StateCard
         icon={FileQuestion}
-        title="No organization found"
-        description="You don't belong to any organization yet."
+        title="سازمانی یافت نشد"
+        description="شما هنوز عضو هیچ سازمان آموزشی نشده‌اید."
+        action={
+          <button
+            type="button"
+            onClick={() => void orgQuery.refetch()}
+            className="px-4 py-2 bg-[#008080] hover:bg-[#006666] text-white rounded-xl text-xs font-semibold"
+          >
+            تازه‌سازی
+          </button>
+        }
       />
     );
   }
@@ -86,7 +102,7 @@ export function CourseListPage() {
   if (coursesQuery.isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
+        <Loader2 className="w-8 h-8 animate-spin text-[#008080]" />
       </div>
     );
   }
@@ -96,8 +112,17 @@ export function CourseListPage() {
     return (
       <StateCard
         icon={AlertCircle}
-        title="Failed to load courses"
-        description={coursesQuery.error?.message ?? "An error occurred"}
+        title="خطا در بارگذاری دوره‌ها"
+        description={coursesQuery.error?.message ?? "خطایی در دریافت اطلاعات رخ داد."}
+        action={
+          <button
+            type="button"
+            onClick={() => void coursesQuery.refetch()}
+            className="px-4 py-2 bg-[#008080] hover:bg-[#006666] text-white rounded-xl text-xs font-semibold"
+          >
+            تلاش مجدد
+          </button>
+        }
       />
     );
   }
@@ -107,19 +132,28 @@ export function CourseListPage() {
   return (
     <div className="space-y-6">
       {/* Page header */}
-      <div>
-        <h1 className="text-2xl font-bold text-[var(--color-text)]">Courses</h1>
-        <p className="text-[var(--color-text-muted)] mt-1 text-sm">
-          {organization.name}
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-[var(--color-text)]">
+            دوره‌های آموزشی
+          </h1>
+          <p className="text-[var(--color-text-muted)] mt-1 text-xs">
+            {organization.name}
+          </p>
+        </div>
+        {courses && courses.length > 0 && (
+          <span className="text-xs font-medium text-[var(--color-text-muted)] bg-[var(--color-surface)] px-3 py-1.5 rounded-xl border border-[var(--color-border)]">
+            {courses.length} دوره در دسترس
+          </span>
+        )}
       </div>
 
       {/* Empty state */}
       {(!courses || courses.length === 0) && (
         <StateCard
           icon={BookOpen}
-          title="No courses yet"
-          description="Courses you create will appear here."
+          title="هنوز دوره‌ای وجود ندارد"
+          description="دوره‌های ایجادشده در این بخش نمایش داده خواهند شد."
         />
       )}
 
@@ -139,10 +173,10 @@ export function CourseListPage() {
  * Course card component with link to detail view.
  */
 function CourseCard({ course }: { course: CourseResource }) {
-  const subjectLabel = course.subject ?? "No subject";
+  const subjectLabel = course.subject ?? "دوره تخصصی";
   const examDate = course.exam_at
-    ? new Date(course.exam_at).toLocaleDateString("en-US", {
-        month: "short",
+    ? new Date(course.exam_at).toLocaleDateString("fa-IR", {
+        month: "long",
         day: "numeric",
         year: "numeric",
       })
@@ -151,32 +185,34 @@ function CourseCard({ course }: { course: CourseResource }) {
   return (
     <Link
       to={`/courses/${course.id}`}
-      className="block bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-5 hover:shadow-md hover:border-indigo-300 dark:hover:border-indigo-700 transition-all group"
+      className="block bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-5 hover:shadow-md hover:border-[#008080] transition-all group"
     >
       <div className="flex items-start justify-between mb-3">
-        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center group-hover:scale-105 transition-transform">
-          <BookOpen className="w-5 h-5 text-white" />
+        <div className="w-10 h-10 rounded-xl bg-[#a7d0e6]/30 text-[#008080] flex items-center justify-center group-hover:scale-105 transition-transform">
+          <GraduationCap className="w-5 h-5" />
         </div>
         {course.archived && (
-          <span className="text-xs px-2 py-0.5 rounded-full bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400">
-            Archived
+          <span className="text-xs px-2.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300 font-medium">
+            بایگانی شده
           </span>
         )}
       </div>
 
-      <h3 className="font-semibold text-[var(--color-text)] group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+      <h3 className="font-bold text-[var(--color-text)] group-hover:text-[#008080] transition-colors line-clamp-1">
         {course.title}
       </h3>
 
-      <p className="text-sm text-[var(--color-text-muted)] mt-1">
+      <p className="text-xs text-[var(--color-text-muted)] mt-1.5 line-clamp-1">
         {subjectLabel}
       </p>
 
-      {examDate && (
-        <p className="text-xs text-[var(--color-text-muted)] mt-2">
-          Exam: {examDate}
-        </p>
-      )}
+      <div className="mt-4 pt-3 border-t border-[var(--color-border)] flex items-center justify-between text-xs text-[var(--color-text-muted)]">
+        <span>{examDate ? `تاریخ آزمون: ${examDate}` : "آماده یادگیری"}</span>
+        <span className="text-[#008080] font-semibold flex items-center gap-1 group-hover:underline">
+          <span>ورود</span>
+          <ChevronLeft className="w-3.5 h-3.5" />
+        </span>
+      </div>
     </Link>
   );
 }
@@ -188,20 +224,23 @@ function StateCard({
   icon: Icon,
   title,
   description,
+  action,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   title: string;
   description: string;
+  action?: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center py-20 text-center">
+    <div className="flex flex-col items-center justify-center py-20 text-center bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-8">
       <Icon className="w-12 h-12 text-[var(--color-text-muted)] mb-4" />
-      <h2 className="text-lg font-semibold text-[var(--color-text)]">
+      <h2 className="text-lg font-bold text-[var(--color-text)]">
         {title}
       </h2>
-      <p className="text-sm text-[var(--color-text-muted)] mt-1">
+      <p className="text-xs text-[var(--color-text-muted)] mt-1 max-w-sm">
         {description}
       </p>
+      {action && <div className="mt-4">{action}</div>}
     </div>
   );
 }

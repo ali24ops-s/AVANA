@@ -1,70 +1,57 @@
 /**
- * Course content management page (read-only with editing).
+ * Course Content Management Page.
  *
- * Displays the complete course content tree for editors:
- * - Course header with title and subject
- * - Module accordion with lessons
- * - Draft / Published badges per lesson
- * - Selected lesson editor with save/publish actions
- * - New lesson creation dialog
+ * Route: `/courses/:courseId/manage`
  *
- * PR5-C1 — Read-only content tree
- * PR5-C2 — Lesson editing workflow
- * PR5-C3 — Create lesson
+ * Dedicated instructor/admin view for managing course content:
+ * - Module CRUD (create, inline rename/edit, delete with cascade confirmation)
+ * - Lesson CRUD (create via modal, edit via split-pane editor, publish)
+ * - Real-time preview with MarkdownRenderer
+ * - Clean/dirty state tracking and Cmd+S keyboard shortcut
+ * - Documents & Ingestion Tab
+ * - AI Content Review Queue Tab
  */
 
-import { useEffect, useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { useParams, Link, useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
+  ArrowRight,
   BookOpen,
-  Loader2,
-  AlertCircle,
-  ArrowLeft,
   ChevronDown,
-  ChevronRight,
-  Clock,
+  ChevronLeft,
   Eye,
   FolderPlus,
+  Loader2,
   Pencil,
   Plus,
   Save,
   Trash2,
-  X,
+  AlertCircle,
+  FileText,
+  Sparkles,
 } from "lucide-react";
 import { createApiClient, getApiBaseUrl } from "../lib/api/client.js";
 import { createOrganizationApi } from "../lib/api/organizations.js";
 import { createContentApi } from "../lib/api/content.js";
+import { createReviewApi } from "../lib/api/review.js";
 import { LessonEditor } from "../components/content/LessonEditor.js";
 import { NewLessonDialog } from "../components/content/NewLessonDialog.js";
 import { NewModuleDialog } from "../components/content/NewModuleDialog.js";
+import { CourseDocumentsView } from "../components/documents/CourseDocumentsView.js";
+import { ReviewQueueList } from "../components/review/ReviewQueueList.js";
 import type {
-  ContentModuleResource,
   ContentLessonResource,
+  ContentModuleResource,
 } from "@avana/contracts";
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
+type ModuleData = ContentModuleResource & {
+  lessons: ContentLessonResource[];
+};
 
-type ModuleData = ContentModuleResource;
 type LessonData = ContentLessonResource;
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function parseEstimatedMinutes(value: string): number | null {
-  const trimmed = value.trim();
-  if (trimmed === "") return null;
-  const num = Number(trimmed);
-  if (!Number.isFinite(num) || num < 0 || !Number.isInteger(num)) return NaN;
-  return num;
-}
-
-// ---------------------------------------------------------------------------
-// Hook: fetch organization
-// ---------------------------------------------------------------------------
+type ManagerTab = "curriculum" | "documents" | "review";
 
 function useOrganization() {
   const apiClient = createApiClient({ baseUrl: getApiBaseUrl() });
@@ -75,10 +62,6 @@ function useOrganization() {
     queryFn: () => orgApi.listOrganizations(),
   });
 }
-
-// ---------------------------------------------------------------------------
-// Hook: fetch course content
-// ---------------------------------------------------------------------------
 
 function useCourseContent(
   organizationId: string | undefined,
@@ -94,12 +77,18 @@ function useCourseContent(
   });
 }
 
-// ---------------------------------------------------------------------------
-// Main component
-// ---------------------------------------------------------------------------
+function parseEstimatedMinutes(value: string): number | null {
+  const trimmed = value.trim();
+  if (trimmed === "") return null;
+  const num = Number(trimmed);
+  if (!Number.isFinite(num) || num < 0 || !Number.isInteger(num)) return NaN;
+  return num;
+}
 
 export function CourseContentPage() {
   const { courseId } = useParams<{ courseId: string }>();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = (searchParams.get("tab") as ManagerTab) || "curriculum";
 
   const orgQuery = useOrganization();
   const organization = orgQuery.data?.items?.[0];
@@ -108,6 +97,16 @@ export function CourseContentPage() {
 
   const apiClient = createApiClient({ baseUrl: getApiBaseUrl() });
   const contentApi = createContentApi(apiClient);
+  const reviewApi = createReviewApi(apiClient);
+
+  // Review queue query for badge counter
+  const reviewQueueQuery = useQuery({
+    queryKey: ["review-queue", organization?.id, courseId],
+    queryFn: () => reviewApi.getReviewQueue(organization!.id, courseId!),
+    enabled: !!organization?.id && !!courseId,
+  });
+
+  const pendingReviewCount = reviewQueueQuery.data?.pending?.length ?? 0;
 
   // Track which modules are expanded in the sidebar
   const [expandedModules, setExpandedModules] = useState<Set<string>>(
@@ -134,6 +133,7 @@ export function CourseContentPage() {
   const [editingModuleId, setEditingModuleId] = useState<string | null>(null);
   // The id of the module pending deletion confirmation (null = none)
   const [deletingModuleId, setDeletingModuleId] = useState<string | null>(null);
+  const [moduleEditError, setModuleEditError] = useState<string | null>(null);
 
   // Create module mutation
   const createModuleMutation = useMutation({
@@ -148,19 +148,27 @@ export function CourseContentPage() {
         title: title.trim(),
         description: description.trim() === "" ? null : description.trim(),
       }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({
+    onSuccess: (response) => {
+      void queryClient.invalidateQueries({
         queryKey: ["course-content", organization?.id, courseId],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["course-learning", courseId],
+      });
+      setExpandedModules((prev) => {
+        const next = new Set(prev);
+        next.add(response.module.id);
+        return next;
       });
       setNewModuleOpen(false);
       setCreateModuleError(null);
     },
     onError: (error: Error) => {
-      setCreateModuleError(error.message ?? "Failed to create module");
+      setCreateModuleError(error.message ?? "خطا در ایجاد فصل");
     },
   });
 
-  // Update module mutation (inline edit)
+  // Update module mutation
   const updateModuleMutation = useMutation({
     mutationFn: ({
       moduleId,
@@ -169,42 +177,59 @@ export function CourseContentPage() {
     }: {
       moduleId: string;
       title: string;
-      description: string;
+      description: string | null;
     }) =>
       contentApi.updateModule(organization!.id, courseId!, moduleId, {
         title: title.trim(),
-        description: description.trim() === "" ? null : description.trim(),
+        description:
+          description && description.trim() !== "" ? description.trim() : null,
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["course-content", organization?.id, courseId],
       });
+      void queryClient.invalidateQueries({
+        queryKey: ["course-learning", courseId],
+      });
       setEditingModuleId(null);
+      setModuleEditError(null);
     },
     onError: (error: Error) => {
-      // Surface the error to the inline editor via the module state
-      setModuleEditError(error.message ?? "Failed to update module");
+      setModuleEditError(error.message ?? "خطا در ویرایش فصل");
     },
   });
 
-  // Delete module mutation (soft-delete)
+  // Delete module mutation
   const deleteModuleMutation = useMutation({
     mutationFn: (moduleId: string) =>
       contentApi.deleteModule(organization!.id, courseId!, moduleId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({
+    onSuccess: (_, deletedModuleId) => {
+      void queryClient.invalidateQueries({
         queryKey: ["course-content", organization?.id, courseId],
       });
+      void queryClient.invalidateQueries({
+        queryKey: ["course-learning", courseId],
+      });
       setDeletingModuleId(null);
-    },
-    onError: (error: Error) => {
-      setCreateModuleError(error.message ?? "Failed to delete module");
-      setDeletingModuleId(null);
+      setExpandedModules((prev) => {
+        const next = new Set(prev);
+        next.delete(deletedModuleId);
+        return next;
+      });
+      const data = contentQuery.data;
+      if (data) {
+        const deletedModule = data.modules.find(
+          (m: ModuleData) => m.id === deletedModuleId,
+        );
+        const deletedLessonIds = new Set(
+          deletedModule?.lessons.map((l: LessonData) => l.id) ?? [],
+        );
+        if (selectedLessonId && deletedLessonIds.has(selectedLessonId)) {
+          setSelectedLessonId(null);
+        }
+      }
     },
   });
-
-  // Local error to show inline in the module editor
-  const [moduleEditError, setModuleEditError] = useState<string | null>(null);
 
   // Create lesson mutation
   const createLessonMutation = useMutation({
@@ -227,13 +252,13 @@ export function CourseContentPage() {
       });
     },
     onSuccess: (response) => {
-      // Refresh course content so the new lesson appears in the sidebar
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["course-content", organization?.id, courseId],
       });
-      // Auto-select the new lesson
+      void queryClient.invalidateQueries({
+        queryKey: ["course-learning", courseId],
+      });
       setSelectedLessonId(response.lesson.id);
-      // Ensure the parent module is expanded
       if (newLessonModuleId) {
         setExpandedModules((prev) => {
           const next = new Set(prev);
@@ -241,12 +266,11 @@ export function CourseContentPage() {
           return next;
         });
       }
-      // Close the dialog and clear any error
       setNewLessonModuleId(null);
       setCreateLessonError(null);
     },
     onError: (error: Error) => {
-      setCreateLessonError(error.message ?? "Failed to create lesson");
+      setCreateLessonError(error.message ?? "خطا در ایجاد درس");
     },
   });
 
@@ -255,10 +279,10 @@ export function CourseContentPage() {
     const data = contentQuery.data;
     if (!data) return;
     const firstModule = data.modules.find(
-      (module) => module.lessons.length > 0,
+      (module: ModuleData) => module.lessons.length > 0,
     );
-    const selectionExists = data.modules.some((module) =>
-      module.lessons.some((lesson) => lesson.id === selectedLessonId),
+    const selectionExists = data.modules.some((module: ModuleData) =>
+      module.lessons.some((lesson: LessonData) => lesson.id === selectedLessonId),
     );
     if (!selectionExists && firstModule) {
       setSelectedLessonId(firstModule.lessons[0].id);
@@ -266,11 +290,15 @@ export function CourseContentPage() {
     }
   }, [contentQuery.data, selectedLessonId]);
 
-  // --- Loading state (org or content) ---
+  const setTab = (tab: ManagerTab) => {
+    setSearchParams(tab === "curriculum" ? {} : { tab });
+  };
+
+  // --- Loading state ---
   if (orgQuery.isLoading || contentQuery.isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
+        <Loader2 className="w-8 h-8 animate-spin text-[#008080]" />
       </div>
     );
   }
@@ -280,17 +308,17 @@ export function CourseContentPage() {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center">
         <AlertCircle className="w-12 h-12 text-red-400 mb-4" />
-        <h2 className="text-lg font-semibold text-[var(--color-text)]">
-          Failed to load organization
+        <h2 className="text-lg font-bold text-[var(--color-text)]">
+          خطا در دریافت اطلاعات سازمان
         </h2>
         <p className="text-sm text-[var(--color-text-muted)] mt-1">
-          {orgQuery.error?.message ?? "An error occurred"}
+          {orgQuery.error?.message ?? "خطایی در برقراری ارتباط رخ داد."}
         </p>
         <Link
           to="/courses"
-          className="mt-4 px-4 py-2 bg-[var(--color-text)] text-[var(--color-background)] rounded-xl text-sm font-medium"
+          className="mt-4 px-4 py-2 bg-[#008080] text-white rounded-xl text-xs font-bold"
         >
-          Back to courses
+          بازگشت به دوره‌ها
         </Link>
       </div>
     );
@@ -301,17 +329,17 @@ export function CourseContentPage() {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center">
         <AlertCircle className="w-12 h-12 text-[var(--color-text-muted)] mb-4" />
-        <h2 className="text-lg font-semibold text-[var(--color-text)]">
-          No organization found
+        <h2 className="text-lg font-bold text-[var(--color-text)]">
+          سازمانی یافت نشد
         </h2>
         <p className="text-sm text-[var(--color-text-muted)] mt-1">
-          You don't belong to any organization yet.
+          شما در حال حاضر عضو هیچ سازمانی نیستید.
         </p>
         <Link
           to="/courses"
-          className="mt-4 px-4 py-2 bg-[var(--color-text)] text-[var(--color-background)] rounded-xl text-sm font-medium"
+          className="mt-4 px-4 py-2 bg-[#008080] text-white rounded-xl text-xs font-bold"
         >
-          Back to courses
+          بازگشت به دوره‌ها
         </Link>
       </div>
     );
@@ -322,17 +350,17 @@ export function CourseContentPage() {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center">
         <AlertCircle className="w-12 h-12 text-red-400 mb-4" />
-        <h2 className="text-lg font-semibold text-[var(--color-text)]">
-          Failed to load course content
+        <h2 className="text-lg font-bold text-[var(--color-text)]">
+          خطا در بارگذاری محتوای دوره
         </h2>
         <p className="text-sm text-[var(--color-text-muted)] mt-1">
-          {contentQuery.error?.message ?? "An error occurred"}
+          {contentQuery.error?.message ?? "خطایی رخ داد."}
         </p>
         <Link
           to="/courses"
-          className="mt-4 px-4 py-2 bg-[var(--color-text)] text-[var(--color-background)] rounded-xl text-sm font-medium"
+          className="mt-4 px-4 py-2 bg-[#008080] text-white rounded-xl text-xs font-bold"
         >
-          Back to courses
+          بازگشت به دوره‌ها
         </Link>
       </div>
     );
@@ -345,17 +373,17 @@ export function CourseContentPage() {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center">
         <BookOpen className="w-12 h-12 text-[var(--color-text-muted)] mb-4" />
-        <h2 className="text-lg font-semibold text-[var(--color-text)]">
-          Course not found
+        <h2 className="text-lg font-bold text-[var(--color-text)]">
+          دوره یافت نشد
         </h2>
         <p className="text-sm text-[var(--color-text-muted)] mt-1">
-          This course could not be found or you don't have access to it.
+          دوره موردنظر یافت نشد یا شما به آن دسترسی ندارید.
         </p>
         <Link
           to="/courses"
-          className="mt-4 px-4 py-2 bg-[var(--color-text)] text-[var(--color-background)] rounded-xl text-sm font-medium"
+          className="mt-4 px-4 py-2 bg-[#008080] text-white rounded-xl text-xs font-bold"
         >
-          Back to courses
+          بازگشت به دوره‌ها
         </Link>
       </div>
     );
@@ -379,95 +407,143 @@ export function CourseContentPage() {
     if (selectedLesson) break;
   }
 
+  const newLessonModule = modules.find((m: ModuleData) => m.id === newLessonModuleId);
   const totalLessons = modules.reduce(
     (sum: number, m: ModuleData) => sum + m.lessons.length,
     0,
   );
-
-  // -----------------------------------------------------------------------
-  // Render
-  // -----------------------------------------------------------------------
 
   return (
     <div className="space-y-6">
       {/* Back link */}
       <Link
         to={`/courses/${courseId}`}
-        className="inline-flex items-center gap-2 text-sm text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors"
+        className="inline-flex items-center gap-1.5 text-xs font-bold text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors"
       >
-        <ArrowLeft className="w-4 h-4" />
-        Back to course
+        <ArrowRight className="w-4 h-4" />
+        <span>بازگشت به دوره</span>
       </Link>
 
       {/* Course header */}
-      <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-6">
+      <div className="bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] p-6 shadow-sm">
         <div className="flex items-start gap-4">
-          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center flex-shrink-0">
-            <Eye className="w-6 h-6 text-white" />
+          <div className="w-12 h-12 rounded-2xl bg-[#a7d0e6]/40 text-[#008080] flex items-center justify-center flex-shrink-0">
+            <Eye className="w-6 h-6" />
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-3">
-              <h1 className="text-xl font-bold text-[var(--color-text)] truncate">
+              <h1 className="text-lg sm:text-xl font-bold text-[var(--color-text)] truncate">
                 {course.title}
               </h1>
-              <span className="text-xs px-2.5 py-1 rounded-full bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 flex-shrink-0">
-                Content Management
+              <span className="text-xs px-2.5 py-0.5 rounded-full bg-[#008080]/10 text-[#008080] font-bold flex-shrink-0">
+                مدیریت محتوا
               </span>
             </div>
-            <p className="text-sm text-[var(--color-text-muted)] mt-0.5">
-              {course.subject ?? "No subject"}
+            <p className="text-xs text-[var(--color-text-muted)] mt-1">
+              {course.subject ?? "بدون رشته مشخص"}
             </p>
           </div>
         </div>
       </div>
 
-      {/* Two-column layout: sidebar + content */}
-      <div className="flex flex-col lg:flex-row gap-6">
-        {/* Sidebar: Module accordion + lesson navigation */}
-        <aside className="w-full lg:w-80 xl:w-96 flex-shrink-0">
-          <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] overflow-hidden sticky top-24">
-            <div className="p-4 border-b border-[var(--color-border)]">
-              <div className="flex items-center justify-between gap-2">
-                <h2 className="font-semibold text-sm text-[var(--color-text)]">
-                  Course Content
-                </h2>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCreateModuleError(null);
-                    setNewModuleOpen(true);
-                  }}
-                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 transition-colors flex-shrink-0"
-                >
-                  <FolderPlus className="w-3.5 h-3.5" />
-                  New Module
-                </button>
-              </div>
-              <p className="text-xs text-[var(--color-text-muted)] mt-1">
-                {totalLessons} lesson{totalLessons !== 1 ? "s" : ""} across{" "}
-                {modules.length} module{modules.length !== 1 ? "s" : ""}
-              </p>
-            </div>
+      {/* Management Navigation Tabs */}
+      <div className="flex items-center gap-2 border-b border-[var(--color-border)] pb-2 overflow-x-auto">
+        <button
+          onClick={() => setTab("curriculum")}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all whitespace-nowrap ${
+            activeTab === "curriculum"
+              ? "bg-[#008080] text-white shadow-sm"
+              : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)]"
+          }`}
+        >
+          <BookOpen className="w-4 h-4" />
+          <span>سرفصل‌ها و دروس</span>
+        </button>
 
-            {/* Empty state */}
-            {modules.length === 0 && (
-              <div className="p-6 text-center">
-                <BookOpen className="w-8 h-8 text-[var(--color-text-muted)] mx-auto mb-2" />
-                <p className="text-sm text-[var(--color-text-muted)]">
-                  No modules yet.
+        <button
+          onClick={() => setTab("documents")}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all whitespace-nowrap ${
+            activeTab === "documents"
+              ? "bg-[#008080] text-white shadow-sm"
+              : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)]"
+          }`}
+        >
+          <FileText className="w-4 h-4" />
+          <span>اسناد و منابع بارگذاری‌شده</span>
+        </button>
+
+        <button
+          onClick={() => setTab("review")}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all whitespace-nowrap ${
+            activeTab === "review"
+              ? "bg-[#008080] text-white shadow-sm"
+              : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)]"
+          }`}
+        >
+          <Sparkles className="w-4 h-4" />
+          <span>صف بازبینی پیش‌نویس‌ها</span>
+          {pendingReviewCount > 0 && (
+            <span className="px-2 py-0.5 text-[10px] font-bold bg-amber-500 text-white rounded-full mr-1">
+              {pendingReviewCount}
+            </span>
+          )}
+        </button>
+      </div>
+
+      {/* Tab 2: Documents */}
+      {activeTab === "documents" && (
+        <CourseDocumentsView
+          organizationId={organization.id}
+          courseId={courseId!}
+          onNavigateToReview={() => setTab("review")}
+        />
+      )}
+
+      {/* Tab 3: Review Queue */}
+      {activeTab === "review" && (
+        <ReviewQueueList
+          organizationId={organization.id}
+          courseId={courseId!}
+        />
+      )}
+
+      {/* Tab 1: Curriculum Management */}
+      {activeTab === "curriculum" && (
+        <div className="flex flex-col lg:flex-row gap-6">
+          {/* Sidebar: Module accordion + lesson navigation */}
+          <aside className="w-full lg:w-80 xl:w-96 flex-shrink-0">
+            <div className="bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] overflow-hidden sticky top-24 shadow-sm">
+              <div className="p-4 border-b border-[var(--color-border)]">
+                <div className="flex items-center justify-between gap-2">
+                  <h2 className="font-bold text-sm text-[var(--color-text)]">
+                    ساختار آموزشی دوره
+                  </h2>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCreateModuleError(null);
+                      setNewModuleOpen(true);
+                    }}
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold text-[#008080] border border-[#008080]/30 hover:bg-[#008080]/10 transition-colors flex-shrink-0"
+                  >
+                    <FolderPlus className="w-3.5 h-3.5" />
+                    <span>فصل جدید</span>
+                  </button>
+                </div>
+                <p className="text-xs text-[var(--color-text-muted)] mt-1">
+                  {totalLessons} درس در {modules.length} فصل
                 </p>
               </div>
-            )}
 
-            {/* Module accordion */}
-            {modules.length > 0 && (
               <nav className="p-2 space-y-1 max-h-[calc(100vh-16rem)] overflow-y-auto">
-                {modules.map((mod) => (
+                {modules.map((mod: ModuleData) => (
                   <ModuleSection
                     key={mod.id}
                     module={mod}
                     isExpanded={expandedModules.has(mod.id)}
                     selectedLessonId={selectedLessonId}
+                    isEditing={editingModuleId === mod.id}
+                    isDeleting={deletingModuleId === mod.id}
                     onToggle={() => {
                       setExpandedModules((prev) => {
                         const next = new Set(prev);
@@ -489,120 +565,103 @@ export function CourseContentPage() {
                         });
                       }
                     }}
-                    onCreateLesson={() => {
+                    onOpenNewLesson={() => {
                       setCreateLessonError(null);
                       setNewLessonModuleId(mod.id);
                     }}
-                    isEditing={editingModuleId === mod.id}
-                    editError={moduleEditError}
-                    isUpdating={updateModuleMutation.isPending}
-                    isDeleting={deletingModuleId === mod.id}
-                    isDeletePending={deleteModuleMutation.isPending}
                     onStartEdit={() => {
                       setModuleEditError(null);
                       setEditingModuleId(mod.id);
                     }}
                     onCancelEdit={() => {
-                      setModuleEditError(null);
                       setEditingModuleId(null);
+                      setModuleEditError(null);
                     }}
-                    onSaveEdit={(moduleTitle, moduleDescription) =>
+                    onSaveEdit={(title: string, description: string | null) => {
                       updateModuleMutation.mutate({
                         moduleId: mod.id,
-                        title: moduleTitle,
-                        description: moduleDescription,
-                      })
-                    }
-                    onDeleteModule={() => setDeletingModuleId(mod.id)}
+                        title,
+                        description,
+                      });
+                    }}
+                    isUpdating={updateModuleMutation.isPending}
+                    onStartDelete={() => setDeletingModuleId(mod.id)}
                     onCancelDelete={() => setDeletingModuleId(null)}
-                    onConfirmDelete={() =>
-                      deleteModuleMutation.mutate(deletingModuleId!)
+                    onConfirmDelete={() => deleteModuleMutation.mutate(mod.id)}
+                    isDeletingModule={deleteModuleMutation.isPending}
+                    moduleEditError={
+                      editingModuleId === mod.id ? moduleEditError : null
                     }
                   />
                 ))}
+                {modules.length === 0 && (
+                  <div className="p-6 text-center text-xs text-[var(--color-text-muted)]">
+                    هنوز فصلی برای این دوره ایجاد نشده است.
+                  </div>
+                )}
               </nav>
+            </div>
+          </aside>
+
+          {/* Main content: Lesson editor or placeholder */}
+          <main className="flex-1 min-w-0">
+            {selectedLesson ? (
+              <LessonEditor
+                key={selectedLesson.id}
+                organizationId={organization.id}
+                courseId={courseId!}
+                moduleId={selectedModuleId}
+                moduleTitle={selectedModuleTitle}
+                lesson={selectedLesson}
+              />
+            ) : (
+              <div className="bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] p-12 text-center shadow-sm">
+                <Eye className="w-12 h-12 text-[var(--color-text-muted)] mx-auto mb-4" />
+                <h2 className="text-base font-bold text-[var(--color-text)]">
+                  یک درس را برای ویرایش انتخاب کنید
+                </h2>
+                <p className="text-xs text-[var(--color-text-muted)] mt-1">
+                  از منوی کناری درسی را انتخاب نمایید یا یک درس جدید ایجاد کنید.
+                </p>
+              </div>
             )}
-          </div>
-        </aside>
-
-        {/* Main content: Lesson editor */}
-        <main className="flex-1 min-w-0">
-          {selectedLesson && organization ? (
-            <LessonEditor
-              lesson={selectedLesson}
-              organizationId={organization.id}
-              courseId={courseId!}
-              moduleId={selectedModuleId}
-              moduleTitle={selectedModuleTitle}
-            />
-          ) : modules.length > 0 ? (
-            <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-12 text-center">
-              <Eye className="w-12 h-12 text-[var(--color-text-muted)] mx-auto mb-4" />
-              <h2 className="text-lg font-semibold text-[var(--color-text)]">
-                Select a lesson
-              </h2>
-              <p className="text-sm text-[var(--color-text-muted)] mt-1">
-                Choose a lesson from the sidebar to edit its content.
-              </p>
-            </div>
-          ) : (
-            <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-12 text-center">
-              <BookOpen className="w-12 h-12 text-[var(--color-text-muted)] mx-auto mb-4" />
-              <h2 className="text-lg font-semibold text-[var(--color-text)]">
-                No content yet
-              </h2>
-              <p className="text-sm text-[var(--color-text-muted)] mt-1">
-                This course has no modules or lessons yet.
-              </p>
-            </div>
-          )}
-        </main>
-      </div>
-
-      {/* New Lesson dialog */}
-      {newLessonModuleId && organization && (
-        <NewLessonDialog
-          open
-          moduleTitle={
-            modules.find((mod) => mod.id === newLessonModuleId)?.title ?? ""
-          }
-          isPending={createLessonMutation.isPending}
-          serverError={createLessonError}
-          onSubmit={(data) => {
-            createLessonMutation.mutate({
-              moduleId: newLessonModuleId,
-              title: data.title,
-              contentMarkdown: data.contentMarkdown,
-              estimatedMinutes: data.estimatedMinutes,
-            });
-          }}
-          onClose={() => {
-            if (!createLessonMutation.isPending) {
-              setNewLessonModuleId(null);
-              setCreateLessonError(null);
-            }
-          }}
-        />
+          </main>
+        </div>
       )}
 
-      {/* New Module dialog */}
-      {organization && (
-        <NewModuleDialog
-          open={newModuleOpen}
-          courseTitle={course.title}
-          isPending={createModuleMutation.isPending}
-          serverError={createModuleError}
-          onSubmit={(data) => {
-            createModuleMutation.mutate({
-              title: data.title,
-              description: data.description,
-            });
-          }}
+      {/* New Module Dialog */}
+      <NewModuleDialog
+        open={newModuleOpen}
+        courseTitle={course.title}
+        isPending={createModuleMutation.isPending}
+        serverError={createModuleError}
+        onClose={() => {
+          setNewModuleOpen(false);
+          setCreateModuleError(null);
+        }}
+        onSubmit={({ title, description }) => {
+          createModuleMutation.mutate({ title, description });
+        }}
+      />
+
+      {/* New Lesson Dialog */}
+      {newLessonModuleId && (
+        <NewLessonDialog
+          open={true}
+          moduleTitle={newLessonModule?.title || "فصل"}
+          isPending={createLessonMutation.isPending}
+          serverError={createLessonError}
           onClose={() => {
-            if (!createModuleMutation.isPending) {
-              setNewModuleOpen(false);
-              setCreateModuleError(null);
-            }
+            setNewLessonModuleId(null);
+            setCreateLessonError(null);
+          }}
+          onSubmit={({ title, contentMarkdown, estimatedMinutes }) => {
+            createLessonMutation.mutate({
+              moduleId: newLessonModuleId,
+              title,
+              contentMarkdown,
+              estimatedMinutes,
+            });
           }}
         />
       )}
@@ -611,159 +670,200 @@ export function CourseContentPage() {
 }
 
 // ---------------------------------------------------------------------------
-// Module section (accordion)
+// Module Section Subcomponents
 // ---------------------------------------------------------------------------
 
 function ModuleSection({
   module,
   isExpanded,
   selectedLessonId,
+  isEditing,
+  isDeleting,
   onToggle,
   onSelectLesson,
-  onCreateLesson,
-  isEditing,
-  editError,
-  isUpdating,
-  isDeleting,
-  isDeletePending,
+  onOpenNewLesson,
   onStartEdit,
   onCancelEdit,
   onSaveEdit,
-  onDeleteModule,
+  isUpdating,
+  onStartDelete,
   onCancelDelete,
   onConfirmDelete,
+  isDeletingModule,
+  moduleEditError,
 }: {
   module: ModuleData;
   isExpanded: boolean;
   selectedLessonId: string | null;
+  isEditing: boolean;
+  isDeleting: boolean;
   onToggle: () => void;
   onSelectLesson: (lessonId: string) => void;
-  onCreateLesson: () => void;
-  isEditing: boolean;
-  editError: string | null;
-  isUpdating: boolean;
-  isDeleting: boolean;
-  isDeletePending: boolean;
+  onOpenNewLesson: () => void;
   onStartEdit: () => void;
   onCancelEdit: () => void;
-  onSaveEdit: (title: string, description: string) => void;
-  onDeleteModule: () => void;
+  onSaveEdit: (title: string, description: string | null) => void;
+  isUpdating: boolean;
+  onStartDelete: () => void;
   onCancelDelete: () => void;
   onConfirmDelete: () => void;
+  isDeletingModule: boolean;
+  moduleEditError: string | null;
 }) {
+  const [editTitle, setEditTitle] = useState(module.title);
+  const [editDescription, setEditDescription] = useState(
+    module.description ?? "",
+  );
+
+  useEffect(() => {
+    setEditTitle(module.title);
+    setEditDescription(module.description ?? "");
+  }, [module.title, module.description, isEditing]);
+
+  const publishedCount = module.lessons.filter(
+    (l: LessonData) => l.publication_status === "published",
+  ).length;
+
   return (
-    <div className="rounded-xl overflow-hidden">
-      {/* Module header (clickable to expand/collapse) */}
-      <button
-        onClick={onToggle}
-        className={`w-full flex items-center gap-2 px-3 py-2.5 text-left rounded-xl transition-colors ${
-          isExpanded
-            ? "bg-indigo-50 dark:bg-indigo-950/30"
-            : "hover:bg-[var(--color-border)]"
-        }`}
-      >
-        {isExpanded ? (
-          <ChevronDown className="w-4 h-4 text-[var(--color-text-muted)] flex-shrink-0" />
-        ) : (
-          <ChevronRight className="w-4 h-4 text-[var(--color-text-muted)] flex-shrink-0" />
-        )}
-        <div className="flex-1 min-w-0">
-          <span className="text-sm font-medium text-[var(--color-text)] block truncate">
-            {module.title}
-          </span>
-          {module.description && (
-            <span className="text-xs text-[var(--color-text-muted)] block truncate">
-              {module.description}
-            </span>
-          )}
-        </div>
-        <span className="text-xs text-[var(--color-text-muted)] flex-shrink-0">
-          {module.lessons.length} lesson
-          {module.lessons.length !== 1 ? "s" : ""}
-        </span>
-      </button>
-
-      {/* Module action buttons (edit / delete) */}
-      <div className="flex items-center gap-1 px-3 pb-1">
-        <button
-          type="button"
-          onClick={onStartEdit}
-          aria-label={`Edit module ${module.title}`}
-          className="p-1.5 rounded-lg text-[var(--color-text-muted)] hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 transition-colors"
-        >
-          <Pencil className="w-3.5 h-3.5" />
-        </button>
-        <button
-          type="button"
-          onClick={onDeleteModule}
-          aria-label={`Delete module ${module.title}`}
-          className="p-1.5 rounded-lg text-[var(--color-text-muted)] hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-        </button>
-      </div>
-
-      {/* Inline edit form */}
-      {isEditing && (
-        <ModuleEditForm
-          module={module}
-          isUpdating={isUpdating}
-          serverError={editError}
-          onCancel={onCancelEdit}
-          onSave={onSaveEdit}
-        />
-      )}
-
-      {/* Delete confirmation */}
-      {isDeleting && (
-        <div className="mx-3 mb-2 p-3 rounded-lg border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/20">
-          <p className="text-sm text-red-700 dark:text-red-400 mb-2">
-            Delete module "{module.title}"? This is permanent.
+    <div className="rounded-2xl overflow-hidden">
+      {/* Delete confirmation banner */}
+      {isDeleting ? (
+        <div className="p-3.5 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-2xl space-y-2">
+          <p className="text-xs font-bold text-red-900 dark:text-red-200">
+            آیا از حذف فصل «{module.title}» اطمینان دارید؟
           </p>
-          <div className="flex items-center justify-end gap-2">
-            <button
-              type="button"
-              onClick={onCancelDelete}
-              disabled={isDeletePending}
-              className="px-3 py-1.5 rounded-lg text-xs text-[var(--color-text)] hover:bg-[var(--color-border)] transition-colors disabled:opacity-50"
-            >
-              Cancel
-            </button>
+          <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={onConfirmDelete}
-              disabled={isDeletePending}
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-red-500 hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed text-white transition-colors"
+              disabled={isDeletingModule}
+              className="px-3 py-1 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold"
             >
-              {isDeletePending ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  Deleting...
-                </>
-              ) : (
-                <>
-                  <Trash2 className="w-3.5 h-3.5" />
-                  Delete
-                </>
+              {isDeletingModule ? "در حال حذف..." : "تایید حذف"}
+            </button>
+            <button
+              type="button"
+              onClick={onCancelDelete}
+              disabled={isDeletingModule}
+              className="px-3 py-1 bg-white dark:bg-zinc-800 hover:bg-zinc-100 border border-zinc-200 rounded-xl text-xs font-bold"
+            >
+              انصراف
+            </button>
+          </div>
+        </div>
+      ) : isEditing ? (
+        /* Inline edit form */
+        <div className="p-3 bg-[#008080]/10 border border-[#008080]/30 rounded-2xl space-y-2">
+          {moduleEditError && (
+            <div className="p-2 rounded-xl bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 text-xs font-medium">
+              {moduleEditError}
+            </div>
+          )}
+          <input
+            type="text"
+            value={editTitle}
+            onChange={(e) => setEditTitle(e.target.value)}
+            placeholder="عنوان فصل"
+            aria-label="عنوان فصل"
+            className="w-full px-3 py-1.5 text-xs bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)] focus:outline-none focus:ring-2 focus:ring-[#008080]"
+          />
+          <input
+            type="text"
+            value={editDescription}
+            onChange={(e) => setEditDescription(e.target.value)}
+            placeholder="توضیحات (اختیاری)"
+            aria-label="توضیحات فصل"
+            className="w-full px-3 py-1.5 text-xs bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)] focus:outline-none focus:ring-2 focus:ring-[#008080]"
+          />
+          <div className="flex items-center justify-end gap-2 pt-1">
+            <button
+              type="button"
+              onClick={onCancelEdit}
+              disabled={isUpdating}
+              className="px-2.5 py-1 rounded-xl text-xs font-bold text-[var(--color-text-muted)] hover:bg-[var(--color-surface)]"
+            >
+              انصراف
+            </button>
+            <button
+              type="button"
+              onClick={() => onSaveEdit(editTitle, editDescription)}
+              disabled={isUpdating || !editTitle.trim()}
+              className="px-3 py-1 bg-[#008080] hover:bg-[#006666] disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-1"
+            >
+              <Save className="w-3 h-3" />
+              <span>ذخیره</span>
+            </button>
+          </div>
+        </div>
+      ) : (
+        /* Normal module header row */
+        <div
+          className={`w-full flex items-center gap-1.5 px-3 py-2 text-right rounded-2xl transition-colors ${
+            isExpanded
+              ? "bg-[#008080]/10"
+              : "hover:bg-[var(--color-surface-warm)]"
+          }`}
+        >
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-expanded={isExpanded}
+            aria-label={`${isExpanded ? "بستن" : "باز کردن"} فصل ${module.title}`}
+            className="flex items-center gap-2 flex-1 min-w-0 text-right"
+          >
+            {isExpanded ? (
+              <ChevronDown className="w-4 h-4 text-[var(--color-text-muted)] flex-shrink-0" />
+            ) : (
+              <ChevronLeft className="w-4 h-4 text-[var(--color-text-muted)] flex-shrink-0" />
+            )}
+            <div className="flex-1 min-w-0">
+              <span className="text-xs sm:text-sm font-bold text-[var(--color-text)] block truncate">
+                {module.title}
+              </span>
+              {module.description && (
+                <span className="text-[11px] text-[var(--color-text-muted)] block truncate">
+                  {module.description}
+                </span>
               )}
+            </div>
+            <span className="text-xs text-[var(--color-text-muted)] flex-shrink-0 font-mono" dir="ltr">
+              {publishedCount}/{module.lessons.length}
+            </span>
+          </button>
+
+          <div className="flex items-center gap-0.5 flex-shrink-0">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onStartEdit();
+              }}
+              title="ویرایش فصل"
+              aria-label={`ویرایش فصل ${module.title}`}
+              className="p-1 rounded-lg text-[var(--color-text-muted)] hover:text-[#008080] hover:bg-[#008080]/10"
+            >
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onStartDelete();
+              }}
+              title="حذف فصل"
+              aria-label={`حذف فصل ${module.title}`}
+              className="p-1 rounded-lg text-[var(--color-text-muted)] hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
             </button>
           </div>
         </div>
       )}
 
-      {/* Lesson list (visible when expanded) */}
-      {isExpanded && (
-        <div className="ml-2 mt-1 space-y-0.5 pb-1">
-          {/* New Lesson action */}
-          <button
-            type="button"
-            onClick={onCreateLesson}
-            className="w-full flex items-center gap-2 px-3 py-2 text-left rounded-lg text-sm text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 transition-colors"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            New Lesson
-          </button>
-          {module.lessons.map((lesson) => (
+      {/* Lesson list & Add lesson button */}
+      {isExpanded && !isEditing && !isDeleting && (
+        <div className="mr-2 mt-1 space-y-0.5 pb-1">
+          {module.lessons.map((lesson: LessonData) => (
             <LessonNavItem
               key={lesson.id}
               lesson={lesson}
@@ -771,131 +871,20 @@ function ModuleSection({
               onSelect={() => onSelectLesson(lesson.id)}
             />
           ))}
+
+          <button
+            type="button"
+            onClick={onOpenNewLesson}
+            className="w-full flex items-center gap-1.5 px-3 py-1.5 text-right rounded-xl text-xs font-bold text-[#008080] hover:bg-[#008080]/10 transition-colors"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>افزودن درس</span>
+          </button>
         </div>
       )}
     </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Module inline edit form
-// ---------------------------------------------------------------------------
-
-function ModuleEditForm({
-  module,
-  isUpdating,
-  serverError,
-  onCancel,
-  onSave,
-}: {
-  module: ModuleData;
-  isUpdating: boolean;
-  serverError: string | null;
-  onCancel: () => void;
-  onSave: (title: string, description: string) => void;
-}) {
-  const [title, setTitle] = useState(module.title);
-  const [description, setDescription] = useState(module.description ?? "");
-  const [errors, setErrors] = useState<{ title?: string }>({});
-
-  const handleSave = () => {
-    if (title.trim().length === 0) {
-      setErrors({ title: "Module title is required" });
-      return;
-    }
-    setErrors({});
-    onSave(title, description);
-  };
-
-  return (
-    <div className="mx-3 mb-2 p-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-background)] space-y-2">
-      {serverError && (
-        <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400 text-xs">
-          <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
-          <span>{serverError}</span>
-        </div>
-      )}
-      <div>
-        <label
-          htmlFor={`module-title-${module.id}`}
-          className="block text-xs font-medium text-[var(--color-text)] mb-1"
-        >
-          Title
-        </label>
-        <input
-          id={`module-title-${module.id}`}
-          type="text"
-          value={title}
-          onChange={(e) => {
-            setTitle(e.target.value);
-            if (errors.title)
-              setErrors((prev) => ({ ...prev, title: undefined }));
-          }}
-          disabled={isUpdating}
-          autoFocus
-          className={`w-full px-2.5 py-1.5 rounded-lg bg-[var(--color-surface)] border text-sm text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:opacity-60 ${
-            errors.title ? "border-red-400" : "border-[var(--color-border)]"
-          }`}
-        />
-        {errors.title && (
-          <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
-            <AlertCircle className="w-3 h-3" />
-            {errors.title}
-          </p>
-        )}
-      </div>
-      <div>
-        <label
-          htmlFor={`module-description-${module.id}`}
-          className="block text-xs font-medium text-[var(--color-text)] mb-1"
-        >
-          Description
-        </label>
-        <textarea
-          id={`module-description-${module.id}`}
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          disabled={isUpdating}
-          rows={2}
-          className="w-full px-2.5 py-1.5 rounded-lg bg-[var(--color-surface)] border border-[var(--color-border)] text-sm text-[var(--color-text)] leading-relaxed resize-y focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:opacity-60"
-        />
-      </div>
-      <div className="flex items-center justify-end gap-2 pt-1">
-        <button
-          type="button"
-          onClick={onCancel}
-          disabled={isUpdating}
-          className="px-3 py-1.5 rounded-lg text-xs text-[var(--color-text)] hover:bg-[var(--color-border)] transition-colors disabled:opacity-50"
-        >
-          <X className="w-3.5 h-3.5 inline mr-1" />
-          Cancel
-        </button>
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={isUpdating}
-          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-500 hover:bg-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed text-white transition-colors"
-        >
-          {isUpdating ? (
-            <>
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              Saving...
-            </>
-          ) : (
-            <>
-              <Save className="w-3.5 h-3.5" />
-              Save
-            </>
-          )}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Lesson nav item (sidebar)
-// ---------------------------------------------------------------------------
 
 function LessonNavItem({
   lesson,
@@ -906,43 +895,34 @@ function LessonNavItem({
   isSelected: boolean;
   onSelect: () => void;
 }) {
+  const isDraft = lesson.publication_status === "draft";
+
   return (
     <button
+      type="button"
       onClick={onSelect}
-      className={`w-full flex items-center gap-2 px-3 py-2 text-left rounded-lg text-sm transition-colors ${
+      className={`w-full flex items-center gap-2 px-3 py-2 text-right rounded-xl text-xs transition-colors ${
         isSelected
-          ? "bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 font-medium"
-          : "text-[var(--color-text)] hover:bg-[var(--color-border)]"
+          ? "bg-[#008080]/15 text-[#008080] font-bold"
+          : "text-[var(--color-text)] hover:bg-[var(--color-surface-warm)]"
       }`}
     >
+      <span
+        className={`w-2 h-2 rounded-full flex-shrink-0 ${
+          isDraft ? "bg-amber-500" : "bg-green-500"
+        }`}
+        title={isDraft ? "پیش‌نویس" : "منتشر شده"}
+      />
       <span className="truncate flex-1">{lesson.title}</span>
-      <PublicationBadge status={lesson.publication_status} />
-      {lesson.estimated_minutes && (
-        <span className="text-xs text-[var(--color-text-muted)] flex-shrink-0 flex items-center gap-1">
-          <Clock className="w-3 h-3" />
-          {lesson.estimated_minutes}m
-        </span>
-      )}
-    </button>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Publication badge
-// ---------------------------------------------------------------------------
-
-function PublicationBadge({ status }: { status: "draft" | "published" }) {
-  if (status === "published") {
-    return (
-      <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 flex-shrink-0">
-        Published
+      <span
+        className={`text-[10px] px-1.5 py-0.5 rounded-md font-bold flex-shrink-0 ${
+          isDraft
+            ? "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400"
+            : "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400"
+        }`}
+      >
+        {isDraft ? "پیش‌نویس" : "منتشر شده"}
       </span>
-    );
-  }
-
-  return (
-    <span className="text-xs px-2 py-0.5 rounded-full bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 flex-shrink-0">
-      Draft
-    </span>
+    </button>
   );
 }

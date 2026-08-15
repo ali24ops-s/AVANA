@@ -8,7 +8,15 @@
  * module/lesson CRUD will be introduced with admin/content management.
  */
 
-import type { CourseId, LessonId, ModuleId, UserId } from "@avana/domain";
+import type {
+  CourseId,
+  DocumentChunkId,
+  DocumentId,
+  LessonId,
+  ModuleId,
+  OrganizationId,
+  UserId,
+} from "@avana/domain";
 
 // ---------------------------------------------------------------------------
 // Records
@@ -50,6 +58,62 @@ export type LessonProgressRecord = {
 };
 
 // ---------------------------------------------------------------------------
+// AI Learning Engine records (PR6-1)
+// ---------------------------------------------------------------------------
+
+/**
+ * Document lifecycle states (see SPRINT_06 proposal §4.5).
+ */
+export type DocumentStatus =
+  | "uploaded"
+  | "processing"
+  | "pending_validation"
+  | "validating"
+  | "pending_extraction"
+  | "extracting"
+  | "pending_chunking"
+  | "chunking"
+  | "extracted"
+  | "pending_generation"
+  | "generating"
+  | "review_pending"
+  | "ready"
+  | "failed";
+
+export type DocumentRecord = {
+  id: DocumentId;
+  organizationId: OrganizationId;
+  courseId: CourseId | null;
+  ownerUserId: UserId;
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+  sha256: string;
+  storageKey: string;
+  pageCount: number | null;
+  status: DocumentStatus;
+  errorCode: string | null;
+  retryCount: number;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+};
+
+export type DocumentChunkRecord = {
+  id: DocumentChunkId;
+  documentId: DocumentId;
+  organizationId: OrganizationId;
+  sequence: number;
+  heading: string | null;
+  content: string;
+  startPage: number;
+  endPage: number;
+  tokenEstimate: number;
+  contentHash: string;
+  createdAt: string;
+};
+
+// ---------------------------------------------------------------------------
 // Store interfaces
 // ---------------------------------------------------------------------------
 
@@ -88,6 +152,72 @@ export interface LessonStore {
 
   /** Soft-delete a lesson. */
   delete(lessonId: LessonId): Promise<void>;
+}
+
+export interface DocumentStore {
+  /**
+   * Find an active document by ID, scoped to an organization.
+   * Returns undefined if the document doesn't exist, is soft-deleted,
+   * or belongs to another organization (non-disclosing).
+   */
+  findByIdForOrganization(
+    id: DocumentId,
+    organizationId: OrganizationId,
+  ): Promise<DocumentRecord | undefined>;
+
+  /**
+   * Find an active document by ID, scoped to an organization and owner.
+   * Used for "my uploads" reads.
+   */
+  findByIdForOwner(
+    id: DocumentId,
+    organizationId: OrganizationId,
+    ownerUserId: UserId,
+  ): Promise<DocumentRecord | undefined>;
+
+  /** List active documents for an organization, optionally scoped to a course. */
+  listByOrganization(
+    organizationId: OrganizationId,
+    courseId?: CourseId,
+  ): Promise<DocumentRecord[]>;
+
+  /** List active documents uploaded by a user within an organization. */
+  listByOwner(
+    organizationId: OrganizationId,
+    ownerUserId: UserId,
+  ): Promise<DocumentRecord[]>;
+
+  /** Find an active document by content hash (duplicate-upload detection). */
+  findByOrganizationAndSha256(
+    organizationId: OrganizationId,
+    sha256: string,
+  ): Promise<DocumentRecord | undefined>;
+
+  /** Insert a new document record. */
+  create(document: DocumentRecord): Promise<DocumentRecord>;
+
+  /** Update an existing document record completely. */
+  update(document: DocumentRecord): Promise<DocumentRecord>;
+
+  /** Soft-delete a document. */
+  delete(documentId: DocumentId): Promise<void>;
+}
+
+export interface DocumentChunkStore {
+  /** List all chunks for a document, ordered by sequence. */
+  listByDocument(documentId: DocumentId): Promise<DocumentChunkRecord[]>;
+
+  /** Find a chunk by ID, scoped to an organization. */
+  findByIdForOrganization(
+    id: DocumentChunkId,
+    organizationId: OrganizationId,
+  ): Promise<DocumentChunkRecord | undefined>;
+
+  /** Insert new chunk records in bulk. */
+  createMany(chunks: DocumentChunkRecord[]): Promise<DocumentChunkRecord[]>;
+
+  /** Delete all chunks for a document (used on regeneration/cleanup). */
+  deleteByDocument(documentId: DocumentId): Promise<void>;
 }
 
 export interface ProgressStore {

@@ -1,76 +1,66 @@
-# PR5-D2 — Fix Role Resolution for Content Management
+# PR6-7 — Study Consumption + Analytics
 
-## Plan Steps
+**Status:** Complete
 
-- [x] 0. Audit auth flow (identity module, /v1/me, sessions, org memberships, web auth context)
-- [x] 1. Update OpenAPI contract (add `memberships` to MeResponse/SignInResponse, add `UserMembership`)
-- [x] 2. Update TypeScript generated contracts (add `UserMembership`, `memberships` on responses)
-- [x] 3. Update backend `/v1/me` + `/v1/auth/sign-in` to expose membership roles (keep `user.role` unchanged)
-- [x] 4. Update frontend auth types/state (AuthProvider exposes `memberships`)
-- [x] 5. Update `coursePermissions` to derive permission from membership roles (reuse helpers)
-- [x] 6. Update `ManageContentLink`, `RequireCourseManager`, `LearningPage` to use memberships
-- [x] 7. Update backend test `pr5d2-role-resolution.test.ts` to assert memberships
-- [x] 8. Update frontend tests (coursePermissions, ManageContentLink, RequireCourseManager)
-- [x] 9. Run `npm run type-check`, `npm run lint`, `npm test`, `npm run build`
+## Implementation Steps
+
+### Phase 1 — Domain + schema + policy + audit
+
+- [x] Add `packages/domain/src/study.ts` — `FlashcardRating` (`again|hard|good|easy`), `FlashcardReviewInput`, `QuizAnswerInput`, `QuizAttemptResult`, `StudyAnalytics`, `StudyRecommendation`, and pure `nextReviewInterval(rating, previousInterval, easeFactor)` (FSRS-inspired/minimal scheduling function)
+- [x] Add policy actions `flashcard:review`, `quiz:attempt`, `study:read` to `packages/domain/src/authorization/policy.ts` (student + editor + org_admin; not support/platform)
+- [x] Add audit actions `flashcard.reviewed`, `quiz.attempted` + `auditFlashcardReviewed()` / `auditQuizAttempted()` helpers to `packages/domain/src/authorization/audit.ts`; extend `AuditEntityType` with `flashcard`, `flashcard_review`, `quiz`, `quiz_attempt`
+- [x] Export new helpers in `authorization/index.ts`; export `study.ts` in `packages/domain/src/index.ts`
+- [x] Add `due_at` (+ `interval_days`, `ease_factor`) columns to `flashcards` in `database/schema/index.ts`
+- [x] Create `database/migrations/0009_study_consumption.ts` (additive, reversible)
+- [x] Extend `database/tests/schema.test.ts` with new column assertions
+- [x] Create `packages/domain/src/test/pr6-7-study.test.ts` (policy, audit, scheduling)
+
+### Phase 2 — Flashcard/quiz stores + persistence
+
+- [x] Create `apps/api/src/modules/study/study-store.ts` — `FlashcardRecord`, `FlashcardReviewRecord`, `FlashcardStore`, `FlashcardReviewStore`, `QuizRecord`, `QuizQuestionRecord`, `QuizAttemptRecord`, `QuizStore`, `QuizQuestionStore`, `QuizAttemptStore`
+- [x] Create `apps/api/src/modules/study/drizzle-stores.ts` (Drizzle implementations)
+- [x] Create `apps/api/src/modules/study/test/in-memory-stores.ts` (in-memory implementations)
+- [x] Create `apps/api/src/modules/study/index.ts` exports
+
+### Phase 3 — ReviewService materialization + generation enablement
+
+- [x] Extend `ENABLED_GENERATION_TYPES` in `packages/domain/src/generation.ts` to `lesson | flashcard | quiz` (recommendation stays disabled)
+- [x] Extend `MockModelGateway` in `apps/api/src/modules/generation/gateway/mock.ts` to produce deterministic, schema-valid flashcard + quiz payloads with citationChunkIds
+- [x] Extend `ReviewService.acceptContent` in `apps/api/src/modules/generation/review-service.ts` to materialize accepted `flashcard` and `quiz` content (idempotent via `generated_content_id` FK; rejected/regenerating never materialized)
+- [x] Extend `review-service.test.ts` with flashcard/quiz materialization + idempotency tests
+- [x] Extend `pr19-review-api.test.ts` with flashcard/quiz accept materialization integration assertions
+
+### Phase 4 — Study services
+
+- [x] Create `apps/api/src/modules/study/study-service.ts`:
+  - Flashcard review (synchronous, uses `nextReviewInterval`, updates `due_at`, emits audit)
+  - Review queue (list due cards for a user in a course)
+  - Quiz attempts (percentage score, immutable, multiple attempts, emits audit)
+  - Study analytics/recommendations (derived from accepted lessons + flashcard reviews + quiz attempts + progress; no dependency on recommendation generation)
+- [x] Create `apps/api/src/modules/study/study-service.test.ts`
+
+### Phase 5 — Routes + contracts + composition/wiring
+
+- [x] Create `apps/api/src/modules/study/study-routes.ts` (flashcards list/review-queue/review, quizzes list/get/attempts, study analytics/recommendations)
+- [x] Wire `studyRoutes` in `apps/api/src/routes/v1.ts` behind store guard
+- [x] Compose study stores in `apps/api/src/server/composeLocalDev.ts` and `composeProduction.ts`
+- [x] Update `packages/contracts/openapi/v1.yaml` (PR6-7 section: FlashcardResource, QuizResource, StudyAnalyticsResponse, etc.)
+- [x] Update `packages/contracts/src/generated/index.ts` (hand-authored types)
+
+### Phase 6 — Integration tests + verification
+
+- [x] Create `apps/api/src/test/pr20-study-api.test.ts` — full pipeline (happy + negative cases)
+- [x] Run `npm run type-check`
+- [x] Run `npm run lint`
+- [x] Run `npm test`
+- [x] Run `npm run build`
+- [x] Run `npm run validate:openapi --workspace @avana/contracts`
 
 ---
 
-# PR5-D4 — Module CRUD (authoring workflow)
+## Architectural & Documentation Notes
 
-## Scope delivered
+- **Flashcard Mastery Estimation**: The current `flashcard_mastery_percent` calculation in `StudyService` (based on `due_at > now + 7 days`) is a lightweight operational heuristic to identify well-spaced flashcards, not a formal cognitive mastery model.
+- **Spaced Repetition Scheduling**: The algorithm implemented in `packages/domain/src/study.ts` (`nextReviewInterval`, `nextDueAt`) is intentionally an **FSRS-inspired** deterministic approximation (leveraging interval multiplication, ease factors, and rating scales `again | hard | good | easy`) rather than a full 17-parameter FSRS statistical/neural model.
+- **Materialization Invariant**: AI-generated flashcards and quizzes remain non-learner-facing drafts until accepted by a `course_editor` or `organization_admin` via `ReviewService.acceptContent`. Materialization is idempotent via `generated_content_id`.
 
-- Backend module CRUD via content routes/service/store:
-  - `POST /v1/organizations/:orgId/courses/:courseId/modules` — create module
-  - `PATCH /v1/organizations/:orgId/courses/:courseId/modules/:moduleId` — update (rename/description)
-  - `DELETE /v1/organizations/:orgId/courses/:courseId/modules/:moduleId` — soft-delete (archive)
-  - Validation (required title, max length 255, description nullable)
-  - Audit events: `module.created`, `module.updated`, `module.deleted`
-  - Authorization via existing content permissions (`content:write`)
-- Frontend module management on `CourseContentPage`:
-  - New Module dialog (`NewModuleDialog.tsx`)
-  - Rename module (inline edit form)
-  - Delete module with confirmation (soft-delete)
-  - Content tree refresh after mutations (React Query invalidation)
-  - Loading and error states (isPending, serverError)
-- Excluded (per scope): drag-and-drop, reordering, nested modules, autosave
-
-## Files changed
-
-- `packages/domain/src/authorization/audit.ts` — `auditModuleCreated/Updated/Deleted`
-- `packages/domain/src/authorization/index.ts` — re-export module audit helpers
-- `packages/contracts/openapi/v1.yaml` — module paths + `ContentModuleSummary`, `CreateContentModuleRequest`, `UpdateContentModuleRequest`, `ContentModuleResponse`
-- `packages/contracts/src/generated/index.ts` — module contract types
-- `apps/api/src/modules/learning/learning-store.ts` — `ModuleStore.create/update/delete`
-- `apps/api/src/modules/learning/drizzle-stores.ts` — Drizzle module store CRUD
-- `apps/api/src/modules/learning/test/in-memory-stores.ts` — in-memory module store CRUD
-- `apps/api/src/modules/learning/content-service.ts` — `createModule`, `updateModule`, `deleteModule`
-- `apps/api/src/modules/learning/content-routes.ts` — module route handlers
-- `apps/web/src/lib/api/content.ts` — `createModule`, `updateModule`, `deleteModule`
-- `apps/web/src/components/content/NewModuleDialog.tsx` — create module dialog
-- `apps/web/src/pages/CourseContentPage.tsx` — module accordion edit/delete + dialogs
-- `apps/api/src/test/pr15-content.test.ts` — integration tests (module + lesson)
-
-## Verification
-
-### PR15 end-to-end (live API)
-
-- Signed in as `alice@example.com`
-- Org: `b4a0b464-16db-4087-92b7-163a1e6f6776`
-- Course: `5a767d70-a58b-469b-b6f0-2192ffe92ce7`
-- Module: `b9f19eab-68d4-43c5-be5a-efcdb3bea71f`
-
-1. **Content tree refresh after mutation** — `GET /v1/organizations/:orgId/courses/:courseId/content`
-   - `module_found: true`
-   - `module_title: "PR5-D4 Renamed Module"` (rename reflected)
-   - `module_lessons: 1`
-   - `lesson_status: draft` (before publish)
-2. **Lesson publish** — `POST .../lessons/:lessonId/publish`
-   - Response `publication_status: "published"`
-   - Note: must not send `Content-Type: application/json` with an empty body — Fastify returns `FST_ERR_CTP_EMPTY_JSON_BODY` (mapped to 500 `internal_error`). The endpoint takes no body.
-3. **Learner visibility** — `GET /v1/courses/:courseId/learn`
-   - Verification Lesson (`fbe34f0d-5516-4e17-856c-e99da4e41f65`) now visible to learners
-   - `progress.total_lessons: 7` (6 seeded published + 1 newly published)
-
-### Automated tests
-
-- `pr15-content.test.ts` — 21 tests passing (content read, create/update/publish lesson, draft filtering, audit events)

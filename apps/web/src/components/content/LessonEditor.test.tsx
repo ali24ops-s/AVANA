@@ -1,9 +1,5 @@
 /**
  * LessonEditor unit tests.
- *
- * Verifies the editor initializes form state safely, especially that
- * `contentMarkdown` is always a string even when the API omits/nullifies
- * `content_markdown` (regression guard for the CourseContentPage crash).
  */
 
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
@@ -59,19 +55,18 @@ describe("LessonEditor", () => {
   it("initializes contentMarkdown from content_markdown", () => {
     renderEditor(makeLesson({ content_markdown: "# Hello world" }));
     const textarea = screen.getByPlaceholderText(
-      "Write your lesson content in markdown...",
+      "محتوای درس را به فرمت Markdown وارد کنید...",
     ) as HTMLTextAreaElement;
     expect(textarea.value).toBe("# Hello world");
   });
 
   it("does not crash when content_markdown is missing (undefined)", () => {
-    // Simulate an API contract deviation where content_markdown is absent.
     const lesson = makeLesson();
     delete (lesson as Partial<ContentLessonResource>).content_markdown;
 
     expect(() => renderEditor(lesson)).not.toThrow();
     const textarea = screen.getByPlaceholderText(
-      "Write your lesson content in markdown...",
+      "محتوای درس را به فرمت Markdown وارد کنید...",
     ) as HTMLTextAreaElement;
     expect(textarea.value).toBe("");
   });
@@ -83,7 +78,7 @@ describe("LessonEditor", () => {
     };
     expect(() => renderEditor(lesson)).not.toThrow();
     const textarea = screen.getByPlaceholderText(
-      "Write your lesson content in markdown...",
+      "محتوای درس را به فرمت Markdown وارد کنید...",
     ) as HTMLTextAreaElement;
     expect(textarea.value).toBe("");
   });

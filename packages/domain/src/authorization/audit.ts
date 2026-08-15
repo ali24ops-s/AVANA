@@ -21,6 +21,10 @@ import type {
   CourseId,
   ModuleId,
   LessonId,
+  DocumentId,
+  GeneratedContentId,
+  FlashcardId,
+  QuizId,
 } from "../ids.js";
 
 // ---------------------------------------------------------------------------
@@ -44,7 +48,19 @@ export type AuditAction =
   | "lesson.updated"
   | "lesson.published"
   | "lesson.completed"
-  | "lesson.progress_updated";
+  | "lesson.progress_updated"
+  | "document.uploaded"
+  | "document.processed"
+  | "document.failed"
+  | "document.deleted"
+  | "content.generated"
+  | "content.accepted"
+  | "content.rejected"
+  | "content.regenerated"
+  | "content.edited"
+  | "generation.failed"
+  | "flashcard.reviewed"
+  | "quiz.attempted";
 
 export type AuditEntityType =
   | "organization"
@@ -52,7 +68,14 @@ export type AuditEntityType =
   | "course"
   | "module"
   | "lesson"
-  | "lesson_progress";
+  | "lesson_progress"
+  | "document"
+  | "document_chunk"
+  | "generated_content"
+  | "flashcard"
+  | "flashcard_review"
+  | "quiz"
+  | "quiz_attempt";
 
 /**
  * Structured audit event payload.
@@ -437,6 +460,369 @@ export function auditLessonProgressUpdated(
     entityType: "lesson_progress",
     entityId: lessonId,
     details: { course_id: courseId, completed },
+    createdAt: utcNow(),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// AI Learning Engine document audit helpers (PR6-1)
+// ---------------------------------------------------------------------------
+
+/**
+ * Create an audit event for a document upload.
+ *
+ * Audit payloads never include file contents — only metadata.
+ */
+export function auditDocumentUploaded(
+  actorId: UserId,
+  organizationId: OrganizationId,
+  documentId: DocumentId,
+  details: {
+    courseId: string;
+    ownerUserId: string;
+    originalName: string;
+    mimeType: string;
+    sizeBytes: number;
+    sha256: string;
+  },
+): AuditEvent {
+  return {
+    actorId,
+    organizationId,
+    action: "document.uploaded",
+    entityType: "document",
+    entityId: documentId,
+    details: {
+      course_id: details.courseId,
+      owner_user_id: details.ownerUserId,
+      original_name: details.originalName,
+      mime_type: details.mimeType,
+      size_bytes: details.sizeBytes,
+      sha256: details.sha256,
+    },
+    createdAt: utcNow(),
+  };
+}
+
+/**
+ * Create an audit event for a document processing milestone
+ * (e.g., extraction/chunking completed, status transition).
+ */
+export function auditDocumentProcessed(
+  actorId: UserId,
+  organizationId: OrganizationId,
+  documentId: DocumentId,
+  details: {
+    previousStatus: string;
+    newStatus: string;
+    pageCount?: number | null;
+    chunkCount?: number | null;
+  },
+): AuditEvent {
+  return {
+    actorId,
+    organizationId,
+    action: "document.processed",
+    entityType: "document",
+    entityId: documentId,
+    details: {
+      previous_status: details.previousStatus,
+      new_status: details.newStatus,
+      page_count: details.pageCount ?? null,
+      chunk_count: details.chunkCount ?? null,
+    },
+    createdAt: utcNow(),
+  };
+}
+
+/**
+ * Create an audit event for a document processing failure.
+ */
+export function auditDocumentFailed(
+  actorId: UserId,
+  organizationId: OrganizationId,
+  documentId: DocumentId,
+  details: {
+    errorCode: string;
+    retryCount: number;
+  },
+): AuditEvent {
+  return {
+    actorId,
+    organizationId,
+    action: "document.failed",
+    entityType: "document",
+    entityId: documentId,
+    details: {
+      error_code: details.errorCode,
+      retry_count: details.retryCount,
+    },
+    createdAt: utcNow(),
+  };
+}
+
+/**
+ * Create an audit event for a document deletion (soft delete).
+ */
+export function auditDocumentDeleted(
+  actorId: UserId,
+  organizationId: OrganizationId,
+  documentId: DocumentId,
+  courseId: string,
+): AuditEvent {
+  return {
+    actorId,
+    organizationId,
+    action: "document.deleted",
+    entityType: "document",
+    entityId: documentId,
+    details: { course_id: courseId },
+    createdAt: utcNow(),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// AI Learning Engine generation audit helpers (PR6-4)
+// ---------------------------------------------------------------------------
+
+/**
+ * Create an audit event for a generated content draft being produced.
+ *
+ * Audit payloads never include AI payload bodies or chunk text — only IDs,
+ * counts, and metadata.
+ */
+export function auditContentGenerated(
+  actorId: UserId,
+  organizationId: OrganizationId,
+  contentId: GeneratedContentId,
+  details: {
+    documentId: string;
+    type: string;
+    model: string;
+    promptVersion: string;
+    sourceChunkCount: number;
+  },
+): AuditEvent {
+  return {
+    actorId,
+    organizationId,
+    action: "content.generated",
+    entityType: "generated_content",
+    entityId: contentId,
+    details: {
+      document_id: details.documentId,
+      type: details.type,
+      model: details.model,
+      prompt_version: details.promptVersion,
+      source_chunk_count: details.sourceChunkCount,
+    },
+    createdAt: utcNow(),
+  };
+}
+
+/**
+ * Create an audit event for a generated content acceptance (future PR).
+ */
+export function auditContentAccepted(
+  actorId: UserId,
+  organizationId: OrganizationId,
+  contentId: GeneratedContentId,
+  details: {
+    documentId: string;
+    type: string;
+  },
+): AuditEvent {
+  return {
+    actorId,
+    organizationId,
+    action: "content.accepted",
+    entityType: "generated_content",
+    entityId: contentId,
+    details: {
+      document_id: details.documentId,
+      type: details.type,
+    },
+    createdAt: utcNow(),
+  };
+}
+
+/**
+ * Create an audit event for a generated content rejection (future PR).
+ */
+export function auditContentRejected(
+  actorId: UserId,
+  organizationId: OrganizationId,
+  contentId: GeneratedContentId,
+  details: {
+    documentId: string;
+    type: string;
+  },
+): AuditEvent {
+  return {
+    actorId,
+    organizationId,
+    action: "content.rejected",
+    entityType: "generated_content",
+    entityId: contentId,
+    details: {
+      document_id: details.documentId,
+      type: details.type,
+    },
+    createdAt: utcNow(),
+  };
+}
+
+/**
+ * Create an audit event for a generated content regeneration (future PR).
+ */
+export function auditContentRegenerated(
+  actorId: UserId,
+  organizationId: OrganizationId,
+  contentId: GeneratedContentId,
+  details: {
+    documentId: string;
+    type: string;
+    generationKey: string;
+  },
+): AuditEvent {
+  return {
+    actorId,
+    organizationId,
+    action: "content.regenerated",
+    entityType: "generated_content",
+    entityId: contentId,
+    details: {
+      document_id: details.documentId,
+      type: details.type,
+      generation_key: details.generationKey,
+    },
+    createdAt: utcNow(),
+  };
+}
+
+/**
+ * Create an audit event for a generated content edit by a reviewer.
+ *
+ * Audit payloads include only metadata (IDs, changed-field markers), never
+ * the full AI payload body.
+ */
+export function auditContentEdited(
+  actorId: UserId,
+  organizationId: OrganizationId,
+  contentId: GeneratedContentId,
+  details: {
+    documentId: string;
+    type: string;
+    changedFields: readonly string[];
+  },
+): AuditEvent {
+  return {
+    actorId,
+    organizationId,
+    action: "content.edited",
+    entityType: "generated_content",
+    entityId: contentId,
+    details: {
+      document_id: details.documentId,
+      type: details.type,
+      changed_fields: details.changedFields,
+    },
+    createdAt: utcNow(),
+  };
+}
+
+/**
+ * Create an audit event for a generation attempt that failed.
+ */
+export function auditGenerationFailed(
+  actorId: UserId,
+  organizationId: OrganizationId,
+  documentId: DocumentId,
+  details: {
+    type: string;
+    errorCode: string;
+    retryCount: number;
+  },
+): AuditEvent {
+  return {
+    actorId,
+    organizationId,
+    action: "generation.failed",
+    entityType: "document",
+    entityId: documentId,
+    details: {
+      type: details.type,
+      error_code: details.errorCode,
+      retry_count: details.retryCount,
+    },
+    createdAt: utcNow(),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Study consumption audit helpers (PR6-7)
+// ---------------------------------------------------------------------------
+
+/**
+ * Create an audit event for a flashcard review submission.
+ *
+ * Records the rating and reaction time. Never includes card content.
+ */
+export function auditFlashcardReviewed(
+  actorId: UserId,
+  organizationId: OrganizationId,
+  flashcardId: FlashcardId,
+  details: {
+    courseId: string;
+    rating: string;
+    reactionMs: number | null;
+  },
+): AuditEvent {
+  return {
+    actorId,
+    organizationId,
+    action: "flashcard.reviewed",
+    entityType: "flashcard_review",
+    entityId: flashcardId,
+    details: {
+      course_id: details.courseId,
+      rating: details.rating,
+      reaction_ms: details.reactionMs ?? null,
+    },
+    createdAt: utcNow(),
+  };
+}
+
+/**
+ * Create an audit event for a quiz attempt submission.
+ *
+ * Records the score and question count. Never includes question answers.
+ */
+export function auditQuizAttempted(
+  actorId: UserId,
+  organizationId: OrganizationId,
+  quizId: QuizId,
+  details: {
+    courseId: string;
+    attemptId: string;
+    score: number;
+    correct: number;
+    total: number;
+  },
+): AuditEvent {
+  return {
+    actorId,
+    organizationId,
+    action: "quiz.attempted",
+    entityType: "quiz_attempt",
+    entityId: quizId,
+    details: {
+      course_id: details.courseId,
+      attempt_id: details.attemptId,
+      score: details.score,
+      correct: details.correct,
+      total: details.total,
+    },
     createdAt: utcNow(),
   };
 }

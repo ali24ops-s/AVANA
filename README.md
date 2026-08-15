@@ -1,53 +1,109 @@
-# AVANA
+# AVANA Monorepo Platform
 
-AVANA is an AI-assisted study platform designed to turn student-owned course material into cited, personalized study actions. The current application is a frontend prototype. It does not yet include a backend, authentication, persistence, document processing, or AI services.
+AVANA is a multi-tenant, AI-assisted learning platform designed to turn course material (documents, PDFs, text) into cited, personalized study experiences including interactive lessons, flashcard review queues (spaced repetition), practice quizzes, study analytics, and actionable session recommendations.
 
-## Architecture and delivery status
+---
 
-The approved production direction is documented in [Technical Blueprint](docs/TECHNICAL_BLUEPRINT.md). The active Sprint 1 scope is documented in [Sprint 1 Implementation Plan](docs/SPRINT_01_IMPLEMENTATION_PLAN.md). Architectural decisions are recorded in [ADRs](docs/adr/).
+## Architecture & Workspaces
 
-Sprint 1 PR 2 establishes the npm workspace and application/package boundaries. The API, worker, contracts, domain, configuration, and UI workspaces are placeholders only; later dependency-ordered PRs own their runtime behavior and implementation.
+AVANA is structured as a TypeScript monorepo using npm workspaces:
 
-## Workspace
+- **`apps/web`**: React 19 + Vite frontend application (Course catalog, Learning Hub, Flashcard reviewer, Quiz engine, Study Analytics, Document Uploader, Course Manager, Content Review Queue).
+- **`apps/api`**: Fastify 5 REST API (Authentication, Organizations, Courses, Documents, AI Generation, Content Review, Materialization, Study Consumption & Analytics).
+- **`apps/worker`**: BullMQ background worker for asynchronous AI document processing and generation jobs.
+- **`database`**: Drizzle ORM schema, PostgreSQL migrations (`0001`–`0009`), and idempotent development seed script.
+- **`packages/domain`**: Framework-independent domain logic, entity primitives, domain errors, and authorization policy matrix (`p.require(...)`).
+- **`packages/contracts`**: Shared TypeScript types and API error envelopes (`ErrorEnvelope`).
+- **`packages/config`**: Shared configuration utilities.
+- **`packages/ui`**: Shared UI component library.
 
-- `apps/web`: existing Vite prototype
-- `apps/api`: API placeholder; HTTP composition begins in PR 5
-- `apps/worker`: worker placeholder; no jobs are registered
-- `packages/contracts`: contract export boundary; contracts begin in PR 4
-- `packages/domain`: framework-independent domain boundary; primitives begin in PR 4
-- `packages/ui`: shared UI export boundary; no components have been migrated
-- `packages/config`: shared configuration export boundary
+---
 
-### Prerequisites
+## Prerequisites
 
-- Node.js 22 or newer
-- npm 10 or newer
+- **Node.js**: `>= 22.0.0`
+- **npm**: `>= 10.0.0`
+- **PostgreSQL**: `15+` (or Docker Compose)
+- **Redis**: `7+` (or Docker Compose)
 
-### Run locally
+---
+
+## Quick Start (Development Setup)
+
+### 1. Install Dependencies
 
 ```bash
 npm install
-npm run dev:web
 ```
 
-### Verify the workspace
+### 2. Configure Environment
+
+Copy `.env.example` to `.env`:
 
 ```bash
-npm run build
-npm run format:check
-npm run lint
-npm run secrets
-npm run type-check
-npm run test:coverage
-npm run build --workspace=@avana/web
+cp .env.example .env
 ```
 
-Quality gates are enforced locally and in CI. `npm run format` formats tracked files; `npm run format:check`, `npm run lint`, `npm run secrets`, `npm run type-check`, and `npm run test:coverage` are verification commands. Coverage is reported without a threshold until baseline suites grow. The versioned pre-commit hook formats staged files, lints staged TypeScript, and scans the repository for secrets after `npm install`.
+### 3. Start Local Infrastructure (PostgreSQL & Redis)
 
-## Contribution
+Using Docker Compose:
 
-Read [Contributing](docs/CONTRIBUTING.md) before making a change. Use synthetic data only, do not commit secrets or personal data, and keep work within the active sprint task.
+```bash
+docker compose -f infra/local/compose.yaml up -d
+```
 
-## Local platform services
+### 4. Run Database Migrations & Seed Data
 
-PostgreSQL, Redis, API runtime behavior, worker jobs, and environment configuration are intentionally not present yet. ADR 0004 establishes the future local-development policy; PR 6 will implement the local services. Do not introduce local services, cloud accounts, credentials, or external production integrations in advance of their scheduled work.
+```bash
+# Run database migrations
+npm run db:migrate
+
+# Seed synthetic local development data
+npm run db:seed
+```
+
+### 5. Start Development Servers
+
+```bash
+# Start API backend (runs on http://127.0.0.1:3000)
+npm run dev --workspace=@avana/api
+
+# Start Web frontend (runs on http://localhost:5173)
+npm run dev --workspace=@avana/web
+
+# (Optional) Start Background Worker
+npm run dev --workspace=@avana/worker
+```
+
+---
+
+## Verification & Quality Baseline
+
+Run the complete monorepo verification suite:
+
+```bash
+# Type check across all workspaces
+npm run type-check
+
+# ESLint linting across all files
+npm run lint
+
+# Unit & Integration test suite (Vitest)
+npm test
+
+# Production build across all workspaces
+npm run build
+```
+
+---
+
+## Deployment & Release Checklist
+
+For production deployment instructions, environment variable references, and release verification steps, consult [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md).
+
+---
+
+## Known MVP Limitations & Scope
+
+- **AI Provider**: Uses `MockModelGateway` by default for deterministic local generation. Production LLM providers (OpenAI, Anthropic, Gemini) can be configured via `AI_PROVIDER`.
+- **Storage**: Default document storage uses local filesystem directory `./storage/uploads`. S3/cloud storage driver hooks exist in `@avana/api`.
