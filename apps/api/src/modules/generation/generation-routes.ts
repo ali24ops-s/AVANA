@@ -18,6 +18,7 @@ import type { FastifyPluginAsync } from "fastify";
 import {
   DomainError,
   type Actor,
+  type CourseId,
   type DocumentId,
   type GeneratedContentId,
   type GeneratedContentType,
@@ -34,6 +35,7 @@ import type {
   DocumentStore,
   DocumentChunkStore,
 } from "../learning/learning-store.js";
+import type { CourseStore } from "../courses/course-store.js";
 import type {
   GeneratedContentStore,
   GeneratedContentCitationStore,
@@ -56,6 +58,8 @@ export interface GenerationRouteOptions {
   gateway: ModelGateway;
   organizationStore?: OrganizationStore;
   auditService?: AuditService;
+  courseStore?: CourseStore;
+  systemOrganizationId?: OrganizationId;
 }
 
 const UUID_RE =
@@ -125,6 +129,16 @@ export const generationRoutes: FastifyPluginAsync<
   }
 
   /**
+   * Helper to validate and extract course ID from params.
+   */
+  function getCourseId(params: { courseId?: string }): CourseId {
+    if (!params.courseId || !UUID_RE.test(params.courseId)) {
+      throw new DomainError("bad_request", "Invalid course ID");
+    }
+    return params.courseId as CourseId;
+  }
+
+  /**
    * Helper to validate and extract generated content ID from params.
    */
   function getContentId(params: { contentId: string }): GeneratedContentId {
@@ -146,12 +160,12 @@ export const generationRoutes: FastifyPluginAsync<
       };
       const organizationId = getOrganizationId(params);
       const documentId = getDocumentId(params);
+      const courseId = getCourseId(params);
 
       const body = (request.body ?? {}) as {
         types?: string[];
         prompt_version?: string;
       };
-      const courseId = params.courseId as string;
 
       // Authorization: the queue job will itself call GenerationService which
       // re-authorizes `content:generate`. We still resolve the document here to
@@ -162,6 +176,27 @@ export const generationRoutes: FastifyPluginAsync<
       );
       if (!doc) {
         throw new DomainError("not_found", "Document not found");
+      }
+
+      // Course validation & authorization check if courseStore is wired
+      if (opts.courseStore) {
+        const sysOrgId =
+          opts.systemOrganizationId ??
+          (process.env.SYSTEM_ORGANIZATION_ID as OrganizationId);
+        const course = await opts.courseStore.findByIdForUser(
+          courseId,
+          actor.userId,
+          sysOrgId,
+        );
+        if (!course) {
+          throw new DomainError("not_found", "Course not found");
+        }
+        if (
+          course.organizationId !== organizationId &&
+          (!sysOrgId || course.organizationId !== sysOrgId)
+        ) {
+          throw new DomainError("forbidden", "Access denied to this course");
+        }
       }
 
       const generationKey = `doc:${documentId}:async:${randomUUID()}`;

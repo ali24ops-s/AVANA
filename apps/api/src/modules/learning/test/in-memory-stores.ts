@@ -32,13 +32,22 @@ export class InMemoryModuleStore implements ModuleStore {
 
   async listByCourse(courseId: CourseId): Promise<ModuleRecord[]> {
     return Array.from(this.modules.values())
-      .filter((m) => m.courseId === courseId)
+      .filter((m) => m.courseId === courseId && m.deletedAt === null)
       .map((m) => ({ ...m }));
+  }
+
+  async findByDocument(documentId: DocumentId): Promise<ModuleRecord | undefined> {
+    for (const m of this.modules.values()) {
+      if (m.documentId === documentId && m.deletedAt === null) {
+        return { ...m };
+      }
+    }
+    return undefined;
   }
 
   async findById(moduleId: ModuleId): Promise<ModuleRecord | undefined> {
     const record = this.modules.get(moduleId);
-    return record ? { ...record } : undefined;
+    return record && record.deletedAt === null ? { ...record } : undefined;
   }
 
   /** Directly insert a module record (used for seeding). */
@@ -47,6 +56,19 @@ export class InMemoryModuleStore implements ModuleStore {
   }
 
   async create(module: ModuleRecord): Promise<ModuleRecord> {
+    if (module.documentId) {
+      for (const m of this.modules.values()) {
+        if (
+          m.courseId === module.courseId &&
+          m.documentId === module.documentId &&
+          m.deletedAt === null
+        ) {
+          const err = new Error(`duplicate key value violates unique constraint "idx_modules_course_document_unique"`);
+          (err as any).code = "23505";
+          throw err;
+        }
+      }
+    }
     this.modules.set(module.id, { ...module });
     return { ...module };
   }

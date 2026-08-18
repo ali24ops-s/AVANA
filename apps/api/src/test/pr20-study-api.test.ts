@@ -35,6 +35,7 @@ import {
 import {
   InMemoryFlashcardStore,
   InMemoryFlashcardReviewStore,
+  InMemoryUserFlashcardScheduleStore,
   InMemoryQuizStore,
   InMemoryQuizQuestionStore,
   InMemoryQuizAttemptStore,
@@ -87,6 +88,7 @@ describe("PR6-7: Study Consumption & Analytics API", () => {
   let queue: InMemoryGenerationQueue;
   let flashcardStore: InMemoryFlashcardStore;
   let flashcardReviewStore: InMemoryFlashcardReviewStore;
+  let userFlashcardScheduleStore: InMemoryUserFlashcardScheduleStore;
   let quizStore: InMemoryQuizStore;
   let quizQuestionStore: InMemoryQuizQuestionStore;
   let quizAttemptStore: InMemoryQuizAttemptStore;
@@ -113,6 +115,7 @@ describe("PR6-7: Study Consumption & Analytics API", () => {
     queue = new InMemoryGenerationQueue(generationJobStore);
     flashcardStore = new InMemoryFlashcardStore();
     flashcardReviewStore = new InMemoryFlashcardReviewStore();
+    userFlashcardScheduleStore = new InMemoryUserFlashcardScheduleStore();
     quizStore = new InMemoryQuizStore();
     quizQuestionStore = new InMemoryQuizQuestionStore();
     quizAttemptStore = new InMemoryQuizAttemptStore(quizStore);
@@ -139,6 +142,7 @@ describe("PR6-7: Study Consumption & Analytics API", () => {
       queue,
       flashcardStore,
       flashcardReviewStore,
+      userFlashcardScheduleStore,
       quizStore,
       quizQuestionStore,
       quizAttemptStore,
@@ -183,7 +187,7 @@ describe("PR6-7: Study Consumption & Analytics API", () => {
     return body.organization.id as OrganizationId;
   }
 
-  function seedFlashcards(orgId: OrganizationId, cId: CourseId = courseId) {
+  function seedFlashcards(orgId: OrganizationId, cId: CourseId = courseId, userId?: UserId) {
     const now = new Date();
     const past = new Date(now.getTime() - 1000 * 60).toISOString();
     const future = new Date(now.getTime() + 1000 * 60 * 60 * 24).toISOString();
@@ -228,6 +232,17 @@ describe("PR6-7: Study Consumption & Analytics API", () => {
       updatedAt: past,
       deletedAt: null,
     });
+
+    if (userId) {
+      flashcardReviewStore.create({
+        id: randomUUID(),
+        flashcardId: dueCard,
+        userId,
+        rating: "good",
+        reviewedAt: past,
+        reactionMs: 1000,
+      });
+    }
 
     return { dueCard, futureCard };
   }
@@ -293,9 +308,9 @@ describe("PR6-7: Study Consumption & Analytics API", () => {
   describe("Flashcards API", () => {
     it("GET .../flashcards returns all flashcards and due count", async () => {
       const app = await buildApp();
-      const { token } = await signIn(app, "student@example.com", "student");
+      const { token, userId } = await signIn(app, "student@example.com", "student");
       const orgId = await createOrg(app, token, "Health Org");
-      seedFlashcards(orgId);
+      seedFlashcards(orgId, courseId, userId);
 
       const res = await app.inject({
         method: "GET",
@@ -311,9 +326,9 @@ describe("PR6-7: Study Consumption & Analytics API", () => {
 
     it("GET .../flashcards/review-queue returns only due flashcards", async () => {
       const app = await buildApp();
-      const { token } = await signIn(app, "student@example.com", "student");
+      const { token, userId } = await signIn(app, "student@example.com", "student");
       const orgId = await createOrg(app, token, "Health Org");
-      const { dueCard } = seedFlashcards(orgId);
+      const { dueCard } = seedFlashcards(orgId, courseId, userId);
 
       const res = await app.inject({
         method: "GET",
@@ -325,6 +340,42 @@ describe("PR6-7: Study Consumption & Analytics API", () => {
       const body = JSON.parse(res.body);
       expect(body.due_cards.length).toBe(1);
       expect(body.due_cards[0].id).toBe(dueCard);
+    });
+
+    it("GET .../flashcards/review-queue excludes unread cards for new user", async () => {
+      const app = await buildApp();
+      const { token: user1Token, userId: user1Id } = await signIn(app, "user1@example.com", "student");
+      const orgId = await createOrg(app, user1Token, "Health Org");
+      const { token: user2Token, userId: user2Id } = await signIn(app, "user2@example.com", "student");
+      orgStore.addMembership({
+        id: randomUUID(),
+        organizationId: orgId,
+        userId: user2Id,
+        role: "student",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+
+      // Seed card and review for user1
+      seedFlashcards(orgId, courseId, user1Id);
+
+      // user1 sees 1 due card
+      const res1 = await app.inject({
+        method: "GET",
+        url: `/v1/organizations/${orgId}/courses/${courseId}/flashcards/review-queue`,
+        cookies: { avana_session: user1Token },
+      });
+      expect(res1.statusCode).toBe(200);
+      expect(JSON.parse(res1.body).due_cards.length).toBe(1);
+
+      // user2 (in same org, but hasn't reviewed the card) sees 0 due cards
+      const res2 = await app.inject({
+        method: "GET",
+        url: `/v1/organizations/${orgId}/courses/${courseId}/flashcards/review-queue`,
+        cookies: { avana_session: user2Token },
+      });
+      expect(res2.statusCode).toBe(200);
+      expect(JSON.parse(res2.body).due_cards.length).toBe(0);
     });
 
     it("POST .../flashcards/:flashcardId/review advances schedule and emits audit log", async () => {
@@ -347,8 +398,9 @@ describe("PR6-7: Study Consumption & Analytics API", () => {
       const body = JSON.parse(res.body);
       expect(body.success).toBe(true);
 
-      // Verify schedule updated in store
-      const updated = await flashcardStore.findByIdForOrganization(dueCard, orgId);
+      // Verify schedule updated in store for student
+      const studentUser = await userStore.findByEmail("student@example.com");
+      const updated = await userFlashcardScheduleStore.getByUserAndCard(studentUser!.id, dueCard);
       expect(updated!.intervalDays).toBe(1); // 0 -> 1 on good
       expect(new Date(updated!.dueAt).getTime()).toBeGreaterThan(Date.now());
     });

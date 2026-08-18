@@ -19,6 +19,7 @@ import {
   type Actor,
   type CourseId,
   type LessonId,
+  type OrganizationId,
 } from "@avana/domain";
 import { LearningService } from "./learning-service.js";
 import type { AuthMiddlewareDeps } from "../../http/authMiddleware.js";
@@ -41,6 +42,7 @@ export interface LearningRouteOptions {
   lessonStore: LessonStore;
   progressStore: ProgressStore;
   auditService?: AuditService;
+  systemOrganizationId?: OrganizationId;
 }
 
 export const learningRoutes: FastifyPluginAsync<LearningRouteOptions> = async (
@@ -56,6 +58,7 @@ export const learningRoutes: FastifyPluginAsync<LearningRouteOptions> = async (
     lessonStore,
     progressStore,
     auditService,
+    systemOrganizationId,
   } = opts;
 
   const { requireAuth } = makeAuthMiddleware({ sessionService, userStore });
@@ -67,6 +70,7 @@ export const learningRoutes: FastifyPluginAsync<LearningRouteOptions> = async (
     progressStore,
     undefined,
     auditService,
+    systemOrganizationId,
   );
 
   /**

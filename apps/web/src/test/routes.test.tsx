@@ -108,4 +108,47 @@ describe("Route protection", () => {
       expect(elements.length).toBeGreaterThanOrEqual(1);
     });
   });
+
+  it("allows unverified authenticated user to access protected routes (UNVERIFIED !== UNAUTHENTICATED)", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          request_id: "req-1",
+          user: {
+            id: "user-unverified",
+            email: "unverified@example.com",
+            role: "student" as const,
+            emailVerified: false,
+          },
+        }),
+    } as Response);
+
+    renderWithProviders(
+      <AuthProvider>
+        <MemoryRouter initialEntries={["/"]}>
+          <Routes>
+            <Route
+              path="/sign-in"
+              element={<div data-testid="sign-in-page">Sign In Page</div>}
+            />
+            <Route element={<ProtectedRoute />}>
+              <Route
+                index
+                element={
+                  <div data-testid="protected-page">Protected Content</div>
+                }
+              />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </AuthProvider>,
+    );
+
+    await waitFor(() => {
+      const elements = screen.getAllByTestId("protected-page");
+      expect(elements.length).toBeGreaterThanOrEqual(1);
+    });
+  });
 });

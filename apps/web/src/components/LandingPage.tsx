@@ -1,73 +1,205 @@
-import { motion } from "framer-motion";
-import { Sparkles, Moon, Sun } from "lucide-react";
+/**
+ * Main Landing Page Container.
+ *
+ * Scoped under the `.landing-page` class for CSS variables.
+ * Composes all landing sections and includes a sticky navigation bar.
+ */
+
+import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { HeroSection } from "./landing/HeroSection";
 import { FeatureCards } from "./landing/FeatureCards";
-import { TestimonialsSection } from "./landing/TestimonialsSection";
 import { FeaturesSection } from "./landing/FeaturesSection";
-import { PricingSection } from "./landing/PricingSection";
+import { HowItWorksSection } from "./landing/HowItWorksSection";
+import { FinalCTASection } from "./landing/FinalCTASection";
 import { Footer } from "./landing/Footer";
+import { useAuth } from "../providers/AuthProvider.js";
 
-interface LandingPageProps {
-  onStartStudying: () => void;
-  isDark: boolean;
-  onToggleDark: () => void;
-}
+export function LandingPage() {
+  const { isAuthenticated } = useAuth();
+  const [isScrolled, setIsScrolled] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-export function LandingPage({
-  onStartStudying,
-  isDark,
-  onToggleDark,
-}: LandingPageProps) {
+  const ctaHref = isAuthenticated ? "/courses" : "/sign-in";
+
+  // Handle scroll effect for navbar
+  useEffect(() => {
+    const handleScroll = () => {
+      setIsScrolled(window.scrollY > 20);
+    };
+    window.addEventListener("scroll", handleScroll);
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
+
   return (
-    <div className="min-h-screen bg-[var(--color-background)] text-[var(--color-text)]">
-      {/* Header/Nav */}
-      <motion.header
-        initial={{ y: -20, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ duration: 0.5 }}
-        className="fixed top-0 left-0 right-0 z-50 bg-[var(--color-background)]/80 backdrop-blur-xl border-b border-[var(--color-border)]"
+    <div className="landing-page min-h-screen relative font-body">
+      {/* Navigation */}
+      <nav
+        className={`fixed top-0 w-full z-50 transition-all duration-300 ${
+          isScrolled
+            ? "shadow-md backdrop-blur-md bg-[var(--lp-surface)]/95"
+            : "bg-[var(--lp-surface)]/80 backdrop-blur-md"
+        }`}
       >
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <motion.div
-            className="flex items-center gap-2"
-            whileHover={{ scale: 1.02 }}
+        <div className="flex justify-between items-center px-6 max-w-[1280px] mx-auto h-20">
+          {/* Brand */}
+          <Link
+            to="/"
+            className="font-headline text-2xl font-bold shrink-0 hover:scale-105 transition-transform duration-300"
+            style={{ color: "var(--lp-primary, #005c55)" }}
           >
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
-              <Sparkles className="w-5 h-5 text-white" />
-            </div>
-            <span className="text-xl font-bold tracking-tight">AVANA</span>
-          </motion.div>
+            AVANA
+          </Link>
 
+          {/* Desktop Links */}
+          <ul className="hidden md:flex items-center gap-8">
+            <li>
+              <a
+                href="#benefits"
+                className="transition-colors duration-300 font-medium"
+                style={{ color: "var(--lp-on-surface-variant, #3e4947)" }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = "var(--lp-primary, #005c55)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color =
+                    "var(--lp-on-surface-variant, #3e4947)";
+                }}
+              >
+                ویژگی‌ها
+              </a>
+            </li>
+            <li>
+              <a
+                href="#features"
+                className="transition-colors duration-300 font-medium"
+                style={{ color: "var(--lp-on-surface-variant, #3e4947)" }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = "var(--lp-primary, #005c55)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color =
+                    "var(--lp-on-surface-variant, #3e4947)";
+                }}
+              >
+                مسائل و مشکلات
+              </a>
+            </li>
+            <li>
+              <a
+                href="#how-it-works"
+                className="transition-colors duration-300 font-medium"
+                style={{ color: "var(--lp-on-surface-variant, #3e4947)" }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = "var(--lp-primary, #005c55)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color =
+                    "var(--lp-on-surface-variant, #3e4947)";
+                }}
+              >
+                چطور کار می‌کند
+              </a>
+            </li>
+          </ul>
+
+          {/* CTA & Mobile Toggle */}
           <div className="flex items-center gap-4">
+            <Link
+              to={ctaHref}
+              className="hidden md:inline-flex items-center justify-center h-12 px-6 rounded-lg font-semibold cursor-pointer active:scale-95 transition-all duration-300 hover:shadow-lg hover:-translate-y-1"
+              style={{
+                backgroundColor: "var(--lp-primary-container, #0f766e)",
+                color: "var(--lp-on-primary-container, #a3faef)",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor =
+                  "var(--lp-primary, #005c55)";
+                e.currentTarget.style.color = "var(--lp-on-primary, #ffffff)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor =
+                  "var(--lp-primary-container, #0f766e)";
+                e.currentTarget.style.color =
+                  "var(--lp-on-primary-container, #a3faef)";
+              }}
+            >
+              شروع یادگیری
+            </Link>
             <button
-              onClick={onToggleDark}
-              className="p-2 rounded-lg hover:bg-[var(--color-border)] transition-colors"
+              aria-label="Toggle Menu"
+              className="md:hidden p-2"
+              style={{ color: "var(--lp-on-surface, #0b1c30)" }}
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             >
-              {isDark ? (
-                <Sun className="w-5 h-5" />
-              ) : (
-                <Moon className="w-5 h-5" />
-              )}
+              <span className="material-symbols-outlined text-3xl">
+                {mobileMenuOpen ? "close" : "menu"}
+              </span>
             </button>
-            <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={onStartStudying}
-              className="px-5 py-2.5 bg-[var(--color-text)] text-[var(--color-background)] rounded-xl font-medium text-sm hover:opacity-90 transition-opacity"
-            >
-              Get Started Free
-            </motion.button>
           </div>
         </div>
-      </motion.header>
+
+        {/* Mobile Menu */}
+        {mobileMenuOpen && (
+          <div
+            className="md:hidden absolute top-20 left-0 w-full shadow-md flex flex-col px-6 py-4 border-t"
+            style={{
+              backgroundColor: "var(--lp-surface, #f8f9ff)",
+              borderTopColor: "rgba(189, 201, 198, 0.2)",
+            }}
+          >
+            <a
+              href="#benefits"
+              className="py-3 border-b"
+              style={{
+                color: "var(--lp-on-surface-variant, #3e4947)",
+                borderBottomColor: "rgba(189, 201, 198, 0.1)",
+              }}
+              onClick={() => setMobileMenuOpen(false)}
+            >
+              ویژگی‌ها
+            </a>
+            <a
+              href="#features"
+              className="py-3 border-b"
+              style={{
+                color: "var(--lp-on-surface-variant, #3e4947)",
+                borderBottomColor: "rgba(189, 201, 198, 0.1)",
+              }}
+              onClick={() => setMobileMenuOpen(false)}
+            >
+              مسائل و مشکلات
+            </a>
+            <a
+              href="#how-it-works"
+              className="py-3 mb-4"
+              style={{ color: "var(--lp-on-surface-variant, #3e4947)" }}
+              onClick={() => setMobileMenuOpen(false)}
+            >
+              چطور کار می‌کند
+            </a>
+            <Link
+              to={ctaHref}
+              onClick={() => setMobileMenuOpen(false)}
+              className="w-full h-12 rounded-lg font-semibold flex items-center justify-center cursor-pointer active:scale-95"
+              style={{
+                backgroundColor: "var(--lp-primary-container, #0f766e)",
+                color: "var(--lp-on-primary-container, #a3faef)",
+              }}
+            >
+              شروع یادگیری
+            </Link>
+          </div>
+        )}
+      </nav>
 
       {/* Main Content */}
       <main>
-        <HeroSection onStartStudying={onStartStudying} />
+        <HeroSection />
         <FeatureCards />
-        <TestimonialsSection />
         <FeaturesSection />
-        <PricingSection onStartStudying={onStartStudying} />
+        <HowItWorksSection />
+        <FinalCTASection />
       </main>
 
       <Footer />

@@ -64,6 +64,12 @@ export type ApiConfig = {
   redis: {
     url: string;
   };
+  email: {
+    provider: string;
+    resendApiKey?: string;
+    from: string;
+  };
+  systemOrganizationId: string;
   generation: {
     aiProvider: string;
     queueName: string;
@@ -211,6 +217,20 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     redis: {
       url: getOptionalString(env, "REDIS_URL", "redis://localhost:6379"),
     },
+    email: {
+      provider: getOptionalString(
+        env,
+        "EMAIL_PROVIDER",
+        env.RESEND_API_KEY ? "resend" : "mock",
+      ),
+      resendApiKey: env.RESEND_API_KEY,
+      from: getOptionalString(env, "EMAIL_FROM", "AVANA <onboarding@resend.dev>"),
+    },
+    systemOrganizationId: getOptionalString(
+      env,
+      "SYSTEM_ORGANIZATION_ID",
+      "b4a0b464-16db-4087-92b7-163a1e6f6776",
+    ),
     generation: {
       aiProvider: getOptionalString(env, "AI_PROVIDER", "mock"),
       queueName: getOptionalString(env, "AI_GENERATION_QUEUE", "content_generate"),

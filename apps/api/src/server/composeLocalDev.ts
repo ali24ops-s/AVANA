@@ -146,6 +146,8 @@ export async function composeLocalDev(
       courseStore,
       moduleStore,
       lessonStore,
+      quizStore,
+      quizQuestionStore,
       auditService,
     });
     process.stdout.write(

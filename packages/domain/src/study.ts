@@ -168,12 +168,16 @@ export type QuizAttemptResult = {
  */
 export type QuizAttemptRecord = {
   id: string;
-  quizId: string;
+  quizId?: string | null;
   userId: string;
   score: number;
   answers: Record<string, unknown>;
+  questionIds?: string[] | null;
+  topic?: string | null;
+  difficulty?: string | null;
+  status?: string;
   startedAt: string;
-  completedAt: string;
+  completedAt?: string | null;
 };
 
 // ---------------------------------------------------------------------------

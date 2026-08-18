@@ -230,7 +230,7 @@ export function StudyAnalyticsView({
               </p>
             ) : (
               <div className="flex flex-wrap gap-2 pt-1">
-                {analytics.weak_areas.map((topic, i) => (
+                {analytics.weak_areas.map((topic: string, i: number) => (
                   <span
                     key={i}
                     className="px-3.5 py-1.5 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 text-amber-800 dark:text-amber-300 rounded-xl text-xs font-semibold"
@@ -254,7 +254,7 @@ export function StudyAnalyticsView({
               </p>
             ) : (
               <ul className="space-y-2">
-                {analytics.recommended_next_steps.map((step, i) => (
+                {analytics.recommended_next_steps.map((step: string, i: number) => (
                   <li
                     key={i}
                     className="flex items-center gap-2 text-xs font-medium text-[var(--color-text)] p-2.5 rounded-xl bg-[var(--color-surface-warm)] border border-[var(--color-border)]"

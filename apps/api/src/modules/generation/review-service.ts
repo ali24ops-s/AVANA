@@ -57,6 +57,7 @@ import type {
   ModuleStore,
   LessonStore,
   LessonRecord,
+  ModuleRecord,
 } from "../learning/learning-store.js";
 import type {
   GeneratedContentRecord,
@@ -402,7 +403,10 @@ export class ReviewService {
     } else if (record.type === "flashcard") {
       await this.materializeFlashcard(record);
     } else if (record.type === "quiz") {
-      await this.materializeQuiz(record);
+      const qLessonId = await this.materializeQuiz(record);
+      if (qLessonId) {
+        materializedLessonId = qLessonId;
+      }
     }
 
     const updated: GeneratedContentRecord = {
@@ -624,38 +628,14 @@ export class ReviewService {
       contentMarkdown?: string;
     };
 
-    // 1. Resolve or create the Module (سرفصل) for this document
-    const doc = await this.documentStore.findByIdForOrganization(
-      record.documentId,
-      record.organizationId,
-    );
-    const cleanDocName = doc?.originalName
-      ? doc.originalName.replace(/\.pdf$/i, "").replace(/[-_]/g, " ").trim()
-      : null;
-    const moduleTitle =
-      payload.moduleTitle?.trim() ||
-      (cleanDocName ? `فصل: ${cleanDocName}` : "سرفصل آموزشی استخراج‌شده");
-
-    const modules = await this.moduleStore.listByCourse(record.courseId);
-    let targetModule = modules.find(
-      (m) =>
-        m.title === moduleTitle ||
-        (cleanDocName && m.title.includes(cleanDocName)),
+    // 1. Resolve or create the single authoritative Module for this document
+    const targetModule = await this.resolveOrCreateDocumentModule(
+      record,
+      payload.moduleTitle,
+      payload.title,
     );
 
     const now = new Date().toISOString();
-    if (!targetModule) {
-      targetModule = await this.moduleStore.create({
-        id: randomUUID() as ModuleId,
-        courseId: record.courseId,
-        title: moduleTitle,
-        description: `مباحث و جلسات آموزشی استخراج‌شده از ${doc?.originalName ?? "جزوه"}`,
-        sortOrder: modules.length,
-        createdAt: now,
-        updatedAt: now,
-        deletedAt: null,
-      });
-    }
 
     // 2. Determine sessions to materialize
     const sessionList: Array<{ title: string; contentMarkdown: string }> =
@@ -719,6 +699,126 @@ export class ReviewService {
   }
 
   /**
+   * Single Source of Truth Document Module Resolver.
+   *
+   * Absolute Invariant: ONE DOCUMENT → ONE AUTHORITATIVE MODULE.
+   *
+   * Priority:
+   * 1. Direct document_id match in moduleStore via findByDocument
+   * 2. Existing module associated via previously materialized generated content
+   * 3. Title match on course modules (using payloadModuleTitle / payloadTopic)
+   * 4. Create new Module linked explicitly to record.documentId
+   *    (Concurrency-safe: handles duplicate key unique constraint race conditions)
+   */
+  private async resolveOrCreateDocumentModule(
+    record: GeneratedContentRecord,
+    payloadModuleTitle?: string,
+    payloadTopic?: string,
+  ): Promise<ModuleRecord> {
+    if (!this.moduleStore) {
+      throw new DomainError("bad_request", "Module store not initialized");
+    }
+
+    // 1. Primary Identity: Check if a Module is already explicitly linked to this documentId
+    let targetModule = await this.moduleStore.findByDocument(record.documentId);
+    if (targetModule) {
+      return targetModule;
+    }
+
+    // 2. Check previously materialized generated content records for this document
+    if (this.generatedContentStore) {
+      const docContents = await this.generatedContentStore.listByDocument(
+        record.documentId,
+        record.organizationId,
+      );
+      for (const gc of docContents) {
+        if (gc.materializedLessonId && this.lessonStore) {
+          const lesson = await this.lessonStore.findById(gc.materializedLessonId);
+          if (lesson) {
+            const mod = await this.moduleStore.findById(lesson.moduleId);
+            if (mod) {
+              // Update module's documentId reference if missing
+              if (!mod.documentId) {
+                mod.documentId = record.documentId;
+                await this.moduleStore.update(mod).catch(() => {});
+              }
+              return mod;
+            }
+          }
+        }
+      }
+    }
+
+    // Fetch document metadata for title fallback if needed
+    const doc = this.documentStore
+      ? await this.documentStore.findByIdForOrganization(
+          record.documentId,
+          record.organizationId,
+        )
+      : null;
+    const cleanDocName = doc?.originalName
+      ? doc.originalName.replace(/\.pdf$/i, "").replace(/[-_]/g, " ").trim()
+      : null;
+
+    const modules = await this.moduleStore.listByCourse(record.courseId);
+
+    // 3. Title-based match for existing course modules
+    targetModule = modules.find((m) => {
+      if (doc?.originalName && m.description?.includes(doc.originalName)) {
+        return true;
+      }
+      if (payloadModuleTitle && m.title === payloadModuleTitle.trim()) {
+        return true;
+      }
+      if (cleanDocName && (m.title === `فصل: ${cleanDocName}` || m.title.includes(cleanDocName))) {
+        return true;
+      }
+      return false;
+    });
+
+    if (targetModule) {
+      if (!targetModule.documentId) {
+        targetModule.documentId = record.documentId;
+        await this.moduleStore.update(targetModule).catch(() => {});
+      }
+      return targetModule;
+    }
+
+    // 4. Determine title for new module (Identity is documentId, Title is metadata)
+    const resolvedTitle =
+      payloadModuleTitle?.trim() ||
+      payloadTopic?.trim() ||
+      (cleanDocName ? `فصل: ${cleanDocName}` : "سرفصل آموزشی استخراج‌شده");
+
+    const now = new Date().toISOString();
+
+    // 5. Create new Module with concurrency safety against race conditions
+    try {
+      targetModule = await this.moduleStore.create({
+        id: randomUUID() as ModuleId,
+        courseId: record.courseId,
+        documentId: record.documentId,
+        title: resolvedTitle,
+        description: `مباحث و جلسات آموزشی استخراج‌شده از ${doc?.originalName ?? "جزوه"}`,
+        sortOrder: modules.length,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      });
+      return targetModule;
+    } catch (err: any) {
+      // Race condition catch: if another concurrent process inserted the module milliseconds ago
+      if (err?.code === "23505" || err?.message?.includes("idx_modules_course_document_unique")) {
+        const raceModule = await this.moduleStore.findByDocument(record.documentId);
+        if (raceModule) return raceModule;
+      }
+      throw err;
+    }
+  }
+
+
+
+  /**
    * Materialize an accepted AI flashcard (or flashcard set).
    *
    * Idempotent: checking existing flashcard by generated_content_id.
@@ -738,67 +838,75 @@ export class ReviewService {
       record.organizationId,
     );
 
+    const now = new Date().toISOString();
     const payload = record.payload as {
-      question?: string;
-      answer?: string;
-      explanation?: string;
-      cardType?: string;
-      difficulty?: string;
-      cards?: Array<{
-        question: string;
-        answer: string;
+      title?: string;
+      moduleTitle?: string;
+      topic?: string;
+      flashcards?: Array<{
+        front: string;
+        back: string;
         explanation?: string;
-        cardType?: string;
         difficulty?: string;
+        topic?: string;
       }>;
     };
 
-    const now = new Date().toISOString();
+    const targetModule = await this.resolveOrCreateDocumentModule(
+      record,
+      payload.moduleTitle,
+      payload.topic,
+    );
 
-    if (Array.isArray(payload.cards) && payload.cards.length > 0) {
-      for (const card of payload.cards) {
-        if (!card.question || !card.answer) continue;
-        await this.flashcardStore.create({
-          id: parseFlashcardId(randomUUID()),
-          organizationId: record.organizationId,
-          courseId: record.courseId,
-          documentId: record.documentId,
-          generatedContentId: record.id,
-          question: card.question,
-          answer: card.answer,
-          explanation: card.explanation ?? null,
-          cardType: card.cardType ?? "definition",
-          difficulty: card.difficulty ?? "medium",
-          dueAt: now,
-          intervalDays: 0,
-          easeFactor: 2.5,
-          createdAt: now,
-          updatedAt: now,
-          deletedAt: null,
-        });
+    const lessons = this.lessonStore
+      ? await this.lessonStore.listByModule(targetModule.id)
+      : [];
+
+    const rawCards =
+      Array.isArray(payload.flashcards) && payload.flashcards.length > 0
+        ? payload.flashcards
+        : Array.isArray((payload as any).cards) && (payload as any).cards.length > 0
+        ? (payload as any).cards
+        : (payload as any).question && (payload as any).answer
+        ? [payload as any]
+        : [];
+
+    const cards = rawCards.map((c: any) => {
+      let cLessonId: LessonId | null = null;
+      if (lessons.length > 0) {
+        const cardTopic = (c.topic ?? payload.topic ?? "").toLowerCase().trim();
+        const match = cardTopic
+          ? lessons.find((l) => l.title.toLowerCase().includes(cardTopic))
+          : null;
+        cLessonId = match ? match.id : null;
       }
-      return;
-    }
 
-    if (payload.question && payload.answer) {
-      await this.flashcardStore.create({
+      const qText = c.front ?? c.question ?? "سوال Flashcard";
+      const aText = c.back ?? c.answer ?? "پاسخ Flashcard";
+
+      return {
         id: parseFlashcardId(randomUUID()),
         organizationId: record.organizationId,
         courseId: record.courseId,
         documentId: record.documentId,
         generatedContentId: record.id,
-        question: payload.question,
-        answer: payload.answer,
-        explanation: payload.explanation ?? null,
-        cardType: payload.cardType ?? "definition",
-        difficulty: payload.difficulty ?? "medium",
+        lessonId: cLessonId,
+        question: qText,
+        answer: aText,
+        explanation: c.explanation ?? null,
+        cardType: c.cardType ?? "definition",
+        difficulty: c.difficulty ?? "medium",
         dueAt: now,
         intervalDays: 0,
         easeFactor: 2.5,
         createdAt: now,
         updatedAt: now,
         deletedAt: null,
-      });
+      };
+    });
+
+    if (cards.length > 0) {
+      await this.flashcardStore.createMany(cards);
     }
   }
 
@@ -806,11 +914,14 @@ export class ReviewService {
    * Materialize an accepted AI quiz.
    *
    * Idempotent: checking existing quiz by generated_content_id.
+   * Resolves Module in Learning Core using Single Source of Truth resolver (`resolveOrCreateDocumentModule`),
+   * attaches quiz questions to matching lessons or leaves lessonId as null if unmapped,
+   * avoiding creation of duplicate shell modules or fake placeholder lessons.
    */
-  private async materializeQuiz(record: GeneratedContentRecord): Promise<void> {
-    if (!this.quizStore || !this.quizQuestionStore) return;
+  private async materializeQuiz(record: GeneratedContentRecord): Promise<LessonId | null> {
+    if (!this.quizStore || !this.quizQuestionStore) return null;
     const existing = await this.quizStore.findByGeneratedContent(record.id);
-    if (existing) return;
+    if (existing) return record.materializedLessonId ?? null;
 
     // Clean up previous quizzes for this document to avoid duplicate quizzes
     await this.quizStore.deleteByDocument(
@@ -818,25 +929,54 @@ export class ReviewService {
       record.organizationId,
     );
 
+    const now = new Date().toISOString();
+
     const payload = record.payload as {
       title?: string;
+      moduleTitle?: string;
+      topic?: string;
+      difficulty?: string;
+      question?: string;
+      choices?: string[];
+      options?: string[];
+      correctAnswer?: unknown;
+      correct_answer?: unknown;
+      answer?: unknown;
+      explanation?: string;
       questions?: Array<{
         question: string;
-        questionType: string;
+        questionType?: string;
         choices?: string[];
-        correctAnswer: unknown;
+        options?: string[];
+        correctAnswer?: unknown;
+        correct_answer?: unknown;
+        answer?: unknown;
         explanation?: string;
+        difficulty?: string;
+        topic?: string;
       }>;
-      question?: string;
-      options?: string[];
-      correct_answer?: unknown;
-      explanation?: string;
     };
 
-    const now = new Date().toISOString();
-    const quizId = parseQuizId(randomUUID());
+    // 1. Resolve or create Module for this document using unified Single Source of Truth resolver
+    const targetModule = await this.resolveOrCreateDocumentModule(
+      record,
+      payload.moduleTitle,
+      payload.topic,
+    );
 
-    const title = payload.title ?? (payload.question ? `Quiz: ${payload.question.slice(0, 30)}` : "AI Generated Quiz");
+    const lessons = this.lessonStore
+      ? await this.lessonStore.listByModule(targetModule.id)
+      : [];
+
+    const quizId = parseQuizId(randomUUID());
+    const defaultTopic = payload.topic ?? targetModule.title;
+    const defaultDifficulty = payload.difficulty ?? "medium";
+
+    const title =
+      payload.title ??
+      (payload.question
+        ? `آزمون: ${payload.question.slice(0, 30)}`
+        : `آزمون ارزیابی: ${targetModule.title}`);
 
     await this.quizStore.create({
       id: quizId,
@@ -844,42 +984,85 @@ export class ReviewService {
       courseId: record.courseId,
       documentId: record.documentId,
       title,
-      status: "published", // AI-generated quizzes are published by default upon acceptance
+      topic: defaultTopic,
+      difficulty: defaultDifficulty,
+      status: "published",
       createdAt: now,
       updatedAt: now,
       deletedAt: null,
     });
 
-    const rawQuestions = Array.isArray(payload.questions) && payload.questions.length > 0
-      ? payload.questions
-      : payload.question
-      ? [
-          {
-            question: payload.question,
-            questionType: "multiple_choice",
-            choices: payload.options ?? [],
-            correctAnswer: payload.correct_answer,
-            explanation: payload.explanation,
-          },
-        ]
-      : [];
+    const rawQuestions =
+      Array.isArray(payload.questions) && payload.questions.length > 0
+        ? payload.questions
+        : payload.question
+        ? [
+            {
+              question: payload.question,
+              questionType: "multiple_choice",
+              choices: payload.choices ?? payload.options ?? [],
+              correctAnswer:
+                payload.correctAnswer ?? payload.correct_answer ?? payload.answer,
+              explanation: payload.explanation,
+              difficulty: payload.difficulty,
+              topic: payload.topic,
+            },
+          ]
+        : [];
 
-    const questions = rawQuestions.map((q, index) => ({
-      id: parseQuizQuestionId(randomUUID()),
-      quizId,
-      generatedContentId: record.id,
-      question: q.question,
-      questionType: q.questionType ?? "multiple_choice",
-      choices: q.choices ?? null,
-      correctAnswer: q.correctAnswer,
-      explanation: q.explanation ?? null,
-      sortOrder: index,
-      createdAt: now,
-      updatedAt: now,
-    }));
+    let matchedLessonId: LessonId | null = null;
+
+    const questions = rawQuestions.map((q, index) => {
+      const choices = q.choices ?? q.options ?? payload.choices ?? payload.options ?? [];
+      const rawAns =
+        q.correctAnswer ??
+        q.correct_answer ??
+        q.answer ??
+        payload.correctAnswer ??
+        payload.correct_answer;
+
+      const correctAnswer =
+        rawAns !== undefined && rawAns !== null
+          ? rawAns
+          : choices.length > 0
+          ? choices[0]
+          : "گزینه ۱";
+
+      // Attempt to map question to a specific lesson in the module ONLY if topic aligns
+      let qLessonId: LessonId | null = null;
+      if (lessons.length > 0) {
+        const qTopic = (q.topic ?? payload.topic ?? "").toLowerCase().trim();
+        const match = qTopic
+          ? lessons.find((l) => l.title.toLowerCase().includes(qTopic))
+          : null;
+        if (match) {
+          qLessonId = match.id;
+          if (!matchedLessonId) matchedLessonId = match.id;
+        }
+      }
+
+      return {
+        id: parseQuizQuestionId(randomUUID()),
+        quizId,
+        generatedContentId: record.id,
+        lessonId: qLessonId,
+        question: q.question,
+        topic: q.topic ?? defaultTopic,
+        difficulty: q.difficulty ?? payload.difficulty ?? defaultDifficulty,
+        questionType: q.questionType ?? "multiple_choice",
+        choices: choices.length > 0 ? choices : null,
+        correctAnswer,
+        explanation: q.explanation ?? payload.explanation ?? null,
+        sortOrder: index,
+        createdAt: now,
+        updatedAt: now,
+      };
+    });
 
     if (questions.length > 0) {
       await this.quizQuestionStore.createMany(questions);
     }
+
+    return matchedLessonId;
   }
 }

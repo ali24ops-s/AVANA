@@ -7,7 +7,6 @@ import {
   Pencil,
   RotateCcw,
   Sparkles,
-  FileText,
   AlertCircle,
   Loader2,
 } from "lucide-react";
@@ -16,9 +15,7 @@ import { createReviewApi } from "../../lib/api/review.js";
 import { MarkdownRenderer } from "../markdown/MarkdownRenderer.js";
 import { EditContentDialog } from "./EditContentDialog.js";
 import { RejectContentDialog } from "./RejectContentDialog.js";
-import type {
-  SourceChunkResource,
-} from "@avana/contracts";
+import { EvidenceSummary } from "./EvidenceSummary.js";
 
 export interface ContentReviewDetailProps {
   organizationId: string;
@@ -158,9 +155,9 @@ export function ContentReviewDetail({
             type="button"
             onClick={() => setIsEditDialogOpen(true)}
             disabled={anyMutationPending}
-            className="px-3.5 py-2 bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] text-[var(--color-text)] rounded-xl text-xs font-bold border border-[var(--color-border)] flex items-center gap-1.5 disabled:opacity-50 disabled:pointer-events-none"
+            className="px-3.5 py-2 bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] text-[var(--color-text)] rounded-xl text-xs font-bold border-2 border-[var(--color-border)] shadow-xs flex items-center gap-1.5 disabled:opacity-50 disabled:pointer-events-none"
           >
-            <Pencil className="w-3.5 h-3.5 text-[#008080]" />
+            <Pencil className="w-3.5 h-3.5 text-[#007a7a]" />
             <span>ویرایش پیش‌نویس</span>
           </button>
 
@@ -168,12 +165,12 @@ export function ContentReviewDetail({
             type="button"
             onClick={() => regenerateMutation.mutate()}
             disabled={anyMutationPending}
-            className="px-3.5 py-2 bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] text-[var(--color-text)] rounded-xl text-xs font-bold border border-[var(--color-border)] flex items-center gap-1.5 disabled:opacity-50 disabled:pointer-events-none"
+            className="px-3.5 py-2 bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] text-[var(--color-text)] rounded-xl text-xs font-bold border-2 border-[var(--color-border)] shadow-xs flex items-center gap-1.5 disabled:opacity-50 disabled:pointer-events-none"
           >
             {regenerateMutation.isPending ? (
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
             ) : (
-              <RotateCcw className="w-3.5 h-3.5 text-[#008080]" />
+              <RotateCcw className="w-3.5 h-3.5 text-[#007a7a]" />
             )}
             <span>{regenerateMutation.isPending ? "در حال بازتولید..." : "تولید مجدد"}</span>
           </button>
@@ -182,7 +179,7 @@ export function ContentReviewDetail({
             type="button"
             onClick={() => setIsRejectDialogOpen(true)}
             disabled={anyMutationPending}
-            className="px-3.5 py-2 bg-red-50 hover:bg-red-100 dark:bg-red-950/30 text-red-700 dark:text-red-300 rounded-xl text-xs font-bold border border-red-200 dark:border-red-900 flex items-center gap-1.5 disabled:opacity-50 disabled:pointer-events-none"
+            className="px-3.5 py-2 bg-red-100 hover:bg-red-200 text-red-900 dark:bg-red-950/80 dark:hover:bg-red-900 dark:text-red-100 rounded-xl text-xs font-bold border-2 border-red-300 dark:border-red-700 shadow-xs flex items-center gap-1.5 disabled:opacity-50 disabled:pointer-events-none"
           >
             <XCircle className="w-3.5 h-3.5" />
             <span>رد کردن</span>
@@ -195,7 +192,7 @@ export function ContentReviewDetail({
               acceptMutation.mutate();
             }}
             disabled={anyMutationPending}
-            className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+            className="px-4 py-2 bg-[#007a7a] hover:bg-[#005a5a] text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md disabled:opacity-50"
           >
             {acceptMutation.isPending ? (
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -248,319 +245,281 @@ export function ContentReviewDetail({
         </div>
       </div>
 
-      {/* Split layout: Generated Content on Right, Source Citations on Left */}
-      <div className="grid lg:grid-cols-12 gap-6">
-        {/* Right column (7 cols in RTL): Draft content rendered */}
-        <div className="lg:col-span-7 space-y-4">
-          <div className="bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] p-6 space-y-4 shadow-sm">
-            <h3 className="text-sm font-bold text-[var(--color-text)] pb-3 border-b border-[var(--color-border)]">
-              پیش‌نمایش محتوای تولیدشده
-            </h3>
+      {/* Full Width Stacked Layout: Evidence Summary on Top, Generated Content Preview Below */}
+      <div className="space-y-6">
+        {/* Top: Full Width Evidence Summary */}
+        <EvidenceSummary sourceChunks={sourceChunks} payload={payload} />
 
-            {/* Lesson preview */}
-            {content.type === "lesson" && (
-              <div className="space-y-5">
-                {/* Module & Outline Summary Banner */}
-                {Boolean(payload.moduleTitle || payload.outline) && (
-                  <div className="p-4 bg-[var(--color-surface-warm)] rounded-2xl border border-[var(--color-border)] space-y-3">
-                    {Boolean(payload.moduleTitle) && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300">
-                          سرفصل (Module)
-                        </span>
-                        <h4 className="text-xs font-bold text-[var(--color-text)]">
-                          {String(payload.moduleTitle)}
-                        </h4>
-                      </div>
-                    )}
+        {/* Bottom: Full Width Generated Content Preview */}
+        <div className="bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] p-6 space-y-4 shadow-sm w-full">
+          <h3 className="text-sm font-bold text-[var(--color-text)] pb-3 border-b border-[var(--color-border)]">
+            پیش‌نمایش محتوای تولیدشده
+          </h3>
 
-                    {Array.isArray(payload.outline) && payload.outline.length > 0 && (
-                      <div className="space-y-2 pt-2 border-t border-[var(--color-border)]">
-                        <span className="text-[11px] font-bold text-[#008080] block">
-                          فهرست سرفصل‌ها و جلسات استخراج‌شده از جزوه:
-                        </span>
-                        <ul className="space-y-1.5 text-xs text-[var(--color-text)] pr-3 list-disc">
-                          {payload.outline.map((item: { title?: string; description?: string }, idx: number) => (
-                            <li key={idx} className="leading-relaxed">
-                              <strong>{item.title || `جلسه ${idx + 1}`}</strong>
-                              {item.description ? (
-                                <span className="text-[var(--color-text-muted)] text-[11px] mr-1.5">
-                                  — {item.description}
-                                </span>
-                              ) : null}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                  </div>
-                )}
+          {/* Lesson preview */}
+          {content.type === "lesson" && (
+            <div className="space-y-5">
+              {/* Module & Outline Summary Banner */}
+              {Boolean(payload.moduleTitle || payload.outline) && (
+                <div className="p-4 bg-[var(--color-surface-warm)] rounded-2xl border border-[var(--color-border)] space-y-3">
+                  {Boolean(payload.moduleTitle) && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300">
+                        سرفصل (Module)
+                      </span>
+                      <h4 className="text-xs font-bold text-[var(--color-text)]">
+                        {String(payload.moduleTitle)}
+                      </h4>
+                    </div>
+                  )}
 
-                {/* Session Selector Chips (if sessions array is present) */}
-                {Array.isArray(payload.sessions) && payload.sessions.length > 1 && (
-                  <div className="space-y-2">
-                    <span className="text-[11px] font-bold text-[var(--color-text-muted)] block">
-                      مشاهده جلسه:
-                    </span>
-                    <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                  {Array.isArray(payload.outline) && payload.outline.length > 0 && (
+                    <div className="space-y-2 pt-2 border-t border-[var(--color-border)]">
+                      <span className="text-[11px] font-bold text-[#007a7a] block">
+                        فهرست سرفصل‌ها و جلسات استخراج‌شده از جزوه:
+                      </span>
+                      <ul className="space-y-1.5 text-xs text-[var(--color-text)] pr-3 list-disc">
+                        {payload.outline.map((item: { title?: string; description?: string }, idx: number) => (
+                          <li key={idx} className="leading-relaxed">
+                            <strong>{item.title || `جلسه ${idx + 1}`}</strong>
+                            {item.description ? (
+                              <span className="text-[var(--color-text-muted)] text-[11px] mr-1.5">
+                                — {item.description}
+                              </span>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Session Selector Chips (if sessions array is present) */}
+              {Array.isArray(payload.sessions) && payload.sessions.length > 1 && (
+                <div className="space-y-2">
+                  <span className="text-[11px] font-bold text-[var(--color-text-muted)] block">
+                    مشاهده جلسه:
+                  </span>
+                  <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedSessionIndex("all")}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors whitespace-nowrap ${
+                        selectedSessionIndex === "all"
+                          ? "bg-[#007a7a] text-white shadow-sm"
+                          : "bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] border border-[var(--color-border)]"
+                      }`}
+                    >
+                      همه جلسات (متن کامل)
+                    </button>
+                    {payload.sessions.map((sess: { title?: string }, idx: number) => (
                       <button
+                        key={idx}
                         type="button"
-                        onClick={() => setSelectedSessionIndex("all")}
+                        onClick={() => setSelectedSessionIndex(idx)}
                         className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors whitespace-nowrap ${
-                          selectedSessionIndex === "all"
-                            ? "bg-[#008080] text-white"
+                          selectedSessionIndex === idx
+                            ? "bg-[#007a7a] text-white shadow-sm"
                             : "bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] border border-[var(--color-border)]"
                         }`}
                       >
-                        همه جلسات (متن کامل)
+                        {sess.title || `جلسه ${idx + 1}`}
                       </button>
-                      {payload.sessions.map((sess: { title?: string }, idx: number) => (
-                        <button
-                          key={idx}
-                          type="button"
-                          onClick={() => setSelectedSessionIndex(idx)}
-                          className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors whitespace-nowrap ${
-                            selectedSessionIndex === idx
-                              ? "bg-[#008080] text-white"
-                              : "bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] border border-[var(--color-border)]"
-                          }`}
-                        >
-                          {sess.title || `جلسه ${idx + 1}`}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Render Selected Session or Full Markdown */}
-                <div className="prose prose-sm max-w-none p-4 bg-[var(--color-surface-warm)]/40 rounded-2xl border border-[var(--color-border)]">
-                  <MarkdownRenderer
-                    content={
-                      selectedSessionIndex === "all" || !Array.isArray(payload.sessions)
-                        ? (payload.contentMarkdown as string) ||
-                          (payload.content_markdown as string) ||
-                          (payload.markdown as string) ||
-                          ""
-                        : (payload.sessions[selectedSessionIndex]?.contentMarkdown as string) || ""
-                    }
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* Flashcard preview */}
-            {content.type === "flashcard" && (
-              <div className="space-y-4">
-                {Array.isArray(payload.cards) && payload.cards.length > 0 ? (
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between text-xs text-[var(--color-text-muted)] font-semibold">
-                      <span>تعداد فلش‌کارت‌های استخراج‌شده: {payload.cards.length} کارت</span>
-                      <span className="text-[#008080]">مرور فاصله‌دار اتمیک</span>
-                    </div>
-                    {payload.cards.map((c: { question?: string; answer?: string; explanation?: string; cardType?: string; difficulty?: string }, idx: number) => (
-                      <div
-                        key={idx}
-                        className="p-4 bg-[var(--color-surface-warm)] rounded-2xl border border-[var(--color-border)] space-y-2.5"
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-bold text-[#008080]">
-                            کارت {idx + 1} {c.cardType ? `• نوع: ${c.cardType}` : ""}
-                          </span>
-                          {c.difficulty && (
-                            <span className="text-[10px] font-semibold text-zinc-500 bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded">
-                              {c.difficulty}
-                            </span>
-                          )}
-                        </div>
-                        <div>
-                          <span className="text-[10px] text-[var(--color-text-muted)] block">پرسش:</span>
-                          <p className="text-xs font-bold text-[var(--color-text)]">
-                            {String(c.question || "")}
-                          </p>
-                        </div>
-                        <div className="pt-2 border-t border-[var(--color-border)]">
-                          <span className="text-[10px] text-green-700 dark:text-green-400 block">پاسخ:</span>
-                          <p className="text-xs text-[var(--color-text)] font-medium">
-                            {String(c.answer || "")}
-                          </p>
-                        </div>
-                        {Boolean(c.explanation) && (
-                          <p className="text-[11px] text-[var(--color-text-muted)] bg-[var(--color-surface)] p-2 rounded-xl border border-[var(--color-border)]">
-                            <strong>نکته تکمیلی:</strong> {String(c.explanation)}
-                          </p>
-                        )}
-                      </div>
                     ))}
                   </div>
-                ) : (
-                  <div className="space-y-3">
-                    <div className="p-4 bg-[var(--color-surface-warm)] rounded-2xl border border-[var(--color-border)] space-y-2">
-                      <span className="text-[10px] font-bold text-[#008080]">
-                        روی کارت / سوال:
-                      </span>
-                      <p className="text-sm font-bold text-[var(--color-text)]">
-                        {String(payload.question || "")}
-                      </p>
-                    </div>
+                </div>
+              )}
 
-                    <div className="p-4 bg-[var(--color-surface-warm)] rounded-2xl border border-[var(--color-border)] space-y-2">
-                      <span className="text-[10px] font-bold text-green-700 dark:text-green-400">
-                        پشت کارت / پاسخ:
-                      </span>
-                      <p className="text-sm font-bold text-[var(--color-text)]">
-                        {String(payload.answer || "")}
-                      </p>
-                      {Boolean(payload.explanation) && (
-                        <p className="text-xs text-[var(--color-text-muted)] pt-2 border-t border-[var(--color-border)]">
-                          {String(payload.explanation)}
+              {/* Render Selected Session or Full Markdown */}
+              <div className="prose prose-sm max-w-none p-4 bg-[var(--color-surface-warm)]/40 rounded-2xl border border-[var(--color-border)]">
+                <MarkdownRenderer
+                  content={
+                    selectedSessionIndex === "all" || !Array.isArray(payload.sessions)
+                      ? (payload.contentMarkdown as string) ||
+                        (payload.content_markdown as string) ||
+                        (payload.markdown as string) ||
+                        ""
+                      : (payload.sessions[selectedSessionIndex]?.contentMarkdown as string) || ""
+                  }
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Flashcard preview */}
+          {content.type === "flashcard" && (
+            <div className="space-y-4">
+              {Array.isArray(payload.cards) && payload.cards.length > 0 ? (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between text-xs text-[var(--color-text-muted)] font-semibold">
+                    <span>تعداد فلش‌کارت‌های استخراج‌شده: {payload.cards.length} کارت</span>
+                    <span className="text-[#007a7a] font-bold">مرور فاصله‌دار اتمیک</span>
+                  </div>
+                  {payload.cards.map((c: { question?: string; answer?: string; explanation?: string; cardType?: string; difficulty?: string }, idx: number) => (
+                    <div
+                      key={idx}
+                      className="p-4 bg-[var(--color-surface-warm)] rounded-2xl border border-[var(--color-border)] space-y-2.5"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-bold text-[#007a7a]">
+                          کارت {idx + 1} {c.cardType ? `• نوع: ${c.cardType}` : ""}
+                        </span>
+                        {c.difficulty && (
+                          <span className="text-[10px] font-semibold text-zinc-500 bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded">
+                            {c.difficulty}
+                          </span>
+                        )}
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-[var(--color-text-muted)] block">پرسش:</span>
+                        <p className="text-xs font-bold text-[var(--color-text)]">
+                          {String(c.question || "")}
+                        </p>
+                      </div>
+                      <div className="pt-2 border-t border-[var(--color-border)]">
+                        <span className="text-[10px] text-green-700 dark:text-green-400 block">پاسخ:</span>
+                        <p className="text-xs text-[var(--color-text)] font-medium">
+                          {String(c.answer || "")}
+                        </p>
+                      </div>
+                      {Boolean(c.explanation) && (
+                        <p className="text-[11px] text-[var(--color-text-muted)] bg-[var(--color-surface)] p-2 rounded-xl border border-[var(--color-border)]">
+                          <strong>نکته تکمیلی:</strong> {String(c.explanation)}
                         </p>
                       )}
                     </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Quiz preview */}
-            {content.type === "quiz" && (
-              <div className="space-y-4">
-                {Array.isArray(payload.questions) && payload.questions.length > 0 ? (
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between text-xs text-[var(--color-text-muted)] font-semibold">
-                      <span>عنوان آزمون: {String(payload.title || "آزمون ارزیابی")}</span>
-                      <span className="text-purple-600 font-bold">
-                        {payload.questions.length} سوال تستی
-                      </span>
-                    </div>
-                    {payload.questions.map((q: { question?: string; choices?: unknown[]; correctAnswer?: unknown; explanation?: string }, qIdx: number) => (
-                      <div
-                        key={qIdx}
-                        className="p-4 bg-[var(--color-surface-warm)] rounded-2xl border border-[var(--color-border)] space-y-3"
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-bold text-[#008080]">
-                            سوال {qIdx + 1}
-                          </span>
-                        </div>
-                        <p className="text-sm font-bold text-[var(--color-text)] leading-relaxed">
-                          {String(q.question || "")}
-                        </p>
-                        {Array.isArray(q.choices) && (
-                          <div className="space-y-2 pt-1">
-                            {q.choices.map((opt: unknown, idx: number) => {
-                              const isCorrect = q.correctAnswer === opt;
-                              return (
-                                <div
-                                  key={idx}
-                                  className={`p-3 rounded-xl text-xs border flex items-center justify-between ${
-                                    isCorrect
-                                      ? "bg-green-50 dark:bg-green-950/30 border-green-300 dark:border-green-800 text-green-800 dark:text-green-300 font-bold"
-                                      : "bg-[var(--color-surface)] border-[var(--color-border)] text-[var(--color-text)]"
-                                  }`}
-                                >
-                                  <span>
-                                    <strong>{idx + 1}.</strong> {String(opt)}
-                                  </span>
-                                  {isCorrect && (
-                                    <span className="text-[10px] font-bold text-green-700 dark:text-green-400 bg-green-100 dark:bg-green-900/40 px-2 py-0.5 rounded-md">
-                                      پاسخ صحیح
-                                    </span>
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-                        {Boolean(q.explanation) && (
-                          <p className="text-xs text-[var(--color-text-muted)] pt-2 border-t border-[var(--color-border)]">
-                            <strong>توضیح پاسخ:</strong> {String(q.explanation)}
-                          </p>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="p-4 bg-[var(--color-surface-warm)] rounded-2xl border border-[var(--color-border)] space-y-3">
+                  ))}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="p-4 bg-[var(--color-surface-warm)] rounded-2xl border border-[var(--color-border)] space-y-2">
+                    <span className="text-[10px] font-bold text-[#007a7a]">
+                      روی کارت / سوال:
+                    </span>
                     <p className="text-sm font-bold text-[var(--color-text)]">
                       {String(payload.question || "")}
                     </p>
-                    {Array.isArray(payload.options) && (
-                      <div className="space-y-2 pt-1">
-                        {payload.options.map((opt: unknown, idx: number) => {
-                          const isCorrect =
-                            payload.correct_answer === opt ||
-                            payload.correct_index === idx;
-                          return (
-                            <div
-                              key={idx}
-                              className={`p-3 rounded-xl text-xs border flex items-center justify-between ${
-                                isCorrect
-                                  ? "bg-green-50 dark:bg-green-950/30 border-green-300 dark:border-green-800 text-green-800 dark:text-green-300 font-bold"
-                                  : "bg-[var(--color-surface)] border-[var(--color-border)] text-[var(--color-text)]"
-                              }`}
-                            >
-                              <span>
-                                <strong>{idx + 1}.</strong> {String(opt)}
-                              </span>
-                              {isCorrect && (
-                                <span className="text-[10px] font-bold text-green-700 dark:text-green-400 bg-green-100 dark:bg-green-900/40 px-2 py-0.5 rounded-md">
-                                  پاسخ صحیح
-                                </span>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
+                  </div>
+
+                  <div className="p-4 bg-[var(--color-surface-warm)] rounded-2xl border border-[var(--color-border)] space-y-2">
+                    <span className="text-[10px] font-bold text-green-700 dark:text-green-400">
+                      پشت کارت / پاسخ:
+                    </span>
+                    <p className="text-sm font-bold text-[var(--color-text)]">
+                      {String(payload.answer || "")}
+                    </p>
                     {Boolean(payload.explanation) && (
                       <p className="text-xs text-[var(--color-text-muted)] pt-2 border-t border-[var(--color-border)]">
-                        <strong>توضیح:</strong> {String(payload.explanation)}
+                        {String(payload.explanation)}
                       </p>
                     )}
                   </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Left column (5 cols in RTL): Source Citations Chunks */}
-        <div className="lg:col-span-5 space-y-4">
-          <div className="bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] p-6 space-y-4 shadow-sm">
-            <div className="flex items-center justify-between pb-3 border-b border-[var(--color-border)]">
-              <h3 className="text-sm font-bold text-[var(--color-text)] flex items-center gap-1.5">
-                <FileText className="w-4 h-4 text-[#008080]" />
-                <span>ارجاعات و شواهد متنی از منبع</span>
-              </h3>
-              <span className="text-xs font-bold text-[var(--color-text-muted)] bg-[var(--color-surface-warm)] px-2.5 py-0.5 rounded-lg">
-                {sourceChunks?.length ?? 0} بخش
-              </span>
+                </div>
+              )}
             </div>
+          )}
 
-            {(!sourceChunks || sourceChunks.length === 0) ? (
-              <p className="text-xs text-[var(--color-text-muted)] py-4 text-center">
-                ارجاع متنی مستقیمی برای این مورد ثبت نشده است.
-              </p>
-            ) : (
-              <div className="space-y-3 max-h-[500px] overflow-y-auto pl-1">
-                {sourceChunks.map((chunk: SourceChunkResource) => (
-                  <div
-                    key={chunk.id}
-                    className="p-3.5 bg-[var(--color-surface-warm)] rounded-2xl border border-[var(--color-border)] text-xs space-y-2"
-                  >
-                    <div className="flex items-center justify-between text-[11px] text-[var(--color-text-muted)]">
-                      <span className="font-bold text-[#008080]">
-                        صفحات {chunk.start_page} تا {chunk.end_page} • توالی #{chunk.sequence}
-                      </span>
-                    </div>
-                    <p className="text-[var(--color-text)] leading-relaxed text-[11px] bg-[var(--color-surface)] p-3 rounded-xl border border-[var(--color-border)]" dir="auto">
-                      {chunk.content}
-                    </p>
+          {/* Quiz preview */}
+          {content.type === "quiz" && (
+            <div className="space-y-4">
+              {Array.isArray(payload.questions) && payload.questions.length > 0 ? (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between text-xs text-[var(--color-text-muted)] font-semibold">
+                    <span>عنوان آزمون: {String(payload.title || "آزمون ارزیابی")}</span>
+                    <span className="text-purple-600 font-bold">
+                      {payload.questions.length} سوال تستی
+                    </span>
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
+                  {payload.questions.map((q: { question?: string; choices?: unknown[]; correctAnswer?: unknown; explanation?: string }, qIdx: number) => (
+                    <div
+                      key={qIdx}
+                      className="p-4 bg-[var(--color-surface-warm)] rounded-2xl border border-[var(--color-border)] space-y-3"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-[#007a7a]">
+                          سوال {qIdx + 1}
+                        </span>
+                      </div>
+                      <p className="text-sm font-bold text-[var(--color-text)] leading-relaxed">
+                        {String(q.question || "")}
+                      </p>
+                      {Array.isArray(q.choices) && (
+                        <div className="space-y-2 pt-1">
+                          {q.choices.map((opt: unknown, idx: number) => {
+                            const isCorrect = q.correctAnswer === opt;
+                            return (
+                              <div
+                                key={idx}
+                                className={`p-3 rounded-xl text-xs border flex items-center justify-between ${
+                                  isCorrect
+                                    ? "bg-green-50 dark:bg-green-950/30 border-green-300 dark:border-green-800 text-green-800 dark:text-green-300 font-bold"
+                                    : "bg-[var(--color-surface)] border-[var(--color-border)] text-[var(--color-text)]"
+                                }`}
+                              >
+                                <span>
+                                  <strong>{idx + 1}.</strong> {String(opt)}
+                                </span>
+                                {isCorrect && (
+                                  <span className="text-[10px] font-bold text-green-700 dark:text-green-400 bg-green-100 dark:bg-green-900/40 px-2 py-0.5 rounded-md">
+                                    پاسخ صحیح
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {Boolean(q.explanation) && (
+                        <p className="text-xs text-[var(--color-text-muted)] pt-2 border-t border-[var(--color-border)]">
+                          <strong>توضیح پاسخ:</strong> {String(q.explanation)}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="p-4 bg-[var(--color-surface-warm)] rounded-2xl border border-[var(--color-border)] space-y-3">
+                  <p className="text-sm font-bold text-[var(--color-text)]">
+                    {String(payload.question || "")}
+                  </p>
+                  {Array.isArray(payload.options) && (
+                    <div className="space-y-2 pt-1">
+                      {payload.options.map((opt: unknown, idx: number) => {
+                        const isCorrect =
+                          payload.correct_answer === opt ||
+                          payload.correct_index === idx;
+                        return (
+                          <div
+                            key={idx}
+                            className={`p-3 rounded-xl text-xs border flex items-center justify-between ${
+                              isCorrect
+                                ? "bg-green-50 dark:bg-green-950/30 border-green-300 dark:border-green-800 text-green-800 dark:text-green-300 font-bold"
+                                : "bg-[var(--color-surface)] border-[var(--color-border)] text-[var(--color-text)]"
+                            }`}
+                          >
+                            <span>
+                              <strong>{idx + 1}.</strong> {String(opt)}
+                            </span>
+                            {isCorrect && (
+                              <span className="text-[10px] font-bold text-green-700 dark:text-green-400 bg-green-100 dark:bg-green-900/40 px-2 py-0.5 rounded-md">
+                                پاسخ صحیح
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {Boolean(payload.explanation) && (
+                    <p className="text-xs text-[var(--color-text-muted)] pt-2 border-t border-[var(--color-border)]">
+                      <strong>توضیح:</strong> {String(payload.explanation)}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

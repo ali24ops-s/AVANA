@@ -104,19 +104,19 @@ export class LearningService {
     private readonly progressStore: ProgressStore,
     private readonly policy: AuthorizationPolicy = defaultPolicy,
     private readonly auditService?: AuditService,
+    private readonly systemOrganizationId?: OrganizationId,
   ) {}
 
   /**
    * Get the full course learning structure with user progress.
    *
    * Authorization flow:
-   * 1. Look up the course to determine its organization.
-   * 2. Verify the actor has a membership in that organization.
+   * 1. Look up the course (including shared system courses if systemOrganizationId is provided).
+   * 2. Verify authorization:
+   *    - For system courses: allow access to authenticated users without requiring membership in system org.
+   *    - For private courses: verify membership in owning organization.
    * 3. Check the policy allows "learning:read".
    * 4. Assemble and return the learning structure.
-   *
-   * Non-disclosing failure: if the course is not found or the user is not
-   * a member of the owning organization, returns a 404.
    */
   async getCourseLearning(
     actor: Actor,
@@ -127,27 +127,33 @@ export class LearningService {
     const course = await this.courseStore.findByIdForUser(
       courseId,
       actor.userId,
+      this.systemOrganizationId,
     );
-    if (!course) {
-      throw new DomainError("not_found", "Course not found");
-    }
-    if (course.deletedAt) {
+    if (!course || course.deletedAt) {
       throw new DomainError("not_found", "Course not found");
     }
 
     const organizationId = course.organizationId as OrganizationId;
+    const isSystemCourse =
+      !!this.systemOrganizationId &&
+      organizationId === this.systemOrganizationId;
 
-    // 2. Verify the actor has a membership in the owning organization
-    const membership = await this.organizationStore.findMembership(
-      organizationId,
-      actor.userId,
-    );
-    if (!membership) {
-      throw new DomainError("not_found", "Course not found");
+    let role: Actor["role"] = "student";
+
+    if (!isSystemCourse) {
+      // 2. Verify the actor has a membership in the owning organization for private courses
+      const membership = await this.organizationStore.findMembership(
+        organizationId,
+        actor.userId,
+      );
+      if (!membership) {
+        throw new DomainError("not_found", "Course not found");
+      }
+      role = membership.role as Actor["role"];
     }
 
     // 3. Check the policy allows "learning:read"
-    const scopedActor = { ...actor, role: membership.role as Actor["role"] };
+    const scopedActor = { ...actor, role };
     const context: AuthContext = { organizationId, courseId };
     this.policy.require("learning:read", scopedActor, context);
 
@@ -284,24 +290,32 @@ export class LearningService {
     const course = await this.courseStore.findByIdForUser(
       courseId,
       actor.userId,
+      this.systemOrganizationId,
     );
     if (!course || course.deletedAt) {
       throw new DomainError("not_found", "Lesson not found");
     }
 
     const organizationId = course.organizationId as OrganizationId;
+    const isSystemCourse =
+      !!this.systemOrganizationId &&
+      organizationId === this.systemOrganizationId;
 
-    // 4. Verify the actor has a membership in the owning organization
-    const membership = await this.organizationStore.findMembership(
-      organizationId,
-      actor.userId,
-    );
-    if (!membership) {
-      throw new DomainError("not_found", "Lesson not found");
+    let role: Actor["role"] = "student";
+
+    if (!isSystemCourse) {
+      const membership = await this.organizationStore.findMembership(
+        organizationId,
+        actor.userId,
+      );
+      if (!membership) {
+        throw new DomainError("not_found", "Lesson not found");
+      }
+      role = membership.role as Actor["role"];
     }
 
     // 5. Check the policy allows "progress:write"
-    const scopedActor = { ...actor, role: membership.role as Actor["role"] };
+    const scopedActor = { ...actor, role };
     const context: AuthContext = { organizationId, courseId, lessonId };
     this.policy.require("progress:write", scopedActor, context);
 
@@ -352,7 +366,7 @@ export class LearningService {
    *
    * Authorization flow:
    * 1. Look up the course to determine its organization.
-   * 2. Verify the actor has a membership in that organization.
+   * 2. Verify the actor has a membership in that organization (or system course).
    * 3. Check the policy allows "progress:read".
    * 4. Count total and completed lessons.
    */
@@ -364,27 +378,32 @@ export class LearningService {
     const course = await this.courseStore.findByIdForUser(
       courseId,
       actor.userId,
+      this.systemOrganizationId,
     );
-    if (!course) {
-      throw new DomainError("not_found", "Course not found");
-    }
-    if (course.deletedAt) {
+    if (!course || course.deletedAt) {
       throw new DomainError("not_found", "Course not found");
     }
 
     const organizationId = course.organizationId as OrganizationId;
+    const isSystemCourse =
+      !!this.systemOrganizationId &&
+      organizationId === this.systemOrganizationId;
 
-    // 2. Verify the actor has a membership in the owning organization
-    const membership = await this.organizationStore.findMembership(
-      organizationId,
-      actor.userId,
-    );
-    if (!membership) {
-      throw new DomainError("not_found", "Course not found");
+    let role: Actor["role"] = "student";
+
+    if (!isSystemCourse) {
+      const membership = await this.organizationStore.findMembership(
+        organizationId,
+        actor.userId,
+      );
+      if (!membership) {
+        throw new DomainError("not_found", "Course not found");
+      }
+      role = membership.role as Actor["role"];
     }
 
     // 3. Check the policy allows "progress:read"
-    const scopedActor = { ...actor, role: membership.role as Actor["role"] };
+    const scopedActor = { ...actor, role };
     const context: AuthContext = { organizationId, courseId };
     this.policy.require("progress:read", scopedActor, context);
 

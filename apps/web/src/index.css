@@ -1,35 +1,35 @@
 @import "tailwindcss";
 
 :root {
-  /* Palette Specification */
+  /* Stitch Dark Glassmorphic Palette Specification */
   --color-primary: #008080;
-  --color-primary-dark: #006666;
-  --color-primary-light: #e6f2f2;
-  --color-secondary: #a7d0e6;
-  --color-secondary-dark: #7cb5d3;
-  --color-secondary-light: #eef6fa;
-  --color-background: #f0e6d2;
-  --color-surface: #ffffff;
-  --color-surface-warm: #f9f5ed;
-  --color-text: #202428;
-  --color-text-muted: #5b6268;
-  --color-border: #ded6c4;
-  --color-border-subtle: #eae3d5;
+  --color-primary-dark: #005a5a;
+  --color-primary-light: rgba(45, 212, 191, 0.15);
+  --color-secondary: #8b5cf6;
+  --color-secondary-dark: #7c3aed;
+  --color-secondary-light: rgba(139, 92, 246, 0.15);
+  --color-background: #0b1120;
+  --color-surface: rgba(30, 41, 59, 0.6);
+  --color-surface-warm: rgba(15, 23, 42, 0.8);
+  --color-text: #f8fafc;
+  --color-text-muted: #94a3b8;
+  --color-border: rgba(255, 255, 255, 0.1);
+  --color-border-subtle: rgba(255, 255, 255, 0.05);
 
-  --shadow-sm: 0 1px 2px 0 rgb(32 36 40 / 0.05);
-  --shadow-md: 0 4px 6px -1px rgb(32 36 40 / 0.08), 0 2px 4px -2px rgb(32 36 40 / 0.06);
-  --shadow-lg: 0 10px 15px -3px rgb(32 36 40 / 0.08), 0 4px 6px -4px rgb(32 36 40 / 0.05);
-  --shadow-xl: 0 20px 25px -5px rgb(32 36 40 / 0.08), 0 8px 10px -6px rgb(32 36 40 / 0.04);
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 20px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.6);
+  --shadow-xl: 0 20px 40px rgba(0, 0, 0, 0.8);
 }
 
 .dark {
-  --color-surface: #1e242b;
-  --color-surface-warm: #181d23;
-  --color-background: #12161a;
-  --color-text: #f0f4f8;
-  --color-text-muted: #9aa5b1;
-  --color-border: #2d3742;
-  --color-border-subtle: #232c35;
+  --color-surface: rgba(30, 41, 59, 0.6);
+  --color-surface-warm: rgba(15, 23, 42, 0.8);
+  --color-background: #0b1120;
+  --color-text: #f8fafc;
+  --color-text-muted: #94a3b8;
+  --color-border: rgba(255, 255, 255, 0.1);
+  --color-border-subtle: rgba(255, 255, 255, 0.05);
 }
 
 * {
@@ -64,12 +64,12 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: #94a3b8;
   border-radius: 4px;
 }
 
 .dark ::-webkit-scrollbar-thumb {
-  background: #334155;
+  background: #475569;
 }
 
 /* Perspective for 3D card flip */
@@ -90,24 +90,65 @@ body {
 
 .prose strong {
   font-weight: 700;
-  color: inherit;
+  color: var(--color-text);
 }
 
 .prose table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
+  margin: 1.5rem 0;
+  border-radius: 1rem;
+  overflow: hidden;
+  border: 2px solid var(--color-border);
+  background-color: var(--color-surface);
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.06);
 }
 
 .prose th,
 .prose td {
-  padding: 0.5rem 0.75rem;
+  padding: 0.75rem 1rem;
+  text-align: right;
   border-bottom: 1px solid var(--color-border);
+  color: var(--color-text);
 }
 
 .prose th {
-  font-weight: 700;
-  text-align: right;
+  font-weight: 800;
   background-color: var(--color-surface-warm);
+  border-bottom: 2px solid var(--color-border);
+}
+
+.prose tr:last-child td {
+  border-bottom: none;
+}
+
+.prose tr:nth-child(even) {
+  background-color: var(--color-surface-warm);
+}
+
+.prose tr:hover {
+  background-color: var(--color-primary-light);
+}
+
+.dark .prose tr:hover {
+  background-color: rgba(0, 122, 122, 0.2);
+}
+
+/* Glassmorphism & Stitch Reference Utilities */
+.shadow-ambient {
+  box-shadow: 0px 4px 20px rgba(0, 0, 0, 0.4);
+}
+.shadow-ambient-lg {
+  box-shadow: 0px 12px 32px rgba(0, 0, 0, 0.6);
+}
+.card-inner-border {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.glass-panel {
+  background: rgba(30, 41, 59, 0.6);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
 /* Smooth transitions for all interactive elements */
@@ -127,3 +168,154 @@ a {
     background-color 0.3s ease,
     border-color 0.3s ease;
 }
+
+/* 3D Flip Card Styles */
+.flip-card-inner {
+  transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  transform-style: preserve-3d;
+}
+.flip-card.flipped .flip-card-inner {
+  transform: rotateY(180deg);
+}
+.flip-card-front,
+.flip-card-back {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+.flip-card-back {
+  transform: rotateY(180deg);
+}
+
+/* ======================================================================
+   Landing Page — Stitch Design Tokens & Utilities
+   Scoped under .landing-page to avoid affecting the authenticated app.
+   ====================================================================== */
+
+.landing-page {
+  /* AVANA Dark Mode Palette (Stitch M3 Dark Color Tokens) */
+  --lp-primary: #008080;
+  --lp-primary-container: #005a5a;
+  --lp-on-primary: #ffffff;
+  --lp-on-primary-container: #ccfbf1;
+  --lp-secondary: #8b5cf6;
+  --lp-secondary-container: #7c3aed;
+  --lp-on-secondary: #ffffff;
+  --lp-tertiary: #0ea5e9;
+  --lp-tertiary-container: #0284c7;
+  --lp-on-tertiary: #ffffff;
+  
+  /* Dark surfaces */
+  --lp-surface: #0b1120;
+  --lp-surface-bright: rgba(30, 41, 59, 0.6);
+  --lp-surface-container: rgba(15, 23, 42, 0.8);
+  --lp-surface-container-low: #0b1120;
+  --lp-surface-container-lowest: #0b1120;
+  --lp-surface-container-high: rgba(30, 41, 59, 0.8);
+  --lp-surface-dim: #020617;
+  
+  /* Dark text */
+  --lp-on-surface: #f8fafc;
+  --lp-on-surface-variant: #94a3b8;
+  
+  /* Dark borders */
+  --lp-outline: rgba(255, 255, 255, 0.2);
+  --lp-outline-variant: rgba(255, 255, 255, 0.1);
+  
+  --lp-error: #ef4444;
+  --lp-error-container: #7f1d1d;
+
+  /* Override body colors within landing scope */
+  background-color: var(--lp-surface);
+  color: var(--lp-on-surface);
+  font-family: "Vazirmatn", system-ui, sans-serif;
+  direction: rtl;
+  text-align: right;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+.landing-page ::selection {
+  background-color: var(--lp-primary-container);
+  color: var(--lp-on-primary-container);
+}
+
+/* Material Symbols config */
+.landing-page .material-symbols-outlined {
+  font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24;
+}
+
+/* Text gradient utility */
+.landing-page .text-gradient {
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Shadow utilities */
+.landing-page .soft-shadow {
+  box-shadow: 0px 4px 20px rgba(15, 118, 110, 0.04);
+}
+.landing-page .deep-shadow {
+  box-shadow: 0px 12px 32px rgba(15, 118, 110, 0.08);
+}
+
+/* Headline font */
+.landing-page .font-headline {
+  font-family: "Plus Jakarta Sans", "Vazirmatn", sans-serif;
+}
+
+/* Animations */
+@keyframes lp-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-12px);
+  }
+}
+@keyframes lp-float-slow {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+@keyframes lp-gradient-x {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+.landing-page .animate-lp-float {
+  animation: lp-float 6s ease-in-out infinite;
+}
+.landing-page .animate-lp-float-slow {
+  animation: lp-float-slow 8s ease-in-out infinite;
+}
+.landing-page .bg-gradient-animate {
+  background-size: 200% 200%;
+  animation: lp-gradient-x 15s ease infinite;
+}
+
+/* Scroll Reveal */
+.landing-page .reveal {
+  opacity: 0;
+  transform: translateY(40px);
+  transition:
+    opacity 0.8s cubic-bezier(0.5, 0, 0, 1),
+    transform 0.8s cubic-bezier(0.5, 0, 0, 1);
+}
+.landing-page .reveal.active {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+

@@ -361,6 +361,8 @@ describe("PR-6 database schema", () => {
     expect(cols).toHaveProperty("courseId");
     expect(cols).toHaveProperty("documentId");
     expect(cols).toHaveProperty("title");
+    expect(cols).toHaveProperty("topic");
+    expect(cols).toHaveProperty("difficulty");
     expect(cols).toHaveProperty("status");
     expect(cols).toHaveProperty("createdAt");
     expect(cols).toHaveProperty("updatedAt");
@@ -373,6 +375,8 @@ describe("PR-6 database schema", () => {
     expect(cols).toHaveProperty("quizId");
     expect(cols).toHaveProperty("generatedContentId");
     expect(cols).toHaveProperty("question");
+    expect(cols).toHaveProperty("topic");
+    expect(cols).toHaveProperty("difficulty");
     expect(cols).toHaveProperty("questionType");
     expect(cols).toHaveProperty("choices");
     expect(cols).toHaveProperty("correctAnswer");
@@ -389,6 +393,10 @@ describe("PR-6 database schema", () => {
     expect(cols).toHaveProperty("userId");
     expect(cols).toHaveProperty("score");
     expect(cols).toHaveProperty("answers");
+    expect(cols).toHaveProperty("questionIds");
+    expect(cols).toHaveProperty("topic");
+    expect(cols).toHaveProperty("difficulty");
+    expect(cols).toHaveProperty("status");
     expect(cols).toHaveProperty("startedAt");
     expect(cols).toHaveProperty("completedAt");
   });

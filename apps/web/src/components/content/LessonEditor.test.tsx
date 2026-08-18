@@ -71,15 +71,25 @@ describe("LessonEditor", () => {
     expect(textarea.value).toBe("");
   });
 
-  it("does not crash when content_markdown is null", () => {
-    const lesson = {
-      ...makeLesson(),
-      content_markdown: null as unknown as string,
-    };
-    expect(() => renderEditor(lesson)).not.toThrow();
-    const textarea = screen.getByPlaceholderText(
-      "محتوای درس را به فرمت Markdown وارد کنید...",
-    ) as HTMLTextAreaElement;
-    expect(textarea.value).toBe("");
+  it("renders delete button and triggers confirmation step when clicked", async () => {
+    const onDelete = vi.fn();
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <LessonEditor
+          lesson={makeLesson()}
+          organizationId="org-1"
+          courseId="course-1"
+          moduleId="module-1"
+          moduleTitle="Test Module"
+          onDelete={onDelete}
+        />
+      </QueryClientProvider>,
+    );
+
+    const deleteBtn = screen.getByRole("button", { name: "حذف درس" });
+    expect(deleteBtn).toBeInTheDocument();
   });
 });

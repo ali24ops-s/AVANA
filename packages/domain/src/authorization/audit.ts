@@ -47,6 +47,7 @@ export type AuditAction =
   | "lesson.created"
   | "lesson.updated"
   | "lesson.published"
+  | "lesson.deleted"
   | "lesson.completed"
   | "lesson.progress_updated"
   | "document.uploaded"
@@ -412,6 +413,24 @@ export function auditLessonPublished(
     actorId,
     organizationId,
     action: "lesson.published",
+    entityType: "lesson",
+    entityId: lessonId,
+    details: { course_id: courseId, module_id: moduleId },
+    createdAt: utcNow(),
+  };
+}
+
+export function auditLessonDeleted(
+  actorId: UserId,
+  organizationId: OrganizationId,
+  courseId: CourseId,
+  moduleId: ModuleId,
+  lessonId: LessonId,
+): AuditEvent {
+  return {
+    actorId,
+    organizationId,
+    action: "lesson.deleted",
     entityType: "lesson",
     entityId: lessonId,
     details: { course_id: courseId, module_id: moduleId },

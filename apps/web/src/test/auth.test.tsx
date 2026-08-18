@@ -139,4 +139,87 @@ describe("AuthProvider", () => {
     expect(lastElement("user-email").textContent).toBe("null");
     expect(lastElement("error").textContent).not.toBe("null");
   });
+
+  it("handles /v1/me success with optional user name", async () => {
+    const mockMeResponse = {
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          request_id: "test-req",
+          user: {
+            id: "user-2",
+            email: "bob@example.com",
+            name: "سارا حسینی",
+            role: "student" as const,
+          },
+        }),
+    } as Response;
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(mockMeResponse);
+
+    renderWithProviders(
+      <AuthProvider>
+        <TestConsumer />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => {
+      expect(lastElement("authenticated").textContent).toBe("true");
+    });
+
+    expect(lastElement("user-email").textContent).toBe("bob@example.com");
+  });
+
+  it("handles unallowed email domain — displays Persian error message", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      const urlStr = String(url);
+      if (urlStr.includes("/v1/me")) {
+        return {
+          ok: false,
+          status: 401,
+          json: () =>
+            Promise.resolve({
+              request_id: "test-req",
+              error: { code: "unauthorized", message: "Not signed in" },
+            }),
+        } as Response;
+      }
+      return {
+        ok: false,
+        status: 401,
+        json: () =>
+          Promise.resolve({
+            request_id: "test-req",
+            error: { code: "unauthorized", message: "Email domain not allowed" },
+          }),
+      } as Response;
+    });
+
+    let authContext: any;
+    function ConsumerWithSignIn() {
+      authContext = useAuth();
+      return <div data-testid="error">{authContext.error ?? "null"}</div>;
+    }
+
+    renderWithProviders(
+      <AuthProvider>
+        <ConsumerWithSignIn />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => {
+      expect(authContext.isLoading).toBe(false);
+    });
+
+    try {
+      await authContext.signIn("user@invalid.com", "password123");
+    } catch {
+      // Expected error thrown by signIn
+    }
+
+    await waitFor(() => {
+      expect(lastElement("error").textContent).toBe("دامنه ایمیل مجاز نیست.");
+    });
+  });
 });

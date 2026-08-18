@@ -18,7 +18,7 @@ import type { DocumentResource, DocumentStatus } from "@avana/contracts";
 export interface DocumentStatusCardProps {
   document: DocumentResource;
   organizationId: string;
-  courseId: string;
+  courseId?: string | null;
   onNavigateToReview?: () => void;
 }
 
@@ -63,12 +63,17 @@ export function DocumentStatusCard({
   const currentStatus = statusQuery.data?.status.status ?? document.status;
   const pageCount = statusQuery.data?.status.page_count;
   const chunkCount = statusQuery.data?.status.chunk_count;
+  const resolvedCourseId =
+    (courseId && courseId.trim().length > 0 ? courseId : null) ??
+    (document.course_id && document.course_id.trim().length > 0
+      ? document.course_id
+      : null);
 
   // Poll generation job status if active
   const jobQuery = useQuery({
-    queryKey: ["generation-job", organizationId, courseId, document.id, activeJobId],
-    queryFn: () => genApi.getGenerationJob(organizationId, courseId, document.id, activeJobId!),
-    enabled: !!activeJobId,
+    queryKey: ["generation-job", organizationId, resolvedCourseId, document.id, activeJobId],
+    queryFn: () => genApi.getGenerationJob(organizationId, resolvedCourseId!, document.id, activeJobId!),
+    enabled: Boolean(activeJobId && resolvedCourseId),
     refetchInterval: (query) => {
       const jobStatus = query.state.data?.job.status;
       if (jobStatus === "succeeded" || jobStatus === "failed") {
@@ -81,17 +86,19 @@ export function DocumentStatusCard({
   // Automatically refresh queries when generation finishes
   useEffect(() => {
     if (jobQuery.data?.job.status === "succeeded") {
-      void queryClient.invalidateQueries({
-        queryKey: ["review-queue", organizationId, courseId],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["course-documents", organizationId, courseId],
-      });
+      if (resolvedCourseId) {
+        void queryClient.invalidateQueries({
+          queryKey: ["review-queue", organizationId, resolvedCourseId],
+        });
+        void queryClient.invalidateQueries({
+          queryKey: ["course-documents", organizationId, resolvedCourseId],
+        });
+      }
       void queryClient.invalidateQueries({
         queryKey: ["document-status", organizationId, document.id],
       });
     }
-  }, [jobQuery.data?.job.status, organizationId, courseId, document.id, queryClient]);
+  }, [jobQuery.data?.job.status, organizationId, resolvedCourseId, document.id, queryClient]);
 
   // Trigger text extraction mutation (if retry needed)
   const extractMutation = useMutation({
@@ -133,16 +140,27 @@ export function DocumentStatusCard({
 
   // Trigger generation mutation
   const generateMutation = useMutation({
-    mutationFn: () =>
-      genApi.triggerGeneration(organizationId, courseId, document.id, {
-        types: ["lesson", "flashcard", "quiz"],
-      }),
+    mutationFn: () => {
+      if (!resolvedCourseId) {
+        throw new Error("لطفاً ابتدا یک دوره آموزشی انتخاب کنید.");
+      }
+      return genApi.triggerGeneration(
+        organizationId,
+        resolvedCourseId,
+        document.id,
+        {
+          types: ["lesson", "flashcard", "quiz"],
+        },
+      );
+    },
     onSuccess: (res) => {
       setGenerateError(null);
       setActiveJobId(res.job_id);
-      void queryClient.invalidateQueries({
-        queryKey: ["review-queue", organizationId, courseId],
-      });
+      if (resolvedCourseId) {
+        void queryClient.invalidateQueries({
+          queryKey: ["review-queue", organizationId, resolvedCourseId],
+        });
+      }
     },
     onError: (err: Error) => {
       setGenerateError(err.message || "خطا در شروع تولید هوشمند محتوا");
@@ -192,17 +210,17 @@ export function DocumentStatusCard({
   };
 
   return (
-    <div className="bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] p-6 space-y-4 shadow-sm">
+    <div className="glass-panel rounded-xl card-inner-border p-5 space-y-4 shadow-ambient">
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-start gap-3 min-w-0">
-          <div className="w-10 h-10 rounded-2xl bg-[#a7d0e6]/30 text-[#008080] flex items-center justify-center flex-shrink-0">
+          <div className="w-10 h-10 rounded-xl bg-teal-900/40 border border-teal-500/30 text-teal-400 flex items-center justify-center flex-shrink-0">
             <FileText className="w-5 h-5" />
           </div>
           <div className="min-w-0">
-            <h4 className="font-bold text-sm text-[var(--color-text)] truncate" dir="ltr">
+            <h4 className="font-bold text-sm text-white truncate" dir="ltr">
               {document.original_name}
             </h4>
-            <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
+            <p className="text-xs text-slate-400 mt-0.5">
               {(document.size_bytes / (1024 * 1024)).toFixed(2)} MB • تاریخ بارگذاری:{" "}
               {new Date(document.created_at).toLocaleDateString("fa-IR")}
             </p>
@@ -353,7 +371,8 @@ export function DocumentStatusCard({
             <button
               type="button"
               onClick={() => generateMutation.mutate()}
-              disabled={Boolean(isGenerating)}
+              disabled={Boolean(isGenerating) || !resolvedCourseId}
+              title={!resolvedCourseId ? "لطفاً ابتدا یک دوره آموزشی انتخاب کنید" : undefined}
               className="px-5 py-2.5 bg-[#008080] hover:bg-[#006666] disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-2 transition-all shadow-sm"
             >
               {isGenerating ? (

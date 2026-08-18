@@ -13,14 +13,17 @@ import type {
   OrganizationId,
   QuizAttemptId,
   QuizId,
+  QuizQuestionId,
   UserId,
 } from "@avana/domain";
 import type {
   FlashcardRecord,
   FlashcardReviewRecord,
   FlashcardScheduleUpdate,
+  UserFlashcardScheduleRecord,
   FlashcardStore,
   FlashcardReviewStore,
+  UserFlashcardScheduleStore,
   QuizRecord,
   QuizQuestionRecord,
   QuizStore,
@@ -59,6 +62,18 @@ export class InMemoryFlashcardStore implements FlashcardStore {
       .filter(
         (f) =>
           f.courseId === courseId &&
+          f.organizationId === organizationId &&
+          f.deletedAt === null,
+      )
+      .map((f) => ({ ...f }));
+  }
+
+  async listByOrganization(
+    organizationId: OrganizationId,
+  ): Promise<FlashcardRecord[]> {
+    return Array.from(this.flashcards.values())
+      .filter(
+        (f) =>
           f.organizationId === organizationId &&
           f.deletedAt === null,
       )
@@ -186,6 +201,55 @@ export class InMemoryFlashcardReviewStore implements FlashcardReviewStore {
 }
 
 // ---------------------------------------------------------------------------
+// In-Memory User Flashcard Schedule Store
+// ---------------------------------------------------------------------------
+
+export class InMemoryUserFlashcardScheduleStore
+  implements UserFlashcardScheduleStore
+{
+  private schedules: Map<string, UserFlashcardScheduleRecord> = new Map();
+
+  private key(userId: string, flashcardId: string): string {
+    return `${userId}:${flashcardId}`;
+  }
+
+  async getByUserAndCard(
+    userId: UserId,
+    flashcardId: FlashcardId,
+  ): Promise<UserFlashcardScheduleRecord | undefined> {
+    const record = this.schedules.get(this.key(userId, flashcardId));
+    return record ? { ...record } : undefined;
+  }
+
+  async listByUser(userId: UserId): Promise<UserFlashcardScheduleRecord[]> {
+    return Array.from(this.schedules.values())
+      .filter((s) => s.userId === userId)
+      .map((s) => ({ ...s }));
+  }
+
+  async upsertSchedule(
+    record: Omit<UserFlashcardScheduleRecord, "id" | "createdAt" | "updatedAt">,
+  ): Promise<UserFlashcardScheduleRecord> {
+    const k = this.key(record.userId, record.flashcardId);
+    const existing = this.schedules.get(k);
+    const now = new Date().toISOString();
+    const fullRecord: UserFlashcardScheduleRecord = {
+      id: existing?.id ?? `sched-${k}`,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+      ...record,
+      reviewCount: existing ? existing.reviewCount + 1 : (record.reviewCount ?? 1),
+    };
+    this.schedules.set(k, fullRecord);
+    return { ...fullRecord };
+  }
+
+  clear(): void {
+    this.schedules.clear();
+  }
+}
+
+// ---------------------------------------------------------------------------
 // InMemoryQuizStore
 // ---------------------------------------------------------------------------
 
@@ -218,6 +282,16 @@ export class InMemoryQuizStore implements QuizStore {
           q.courseId === courseId &&
           q.organizationId === organizationId &&
           q.deletedAt === null,
+      )
+      .map((q) => ({ ...q }));
+  }
+
+  async listByOrganization(
+    organizationId: OrganizationId,
+  ): Promise<QuizRecord[]> {
+    return Array.from(this.quizzes.values())
+      .filter(
+        (q) => q.organizationId === organizationId && q.deletedAt === null,
       )
       .map((q) => ({ ...q }));
   }
@@ -286,6 +360,8 @@ export class InMemoryQuizStore implements QuizStore {
 export class InMemoryQuizQuestionStore implements QuizQuestionStore {
   private questions: QuizQuestionRecord[] = [];
 
+  constructor(private readonly quizStore?: InMemoryQuizStore) {}
+
   async listByQuiz(quizId: QuizId): Promise<QuizQuestionRecord[]> {
     return this.questions
       .filter((q) => q.quizId === quizId)
@@ -293,11 +369,73 @@ export class InMemoryQuizQuestionStore implements QuizQuestionStore {
       .map((q) => ({ ...q }));
   }
 
+  async listByIds(ids: QuizQuestionId[]): Promise<QuizQuestionRecord[]> {
+    const idSet = new Set(ids);
+    const foundMap = new Map(
+      this.questions.filter((q) => idSet.has(q.id)).map((q) => [q.id, q]),
+    );
+    const ordered: QuizQuestionRecord[] = [];
+    for (const id of ids) {
+      const q = foundMap.get(id);
+      if (q) ordered.push({ ...q });
+    }
+    return ordered;
+  }
+
+  async listByFilter(filter: {
+    organizationId?: OrganizationId;
+    topics?: string[];
+    difficulty?: string;
+  }): Promise<QuizQuestionRecord[]> {
+    return this.questions
+      .filter((q) => {
+        if (filter.difficulty && filter.difficulty !== "all") {
+          if ((q.difficulty || "medium") !== filter.difficulty) {
+            return false;
+          }
+        }
+        if (filter.topics && filter.topics.length > 0) {
+          const matchTopic = filter.topics.some(
+            (t) =>
+              q.topic === t ||
+              q.question.toLowerCase().includes(t.toLowerCase()),
+          );
+          if (!matchTopic) return false;
+        }
+        return true;
+      })
+      .map((q) => ({ ...q }));
+  }
+
+  async countByTopicAndDifficulty(
+    _organizationId?: OrganizationId,
+  ): Promise<Array<{ topic: string; difficulty: string; questionCount: number }>> {
+    const map = new Map<string, number>();
+    for (const q of this.questions) {
+      const topic = q.topic || "عمومی";
+      const difficulty = q.difficulty || "medium";
+      const key = `${topic}:::${difficulty}`;
+      map.set(key, (map.get(key) ?? 0) + 1);
+    }
+
+    const result: Array<{ topic: string; difficulty: string; questionCount: number }> = [];
+    for (const [key, count] of map.entries()) {
+      const [topic, difficulty] = key.split(":::");
+      result.push({ topic, difficulty, questionCount: count });
+    }
+    return result;
+  }
+
   async createMany(
     records: QuizQuestionRecord[],
   ): Promise<QuizQuestionRecord[]> {
     for (const r of records) {
       this.questions.push({ ...r });
+    }
+    if (this.quizStore && records.length > 0) {
+      const quizId = records[0].quizId;
+      const quizQuestions = this.questions.filter((q) => q.quizId === quizId);
+      this.quizStore.setQuestionsForQuiz(quizId, quizQuestions);
     }
     return records.map((r) => ({ ...r }));
   }
@@ -324,7 +462,6 @@ export class InMemoryQuizQuestionStore implements QuizQuestionStore {
 
 export class InMemoryQuizAttemptStore implements QuizAttemptStore {
   private attempts: Map<string, QuizAttemptRecord> = new Map();
-  // Optional reference to quizStore to resolve courseId in listByUserAndCourse
   private quizStore?: InMemoryQuizStore;
 
   constructor(quizStore?: InMemoryQuizStore) {
@@ -373,6 +510,16 @@ export class InMemoryQuizAttemptStore implements QuizAttemptStore {
   async create(record: QuizAttemptRecord): Promise<QuizAttemptRecord> {
     this.attempts.set(record.id, { ...record });
     return { ...record };
+  }
+
+  async update(record: QuizAttemptRecord): Promise<QuizAttemptRecord> {
+    const existing = this.attempts.get(record.id);
+    const updated: QuizAttemptRecord = {
+      ...existing,
+      ...record,
+    };
+    this.attempts.set(record.id, updated);
+    return { ...updated };
   }
 
   /** Directly insert an attempt (used for seeding). */

@@ -6,11 +6,12 @@
  * Shows a loading state while auth state is being determined.
  */
 
-import { Navigate, Outlet } from "react-router-dom";
+import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../../providers/AuthProvider.js";
 
 export function ProtectedRoute() {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isEmailVerified, isLoading } = useAuth();
+  const location = useLocation();
 
   // Show loading state while checking auth on mount
   if (isLoading) {
@@ -27,6 +28,11 @@ export function ProtectedRoute() {
   // Not authenticated — redirect to sign-in
   if (!isAuthenticated) {
     return <Navigate to="/sign-in" replace />;
+  }
+
+  // Authenticated but unverified — redirect to /verify-email
+  if (!isEmailVerified && location.pathname !== "/verify-email") {
+    return <Navigate to="/verify-email" replace />;
   }
 
   // Authenticated — render child routes

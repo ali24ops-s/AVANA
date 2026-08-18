@@ -8,6 +8,12 @@ import type {
   MeResponse,
   SignInRequest,
   SignInResponse,
+  RegisterRequest,
+  RegisterResponse,
+  VerifyEmailRequest,
+  VerifyEmailResponse,
+  ResendVerificationRequest,
+  ResendVerificationResponse,
 } from "@avana/contracts";
 import type { ApiClient } from "./client.js";
 
@@ -23,9 +29,33 @@ export function createAuthApi(client: ApiClient) {
     /**
      * POST /v1/auth/sign-in — Authenticate and create session.
      */
-    signIn(email: string): Promise<SignInResponse> {
-      const body: SignInRequest = { email };
+    signIn(email: string, password: string): Promise<SignInResponse> {
+      const body: SignInRequest = { email, password };
       return client.post<SignInResponse>("/v1/auth/sign-in", body);
+    },
+
+    /**
+     * POST /v1/auth/register — Create account and session.
+     */
+    signUp(email: string, password: string, name?: string): Promise<RegisterResponse> {
+      const body: RegisterRequest = { email, password, name };
+      return client.post<RegisterResponse>("/v1/auth/register", body);
+    },
+
+    /**
+     * POST /v1/auth/verify-email — Verify 6-digit verification code.
+     */
+    verifyEmail(code: string): Promise<VerifyEmailResponse> {
+      const body: VerifyEmailRequest = { code };
+      return client.post<VerifyEmailResponse>("/v1/auth/verify-email", body);
+    },
+
+    /**
+     * POST /v1/auth/resend-verification — Request a new verification code.
+     */
+    resendVerification(email?: string): Promise<ResendVerificationResponse> {
+      const body: ResendVerificationRequest = { email };
+      return client.post<ResendVerificationResponse>("/v1/auth/resend-verification", body);
     },
 
     /**
@@ -36,5 +66,6 @@ export function createAuthApi(client: ApiClient) {
     },
   };
 }
+
 
 export type AuthApi = ReturnType<typeof createAuthApi>;

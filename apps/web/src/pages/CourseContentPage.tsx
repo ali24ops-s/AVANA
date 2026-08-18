@@ -133,7 +133,33 @@ export function CourseContentPage() {
   const [editingModuleId, setEditingModuleId] = useState<string | null>(null);
   // The id of the module pending deletion confirmation (null = none)
   const [deletingModuleId, setDeletingModuleId] = useState<string | null>(null);
+  // The id of the lesson pending deletion confirmation (null = none)
+  const [deletingLessonId, setDeletingLessonId] = useState<string | null>(null);
   const [moduleEditError, setModuleEditError] = useState<string | null>(null);
+
+  // Delete lesson mutation
+  const deleteLessonMutation = useMutation({
+    mutationFn: ({
+      moduleId,
+      lessonId,
+    }: {
+      moduleId: string;
+      lessonId: string;
+    }) =>
+      contentApi.deleteLesson(organization!.id, courseId!, moduleId, lessonId),
+    onSuccess: (_, { lessonId }) => {
+      void queryClient.invalidateQueries({
+        queryKey: ["course-content", organization?.id, courseId],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["course-learning", courseId],
+      });
+      setDeletingLessonId(null);
+      if (selectedLessonId === lessonId) {
+        setSelectedLessonId(null);
+      }
+    },
+  });
 
   // Create module mutation
   const createModuleMutation = useMutation({
@@ -407,7 +433,6 @@ export function CourseContentPage() {
     if (selectedLesson) break;
   }
 
-  const newLessonModule = modules.find((m: ModuleData) => m.id === newLessonModuleId);
   const totalLessons = modules.reduce(
     (sum: number, m: ModuleData) => sum + m.lessons.length,
     0,
@@ -592,6 +617,13 @@ export function CourseContentPage() {
                     moduleEditError={
                       editingModuleId === mod.id ? moduleEditError : null
                     }
+                    deletingLessonId={deletingLessonId}
+                    onStartDeleteLesson={(lessonId: string) => setDeletingLessonId(lessonId)}
+                    onCancelDeleteLesson={() => setDeletingLessonId(null)}
+                    onConfirmDeleteLesson={(moduleId: string, lessonId: string) =>
+                      deleteLessonMutation.mutate({ moduleId, lessonId })
+                    }
+                    isDeletingLesson={deleteLessonMutation.isPending}
                   />
                 ))}
                 {modules.length === 0 && (
@@ -613,7 +645,32 @@ export function CourseContentPage() {
                 moduleId={selectedModuleId}
                 moduleTitle={selectedModuleTitle}
                 lesson={selectedLesson}
+                onDelete={() => setSelectedLessonId(null)}
               />
+            ) : modules.length === 0 ? (
+              <div className="bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] p-10 text-center space-y-4 shadow-sm">
+                <div className="w-16 h-16 rounded-2xl bg-[#008080]/10 text-[#008080] border border-[#008080]/20 flex items-center justify-center mx-auto shadow-inner">
+                  <BookOpen className="w-8 h-8" />
+                </div>
+                <div className="space-y-1.5 max-w-md mx-auto">
+                  <h3 className="text-lg font-bold text-[var(--color-text)]">
+                    هنوز محتوایی به این دوره اضافه نشده است
+                  </h3>
+                  <p className="text-xs text-[var(--color-text-muted)] leading-relaxed">
+                    این دوره هنوز محتوای آموزشی ندارد. برای شروع، اولین فایل PDF آموزشی خود را اضافه کنید.
+                  </p>
+                </div>
+                <div className="pt-2 flex items-center justify-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setTab("documents")}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#008080] hover:bg-[#006666] text-white rounded-2xl text-xs font-bold transition-all shadow-md active:scale-95 cursor-pointer"
+                  >
+                    <FileText className="w-4 h-4" />
+                    <span>افزودن فایل PDF</span>
+                  </button>
+                </div>
+              </div>
             ) : (
               <div className="bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] p-12 text-center shadow-sm">
                 <Eye className="w-12 h-12 text-[var(--color-text-muted)] mx-auto mb-4" />
@@ -648,7 +705,10 @@ export function CourseContentPage() {
       {newLessonModuleId && (
         <NewLessonDialog
           open={true}
-          moduleTitle={newLessonModule?.title || "فصل"}
+          moduleTitle={
+            modules.find((m: ModuleData) => m.id === newLessonModuleId)
+              ?.title ?? ""
+          }
           isPending={createLessonMutation.isPending}
           serverError={createLessonError}
           onClose={() => {
@@ -691,6 +751,11 @@ function ModuleSection({
   onConfirmDelete,
   isDeletingModule,
   moduleEditError,
+  deletingLessonId,
+  onStartDeleteLesson,
+  onCancelDeleteLesson,
+  onConfirmDeleteLesson,
+  isDeletingLesson,
 }: {
   module: ModuleData;
   isExpanded: boolean;
@@ -709,6 +774,11 @@ function ModuleSection({
   onConfirmDelete: () => void;
   isDeletingModule: boolean;
   moduleEditError: string | null;
+  deletingLessonId: string | null;
+  onStartDeleteLesson: (lessonId: string) => void;
+  onCancelDeleteLesson: () => void;
+  onConfirmDeleteLesson: (moduleId: string, lessonId: string) => void;
+  isDeletingLesson: boolean;
 }) {
   const [editTitle, setEditTitle] = useState(module.title);
   const [editDescription, setEditDescription] = useState(
@@ -868,7 +938,12 @@ function ModuleSection({
               key={lesson.id}
               lesson={lesson}
               isSelected={lesson.id === selectedLessonId}
+              isDeleting={deletingLessonId === lesson.id}
               onSelect={() => onSelectLesson(lesson.id)}
+              onStartDelete={() => onStartDeleteLesson(lesson.id)}
+              onCancelDelete={onCancelDeleteLesson}
+              onConfirmDelete={() => onConfirmDeleteLesson(module.id, lesson.id)}
+              isDeletingLesson={isDeletingLesson}
             />
           ))}
 
@@ -889,40 +964,95 @@ function ModuleSection({
 function LessonNavItem({
   lesson,
   isSelected,
+  isDeleting,
   onSelect,
+  onStartDelete,
+  onCancelDelete,
+  onConfirmDelete,
+  isDeletingLesson,
 }: {
   lesson: LessonData;
   isSelected: boolean;
+  isDeleting: boolean;
   onSelect: () => void;
+  onStartDelete: () => void;
+  onCancelDelete: () => void;
+  onConfirmDelete: () => void;
+  isDeletingLesson: boolean;
 }) {
   const isDraft = lesson.publication_status === "draft";
 
+  if (isDeleting) {
+    return (
+      <div className="p-2 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-xl flex items-center justify-between gap-1 text-right">
+        <span className="text-[11px] font-bold text-red-900 dark:text-red-200 truncate flex-1">
+          حذف «{lesson.title}»؟
+        </span>
+        <div className="flex items-center gap-1 flex-shrink-0">
+          <button
+            type="button"
+            onClick={onConfirmDelete}
+            disabled={isDeletingLesson}
+            className="px-2 py-0.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-[10px] font-bold disabled:opacity-50"
+          >
+            {isDeletingLesson ? "حذف..." : "حذف"}
+          </button>
+          <button
+            type="button"
+            onClick={onCancelDelete}
+            disabled={isDeletingLesson}
+            className="px-2 py-0.5 bg-white dark:bg-zinc-800 border border-zinc-200 text-zinc-700 dark:text-zinc-300 rounded-lg text-[10px] font-bold"
+          >
+            انصراف
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className={`w-full flex items-center gap-2 px-3 py-2 text-right rounded-xl text-xs transition-colors ${
+    <div
+      className={`group w-full flex items-center justify-between gap-1.5 px-3 py-1 text-right rounded-xl text-xs transition-colors ${
         isSelected
           ? "bg-[#008080]/15 text-[#008080] font-bold"
           : "text-[var(--color-text)] hover:bg-[var(--color-surface-warm)]"
       }`}
     >
-      <span
-        className={`w-2 h-2 rounded-full flex-shrink-0 ${
-          isDraft ? "bg-amber-500" : "bg-green-500"
-        }`}
-        title={isDraft ? "پیش‌نویس" : "منتشر شده"}
-      />
-      <span className="truncate flex-1">{lesson.title}</span>
-      <span
-        className={`text-[10px] px-1.5 py-0.5 rounded-md font-bold flex-shrink-0 ${
-          isDraft
-            ? "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400"
-            : "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400"
-        }`}
+      <button
+        type="button"
+        onClick={onSelect}
+        className="flex items-center gap-2 flex-1 min-w-0 text-right py-1"
       >
-        {isDraft ? "پیش‌نویس" : "منتشر شده"}
-      </span>
-    </button>
+        <span
+          className={`w-2 h-2 rounded-full flex-shrink-0 ${
+            isDraft ? "bg-amber-500" : "bg-green-500"
+          }`}
+          title={isDraft ? "پیش‌نویس" : "منتشر شده"}
+        />
+        <span className="truncate flex-1">{lesson.title}</span>
+        <span
+          className={`text-[10px] px-1.5 py-0.5 rounded-md font-bold flex-shrink-0 ${
+            isDraft
+              ? "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400"
+              : "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400"
+          }`}
+        >
+          {isDraft ? "پیش‌نویس" : "منتشر شده"}
+        </span>
+      </button>
+
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onStartDelete();
+        }}
+        title="حذف درس"
+        aria-label={`حذف درس ${lesson.title}`}
+        className="opacity-0 group-hover:opacity-100 focus:opacity-100 p-1 rounded-lg text-[var(--color-text-muted)] hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 transition-opacity flex-shrink-0"
+      >
+        <Trash2 className="w-3.5 h-3.5" />
+      </button>
+    </div>
   );
 }

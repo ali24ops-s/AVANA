@@ -30,6 +30,9 @@ function mapDomainCodeToStatus(code: string): number {
       return 404;
     case "conflict":
       return 409;
+    case "too_many_requests":
+    case "rate_limit_exceeded":
+      return 429;
     case "unprocessable":
       return 422;
     case "internal_error":
@@ -108,6 +111,21 @@ export function createApp({
   // so it catches errors from ALL child contexts and plugins.
   app.setErrorHandler(
     (err: Error, request: FastifyRequest, reply: FastifyReply) => {
+      // Handle rate limit error objects or DomainErrors
+      const rawCode =
+        typeof err === "object" && err !== null
+          ? (err as any).code || (err as any).error?.code
+          : undefined;
+
+      if (rawCode === "too_many_requests" || rawCode === "rate_limit_exceeded") {
+        const message =
+          (err as any).message ||
+          (err as any).error?.message ||
+          "تعداد درخواست‌های بیش از حد مجاز. لطفاً یک دقیقه دیگر دوباره تلاش کنید.";
+        writeErrorEnvelope(reply, request, rawCode, message, 429);
+        return;
+      }
+
       if (isDomainError(err)) {
         const statusCode = mapDomainCodeToStatus(err.code);
         writeErrorEnvelope(
@@ -123,10 +141,11 @@ export function createApp({
 
       const fastifyStatus = (err as { statusCode?: number }).statusCode;
       if (fastifyStatus && fastifyStatus >= 400 && fastifyStatus < 500) {
+        const errCode = fastifyStatus === 429 ? "too_many_requests" : "bad_request";
         writeErrorEnvelope(
           reply,
           request,
-          "bad_request",
+          errCode,
           err.message,
           fastifyStatus,
         );

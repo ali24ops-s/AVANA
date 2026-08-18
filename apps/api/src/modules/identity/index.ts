@@ -22,3 +22,16 @@ export {
   validateCsrfToken,
   generateCsrfToken,
 } from "./csrf.js";
+export type {
+  EmailVerificationCodeRecord,
+  EmailVerificationStore,
+} from "./email-verification-store.js";
+export type { EmailService } from "./email-service.js";
+export { MockEmailService, ResendEmailService } from "./email-service.js";
+export {
+  DrizzleSessionStore,
+  DrizzleUserStore,
+  DrizzleEmailVerificationStore,
+} from "./drizzle-stores.js";
+
+

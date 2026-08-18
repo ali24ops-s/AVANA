@@ -130,12 +130,8 @@ describe("Review Queue and Detail Flow", () => {
 
     await waitFor(() => {
       expect(screen.getAllByText("Beta-Adrenergic Blockers Overview").length).toBeGreaterThan(0);
-      expect(screen.getByText(/توالی #0/i)).toBeDefined();
-      expect(
-        screen.getByText(
-          "Beta-blockers compete with catecholamines for adrenergic receptors.",
-        ),
-      ).toBeDefined();
+      expect(screen.getByText("تعداد کلمات خوانده‌شده")).toBeDefined();
+      expect(screen.getByText("مطالب استخراج‌شده")).toBeDefined();
     });
 
     // Click Accept & Publish

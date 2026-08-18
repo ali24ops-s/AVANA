@@ -10,6 +10,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@avana/domain": "*",
     "@tanstack/react-query": "^5.101.4",
     "clsx": "2.1.1",
     "framer-motion": "^12.42.2",

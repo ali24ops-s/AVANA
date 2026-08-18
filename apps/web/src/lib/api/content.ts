@@ -122,6 +122,21 @@ export function createContentApi(client: ApiClient) {
         `/v1/organizations/${organizationId}/courses/${courseId}/modules/${moduleId}/lessons/${lessonId}/publish`,
       );
     },
+
+    /**
+     * DELETE /v1/organizations/:organizationId/courses/:courseId/modules/:moduleId/lessons/:lessonId
+     * — Soft-delete (archive) a lesson.
+     */
+    deleteLesson(
+      organizationId: string,
+      courseId: string,
+      moduleId: string,
+      lessonId: string,
+    ): Promise<void> {
+      return client.delete<void>(
+        `/v1/organizations/${organizationId}/courses/${courseId}/modules/${moduleId}/lessons/${lessonId}`,
+      );
+    },
   };
 }
 

@@ -263,10 +263,10 @@ export function LessonContent({
                   // Check if it's a table-like section
                   if (paragraph.includes("|")) {
                     return (
-                      <div key={pIndex} className="my-4 overflow-x-auto">
-                        <table className="w-full text-sm">
-                          <thead>
-                            <tr className="border-b border-current/10">
+                      <div key={pIndex} className="my-4 overflow-x-auto rounded-2xl border-2 border-[var(--color-border)] shadow-xs bg-[var(--color-surface)]">
+                        <table className="w-full text-sm border-collapse text-right" dir="rtl">
+                          <thead className="bg-[var(--color-surface-warm)] border-b-2 border-[var(--color-border)]">
+                            <tr>
                               {paragraph
                                 .split("\n")[0]
                                 .split("|")
@@ -274,14 +274,14 @@ export function LessonContent({
                                 .map((cell, cIndex) => (
                                   <th
                                     key={cIndex}
-                                    className="py-2 px-3 text-left font-semibold"
+                                    className="py-3 px-4 text-right font-extrabold text-[var(--color-text)]"
                                   >
                                     {cell.trim()}
                                   </th>
                                 ))}
                             </tr>
                           </thead>
-                          <tbody>
+                          <tbody className="divide-y divide-[var(--color-border)]">
                             {paragraph
                               .split("\n")
                               .slice(2)
@@ -289,13 +289,13 @@ export function LessonContent({
                               .map((row, rIndex) => (
                                 <tr
                                   key={rIndex}
-                                  className="border-b border-[var(--color-border)]"
+                                  className="hover:bg-[var(--color-surface-warm)] transition-colors"
                                 >
                                   {row
                                     .split("|")
                                     .filter(Boolean)
                                     .map((cell, cIndex) => (
-                                      <td key={cIndex} className="py-2 px-3">
+                                      <td key={cIndex} className="py-3 px-4 text-right text-[var(--color-text)] border-b border-[var(--color-border)]">
                                         {cell.trim()}
                                       </td>
                                     ))}

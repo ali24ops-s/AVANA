@@ -1,122 +1,126 @@
-import { motion } from "framer-motion";
-import {
-  BookOpen,
-  Layers,
-  HelpCircle,
-  FileText,
-  TrendingUp,
-  MessageCircle,
-} from "lucide-react";
+/**
+ * Problem section — "چرا روش‌های سنتی پاسخگو نیستند؟"
+ *
+ * Stitch design: text block on right, 2×2 grid of error-themed problem
+ * cards on left. Each card highlights a pain point of traditional study.
+ */
 
-const features = [
+import { motion } from "framer-motion";
+
+interface ProblemCard {
+  icon: string;
+  title: string;
+  description: string;
+}
+
+const problems: ProblemCard[] = [
   {
-    icon: BookOpen,
-    title: "AI Lessons",
-    description:
-      "Complex pharmacy concepts explained in simple, memorable language with visual aids.",
-    color: "from-indigo-500 to-blue-500",
-    bgColor: "bg-indigo-50 dark:bg-indigo-950/30",
+    icon: "library_books",
+    title: "حجم وحشتناک مطالب",
+    description: "گم شدن در میان صدها صفحه جزوه و کتاب بدون ساختار.",
   },
   {
-    icon: Layers,
-    title: "Smart Flashcards",
-    description:
-      "AI-generated flashcards with spaced repetition for optimal memorization.",
-    color: "from-orange-500 to-yellow-500",
-    bgColor: "bg-orange-50 dark:bg-orange-950/30",
+    icon: "memory",
+    title: "فراموشی سریع",
+    description: "منحنی فراموشی ابینگهاوس و از دست رفتن تلاش‌ها.",
   },
   {
-    icon: HelpCircle,
-    title: "Adaptive Quizzes",
-    description:
-      "Tests that adapt to your knowledge level and focus on weak areas.",
-    color: "from-purple-500 to-pink-500",
-    bgColor: "bg-purple-50 dark:bg-purple-950/30",
+    icon: "schedule",
+    title: "ندانستن زمان مرور",
+    description: "مرورهای بی‌برنامه و غیربهینه که زمان زیادی می‌گیرد.",
   },
   {
-    icon: FileText,
-    title: "Exam Summaries",
-    description: "Concise, exam-focused summaries of entire lecture decks.",
-    color: "from-cyan-500 to-teal-500",
-    bgColor: "bg-cyan-50 dark:bg-cyan-950/30",
-  },
-  {
-    icon: TrendingUp,
-    title: "Progress Tracking",
-    description:
-      "Visual dashboards showing mastery across all topics and subjects.",
-    color: "from-green-500 to-emerald-500",
-    bgColor: "bg-green-50 dark:bg-green-950/30",
-  },
-  {
-    icon: MessageCircle,
-    title: "AI Mentor Chat",
-    description:
-      "Ask questions and get instant, accurate pharmacy-specific answers.",
-    color: "from-rose-500 to-red-500",
-    bgColor: "bg-rose-50 dark:bg-rose-950/30",
+    icon: "monitoring",
+    title: "عدم تحلیل پیشرفت",
+    description: "نداشتن دید واضح نسبت به نقاط ضعف و قوت.",
   },
 ];
 
+const cardVariants = {
+  hidden: { opacity: 0, y: 20 },
+  visible: (i: number) => ({
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.5, delay: i * 0.1, ease: "easeOut" as const },
+  }),
+};
+
 export function FeaturesSection() {
   return (
-    <section className="py-24 px-6">
-      <div className="max-w-7xl mx-auto">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.5 }}
-          className="text-center mb-16"
-        >
-          <h2 className="text-4xl font-bold mb-4">
-            Everything You Need to Excel
-          </h2>
-          <p className="text-xl text-[var(--color-text-muted)] max-w-2xl mx-auto">
-            A complete study toolkit built specifically for pharmacy students.
-          </p>
-        </motion.div>
-
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {features.map((feature, index) => (
-            <motion.div
-              key={feature.title}
-              initial={{ opacity: 0, y: 30 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.5, delay: index * 0.1 }}
-              whileHover={{
-                scale: 1.02,
-                boxShadow: "0 20px 40px -15px rgba(99, 102, 241, 0.15)",
-              }}
-              className={`group bg-[var(--color-surface)] rounded-2xl p-8 border border-[var(--color-border)] hover:border-transparent transition-all duration-300 cursor-pointer`}
+    <section
+      id="features"
+      className="py-24"
+      style={{ backgroundColor: "var(--lp-surface, #f8f9ff)" }}
+    >
+      <div className="max-w-[1280px] mx-auto px-6">
+        <div className="flex flex-col lg:flex-row items-center gap-16">
+          {/* Text Block */}
+          <motion.div
+            initial={{ opacity: 0, x: 20 }}
+            whileInView={{ opacity: 1, x: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.6 }}
+            className="lg:w-1/3 text-right"
+          >
+            <h2
+              className="font-headline text-3xl md:text-4xl font-bold mb-4"
+              style={{ color: "var(--lp-on-surface, #0b1c30)" }}
             >
-              <div
-                className={`w-14 h-14 rounded-2xl ${feature.bgColor} flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300`}
+              چرا روش‌های سنتی پاسخگو نیستند؟
+            </h2>
+            <p
+              className="text-base md:text-lg mb-8"
+              style={{ color: "var(--lp-on-surface-variant, #3e4947)" }}
+            >
+              حجم بالای مطالب پزشکی نیازمند رویکردی سیستماتیک است که روش‌های
+              سنتی فاقد آن هستند.
+            </p>
+          </motion.div>
+
+          {/* Problem Cards Grid */}
+          <div className="lg:w-2/3 grid grid-cols-1 sm:grid-cols-2 gap-6 w-full">
+            {problems.map((problem, i) => (
+              <motion.div
+                key={problem.title}
+                custom={i}
+                variants={cardVariants}
+                initial="hidden"
+                whileInView="visible"
+                viewport={{ once: true }}
+                whileHover={{ y: -4, boxShadow: "0 8px 24px rgba(0,0,0,0.06)" }}
+                className="flex items-start gap-4 p-6 rounded-xl transition-all duration-300 cursor-default"
+                style={{
+                  backgroundColor: "rgba(255, 218, 214, 0.2)",
+                  border: "1px solid rgba(186, 26, 26, 0.1)",
+                }}
               >
-                <feature.icon
-                  className={`w-7 h-7`}
-                  style={{
-                    color: feature.color.includes("indigo")
-                      ? "#6366f1"
-                      : feature.color.includes("orange")
-                        ? "#f97316"
-                        : feature.color.includes("purple")
-                          ? "#a855f7"
-                          : feature.color.includes("cyan")
-                            ? "#06b6d4"
-                            : feature.color.includes("green")
-                              ? "#22c55e"
-                              : "#f43f5e",
-                  }}
-                />
-              </div>
-              <h3 className="text-xl font-semibold mb-3">{feature.title}</h3>
-              <p className="text-[var(--color-text-muted)] leading-relaxed">
-                {feature.description}
-              </p>
-            </motion.div>
-          ))}
+                <div
+                  className="mt-1 shrink-0"
+                  style={{ color: "var(--lp-error, #ba1a1a)" }}
+                >
+                  <span className="material-symbols-outlined">
+                    {problem.icon}
+                  </span>
+                </div>
+                <div>
+                  <h4
+                    className="font-semibold mb-1"
+                    style={{ color: "var(--lp-on-surface, #0b1c30)" }}
+                  >
+                    {problem.title}
+                  </h4>
+                  <p
+                    className="text-sm"
+                    style={{
+                      color: "var(--lp-on-surface-variant, #3e4947)",
+                    }}
+                  >
+                    {problem.description}
+                  </p>
+                </div>
+              </motion.div>
+            ))}
+          </div>
         </div>
       </div>
     </section>

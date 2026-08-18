@@ -1,15 +1,20 @@
 /**
  * Home / Dashboard page after login.
  *
- * Welcomes the authenticated user to AVANA, introduces how to use the product
- * in Persian, showcases real capabilities, provides a dedicated PDF upload section
- * in the "Start Learning" journey, and displays user learning status.
+ * Implements Google Stitch dark glassmorphic dashboard layout:
+ *  - Greeting header with Persian date badge
+ *  - Hero banner with progress bar & CTA
+ *  - 4-card study stats grid (study time, completed lessons, quizzes, streak)
+ *  - "My Courses" grid card list
+ *  - Integrated PDF Document Uploader & Processing status list
+ *  - AI Mentor sidebar card ("دستیار هوشمند آوانا")
+ *  - Today's study plan & content recommendations
+ *  - 4-step workflow and platform capability cards
  */
 
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { motion } from "framer-motion";
 import {
   Sparkles,
   BookOpen,
@@ -25,6 +30,12 @@ import {
   Loader2,
   UploadCloud,
   FileUp,
+  Brain,
+  Flame,
+  Calendar,
+  Video,
+  ArrowLeft,
+  Check,
 } from "lucide-react";
 import { createApiClient, getApiBaseUrl } from "../lib/api/client.js";
 import { createOrganizationApi } from "../lib/api/organizations.js";
@@ -36,7 +47,7 @@ import { useAuth } from "../providers/AuthProvider.js";
 import type { CourseResource, DocumentResource } from "@avana/contracts";
 
 export function HomePage() {
-  const { memberships } = useAuth();
+  const { user, memberships } = useAuth();
   const apiClient = createApiClient({ baseUrl: getApiBaseUrl() });
   const orgApi = createOrganizationApi(apiClient);
   const courseApi = createCourseApi(apiClient);
@@ -52,7 +63,7 @@ export function HomePage() {
     orgQuery.data?.items?.[0] ||
     (memberships && memberships.length > 0
       ? { id: memberships[0].organization_id, name: "سازمان یادگیری" }
-      : { id: "00000000-0000-0000-0000-000000000010", name: "سازمان یادگیری آوانا" });
+      : undefined);
 
   const coursesQuery = useQuery({
     queryKey: ["courses", organization?.id],
@@ -94,424 +105,617 @@ export function HomePage() {
   }
   const activeDocuments: DocumentResource[] = Array.from(allDocsMap.values());
 
+  // Extract display name (prefer name if available, otherwise email prefix)
+  const userDisplayName =
+    user?.name && user.name.trim().length > 0
+      ? user.name.trim()
+      : user?.email
+        ? user.email.split("@")[0]
+        : "کاربر";
+
   return (
-    <div className="space-y-12 pb-12">
-      {/* 1. Hero / معرفی */}
-      <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#008080]/10 via-[#a7d0e6]/25 to-[var(--color-surface)] border border-[var(--color-border)] p-8 sm:p-12 shadow-sm">
-        <div className="max-w-3xl space-y-6">
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#008080]/15 text-[#008080] text-xs font-semibold">
-            <Sparkles className="w-4 h-4" />
-            <span>سامانه یادگیری هوشمند آوانا</span>
-          </div>
-
-          <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black text-[var(--color-text)] tracking-tight leading-tight">
-            آوانا؛ همراه هوشمند یادگیری شما
-          </h1>
-
-          <p className="text-base sm:text-lg text-[var(--color-text-muted)] leading-relaxed">
-            جزوات و فایل‌های درسی PDF خود را بارگذاری کنید؛ آوانا آن‌ها را به درس‌های منظم،
-            فلش‌کارت‌های مرور فاصله‌دار و آزمون‌های سنجش تبدیل می‌کند.
+    <div className="space-y-8 pb-12">
+      {/* 1. Welcome Greeting Header & Date Badge */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
+        <div>
+          <h2 className="text-2xl md:text-3xl font-bold text-white mb-1">
+            سلام {userDisplayName} 👋
+          </h2>
+          <p className="text-sm md:text-base text-slate-400">
+            امروز آماده‌ای ادامه بدی؟
           </p>
-
-          <div className="flex flex-wrap items-center gap-4 pt-2">
-            <Link
-              to={primaryCourse ? `/courses/${primaryCourse.id}` : "/courses"}
-              className="inline-flex items-center gap-2 px-6 py-3.5 bg-[#008080] hover:bg-[#006666] text-white rounded-2xl text-sm font-semibold shadow-md hover:shadow-lg transition-all"
-            >
-              <span>شروع یادگیری</span>
-              <ChevronLeft className="w-4 h-4" />
-            </Link>
-
-            <button
-              type="button"
-              onClick={() => {
-                const section = document.getElementById("upload-section");
-                section?.scrollIntoView({ behavior: "smooth" });
-                const fileInput = document.getElementById("pdf-document-file-input") as HTMLInputElement | null;
-                fileInput?.click();
-              }}
-              className="inline-flex items-center gap-2 px-6 py-3.5 bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] text-[var(--color-text)] border border-[var(--color-border)] rounded-2xl text-sm font-semibold transition-all cursor-pointer"
-            >
-              <FileUp className="w-4 h-4 text-[#008080]" />
-              <span>بارگذاری فایل PDF</span>
-            </button>
-
-            <Link
-              to="/courses"
-              className="inline-flex items-center gap-2 px-5 py-3.5 text-xs text-[var(--color-text-muted)] hover:text-[#008080] font-semibold transition-colors"
-            >
-              <BookOpen className="w-4 h-4" />
-              <span>مشاهده همه دوره‌ها ({courses.length})</span>
-            </Link>
-          </div>
         </div>
-      </section>
+        <div className="glass-panel px-4 py-2 rounded-full shadow-ambient card-inner-border text-xs md:text-sm text-slate-300 flex items-center gap-1.5">
+          <Calendar className="w-4 h-4 text-purple-400" />
+          <span className="text-purple-400 font-bold">۱۲ مهر</span>
+          <span>۱۴۰۳</span>
+        </div>
+      </div>
 
-      {/* 2. بخش بارگذاری فایل PDF در شروع یادگیری */}
-      <section
-        id="upload-section"
-        className="rounded-3xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 sm:p-8 space-y-6 shadow-sm"
-      >
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[var(--color-border)] pb-6">
-          <div className="space-y-1">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-lg bg-[#a7d0e6]/30 text-[#008080] text-xs font-bold">
-              <UploadCloud className="w-4 h-4" />
-              <span>شروع یادگیری با بارگذاری منبع درسی</span>
+      {/* 2. Main 12-Column Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* Left / Main Column (8 cols) */}
+        <div className="lg:col-span-8 flex flex-col gap-6">
+          {/* Hero Card (Stitch Reference Design) */}
+          <section className="glass-panel rounded-xl p-6 md:p-8 shadow-ambient card-inner-border relative overflow-hidden flex flex-col md:flex-row justify-between items-center gap-6">
+            <div className="absolute -left-20 -top-20 w-64 h-64 bg-teal-600/20 rounded-full blur-3xl" />
+            <div className="z-10 w-full md:w-2/3 space-y-4">
+              <span className="inline-block px-3 py-1 bg-purple-500/20 text-purple-300 text-xs font-semibold rounded-full border border-purple-500/30">
+                {primaryCourse?.subject || "فارماکولوژی پایه"}
+              </span>
+
+              <div>
+                <h3 className="text-lg md:text-xl font-bold text-white mb-1">
+                  فصل ۴ — سیستم عصبی خودمختار
+                </h3>
+                <h1 className="text-base md:text-lg font-bold text-teal-400">
+                  آوانا؛ همراه هوشمند یادگیری شما
+                </h1>
+                <p className="text-xs md:text-sm text-slate-300 mt-2 leading-relaxed">
+                  جزوات و فایل‌های درسی PDF خود را بارگذاری کنید؛ آوانا آن‌ها را به
+                  درس‌های منظم، فلش‌کارت‌های مرور فاصله‌دار و آزمون‌های سنجش تبدیل
+                  می‌کند.
+                </p>
+              </div>
+
+              {/* Progress bar */}
+              <div className="pt-2">
+                <div className="flex justify-between items-center text-xs font-medium mb-1.5">
+                  <span className="text-slate-300">میزان پیشرفت</span>
+                  <span className="text-teal-400 font-bold">۶۸٪ تکمیل شده</span>
+                </div>
+                <div className="w-full h-2 bg-slate-700/50 rounded-full overflow-hidden border border-white/5">
+                  <div
+                    className="h-full bg-gradient-to-l from-teal-400 to-teal-600 rounded-full shadow-[0_0_10px_rgba(45,212,191,0.5)]"
+                    style={{ width: "68%" }}
+                  />
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex flex-wrap items-center gap-3 pt-2">
+                <Link
+                  to="/courses"
+                  className="w-full md:w-auto bg-teal-600 text-white px-6 py-3 rounded-lg text-sm font-bold hover:bg-teal-500 transition-colors flex items-center justify-center gap-2 shadow-lg shadow-teal-900/50"
+                >
+                  <span>شروع یادگیری</span>
+                  <ChevronLeft className="w-4 h-4" />
+                </Link>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const section = document.getElementById("upload-section");
+                    section?.scrollIntoView({ behavior: "smooth" });
+                    const fileInput = document.getElementById(
+                      "pdf-document-file-input",
+                    ) as HTMLInputElement | null;
+                    fileInput?.click();
+                  }}
+                  className="w-full md:w-auto bg-white/10 hover:bg-white/15 text-slate-200 px-4 py-3 rounded-lg text-sm font-semibold border border-white/10 transition-colors flex items-center justify-center gap-2"
+                >
+                  <FileUp className="w-4 h-4 text-teal-400" />
+                  <span>بارگذاری فایل PDF</span>
+                </button>
+              </div>
             </div>
-            <h2 className="text-xl font-bold text-[var(--color-text)]">
-              بارگذاری فایل PDF و تولید بسته یادگیری
-            </h2>
-            <p className="text-xs text-[var(--color-text-muted)]">
-              فایل جزوه، اسلاید یا منبع درسی خود (PDF) را بارگذاری کنید تا فرآیند پردازش متن و تولید محتوا آغاز شود.
-            </p>
-          </div>
 
-          {courses.length > 1 && (
-            <div className="flex items-center gap-2 bg-[var(--color-surface-warm)] p-2 rounded-2xl border border-[var(--color-border)]">
-              <label htmlFor="course-select" className="text-xs font-semibold text-[var(--color-text-muted)]">
-                دوره مقصد:
-              </label>
-              <select
-                id="course-select"
-                value={effectiveCourseId || ""}
-                onChange={(e) => setSelectedCourseId(e.target.value)}
-                className="text-xs font-bold bg-[var(--color-surface)] text-[var(--color-text)] px-3 py-1.5 rounded-xl border border-[var(--color-border)] focus:outline-none focus:ring-2 focus:ring-[#008080]"
+            {/* Glowing Brain / Artwork Frame */}
+            <div className="z-10 w-full md:w-1/3 flex justify-center">
+              <div className="w-32 h-32 md:w-40 md:h-40 rounded-full border-4 border-slate-700/80 shadow-ambient-lg overflow-hidden relative bg-gradient-to-br from-teal-900/50 via-slate-800 to-purple-900/40 flex items-center justify-center group">
+                <Brain className="w-16 h-16 md:w-20 md:h-20 text-teal-400 drop-shadow-[0_0_12px_rgba(45,212,191,0.6)] group-hover:scale-110 transition-transform duration-500" />
+              </div>
+            </div>
+          </section>
+
+          {/* Stats Grid (4 Cards) */}
+          <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="glass-panel p-4 rounded-xl shadow-ambient card-inner-border flex flex-col items-center justify-center text-center hover:bg-white/10 transition-colors">
+              <Clock className="w-7 h-7 text-purple-400 mb-2" />
+              <span className="text-lg font-bold text-white">۱۲ ساعت</span>
+              <span className="text-xs text-slate-400 mt-1">
+                زمان مطالعه این هفته
+              </span>
+            </div>
+
+            <div className="glass-panel p-4 rounded-xl shadow-ambient card-inner-border flex flex-col items-center justify-center text-center hover:bg-white/10 transition-colors">
+              <CheckCircle2 className="w-7 h-7 text-teal-400 mb-2" />
+              <span className="text-lg font-bold text-white">۸</span>
+              <span className="text-xs text-slate-400 mt-1">
+                درس‌های تکمیل‌شده
+              </span>
+            </div>
+
+            <div className="glass-panel p-4 rounded-xl shadow-ambient card-inner-border flex flex-col items-center justify-center text-center hover:bg-white/10 transition-colors">
+              <FileText className="w-7 h-7 text-cyan-400 mb-2" />
+              <span className="text-lg font-bold text-white">۳</span>
+              <span className="text-xs text-slate-400 mt-1">آزمون‌ها</span>
+            </div>
+
+            <div className="glass-panel p-4 rounded-xl shadow-ambient card-inner-border flex flex-col items-center justify-center text-center hover:bg-white/10 transition-colors">
+              <Flame className="w-7 h-7 text-orange-400 mb-2 drop-shadow-[0_0_8px_rgba(251,146,60,0.5)]" />
+              <span className="text-lg font-bold text-white">۵ روز</span>
+              <span className="text-xs text-slate-400 mt-1">streak</span>
+            </div>
+          </section>
+
+          {/* My Courses Section */}
+          <section className="space-y-4">
+            <div className="flex justify-between items-center">
+              <h3 className="text-lg font-bold text-white">دوره‌های من</h3>
+              <Link
+                to="/courses"
+                className="text-teal-400 text-xs font-semibold hover:underline flex items-center gap-1"
               >
-                {courses.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.title}
-                  </option>
-                ))}
-              </select>
+                <span>مشاهده همه</span>
+                <ChevronLeft className="w-3.5 h-3.5" />
+              </Link>
             </div>
-          )}
-        </div>
 
-        {organization ? (
-          <div className="space-y-6">
-            <DocumentUploader
-              organizationId={organization.id}
-              courseId={effectiveCourseId}
-              onUploaded={(newDoc) => {
-                setLocalDocs((prev) => [newDoc, ...prev.filter((d) => d.id !== newDoc.id)]);
-                void docsQuery.refetch();
-                void coursesQuery.refetch();
-              }}
-            />
-
-            {/* Recent documents & status cards */}
-            {activeDocuments.length > 0 && (
-              <div className="space-y-3 pt-2">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-bold text-[var(--color-text)] flex items-center gap-2">
-                    <FileText className="w-4 h-4 text-[#008080]" />
-                    <span>اسناد و جزوات بارگذاری‌شده</span>
-                  </h3>
-                  <div className="flex items-center gap-2">
-                    {effectiveCourseId && (
-                      <Link
-                        to={`/courses/${effectiveCourseId}/manage?tab=review`}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#008080]/10 hover:bg-[#008080]/20 text-[#008080] rounded-xl text-xs font-bold transition-colors"
-                      >
-                        <Sparkles className="w-3.5 h-3.5" />
-                        <span>مدیریت محتوا و صف بررسی</span>
-                      </Link>
-                    )}
-                    {effectiveCourseId && (
-                      <Link
-                        to={`/courses/${effectiveCourseId}`}
-                        className="inline-flex items-center gap-1 text-xs font-bold text-[#008080] hover:underline"
-                      >
+            {coursesQuery.isLoading || orgQuery.isLoading ? (
+              <div className="glass-panel p-8 rounded-xl card-inner-border flex justify-center">
+                <Loader2 className="w-6 h-6 animate-spin text-teal-400" />
+              </div>
+            ) : courses.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {courses.slice(0, 4).map((course, idx) => (
+                  <Link
+                    key={course.id}
+                    to={`/courses/${course.id}`}
+                    className="glass-panel p-4 rounded-xl shadow-ambient card-inner-border flex gap-4 items-center hover:bg-white/10 transition-colors group cursor-pointer"
+                  >
+                    <div className="w-16 h-16 rounded-lg bg-teal-950/60 border border-teal-500/20 flex items-center justify-center shrink-0 text-teal-400 group-hover:scale-105 transition-transform">
+                      <GraduationCap className="w-8 h-8" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h4 className="text-sm font-bold text-white truncate mb-1">
+                        {course.title}
+                      </h4>
+                      <div className="flex justify-between text-xs text-slate-400 mb-1.5">
+                        <span>{idx === 0 ? "۹۰٪" : "۴۵٪"}</span>
+                        <span>
+                          {idx === 0 ? "۲ درس باقیمانده" : "۱۲ درس باقیمانده"}
+                        </span>
+                      </div>
+                      <div className="w-full h-1.5 bg-slate-700/50 rounded-full overflow-hidden border border-white/5">
+                        <div
+                          className="h-full bg-teal-400 rounded-full shadow-[0_0_8px_rgba(45,212,191,0.5)]"
+                          style={{ width: idx === 0 ? "90%" : "45%" }}
+                        />
+                      </div>
+                      <div className="mt-2 text-xs font-bold text-teal-400 flex items-center gap-1 group-hover:underline">
                         <span>ورود به دوره</span>
-                        <ChevronLeft className="w-3.5 h-3.5" />
-                      </Link>
-                    )}
+                        <ChevronLeft className="w-3 h-3" />
+                      </div>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Fallback Display Cards */}
+                <div className="glass-panel p-4 rounded-xl shadow-ambient card-inner-border flex gap-4 items-center">
+                  <div className="w-16 h-16 rounded-lg bg-rose-950/40 border border-rose-500/20 flex items-center justify-center shrink-0 text-rose-400">
+                    <BookOpen className="w-7 h-7" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h4 className="text-sm font-bold text-white truncate mb-1">
+                      آناتومی سیستم قلبی عروقی
+                    </h4>
+                    <div className="flex justify-between text-xs text-slate-400 mb-1.5">
+                      <span>۴۵٪</span>
+                      <span>۱۲ درس باقیمانده</span>
+                    </div>
+                    <div className="w-full h-1.5 bg-slate-700/50 rounded-full overflow-hidden border border-white/5">
+                      <div
+                        className="h-full bg-teal-500 rounded-full shadow-[0_0_8px_rgba(20,184,166,0.5)]"
+                        style={{ width: "45%" }}
+                      />
+                    </div>
                   </div>
                 </div>
 
-                <div className="grid gap-4">
-                  {activeDocuments.map((doc) => (
-                    <DocumentStatusCard
-                      key={doc.id}
-                      document={doc}
-                      organizationId={organization.id}
-                      courseId={effectiveCourseId || doc.course_id || ""}
-                    />
-                  ))}
+                <div className="glass-panel p-4 rounded-xl shadow-ambient card-inner-border flex gap-4 items-center">
+                  <div className="w-16 h-16 rounded-lg bg-teal-950/40 border border-teal-500/20 flex items-center justify-center shrink-0 text-teal-400">
+                    <GraduationCap className="w-7 h-7" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h4 className="text-sm font-bold text-white truncate mb-1">
+                      فیزیولوژی سلولی
+                    </h4>
+                    <div className="flex justify-between text-xs text-slate-400 mb-1.5">
+                      <span>۹۰٪</span>
+                      <span>۲ درس باقیمانده</span>
+                    </div>
+                    <div className="w-full h-1.5 bg-slate-700/50 rounded-full overflow-hidden border border-white/5">
+                      <div
+                        className="h-full bg-teal-400 rounded-full shadow-[0_0_8px_rgba(45,212,191,0.5)]"
+                        style={{ width: "90%" }}
+                      />
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
-          </div>
-        ) : orgQuery.isLoading ? (
-          <div className="p-8 text-center bg-[var(--color-surface-warm)] rounded-2xl border border-[var(--color-border)] flex items-center justify-center">
-            <Loader2 className="w-6 h-6 animate-spin text-[#008080]" />
-          </div>
-        ) : (
-          <div className="p-8 text-center bg-[var(--color-surface-warm)] rounded-2xl border border-[var(--color-border)] space-y-3">
-            <BookOpen className="w-8 h-8 text-[var(--color-text-muted)] mx-auto" />
-            <h3 className="text-sm font-bold text-[var(--color-text)]">
-              در حال بارگذاری اطلاعات سازمان...
-            </h3>
-            <button
-              type="button"
-              onClick={() => void orgQuery.refetch()}
-              className="px-4 py-2 bg-[#008080] text-white text-xs font-bold rounded-xl"
-            >
-              تلاش مجدد
-            </button>
-          </div>
-        )}
-      </section>
+          </section>
 
-      {/* 3. وضعیت فعلی کاربر (User Status) */}
-      <section className="space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-xl font-bold text-[var(--color-text)]">
-              وضعیت یادگیری شما
-            </h2>
-            <p className="text-xs text-[var(--color-text-muted)] mt-1">
-              خلاصه دوره‌های فعال و مسیر مطالعه شما
-            </p>
-          </div>
-          {courses.length > 0 && (
-            <Link
-              to="/courses"
-              className="text-xs font-semibold text-[#008080] hover:underline inline-flex items-center gap-1"
-            >
-              <span>همه دوره‌ها ({courses.length})</span>
-              <ChevronLeft className="w-3.5 h-3.5" />
-            </Link>
-          )}
-        </div>
-
-        {coursesQuery.isLoading || orgQuery.isLoading ? (
-          <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-8 flex items-center justify-center">
-            <Loader2 className="w-6 h-6 animate-spin text-[#008080]" />
-          </div>
-        ) : courses.length > 0 ? (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {courses.slice(0, 3).map((course) => (
-              <motion.div
-                key={course.id}
-                whileHover={{ y: -2 }}
-                className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-5 hover:border-[#a7d0e6] transition-all flex flex-col justify-between"
-              >
-                <div className="space-y-3">
-                  <div className="w-10 h-10 rounded-xl bg-[#a7d0e6]/30 text-[#008080] flex items-center justify-center">
-                    <GraduationCap className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-[var(--color-text)] text-base line-clamp-1">
-                      {course.title}
-                    </h3>
-                    <p className="text-xs text-[var(--color-text-muted)] mt-1 line-clamp-1">
-                      {course.subject || "دوره تخصصی"}
-                    </p>
-                  </div>
+          {/* PDF Upload & Learning Journey Section */}
+          <section
+            id="upload-section"
+            className="glass-panel p-6 rounded-xl shadow-ambient card-inner-border space-y-6 border-t-2 border-t-teal-500/40"
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/10 pb-4">
+              <div className="space-y-1">
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-teal-900/40 text-teal-300 text-xs font-bold border border-teal-500/30">
+                  <UploadCloud className="w-4 h-4 text-teal-400" />
+                  <span>شروع یادگیری با بارگذاری منبع درسی</span>
                 </div>
+                <h2 className="text-lg font-bold text-white">
+                  بارگذاری فایل PDF و تولید بسته یادگیری
+                </h2>
+                <p className="text-xs text-slate-400">
+                  مستندات و جزوات خود را بارگذاری کنید تا فرآیند استخراج متن و
+                  تولید هوشمند درس‌ها و فلش‌کارت‌ها آغاز شود.
+                </p>
+              </div>
 
-                <div className="pt-4 mt-4 border-t border-[var(--color-border)] flex items-center justify-between">
-                  <span className="text-xs text-[var(--color-text-muted)] flex items-center gap-1">
-                    <Clock className="w-3.5 h-3.5" />
-                    آماده مطالعه
-                  </span>
-                  <Link
-                    to={`/courses/${course.id}`}
-                    className="inline-flex items-center gap-1 text-xs font-bold text-[#008080] hover:underline"
+              {courses.length > 1 && (
+                <div className="flex items-center gap-2 bg-white/5 p-2 rounded-xl border border-white/10">
+                  <label
+                    htmlFor="course-select"
+                    className="text-xs font-semibold text-slate-300"
                   >
-                    <span>ورود به دوره</span>
-                    <ChevronLeft className="w-3.5 h-3.5" />
-                  </Link>
+                    دوره مقصد:
+                  </label>
+                  <select
+                    id="course-select"
+                    value={effectiveCourseId || ""}
+                    onChange={(e) => setSelectedCourseId(e.target.value)}
+                    className="text-xs font-bold bg-slate-900 text-slate-200 px-3 py-1.5 rounded-lg border border-white/10 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  >
+                    {courses.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.title}
+                      </option>
+                    ))}
+                  </select>
                 </div>
-              </motion.div>
-            ))}
-          </div>
-        ) : (
-          <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-8 text-center space-y-3">
-            <div className="w-12 h-12 rounded-2xl bg-[#a7d0e6]/25 text-[#008080] flex items-center justify-center mx-auto">
-              <BookOpen className="w-6 h-6" />
+              )}
             </div>
-            <h3 className="text-base font-bold text-[var(--color-text)]">
-              به آوانا خوش آمدید!
-            </h3>
-            <p className="text-xs text-[var(--color-text-muted)] max-w-md mx-auto leading-relaxed">
-              دوره‌های آموزشی شما پس از بارگذاری توسط مدیر سیستم در این بخش نمایش داده خواهند شد.
-            </p>
-          </div>
-        )}
-      </section>
 
-      {/* 4. بخش «چطور با آوانا یاد بگیریم؟» */}
-      <section className="space-y-6">
-        <div>
-          <h2 className="text-xl font-bold text-[var(--color-text)]">
-            چطور با آوانا یاد بگیریم؟
-          </h2>
-          <p className="text-xs text-[var(--color-text-muted)] mt-1">
-            چهار مرحله ساده برای یادگیری مؤثر، مرور هدفمند و تثبیت مطالب
-          </p>
+            {organization ? (
+              <div className="space-y-6">
+                <DocumentUploader
+                  organizationId={organization.id}
+                  courseId={effectiveCourseId}
+                  onUploaded={(newDoc) => {
+                    setLocalDocs((prev) => [
+                      newDoc,
+                      ...prev.filter((d) => d.id !== newDoc.id),
+                    ]);
+                    void docsQuery.refetch();
+                    void coursesQuery.refetch();
+                  }}
+                />
+
+                {/* Document Status Cards List */}
+                {activeDocuments.length > 0 && (
+                  <div className="space-y-3 pt-2">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-xs font-bold text-slate-200 flex items-center gap-2">
+                        <FileText className="w-4 h-4 text-teal-400" />
+                        <span>اسناد و جزوات بارگذاری‌شده</span>
+                      </h3>
+                      <div className="flex items-center gap-2">
+                        {effectiveCourseId && (
+                          <Link
+                            to={`/courses/${effectiveCourseId}/manage?tab=review`}
+                            className="inline-flex items-center gap-1.5 px-3 py-1 bg-teal-900/40 hover:bg-teal-900/60 text-teal-300 rounded-lg text-xs font-bold border border-teal-500/30 transition-colors"
+                          >
+                            <Sparkles className="w-3.5 h-3.5 text-teal-400" />
+                            <span>مدیریت محتوا و صف بررسی</span>
+                          </Link>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="grid gap-3">
+                      {activeDocuments.map((doc) => (
+                        <DocumentStatusCard
+                          key={doc.id}
+                          document={doc}
+                          organizationId={organization.id}
+                          courseId={effectiveCourseId || doc.course_id || undefined}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : orgQuery.isLoading ? (
+              <div className="p-8 text-center glass-panel rounded-xl flex items-center justify-center">
+                <Loader2 className="w-6 h-6 animate-spin text-teal-400" />
+              </div>
+            ) : (
+              <div className="p-8 text-center glass-panel rounded-xl space-y-3">
+                <BookOpen className="w-8 h-8 text-slate-400 mx-auto" />
+                <h3 className="text-sm font-bold text-white">
+                  در حال بارگذاری اطلاعات سازمان...
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => void orgQuery.refetch()}
+                  className="px-4 py-2 bg-teal-600 text-white text-xs font-bold rounded-lg hover:bg-teal-500 transition-colors"
+                >
+                  تلاش مجدد
+                </button>
+              </div>
+            )}
+          </section>
+
+          {/* 4-Step Workflow Section */}
+          <section className="glass-panel p-6 rounded-xl shadow-ambient card-inner-border space-y-4">
+            <div>
+              <h3 className="text-base font-bold text-white">
+                چطور با آوانا یاد بگیریم؟
+              </h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                چهار مرحله ساده برای یادگیری مؤثر، مرور هدفمند و تثبیت مطالب
+              </p>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="bg-white/5 rounded-xl border border-white/10 p-4 space-y-2">
+                <div className="w-8 h-8 rounded-lg bg-teal-600 text-white flex items-center justify-center font-bold text-xs">
+                  ۱
+                </div>
+                <h4 className="font-bold text-sm text-white">
+                  بارگذاری یا انتخاب درس
+                </h4>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  فایل PDF جزوه را بارگذاری کنید یا دوره و درس موردنظر خود را انتخاب
+                  نمایید.
+                </p>
+              </div>
+
+              <div className="bg-white/5 rounded-xl border border-white/10 p-4 space-y-2">
+                <div className="w-8 h-8 rounded-lg bg-teal-600 text-white flex items-center justify-center font-bold text-xs">
+                  ۲
+                </div>
+                <h4 className="font-bold text-sm text-white">یادگیری</h4>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  محتوای درس را مطالعه کنید و پیشرفت خود را ثبت کنید.
+                </p>
+              </div>
+
+              <div className="bg-white/5 rounded-xl border border-white/10 p-4 space-y-2">
+                <div className="w-8 h-8 rounded-lg bg-teal-600 text-white flex items-center justify-center font-bold text-xs">
+                  ۳
+                </div>
+                <h4 className="font-bold text-sm text-white">مرور</h4>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  با فلش‌کارت‌ها مطالب مهم را مرور کنید.
+                </p>
+              </div>
+
+              <div className="bg-white/5 rounded-xl border border-white/10 p-4 space-y-2">
+                <div className="w-8 h-8 rounded-lg bg-teal-600 text-white flex items-center justify-center font-bold text-xs">
+                  ۴
+                </div>
+                <h4 className="font-bold text-sm text-white">ارزیابی</h4>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  با آزمون‌ها میزان یادگیری خود را بسنجید.
+                </p>
+              </div>
+            </div>
+          </section>
+
+          {/* Platform Capability Cards */}
+          <section className="glass-panel p-6 rounded-xl shadow-ambient card-inner-border space-y-4">
+            <div>
+              <h3 className="text-base font-bold text-white">امکانات آوانا</h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                ابزارهای طراحی‌شده برای تقویت فرآیند آموزش و سنجش مستمر
+              </p>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="bg-white/5 rounded-xl border border-white/10 p-4 space-y-2">
+                <div className="w-8 h-8 rounded-lg bg-teal-900/40 text-teal-400 flex items-center justify-center">
+                  <BookOpen className="w-4 h-4" />
+                </div>
+                <h4 className="font-bold text-sm text-white">دوره‌ها و درس‌ها</h4>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  دسترسی به ساختار منظم و دسته‌بندی‌شده فصول و درس‌های آموزشی.
+                </p>
+              </div>
+
+              <div className="bg-white/5 rounded-xl border border-white/10 p-4 space-y-2">
+                <div className="w-8 h-8 rounded-lg bg-teal-900/40 text-teal-400 flex items-center justify-center">
+                  <CheckCircle2 className="w-4 h-4" />
+                </div>
+                <h4 className="font-bold text-sm text-white">
+                  مطالعه و ثبت پیشرفت
+                </h4>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  مطالعه تعاملی مطالب با امکان علامت‌گذاری درس‌های تمام‌شده.
+                </p>
+              </div>
+
+              <div className="bg-white/5 rounded-xl border border-white/10 p-4 space-y-2">
+                <div className="w-8 h-8 rounded-lg bg-teal-900/40 text-teal-400 flex items-center justify-center">
+                  <Layers className="w-4 h-4" />
+                </div>
+                <h4 className="font-bold text-sm text-white">
+                  فلش‌کارت‌های مرور فاصله‌دار
+                </h4>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  تثبیت مفاهیم کلیدی با سیستم مرور فاصله‌دار.
+                </p>
+              </div>
+
+              <div className="bg-white/5 rounded-xl border border-white/10 p-4 space-y-2">
+                <div className="w-8 h-8 rounded-lg bg-teal-900/40 text-teal-400 flex items-center justify-center">
+                  <HelpCircle className="w-4 h-4" />
+                </div>
+                <h4 className="font-bold text-sm text-white">
+                  آزمون‌های خودسنجی
+                </h4>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  آزمون‌های تعاملی با پرسش‌های چهارگزینه‌ای.
+                </p>
+              </div>
+
+              <div className="bg-white/5 rounded-xl border border-white/10 p-4 space-y-2">
+                <div className="w-8 h-8 rounded-lg bg-teal-900/40 text-teal-400 flex items-center justify-center">
+                  <BarChart3 className="w-4 h-4" />
+                </div>
+                <h4 className="font-bold text-sm text-white">
+                  تحلیل پیشرفت و عملکرد
+                </h4>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  مشاهده درصد تسلط بر مباحث و شناسایی نقاط ضعف.
+                </p>
+              </div>
+
+              <div className="bg-white/5 rounded-xl border border-white/10 p-4 space-y-2">
+                <div className="w-8 h-8 rounded-lg bg-teal-900/40 text-teal-400 flex items-center justify-center">
+                  <Compass className="w-4 h-4" />
+                </div>
+                <h4 className="font-bold text-sm text-white">
+                  پیشنهادهای مطالعه
+                </h4>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  ابزارهای هوشمند مطالعه برای راهنمایی گام‌به‌گام.
+                </p>
+              </div>
+
+              <div className="bg-white/5 rounded-xl border border-white/10 p-4 space-y-2 sm:col-span-2 lg:col-span-3">
+                <div className="w-8 h-8 rounded-lg bg-teal-900/40 text-teal-400 flex items-center justify-center">
+                  <FileText className="w-4 h-4" />
+                </div>
+                <h4 className="font-bold text-sm text-white">
+                  مدیریت منابع و اسناد
+                </h4>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  بارگذاری و سازمان‌دهی جزوات، فایل‌ها و منابع آموزشی.
+                </p>
+              </div>
+            </div>
+          </section>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {/* مرحله ۱ */}
-          <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-6 space-y-3 relative overflow-hidden">
-            <div className="w-10 h-10 rounded-xl bg-[#008080] text-white flex items-center justify-center font-bold text-sm">
-              ۱
+        {/* Right / Side Column (4 cols) */}
+        <div className="lg:col-span-4 flex flex-col gap-6">
+          {/* AI Mentor Card (Stitch Reference) */}
+          <section
+            id="assistant-section"
+            className="bg-gradient-to-br from-slate-800/80 to-slate-900/90 backdrop-blur-xl p-6 rounded-xl shadow-ambient-lg card-inner-border relative overflow-hidden border-t-4 border-t-purple-500 space-y-4"
+          >
+            <div className="absolute -right-10 -bottom-10 w-32 h-32 bg-purple-600/20 rounded-full blur-2xl" />
+            <div className="flex items-center gap-3 relative z-10">
+              <div className="w-12 h-12 rounded-full bg-purple-500/20 flex items-center justify-center text-purple-400 border border-purple-500/30">
+                <Brain className="w-6 h-6 drop-shadow-[0_0_5px_rgba(168,85,247,0.5)]" />
+              </div>
+              <h3 className="text-base font-bold text-white">
+                دستیار هوشمند آوانا
+              </h3>
             </div>
-            <h3 className="font-bold text-base text-[var(--color-text)]">
-              بارگذاری یا انتخاب درس
-            </h3>
-            <p className="text-xs text-[var(--color-text-muted)] leading-relaxed">
-              فایل PDF جزوه را بارگذاری کنید یا دوره و درس موردنظر خود را انتخاب نمایید.
+            <p className="text-xs text-slate-300 leading-relaxed relative z-10">
+              سوالت رو از من بپرس تا با هم رفع اشکال کنیم.
             </p>
-          </div>
+            <Link
+              to={primaryCourse ? `/courses/${primaryCourse.id}` : "/courses"}
+              className="w-full bg-white/10 text-purple-300 border border-purple-500/50 px-4 py-2.5 rounded-lg text-xs font-bold hover:bg-purple-500/20 hover:text-white transition-all duration-300 flex items-center justify-center gap-2 relative z-10 backdrop-blur-sm shadow-sm"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              <span>از آوانا بپرس</span>
+            </Link>
+          </section>
 
-          {/* مرحله ۲ */}
-          <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-6 space-y-3 relative overflow-hidden">
-            <div className="w-10 h-10 rounded-xl bg-[#008080] text-white flex items-center justify-center font-bold text-sm">
-              ۲
-            </div>
-            <h3 className="font-bold text-base text-[var(--color-text)]">
-              یادگیری
+          {/* Today's Study Plan */}
+          <section className="glass-panel p-6 rounded-xl shadow-ambient card-inner-border space-y-4">
+            <h3 className="text-base font-bold text-white flex items-center gap-2">
+              <Calendar className="w-5 h-5 text-teal-400" />
+              <span>برنامه مطالعه امروز</span>
             </h3>
-            <p className="text-xs text-[var(--color-text-muted)] leading-relaxed">
-              محتوای درس را مطالعه کنید و پیشرفت خود را ثبت کنید.
-            </p>
-          </div>
 
-          {/* مرحله ۳ */}
-          <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-6 space-y-3 relative overflow-hidden">
-            <div className="w-10 h-10 rounded-xl bg-[#008080] text-white flex items-center justify-center font-bold text-sm">
-              ۳
-            </div>
-            <h3 className="font-bold text-base text-[var(--color-text)]">
-              مرور
-            </h3>
-            <p className="text-xs text-[var(--color-text-muted)] leading-relaxed">
-              با فلش‌کارت‌ها مطالب مهم را مرور کنید.
-            </p>
-          </div>
+            <ul className="space-y-2.5">
+              <li className="flex items-start gap-3 p-3 rounded-lg hover:bg-white/5 transition-colors group cursor-pointer border border-transparent hover:border-white/10">
+                <div className="w-5 h-5 rounded border-2 border-slate-600 flex items-center justify-center mt-0.5 group-hover:border-teal-400 transition-colors shrink-0" />
+                <div>
+                  <p className="text-xs font-medium text-slate-200 group-hover:text-teal-300 transition-colors">
+                    مرور فلش‌کارت‌های آناتومی
+                  </p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    ۳۰ کارت • ۱۵ دقیقه
+                  </p>
+                </div>
+              </li>
 
-          {/* مرحله ۴ */}
-          <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-6 space-y-3 relative overflow-hidden">
-            <div className="w-10 h-10 rounded-xl bg-[#008080] text-white flex items-center justify-center font-bold text-sm">
-              ۴
-            </div>
-            <h3 className="font-bold text-base text-[var(--color-text)]">
-              ارزیابی
+              <li className="flex items-start gap-3 p-3 rounded-lg bg-teal-900/20 border border-teal-500/30 group cursor-pointer">
+                <div className="w-5 h-5 rounded bg-teal-500 border-2 border-teal-500 flex items-center justify-center mt-0.5 text-slate-900 shadow-[0_0_8px_rgba(20,184,166,0.5)] shrink-0">
+                  <Check className="w-3.5 h-3.5 stroke-[3]" />
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-slate-400 line-through">
+                    کوییز فیزیولوژی قلب
+                  </p>
+                  <p className="text-[11px] text-teal-300/80 mt-0.5">
+                    تکمیل شده • نمره: ۱۸/۲۰
+                  </p>
+                </div>
+              </li>
+
+              <li className="flex items-start gap-3 p-3 rounded-lg hover:bg-white/5 transition-colors group cursor-pointer border border-transparent hover:border-white/10">
+                <div className="w-5 h-5 rounded border-2 border-slate-600 flex items-center justify-center mt-0.5 group-hover:border-teal-400 transition-colors shrink-0" />
+                <div>
+                  <p className="text-xs font-medium text-slate-200 group-hover:text-teal-300 transition-colors">
+                    مطالعه فصل ۵ فارماکولوژی
+                  </p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    صفحات ۱۲۰-۱۴۵
+                  </p>
+                </div>
+              </li>
+            </ul>
+          </section>
+
+          {/* Content Recommendations */}
+          <section className="glass-panel p-6 rounded-xl shadow-ambient card-inner-border space-y-4">
+            <h3 className="text-base font-bold text-white">
+              پیشنهادات برای شما
             </h3>
-            <p className="text-xs text-[var(--color-text-muted)] leading-relaxed">
-              با آزمون‌ها میزان یادگیری خود را بسنجید.
-            </p>
-          </div>
+            <div className="space-y-3">
+              <div className="flex gap-3 items-center group cursor-pointer hover:bg-white/5 p-2 rounded-lg -mx-2 transition-colors">
+                <div className="w-9 h-9 rounded-full bg-teal-900/40 border border-teal-500/20 flex items-center justify-center text-teal-400 group-hover:bg-teal-500 group-hover:text-slate-900 transition-colors shrink-0">
+                  <BookOpen className="w-4 h-4" />
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-slate-200 group-hover:text-white transition-colors">
+                    مقاله جدید: تازه‌های درمان فشار خون
+                  </p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    ۵ دقیقه مطالعه
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex gap-3 items-center group cursor-pointer hover:bg-white/5 p-2 rounded-lg -mx-2 transition-colors">
+                <div className="w-9 h-9 rounded-full bg-purple-900/40 border border-purple-500/20 flex items-center justify-center text-purple-400 group-hover:bg-purple-500 group-hover:text-slate-900 transition-colors shrink-0">
+                  <Video className="w-4 h-4" />
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-slate-200 group-hover:text-white transition-colors">
+                    ویدیو آموزشی: نحوه معاینه شکم
+                  </p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">۱۲ دقیقه</p>
+                </div>
+              </div>
+            </div>
+          </section>
         </div>
-      </section>
-
-      {/* 5. بخش معرفی امکانات */}
-      <section className="space-y-6">
-        <div>
-          <h2 className="text-xl font-bold text-[var(--color-text)]">
-            امکانات آوانا
-          </h2>
-          <p className="text-xs text-[var(--color-text-muted)] mt-1">
-            ابزارهای طراحی‌شده برای تقویت فرآیند آموزش و سنجش مستمر
-          </p>
-        </div>
-
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {/* کارت ۱ */}
-          <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-6 space-y-3">
-            <div className="w-10 h-10 rounded-xl bg-[#a7d0e6]/30 text-[#008080] flex items-center justify-center">
-              <BookOpen className="w-5 h-5" />
-            </div>
-            <h3 className="font-bold text-base text-[var(--color-text)]">
-              دوره‌ها و درس‌ها
-            </h3>
-            <p className="text-xs text-[var(--color-text-muted)] leading-relaxed">
-              دسترسی به ساختار منظم و دسته‌بندی‌شده فصول و درس‌های آموزشی به همراه زمان تخمینی مطالعه.
-            </p>
-          </div>
-
-          {/* کارت ۲ */}
-          <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-6 space-y-3">
-            <div className="w-10 h-10 rounded-xl bg-[#a7d0e6]/30 text-[#008080] flex items-center justify-center">
-              <CheckCircle2 className="w-5 h-5" />
-            </div>
-            <h3 className="font-bold text-base text-[var(--color-text)]">
-              مطالعه و ثبت پیشرفت
-            </h3>
-            <p className="text-xs text-[var(--color-text-muted)] leading-relaxed">
-              مطالعه تعاملی مطالب با امکان علامت‌گذاری درس‌های تمام‌شده و پیگیری روند یادگیری دوره.
-            </p>
-          </div>
-
-          {/* کارت ۳ */}
-          <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-6 space-y-3">
-            <div className="w-10 h-10 rounded-xl bg-[#a7d0e6]/30 text-[#008080] flex items-center justify-center">
-              <Layers className="w-5 h-5" />
-            </div>
-            <h3 className="font-bold text-base text-[var(--color-text)]">
-              فلش‌کارت‌های مرور فاصله‌دار
-            </h3>
-            <p className="text-xs text-[var(--color-text-muted)] leading-relaxed">
-              تثبیت مفاهیم کلیدی با سیستم مرور فاصله‌دار و ارزیابی آسان، خوب و سخت برای یادسپاری ماندگار.
-            </p>
-          </div>
-
-          {/* کارت ۴ */}
-          <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-6 space-y-3">
-            <div className="w-10 h-10 rounded-xl bg-[#a7d0e6]/30 text-[#008080] flex items-center justify-center">
-              <HelpCircle className="w-5 h-5" />
-            </div>
-            <h3 className="font-bold text-base text-[var(--color-text)]">
-              آزمون‌های خودسنجی
-            </h3>
-            <p className="text-xs text-[var(--color-text-muted)] leading-relaxed">
-              آزمون‌های تعاملی با پرسش‌های چهارگزینه‌ای و کارنامه تحلیلی برای سنجش میزان تسلط بر موضوعات.
-            </p>
-          </div>
-
-          {/* کارت ۵ */}
-          <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-6 space-y-3">
-            <div className="w-10 h-10 rounded-xl bg-[#a7d0e6]/30 text-[#008080] flex items-center justify-center">
-              <BarChart3 className="w-5 h-5" />
-            </div>
-            <h3 className="font-bold text-base text-[var(--color-text)]">
-              تحلیل پیشرفت و عملکرد
-            </h3>
-            <p className="text-xs text-[var(--color-text-muted)] leading-relaxed">
-              مشاهده درصد تسلط بر مباحث، بررسی وضعیت آزمون‌ها و شناسایی نقاط نیازمند تمرین بیشتر.
-            </p>
-          </div>
-
-          {/* کارت ۶ */}
-          <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-6 space-y-3">
-            <div className="w-10 h-10 rounded-xl bg-[#a7d0e6]/30 text-[#008080] flex items-center justify-center">
-              <Compass className="w-5 h-5" />
-            </div>
-            <h3 className="font-bold text-base text-[var(--color-text)]">
-              پیشنهادهای مطالعه
-            </h3>
-            <p className="text-xs text-[var(--color-text-muted)] leading-relaxed">
-              ابزارهای هوشمند مطالعه برای راهنمایی گام‌به‌گام و اولویت‌بندی مباحث با توجه به عملکرد شما.
-            </p>
-          </div>
-
-          {/* کارت ۷ */}
-          <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-6 space-y-3 sm:col-span-2 lg:col-span-3">
-            <div className="w-10 h-10 rounded-xl bg-[#a7d0e6]/30 text-[#008080] flex items-center justify-center">
-              <FileText className="w-5 h-5" />
-            </div>
-            <h3 className="font-bold text-base text-[var(--color-text)]">
-              مدیریت منابع و اسناد
-            </h3>
-            <p className="text-xs text-[var(--color-text-muted)] leading-relaxed">
-              بارگذاری و سازمان‌دهی جزوات، فایل‌ها و منابع آموزشی با امکان بازبینی و انتشار دروس توسط مدیران دوره.
-            </p>
-          </div>
-        </div>
-      </section>
+      </div>
     </div>
   );
 }

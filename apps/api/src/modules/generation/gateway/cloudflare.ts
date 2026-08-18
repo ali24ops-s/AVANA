@@ -85,16 +85,10 @@ export class CloudflareModelGateway implements ModelGateway {
       // 1. Prepare chat messages format
       const messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [];
 
-      if (req.systemInstruction) {
-        messages.push({ role: "system", content: req.systemInstruction });
-      }
-
       if (req.messages && req.messages.length > 0) {
         for (const msg of req.messages) {
           messages.push({ role: msg.role, content: msg.content });
         }
-      } else if (req.prompt) {
-        messages.push({ role: "user", content: req.prompt });
       } else {
         messages.push({ role: "user", content: "Generate structured study content." });
       }

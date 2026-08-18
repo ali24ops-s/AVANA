@@ -17,6 +17,7 @@ import {
   auditLessonCreated,
   auditLessonUpdated,
   auditLessonPublished,
+  auditLessonDeleted,
 } from "@avana/domain";
 import type { CourseStore } from "../courses/course-store.js";
 import type { OrganizationStore } from "../organizations/organization-store.js";
@@ -509,5 +510,36 @@ export class ContentService {
       ]);
     }
     return { request_id: "", lesson: this.toContentLesson(lesson) };
+  }
+
+  async deleteLesson(
+    actor: Actor,
+    organizationId: OrganizationId,
+    courseId: CourseId,
+    moduleId: ModuleId,
+    lessonId: LessonId,
+  ): Promise<void> {
+    await this.authorize(actor, organizationId, "content:write", {
+      courseId,
+      moduleId,
+      lessonId,
+    });
+    await this.resolveCourse(courseId, organizationId, actor.userId);
+    await this.resolveModule(moduleId, courseId);
+    const lesson = await this.resolveLesson(lessonId, moduleId);
+    lesson.deletedAt = new Date().toISOString();
+    lesson.updatedAt = lesson.deletedAt;
+    await this.lessonStore.update(lesson);
+    if (this.auditService) {
+      await this.auditService.emit([
+        auditLessonDeleted(
+          actor.userId,
+          organizationId,
+          courseId,
+          moduleId,
+          lessonId,
+        ),
+      ]);
+    }
   }
 }

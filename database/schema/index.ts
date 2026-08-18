@@ -37,6 +37,7 @@ export const users = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     email: varchar("email", { length: 320 }).notNull().unique(),
     name: varchar("name", { length: 255 }).notNull(),
+    passwordHash: varchar("password_hash", { length: 255 }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -44,9 +45,34 @@ export const users = pgTable(
       .defaultNow()
       .notNull(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    emailVerifiedAt: timestamp("email_verified_at", { withTimezone: true }),
   },
   (table) => ({
     emailIdx: uniqueIndex("idx_users_email").on(table.email),
+  }),
+);
+
+export const emailVerificationCodes = pgTable(
+  "email_verification_codes",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    codeHash: varchar("code_hash", { length: 255 }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    attempts: integer("attempts").default(0).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+  },
+  (table) => ({
+    userIdx: index("idx_email_verification_codes_user").on(table.userId),
+    activeIdx: index("idx_email_verification_codes_active").on(
+      table.userId,
+      table.expiresAt,
+    ),
   }),
 );
 
@@ -211,6 +237,9 @@ export const modules = pgTable(
     courseId: uuid("course_id")
       .notNull()
       .references(() => courses.id, { onDelete: "cascade" }),
+    documentId: uuid("document_id").references(() => documents.id, {
+      onDelete: "set null",
+    }),
     title: varchar("title", { length: 255 }).notNull(),
     description: text("description"),
     sortOrder: integer("sort_order").notNull().default(0),
@@ -226,6 +255,10 @@ export const modules = pgTable(
     courseOrderIdx: index("idx_modules_course_order").on(
       table.courseId,
       table.sortOrder,
+    ),
+    courseDocumentUniqueIdx: uniqueIndex("idx_modules_course_document_unique").on(
+      table.courseId,
+      table.documentId,
     ),
   }),
 );
@@ -634,6 +667,9 @@ export const flashcards = pgTable(
     generatedContentId: uuid("generated_content_id").references(
       () => generatedContents.id,
     ),
+    lessonId: uuid("lesson_id").references(() => lessons.id, {
+      onDelete: "set null",
+    }),
     question: text("question").notNull(),
     answer: text("answer").notNull(),
     explanation: text("explanation"),
@@ -662,6 +698,7 @@ export const flashcards = pgTable(
       table.courseId,
     ),
     documentIdx: index("idx_flashcards_document").on(table.documentId),
+    lessonIdx: index("idx_flashcards_lesson").on(table.lessonId),
     dueAtIdx: index("idx_flashcards_due_at").on(table.dueAt),
   }),
 );
@@ -701,6 +738,48 @@ export const flashcardReviews = pgTable(
 );
 
 /**
+ * User Flashcard Schedules table.
+ *
+ * Stores current per-user SRS scheduling state for each flashcard.
+ */
+export const userFlashcardSchedules = pgTable(
+  "user_flashcard_schedules",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    flashcardId: uuid("flashcard_id")
+      .notNull()
+      .references(() => flashcards.id, { onDelete: "cascade" }),
+    dueAt: timestamp("due_at", { withTimezone: true }).notNull(),
+    intervalDays: integer("interval_days").notNull().default(0),
+    easeFactor: numeric("ease_factor", { precision: 5, scale: 2 })
+      .notNull()
+      .default("2.5"),
+    lastReviewedAt: timestamp("last_reviewed_at", { withTimezone: true }),
+    reviewCount: integer("review_count").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    userCardUniqueIdx: uniqueIndex("idx_user_flashcard_schedules_user_card").on(
+      table.userId,
+      table.flashcardId,
+    ),
+    userDueIdx: index("idx_user_flashcard_schedules_user_due").on(
+      table.userId,
+      table.dueAt,
+    ),
+    cardIdx: index("idx_user_flashcard_schedules_card").on(table.flashcardId),
+  }),
+);
+
+/**
  * Quizzes table.
  *
  * Accepted quizzes.
@@ -716,9 +795,10 @@ export const quizzes = pgTable(
       .notNull()
       .references(() => courses.id, { onDelete: "cascade" }),
     documentId: uuid("document_id")
-      .notNull()
       .references(() => documents.id, { onDelete: "cascade" }),
     title: varchar("title", { length: 255 }).notNull(),
+    topic: varchar("topic", { length: 255 }),
+    difficulty: varchar("difficulty", { length: 20 }).default("medium"),
     status: varchar("status", { length: 20 }).notNull().default("draft"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
@@ -751,7 +831,12 @@ export const quizQuestions = pgTable(
     generatedContentId: uuid("generated_content_id").references(
       () => generatedContents.id,
     ),
+    lessonId: uuid("lesson_id").references(() => lessons.id, {
+      onDelete: "set null",
+    }),
     question: text("question").notNull(),
+    topic: varchar("topic", { length: 255 }),
+    difficulty: varchar("difficulty", { length: 20 }).default("medium"),
     questionType: varchar("question_type", { length: 30 })
       .notNull()
       .default("multiple_choice"),
@@ -771,6 +856,7 @@ export const quizQuestions = pgTable(
       table.quizId,
       table.sortOrder,
     ),
+    lessonIdx: index("idx_quiz_questions_lesson").on(table.lessonId),
   }),
 );
 
@@ -784,13 +870,16 @@ export const quizAttempts = pgTable(
   {
     id: uuid("id").defaultRandom().primaryKey(),
     quizId: uuid("quiz_id")
-      .notNull()
       .references(() => quizzes.id, { onDelete: "cascade" }),
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     score: numeric("score", { precision: 5, scale: 2 }).notNull().default("0"),
     answers: jsonb("answers").notNull().default({}),
+    questionIds: jsonb("question_ids"),
+    topic: varchar("topic", { length: 255 }),
+    difficulty: varchar("difficulty", { length: 20 }),
+    status: varchar("status", { length: 20 }).notNull().default("in_progress"),
     startedAt: timestamp("started_at", { withTimezone: true })
       .defaultNow()
       .notNull(),

@@ -36,16 +36,18 @@ export interface CourseStore {
   /** Atomically insert a course and its audit events. */
   create(records: CreateCourseRecords): Promise<CourseRecord>;
 
-  /** Find a course only through the requesting user's organization membership. */
+  /** Find a course through the requesting user's organization membership or system organization. */
   findByIdForUser(
     courseId: CourseId,
     userId: UserId,
+    systemOrganizationId?: OrganizationId,
   ): Promise<CourseRecord | undefined>;
 
-  /** List active (non-deleted) courses for an organization, visible through membership. */
+  /** List active (non-deleted) courses for an organization, plus shared system courses if provided. */
   listByOrganization(
     organizationId: OrganizationId,
     userId: UserId,
+    systemOrganizationId?: OrganizationId,
   ): Promise<CourseRecord[]>;
 
   /** Update a course record. */

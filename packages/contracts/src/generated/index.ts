@@ -49,7 +49,9 @@ export type Role =
 export type UserResource = {
   id: UUID;
   email: string;
+  name?: string;
   role: Role;
+  emailVerified?: boolean;
 };
 
 /**
@@ -65,6 +67,26 @@ export type MeResponse = {
   request_id: string;
   user: UserResource;
   memberships: UserMembership[];
+};
+
+export type VerifyEmailRequest = {
+  code: string;
+};
+
+export type VerifyEmailResponse = {
+  request_id: string;
+  user: UserResource;
+  memberships: UserMembership[];
+};
+
+export type ResendVerificationRequest = {
+  email?: string;
+};
+
+export type ResendVerificationResponse = {
+  request_id: string;
+  message: string;
+  cooldown_seconds?: number;
 };
 
 export type OrganizationResource = {
@@ -138,6 +160,13 @@ export type UpdateCourseRequest = {
 
 export type SignInRequest = {
   email: string;
+  password: string;
+};
+
+export type RegisterRequest = {
+  email: string;
+  password: string;
+  name?: string;
 };
 
 export type SignInResponse = {
@@ -145,6 +174,9 @@ export type SignInResponse = {
   user: UserResource;
   memberships: UserMembership[];
 };
+
+export type RegisterResponse = SignInResponse;
+
 
 // ---------------------------------------------------------------------------
 // PR-3 Learning contract types
@@ -545,6 +577,26 @@ export type FlashcardListResponse = {
   next_review_count: number;
 };
 
+export type FlashcardCourseSummary = {
+  course_id: UUID;
+  title: string;
+  total_cards: number;
+  due_cards: number;
+  new_cards: number;
+  learning_cards: number;
+  overdue_cards: number;
+};
+
+export type FlashcardSummaryResponse = {
+  request_id: string;
+  courses: FlashcardCourseSummary[];
+  total_due: number;
+  total_overdue: number;
+  total_new: number;
+  total_learning: number;
+  total_cards: number;
+};
+
 export type FlashcardReviewQueueResponse = {
   request_id: string;
   due_cards: FlashcardResource[];
@@ -553,6 +605,7 @@ export type FlashcardReviewQueueResponse = {
 export type SubmitFlashcardReviewRequest = {
   rating: FlashcardRating;
   reaction_ms?: number;
+  is_exam_mode?: boolean;
 };
 
 export type SubmitFlashcardReviewResponse = {

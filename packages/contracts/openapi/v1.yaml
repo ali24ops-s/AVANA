@@ -719,6 +719,36 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: deleteContentLesson
+      summary: Soft-delete (archive) a lesson
+      responses:
+        "204":
+          description: Archived (no content)
+        "400":
+          description: Invalid ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Role does not permit content writes
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Lesson not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
 
   /v1/organizations/{organizationId}/courses/{courseId}/modules/{moduleId}/lessons/{lessonId}/publish:
     parameters:

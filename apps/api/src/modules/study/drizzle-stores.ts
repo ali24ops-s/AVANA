@@ -5,11 +5,12 @@
  * on read to match the domain shape.
  */
 
-import { and, asc, count, eq, isNull } from "drizzle-orm";
+import { and, asc, count, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import type { DbClient } from "@avana/database/client";
 import {
   flashcards,
   flashcardReviews,
+  userFlashcardSchedules,
   quizzes,
   quizQuestions,
   quizAttempts,
@@ -18,10 +19,12 @@ import type {
   FlashcardRecord,
   FlashcardReviewRecord,
   FlashcardScheduleUpdate,
+  UserFlashcardScheduleRecord,
   QuizRecord,
   QuizQuestionRecord,
   FlashcardStore,
   FlashcardReviewStore,
+  UserFlashcardScheduleStore,
   QuizStore,
   QuizQuestionStore,
   QuizAttemptStore,
@@ -50,6 +53,7 @@ function toFlashcardRecord(row: {
   courseId: string;
   documentId: string;
   generatedContentId: string | null;
+  lessonId?: string | null;
   question: string;
   answer: string;
   explanation: string | null;
@@ -68,6 +72,7 @@ function toFlashcardRecord(row: {
     courseId: row.courseId as CourseId,
     documentId: row.documentId as DocumentId,
     generatedContentId: row.generatedContentId as GeneratedContentId | null,
+    lessonId: (row.lessonId as any) ?? null,
     question: row.question,
     answer: row.answer,
     explanation: row.explanation,
@@ -106,12 +111,43 @@ function toFlashcardReviewRecord(row: {
   };
 }
 
+function toUserFlashcardScheduleRecord(row: {
+  id: string;
+  userId: string;
+  flashcardId: string;
+  dueAt: Date;
+  intervalDays: number;
+  easeFactor: string | number;
+  lastReviewedAt: Date | null;
+  reviewCount: number;
+  createdAt: Date;
+  updatedAt: Date;
+}): UserFlashcardScheduleRecord {
+  return {
+    id: row.id,
+    userId: row.userId as UserId,
+    flashcardId: row.flashcardId as FlashcardId,
+    dueAt: row.dueAt.toISOString(),
+    intervalDays: row.intervalDays,
+    easeFactor:
+      typeof row.easeFactor === "string"
+        ? parseFloat(row.easeFactor)
+        : row.easeFactor,
+    lastReviewedAt: row.lastReviewedAt ? row.lastReviewedAt.toISOString() : null,
+    reviewCount: row.reviewCount,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
 function toQuizRecord(row: {
   id: string;
   organizationId: string;
   courseId: string;
-  documentId: string;
+  documentId: string | null;
   title: string;
+  topic?: string | null;
+  difficulty?: string | null;
   status: string;
   createdAt: Date;
   updatedAt: Date;
@@ -121,8 +157,10 @@ function toQuizRecord(row: {
     id: row.id as QuizId,
     organizationId: row.organizationId as OrganizationId,
     courseId: row.courseId as CourseId,
-    documentId: row.documentId as DocumentId,
+    documentId: (row.documentId as DocumentId) || null,
     title: row.title,
+    topic: row.topic ?? null,
+    difficulty: row.difficulty ?? "medium",
     status: row.status as "draft" | "published",
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -134,7 +172,10 @@ function toQuizQuestionRecord(row: {
   id: string;
   quizId: string;
   generatedContentId: string | null;
+  lessonId?: string | null;
   question: string;
+  topic?: string | null;
+  difficulty?: string | null;
   questionType: string;
   choices: unknown;
   correctAnswer: unknown;
@@ -147,7 +188,10 @@ function toQuizQuestionRecord(row: {
     id: row.id as QuizQuestionId,
     quizId: row.quizId as QuizId,
     generatedContentId: row.generatedContentId as GeneratedContentId | null,
+    lessonId: (row.lessonId as any) ?? null,
     question: row.question,
+    topic: row.topic ?? null,
+    difficulty: row.difficulty ?? "medium",
     questionType: row.questionType,
     choices: (row.choices as string[]) ?? null,
     correctAnswer: row.correctAnswer,
@@ -160,23 +204,29 @@ function toQuizQuestionRecord(row: {
 
 function toQuizAttemptRecord(row: {
   id: string;
-  quizId: string;
+  quizId: string | null;
   userId: string;
-  score: string | number;
+  score: string;
   answers: unknown;
+  questionIds?: unknown;
+  topic?: string | null;
+  difficulty?: string | null;
+  status?: string | null;
   startedAt: Date;
   completedAt: Date | null;
 }): QuizAttemptRecord {
   return {
     id: row.id,
-    quizId: row.quizId as QuizId,
+    quizId: row.quizId ?? null,
     userId: row.userId as UserId,
     score: Number(row.score),
     answers: (row.answers as Record<string, unknown>) ?? {},
+    questionIds: (row.questionIds as string[]) ?? null,
+    topic: row.topic ?? null,
+    difficulty: row.difficulty ?? null,
+    status: row.status ?? "in_progress",
     startedAt: row.startedAt.toISOString(),
-    completedAt: row.completedAt
-      ? row.completedAt.toISOString()
-      : row.startedAt.toISOString(),
+    completedAt: row.completedAt ? row.completedAt.toISOString() : null,
   };
 }
 
@@ -227,6 +277,23 @@ export class DrizzleFlashcardStore implements FlashcardStore {
     return rows.map(toFlashcardRecord);
   }
 
+  async listByOrganization(
+    organizationId: OrganizationId,
+  ): Promise<FlashcardRecord[]> {
+    const rows = await this.db
+      .select()
+      .from(flashcards)
+      .where(
+        and(
+          eq(flashcards.organizationId, organizationId),
+          isNull(flashcards.deletedAt),
+        ),
+      )
+      .orderBy(asc(flashcards.createdAt));
+
+    return rows.map(toFlashcardRecord);
+  }
+
   async create(record: FlashcardRecord): Promise<FlashcardRecord> {
     const [row] = await this.db
       .insert(flashcards)
@@ -236,6 +303,7 @@ export class DrizzleFlashcardStore implements FlashcardStore {
         courseId: record.courseId,
         documentId: record.documentId,
         generatedContentId: record.generatedContentId,
+        lessonId: record.lessonId ?? null,
         question: record.question,
         answer: record.answer,
         explanation: record.explanation,
@@ -263,6 +331,7 @@ export class DrizzleFlashcardStore implements FlashcardStore {
           courseId: r.courseId,
           documentId: r.documentId,
           generatedContentId: r.generatedContentId,
+          lessonId: r.lessonId ?? null,
           question: r.question,
           answer: r.answer,
           explanation: r.explanation,
@@ -387,6 +456,77 @@ export class DrizzleFlashcardReviewStore implements FlashcardReviewStore {
 }
 
 // ---------------------------------------------------------------------------
+// DrizzleUserFlashcardScheduleStore
+// ---------------------------------------------------------------------------
+
+export class DrizzleUserFlashcardScheduleStore
+  implements UserFlashcardScheduleStore
+{
+  constructor(private readonly db: DbClient) {}
+
+  async getByUserAndCard(
+    userId: UserId,
+    flashcardId: FlashcardId,
+  ): Promise<UserFlashcardScheduleRecord | undefined> {
+    const row = await this.db
+      .select()
+      .from(userFlashcardSchedules)
+      .where(
+        and(
+          eq(userFlashcardSchedules.userId, userId),
+          eq(userFlashcardSchedules.flashcardId, flashcardId),
+        ),
+      )
+      .limit(1)
+      .then((rows) => rows[0]);
+
+    if (!row) return undefined;
+    return toUserFlashcardScheduleRecord(row);
+  }
+
+  async listByUser(userId: UserId): Promise<UserFlashcardScheduleRecord[]> {
+    const rows = await this.db
+      .select()
+      .from(userFlashcardSchedules)
+      .where(eq(userFlashcardSchedules.userId, userId));
+
+    return rows.map(toUserFlashcardScheduleRecord);
+  }
+
+  async upsertSchedule(
+    record: Omit<UserFlashcardScheduleRecord, "id" | "createdAt" | "updatedAt">,
+  ): Promise<UserFlashcardScheduleRecord> {
+    const now = new Date();
+    const rows = await this.db
+      .insert(userFlashcardSchedules)
+      .values({
+        userId: record.userId,
+        flashcardId: record.flashcardId,
+        dueAt: new Date(record.dueAt),
+        intervalDays: record.intervalDays,
+        easeFactor: record.easeFactor.toString(),
+        lastReviewedAt: record.lastReviewedAt ? new Date(record.lastReviewedAt) : null,
+        reviewCount: record.reviewCount,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: [userFlashcardSchedules.userId, userFlashcardSchedules.flashcardId],
+        set: {
+          dueAt: new Date(record.dueAt),
+          intervalDays: record.intervalDays,
+          easeFactor: record.easeFactor.toString(),
+          lastReviewedAt: record.lastReviewedAt ? new Date(record.lastReviewedAt) : null,
+          reviewCount: record.reviewCount,
+          updatedAt: now,
+        },
+      })
+      .returning();
+
+    return toUserFlashcardScheduleRecord(rows[0]);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // DrizzleQuizStore
 // ---------------------------------------------------------------------------
 
@@ -433,6 +573,23 @@ export class DrizzleQuizStore implements QuizStore {
     return rows.map(toQuizRecord);
   }
 
+  async listByOrganization(
+    organizationId: OrganizationId,
+  ): Promise<QuizRecord[]> {
+    const rows = await this.db
+      .select()
+      .from(quizzes)
+      .where(
+        and(
+          eq(quizzes.organizationId, organizationId),
+          isNull(quizzes.deletedAt),
+        ),
+      )
+      .orderBy(asc(quizzes.createdAt));
+
+    return rows.map(toQuizRecord);
+  }
+
   async create(record: QuizRecord): Promise<QuizRecord> {
     const [row] = await this.db
       .insert(quizzes)
@@ -442,6 +599,8 @@ export class DrizzleQuizStore implements QuizStore {
         courseId: record.courseId,
         documentId: record.documentId,
         title: record.title,
+        topic: record.topic,
+        difficulty: record.difficulty ?? "medium",
         status: record.status,
         createdAt: new Date(record.createdAt),
         updatedAt: new Date(record.updatedAt),
@@ -454,9 +613,6 @@ export class DrizzleQuizStore implements QuizStore {
   async findByGeneratedContent(
     generatedContentId: GeneratedContentId,
   ): Promise<QuizRecord | undefined> {
-    // Note: Quizzes are materialized from multiple generated questions.
-    // The quiz table doesn't have a generatedContentId column currently.
-    // We would need to join with quiz_questions to find it.
     const row = await this.db
       .select({ quiz: quizzes })
       .from(quizzes)
@@ -503,6 +659,112 @@ export class DrizzleQuizQuestionStore implements QuizQuestionStore {
     return rows.map(toQuizQuestionRecord);
   }
 
+  async listByIds(ids: QuizQuestionId[]): Promise<QuizQuestionRecord[]> {
+    if (ids.length === 0) return [];
+    const rows = await this.db
+      .select()
+      .from(quizQuestions)
+      .where(inArray(quizQuestions.id, ids));
+
+    const map = new Map(rows.map((r) => [r.id, r]));
+    const ordered: QuizQuestionRecord[] = [];
+    for (const id of ids) {
+      const found = map.get(id);
+      if (found) ordered.push(toQuizQuestionRecord(found));
+    }
+    return ordered;
+  }
+
+  async listByFilter(filter: {
+    organizationId?: OrganizationId;
+    topics?: string[];
+    difficulty?: string;
+  }): Promise<QuizQuestionRecord[]> {
+    let query = this.db
+      .select({ question: quizQuestions })
+      .from(quizQuestions)
+      .innerJoin(quizzes, eq(quizQuestions.quizId, quizzes.id))
+      .$dynamic();
+
+    const conditions = [isNull(quizzes.deletedAt)];
+
+    if (filter.organizationId) {
+      conditions.push(eq(quizzes.organizationId, filter.organizationId));
+    }
+
+    if (filter.difficulty && filter.difficulty !== "all") {
+      conditions.push(
+        or(
+          eq(quizQuestions.difficulty, filter.difficulty),
+          eq(quizzes.difficulty, filter.difficulty),
+        )!,
+      );
+    }
+
+    if (filter.topics && filter.topics.length > 0) {
+      const topicConditions = filter.topics.map(
+        (t) =>
+          or(
+            eq(quizQuestions.topic, t),
+            eq(quizzes.topic, t),
+            sql`lower(${quizzes.title}) LIKE lower(${`%${t}%`})`,
+            sql`lower(${quizQuestions.question}) LIKE lower(${`%${t}%`})`,
+          )!,
+      );
+      conditions.push(or(...topicConditions)!);
+    }
+
+    const rows = await query.where(and(...conditions)).orderBy(asc(quizQuestions.sortOrder));
+    return rows.map((r) => toQuizQuestionRecord(r.question));
+  }
+
+  async countByTopicAndDifficulty(
+    organizationId?: OrganizationId,
+  ): Promise<Array<{ topic: string; difficulty: string; questionCount: number }>> {
+    let query = this.db
+      .select({
+        questionTopic: quizQuestions.topic,
+        quizTopic: quizzes.topic,
+        quizTitle: quizzes.title,
+        questionDifficulty: quizQuestions.difficulty,
+        quizDifficulty: quizzes.difficulty,
+        cnt: sql<number>`count(${quizQuestions.id})`,
+      })
+      .from(quizQuestions)
+      .innerJoin(quizzes, eq(quizQuestions.quizId, quizzes.id))
+      .$dynamic();
+
+    const conditions = [isNull(quizzes.deletedAt)];
+    if (organizationId) {
+      conditions.push(eq(quizzes.organizationId, organizationId));
+    }
+
+    const rows = await query
+      .where(and(...conditions))
+      .groupBy(
+        quizQuestions.topic,
+        quizzes.topic,
+        quizzes.title,
+        quizQuestions.difficulty,
+        quizzes.difficulty,
+      );
+
+    const countsMap = new Map<string, number>();
+    for (const r of rows) {
+      const rawTopic = r.questionTopic || r.quizTopic || r.quizTitle || "عمومی";
+      const rawDiff = r.questionDifficulty || r.quizDifficulty || "medium";
+      const key = `${rawTopic}:::${rawDiff}`;
+      countsMap.set(key, (countsMap.get(key) ?? 0) + Number(r.cnt));
+    }
+
+    const result: Array<{ topic: string; difficulty: string; questionCount: number }> = [];
+    for (const [key, count] of countsMap.entries()) {
+      const [topic, difficulty] = key.split(":::");
+      result.push({ topic, difficulty, questionCount: count });
+    }
+    return result;
+  }
+
   async createMany(
     records: QuizQuestionRecord[],
   ): Promise<QuizQuestionRecord[]> {
@@ -514,7 +776,10 @@ export class DrizzleQuizQuestionStore implements QuizQuestionStore {
           id: r.id,
           quizId: r.quizId,
           generatedContentId: r.generatedContentId,
+          lessonId: r.lessonId ?? null,
           question: r.question,
+          topic: r.topic,
+          difficulty: r.difficulty ?? "medium",
           questionType: r.questionType,
           choices: r.choices,
           correctAnswer: r.correctAnswer,
@@ -578,7 +843,6 @@ export class DrizzleQuizAttemptStore implements QuizAttemptStore {
     userId: UserId,
     courseId: CourseId,
   ): Promise<QuizAttemptRecord[]> {
-    // Join quiz_attempts → quizzes to filter by course
     const rows = await this.db
       .select({ attempt: quizAttempts })
       .from(quizAttempts)
@@ -599,13 +863,32 @@ export class DrizzleQuizAttemptStore implements QuizAttemptStore {
       .insert(quizAttempts)
       .values({
         id: record.id,
-        quizId: record.quizId,
+        quizId: record.quizId ?? null,
         userId: record.userId,
         score: record.score.toString(),
         answers: record.answers,
+        questionIds: record.questionIds ?? null,
+        topic: record.topic ?? null,
+        difficulty: record.difficulty ?? null,
+        status: record.status ?? "in_progress",
         startedAt: new Date(record.startedAt),
-        completedAt: new Date(record.completedAt),
+        completedAt: record.completedAt ? new Date(record.completedAt) : null,
       })
+      .returning();
+
+    return toQuizAttemptRecord(row);
+  }
+
+  async update(record: QuizAttemptRecord): Promise<QuizAttemptRecord> {
+    const [row] = await this.db
+      .update(quizAttempts)
+      .set({
+        score: record.score.toString(),
+        answers: record.answers,
+        status: record.status ?? "completed",
+        completedAt: record.completedAt ? new Date(record.completedAt) : new Date(),
+      })
+      .where(eq(quizAttempts.id, record.id))
       .returning();
 
     return toQuizAttemptRecord(row);

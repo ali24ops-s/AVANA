@@ -18,13 +18,24 @@ import { ProtectedRoute } from "../components/shell/ProtectedRoute.js";
 import { RequireCourseManager } from "../components/shell/RequireCourseManager.js";
 import { AuthenticatedShell } from "../components/shell/AuthenticatedShell.js";
 import { SignInPage } from "../components/shell/SignInPage.js";
+import { RegisterPage } from "../components/shell/RegisterPage.js";
+import { LandingPage } from "../components/LandingPage.js";
 import { HomePage } from "../pages/HomePage.js";
 import { CourseListPage } from "../pages/CourseListPage.js";
 import { LearningPage } from "../pages/LearningPage.js";
 import { CourseContentPage } from "../pages/CourseContentPage.js";
+import { FlashcardsPage } from "../pages/FlashcardsPage.js";
+import { ReviewPage } from "../pages/ReviewPage.js";
+import { ExamsPage } from "../pages/ExamsPage.js";
+
+import { EmailVerificationPage } from "../components/shell/EmailVerificationPage.js";
 
 export const router = createBrowserRouter([
   // Public routes
+  {
+    path: "/",
+    element: <LandingPage />,
+  },
   {
     path: "/sign-in",
     element: <SignInPage />,
@@ -33,6 +44,14 @@ export const router = createBrowserRouter([
     path: "/login",
     element: <SignInPage />,
   },
+  {
+    path: "/register",
+    element: <RegisterPage />,
+  },
+  {
+    path: "/sign-up",
+    element: <RegisterPage />,
+  },
 
   // Protected routes (require authentication)
   {
@@ -40,12 +59,12 @@ export const router = createBrowserRouter([
     element: <ProtectedRoute />,
     children: [
       {
+        path: "verify-email",
+        element: <EmailVerificationPage />,
+      },
+      {
         element: <AuthenticatedShell />,
         children: [
-          {
-            index: true,
-            element: <HomePage />,
-          },
           {
             path: "home",
             element: <HomePage />,
@@ -67,6 +86,22 @@ export const router = createBrowserRouter([
                 element: <CourseContentPage />,
               },
             ],
+          },
+          {
+            path: "flashcards",
+            element: <FlashcardsPage />,
+          },
+          {
+            path: "flashcards/review",
+            element: <ReviewPage />,
+          },
+          {
+            path: "exams",
+            element: <ExamsPage />,
+          },
+          {
+            path: "exams/attempt/:attemptId",
+            element: <ExamsPage />,
           },
           {
             path: "*",

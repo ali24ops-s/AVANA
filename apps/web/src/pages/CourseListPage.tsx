@@ -134,15 +134,15 @@ export function CourseListPage() {
       {/* Page header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-[var(--color-text)]">
+          <h1 className="text-2xl font-bold text-white">
             دوره‌های آموزشی
           </h1>
-          <p className="text-[var(--color-text-muted)] mt-1 text-xs">
+          <p className="text-slate-400 mt-1 text-xs">
             {organization.name}
           </p>
         </div>
         {courses && courses.length > 0 && (
-          <span className="text-xs font-medium text-[var(--color-text-muted)] bg-[var(--color-surface)] px-3 py-1.5 rounded-xl border border-[var(--color-border)]">
+          <span className="text-xs font-bold text-teal-300 bg-teal-900/30 px-3 py-1.5 rounded-full border border-teal-500/30 glass-panel">
             {courses.length} دوره در دسترس
           </span>
         )}
@@ -185,30 +185,30 @@ function CourseCard({ course }: { course: CourseResource }) {
   return (
     <Link
       to={`/courses/${course.id}`}
-      className="block bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-5 hover:shadow-md hover:border-[#008080] transition-all group"
+      className="block glass-panel rounded-xl card-inner-border p-5 hover:bg-white/10 hover:border-teal-500/50 shadow-ambient transition-all group"
     >
       <div className="flex items-start justify-between mb-3">
-        <div className="w-10 h-10 rounded-xl bg-[#a7d0e6]/30 text-[#008080] flex items-center justify-center group-hover:scale-105 transition-transform">
+        <div className="w-10 h-10 rounded-xl bg-teal-950/60 border border-teal-500/30 text-teal-400 flex items-center justify-center group-hover:scale-105 transition-transform">
           <GraduationCap className="w-5 h-5" />
         </div>
         {course.archived && (
-          <span className="text-xs px-2.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300 font-medium">
+          <span className="text-xs px-2.5 py-0.5 rounded-full bg-amber-950/40 text-amber-300 font-medium border border-amber-500/30">
             بایگانی شده
           </span>
         )}
       </div>
 
-      <h3 className="font-bold text-[var(--color-text)] group-hover:text-[#008080] transition-colors line-clamp-1">
+      <h3 className="font-bold text-white group-hover:text-teal-400 transition-colors line-clamp-1">
         {course.title}
       </h3>
 
-      <p className="text-xs text-[var(--color-text-muted)] mt-1.5 line-clamp-1">
+      <p className="text-xs text-slate-400 mt-1.5 line-clamp-1">
         {subjectLabel}
       </p>
 
-      <div className="mt-4 pt-3 border-t border-[var(--color-border)] flex items-center justify-between text-xs text-[var(--color-text-muted)]">
+      <div className="mt-4 pt-3 border-t border-white/10 flex items-center justify-between text-xs text-slate-400">
         <span>{examDate ? `تاریخ آزمون: ${examDate}` : "آماده یادگیری"}</span>
-        <span className="text-[#008080] font-semibold flex items-center gap-1 group-hover:underline">
+        <span className="text-teal-400 font-semibold flex items-center gap-1 group-hover:underline">
           <span>ورود</span>
           <ChevronLeft className="w-3.5 h-3.5" />
         </span>
@@ -232,12 +232,12 @@ function StateCard({
   action?: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center py-20 text-center bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-8">
-      <Icon className="w-12 h-12 text-[var(--color-text-muted)] mb-4" />
-      <h2 className="text-lg font-bold text-[var(--color-text)]">
+    <div className="flex flex-col items-center justify-center py-20 text-center glass-panel rounded-xl card-inner-border p-8 shadow-ambient">
+      <Icon className="w-12 h-12 text-slate-400 mb-4" />
+      <h2 className="text-lg font-bold text-white">
         {title}
       </h2>
-      <p className="text-xs text-[var(--color-text-muted)] mt-1 max-w-sm">
+      <p className="text-xs text-slate-400 mt-1 max-w-sm">
         {description}
       </p>
       {action && <div className="mt-4">{action}</div>}

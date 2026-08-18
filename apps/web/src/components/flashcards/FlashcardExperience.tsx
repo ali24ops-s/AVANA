@@ -1,24 +1,35 @@
 import { useState, useEffect, useCallback } from "react";
-import { motion } from "framer-motion";
 import {
   ArrowRight,
-  Layers,
-  Clock,
-  CheckCircle2,
   RotateCcw,
-  Lightbulb,
   Award,
   Loader2,
   AlertCircle,
+  Sparkles,
+  BookOpen,
+  ChevronRight,
+  ChevronLeft,
+  Pointer,
+  Lightbulb,
+  Pencil,
+  Check,
+  X,
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
 import { createStudyApi } from "../../lib/api/study.js";
 import type { FlashcardResource, FlashcardRating } from "@avana/contracts";
+import { nextReviewInterval } from "@avana/domain";
 
 export interface FlashcardExperienceProps {
   organizationId: string;
-  courseId: string;
+  courseId?: string;
+  courseIds?: string[];
+  documentIds?: string[];
+  mode?: "normal" | "exam" | "custom";
+  customMode?: "weak" | "forgotten" | "review_ahead" | "new";
+  aheadDays?: number;
+  limit?: number;
   onBack?: () => void;
 }
 
@@ -28,35 +39,149 @@ interface ReviewResult {
   reactionMs: number;
 }
 
+function getIntervalHint(
+  rating: FlashcardRating,
+  card?: { interval_days: number; ease_factor?: number | string },
+): string {
+  if (!card) return "";
+  const prevInterval = card.interval_days ?? 0;
+  const prevEase = card.ease_factor ? Number(card.ease_factor) : 2.5;
+
+  const nextState = nextReviewInterval(rating, {
+    intervalDays: prevInterval,
+    easeFactor: prevEase,
+  });
+
+  if (rating === "again" || nextState.intervalDays === 0) {
+    return "< ۱۰ دقیقه";
+  }
+  if (nextState.intervalDays === 1) {
+    return "۱ روز";
+  }
+  return `${nextState.intervalDays} روز`;
+}
+
 export function FlashcardExperience({
   organizationId,
   courseId,
+  courseIds = [],
+  documentIds = [],
+  mode = "normal",
+  customMode = "weak",
+  aheadDays = 3,
+  limit,
   onBack,
 }: FlashcardExperienceProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
   const [flipTimestamp, setFlipTimestamp] = useState<number>(0);
+  const [sessionStartTime] = useState<number>(Date.now());
   const [results, setResults] = useState<ReviewResult[]>([]);
   const [isCompleted, setIsCompleted] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [selectedRating, setSelectedRating] = useState<FlashcardRating | null>(null);
+  const [cardPriorities, setCardPriorities] = useState<Record<string, "high" | "medium" | "low">>({});
 
   const queryClient = useQueryClient();
   const apiClient = createApiClient({ baseUrl: getApiBaseUrl() });
   const studyApi = createStudyApi(apiClient);
 
-  // Fetch due cards for spaced-repetition review
+  // If courseId is provided but not in courseIds, add it (for backward compatibility)
+  const effectiveCourseIds = courseId && courseIds.length === 0 ? [courseId] : courseIds;
+
+  // Fetch due cards for spaced-repetition / exam / custom review
   const queueQuery = useQuery({
-    queryKey: ["flashcards-queue", organizationId, courseId],
-    queryFn: () => studyApi.getFlashcardReviewQueue(organizationId, courseId),
+    queryKey: [
+      "flashcards-queue",
+      organizationId,
+      effectiveCourseIds,
+      documentIds,
+      mode,
+      customMode,
+      aheadDays,
+      limit,
+    ],
+    queryFn: () => {
+      if (mode === "exam") {
+        return studyApi.getExamQueue(
+          organizationId,
+          effectiveCourseIds.length > 0 ? effectiveCourseIds : undefined,
+          limit,
+          documentIds.length > 0 ? documentIds : undefined,
+        );
+      }
+      if (mode === "custom") {
+        return studyApi.getCustomQueue(
+          organizationId,
+          customMode,
+          effectiveCourseIds.length > 0 ? effectiveCourseIds : undefined,
+          limit,
+          aheadDays,
+          documentIds.length > 0 ? documentIds : undefined,
+        );
+      }
+      return studyApi.getMultiReviewQueue(
+        organizationId,
+        effectiveCourseIds.length > 0 ? effectiveCourseIds : undefined,
+        documentIds.length > 0 ? documentIds : undefined,
+      );
+    },
+    enabled: !!organizationId,
   });
 
-  // Fetch all flashcards for overall count
-  const allCardsQuery = useQuery({
-    queryKey: ["flashcards", organizationId, courseId],
-    queryFn: () => studyApi.listFlashcards(organizationId, courseId),
+  // Fetch summary to get total counts
+  const summaryQuery = useQuery({
+    queryKey: ["flashcard-summary", organizationId],
+    queryFn: () => studyApi.getFlashcardSummary(organizationId),
+    enabled: !!organizationId,
   });
 
   const dueCards = queueQuery.data?.due_cards ?? [];
-  const currentCard = dueCards[currentIndex] as FlashcardResource | undefined;
+  const rawCurrentCard = dueCards[currentIndex] as FlashcardResource | undefined;
+
+  // In-place editing state
+  const [editedCards, setEditedCards] = useState<Record<string, { question: string; answer: string }>>({});
+  const [isEditing, setIsEditing] = useState(false);
+  const [editQuestion, setEditQuestion] = useState("");
+  const [editAnswer, setEditAnswer] = useState("");
+
+  const currentCard = rawCurrentCard
+    ? {
+        ...rawCurrentCard,
+        ...(editedCards[rawCurrentCard.id] || {}),
+      }
+    : undefined;
+
+  const handleStartEdit = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!currentCard) return;
+    setEditQuestion(currentCard.question);
+    setEditAnswer(currentCard.answer);
+    setIsEditing(true);
+  }, [currentCard]);
+
+  const handleSaveEdit = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!currentCard) return;
+    setEditedCards((prev) => ({
+      ...prev,
+      [currentCard.id]: {
+        question: editQuestion,
+        answer: editAnswer,
+      },
+    }));
+    setIsEditing(false);
+  }, [currentCard, editQuestion, editAnswer]);
+
+  const handleCancelEdit = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsEditing(false);
+  }, []);
+
+  // Resolve course name if available
+  const currentCourseInfo = summaryQuery.data?.courses?.find(
+    (c) => c.course_id === currentCard?.course_id,
+  );
 
   // Submit review rating mutation
   const reviewMutation = useMutation({
@@ -64,44 +189,60 @@ export function FlashcardExperience({
       cardId,
       rating,
       reactionMs,
+      targetCourseId,
     }: {
       cardId: string;
       rating: FlashcardRating;
       reactionMs: number;
+      targetCourseId: string;
     }) => {
-      return studyApi.submitFlashcardReview(organizationId, courseId, cardId, {
+      const isExamOrCustom = mode === "exam" || mode === "custom";
+      return studyApi.submitFlashcardReview(organizationId, targetCourseId, cardId, {
         rating,
         reaction_ms: reactionMs,
+        is_exam_mode: isExamOrCustom,
       });
     },
     onSuccess: () => {
+      const targetCourseId = effectiveCourseIds[0] || courseId;
+      if (targetCourseId) {
+        void queryClient.invalidateQueries({
+          queryKey: ["flashcards", organizationId, targetCourseId],
+        });
+        void queryClient.invalidateQueries({
+          queryKey: ["flashcards-queue", organizationId, targetCourseId],
+        });
+        void queryClient.invalidateQueries({
+          queryKey: ["study-analytics", organizationId, targetCourseId],
+        });
+        void queryClient.invalidateQueries({
+          queryKey: ["study-recommendations", organizationId, targetCourseId],
+        });
+      } else {
+        void queryClient.invalidateQueries({
+          queryKey: ["flashcards", organizationId],
+        });
+        void queryClient.invalidateQueries({
+          queryKey: ["flashcards-queue", organizationId],
+        });
+      }
       void queryClient.invalidateQueries({
-        queryKey: ["flashcards", organizationId, courseId],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["flashcards-queue", organizationId, courseId],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["study-analytics", organizationId, courseId],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["study-recommendations", organizationId, courseId],
+        queryKey: ["flashcard-summary", organizationId],
       });
     },
   });
 
-  const [selectedRating, setSelectedRating] = useState<FlashcardRating | null>(null);
-
   const handleFlip = useCallback(() => {
-    if (isFlipped) return;
     setIsFlipped(true);
-    setFlipTimestamp(Date.now());
-  }, [isFlipped]);
+    setFlipTimestamp((prev) => (prev > 0 ? prev : Date.now()));
+  }, []);
+
 
   const handleRating = useCallback(
     (rating: FlashcardRating) => {
-      if (!currentCard || !isFlipped || reviewMutation.isPending) return;
+      if (!currentCard || !isFlipped || isSubmitting || reviewMutation.isPending) return;
 
+      setIsSubmitting(true);
       setSelectedRating(rating);
       const reactionMs = flipTimestamp > 0 ? Date.now() - flipTimestamp : 0;
 
@@ -110,6 +251,7 @@ export function FlashcardExperience({
           cardId: currentCard.id,
           rating,
           reactionMs,
+          targetCourseId: currentCard.course_id,
         },
         {
           onSuccess: () => {
@@ -120,6 +262,8 @@ export function FlashcardExperience({
             };
             setResults((prev) => [...prev, newResult]);
             setSelectedRating(null);
+            setIsSubmitting(false);
+
             if (currentIndex + 1 < dueCards.length) {
               setIsFlipped(false);
               setFlipTimestamp(0);
@@ -127,52 +271,107 @@ export function FlashcardExperience({
             } else {
               setIsCompleted(true);
               void queryClient.invalidateQueries({
-                queryKey: ["flashcards-queue", organizationId, courseId],
+                queryKey: ["flashcards-queue", organizationId],
               });
             }
           },
           onError: () => {
             setSelectedRating(null);
+            setIsSubmitting(false);
           },
-        }
+        },
       );
     },
     [
       currentCard,
       isFlipped,
+      isSubmitting,
+      reviewMutation,
       flipTimestamp,
       currentIndex,
       dueCards.length,
       organizationId,
-      courseId,
       queryClient,
-      reviewMutation,
-    ]
+    ],
   );
+
+  const handlePrevCard = useCallback(() => {
+    if (currentIndex > 0) {
+      setCurrentIndex((prev) => prev - 1);
+      setIsFlipped(false);
+      setFlipTimestamp(0);
+    }
+  }, [currentIndex]);
+
+  const handleNextCard = useCallback(() => {
+    if (!isFlipped) {
+      handleFlip();
+    } else if (currentIndex + 1 < dueCards.length) {
+      setCurrentIndex((prev) => prev + 1);
+      setIsFlipped(false);
+      setFlipTimestamp(0);
+    }
+  }, [currentIndex, dueCards.length, isFlipped, handleFlip]);
+
+  const togglePriority = (priority: "high" | "medium" | "low") => {
+    if (!currentCard) return;
+    setCardPriorities((prev) => ({
+      ...prev,
+      [currentCard.id]: prev[currentCard.id] === priority ? "low" : priority,
+    }));
+  };
 
   // Keyboard shortcuts (Space: Flip, 1: Again, 2: Hard, 3: Good, 4: Easy)
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (isCompleted || !currentCard) return;
+      if (isCompleted || !currentCard || isSubmitting) return;
+
+      // Prevent triggering shortcuts when typing in inputs/textareas
+      if (
+        document.activeElement &&
+        ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName)
+      ) {
+        return;
+      }
+
       if (e.key === " " || e.key === "Enter") {
         e.preventDefault();
         handleFlip();
       } else if (isFlipped) {
-        if (e.key === "1") handleRating("again");
-        else if (e.key === "2") handleRating("hard");
-        else if (e.key === "3") handleRating("good");
-        else if (e.key === "4") handleRating("easy");
+        if (e.key === "1") {
+          e.preventDefault();
+          handleRating("again");
+        } else if (e.key === "2") {
+          e.preventDefault();
+          handleRating("hard");
+        } else if (e.key === "3") {
+          e.preventDefault();
+          handleRating("good");
+        } else if (e.key === "4") {
+          e.preventDefault();
+          handleRating("easy");
+        }
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [isFlipped, isCompleted, currentCard, handleFlip, handleRating]);
+  }, [isFlipped, isCompleted, currentCard, isSubmitting, handleFlip, handleRating]);
+
+  // Dynamic calculations for stats panel
+  const unseenCount = dueCards.filter(
+    (c) => !c.interval_days || c.interval_days === 0,
+  ).length;
+  const reviewCount = Math.max(0, dueCards.length - unseenCount - results.length);
+  const finishedCount = results.length;
 
   // Loading state
-  if (queueQuery.isLoading || allCardsQuery.isLoading) {
+  if (queueQuery.isLoading || summaryQuery.isLoading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 className="w-8 h-8 animate-spin text-[#008080]" />
+      <div className="flex flex-col items-center justify-center py-28 gap-4 min-h-[60vh]">
+        <Loader2 className="w-10 h-10 animate-spin text-[#14b8a6]" />
+        <p className="text-sm text-[#94a3b8] font-bold">
+          در حال دریافت کارت‌های مرور...
+        </p>
       </div>
     );
   }
@@ -180,12 +379,12 @@ export function FlashcardExperience({
   // Error state
   if (queueQuery.isError) {
     return (
-      <div className="bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] p-12 text-center space-y-4">
-        <AlertCircle className="w-10 h-10 text-red-500 mx-auto" />
-        <h3 className="text-base font-bold text-[var(--color-text)]">
+      <div className="max-w-md mx-auto my-16 p-8 glass-panel rounded-3xl border border-[#94a3b8]/20 text-center space-y-5 shadow-2xl">
+        <AlertCircle className="w-12 h-12 text-red-400 mx-auto" />
+        <h3 className="text-lg font-bold text-[#e0e6ed]">
           خطا در بارگذاری فلش‌کارت‌ها
         </h3>
-        <p className="text-xs text-[var(--color-text-muted)]">
+        <p className="text-xs text-[#94a3b8]">
           {queueQuery.error?.message || "خطایی در دریافت کارت‌ها رخ داد."}
         </p>
         <div className="flex items-center justify-center gap-3 pt-2">
@@ -193,9 +392,9 @@ export function FlashcardExperience({
             type="button"
             onClick={() => {
               void queueQuery.refetch();
-              void allCardsQuery.refetch();
+              void summaryQuery.refetch();
             }}
-            className="px-4 py-2 bg-[#008080] hover:bg-[#006666] text-white rounded-xl text-xs font-bold transition-colors"
+            className="px-5 py-2.5 bg-[#14b8a6] hover:bg-[#0f766e] text-white rounded-xl text-xs font-bold transition-all shadow-md"
           >
             تلاش مجدد
           </button>
@@ -203,9 +402,9 @@ export function FlashcardExperience({
             <button
               type="button"
               onClick={onBack}
-              className="px-4 py-2 bg-[var(--color-surface-warm)] hover:bg-[var(--color-border)] text-[var(--color-text)] border border-[var(--color-border)] rounded-xl text-xs font-bold transition-colors"
+              className="px-5 py-2.5 bg-[#1e293b] hover:bg-[#334155] text-[#e0e6ed] border border-[#475569]/40 rounded-xl text-xs font-bold transition-all"
             >
-              بازگشت
+              بازگشت به داشبورد
             </button>
           )}
         </div>
@@ -215,31 +414,47 @@ export function FlashcardExperience({
 
   // Empty queue state
   if (dueCards.length === 0 && !isCompleted) {
-    const totalCount = allCardsQuery.data?.flashcards?.length ?? 0;
+    let totalCount = 0;
+    if (summaryQuery.data?.courses) {
+      if (effectiveCourseIds.length > 0) {
+        totalCount = summaryQuery.data.courses
+          .filter((c: { course_id: string; total_cards: number }) =>
+            effectiveCourseIds.includes(c.course_id),
+          )
+          .reduce((sum: number, c: { total_cards: number }) => sum + c.total_cards, 0);
+      } else {
+        totalCount = summaryQuery.data.courses.reduce(
+          (sum: number, c: { total_cards: number }) => sum + c.total_cards,
+          0,
+        );
+      }
+    }
+
     return (
-      <div className="bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] p-12 text-center space-y-4 max-w-lg mx-auto shadow-sm">
-        <div className="w-12 h-12 rounded-2xl bg-green-50 dark:bg-green-950/40 text-green-600 dark:text-green-400 flex items-center justify-center mx-auto">
-          <CheckCircle2 className="w-6 h-6" />
+      <div className="max-w-lg mx-auto my-16 p-10 glass-panel rounded-3xl border border-[#14b8a6]/20 text-center space-y-6 shadow-2xl">
+        <div className="w-16 h-16 rounded-2xl bg-[#14b8a6]/20 text-[#14b8a6] border border-[#14b8a6]/30 flex items-center justify-center mx-auto shadow-inner">
+          <Sparkles className="w-8 h-8" />
         </div>
         <div>
-          <h3 className="text-lg font-bold text-[var(--color-text)]">
+          <h3 className="text-xl font-bold text-[#e0e6ed]">
             مرور کارت‌ها به پایان رسید!
           </h3>
-          <p className="text-xs text-[var(--color-text-muted)] mt-1">
+          <p className="text-xs text-[#94a3b8] mt-2 leading-relaxed">
             در حال حاضر کارتی برای مرور زمان‌بندی نشده است.
           </p>
         </div>
-        <div className="p-4 bg-[var(--color-surface-warm)] rounded-2xl border border-[var(--color-border)] text-xs text-[var(--color-text-muted)]">
-          تعداد کل فلش‌کارت‌های این دوره: <span className="font-bold text-[var(--color-text)]">{totalCount}</span>
+        <div className="p-4 bg-[#0f172a]/60 rounded-2xl border border-[#334155]/40 text-xs text-[#94a3b8]">
+          تعداد کل فلش‌کارت‌های این محدوده:{" "}
+          <span className="font-bold text-[#14b8a6] text-sm">{totalCount}</span>
         </div>
         <div className="flex items-center justify-center gap-3 pt-2">
           <button
             type="button"
             onClick={() => {
               void queueQuery.refetch();
-              void allCardsQuery.refetch();
+              void summaryQuery.refetch();
             }}
-            className="px-4 py-2.5 bg-[var(--color-surface-warm)] hover:bg-[var(--color-border)] text-[var(--color-text)] border border-[var(--color-border)] rounded-xl text-xs font-bold transition-colors"
+            className="px-5 py-2.5 bg-[#1e293b] hover:bg-[#334155] text-[#e0e6ed] border border-[#475569]/40 rounded-xl text-xs font-bold transition-all"
           >
             تازه‌سازی صف مرور
           </button>
@@ -247,9 +462,9 @@ export function FlashcardExperience({
             <button
               type="button"
               onClick={onBack}
-              className="px-4 py-2.5 bg-[#008080] hover:bg-[#006666] text-white rounded-xl text-xs font-bold transition-colors"
+              className="px-6 py-2.5 bg-[#14b8a6] hover:bg-[#0f766e] text-white rounded-xl text-xs font-bold transition-all shadow-lg"
             >
-              بازگشت به دوره
+              بازگشت به داشبورد
             </button>
           )}
         </div>
@@ -260,45 +475,79 @@ export function FlashcardExperience({
   // Session completed summary
   if (isCompleted) {
     const againCount = results.filter((r) => r.rating === "again").length;
-    const goodEasyCount = results.filter((r) => r.rating === "good" || r.rating === "easy").length;
+    const hardCount = results.filter((r) => r.rating === "hard").length;
+    const goodCount = results.filter((r) => r.rating === "good").length;
+    const easyCount = results.filter((r) => r.rating === "easy").length;
+    const goodEasyCount = goodCount + easyCount;
+    const accuracy =
+      results.length > 0 ? Math.round((goodEasyCount / results.length) * 100) : 0;
+    const durationSeconds = Math.round((Date.now() - sessionStartTime) / 1000);
+    const durationMinutes = Math.floor(durationSeconds / 60);
 
     return (
-      <div className="bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] p-8 text-center space-y-6 max-w-md mx-auto shadow-sm">
-        <div className="w-14 h-14 rounded-2xl bg-[#008080] flex items-center justify-center mx-auto text-white shadow-md">
-          <Award className="w-7 h-7" />
+      <div className="max-w-xl mx-auto my-12 p-8 glass-panel rounded-3xl border border-[#14b8a6]/30 text-center space-y-6 shadow-2xl">
+        <div className="w-20 h-20 rounded-full bg-gradient-to-br from-[#14b8a6] to-[#8455ef] flex items-center justify-center mx-auto text-white shadow-xl">
+          <Award className="w-10 h-10" />
         </div>
 
         <div>
-          <h3 className="text-xl font-bold text-[var(--color-text)]">
-            جلسه مرور با موفقیت به پایان رسید!
+          <h3 className="text-2xl font-extrabold text-[#e0e6ed]">
+            مرور تمام شد 🎉
           </h3>
-          <p className="text-xs text-[var(--color-text-muted)] mt-1.5 leading-relaxed">
-            آفرین! با مرور فاصله‌دار به تثبیت بهتر مفاهیم در حافظه کمک کردید.
+          <p className="text-xs text-[#94a3b8] mt-2 leading-relaxed">
+            جلسه مرور با موفقیت به پایان رسید!
           </p>
         </div>
 
-        <div className="grid grid-cols-3 gap-3 p-4 bg-[var(--color-surface-warm)] rounded-2xl border border-[var(--color-border)] text-xs">
-          <div>
-            <p className="text-[var(--color-text-muted)]">مرور شده</p>
-            <p className="text-base font-bold text-[var(--color-text)] mt-0.5">
-              {results.length}
-            </p>
+        <div className="p-5 bg-[#0f172a]/70 rounded-2xl border border-[#334155]/50 text-xs space-y-4">
+          <div className="text-xl font-black text-[#14b8a6] pb-3 border-b border-[#334155]/50">
+            {results.length} کارت مرور شد
           </div>
-          <div>
-            <p className="text-[var(--color-text-muted)]">تسلط کامل</p>
-            <p className="text-base font-bold text-green-600 dark:text-green-400 mt-0.5">
-              {goodEasyCount}
-            </p>
+
+          <div className="grid grid-cols-4 gap-2 text-center py-1">
+            <div className="bg-red-500/10 p-2.5 rounded-xl border border-red-500/30">
+              <span className="text-xs font-bold text-red-400">Again</span>
+              <p className="text-base font-black text-red-300 mt-0.5">{againCount}</p>
+            </div>
+            <div className="bg-orange-500/10 p-2.5 rounded-xl border border-orange-500/30">
+              <span className="text-xs font-bold text-orange-400">Hard</span>
+              <p className="text-base font-black text-orange-300 mt-0.5">{hardCount}</p>
+            </div>
+            <div className="bg-[#a78bfa]/10 p-2.5 rounded-xl border border-[#a78bfa]/30">
+              <span className="text-xs font-bold text-[#a78bfa]">Good</span>
+              <p className="text-base font-black text-[#a78bfa] mt-0.5">{goodCount}</p>
+            </div>
+            <div className="bg-[#14b8a6]/10 p-2.5 rounded-xl border border-[#14b8a6]/30">
+              <span className="text-xs font-bold text-[#14b8a6]">Easy</span>
+              <p className="text-base font-black text-[#14b8a6] mt-0.5">{easyCount}</p>
+            </div>
           </div>
-          <div>
-            <p className="text-[var(--color-text-muted)]">نیازمند تکرار</p>
-            <p className="text-base font-bold text-amber-600 dark:text-amber-400 mt-0.5">
-              {againCount}
-            </p>
+
+          <div className="grid grid-cols-2 gap-3 pt-2 text-right">
+            <div>
+              <span className="text-[#94a3b8]">دقت پاسخ‌دهی:</span>{" "}
+              <span className="font-bold text-[#e0e6ed]">{accuracy}%</span>
+            </div>
+            <div>
+              <span className="text-[#94a3b8]">زمان مطالعه:</span>{" "}
+              <span className="font-bold text-[#e0e6ed]">
+                {durationMinutes > 0 ? `${durationMinutes} دقیقه` : `${durationSeconds} ثانیه`}
+              </span>
+            </div>
+            <div>
+              <span className="text-[#94a3b8]">کارت‌های ضعیف:</span>{" "}
+              <span className="font-bold text-red-400">{againCount}</span>
+            </div>
+            <div>
+              <span className="text-[#94a3b8]">کارت‌های باقی‌مانده:</span>{" "}
+              <span className="font-bold text-[#e0e6ed]">
+                {summaryQuery.data?.total_due || 0}
+              </span>
+            </div>
           </div>
         </div>
 
-        <div className="flex items-center justify-center gap-3">
+        <div className="flex items-center justify-center gap-4">
           <button
             type="button"
             onClick={() => {
@@ -308,18 +557,18 @@ export function FlashcardExperience({
               setResults([]);
               void queueQuery.refetch();
             }}
-            className="px-4 py-2.5 bg-[var(--color-surface-warm)] hover:bg-[var(--color-border)] text-[var(--color-text)] rounded-xl text-xs font-bold border border-[var(--color-border)] flex items-center gap-1.5"
+            className="px-5 py-2.5 bg-[#1e293b] hover:bg-[#334155] text-[#e0e6ed] rounded-xl text-xs font-bold border border-[#475569]/40 flex items-center gap-2 transition-all"
           >
-            <RotateCcw className="w-3.5 h-3.5" />
-            <span>بررسی کارت‌های جدید</span>
+            <RotateCcw className="w-4 h-4" />
+            <span>تکرار جلسه</span>
           </button>
           {onBack && (
             <button
               type="button"
               onClick={onBack}
-              className="px-4 py-2.5 bg-[#008080] hover:bg-[#006666] text-white rounded-xl text-xs font-bold"
+              className="px-6 py-2.5 bg-[#14b8a6] hover:bg-[#0f766e] text-white rounded-xl text-xs font-bold transition-all shadow-lg"
             >
-              بازگشت به دوره
+              بازگشت به داشبورد
             </button>
           )}
         </div>
@@ -329,191 +578,430 @@ export function FlashcardExperience({
 
   // Active review session
   return (
-    <div className="max-w-2xl mx-auto space-y-5">
-      {/* Session top bar */}
-      <div className="flex items-center justify-between">
-        {onBack && (
-          <button
-            type="button"
-            onClick={onBack}
-            className="inline-flex items-center gap-1.5 text-xs font-semibold text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors"
-          >
-            <ArrowRight className="w-3.5 h-3.5" />
-            <span>خروج از مرور</span>
-          </button>
-        )}
+    <div className="relative min-h-screen flex flex-col justify-between overflow-hidden bg-[#0b1116] text-[#e0e6ed]">
+      {/* Ambient Background Glow */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden">
+        <div className="absolute top-[-10%] right-[-10%] w-[50%] h-[50%] bg-[#14b8a6]/10 rounded-full blur-[120px]" />
+        <div className="absolute bottom-[-10%] left-[-10%] w-[40%] h-[40%] bg-[#a78bfa]/10 rounded-full blur-[100px]" />
+      </div>
 
-        {/* Progress counter */}
-        <div className="flex items-center gap-2 text-xs text-[var(--color-text-muted)] font-semibold">
-          <Layers className="w-4 h-4 text-[#008080]" />
-          <span>
-            کارت {currentIndex + 1} از {dueCards.length}
-          </span>
+      {/* Review Header */}
+      <header className="w-full px-4 md:px-16 py-6 z-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <h2 className="font-semibold text-xl md:text-2xl text-[#e0e6ed]">
+              {currentCourseInfo ? currentCourseInfo.title : "Pharmacology - Cardiovascular"}
+            </h2>
+            {mode === "exam" && (
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-orange-500/20 text-orange-400 border border-orange-500/30 flex items-center gap-1">
+                <Sparkles className="w-3 h-3" />
+                مرور فشرده
+              </span>
+            )}
+            {mode === "custom" && (
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-[#a78bfa]/20 text-[#a78bfa] border border-[#a78bfa]/30">
+                مطالعه سفارشی
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-3 mt-1">
+            <p className="text-xs text-[#a78bfa] font-medium">مرور فلش‌کارت‌ها</p>
+            {onBack && (
+              <button
+                type="button"
+                onClick={onBack}
+                className="inline-flex items-center gap-1 text-[11px] text-[#94a3b8] hover:text-[#e0e6ed] transition-colors"
+              >
+                <ArrowRight className="w-3 h-3" />
+                <span>خروج از مرور</span>
+              </button>
+            )}
+          </div>
         </div>
-      </div>
 
-      {/* Progress bar */}
-      <div className="w-full h-2 bg-[var(--color-surface-warm)] rounded-full overflow-hidden border border-[var(--color-border)]">
-        <div
-          className="h-full bg-[#008080] transition-all duration-300 rounded-full"
-          style={{
-            width: `${((currentIndex + 1) / dueCards.length) * 100}%`,
-          }}
-        />
-      </div>
+        {/* Compact 3-Stats Header Pill (Replaces Today's Progress) */}
+        <div className="inline-flex items-center gap-4 px-4 py-2 bg-[#0f172a]/70 rounded-full border border-[#334155]/40 glass-panel shadow-sm text-xs">
+          <div className="flex items-center gap-1.5 border-l border-[#334155]/40 pl-3">
+            <span className="text-[#94a3b8]">دیده‌نشده:</span>
+            <span className="font-bold text-[#a78bfa]">{unseenCount}</span>
+          </div>
+          <div className="flex items-center gap-1.5 border-l border-[#334155]/40 pl-3">
+            <span className="text-[#94a3b8]">مرور مجدد:</span>
+            <span className="font-bold text-red-400">{reviewCount}</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[#94a3b8]">پایان‌یافته:</span>
+            <span className="font-bold text-[#14b8a6]">{finishedCount}</span>
+          </div>
+        </div>
+      </header>
 
       {reviewMutation.isError && (
-        <div className="p-3 bg-red-50 dark:bg-red-950/20 rounded-xl border border-red-200 dark:border-red-900/40 text-xs text-red-600 dark:text-red-400 flex items-center gap-1.5 justify-center">
-          <AlertCircle className="w-4 h-4" />
-          <span>خطا در ثبت بازخورد. لطفاً دوباره تلاش کنید.</span>
+        <div className="max-w-3xl mx-auto w-full px-4 z-10 mb-3">
+          <div className="p-3 bg-red-500/10 rounded-xl border border-red-500/30 text-xs text-red-400 flex items-center gap-2 justify-center">
+            <AlertCircle className="w-4 h-4" />
+            <span>خطا در ثبت بازخورد. لطفاً دوباره تلاش کنید.</span>
+          </div>
         </div>
       )}
 
-      {/* Flashcard 3D container */}
-      {currentCard && (
-        <div
-          role="button"
-          tabIndex={0}
-          aria-label={
-            isFlipped
-              ? "پاسخ فلش‌کارت نمایش داده شد"
-              : "سوال فلش‌کارت. برای چرخش کلیک کنید یا کلید Space را فشار دهید"
-          }
-          onClick={handleFlip}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              handleFlip();
-            }
-          }}
-          className="min-h-[320px] bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] p-8 shadow-sm hover:shadow-md transition-all cursor-pointer flex flex-col justify-between relative group focus:outline-none focus:ring-2 focus:ring-[#008080]"
-        >
-          {/* Card header */}
-          <div className="flex items-center justify-between text-xs text-[var(--color-text-muted)]">
-            <span className="font-bold px-2.5 py-1 rounded-lg bg-[#008080]/10 text-[#008080]">
-              {currentCard.card_type === "concept" ? "مفهوم" : currentCard.card_type === "clinical" ? "بالینی" : "فلش‌کارت"}
-            </span>
-            <span className="text-[11px] flex items-center gap-1">
-              <Clock className="w-3.5 h-3.5" />
-              فاصله: {currentCard.interval_days} روز
-            </span>
-          </div>
-
-          {/* Card content (Front / Back) */}
-          <div className="py-6 my-auto text-center space-y-4">
-            <h3 className="text-lg sm:text-xl font-extrabold text-[var(--color-text)] leading-relaxed">
-              {currentCard.question}
-            </h3>
-
-            {isFlipped && (
-              <motion.div
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="pt-6 border-t border-[var(--color-border)] text-right space-y-3"
+      {/* Tier 2 Surface: Review Canvas Container Surface */}
+      <div className="flex-1 flex flex-col items-center justify-center p-4 md:p-6 z-10 w-full max-w-4xl mx-auto">
+        <div className="w-full p-4 md:p-6 bg-[#0f172a]/50 rounded-3xl border border-[#334155]/40 shadow-2xl glass-panel flex flex-col items-center justify-center gap-4">
+          
+          {/* Tier 3 Surface: 3D Perspective Flashcard Container */}
+          {currentCard && (
+            <>
+              <div
+                id="flashcard"
+                role="button"
+                tabIndex={0}
+                aria-label={
+                  isFlipped
+                    ? "پاسخ فلش‌کارت نمایش داده شد"
+                    : "سوال فلش‌کارت. برای چرخش کلیک کنید یا کلید Space را فشار دهید"
+                }
+                onClick={handleFlip}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    handleFlip();
+                  }
+                }}
+                className={`flip-card w-full max-w-3xl min-h-[300px] md:min-h-[360px] lg:min-h-[400px] cursor-pointer group perspective-1000 ${
+                  isFlipped ? "flipped" : ""
+                }`}
               >
-                <div className="p-4 bg-[var(--color-surface-warm)] rounded-2xl border border-[var(--color-border)]">
-                  <p className="text-xs font-bold text-[#008080] uppercase tracking-wider mb-1">
-                    پاسخ:
-                  </p>
-                  <p className="text-sm font-semibold text-[var(--color-text)] leading-relaxed">
-                    {currentCard.answer}
-                  </p>
-                </div>
+                <div
+                  className="flip-card-inner relative w-full h-full transition-transform duration-600 ease-in-out"
+                >
+                  {/* Front (Question Side) - Frameless Floating Content */}
+                  <div
+                    className={`flip-card-front absolute inset-0 w-full h-full p-4 md:p-8 flex flex-col justify-between items-center text-center bg-transparent border-0 shadow-none transition-opacity duration-300 ${
+                      isFlipped ? "opacity-0 pointer-events-none" : "opacity-100"
+                    }`}
+                  >
+                    {/* Middle Centered Question Content or In-line Editor */}
+                    {isEditing ? (
+                      <div
+                        className="flex-1 flex flex-col justify-center items-center text-center w-full my-auto px-2 py-2 space-y-2.5 z-30"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="w-full text-right space-y-1">
+                          <label className="text-xs text-[#14b8a6] font-bold">متن سوال:</label>
+                          <textarea
+                            value={editQuestion}
+                            onChange={(e) => setEditQuestion(e.target.value)}
+                            className="w-full p-2.5 bg-[#0f172a] border border-[#334155] rounded-xl text-xs md:text-sm text-[#e0e6ed] focus:outline-none focus:border-[#14b8a6] resize-none h-20 leading-relaxed font-vazirmatn"
+                            dir="rtl"
+                          />
+                        </div>
+                        <div className="w-full text-right space-y-1">
+                          <label className="text-xs text-[#14b8a6] font-bold">متن پاسخ:</label>
+                          <textarea
+                            value={editAnswer}
+                            onChange={(e) => setEditAnswer(e.target.value)}
+                            className="w-full p-2.5 bg-[#0f172a] border border-[#334155] rounded-xl text-xs md:text-sm text-[#e0e6ed] focus:outline-none focus:border-[#14b8a6] resize-none h-20 leading-relaxed font-vazirmatn"
+                            dir="rtl"
+                          />
+                        </div>
+                        <div className="flex items-center justify-center gap-3 pt-1">
+                          <button
+                            type="button"
+                            onClick={handleSaveEdit}
+                            className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-[#14b8a6] text-[#0f172a] font-bold text-xs hover:bg-[#14b8a6]/90 transition-all shadow-md cursor-pointer"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                            <span>ثبت تغییرات</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleCancelEdit}
+                            className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-[#1e293b] text-[#cbd5e1] border border-[#334155] font-bold text-xs hover:bg-[#334155]/50 transition-all cursor-pointer"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                            <span>انصراف</span>
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex-1 flex flex-col justify-center items-center text-center w-full my-auto px-4 py-4">
+                        <h3 className="text-xl md:text-2xl lg:text-3xl font-bold text-[#e0e6ed] leading-relaxed max-w-2xl text-center">
+                          {currentCard.question}
+                        </h3>
+                      </div>
+                    )}
 
-                {currentCard.explanation && (
-                  <div className="p-3.5 bg-amber-50/60 dark:bg-amber-950/20 rounded-xl border border-amber-200/70 dark:border-amber-900/40 text-xs text-[var(--color-text-muted)]">
-                    <p className="font-bold text-amber-800 dark:text-amber-400 mb-1 flex items-center gap-1">
-                      <Lightbulb className="w-3.5 h-3.5" />
-                      <span>توضیح تکمیلی:</span>
-                    </p>
-                    <p className="text-[var(--color-text)] leading-relaxed">{currentCard.explanation}</p>
+                    {/* Bottom Touch Prompt Footer */}
+                    <div className="flex justify-center items-center gap-2 text-xs text-[#94a3b8] pt-2.5 border-t border-[#334155]/20 w-full flex-shrink-0 opacity-80 group-hover:opacity-100 transition-opacity">
+                      <Pointer className="w-4 h-4 text-[#14b8a6]" />
+                      <span>برای مشاهده پاسخ کلیک کنید</span>
+                    </div>
                   </div>
-                )}
-              </motion.div>
-            )}
-          </div>
 
-          {/* Flip prompt */}
-          {!isFlipped && (
-            <div className="text-center pt-4 text-xs text-[var(--color-text-muted)] group-hover:text-[#008080] transition-colors">
-              برای مشاهده پاسخ کلیک کنید یا کلید <kbd className="px-1.5 py-0.5 bg-[var(--color-surface-warm)] rounded border border-[var(--color-border)] text-[10px] font-mono">Space</kbd> را فشار دهید
-            </div>
+                  {/* Back (Answer Side) - Frameless Floating Content */}
+                  <div
+                    className={`flip-card-back absolute inset-0 w-full h-full p-4 md:p-8 flex flex-col justify-between items-center text-center bg-transparent border-0 shadow-none transition-opacity duration-300 ${
+                      isFlipped ? "opacity-100" : "opacity-0 pointer-events-none"
+                    }`}
+                  >
+                    {/* Middle Centered Answer Content or In-line Editor */}
+                    {isEditing ? (
+                      <div
+                        className="flex-1 flex flex-col justify-center items-center text-center w-full my-auto px-2 py-2 space-y-2.5 z-30"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="w-full text-right space-y-1">
+                          <label className="text-xs text-[#14b8a6] font-bold">متن سوال:</label>
+                          <textarea
+                            value={editQuestion}
+                            onChange={(e) => setEditQuestion(e.target.value)}
+                            className="w-full p-2.5 bg-[#0f172a] border border-[#334155] rounded-xl text-xs md:text-sm text-[#e0e6ed] focus:outline-none focus:border-[#14b8a6] resize-none h-20 leading-relaxed font-vazirmatn"
+                            dir="rtl"
+                          />
+                        </div>
+                        <div className="w-full text-right space-y-1">
+                          <label className="text-xs text-[#14b8a6] font-bold">متن پاسخ:</label>
+                          <textarea
+                            value={editAnswer}
+                            onChange={(e) => setEditAnswer(e.target.value)}
+                            className="w-full p-2.5 bg-[#0f172a] border border-[#334155] rounded-xl text-xs md:text-sm text-[#e0e6ed] focus:outline-none focus:border-[#14b8a6] resize-none h-20 leading-relaxed font-vazirmatn"
+                            dir="rtl"
+                          />
+                        </div>
+                        <div className="flex items-center justify-center gap-3 pt-1">
+                          <button
+                            type="button"
+                            onClick={handleSaveEdit}
+                            className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-[#14b8a6] text-[#0f172a] font-bold text-xs hover:bg-[#14b8a6]/90 transition-all shadow-md cursor-pointer"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                            <span>ثبت تغییرات</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleCancelEdit}
+                            className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-[#1e293b] text-[#cbd5e1] border border-[#334155] font-bold text-xs hover:bg-[#334155]/50 transition-all cursor-pointer"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                            <span>انصراف</span>
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex-1 flex flex-col justify-center items-center text-center w-full my-auto px-4 py-4 space-y-3">
+                        <p className="text-base md:text-lg lg:text-xl font-semibold text-[#e0e6ed] leading-relaxed max-w-2xl text-center">
+                          {currentCard.answer}
+                        </p>
+                        {currentCard.explanation && (
+                          <div className="w-full max-w-2xl p-3.5 bg-[#0f172a]/80 rounded-2xl border border-[#334155]/60 text-xs md:text-sm text-[#94a3b8] space-y-1.5 text-right">
+                            <div className="font-bold text-[#14b8a6] flex items-center gap-1.5 justify-start">
+                              <Lightbulb className="w-4 h-4 text-[#14b8a6]" />
+                              <span>توضیح تکمیلی:</span>
+                            </div>
+                            <p className="leading-relaxed text-[#cbd5e1]">{currentCard.explanation}</p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Bottom Status Hint */}
+                    <div className="flex justify-center items-center gap-2 text-xs text-[#14b8a6] pt-2.5 border-t border-[#14b8a6]/20 w-full flex-shrink-0 font-medium">
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>پاسخ ثبت آماده ارزیابی است</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* External Control Bar Below Flashcard Box */}
+              <div className="w-full max-w-3xl flex items-center justify-between px-2 py-1 flex-shrink-0 gap-2 z-20">
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#14b8a6]/15 text-[#14b8a6] border border-[#14b8a6]/30 text-xs font-semibold">
+                  <BookOpen className="w-3.5 h-3.5" />
+                  <span>{currentCourseInfo ? currentCourseInfo.title : "فلش‌کارت"}</span>
+                </span>
+
+                {/* Edit Card Button */}
+                <button
+                  type="button"
+                  onClick={handleStartEdit}
+                  aria-label="ویرایش کارت"
+                  title="ویرایش کارت"
+                  className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-[#1e293b] text-[#e0e6ed] border border-[#334155]/60 hover:bg-[#14b8a6]/20 hover:text-[#14b8a6] hover:border-[#14b8a6]/40 transition-all text-xs font-medium cursor-pointer shadow-sm z-20"
+                >
+                  <Pencil className="w-3.5 h-3.5 text-[#14b8a6]" />
+                  <span>ویرایش کارت</span>
+                </button>
+
+                <span className="text-xs text-[#94a3b8] font-medium bg-[#1e293b]/60 px-3 py-1 rounded-full border border-[#334155]/30">
+                  {isFlipped ? "پاسخ" : "سوال"}
+                </span>
+              </div>
+            </>
           )}
+
+          {/* Spaced Repetition Controls */}
+          <div className="w-full max-w-3xl flex flex-col gap-3">
+            {/* Priority Markers */}
+            <div className="flex justify-center items-center gap-4 p-3 glass-panel rounded-xl border border-[#334155]/30">
+              <span className="text-xs text-[#94a3b8] self-center ml-2">نشانی‌گذاری اولویت:</span>
+              <button
+                type="button"
+                onClick={() => togglePriority("high")}
+                className={`w-7 h-7 rounded-full border transition-transform hover:scale-110 ${
+                  currentCard && cardPriorities[currentCard.id] === "high"
+                    ? "bg-red-500 border-red-400 scale-110"
+                    : "bg-red-500/40 border-red-500/60"
+                }`}
+                aria-label="اولویت بالا"
+                title="اولویت بالا"
+              />
+              <button
+                type="button"
+                onClick={() => togglePriority("medium")}
+                className={`w-7 h-7 rounded-full border transition-transform hover:scale-110 ${
+                  currentCard && cardPriorities[currentCard.id] === "medium"
+                    ? "bg-orange-500 border-orange-400 scale-110"
+                    : "bg-orange-500/40 border-orange-500/60"
+                }`}
+                aria-label="اولویت متوسط"
+                title="اولویت متوسط"
+              />
+              <button
+                type="button"
+                onClick={() => togglePriority("low")}
+                className={`w-7 h-7 rounded-full border transition-transform hover:scale-110 ${
+                  currentCard && cardPriorities[currentCard.id] === "low"
+                    ? "bg-[#a78bfa] border-[#a78bfa] scale-110"
+                    : "bg-[#a78bfa]/40 border-[#a78bfa]/60"
+                }`}
+                aria-label="اولویت پایین"
+                title="اولویت پایین"
+              />
+            </div>
+
+            {/* Rating & Navigation Row */}
+            <div className="flex items-center gap-3">
+              {/* Previous Button (Icon Only - RTL ChevronRight) */}
+              <button
+                type="button"
+                onClick={handlePrevCard}
+                disabled={currentIndex === 0}
+                aria-label="کارت قبلی"
+                title="کارت قبلی"
+                className="flex-shrink-0 w-12 h-12 flex items-center justify-center rounded-full bg-[#1e293b] border border-[#334155]/40 text-[#e0e6ed] hover:bg-[#14b8a6]/20 hover:text-[#14b8a6] transition-all disabled:opacity-30 disabled:pointer-events-none shadow-md"
+              >
+                <ChevronRight className="w-5 h-5 text-[#e0e6ed]" />
+              </button>
+
+              {/* Spaced Repetition Grid */}
+              <div
+                className={`flex-1 grid grid-cols-4 gap-2 md:gap-4 transition-all duration-300 ${
+                  isFlipped ? "opacity-100" : "opacity-40 pointer-events-none"
+                }`}
+                id="review-controls"
+              >
+                <button
+                  type="button"
+                  onClick={() => handleRating("again")}
+                  disabled={!isFlipped || isSubmitting || reviewMutation.isPending}
+                  aria-label="تکرار"
+                  className="flex flex-col items-center justify-center py-3.5 px-2 rounded-xl bg-[#1e293b] border border-[#334155]/40 hover:bg-red-500/20 hover:border-red-500/50 hover:text-red-400 transition-colors group disabled:opacity-50"
+                >
+                  {selectedRating === "again" && isSubmitting ? (
+                    <Loader2 className="w-4 h-4 animate-spin text-red-400" />
+                  ) : (
+                    <>
+                      <span className="text-xs md:text-sm font-bold text-[#e0e6ed] mb-1">دوباره</span>
+                      <span className="text-[11px] md:text-[12px] font-bold text-red-400">
+                        {getIntervalHint("again", currentCard)}
+                      </span>
+                    </>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleRating("hard")}
+                  disabled={!isFlipped || isSubmitting || reviewMutation.isPending}
+                  aria-label="سخت"
+                  className="flex flex-col items-center justify-center py-3.5 px-2 rounded-xl bg-[#1e293b] border border-[#334155]/40 hover:bg-orange-500/20 hover:border-orange-500/50 hover:text-orange-400 transition-colors group disabled:opacity-50"
+                >
+                  {selectedRating === "hard" && isSubmitting ? (
+                    <Loader2 className="w-4 h-4 animate-spin text-orange-400" />
+                  ) : (
+                    <>
+                      <span className="text-xs md:text-sm font-bold text-[#e0e6ed] mb-1">سخت</span>
+                      <span className="text-[11px] md:text-[12px] font-bold text-orange-400/80">
+                        {getIntervalHint("hard", currentCard)}
+                      </span>
+                    </>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleRating("good")}
+                  disabled={!isFlipped || isSubmitting || reviewMutation.isPending}
+                  aria-label="خوب"
+                  className="flex flex-col items-center justify-center py-3.5 px-2 rounded-xl bg-[#1e293b] border border-[#334155]/40 hover:bg-[#14b8a6]/20 hover:border-[#14b8a6]/50 hover:text-[#14b8a6] transition-colors group disabled:opacity-50"
+                >
+                  {selectedRating === "good" && isSubmitting ? (
+                    <Loader2 className="w-4 h-4 animate-spin text-[#14b8a6]" />
+                  ) : (
+                    <>
+                      <span className="text-xs md:text-sm font-bold text-[#e0e6ed] mb-1">خوب</span>
+                      <span className="text-[11px] md:text-[12px] font-bold text-[#a78bfa]">
+                        {getIntervalHint("good", currentCard)}
+                      </span>
+                    </>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleRating("easy")}
+                  disabled={!isFlipped || isSubmitting || reviewMutation.isPending}
+                  aria-label="آسان"
+                  className="flex flex-col items-center justify-center py-3.5 px-2 rounded-xl bg-[#1e293b] border border-[#334155]/40 hover:bg-[#4edea3]/20 hover:border-[#4edea3]/50 hover:text-[#4edea3] transition-colors group disabled:opacity-50"
+                >
+                  {selectedRating === "easy" && isSubmitting ? (
+                    <Loader2 className="w-4 h-4 animate-spin text-[#4edea3]" />
+                  ) : (
+                    <>
+                      <span className="text-xs md:text-sm font-bold text-[#e0e6ed] mb-1">آسان</span>
+                      <span className="text-[11px] md:text-[12px] font-bold text-[#14b8a6]">
+                        {getIntervalHint("easy", currentCard)}
+                      </span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {/* Next Button (Icon Only - RTL ChevronLeft) */}
+              <button
+                type="button"
+                onClick={handleNextCard}
+                disabled={currentIndex >= dueCards.length - 1 && isFlipped}
+                aria-label="کارت بعدی"
+                title="کارت بعدی"
+                className="flex-shrink-0 w-12 h-12 flex items-center justify-center rounded-full bg-[#1e293b] border border-[#334155]/40 text-[#e0e6ed] hover:bg-[#14b8a6]/20 hover:text-[#14b8a6] transition-all disabled:opacity-30 disabled:pointer-events-none shadow-md"
+              >
+                <ChevronLeft className="w-5 h-5 text-[#e0e6ed]" />
+              </button>
+            </div>
+          </div>
         </div>
-      )}
+      </div>
 
-      {/* Review rating buttons (Visible once flipped) */}
-      {isFlipped && (
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="grid grid-cols-4 gap-2 pt-2"
-        >
-          <button
-            type="button"
-            onClick={() => handleRating("again")}
-            disabled={reviewMutation.isPending}
-            className="flex flex-col items-center justify-center p-3 rounded-2xl bg-red-50 dark:bg-red-950/30 hover:bg-red-100 border border-red-200 dark:border-red-900 text-red-700 dark:text-red-300 transition-colors min-h-[64px] focus:outline-none focus:ring-2 focus:ring-red-500"
-          >
-            {selectedRating === "again" ? (
-              <Loader2 className="w-4 h-4 animate-spin text-red-600 dark:text-red-400" />
-            ) : (
-              <>
-                <span className="text-xs font-bold">تکرار</span>
-                <span className="text-[10px] text-red-500 dark:text-red-400 mt-0.5">کلید ۱</span>
-              </>
-            )}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => handleRating("hard")}
-            disabled={reviewMutation.isPending}
-            className="flex flex-col items-center justify-center p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/30 hover:bg-amber-100 border border-amber-200 dark:border-amber-900 text-amber-700 dark:text-amber-300 transition-colors min-h-[64px] focus:outline-none focus:ring-2 focus:ring-amber-500"
-          >
-            {selectedRating === "hard" ? (
-              <Loader2 className="w-4 h-4 animate-spin text-amber-600 dark:text-amber-400" />
-            ) : (
-              <>
-                <span className="text-xs font-bold">سخت</span>
-                <span className="text-[10px] text-amber-500 dark:text-amber-400 mt-0.5">کلید ۲</span>
-              </>
-            )}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => handleRating("good")}
-            disabled={reviewMutation.isPending}
-            className="flex flex-col items-center justify-center p-3 rounded-2xl bg-[#a7d0e6]/30 hover:bg-[#a7d0e6]/50 border border-[#a7d0e6] text-[#008080] dark:text-[#a7d0e6] transition-colors min-h-[64px] focus:outline-none focus:ring-2 focus:ring-[#008080]"
-          >
-            {selectedRating === "good" ? (
-              <Loader2 className="w-4 h-4 animate-spin text-[#008080]" />
-            ) : (
-              <>
-                <span className="text-xs font-bold">خوب</span>
-                <span className="text-[10px] text-[#008080] mt-0.5">کلید ۳</span>
-              </>
-            )}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => handleRating("easy")}
-            disabled={reviewMutation.isPending}
-            className="flex flex-col items-center justify-center p-3 rounded-2xl bg-green-50 dark:bg-green-950/30 hover:bg-green-100 border border-green-200 dark:border-green-900 text-green-700 dark:text-green-300 transition-colors min-h-[64px] focus:outline-none focus:ring-2 focus:ring-green-500"
-          >
-            {selectedRating === "easy" ? (
-              <Loader2 className="w-4 h-4 animate-spin text-green-600 dark:text-green-400" />
-            ) : (
-              <>
-                <span className="text-xs font-bold">آسان</span>
-                <span className="text-[10px] text-green-500 dark:text-green-400 mt-0.5">کلید ۴</span>
-              </>
-            )}
-          </button>
-        </motion.div>
-      )}
+      {/* Floating AI Assistant Button */}
+      <button
+        type="button"
+        aria-label="دستیار هوش مصنوعی"
+        className="fixed bottom-6 left-6 md:bottom-10 md:left-10 w-14 h-14 rounded-full bg-gradient-to-br from-[#8455ef] to-[#14b8a6] shadow-[0px_4px_20px_rgba(139,92,246,0.3)] flex items-center justify-center z-50 hover:scale-105 transition-transform"
+      >
+        <span className="text-white text-2xl font-bold leading-none">A</span>
+      </button>
     </div>
   );
 }

@@ -17,6 +17,7 @@ import {
   type OrganizationId,
   type QuizAttemptId,
   type QuizId,
+  type QuizQuestionId,
   DomainError,
   nextReviewInterval,
   nextDueAt,
@@ -34,13 +35,16 @@ import type {
 import type {
   FlashcardStore,
   FlashcardReviewStore,
+  UserFlashcardScheduleStore,
   QuizStore,
   QuizQuestionStore,
   QuizAttemptStore,
   FlashcardRecord,
   QuizRecord,
+  QuizQuestionRecord,
 } from "./study-store.js";
-import type { ModuleStore, LessonStore, ProgressStore } from "../learning/learning-store.js";
+import type { CourseStore } from "../courses/course-store.js";
+import type { ModuleStore, LessonStore, ProgressStore, LessonRecord, ModuleRecord } from "../learning/learning-store.js";
 import type { OrganizationStore } from "../organizations/organization-store.js";
 import type { AuditService } from "../../observability/audit-service.js";
 
@@ -61,6 +65,8 @@ export class StudyService {
     private readonly policy: AuthorizationPolicy,
     private readonly auditService?: AuditService,
     private readonly organizationStore?: OrganizationStore,
+    private readonly userFlashcardScheduleStore?: UserFlashcardScheduleStore,
+    private readonly courseStore?: CourseStore,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -104,7 +110,8 @@ export class StudyService {
 
   /**
    * List flashcards that are due for review for the current student in a course.
-   * Filters by the persisted due_at column: only cards where due_at <= now are returned.
+   * Filters by user per-user schedule AND due_at column: only cards reviewed at least once
+   * by the user where due_at <= now are returned. Unread cards are never returned.
    */
   async listFlashcardsForReview(
     actor: Actor,
@@ -113,23 +120,48 @@ export class StudyService {
   ): Promise<FlashcardRecord[]> {
     await this.authorizeRead(actor, organizationId);
 
-    const allFlashcards = await this.flashcardStore.listByCourse(courseId, organizationId);
+    const [allFlashcards, userSchedules, userReviews] = await Promise.all([
+      this.flashcardStore.listByCourse(courseId, organizationId),
+      this.userFlashcardScheduleStore
+        ? this.userFlashcardScheduleStore.listByUser(actor.userId)
+        : Promise.resolve([]),
+      this.flashcardReviewStore.listByUser(actor.userId),
+    ]);
+
+    const scheduleMap = new Map(userSchedules.map((s) => [s.flashcardId, s]));
+    const reviewedCardIds = new Set(userReviews.map((r) => r.flashcardId));
     const now = new Date();
 
-    return allFlashcards.filter((f) => {
-      const dueAt = new Date(f.dueAt);
-      return dueAt <= now;
-    });
+    return allFlashcards
+      .filter((f) => {
+        const schedule = scheduleMap.get(f.id);
+        const isReviewed = schedule ? true : reviewedCardIds.has(f.id);
+        if (!isReviewed) return false;
+        const rawDueAt = schedule ? schedule.dueAt : f.dueAt;
+        if (!rawDueAt) return false;
+        const dueAt = new Date(rawDueAt);
+        return !isNaN(dueAt.getTime()) && dueAt <= now;
+      })
+      .map((f) => {
+        const schedule = scheduleMap.get(f.id);
+        if (!schedule) return f;
+        return {
+          ...f,
+          dueAt: schedule.dueAt,
+          intervalDays: schedule.intervalDays,
+          easeFactor: schedule.easeFactor,
+        };
+      });
   }
 
   /**
    * Submit a flashcard review.
-   * Persists the review record and advances the scheduling state (due_at, interval_days, ease_factor).
+   * Persists the review record and advances the per-user scheduling state (due_at, interval_days, ease_factor).
    */
   async submitFlashcardReview(
     actor: Actor,
     organizationId: OrganizationId,
-    input: { flashcardId: FlashcardId; rating: FlashcardRating; reactionMs?: number },
+    input: { flashcardId: FlashcardId; rating: FlashcardRating; reactionMs?: number; isExamMode?: boolean },
   ): Promise<void> {
     await this.authorizeFlashcardReview(actor, organizationId);
 
@@ -141,11 +173,14 @@ export class StudyService {
       throw new DomainError("not_found", "Flashcard not found");
     }
 
-    // Compute next scheduling state from current persisted state.
-    const previousState = {
-      intervalDays: flashcard.intervalDays,
-      easeFactor: flashcard.easeFactor,
-    };
+    const existingSchedule = this.userFlashcardScheduleStore
+      ? await this.userFlashcardScheduleStore.getByUserAndCard(actor.userId, input.flashcardId)
+      : undefined;
+
+    const previousState = existingSchedule
+      ? { intervalDays: existingSchedule.intervalDays, easeFactor: existingSchedule.easeFactor }
+      : { intervalDays: flashcard.intervalDays, easeFactor: flashcard.easeFactor };
+
     const nextState = nextReviewInterval(input.rating, previousState);
     const newDueAt = nextDueAt(input.rating, previousState);
     const now = new Date().toISOString();
@@ -160,13 +195,18 @@ export class StudyService {
       reactionMs: input.reactionMs ?? null,
     });
 
-    // Persist updated scheduling state on the flashcard row.
-    await this.flashcardStore.updateSchedule(input.flashcardId, {
-      dueAt: newDueAt,
-      intervalDays: nextState.intervalDays,
-      easeFactor: nextState.easeFactor,
-      updatedAt: now,
-    });
+    // Persist updated scheduling state on per-user schedule table (if not in Exam Mode).
+    if (!input.isExamMode && this.userFlashcardScheduleStore) {
+      await this.userFlashcardScheduleStore.upsertSchedule({
+        userId: actor.userId,
+        flashcardId: input.flashcardId,
+        dueAt: newDueAt,
+        intervalDays: nextState.intervalDays,
+        easeFactor: nextState.easeFactor,
+        lastReviewedAt: now,
+        reviewCount: (existingSchedule?.reviewCount ?? 0) + 1,
+      });
+    }
 
     if (this.auditService) {
       await this.auditService.emit([
@@ -179,8 +219,318 @@ export class StudyService {
     }
   }
 
+  /**
+   * Get an organization-wide summary of flashcard queues, grouped by course.
+   */
+  async getFlashcardSummary(actor: Actor, organizationId: OrganizationId) {
+    await this.authorizeRead(actor, organizationId);
+
+    const [allFlashcards, userSchedules, userReviews] = await Promise.all([
+      this.flashcardStore.listByOrganization(organizationId),
+      this.userFlashcardScheduleStore
+        ? this.userFlashcardScheduleStore.listByUser(actor.userId)
+        : Promise.resolve([]),
+      this.flashcardReviewStore.listByUser(actor.userId),
+    ]);
+
+    const scheduleMap = new Map(userSchedules.map((s) => [s.flashcardId, s]));
+    const reviewedCardIds = new Set(userReviews.map((r) => r.flashcardId));
+    const now = new Date();
+
+    const courseMap = new Map<
+      string,
+      {
+        total: number;
+        due: number;
+        overdue: number;
+        newCards: number;
+        learningCards: number;
+        topics: Map<
+          string,
+          { total: number; due: number; overdue: number; newCards: number; learningCards: number }
+        >;
+      }
+    >();
+
+    for (const f of allFlashcards) {
+      const courseId = f.courseId;
+      // Effective topic key: use documentId if valid, otherwise fallback to cardType or default topic key
+      const docId = f.documentId && f.documentId !== "00000000-0000-0000-0000-000000000000"
+        ? f.documentId
+        : `topic-${f.cardType || "general"}`;
+
+      if (!courseMap.has(courseId)) {
+        courseMap.set(courseId, {
+          total: 0,
+          due: 0,
+          overdue: 0,
+          newCards: 0,
+          learningCards: 0,
+          topics: new Map(),
+        });
+      }
+      const courseStats = courseMap.get(courseId)!;
+      courseStats.total += 1;
+
+      if (!courseStats.topics.has(docId)) {
+        courseStats.topics.set(docId, {
+          total: 0,
+          due: 0,
+          overdue: 0,
+          newCards: 0,
+          learningCards: 0,
+        });
+      }
+
+      const topicStats = courseStats.topics.get(docId)!;
+
+      const schedule = scheduleMap.get(f.id);
+      const isReviewed = schedule ? true : reviewedCardIds.has(f.id);
+      const rawDueAt = schedule ? schedule.dueAt : f.dueAt;
+      const intervalDays = schedule ? schedule.intervalDays : f.intervalDays;
+
+      const hasDueAt = rawDueAt != null && !isNaN(new Date(rawDueAt).getTime());
+      const dueAt = hasDueAt ? new Date(rawDueAt) : null;
+      const isDue = isReviewed && dueAt !== null && dueAt <= now;
+
+      if (!isReviewed) {
+        // Unread card: strictly count as newCard, never as due or overdue
+        courseStats.newCards += 1;
+        if (topicStats) topicStats.newCards += 1;
+      } else {
+        // Reviewed card
+        if (isDue) {
+          courseStats.due += 1;
+          if (topicStats) topicStats.due += 1;
+
+          // Overdue: due >= 24 hours ago with interval >= 1
+          if (intervalDays >= 1 && dueAt !== null && now.getTime() - dueAt.getTime() > 24 * 60 * 60 * 1000) {
+            courseStats.overdue += 1;
+            if (topicStats) topicStats.overdue += 1;
+          }
+        } else if (intervalDays === 0) {
+          // Learning: reviewed card with interval 0 (e.g. rated 'again')
+          courseStats.learningCards += 1;
+          if (topicStats) topicStats.learningCards += 1;
+        }
+      }
+
+      if (topicStats) {
+        topicStats.total += 1;
+      }
+    }
+
+    return { courseMap };
+  }
+
+  /**
+   * List flashcards for normal review across multiple courses.
+   */
+  async listFlashcardsForReviewMulti(
+    actor: Actor,
+    organizationId: OrganizationId,
+    courseIds?: CourseId[],
+    documentIds?: string[],
+  ): Promise<FlashcardRecord[]> {
+    await this.authorizeRead(actor, organizationId);
+
+    const [allFlashcards, userSchedules, userReviews] = await Promise.all([
+      this.flashcardStore.listByOrganization(organizationId),
+      this.userFlashcardScheduleStore
+        ? this.userFlashcardScheduleStore.listByUser(actor.userId)
+        : Promise.resolve([]),
+      this.flashcardReviewStore.listByUser(actor.userId),
+    ]);
+
+    const scheduleMap = new Map(userSchedules.map((s) => [s.flashcardId, s]));
+    const reviewedCardIds = new Set(userReviews.map((r) => r.flashcardId));
+    const now = new Date();
+    const courseSet = courseIds && courseIds.length > 0 ? new Set(courseIds) : null;
+    const docSet = documentIds && documentIds.length > 0 ? new Set(documentIds) : null;
+
+    return allFlashcards
+      .filter((f) => {
+        if (courseSet && !courseSet.has(f.courseId)) return false;
+        if (docSet && !docSet.has(f.documentId)) return false;
+        const schedule = scheduleMap.get(f.id);
+        if (schedule) {
+          const dueAt = new Date(schedule.dueAt);
+          return !isNaN(dueAt.getTime()) && dueAt <= now;
+        }
+        if (!reviewedCardIds.has(f.id)) return false;
+        if (!f.dueAt) return false;
+        const dueAt = new Date(f.dueAt);
+        return !isNaN(dueAt.getTime()) && dueAt <= now;
+      })
+      .map((f) => {
+        const schedule = scheduleMap.get(f.id);
+        if (!schedule) return f;
+        return {
+          ...f,
+          dueAt: schedule.dueAt,
+          intervalDays: schedule.intervalDays,
+          easeFactor: schedule.easeFactor,
+        };
+      });
+  }
+
+  /**
+   * List flashcards for Exam Mode across multiple courses.
+   * Priority: 1. Overdue, 2. Lowest ease factor, 3. Due, 4. New.
+   */
+  async getExamModeFlashcards(
+    actor: Actor,
+    organizationId: OrganizationId,
+    courseIds?: CourseId[],
+    limit: number = 50,
+    documentIds?: string[],
+  ): Promise<FlashcardRecord[]> {
+    await this.authorizeRead(actor, organizationId);
+
+    const [allFlashcards, userSchedules] = await Promise.all([
+      this.flashcardStore.listByOrganization(organizationId),
+      this.userFlashcardScheduleStore
+        ? this.userFlashcardScheduleStore.listByUser(actor.userId)
+        : Promise.resolve([]),
+    ]);
+
+    const scheduleMap = new Map(userSchedules.map((s) => [s.flashcardId, s]));
+    const now = new Date();
+    const courseSet = courseIds && courseIds.length > 0 ? new Set(courseIds) : null;
+    const docSet = documentIds && documentIds.length > 0 ? new Set(documentIds) : null;
+
+    let filtered = allFlashcards.map((f) => {
+      const schedule = scheduleMap.get(f.id);
+      if (!schedule) return f;
+      return {
+        ...f,
+        dueAt: schedule.dueAt,
+        intervalDays: schedule.intervalDays,
+        easeFactor: schedule.easeFactor,
+      };
+    });
+
+    if (courseSet) {
+      filtered = filtered.filter((f) => courseSet.has(f.courseId));
+    }
+    if (docSet) {
+      filtered = filtered.filter((f) => docSet.has(f.documentId));
+    }
+
+    // Sorting heuristic for Exam Mode
+    filtered.sort((a, b) => {
+      const aDue = new Date(a.dueAt) <= now;
+      const bDue = new Date(b.dueAt) <= now;
+      const aOverdue = aDue && a.intervalDays > 0 && now.getTime() - new Date(a.dueAt).getTime() > 86400000;
+      const bOverdue = bDue && b.intervalDays > 0 && now.getTime() - new Date(b.dueAt).getTime() > 86400000;
+      const aNew = a.intervalDays === 0;
+      const bNew = b.intervalDays === 0;
+
+      // 1. Overdue cards first
+      if (aOverdue && !bOverdue) return -1;
+      if (!aOverdue && bOverdue) return 1;
+
+      // 2. Sort by ease factor (hardest first)
+      if (a.easeFactor !== b.easeFactor) {
+        return a.easeFactor - b.easeFactor;
+      }
+
+      // 3. Due cards
+      if (aDue && !bDue) return -1;
+      if (!aDue && bDue) return 1;
+
+      // 4. New cards
+      if (aNew && !bNew) return -1;
+      if (!aNew && bNew) return 1;
+
+      return 0;
+    });
+
+    const maxLimit = Math.min(limit, 500);
+    return filtered.slice(0, maxLimit);
+  }
+
+  /**
+   * List flashcards for Custom Study (Filtered queue: weak, forgotten, overdue, review_ahead, new).
+   */
+  async getCustomStudyFlashcards(
+    actor: Actor,
+    organizationId: OrganizationId,
+    mode: "weak" | "forgotten" | "overdue" | "review_ahead" | "new",
+    courseIds?: CourseId[],
+    limit: number = 50,
+    aheadDays: number = 3,
+    documentIds?: string[],
+  ): Promise<FlashcardRecord[]> {
+    await this.authorizeRead(actor, organizationId);
+
+    const [allFlashcards, userSchedules, userReviews] = await Promise.all([
+      this.flashcardStore.listByOrganization(organizationId),
+      this.userFlashcardScheduleStore
+        ? this.userFlashcardScheduleStore.listByUser(actor.userId)
+        : Promise.resolve([]),
+      this.flashcardReviewStore.listByUser(actor.userId),
+    ]);
+
+    const scheduleMap = new Map(userSchedules.map((s) => [s.flashcardId, s]));
+    const reviewedCardIds = new Set(userReviews.map((r) => r.flashcardId));
+    const now = new Date();
+    const courseSet = courseIds && courseIds.length > 0 ? new Set(courseIds) : null;
+    const docSet = documentIds && documentIds.length > 0 ? new Set(documentIds) : null;
+
+    const mapped = allFlashcards.map((f) => {
+      const schedule = scheduleMap.get(f.id);
+      if (!schedule) return f;
+      return {
+        ...f,
+        dueAt: schedule.dueAt,
+        intervalDays: schedule.intervalDays,
+        easeFactor: schedule.easeFactor,
+      };
+    });
+
+    let filtered = mapped.filter((f) => (!courseSet || courseSet.has(f.courseId)) && (!docSet || docSet.has(f.documentId)));
+
+    if (mode === "weak" || mode === "forgotten") {
+      filtered = filtered.filter((f) => Number(f.easeFactor) < 2.3 || f.intervalDays === 0);
+      filtered.sort((a, b) => Number(a.easeFactor) - Number(b.easeFactor));
+    } else if (mode === "overdue") {
+      filtered = filtered.filter((f) => {
+        const isReviewed = this.userFlashcardScheduleStore ? scheduleMap.has(f.id) : reviewedCardIds.has(f.id);
+        if (!isReviewed) return false;
+        if (!f.dueAt) return false;
+        const dueAt = new Date(f.dueAt);
+        if (isNaN(dueAt.getTime())) return false;
+        return dueAt <= now && f.intervalDays >= 1 && (now.getTime() - dueAt.getTime() > 86400000);
+      });
+    } else if (mode === "review_ahead") {
+      const cutoff = new Date(now.getTime() + aheadDays * 86400000);
+      filtered = filtered.filter((f) => {
+        const isReviewed = this.userFlashcardScheduleStore ? scheduleMap.has(f.id) : reviewedCardIds.has(f.id);
+        if (!isReviewed) return false;
+        if (!f.dueAt) return false;
+        const dueAt = new Date(f.dueAt);
+        if (isNaN(dueAt.getTime())) return false;
+        return dueAt <= cutoff;
+      });
+      filtered.sort((a, b) => new Date(a.dueAt).getTime() - new Date(b.dueAt).getTime());
+    } else if (mode === "new") {
+      filtered = filtered.filter((f) => {
+        const isReviewed = this.userFlashcardScheduleStore ? scheduleMap.has(f.id) : reviewedCardIds.has(f.id);
+        return !isReviewed || f.intervalDays === 0;
+      });
+    }
+
+    const maxLimit = Math.min(limit, 500);
+    return filtered.slice(0, maxLimit);
+  }
+
   // -------------------------------------------------------------------------
   // Quizzes
+  // -------------------------------------------------------------------------
+
+  // -------------------------------------------------------------------------
+  // Quizzes & Exam Configuration
   // -------------------------------------------------------------------------
 
   /** List published quizzes for a course. */
@@ -199,14 +549,741 @@ export class StudyService {
     actor: Actor,
     organizationId: OrganizationId,
     quizId: QuizId,
-  ): Promise<QuizRecord & { questions: Awaited<ReturnType<QuizQuestionStore["listByQuiz"]>> }> {
+  ): Promise<QuizRecord & { questions: Array<Omit<QuizQuestionRecord, "correctAnswer">> }> {
     await this.authorizeRead(actor, organizationId);
     const quiz = await this.quizStore.findByIdForOrganization(quizId, organizationId);
     if (!quiz) throw new DomainError("not_found", "Quiz not found");
     if (quiz.status !== "published") throw new DomainError("not_found", "Quiz not found");
 
     const questions = await this.quizQuestionStore.listByQuiz(quizId);
-    return { ...quiz, questions };
+    // Security: strip correctAnswer from questions response prior to submission
+    const sanitized = questions.map(({ correctAnswer, ...q }) => q);
+    return { ...quiz, questions: sanitized };
+  }
+  /**
+   * Get dynamic topic & section/chapter hierarchy summary with question counts from DB.
+   * Reads real Learning Core hierarchy (Course -> Module [Section] -> Lesson [Chapter]) from DB.
+   * Aggregates question counts per Section -> Chapter -> Difficulty dynamically from DB.
+   */
+  async getExamTopicSummary(actor: Actor, organizationId: OrganizationId) {
+    await this.authorizeRead(actor, organizationId);
+
+    const [coursesInfo, allQuestions, allQuizzes] = await Promise.all([
+      this.courseStore
+        ? this.courseStore.listByOrganization(organizationId, actor.userId)
+        : Promise.resolve([]),
+      this.quizQuestionStore.listByFilter({
+        organizationId,
+      }),
+      this.quizStore
+        ? this.quizStore.listByOrganization(organizationId)
+        : Promise.resolve([]),
+    ]);
+
+    const quizMap = new Map(allQuizzes.map((q) => [q.id, q]));
+    const allProcessedQuestionIds = new Set<string>();
+
+    type LessonSummary = {
+      lessonId: string;
+      lessonTitle: string;
+      questionCount: number;
+      easyCount: number;
+      mediumCount: number;
+      hardCount: number;
+    };
+
+    type ModuleSummary = {
+      moduleId: string;
+      moduleTitle: string;
+      questionCount: number;
+      easyCount: number;
+      mediumCount: number;
+      hardCount: number;
+      lessons: LessonSummary[];
+    };
+
+    type CourseSummary = {
+      courseId: string;
+      courseTitle: string;
+      questionCount: number;
+      easyCount: number;
+      mediumCount: number;
+      hardCount: number;
+      modules: ModuleSummary[];
+    };
+
+    const coursesResult: CourseSummary[] = [];
+    const legacySections: Array<{
+      id: string;
+      title: string;
+      topic: string;
+      questionCount: number;
+      easyCount: number;
+      mediumCount: number;
+      hardCount: number;
+      chapters: Array<{
+        id: string;
+        title: string;
+        topic: string;
+        questionCount: number;
+        easyCount: number;
+        mediumCount: number;
+        hardCount: number;
+      }>;
+    }> = [];
+
+    for (const c of coursesInfo) {
+      const courseModules = this.moduleStore
+        ? await this.moduleStore.listByCourse(c.id as CourseId)
+        : [];
+      const moduleIds = courseModules.map((m) => m.id);
+      const courseLessons = this.lessonStore
+        ? await this.lessonStore.listByModules(moduleIds)
+        : [];
+
+      // Map documentId to authoritative Module for this course
+      const docToModuleMap = new Map<string, ModuleRecord>();
+      for (const m of courseModules) {
+        if (m.documentId) {
+          docToModuleMap.set(m.documentId, m);
+        }
+      }
+
+      const lessonMap = new Map<string, LessonSummary>();
+      for (const les of courseLessons) {
+        lessonMap.set(les.id, {
+          lessonId: les.id,
+          lessonTitle: les.title,
+          questionCount: 0,
+          easyCount: 0,
+          mediumCount: 0,
+          hardCount: 0,
+        });
+      }
+
+      // Track unmapped questions (lessonId = null) per module
+      const unmappedModuleCounts = new Map<
+        string,
+        { total: number; easy: number; med: number; hard: number }
+      >();
+      for (const m of courseModules) {
+        unmappedModuleCounts.set(m.id, { total: 0, easy: 0, med: 0, hard: 0 });
+      }
+
+      for (const q of allQuestions) {
+        if (allProcessedQuestionIds.has(q.id)) continue;
+
+        // Path A: Question -> lessonId -> Lesson -> Module
+        let matchedLessonId: string | null = q.lessonId ?? null;
+        if (!matchedLessonId && q.topic) {
+          const found = courseLessons.find((l) => l.title === q.topic);
+          if (found) matchedLessonId = found.id;
+        }
+
+        if (matchedLessonId && lessonMap.has(matchedLessonId)) {
+          allProcessedQuestionIds.add(q.id);
+          const lSummary = lessonMap.get(matchedLessonId)!;
+          lSummary.questionCount += 1;
+          const diff = (q.difficulty || "medium").toLowerCase();
+          if (diff === "easy" || diff === "آسان") lSummary.easyCount += 1;
+          else if (diff === "hard" || diff === "سخت") lSummary.hardCount += 1;
+          else lSummary.mediumCount += 1;
+          continue;
+        }
+
+        // Path B: Question -> Quiz -> Document -> Authoritative Module (when lessonId is null)
+        const parentQuiz = quizMap.get(q.quizId);
+        if (parentQuiz && parentQuiz.documentId) {
+          const targetModule = docToModuleMap.get(parentQuiz.documentId);
+          if (targetModule && unmappedModuleCounts.has(targetModule.id)) {
+            allProcessedQuestionIds.add(q.id);
+            const mObj = unmappedModuleCounts.get(targetModule.id)!;
+            mObj.total += 1;
+            const diff = (q.difficulty || "medium").toLowerCase();
+            if (diff === "easy" || diff === "آسان") mObj.easy += 1;
+            else if (diff === "hard" || diff === "سخت") mObj.hard += 1;
+          }
+        }
+
+        // Path C: Questions belonging to Course c without explicit lesson/document module mapping
+        if (parentQuiz && parentQuiz.courseId === c.id) {
+          allProcessedQuestionIds.add(q.id);
+          const tName = q.topic || c.name;
+          let mObj = unmappedModuleCounts.get(`course-topic-${tName}`);
+          if (!mObj) {
+            mObj = { total: 0, easy: 0, med: 0, hard: 0 };
+            unmappedModuleCounts.set(`course-topic-${tName}`, mObj);
+          }
+          mObj.total += 1;
+          const diff = (q.difficulty || "medium").toLowerCase();
+          if (diff === "easy" || diff === "آسان") mObj.easy += 1;
+          else if (diff === "hard" || diff === "سخت") mObj.hard += 1;
+          else mObj.med += 1;
+        }
+      }
+
+      const modulesResult: ModuleSummary[] = courseModules.map((m) => {
+        const modLessons = courseLessons
+          .filter((l) => l.moduleId === m.id)
+          .map((l) => lessonMap.get(l.id)!);
+
+        const unmapped = unmappedModuleCounts.get(m.id) ?? {
+          total: 0,
+          easy: 0,
+          med: 0,
+          hard: 0,
+        };
+
+        let mQ = unmapped.total;
+        let mEasy = unmapped.easy;
+        let mMed = unmapped.med;
+        let mHard = unmapped.hard;
+
+        for (const l of modLessons) {
+          mQ += l.questionCount;
+          mEasy += l.easyCount;
+          mMed += l.mediumCount;
+          mHard += l.hardCount;
+        }
+
+        return {
+          moduleId: m.id,
+          moduleTitle: m.title,
+          questionCount: mQ,
+          easyCount: mEasy,
+          mediumCount: mMed,
+          hardCount: mHard,
+          lessons: modLessons,
+        };
+      });
+
+      // Add modules derived from unmapped course-level topics
+      for (const [key, val] of unmappedModuleCounts.entries()) {
+        if (key.startsWith("course-topic-") && val.total > 0) {
+          const topicName = key.replace("course-topic-", "");
+          modulesResult.push({
+            moduleId: `mod-${c.id}-${topicName}`,
+            moduleTitle: topicName,
+            questionCount: val.total,
+            easyCount: val.easy,
+            mediumCount: val.med,
+            hardCount: val.hard,
+            lessons: [
+              {
+                lessonId: `lesson-${c.id}-${topicName}`,
+                lessonTitle: topicName,
+                questionCount: val.total,
+                easyCount: val.easy,
+                mediumCount: val.med,
+                hardCount: val.hard,
+              },
+            ],
+          });
+        }
+      }
+
+      const filteredModules: ModuleSummary[] = modulesResult.filter((m) => m.questionCount > 0);
+
+      let cQ = 0, cEasy = 0, cMed = 0, cHard = 0;
+      for (const m of filteredModules) {
+        cQ += m.questionCount;
+        cEasy += m.easyCount;
+        cMed += m.mediumCount;
+        cHard += m.hardCount;
+
+        legacySections.push({
+          id: m.moduleId,
+          title: m.moduleTitle,
+          topic: m.moduleTitle,
+          questionCount: m.questionCount,
+          easyCount: m.easyCount,
+          mediumCount: m.mediumCount,
+          hardCount: m.hardCount,
+          chapters: m.lessons.map((l) => ({
+            id: l.lessonId,
+            title: l.lessonTitle,
+            topic: l.lessonTitle,
+            questionCount: l.questionCount,
+            easyCount: l.easyCount,
+            mediumCount: l.mediumCount,
+            hardCount: l.hardCount,
+          })),
+        });
+      }
+
+      if (cQ > 0 && filteredModules.length > 0) {
+        coursesResult.push({
+          courseId: c.id,
+          courseTitle: c.name,
+          questionCount: cQ,
+          easyCount: cEasy,
+          mediumCount: cMed,
+          hardCount: cHard,
+          modules: filteredModules,
+        });
+      }
+    }
+
+    // Fallback for questions unassigned to any course/module: group by actual topic title (never placeholder titles)
+    const unassignedQuestions = allQuestions.filter(
+      (q) => !allProcessedQuestionIds.has(q.id),
+    );
+    if (unassignedQuestions.length > 0) {
+      const topicGroupMap = new Map<
+        string,
+        { title: string; count: number; easy: number; med: number; hard: number }
+      >();
+      for (const q of unassignedQuestions) {
+        const tName = q.topic || "مباحث آموزشی";
+        if (!topicGroupMap.has(tName)) {
+          topicGroupMap.set(tName, { title: tName, count: 0, easy: 0, med: 0, hard: 0 });
+        }
+        const tObj = topicGroupMap.get(tName)!;
+        tObj.count += 1;
+        const diff = (q.difficulty || "medium").toLowerCase();
+        if (diff === "easy" || diff === "آسان") tObj.easy += 1;
+        else if (diff === "hard" || diff === "سخت") tObj.hard += 1;
+        else tObj.med += 1;
+      }
+
+      for (const [tName, tObj] of topicGroupMap.entries()) {
+        const modId = `mod-top-${tName}`;
+        const lesId = `lesson-top-${tName}`;
+        const orphanModule: ModuleSummary = {
+          moduleId: modId,
+          moduleTitle: tName,
+          questionCount: tObj.count,
+          easyCount: tObj.easy,
+          mediumCount: tObj.med,
+          hardCount: tObj.hard,
+          lessons: [
+            {
+              lessonId: lesId,
+              lessonTitle: tName,
+              questionCount: tObj.count,
+              easyCount: tObj.easy,
+              mediumCount: tObj.med,
+              hardCount: tObj.hard,
+            },
+          ],
+        };
+
+        coursesResult.push({
+          courseId: `course-top-${tName}`,
+          courseTitle: tName,
+          questionCount: tObj.count,
+          easyCount: tObj.easy,
+          mediumCount: tObj.med,
+          hardCount: tObj.hard,
+          modules: [orphanModule],
+        });
+
+        legacySections.push({
+          id: modId,
+          title: tName,
+          topic: tName,
+          questionCount: tObj.count,
+          easyCount: tObj.easy,
+          mediumCount: tObj.med,
+          hardCount: tObj.hard,
+          chapters: [
+            {
+              id: lesId,
+              title: tName,
+              topic: tName,
+              questionCount: tObj.count,
+              easyCount: tObj.easy,
+              mediumCount: tObj.med,
+              hardCount: tObj.hard,
+            },
+          ],
+        });
+      }
+    }
+
+
+    const topicsFlatList: Array<{
+      topic: string;
+      title: string;
+      questionCount: number;
+      easyCount: number;
+      mediumCount: number;
+      hardCount: number;
+    }> = [];
+
+    for (const s of legacySections) {
+      for (const ch of s.chapters) {
+        topicsFlatList.push({
+          topic: ch.topic,
+          title: ch.title,
+          questionCount: ch.questionCount,
+          easyCount: ch.easyCount,
+          mediumCount: ch.mediumCount,
+          hardCount: ch.hardCount,
+        });
+      }
+    }
+
+    return {
+      courses: coursesResult,
+      sections: legacySections,
+      topics: topicsFlatList,
+    };
+  }
+
+  /**
+   * Start a custom-configured exam attempt.
+   * Resolves selected Module/Lesson IDs and topics, filters Questions by difficulty,
+   * validates available count, and persists the snapshot to DB.
+   */
+  async startConfiguredExamAttempt(
+    actor: Actor,
+    organizationId: OrganizationId,
+    input: {
+      sections?: string[];
+      chapters?: string[];
+      topics?: string[];
+      questionCount?: number;
+      difficulty?: string;
+    },
+  ) {
+    await this.authorizeQuizAttempt(actor, organizationId);
+
+    const requestedCount = input.questionCount ?? 10;
+    const difficulty = input.difficulty ?? "medium";
+
+    const rawSelection = [
+      ...(input.chapters ?? []),
+      ...(input.sections ?? []),
+      ...(input.topics ?? []),
+    ].filter(Boolean);
+
+    const candidateTopics = new Set<string>();
+    const selectedDocumentIds = new Set<string>();
+    const selectedLessonIds = new Set<string>();
+
+    for (const item of rawSelection) {
+      candidateTopics.add(item);
+      if (this.lessonStore) {
+        const les = await this.lessonStore.findById(item as any).catch(() => undefined);
+        if (les) {
+          candidateTopics.add(les.title);
+          candidateTopics.add(les.id);
+          selectedLessonIds.add(les.id);
+        }
+      }
+      if (this.moduleStore) {
+        const mod = await this.moduleStore.findById(item as any).catch(() => undefined);
+        if (mod) {
+          candidateTopics.add(mod.title);
+          candidateTopics.add(mod.id);
+          if (mod.documentId) {
+            selectedDocumentIds.add(mod.documentId);
+          }
+          if (this.lessonStore) {
+            const lessons = await this.lessonStore.listByModule(mod.id).catch(() => []);
+            for (const l of lessons) {
+              candidateTopics.add(l.title);
+              candidateTopics.add(l.id);
+              selectedLessonIds.add(l.id);
+            }
+          }
+        }
+      }
+    }
+
+    const topicsArray = Array.from(candidateTopics);
+
+    // Fetch candidate questions from DB
+    const allQuestions = await this.quizQuestionStore.listByFilter({
+      organizationId,
+      difficulty: "all",
+    });
+
+    const allQuizzes = this.quizStore
+      ? await this.quizStore.listByOrganization(organizationId)
+      : [];
+    const quizMap = new Map(allQuizzes.map((q) => [q.id, q]));
+
+    // Filter questions matching selected Module (via lessonId OR quiz.documentId OR topic match)
+    const matchingQuestions = allQuestions.filter((q) => {
+      // 1. Difficulty check
+      if (difficulty !== "all") {
+        const qDiff = (q.difficulty || "medium").toLowerCase();
+        const reqDiff = difficulty.toLowerCase();
+        if (qDiff !== reqDiff && qDiff !== (reqDiff === "easy" ? "آسان" : reqDiff === "hard" ? "سخت" : "متوسط")) {
+          return false;
+        }
+      }
+
+      // 2. Selection criteria check
+      if (rawSelection.length === 0) return true;
+
+      // Check if question's lessonId is selected
+      if (q.lessonId && selectedLessonIds.has(q.lessonId)) {
+        return true;
+      }
+
+      // Check topic match (exact or substring)
+      if (q.topic) {
+        if (candidateTopics.has(q.topic)) return true;
+        for (const t of candidateTopics) {
+          if (t.length >= 3 && (q.topic.includes(t) || t.includes(q.topic))) return true;
+        }
+      }
+
+      // Check if question's parent quiz belongs to selected documentId/module or matches topic/title
+      const parentQuiz = quizMap.get(q.quizId);
+      if (parentQuiz) {
+        if (parentQuiz.documentId && selectedDocumentIds.has(parentQuiz.documentId)) {
+          return true;
+        }
+        if (parentQuiz.topic) {
+          if (candidateTopics.has(parentQuiz.topic)) return true;
+          for (const t of candidateTopics) {
+            if (t.length >= 3 && (parentQuiz.topic.includes(t) || t.includes(parentQuiz.topic))) return true;
+          }
+        }
+        if (parentQuiz.title) {
+          if (candidateTopics.has(parentQuiz.title)) return true;
+          for (const t of candidateTopics) {
+            if (t.length >= 3 && (parentQuiz.title.includes(t) || t.includes(parentQuiz.title))) return true;
+          }
+        }
+      }
+
+      return false;
+    });
+
+    let candidateQuestions = matchingQuestions;
+    if (candidateQuestions.length < requestedCount && difficulty !== "all") {
+      // Relax difficulty filter if needed
+      const relaxedQuestions = allQuestions.filter((q) => {
+        if (rawSelection.length === 0) return true;
+        if (q.lessonId && selectedLessonIds.has(q.lessonId)) return true;
+        if (q.topic && candidateTopics.has(q.topic)) return true;
+        const parentQuiz = quizMap.get(q.quizId);
+        if (parentQuiz) {
+          if (parentQuiz.documentId && selectedDocumentIds.has(parentQuiz.documentId)) return true;
+          if (parentQuiz.topic && candidateTopics.has(parentQuiz.topic)) return true;
+        }
+        return false;
+      });
+      if (relaxedQuestions.length >= candidateQuestions.length) {
+        candidateQuestions = relaxedQuestions;
+      }
+    }
+
+    if (candidateQuestions.length < requestedCount) {
+      throw new DomainError(
+        "bad_request",
+        `فقط ${candidateQuestions.length} سؤال برای سرفصل‌ها و سطح دشواری انتخاب‌شده در دسترس است. حداقل تعداد درخواستی (${requestedCount}) تأمین نمی‌شود.`,
+      );
+    }
+
+    // Shuffle & snapshot exact question IDs for this attempt
+    const shuffled = [...candidateQuestions].sort(() => Math.random() - 0.5);
+    const selectedQuestions = shuffled.slice(0, requestedCount);
+    const questionIds = selectedQuestions.map((q) => q.id);
+
+    const attemptId = randomUUID() as QuizAttemptId;
+    const now = new Date().toISOString();
+
+    const attempt: QuizAttemptRecord = {
+      id: attemptId,
+      quizId: null,
+      userId: actor.userId,
+      score: 0,
+      answers: {},
+      questionIds,
+      topic: topicsArray.slice(0, 5).join(", ") || "آزمون جامع",
+      difficulty,
+      status: "in_progress",
+      startedAt: now,
+      completedAt: null,
+    };
+
+    await this.quizAttemptStore.create(attempt);
+
+    // Security: return questions with correctAnswer hidden
+    const sanitizedQuestions = selectedQuestions.map(({ correctAnswer, ...q }) => q);
+
+    return {
+      attemptId,
+      topics: topicsArray,
+      difficulty,
+      requestedCount,
+      questions: sanitizedQuestions,
+      startedAt: now,
+    };
+  }
+
+  /**
+   * Save user answers during an in-progress exam attempt.
+   * Merges partial or full answers into the attempt record for real-time persistence and refresh resilience.
+   */
+  async saveExamAttemptAnswer(
+    actor: Actor,
+    organizationId: OrganizationId,
+    attemptId: QuizAttemptId,
+    inputAnswers: Array<{ questionId: string; answer: unknown }>,
+  ) {
+    await this.authorizeQuizAttempt(actor, organizationId);
+
+    const attempt = await this.quizAttemptStore.findById(attemptId);
+    if (!attempt || attempt.userId !== actor.userId) {
+      throw new DomainError("not_found", "Quiz attempt not found");
+    }
+
+    if (attempt.status === "completed" || attempt.completedAt != null) {
+      throw new DomainError("bad_request", "امکان تغییر پاسخ‌های آزمون پایان‌یافته وجود ندارد.");
+    }
+
+    const updatedAnswers = { ...(attempt.answers as Record<string, unknown> || {}) };
+    for (const item of inputAnswers) {
+      if (item.questionId) {
+        updatedAnswers[item.questionId] = item.answer;
+      }
+    }
+
+    const updatedAttempt: QuizAttemptRecord = {
+      ...attempt,
+      answers: updatedAnswers,
+    };
+
+    await this.quizAttemptStore.update(updatedAttempt);
+    return {
+      attemptId,
+      answers: updatedAnswers,
+    };
+  }
+
+  /**
+   * Retrieve an attempt and its locked question snapshot.
+   * If in_progress, strips correctAnswer. If completed, returns full answers & explanations.
+   */
+  async getExamAttempt(
+    actor: Actor,
+    organizationId: OrganizationId,
+    attemptId: QuizAttemptId,
+  ) {
+    await this.authorizeRead(actor, organizationId);
+    const attempt = await this.quizAttemptStore.findById(attemptId);
+    if (!attempt || attempt.userId !== actor.userId) {
+      throw new DomainError("not_found", "Quiz attempt not found");
+    }
+
+    const questionIds = (attempt.questionIds as QuizQuestionId[]) || [];
+    let questions: QuizQuestionRecord[] = [];
+    if (questionIds.length > 0) {
+      questions = await this.quizQuestionStore.listByIds(questionIds);
+    } else if (attempt.quizId) {
+      questions = await this.quizQuestionStore.listByQuiz(attempt.quizId as QuizId);
+    }
+
+    const isCompleted = attempt.status === "completed" || attempt.completedAt != null;
+
+    if (!isCompleted) {
+      // In-progress: security mask correctAnswer
+      const sanitizedQuestions = questions.map(({ correctAnswer, ...q }) => q);
+      return {
+        attempt,
+        questions: sanitizedQuestions,
+        isCompleted: false,
+      };
+    }
+
+    // Completed: return full questions with answers & explanations
+    return {
+      attempt,
+      questions,
+      isCompleted: true,
+    };
+  }
+
+  /**
+   * Submit answers for a configured exam or quiz attempt.
+   * Evaluates user answers against the locked attempt snapshot questions,
+   * calculates score, updates attempt status to 'completed', and returns breakdown.
+   */
+  async submitConfiguredExamAttempt(
+    actor: Actor,
+    organizationId: OrganizationId,
+    attemptId: QuizAttemptId,
+    inputAnswers: Array<{ questionId: string; answer: unknown }>,
+  ): Promise<QuizAttemptResult & { questions?: QuizQuestionRecord[] }> {
+    await this.authorizeQuizAttempt(actor, organizationId);
+
+    const attempt = await this.quizAttemptStore.findById(attemptId);
+    if (!attempt || attempt.userId !== actor.userId) {
+      throw new DomainError("not_found", "Quiz attempt not found");
+    }
+
+    const questionIds = (attempt.questionIds as QuizQuestionId[]) || [];
+    let questions: QuizQuestionRecord[] = [];
+    if (questionIds.length > 0) {
+      questions = await this.quizQuestionStore.listByIds(questionIds);
+    } else if (attempt.quizId) {
+      questions = await this.quizQuestionStore.listByQuiz(attempt.quizId as QuizId);
+    }
+
+    if (questions.length === 0) {
+      throw new DomainError("unprocessable", "Quiz attempt has no questions");
+    }
+
+    let correctCount = 0;
+    const answersMap: Record<string, unknown> = {};
+
+    for (const q of questions) {
+      const studentAns = inputAnswers.find((a) => a.questionId === q.id);
+      const val = studentAns?.answer ?? null;
+      answersMap[q.id] = val;
+
+      if (val !== null && val !== undefined) {
+        if (
+          JSON.stringify(val) === JSON.stringify(q.correctAnswer) ||
+          String(val) === String(q.correctAnswer)
+        ) {
+          correctCount++;
+        }
+      }
+    }
+
+    const score = Math.round((correctCount / questions.length) * 100 * 100) / 100;
+    const now = new Date().toISOString();
+
+    const updatedAttempt: QuizAttemptRecord = {
+      ...attempt,
+      score,
+      answers: answersMap,
+      status: "completed",
+      completedAt: now,
+    };
+
+    await this.quizAttemptStore.update(updatedAttempt);
+
+    if (this.auditService && attempt.quizId) {
+      await this.auditService.emit([
+        auditQuizAttempted(actor.userId, organizationId, attempt.quizId as QuizId, {
+          courseId: "configured-exam" as CourseId,
+          attemptId: attempt.id,
+          score,
+          correct: correctCount,
+          total: questions.length,
+        }),
+      ]);
+    }
+
+    return {
+      attemptId: attempt.id,
+      quizId: attempt.quizId || "configured-exam",
+      score,
+      correct: correctCount,
+      total: questions.length,
+      answers: answersMap,
+      completedAt: now,
+      questions,
+    };
   }
 
   /** Submit a quiz attempt. Scores the answers and persists the result. */
@@ -283,7 +1360,6 @@ export class StudyService {
   ): Promise<QuizAttemptRecord> {
     await this.authorizeRead(actor, organizationId);
     const attempt = await this.quizAttemptStore.findById(attemptId);
-    // Non-disclosing: return not_found if the attempt belongs to another user.
     if (!attempt || attempt.userId !== actor.userId) {
       throw new DomainError("not_found", "Quiz attempt not found");
     }
@@ -314,18 +1390,18 @@ export class StudyService {
     ]);
 
     // Batch-load lessons for all modules.
-    const moduleIds = modules.map((m) => m.id);
+    const moduleIds = modules.map((m: ModuleRecord) => m.id);
     const lessons = moduleIds.length > 0
       ? await this.lessonStore.listByModules(moduleIds)
       : [];
 
-    const publishedLessons = lessons.filter((l) => l.publicationStatus === "published");
+    const publishedLessons = lessons.filter((l: LessonRecord) => l.publicationStatus === "published");
     const completedLessonIds = new Set(
-      progressRecords.filter((p) => p.completed).map((p) => p.lessonId),
+      progressRecords.filter((p: any) => p.completed).map((p: any) => p.lessonId),
     );
 
     const totalLessons = publishedLessons.length;
-    const completedLessons = publishedLessons.filter((l) =>
+    const completedLessons = publishedLessons.filter((l: LessonRecord) =>
       completedLessonIds.has(l.id),
     ).length;
     const lessonProgressPercent =
@@ -339,11 +1415,11 @@ export class StudyService {
     const totalFlashcards = flashcards.length;
     const now = new Date();
     const masteryThresholdMs = 7 * 24 * 60 * 60 * 1000;
-    const reviewedFlashcards = flashcards.filter((f) => {
+    const reviewedFlashcards = flashcards.filter((f: FlashcardRecord) => {
       // A card has been reviewed if its interval > 0.
       return f.intervalDays > 0;
     }).length;
-    const masteredFlashcards = flashcards.filter((f) => {
+    const masteredFlashcards = flashcards.filter((f: FlashcardRecord) => {
       const dueAt = new Date(f.dueAt);
       return dueAt.getTime() - now.getTime() > masteryThresholdMs;
     }).length;
@@ -354,21 +1430,25 @@ export class StudyService {
 
     // Quiz analytics.
     const quizzes = await this.quizStore.listByCourse(courseId, organizationId);
-    const totalQuizzes = quizzes.filter((q) => q.status === "published").length;
+    const totalQuizzes = quizzes.filter((q: QuizRecord) => q.status === "published").length;
     const attemptsTaken = attempts.length;
     const averageQuizScore =
       attemptsTaken > 0
         ? Math.round(
-            (attempts.reduce((sum, a) => sum + a.score, 0) / attemptsTaken) * 100,
+            (attempts.reduce((sum: number, a: QuizAttemptRecord) => sum + a.score, 0) / attemptsTaken) * 100,
           ) / 100
         : 0;
 
     // Weak areas: quizzes where the last attempt scored below 70%.
     const attemptsByQuiz = new Map<string, QuizAttemptRecord>();
     for (const a of attempts) {
-      const existing = attemptsByQuiz.get(a.quizId);
-      if (!existing || new Date(a.completedAt) > new Date(existing.completedAt)) {
-        attemptsByQuiz.set(a.quizId, a);
+      if (a.quizId) {
+        const existing = attemptsByQuiz.get(a.quizId);
+        const aTime = a.completedAt ? new Date(a.completedAt).getTime() : 0;
+        const existingTime = existing?.completedAt ? new Date(existing.completedAt).getTime() : 0;
+        if (!existing || aTime > existingTime) {
+          attemptsByQuiz.set(a.quizId, a);
+        }
       }
     }
     const weakAreas: string[] = [];

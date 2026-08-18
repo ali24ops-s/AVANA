@@ -2,7 +2,7 @@
  * Shared Markdown renderer.
  *
  * Supports GitHub-Flavored Markdown (GFM) tables, RTL Persian text,
- * responsive horizontal overflow scrolling, distinct headers,
+ * responsive horizontal overflow scrolling, distinct high-contrast headers,
  * and seamless dark/light mode integration.
  */
 
@@ -14,7 +14,7 @@ export type MarkdownRendererProps = {
 };
 
 /**
- * Renders markdown content with consistent styling and full GFM table support.
+ * Renders markdown content with consistent high-contrast styling and full GFM table support.
  */
 export function MarkdownRenderer({ content }: MarkdownRendererProps) {
   return (
@@ -54,7 +54,7 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
           </p>
         ),
         strong: ({ children, ...props }) => (
-          <strong className="font-semibold text-[var(--color-text)]" {...props}>
+          <strong className="font-bold text-[var(--color-text)]" {...props}>
             {children}
           </strong>
         ),
@@ -81,7 +81,7 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
         ),
         blockquote: ({ children, ...props }) => (
           <blockquote
-            className="my-4 border-r-4 border-indigo-500 bg-indigo-50/70 dark:bg-indigo-950/30 px-4 py-3 rounded-l-lg text-[var(--color-text)] leading-relaxed"
+            className="my-4 border-r-4 border-[#007a7a] bg-[var(--color-surface-warm)] px-4 py-3 rounded-l-lg text-[var(--color-text)] leading-relaxed border border-[var(--color-border)]"
             {...props}
           >
             {children}
@@ -89,15 +89,15 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
         ),
         code: ({ children, ...props }) => (
           <code
-            className="bg-[var(--color-background)] px-1.5 py-0.5 rounded-md text-sm font-mono text-indigo-600 dark:text-indigo-400"
+            className="bg-[var(--color-surface-warm)] border border-[var(--color-border)] px-1.5 py-0.5 rounded-md text-sm font-mono text-[#007a7a] dark:text-[#38bdf8]"
             {...props}
           >
             {children}
           </code>
         ),
-        // GFM Table Components with RTL and Responsive Overflow Container
+        // GFM Table Components with High Contrast & RTL Persian Text Alignment
         table: ({ children, ...props }) => (
-          <div className="my-6 w-full overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs">
+          <div className="my-6 w-full overflow-x-auto rounded-2xl border-2 border-[var(--color-border)] shadow-xs bg-[var(--color-surface)]">
             <table
               className="w-full border-collapse text-right text-sm leading-relaxed"
               dir="rtl"
@@ -109,7 +109,7 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
         ),
         thead: ({ children, ...props }) => (
           <thead
-            className="bg-slate-100 dark:bg-slate-800/90 text-[var(--color-text)] font-bold border-b border-slate-200 dark:border-slate-700"
+            className="bg-[var(--color-surface-warm)] text-[var(--color-text)] font-extrabold border-b-2 border-[var(--color-border)]"
             {...props}
           >
             {children}
@@ -117,7 +117,7 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
         ),
         tbody: ({ children, ...props }) => (
           <tbody
-            className="divide-y divide-slate-200 dark:divide-slate-800 bg-white/60 dark:bg-slate-900/40"
+            className="divide-y divide-[var(--color-border)] bg-[var(--color-surface)]"
             {...props}
           >
             {children}
@@ -125,7 +125,7 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
         ),
         tr: ({ children, ...props }) => (
           <tr
-            className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors"
+            className="hover:bg-[var(--color-surface-warm)] transition-colors"
             {...props}
           >
             {children}
@@ -133,7 +133,7 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
         ),
         th: ({ children, ...props }) => (
           <th
-            className="px-4 py-3 text-right font-bold text-slate-900 dark:text-slate-100 tracking-tight whitespace-nowrap"
+            className="px-4 py-3.5 text-right font-extrabold text-[var(--color-text)] tracking-tight whitespace-nowrap bg-[var(--color-surface-warm)] border-b-2 border-[var(--color-border)]"
             {...props}
           >
             {children}
@@ -141,7 +141,7 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
         ),
         td: ({ children, ...props }) => (
           <td
-            className="px-4 py-3 text-right text-slate-700 dark:text-slate-300 align-top"
+            className="px-4 py-3 text-right text-[var(--color-text)] align-top border-b border-[var(--color-border)]"
             {...props}
           >
             {children}

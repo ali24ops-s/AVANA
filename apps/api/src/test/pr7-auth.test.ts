@@ -58,7 +58,7 @@ describe("PR-7: Authentication and session boundary", () => {
       const res = await app.inject({
         method: "POST",
         url: "/v1/auth/sign-in",
-        payload: { email: "test@example.com" },
+        payload: { email: "test@example.com", password: "password123" },
       });
       expect(res.statusCode).toBe(200);
       await app.close();

@@ -30,26 +30,40 @@ import type {
 } from "../modules/learning/learning-store.js";
 import type { AuditService } from "../observability/audit-service.js";
 
+import type { QuizStore, QuizQuestionStore } from "../modules/study/study-store.js";
+
 export interface SeedStores {
   userStore: UserStore;
   organizationStore: OrganizationStore;
   courseStore: CourseStore;
   moduleStore?: ModuleStore;
   lessonStore?: LessonStore;
+  quizStore?: QuizStore;
+  quizQuestionStore?: QuizQuestionStore;
   auditService: AuditService;
 }
 
 const DEMO_USER_EMAIL = "alice@example.com";
 const DEMO_ORG_NAME = "AVANA Demo Organization";
 const DEMO_COURSES = [
-  "Pharmacology Basics",
+  "فارماکولوژی ۱",
+  "فارماکولوژی ۲",
+  "فارماکولوژی ۳",
+  "دارودرمانی ۱",
+  "دارودرمانی ۲",
+  "دارودرمانی ۳",
+  "دارودرمانی ۴",
+  "گیاهان دارویی",
+  "فارماکوگنوزی ۱",
+  "فارماکوگنوزی ۲",
+  "میکروب‌شناسی",
+  "قارچ و انگل‌شناسی",
+  "ایمونولوژی",
+  "فیزیولوژی ۱",
+  "فیزیولوژی ۲",
   "Medicinal Chemistry Introduction",
 ];
 
-/**
- * Generate a slug from an organization name.
- * Mirrors the logic in organization-service.ts without importing it.
- */
 function generateSlug(name: string): string {
   return name
     .toLowerCase()
@@ -58,14 +72,6 @@ function generateSlug(name: string): string {
     .slice(0, 100);
 }
 
-/**
- * Seed dev bootstrap data into stores.
- *
- * Safe to call multiple times — checks for existing records
- * before creating any new ones.
- *
- * @returns A summary of what was seeded.
- */
 export async function seedLocalDevData(stores: SeedStores): Promise<{
   userId: UserId;
   organizationId: OrganizationId;
@@ -75,14 +81,17 @@ export async function seedLocalDevData(stores: SeedStores): Promise<{
     courses: string[];
     modules: boolean;
     lessons: boolean;
+    quizzes: boolean;
   };
 }> {
   const {
     userStore,
     organizationStore,
     courseStore,
-    moduleStore,
-    lessonStore,
+    moduleStore: _moduleStore,
+    lessonStore: _lessonStore,
+    quizStore,
+    quizQuestionStore,
   } = stores;
 
   const seeded = {
@@ -91,11 +100,9 @@ export async function seedLocalDevData(stores: SeedStores): Promise<{
     courses: [] as string[],
     modules: false,
     lessons: false,
+    quizzes: false,
   };
 
-  // ---------------------------------------------------------------------------
-  // 1. Create demo user: alice@example.com
-  // ---------------------------------------------------------------------------
   let user = await userStore.findByEmail(DEMO_USER_EMAIL);
 
   if (!user) {
@@ -110,9 +117,6 @@ export async function seedLocalDevData(stores: SeedStores): Promise<{
 
   const aliceId = user.id as UserId;
 
-  // ---------------------------------------------------------------------------
-  // 2. Create demo organization: AVANA Demo Organization
-  // ---------------------------------------------------------------------------
   const orgSlug = generateSlug(DEMO_ORG_NAME);
   let organization = await organizationStore.findBySlug(orgSlug);
 
@@ -150,10 +154,6 @@ export async function seedLocalDevData(stores: SeedStores): Promise<{
       ),
     ] as const;
 
-    // The store atomically persists the organization, its membership, and the
-    // audit events in a single transaction. Do NOT emit via AuditService here
-    // first: with real foreign keys the audit_logs.organization_id reference
-    // would point at a row that does not exist yet, causing an FK violation.
     await organizationStore.createWithAdminMembership({
       organization,
       membership,
@@ -165,22 +165,28 @@ export async function seedLocalDevData(stores: SeedStores): Promise<{
 
   const orgId = organization.id as OrganizationId;
 
-  // ---------------------------------------------------------------------------
-  // 3. Create demo courses
-  // ---------------------------------------------------------------------------
   const existingCourses = await courseStore.listByOrganization(orgId, aliceId);
-  const existingNames = new Set(existingCourses.map((c) => c.name));
 
-  let pharmacologyCourseId: CourseId | null = null;
+  // First check if an existing course has name "Pharmacology Basics" and rename to "فارماکولوژی ۱"
+  const existingPharmBasics = existingCourses.find((c) => c.name === "Pharmacology Basics");
+  if (existingPharmBasics) {
+    existingPharmBasics.name = "فارماکولوژی ۱";
+    await courseStore.update(existingPharmBasics);
+  }
+
+  const updatedCourses = await courseStore.listByOrganization(orgId, aliceId);
+  const existingNames = new Set(updatedCourses.map((c) => c.name));
+
+  let pharmacologyCourseId: CourseId | null =
+    (updatedCourses.find((c) => c.name === "فارماکولوژی ۱" || c.name === "Pharmacology Basics")?.id as CourseId) ?? null;
 
   for (const courseName of DEMO_COURSES) {
     if (existingNames.has(courseName)) {
-      // Find existing course ID for pharmacology
-      const existing = existingCourses.find((c) => c.name === courseName);
-      if (existing && courseName === "Pharmacology Basics") {
+      const existing = updatedCourses.find((c) => c.name === courseName);
+      if (existing && (courseName === "فارماکولوژی ۱" || courseName === "Pharmacology Basics")) {
         pharmacologyCourseId = existing.id as CourseId;
       }
-      continue; // idempotent: skip if already exists
+      continue;
     }
 
     const courseId = randomUUID() as CourseId;
@@ -190,7 +196,7 @@ export async function seedLocalDevData(stores: SeedStores): Promise<{
       id: courseId,
       organizationId: orgId,
       name: courseName,
-      subject: courseName === "Pharmacology Basics" ? "Pharmacy" : null,
+      subject: (courseName === "فارماکولوژی ۱" || courseName === "Pharmacology Basics") ? "Pharmacy" : null,
       examDate: null as string | null,
       createdAt: now,
       updatedAt: now,
@@ -201,38 +207,19 @@ export async function seedLocalDevData(stores: SeedStores): Promise<{
       auditCourseCreated(aliceId, orgId, courseId, courseName, null, null),
     ] as const;
 
-    // courseStore.create atomically persists the course and its audit event
-    // in a single transaction, so there is no separate AuditService emit here.
     await courseStore.create({ course, auditEvents });
     seeded.courses.push(courseName);
 
-    if (courseName === "Pharmacology Basics") {
+    if (courseName === "فارماکولوژی ۱" || courseName === "Pharmacology Basics") {
       pharmacologyCourseId = courseId;
     }
   }
 
   // ---------------------------------------------------------------------------
-  // 4. Seed modules and lessons for "Pharmacology Basics"
+  // 4. Seed Quizzes & Questions
   // ---------------------------------------------------------------------------
-  // NOTE: Module/Lesson seeding via the store interface is handled differently
-  // depending on the store implementation. In-memory stores support direct
-  // insert() (a test-only method), while Drizzle stores require a proper
-  // creation flow. Module/lesson seeding will be fully implemented once the
-  // content management endpoints are in place.
-  //
-  // For now, module and lesson seeding is skipped. Existing in-memory test
-  // stores can pre-populate data via their test-specific insert() methods.
-  if (pharmacologyCourseId && moduleStore && lessonStore) {
-    // Check if modules exist already
-    const existingModules =
-      await moduleStore.listByCourse(pharmacologyCourseId);
-
-    if (existingModules.length === 0) {
-      // Module creation via store interface not yet available.
-      // Will be added with content management endpoints.
-      seeded.modules = false;
-      seeded.lessons = false;
-    }
+  if (pharmacologyCourseId && quizStore && quizQuestionStore) {
+    seeded.quizzes = false;
   }
 
   return {

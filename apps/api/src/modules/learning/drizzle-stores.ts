@@ -46,6 +46,7 @@ import type {
 function toModuleRecord(row: {
   id: string;
   courseId: string;
+  documentId?: string | null;
   title: string;
   description: string | null;
   sortOrder: number;
@@ -56,6 +57,7 @@ function toModuleRecord(row: {
   return {
     id: row.id as ModuleId,
     courseId: row.courseId as CourseId,
+    documentId: (row.documentId as DocumentId) ?? null,
     title: row.title,
     description: row.description,
     sortOrder: row.sortOrder,
@@ -200,6 +202,18 @@ export class DrizzleModuleStore implements ModuleStore {
     return rows.map(toModuleRecord);
   }
 
+  async findByDocument(documentId: DocumentId): Promise<ModuleRecord | undefined> {
+    const row = await this.db
+      .select()
+      .from(modules)
+      .where(and(eq(modules.documentId, documentId), isNull(modules.deletedAt)))
+      .limit(1)
+      .then((rows) => rows[0]);
+
+    if (!row) return undefined;
+    return toModuleRecord(row);
+  }
+
   async findById(moduleId: ModuleId): Promise<ModuleRecord | undefined> {
     const row = await this.db
       .select()
@@ -218,6 +232,7 @@ export class DrizzleModuleStore implements ModuleStore {
       .values({
         id: module.id,
         courseId: module.courseId,
+        documentId: module.documentId ?? null,
         title: module.title,
         description: module.description,
         sortOrder: module.sortOrder,
@@ -233,10 +248,12 @@ export class DrizzleModuleStore implements ModuleStore {
     const [row] = await this.db
       .update(modules)
       .set({
+        documentId: module.documentId ?? null,
         title: module.title,
         description: module.description,
         sortOrder: module.sortOrder,
         updatedAt: new Date(module.updatedAt),
+        deletedAt: module.deletedAt ? new Date(module.deletedAt) : null,
       })
       .where(eq(modules.id, module.id))
       .returning();
@@ -325,6 +342,7 @@ export class DrizzleLessonStore implements LessonStore {
         estimatedMinutes: lesson.estimatedMinutes,
         publicationStatus: lesson.publicationStatus,
         updatedAt: new Date(lesson.updatedAt),
+        deletedAt: lesson.deletedAt ? new Date(lesson.deletedAt) : null,
       })
       .where(eq(lessons.id, lesson.id))
       .returning();

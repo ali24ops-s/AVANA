@@ -123,7 +123,7 @@ export function ReviewQueueList({
         </div>
 
         {/* Filter Pills */}
-        <div className="flex items-center gap-1.5 p-1 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl text-xs">
+        <div className="flex items-center gap-1.5 p-1 bg-[var(--color-surface-warm)] border-2 border-[var(--color-border)] rounded-xl text-xs">
           {(["all", "lesson", "flashcard", "quiz"] as const).map((t) => (
             <button
               type="button"
@@ -132,8 +132,8 @@ export function ReviewQueueList({
               aria-pressed={typeFilter === t}
               className={`px-3 py-1.5 rounded-lg font-bold transition-all ${
                 typeFilter === t
-                  ? "bg-[#008080] text-white shadow-sm"
-                  : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-warm)]"
+                  ? "bg-[#007a7a] text-white shadow-sm"
+                  : "text-[var(--color-text)] hover:bg-[var(--color-surface)] border border-transparent hover:border-[var(--color-border)]"
               }`}
             >
               {getFilterLabel(t)}

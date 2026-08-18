@@ -109,7 +109,7 @@ export function LearningPage() {
     orgQuery.data?.items?.[0] ||
     (memberships && memberships.length > 0
       ? { id: memberships[0].organization_id, name: "سازمان یادگیری" }
-      : { id: "00000000-0000-0000-0000-000000000010", name: "سازمان یادگیری آوانا" });
+      : undefined);
 
   const { data, isLoading, isError, error, refetch } = useCourseLearning(courseId);
   const queryClient = useQueryClient();
@@ -378,11 +378,26 @@ export function LearningPage() {
 
       {/* Tab Content */}
       {activeTab === "flashcards" && (
-        <FlashcardExperience
-          organizationId={organization.id}
-          courseId={courseId!}
-          onBack={() => setTab("lessons")}
-        />
+        <div className="space-y-6">
+          <div className="flex items-center justify-between bg-[var(--color-surface)] p-4 rounded-2xl border border-[var(--color-border)]">
+            <span className="text-xs text-[var(--color-text-muted)]">
+              می‌خواهید هدف مطالعه را تغییر داده یا سرفصل‌های خاصی را برای شب امتحان تیک بزنید؟
+            </span>
+            <Link
+              to={`/flashcards?courses=${courseId}`}
+              className="px-4 py-2 bg-[#008080]/10 hover:bg-[#008080]/20 text-[#008080] rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
+            >
+              <span>تنظیم هدف مطالعه و انتخاب سرفصل‌ها</span>
+              <ChevronRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+
+          <FlashcardExperience
+            organizationId={organization.id}
+            courseId={courseId!}
+            onBack={() => setTab("lessons")}
+          />
+        </div>
       )}
 
       {activeTab === "quizzes" && (
@@ -442,23 +457,30 @@ export function LearningPage() {
       {activeTab === "lessons" && (
         <div className="flex flex-col lg:flex-row gap-6">
           {totalLessonsCount === 0 ? (
-            <div className="w-full space-y-6">
-              <div className="bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] p-8 text-center space-y-3 shadow-sm">
-                <div className="w-12 h-12 rounded-2xl bg-[#a7d0e6]/30 text-[#008080] flex items-center justify-center mx-auto">
-                  <UploadCloud className="w-6 h-6" />
+            <div className="w-full">
+              <div className="bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] p-10 text-center space-y-4 shadow-sm">
+                <div className="w-16 h-16 rounded-2xl bg-[#008080]/10 text-[#008080] border border-[#008080]/20 flex items-center justify-center mx-auto shadow-inner">
+                  <BookOpen className="w-8 h-8" />
                 </div>
-                <h3 className="text-base font-bold text-[var(--color-text)]">
-                  هنوز درسی در دسترس نیست
-                </h3>
-                <p className="text-xs text-[var(--color-text-muted)] max-w-md mx-auto leading-relaxed">
-                  برای شروع یادگیری، فایل جزوه یا اسلاید درسی (PDF) خود را از کادر زیر بارگذاری نمایید تا درس‌ها، فلش‌کارت‌ها و آزمون‌ها به‌صورت هوشمند تولید شوند.
-                </p>
+                <div className="space-y-1.5 max-w-md mx-auto">
+                  <h3 className="text-lg font-bold text-[var(--color-text)]">
+                    هنوز محتوایی به این دوره اضافه نشده است
+                  </h3>
+                  <p className="text-xs text-[var(--color-text-muted)] leading-relaxed">
+                    این دوره هنوز محتوای آموزشی ندارد. برای شروع، اولین فایل PDF آموزشی خود را اضافه کنید.
+                  </p>
+                </div>
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setTab("documents")}
+                    className="inline-flex items-center gap-2 px-6 py-3 bg-[#008080] hover:bg-[#006666] text-white rounded-2xl text-xs font-bold transition-all shadow-md active:scale-95 cursor-pointer"
+                  >
+                    <UploadCloud className="w-4 h-4" />
+                    <span>افزودن فایل PDF</span>
+                  </button>
+                </div>
               </div>
-
-              <CourseDocumentsView
-                organizationId={organization.id}
-                courseId={courseId!}
-              />
             </div>
           ) : (
             <>

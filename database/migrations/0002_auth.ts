@@ -13,6 +13,12 @@ import { sql } from "drizzle-orm";
 export async function up(db: any) {
   await db.execute(sql`
     -- ============================================================
+    -- Users Table Update
+    -- ============================================================
+
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash varchar(255);
+
+    -- ============================================================
     -- Auth Identities
     -- ============================================================
 

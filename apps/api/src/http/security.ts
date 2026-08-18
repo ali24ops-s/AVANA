@@ -48,16 +48,19 @@ const securityPluginImpl: FastifyPluginAsync<SecurityPluginOptions> = async (
     exposedHeaders: ["X-Request-Id"],
   });
 
-  // 3. Rate limiting (global)
+  // 3. Rate limiting (global for general API endpoints)
   await app.register(rateLimit, {
     max: config.security.rateLimit.max,
     timeWindow: config.security.rateLimit.timeWindowMs,
-    // Use key generator based on IP
     keyGenerator: (request) => {
       return request.ip;
     },
-    // Exclude health/readiness from rate limiting
-    allowList: ["127.0.0.1", "::1"],
+    allowList: (request) => {
+      return (
+        request.url.startsWith("/v1/health") ||
+        request.url.startsWith("/v1/readiness")
+      );
+    },
   });
 };
 

@@ -9,6 +9,11 @@ import { up as up0006 } from "./migrations/0006_generation_idempotency.js";
 import { up as up0007 } from "./migrations/0007_generation_jobs.js";
 import { up as up0008 } from "./migrations/0008_content_review.js";
 import { up as up0009 } from "./migrations/0009_study_consumption.js";
+import { up as up0010 } from "./migrations/0010_user_flashcard_schedules.js";
+import { up as up0011 } from "./migrations/0011_exams_configuration.js";
+import { up as up0012 } from "./migrations/0012_taxonomy_lesson_relations.js";
+import { up as up0013 } from "./migrations/0013_document_module_invariant.js";
+import { up as up0014 } from "./migrations/0014_email_verification.js";
 
 function localConnectionString(): string {
   const user = "avana";
@@ -44,6 +49,16 @@ async function runMigrations() {
     await up0008(db);
     console.log("Applying 0009_study_consumption...");
     await up0009(db);
+    console.log("Applying 0010_user_flashcard_schedules...");
+    await up0010(db);
+    console.log("Applying 0011_exams_configuration...");
+    await up0011(db);
+    console.log("Applying 0012_taxonomy_lesson_relations...");
+    await up0012(db);
+    console.log("Applying 0013_document_module_invariant...");
+    await up0013(db);
+    console.log("Applying 0014_email_verification...");
+    await up0014(db);
 
     console.log("All database migrations applied successfully.");
   } catch (error) {

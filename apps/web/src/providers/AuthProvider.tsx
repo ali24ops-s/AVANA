@@ -32,8 +32,16 @@ export type AuthState = {
   error: string | null;
   /** True if the user is authenticated. */
   isAuthenticated: boolean;
-  /** Sign in with an email address. */
-  signIn: (email: string) => Promise<void>;
+  /** True if the authenticated user's email is verified. */
+  isEmailVerified: boolean;
+  /** Sign in with email and password. */
+  signIn: (email: string, password: string) => Promise<void>;
+  /** Register a new user account. */
+  signUp: (email: string, password: string, name?: string) => Promise<void>;
+  /** Verify 6-digit email verification code. */
+  verifyEmail: (code: string) => Promise<void>;
+  /** Request resending a verification code. */
+  resendVerification: (email?: string) => Promise<void>;
   /** Sign out (revoke session). */
   signOut: () => Promise<void>;
   /** Clear any auth error. */
@@ -89,20 +97,79 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [fetchMe]);
 
   const signIn = useCallback(
-    async (email: string) => {
+    async (email: string, password: string) => {
       setIsLoading(true);
       setError(null);
       try {
-        const response = await authApi.signIn(email);
+        const response = await authApi.signIn(email, password);
         setUser(response.user);
         setMemberships(response.memberships ?? []);
       } catch (err) {
+        const rawMessage =
+          err instanceof ApiError ? err.message : "ورود به حساب کاربری با خطا مواجه شد.";
         const message =
-          err instanceof ApiError ? err.message : "Sign in failed";
+          rawMessage === "Email domain not allowed"
+            ? "دامنه ایمیل مجاز نیست."
+            : rawMessage;
         setError(message);
         throw err;
       } finally {
         setIsLoading(false);
+      }
+    },
+    [authApi],
+  );
+
+  const signUp = useCallback(
+    async (email: string, password: string, name?: string) => {
+      setIsLoading(true);
+      setError(null);
+      try {
+        const response = await authApi.signUp(email, password, name);
+        setUser(response.user);
+        setMemberships(response.memberships ?? []);
+      } catch (err) {
+        const message =
+          err instanceof ApiError ? err.message : "ثبت‌نام حساب کاربری با خطا مواجه شد.";
+        setError(message);
+        throw err;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [authApi],
+  );
+
+  const verifyEmail = useCallback(
+    async (code: string) => {
+      setIsLoading(true);
+      setError(null);
+      try {
+        const response = await authApi.verifyEmail(code);
+        setUser(response.user);
+        setMemberships(response.memberships ?? []);
+      } catch (err) {
+        const message =
+          err instanceof ApiError ? err.message : "تأیید ایمیل با خطا مواجه شد.";
+        setError(message);
+        throw err;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [authApi],
+  );
+
+  const resendVerification = useCallback(
+    async (email?: string) => {
+      setError(null);
+      try {
+        await authApi.resendVerification(email);
+      } catch (err) {
+        const message =
+          err instanceof ApiError ? err.message : "ارسال مجدد کد با خطا مواجه شد.";
+        setError(message);
+        throw err;
       }
     },
     [authApi],
@@ -125,7 +192,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isLoading,
     error,
     isAuthenticated: user !== null,
+    isEmailVerified: user ? user.emailVerified !== false : false,
     signIn,
+    signUp,
+    verifyEmail,
+    resendVerification,
     signOut,
     clearError,
   };

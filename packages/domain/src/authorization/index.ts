@@ -34,6 +34,7 @@ export {
   auditLessonCreated,
   auditLessonUpdated,
   auditLessonPublished,
+  auditLessonDeleted,
   auditLessonCompleted,
   auditLessonProgressUpdated,
   auditDocumentUploaded,

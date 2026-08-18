@@ -16,8 +16,20 @@ import { eq } from "drizzle-orm";
 import { createDbClient } from "@avana/database/client";
 import { modules, lessons } from "@avana/database/schema";
 import type { DbClient } from "@avana/database/client";
-import { DrizzleSessionStore } from "../modules/identity/drizzle-stores.js";
-import { DrizzleUserStore } from "../modules/identity/drizzle-stores.js";
+import {
+  DrizzleSessionStore,
+  DrizzleUserStore,
+  DrizzleEmailVerificationStore,
+  MockEmailService,
+  ResendEmailService,
+  type EmailService,
+} from "../modules/identity/index.js";
+
+export interface ProductionDependencies {
+  v1Options: V1RouteOptions;
+  auditService: AuditService;
+  close: () => Promise<void>;
+}
 import { DrizzleOrganizationStore } from "../modules/organizations/drizzle-stores.js";
 import { DrizzleCourseStore } from "../modules/courses/drizzle-stores.js";
 import {
@@ -35,6 +47,7 @@ import {
 import {
   DrizzleFlashcardStore,
   DrizzleFlashcardReviewStore,
+  DrizzleUserFlashcardScheduleStore,
   DrizzleQuizStore,
   DrizzleQuizQuestionStore,
   DrizzleQuizAttemptStore,
@@ -211,6 +224,26 @@ export async function composeProduction(
   // Drizzle-backed stores
   const sessionStore = new DrizzleSessionStore(db);
   const userStore = new DrizzleUserStore(db);
+  const emailVerificationStore = new DrizzleEmailVerificationStore(db);
+  let emailService: EmailService;
+  if (config.nodeEnv === "production") {
+    if (!config.email.resendApiKey) {
+      throw new Error(
+        "Missing required production email configuration: RESEND_API_KEY is not set.",
+      );
+    }
+    emailService = new ResendEmailService(
+      config.email.resendApiKey,
+      config.email.from,
+    );
+  } else if (config.email.resendApiKey) {
+    emailService = new ResendEmailService(
+      config.email.resendApiKey,
+      config.email.from,
+    );
+  } else {
+    emailService = new MockEmailService();
+  }
   const organizationStore = new DrizzleOrganizationStore(db);
   const courseStore = new DrizzleCourseStore(db);
   const moduleStore = new DrizzleModuleStore(db);
@@ -248,6 +281,7 @@ export async function composeProduction(
   // Study stores (PR6-7)
   const flashcardStore = new DrizzleFlashcardStore(db);
   const flashcardReviewStore = new DrizzleFlashcardReviewStore(db);
+  const userFlashcardScheduleStore = new DrizzleUserFlashcardScheduleStore(db);
   const quizStore = new DrizzleQuizStore(db);
   const quizQuestionStore = new DrizzleQuizQuestionStore(db);
   const quizAttemptStore = new DrizzleQuizAttemptStore(db);
@@ -259,6 +293,8 @@ export async function composeProduction(
     config,
     sessionStore,
     userStore,
+    emailVerificationStore,
+    emailService,
     organizationStore,
     courseStore,
     moduleStore,
@@ -274,6 +310,7 @@ export async function composeProduction(
     gateway,
     flashcardStore,
     flashcardReviewStore,
+    userFlashcardScheduleStore,
     quizStore,
     quizQuestionStore,
     quizAttemptStore,
@@ -299,7 +336,7 @@ export async function composeProduction(
             seedResult.organizationId,
             seedResult.userId,
           )
-        ).find((c) => c.name === "Pharmacology Basics")?.id ?? null)
+        ).find((c) => c.name === "فارماکولوژی ۱" || c.name === "Pharmacology Basics")?.id ?? null)
       : null;
 
     let learningSeeded = { modules: false, lessons: false };

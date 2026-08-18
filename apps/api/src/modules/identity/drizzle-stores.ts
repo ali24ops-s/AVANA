@@ -9,11 +9,15 @@
  * on read to match the domain shape expected by in-memory stores.
  */
 
-import { eq } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 import type { DbClient } from "@avana/database/client";
-import { users, sessions } from "@avana/database/schema";
+import { users, sessions, emailVerificationCodes, auditLogs } from "@avana/database/schema";
 import type { SessionRecord, SessionStore } from "./session-store.js";
 import type { UserRecord, UserStore } from "./user-store.js";
+import type {
+  EmailVerificationCodeRecord,
+  EmailVerificationStore,
+} from "./email-verification-store.js";
 import type { UserId, VerifiedIdentity } from "@avana/domain";
 import { randomUUID } from "node:crypto";
 
@@ -52,11 +56,15 @@ function toUserRecord(row: {
   id: string;
   email: string;
   name: string;
+  emailVerifiedAt?: Date | null;
 }): UserRecord {
   return {
     id: row.id as UserId,
     email: row.email,
+    name: row.name,
     role: "student", // Default role; role column not yet in schema
+    emailVerifiedAt: row.emailVerifiedAt?.toISOString() ?? null,
+    emailVerified: row.emailVerifiedAt != null,
   };
 }
 
@@ -126,15 +134,34 @@ export class DrizzleUserStore implements UserStore {
   constructor(private readonly db: DbClient) {}
 
   async findByEmail(email: string): Promise<UserRecord | undefined> {
+    const normalizedEmail = email.trim().toLowerCase();
     const row = await this.db
       .select()
       .from(users)
-      .where(eq(users.email, email))
+      .where(eq(users.email, normalizedEmail))
       .limit(1)
       .then((rows) => rows[0]);
 
     if (!row) return undefined;
     return toUserRecord(row);
+  }
+
+  async findWithPasswordByEmail(
+    email: string,
+  ): Promise<(UserRecord & { passwordHash?: string | null }) | undefined> {
+    const normalizedEmail = email.trim().toLowerCase();
+    const row = await this.db
+      .select()
+      .from(users)
+      .where(eq(users.email, normalizedEmail))
+      .limit(1)
+      .then((rows) => rows[0]);
+
+    if (!row) return undefined;
+    return {
+      ...toUserRecord(row),
+      passwordHash: row.passwordHash ?? null,
+    };
   }
 
   async findById(id: UserId): Promise<UserRecord | undefined> {
@@ -152,15 +179,140 @@ export class DrizzleUserStore implements UserStore {
   async createFromVerifiedIdentity(
     identity: VerifiedIdentity,
   ): Promise<UserRecord> {
+    const normalizedEmail = identity.email.trim().toLowerCase();
     const [row] = await this.db
       .insert(users)
       .values({
         id: randomUUID(),
-        email: identity.email,
+        email: normalizedEmail,
         name: identity.name,
       })
-      .returning({ id: users.id, email: users.email, name: users.name });
+      .returning({
+        id: users.id,
+        email: users.email,
+        name: users.name,
+        emailVerifiedAt: users.emailVerifiedAt,
+      });
 
     return toUserRecord(row);
   }
+
+  async createUserWithPassword(params: {
+    email: string;
+    passwordHash: string;
+    name?: string;
+  }): Promise<UserRecord> {
+    const normalizedEmail = params.email.trim().toLowerCase();
+    const [row] = await this.db
+      .insert(users)
+      .values({
+        id: randomUUID(),
+        email: normalizedEmail,
+        passwordHash: params.passwordHash,
+        name: params.name ?? normalizedEmail.split("@")[0],
+      })
+      .returning({
+        id: users.id,
+        email: users.email,
+        name: users.name,
+        emailVerifiedAt: users.emailVerifiedAt,
+      });
+
+    return toUserRecord(row);
+  }
+
+  async setEmailVerified(userId: UserId): Promise<void> {
+    await this.db
+      .update(users)
+      .set({ emailVerifiedAt: new Date(), updatedAt: new Date() })
+      .where(eq(users.id, userId));
+  }
+
+  async deleteUser(userId: UserId): Promise<void> {
+    await this.db.delete(auditLogs).where(eq(auditLogs.actorId, userId));
+    await this.db.delete(users).where(eq(users.id, userId));
+  }
 }
+
+// ---------------------------------------------------------------------------
+// DrizzleEmailVerificationStore
+// ---------------------------------------------------------------------------
+
+export class DrizzleEmailVerificationStore implements EmailVerificationStore {
+  constructor(private readonly db: DbClient) {}
+
+  async createCode(values: {
+    userId: UserId;
+    codeHash: string;
+    expiresAt: string;
+  }): Promise<EmailVerificationCodeRecord> {
+    const [row] = await this.db
+      .insert(emailVerificationCodes)
+      .values({
+        userId: values.userId,
+        codeHash: values.codeHash,
+        expiresAt: new Date(values.expiresAt),
+      })
+      .returning();
+
+    return {
+      id: row.id,
+      userId: row.userId as UserId,
+      codeHash: row.codeHash,
+      expiresAt: row.expiresAt.toISOString(),
+      attempts: row.attempts,
+      createdAt: row.createdAt.toISOString(),
+      usedAt: row.usedAt?.toISOString() ?? null,
+    };
+  }
+
+  async findLatestActiveCode(
+    userId: UserId,
+  ): Promise<EmailVerificationCodeRecord | undefined> {
+    const row = await this.db
+      .select()
+      .from(emailVerificationCodes)
+      .where(eq(emailVerificationCodes.userId, userId))
+      .orderBy(desc(emailVerificationCodes.createdAt))
+      .limit(1)
+      .then((rows) => rows[0]);
+
+    if (!row) return undefined;
+    return {
+      id: row.id,
+      userId: row.userId as UserId,
+      codeHash: row.codeHash,
+      expiresAt: row.expiresAt.toISOString(),
+      attempts: row.attempts,
+      createdAt: row.createdAt.toISOString(),
+      usedAt: row.usedAt?.toISOString() ?? null,
+    };
+  }
+
+  async incrementAttempts(id: string): Promise<void> {
+    await this.db
+      .update(emailVerificationCodes)
+      .set({ attempts: sql`${emailVerificationCodes.attempts} + 1` })
+      .where(eq(emailVerificationCodes.id, id));
+  }
+
+  async markAsUsed(id: string): Promise<void> {
+    await this.db
+      .update(emailVerificationCodes)
+      .set({ usedAt: new Date() })
+      .where(eq(emailVerificationCodes.id, id));
+  }
+
+  async invalidateAllForUser(userId: UserId): Promise<void> {
+    await this.db
+      .update(emailVerificationCodes)
+      .set({ usedAt: new Date() })
+      .where(
+        and(
+          eq(emailVerificationCodes.userId, userId),
+          sql`${emailVerificationCodes.usedAt} IS NULL`,
+        ),
+      );
+  }
+}
+

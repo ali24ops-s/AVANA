@@ -143,7 +143,7 @@ describe("PR6-9C UX Hardening: Lessons", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("هنوز درسی در دسترس نیست")).toBeDefined();
+      expect(screen.getByText("هنوز محتوایی به این دوره اضافه نشده است")).toBeDefined();
     });
   });
 

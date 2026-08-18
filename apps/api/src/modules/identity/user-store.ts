@@ -10,13 +10,33 @@ import type { UserId, VerifiedIdentity } from "@avana/domain";
 export interface UserRecord {
   id: UserId;
   email: string;
+  name?: string;
   role: string;
+  emailVerifiedAt?: string | null;
+  emailVerified?: boolean;
+}
+
+export interface UserWithPasswordRecord extends UserRecord {
+  passwordHash?: string | null;
 }
 
 export interface UserStore {
   findByEmail(email: string): Promise<UserRecord | undefined>;
 
+  findWithPasswordByEmail(email: string): Promise<UserWithPasswordRecord | undefined>;
+
   findById(id: UserId): Promise<UserRecord | undefined>;
 
   createFromVerifiedIdentity(identity: VerifiedIdentity): Promise<UserRecord>;
+
+  createUserWithPassword(params: {
+    email: string;
+    passwordHash: string;
+    name?: string;
+  }): Promise<UserRecord>;
+
+  setEmailVerified(userId: UserId): Promise<void>;
+
+  deleteUser?(userId: UserId): Promise<void>;
 }
+

@@ -233,7 +233,25 @@ describe("PR6-5: AI generation API (async)", () => {
     });
     expect(res.statusCode).toBe(201);
     const body = JSON.parse(res.body) as { organization: { id: string } };
-    return body.organization.id as OrganizationId;
+    const orgId = body.organization.id as OrganizationId;
+    try {
+      await courseStore.create({
+        course: {
+          id: courseId as any,
+          organizationId: orgId,
+          name: "Test Course",
+          subject: "Pharmacology",
+          examDate: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          deletedAt: null,
+        },
+        auditEvents: [],
+      });
+    } catch {
+      // Ignore if already seeded
+    }
+    return orgId;
   }
 
   async function uploadAndExtract(

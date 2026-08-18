@@ -1,29 +1,44 @@
 /**
- * Authenticated application shell.
+ * Authenticated application shell with top navigation header bar.
  *
- * Contains:
- *  - Current user information from /v1/me
- *  - Navigation structure (Home, Courses)
- *  - Loading states
- *  - Sign-out action
- *  - API error display
+ * All primary menu items (Home, Courses, Flashcards, Quizzes, Files)
+ * are situated in the top sticky header, allowing the main content container
+ * to expand to full width (`max-w-7xl`).
  */
 
+import { useState } from "react";
 import { Outlet, Link, useLocation } from "react-router-dom";
-import { motion } from "framer-motion";
-import { Sparkles, BookOpen, LogOut, User, Home } from "lucide-react";
+import {
+  Sparkles,
+  BookOpen,
+  LogOut,
+  User,
+  Home,
+  Layers,
+  HelpCircle,
+  FolderOpen,
+  Settings,
+  Search,
+  Bell,
+  Menu,
+  X,
+} from "lucide-react";
 import { useAuth } from "../../providers/AuthProvider.js";
 
 export function AuthenticatedShell() {
   const { user, isLoading, error, signOut } = useAuth();
   const location = useLocation();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-[var(--color-background)] flex items-center justify-center font-sans" dir="rtl">
+      <div
+        className="min-h-screen bg-[#0b1120] text-slate-200 flex items-center justify-center font-sans"
+        dir="rtl"
+      >
         <div className="flex flex-col items-center gap-4">
-          <div className="w-10 h-10 border-4 border-[#008080] border-t-transparent rounded-full animate-spin" />
-          <p className="text-[var(--color-text-muted)] text-sm font-medium">
+          <div className="w-10 h-10 border-4 border-teal-500 border-t-transparent rounded-full animate-spin" />
+          <p className="text-slate-400 text-sm font-medium">
             در حال بارگذاری حساب کاربری...
           </p>
         </div>
@@ -34,84 +49,232 @@ export function AuthenticatedShell() {
   const isHomeActive =
     location.pathname === "/" || location.pathname === "/home";
   const isCoursesActive = location.pathname.startsWith("/courses");
+  const isFlashcardsActive = location.pathname.startsWith("/flashcards");
+  const isExamsActive = location.pathname.startsWith("/exams");
 
   return (
-    <div className="min-h-screen bg-[var(--color-background)] font-sans" dir="rtl">
-      {/* Top navigation bar */}
-      <header className="sticky top-0 z-50 bg-[var(--color-surface)]/90 backdrop-blur-xl border-b border-[var(--color-border)]">
-        <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
-          {/* Logo and branding */}
-          <div className="flex items-center gap-8">
+    <div
+      className="min-h-screen bg-[#0b1120] text-slate-200 font-sans selection:bg-teal-700/50 selection:text-teal-200"
+      dir="rtl"
+    >
+      {/* Top Sticky Header Navigation Bar */}
+      <header className="sticky top-0 z-50 glass-panel border-b border-white/10 w-full shadow-ambient">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between gap-4">
+          {/* Brand & Desktop Horizontal Menu (RTL Right side) */}
+          <div className="flex items-center gap-6 lg:gap-8">
             <Link
               to="/home"
-              className="flex items-center gap-2.5 group"
+              className="flex items-center gap-3 group shrink-0"
               aria-label="صفحه اصلی آوانا"
             >
-              <div className="w-9 h-9 rounded-xl bg-[#008080] flex items-center justify-center shadow-sm group-hover:bg-[#006666] transition-colors">
-                <Sparkles className="w-4 h-4 text-white" />
+              <div className="w-10 h-10 rounded-xl bg-teal-600/30 border border-teal-500/30 flex items-center justify-center text-teal-400 shadow-sm group-hover:bg-teal-600/40 transition-colors">
+                <Sparkles className="w-5 h-5 text-teal-400" />
               </div>
-              <span className="font-extrabold text-xl tracking-tight text-[var(--color-text)]">
-                آوانا
-              </span>
+              <div>
+                <h1 className="text-lg font-bold text-teal-400 leading-tight">
+                  آوانا
+                </h1>
+                <p className="text-[10px] sm:text-xs text-slate-400">
+                  آموزش هوشمند پزشکی
+                </p>
+              </div>
             </Link>
 
-            {/* Navigation */}
-            <nav className="flex items-center gap-1.5" aria-label="منوی اصلی">
-              <NavLink to="/home" active={isHomeActive}>
+            {/* Desktop Navigation Links */}
+            <nav className="hidden md:flex items-center gap-1" aria-label="منوی اصلی">
+              <HeaderNavLink to="/home" active={isHomeActive}>
                 <Home className="w-4 h-4" />
                 <span>خانه</span>
-              </NavLink>
+              </HeaderNavLink>
 
-              <NavLink to="/courses" active={isCoursesActive}>
+              <HeaderNavLink to="/courses" active={isCoursesActive}>
                 <BookOpen className="w-4 h-4" />
                 <span>دوره‌ها</span>
-              </NavLink>
+              </HeaderNavLink>
+
+              <HeaderNavLink to="/flashcards" active={isFlashcardsActive}>
+                <Layers className="w-4 h-4" />
+                <span>فلش‌کارت‌ها</span>
+              </HeaderNavLink>
+
+              <HeaderNavLink to="/exams" active={isExamsActive}>
+                <HelpCircle className="w-4 h-4" />
+                <span>آزمون‌ها</span>
+              </HeaderNavLink>
+
+              <HeaderNavLink to="/home#upload-section" active={false}>
+                <FolderOpen className="w-4 h-4" />
+                <span>فایل‌ها</span>
+              </HeaderNavLink>
             </nav>
           </div>
 
-          {/* User info and sign-out */}
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 text-xs font-medium text-[var(--color-text-muted)] bg-[var(--color-surface-warm)] px-3 py-1.5 rounded-xl border border-[var(--color-border)]">
-              <User className="w-3.5 h-3.5 text-[#008080]" />
-              <span className="hidden sm:inline font-mono" dir="ltr">
-                {user?.email ?? "کاربر"}
+          {/* Controls & User Profile (RTL Left side) */}
+          <div className="flex items-center gap-3 shrink-0">
+            {/* Search Bar (Desktop) */}
+            <div className="hidden lg:block relative">
+              <Search className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                placeholder="جستجو در دوره‌ها..."
+                className="w-48 xl:w-56 pl-4 pr-9 py-1.5 rounded-full border border-white/10 bg-white/5 text-slate-200 text-xs placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 transition-all"
+              />
+            </div>
+
+            {/* Notifications Button */}
+            <button
+              type="button"
+              className="text-slate-300 hover:text-teal-400 transition-colors p-2 rounded-full hover:bg-white/10"
+              aria-label="اعلانات"
+            >
+              <Bell className="w-5 h-5" />
+            </button>
+
+            {/* User Profile Pill */}
+            <div className="flex items-center gap-2 text-xs font-medium text-slate-300 glass-panel px-3 py-1.5 rounded-full card-inner-border">
+              <User className="w-3.5 h-3.5 text-teal-400" />
+              <span className="hidden sm:inline text-xs">
+                {user?.name && user.name.trim().length > 0
+                  ? user.name.trim()
+                  : (user?.email ?? "کاربر")}
               </span>
             </div>
 
+            {/* Sign Out Button */}
             <button
               type="button"
               onClick={() => void signOut()}
               aria-label="خروج از حساب"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-[var(--color-text-muted)] hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold text-slate-300 hover:text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/30 transition-colors"
             >
               <LogOut className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">خروج</span>
+            </button>
+
+            {/* Mobile Menu Button */}
+            <button
+              type="button"
+              className="md:hidden text-slate-300 p-2 rounded-lg hover:bg-white/10"
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              aria-label="باز کردن منو"
+            >
+              {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
             </button>
           </div>
         </div>
       </header>
 
-      {/* Error banner */}
+      {/* Mobile Menu Drawer */}
+      {mobileMenuOpen && (
+        <div className="md:hidden fixed inset-0 top-20 bg-slate-950/90 backdrop-blur-xl z-40 p-6 flex flex-col gap-3 border-b border-white/10">
+          <MobileDrawerLink
+            to="/home"
+            active={isHomeActive}
+            onClick={() => setMobileMenuOpen(false)}
+          >
+            <Home className="w-5 h-5" />
+            <span>خانه (داشبورد)</span>
+          </MobileDrawerLink>
+
+          <MobileDrawerLink
+            to="/courses"
+            active={isCoursesActive}
+            onClick={() => setMobileMenuOpen(false)}
+          >
+            <BookOpen className="w-5 h-5" />
+            <span>دوره‌ها</span>
+          </MobileDrawerLink>
+
+          <MobileDrawerLink
+            to="/flashcards"
+            active={isFlashcardsActive}
+            onClick={() => setMobileMenuOpen(false)}
+          >
+            <Layers className="w-5 h-5" />
+            <span>فلش‌کارت‌ها</span>
+          </MobileDrawerLink>
+
+          <MobileDrawerLink
+            to="/courses"
+            active={false}
+            onClick={() => setMobileMenuOpen(false)}
+          >
+            <HelpCircle className="w-5 h-5" />
+            <span>آزمون‌ها</span>
+          </MobileDrawerLink>
+
+          <MobileDrawerLink
+            to="/home#upload-section"
+            active={false}
+            onClick={() => setMobileMenuOpen(false)}
+          >
+            <FolderOpen className="w-5 h-5" />
+            <span>فایل‌ها</span>
+          </MobileDrawerLink>
+
+          <div className="mt-auto pt-4 border-t border-white/10">
+            <Link
+              to="/home"
+              onClick={() => setMobileMenuOpen(false)}
+              className="flex items-center gap-3 px-4 py-3 rounded-lg text-slate-400 text-sm font-medium hover:bg-white/5"
+            >
+              <Settings className="w-5 h-5" />
+              <span>تنظیمات</span>
+            </Link>
+          </div>
+        </div>
+      )}
+
+      {/* API Error Banner */}
       {error && (
-        <div className="max-w-7xl mx-auto px-6 pt-4">
-          <div className="p-3.5 rounded-2xl bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 text-xs font-medium">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4">
+          <div className="p-4 rounded-xl bg-red-950/40 border border-red-500/30 text-red-300 text-xs font-medium backdrop-blur-md shadow-ambient">
             {error}
           </div>
         </div>
       )}
 
-      {/* Main content area */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
+      {/* Main Content Area (Full Width max-w-7xl Container) */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 min-h-screen w-full relative z-10">
         <Outlet />
       </main>
+
+      {/* Mobile Bottom Navigation */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 h-16 glass-panel shadow-[0_-4px_20px_rgba(0,0,0,0.5)] z-40 flex justify-around items-center px-2 border-t border-white/10">
+        <Link
+          to="/home"
+          className={`flex flex-col items-center justify-center w-full h-full text-xs font-medium ${
+            isHomeActive ? "text-[#008080] text-teal-400 font-bold" : "text-slate-400 hover:text-teal-300"
+          }`}
+        >
+          <Home className="w-5 h-5 mb-0.5" />
+          <span className="text-[10px]">صفحه اصلی</span>
+        </Link>
+
+        <Link
+          to="/courses"
+          className={`flex flex-col items-center justify-center w-full h-full text-xs font-medium ${
+            isCoursesActive ? "text-[#008080] text-teal-400 font-bold" : "text-slate-400 hover:text-teal-300"
+          }`}
+        >
+          <BookOpen className="w-5 h-5 mb-0.5" />
+          <span className="text-[10px]">لیست دوره‌ها</span>
+        </Link>
+
+        <button
+          type="button"
+          onClick={() => void signOut()}
+          className="flex flex-col items-center justify-center w-full h-full text-slate-400 hover:text-red-400 transition-colors"
+        >
+          <User className="w-5 h-5 mb-0.5" />
+          <span className="text-[10px]">خروج</span>
+        </button>
+      </nav>
     </div>
   );
 }
 
-/**
- * Navigation link component with active state indication.
- */
-function NavLink({
+function HeaderNavLink({
   to,
   active,
   children,
@@ -123,19 +286,39 @@ function NavLink({
   return (
     <Link
       to={to}
-      className={`relative flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${
+      className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs xl:text-sm font-semibold transition-all ${
         active
-          ? "text-[#008080] bg-[#008080]/10"
-          : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-warm)]"
+          ? "text-[#008080] text-teal-400 bg-teal-900/30 border border-teal-500/30 shadow-sm"
+          : "text-slate-300 hover:text-white hover:bg-white/5"
       }`}
     >
       {children}
-      {active && (
-        <motion.div
-          layoutId="nav-active"
-          className="absolute bottom-0 left-2 right-2 h-0.5 bg-[#008080] rounded-full"
-        />
-      )}
+    </Link>
+  );
+}
+
+function MobileDrawerLink({
+  to,
+  active,
+  onClick,
+  children,
+}: {
+  to: string;
+  active: boolean;
+  onClick?: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <Link
+      to={to}
+      onClick={onClick}
+      className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors ${
+        active
+          ? "text-[#008080] text-teal-400 bg-teal-900/30 font-bold border-r-4 border-teal-400"
+          : "text-slate-300 hover:bg-white/5 hover:text-white"
+      }`}
+    >
+      {children}
     </Link>
   );
 }

@@ -25,6 +25,7 @@ import type {
 export type ModuleRecord = {
   id: ModuleId;
   courseId: CourseId;
+  documentId?: DocumentId | null;
   title: string;
   description: string | null;
   sortOrder: number;
@@ -120,6 +121,9 @@ export type DocumentChunkRecord = {
 export interface ModuleStore {
   /** List all active (non-deleted) modules for a course, ordered by sort_order. */
   listByCourse(courseId: CourseId): Promise<ModuleRecord[]>;
+
+  /** Find an active module by document ID. */
+  findByDocument(documentId: DocumentId): Promise<ModuleRecord | undefined>;
 
   /** Find a module by ID. */
   findById(moduleId: ModuleId): Promise<ModuleRecord | undefined>;

@@ -10,6 +10,7 @@ import type {
   DocumentId,
   FlashcardId,
   GeneratedContentId,
+  LessonId,
   OrganizationId,
   QuizAttemptId,
   QuizId,
@@ -31,6 +32,7 @@ export type FlashcardRecord = {
   courseId: CourseId;
   documentId: DocumentId;
   generatedContentId: GeneratedContentId | null;
+  lessonId?: LessonId | null;
   question: string;
   answer: string;
   explanation: string | null;
@@ -56,12 +58,27 @@ export type FlashcardReviewRecord = {
   reactionMs: number | null;
 };
 
+export type UserFlashcardScheduleRecord = {
+  id: string;
+  userId: UserId;
+  flashcardId: FlashcardId;
+  dueAt: string;
+  intervalDays: number;
+  easeFactor: number;
+  lastReviewedAt: string | null;
+  reviewCount: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type QuizRecord = {
   id: QuizId;
   organizationId: OrganizationId;
   courseId: CourseId;
-  documentId: DocumentId;
+  documentId: DocumentId | null;
   title: string;
+  topic?: string | null;
+  difficulty?: string | null;
   status: "draft" | "published";
   createdAt: string;
   updatedAt: string;
@@ -72,7 +89,10 @@ export type QuizQuestionRecord = {
   id: QuizQuestionId;
   quizId: QuizId;
   generatedContentId: GeneratedContentId | null;
+  lessonId?: LessonId | null;
   question: string;
+  topic?: string | null;
+  difficulty?: string | null;
   questionType: string;
   choices: string[] | null;
   correctAnswer: unknown;
@@ -109,6 +129,10 @@ export interface FlashcardStore {
 
   listByCourse(
     courseId: CourseId,
+    organizationId: OrganizationId,
+  ): Promise<FlashcardRecord[]>;
+
+  listByOrganization(
     organizationId: OrganizationId,
   ): Promise<FlashcardRecord[]>;
 
@@ -156,6 +180,19 @@ export interface FlashcardReviewStore {
   countByUser(userId: UserId): Promise<number>;
 }
 
+export interface UserFlashcardScheduleStore {
+  getByUserAndCard(
+    userId: UserId,
+    flashcardId: FlashcardId,
+  ): Promise<UserFlashcardScheduleRecord | undefined>;
+
+  listByUser(userId: UserId): Promise<UserFlashcardScheduleRecord[]>;
+
+  upsertSchedule(
+    record: Omit<UserFlashcardScheduleRecord, "id" | "createdAt" | "updatedAt">,
+  ): Promise<UserFlashcardScheduleRecord>;
+}
+
 export interface QuizStore {
   findByIdForOrganization(
     id: QuizId,
@@ -164,6 +201,10 @@ export interface QuizStore {
 
   listByCourse(
     courseId: CourseId,
+    organizationId: OrganizationId,
+  ): Promise<QuizRecord[]>;
+
+  listByOrganization(
     organizationId: OrganizationId,
   ): Promise<QuizRecord[]>;
 
@@ -188,6 +229,15 @@ export interface QuizStore {
 
 export interface QuizQuestionStore {
   listByQuiz(quizId: QuizId): Promise<QuizQuestionRecord[]>;
+  listByIds(ids: QuizQuestionId[]): Promise<QuizQuestionRecord[]>;
+  listByFilter(filter: {
+    organizationId?: OrganizationId;
+    topics?: string[];
+    difficulty?: string;
+  }): Promise<QuizQuestionRecord[]>;
+  countByTopicAndDifficulty(
+    organizationId?: OrganizationId,
+  ): Promise<Array<{ topic: string; difficulty: string; questionCount: number }>>;
   createMany(records: QuizQuestionRecord[]): Promise<QuizQuestionRecord[]>;
 }
 
@@ -201,4 +251,5 @@ export interface QuizAttemptStore {
    */
   listByUserAndCourse(userId: UserId, courseId: CourseId): Promise<QuizAttemptRecord[]>;
   create(record: QuizAttemptRecord): Promise<QuizAttemptRecord>;
+  update(record: QuizAttemptRecord): Promise<QuizAttemptRecord>;
 }

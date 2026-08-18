@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { FlashcardExperience } from "../components/flashcards/FlashcardExperience.js";
 
@@ -18,6 +18,11 @@ describe("Flashcard Experience Flow", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
   });
+
+  afterEach(() => {
+    cleanup();
+  });
+
 
   it("renders empty queue state when no cards are due", async () => {
     global.fetch = vi.fn().mockImplementation((url: string) => {

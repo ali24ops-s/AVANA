@@ -306,6 +306,14 @@ describe("PR5-D2: Organization membership role resolution", () => {
       };
       expect(publishBody.lesson.publication_status).toBe("published");
 
+      // course_editor can delete a lesson (content:write)
+      const deleteRes = await app.inject({
+        method: "DELETE",
+        url: `/v1/organizations/${org.id}/courses/${courseId}/modules/${moduleId}/lessons/${lessonBody.lesson.id}`,
+        cookies: { avana_session: token },
+      });
+      expect(deleteRes.statusCode).toBe(204);
+
       await app.close();
     });
   });

@@ -28,6 +28,7 @@ export interface CourseRouteOptions {
   courseStore: CourseStore;
   organizationStore: OrganizationStore;
   auditService?: AuditService;
+  systemOrganizationId?: OrganizationId;
 }
 
 export const courseRoutes: FastifyPluginAsync<CourseRouteOptions> = async (
@@ -40,6 +41,7 @@ export const courseRoutes: FastifyPluginAsync<CourseRouteOptions> = async (
     courseStore,
     organizationStore,
     auditService,
+    systemOrganizationId,
   } = opts;
 
   const { requireAuth } = makeAuthMiddleware({ sessionService, userStore });
@@ -57,6 +59,7 @@ export const courseRoutes: FastifyPluginAsync<CourseRouteOptions> = async (
     },
     undefined,
     auditService,
+    systemOrganizationId,
   );
 
   /**

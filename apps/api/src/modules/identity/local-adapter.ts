@@ -38,7 +38,7 @@ export class LocalIdentityAdapter implements IdentityAdapter {
     const domain = credentials.email.split("@")[1];
 
     if (!this.allowedDomains.includes(domain)) {
-      throw new DomainError("unauthorized", "Email domain not allowed");
+      throw new DomainError("unauthorized", "دامنه ایمیل مجاز نیست.");
     }
 
     return {

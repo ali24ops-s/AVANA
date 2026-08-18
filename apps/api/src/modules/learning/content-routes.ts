@@ -326,4 +326,34 @@ export const contentRoutes: FastifyPluginAsync<ContentRouteOptions> = async (
       );
     },
   );
+
+  // ---------------------------------------------------------------------------
+  // DELETE /v1/organizations/:organizationId/courses/:courseId/modules/:moduleId/lessons/:lessonId
+  // ---------------------------------------------------------------------------
+  app.delete(
+    "/v1/organizations/:organizationId/courses/:courseId/modules/:moduleId/lessons/:lessonId",
+    { preHandler: [requireAuth] },
+    async (request, reply) => {
+      const actor = getActor(request);
+      const params = request.params as {
+        organizationId: string;
+        courseId: string;
+        moduleId: string;
+        lessonId: string;
+      };
+      const organizationId = getOrganizationId(params);
+      const courseId = getCourseId(params);
+      const moduleId = getModuleId(params);
+      const lessonId = getLessonId(params);
+      await contentService.deleteLesson(
+        actor,
+        organizationId,
+        courseId,
+        moduleId,
+        lessonId,
+      );
+      reply.code(204);
+      return;
+    },
+  );
 };

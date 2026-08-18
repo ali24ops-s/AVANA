@@ -32,18 +32,31 @@ export class InMemoryCourseStore implements CourseStore {
   async findByIdForUser(
     courseId: CourseId,
     _userId: UserId,
+    systemOrganizationId?: OrganizationId,
   ): Promise<CourseRecord | undefined> {
     const course = this.courses.get(courseId);
-    return course ? { ...course } : undefined;
+    if (!course || course.deletedAt !== null) return undefined;
+    if (
+      systemOrganizationId &&
+      course.organizationId === systemOrganizationId
+    ) {
+      return { ...course };
+    }
+    return { ...course };
   }
 
   async listByOrganization(
     organizationId: OrganizationId,
     _userId: UserId,
+    systemOrganizationId?: OrganizationId,
   ): Promise<CourseRecord[]> {
     return Array.from(this.courses.values())
       .filter(
-        (c) => c.organizationId === organizationId && c.deletedAt === null,
+        (c) =>
+          (c.organizationId === organizationId ||
+            (systemOrganizationId &&
+              c.organizationId === systemOrganizationId)) &&
+          c.deletedAt === null,
       )
       .map((c) => ({ ...c }));
   }

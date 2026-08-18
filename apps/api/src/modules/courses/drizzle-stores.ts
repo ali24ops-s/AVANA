@@ -8,7 +8,7 @@
  * on read to match the domain shape expected by in-memory stores.
  */
 
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, or } from "drizzle-orm";
 import type { DbClient } from "@avana/database/client";
 import {
   courses,
@@ -97,7 +97,16 @@ export class DrizzleCourseStore implements CourseStore {
   async findByIdForUser(
     courseId: CourseId,
     userId: UserId,
+    systemOrganizationId?: OrganizationId,
   ): Promise<CourseRecord | undefined> {
+    const accessFilter =
+      systemOrganizationId
+        ? or(
+            eq(organizationMemberships.userId, userId),
+            eq(courses.organizationId, systemOrganizationId),
+          )
+        : eq(organizationMemberships.userId, userId);
+
     const row = await this.db
       .select({
         id: courses.id,
@@ -110,14 +119,17 @@ export class DrizzleCourseStore implements CourseStore {
         deletedAt: courses.deletedAt,
       })
       .from(courses)
-      .innerJoin(
+      .leftJoin(
         organizationMemberships,
-        eq(organizationMemberships.organizationId, courses.organizationId),
+        and(
+          eq(organizationMemberships.organizationId, courses.organizationId),
+          eq(organizationMemberships.userId, userId),
+        ),
       )
       .where(
         and(
           eq(courses.id, courseId),
-          eq(organizationMemberships.userId, userId),
+          accessFilter,
           isNull(courses.deletedAt),
         ),
       )
@@ -130,8 +142,17 @@ export class DrizzleCourseStore implements CourseStore {
 
   async listByOrganization(
     organizationId: OrganizationId,
-    userId: UserId,
+    _userId: UserId,
+    systemOrganizationId?: OrganizationId,
   ): Promise<CourseRecord[]> {
+    const orgFilter =
+      systemOrganizationId && systemOrganizationId !== organizationId
+        ? or(
+            eq(courses.organizationId, organizationId),
+            eq(courses.organizationId, systemOrganizationId),
+          )
+        : eq(courses.organizationId, organizationId);
+
     const rows = await this.db
       .select({
         id: courses.id,
@@ -144,17 +165,7 @@ export class DrizzleCourseStore implements CourseStore {
         deletedAt: courses.deletedAt,
       })
       .from(courses)
-      .innerJoin(
-        organizationMemberships,
-        eq(organizationMemberships.organizationId, courses.organizationId),
-      )
-      .where(
-        and(
-          eq(courses.organizationId, organizationId),
-          eq(organizationMemberships.userId, userId),
-          isNull(courses.deletedAt),
-        ),
-      );
+      .where(and(orgFilter, isNull(courses.deletedAt)));
 
     return rows.map(toCourseRecord);
   }

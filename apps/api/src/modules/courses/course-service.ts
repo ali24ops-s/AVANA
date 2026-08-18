@@ -30,6 +30,24 @@ export type CourseUpdateInput = {
   examAt?: string | null;
 };
 
+export const CANONICAL_COURSES = [
+  "فارماکولوژی ۱",
+  "فارماکولوژی ۲",
+  "فارماکولوژی ۳",
+  "دارودرمانی ۱",
+  "دارودرمانی ۲",
+  "دارودرمانی ۳",
+  "دارودرمانی ۴",
+  "گیاهان دارویی",
+  "فارماکوگنوزی ۱",
+  "فارماکوگنوزی ۲",
+  "میکروب‌شناسی",
+  "قارچ و انگل‌شناسی",
+  "ایمونولوژی",
+  "فیزیولوژی ۱",
+  "فیزیولوژی ۲",
+] as const;
+
 export class CourseService {
   constructor(
     private readonly store: CourseStore,
@@ -42,6 +60,7 @@ export class CourseService {
     // root. Aggregate audit events are persisted by the store transactionally
     // (PR5-B5); this service does not emit via AuditService itself.
     _auditService?: AuditService,
+    private readonly systemOrganizationId?: OrganizationId,
   ) {}
 
   /**
@@ -108,7 +127,8 @@ export class CourseService {
 
   /**
    * List active courses for an organization scoped to the actor's membership.
-   * Only returns courses where the actor has organization membership.
+   * Only returns courses where the actor has organization membership or shared system courses.
+   * Courses are sorted according to CANONICAL_COURSES priority order.
    */
   async listCourses(
     actor: Actor,
@@ -119,11 +139,24 @@ export class CourseService {
     const context: AuthContext = { organizationId };
     this.policy.require("course:read", scopedActor, context);
 
-    return this.store.listByOrganization(organizationId, actor.userId);
+    const courses = await this.store.listByOrganization(
+      organizationId,
+      actor.userId,
+      this.systemOrganizationId,
+    );
+
+    return courses.slice().sort((a, b) => {
+      const idxA = CANONICAL_COURSES.indexOf(a.name as any);
+      const idxB = CANONICAL_COURSES.indexOf(b.name as any);
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+      if (idxA !== -1) return -1;
+      if (idxB !== -1) return 1;
+      return 0;
+    });
   }
 
   /**
-   * Get a single course by ID, scoped to the actor's organization membership.
+   * Get a single course by ID, scoped to the actor's organization membership or system organization.
    * No course lookup by ID alone — always requires membership context.
    */
   async getCourse(
@@ -136,13 +169,21 @@ export class CourseService {
     const context: AuthContext = { organizationId, courseId };
     this.policy.require("course:read", scopedActor, context);
 
-    const course = await this.store.findByIdForUser(courseId, actor.userId);
+    const course = await this.store.findByIdForUser(
+      courseId,
+      actor.userId,
+      this.systemOrganizationId,
+    );
     if (!course) {
       throw new DomainError("not_found", "Course not found");
     }
 
-    // Ensure the course belongs to the requesting organization (cross-tenant isolation)
-    if (course.organizationId !== organizationId) {
+    // Ensure the course belongs to the requesting organization or system organization (cross-tenant isolation)
+    if (
+      course.organizationId !== organizationId &&
+      (!this.systemOrganizationId ||
+        course.organizationId !== this.systemOrganizationId)
+    ) {
       throw new DomainError("not_found", "Course not found");
     }
 

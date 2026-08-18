@@ -94,6 +94,36 @@ async function main() {
     // Courses
     // -----------------------------------------------------------------------
     if (org) {
+      const canonicalCourses = [
+        "فارماکولوژی ۱",
+        "فارماکولوژی ۲",
+        "فارماکولوژی ۳",
+        "دارودرمانی ۱",
+        "دارودرمانی ۲",
+        "دارودرمانی ۳",
+        "دارودرمانی ۴",
+        "گیاهان دارویی",
+        "فارماکوگنوزی ۱",
+        "فارماکوگنوزی ۲",
+        "میکروب‌شناسی",
+        "قارچ و انگل‌شناسی",
+        "ایمونولوژی",
+        "فیزیولوژی ۱",
+        "فیزیولوژی ۲",
+      ];
+
+      for (const name of canonicalCourses) {
+        await db
+          .insert(schema.courses)
+          .values({
+            organizationId: org.id,
+            name,
+            subject: name.startsWith("فارماکولوژی") ? "Pharmacology" : null,
+          })
+          .onConflictDoNothing()
+          .returning();
+      }
+
       await db
         .insert(schema.courses)
         .values({

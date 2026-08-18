@@ -14,6 +14,7 @@ import {
   Edit3,
   Save,
   Send,
+  Trash2,
 } from "lucide-react";
 import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
 import { createContentApi, type ContentApi } from "../../lib/api/content.js";
@@ -28,6 +29,7 @@ interface LessonEditorProps {
   courseId: string;
   moduleId: string;
   moduleTitle: string;
+  onDelete?: () => void;
 }
 
 interface FormState {
@@ -89,6 +91,7 @@ export function LessonEditor({
   courseId,
   moduleId,
   moduleTitle,
+  onDelete,
 }: LessonEditorProps) {
   const queryClient = useQueryClient();
   const apiClient = createApiClient({ baseUrl: getApiBaseUrl() });
@@ -100,6 +103,7 @@ export function LessonEditor({
   );
   const [errors, setErrors] = useState<FormErrors>({});
   const [showPreview, setShowPreview] = useState(true);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Reset form when a different lesson is selected
@@ -107,6 +111,7 @@ export function LessonEditor({
     setForm(getInitialFormState(lesson));
     setSavedSnapshot(lesson);
     setErrors({});
+    setConfirmingDelete(false);
   }, [
     lesson.id,
     lesson.title,
@@ -116,6 +121,24 @@ export function LessonEditor({
 
   const dirty = isDirty(form, savedSnapshot);
   const validationErrors = validate(form);
+
+  // Delete mutation
+  const deleteMutation = useMutation({
+    mutationFn: () =>
+      contentApi.deleteLesson(organizationId, courseId, moduleId, lesson.id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["course-content", organizationId, courseId],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["course-learning", courseId],
+      });
+      setConfirmingDelete(false);
+      if (onDelete) {
+        onDelete();
+      }
+    },
+  });
 
   // Save mutation
   const saveMutation = useMutation({
@@ -170,7 +193,8 @@ export function LessonEditor({
     },
   });
 
-  const isPending = saveMutation.isPending || publishMutation.isPending;
+  const isPending =
+    saveMutation.isPending || publishMutation.isPending || deleteMutation.isPending;
 
   const handleFieldChange = useCallback(
     (field: keyof FormState, value: string) => {
@@ -312,11 +336,52 @@ export function LessonEditor({
 
         <div className="flex items-center gap-2">
           {/* Error banner */}
-          {(saveMutation.isError || publishMutation.isError) && (
+          {(saveMutation.isError || publishMutation.isError || deleteMutation.isError) && (
             <span className="text-xs text-red-500 flex items-center gap-1">
               <AlertCircle className="w-3.5 h-3.5" />
-              <span>{saveMutation.error?.message ?? publishMutation.error?.message ?? "خطایی رخ داد"}</span>
+              <span>
+                {saveMutation.error?.message ??
+                  publishMutation.error?.message ??
+                  deleteMutation.error?.message ??
+                  "خطایی رخ داد"}
+              </span>
             </span>
+          )}
+
+          {/* Delete lesson button / confirmation */}
+          {confirmingDelete ? (
+            <div className="flex items-center gap-1.5 bg-red-50 dark:bg-red-950/50 p-1 rounded-xl border border-red-200 dark:border-red-800">
+              <span className="text-xs font-bold text-red-900 dark:text-red-200 px-1">
+                حذف درس؟
+              </span>
+              <button
+                type="button"
+                onClick={() => deleteMutation.mutate()}
+                disabled={deleteMutation.isPending}
+                className="px-2.5 py-1 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold"
+              >
+                {deleteMutation.isPending ? "در حال حذف..." : "تایید حذف"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmingDelete(false)}
+                disabled={deleteMutation.isPending}
+                className="px-2.5 py-1 bg-white dark:bg-zinc-800 hover:bg-zinc-100 text-zinc-800 dark:text-zinc-200 border border-zinc-300 dark:border-zinc-700 rounded-lg text-xs font-bold"
+              >
+                انصراف
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setConfirmingDelete(true)}
+              disabled={isPending}
+              title="حذف این درس"
+              className="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl border border-red-200 dark:border-red-900/50 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors disabled:opacity-50"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>حذف درس</span>
+            </button>
           )}
 
           {/* Save button */}

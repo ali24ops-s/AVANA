@@ -12,6 +12,7 @@ export type DomainErrorCode =
   | "conflict"
   | "unprocessable"
   | "rate_limit_exceeded"
+  | "too_many_requests"
   | "internal_error";
 
 export interface DomainErrorDetails {
