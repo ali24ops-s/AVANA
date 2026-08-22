@@ -30,7 +30,10 @@ import {
   InMemoryQuizStore,
   InMemoryQuizQuestionStore,
   InMemoryQuizAttemptStore,
+  InMemoryStudySessionStore,
+  InMemoryFlashcardStudySessionStore,
 } from "../modules/study/test/in-memory-stores.js";
+import { InMemoryAssistantConversationStore } from "../modules/study/index.js";
 import {
   createModelGateway,
   InMemoryGenerationQueue,
@@ -79,16 +82,34 @@ export async function composeLocalDev(
   const quizStore = new InMemoryQuizStore();
   const quizQuestionStore = new InMemoryQuizQuestionStore();
   const quizAttemptStore = new InMemoryQuizAttemptStore(quizStore);
+  const conversationStore = new InMemoryAssistantConversationStore();
+  const studySessionStore = new InMemoryStudySessionStore();
+  const flashcardStudySessionStore = new InMemoryFlashcardStudySessionStore();
 
-  // Model gateway (mock provider in dev, or real gemini/cloudflare if configured).
+  // Model gateway (Gemini default, or mock/cloudflare/groq if configured).
   const gateway = createModelGateway({
     provider: config.generation.aiProvider,
     geminiApiKey: config.generation.geminiApiKey,
+    geminiApiKeys: config.generation.geminiApiKeys,
     geminiModel: config.generation.geminiModel,
     cloudflareAccountId: config.generation.cloudflareAccountId,
     cloudflareApiToken: config.generation.cloudflareApiToken,
     cloudflareAiModel: config.generation.cloudflareAiModel,
+    groqApiKey: config.generation.groqApiKey,
+    groqModel: config.generation.groqModel,
   });
+
+  // Assistant gateway using Cloudflare if configured
+  const assistantGateway =
+    config.generation.cloudflareAccountId &&
+    config.generation.cloudflareApiToken
+      ? createModelGateway({
+          provider: "cloudflare",
+          cloudflareAccountId: config.generation.cloudflareAccountId,
+          cloudflareApiToken: config.generation.cloudflareApiToken,
+          cloudflareAiModel: config.generation.cloudflareAiModel,
+        })
+      : gateway;
 
   const auditStore = new InMemoryAuditStore();
   const auditService = new AuditService(auditStore);
@@ -134,6 +155,10 @@ export async function composeLocalDev(
     quizStore,
     quizQuestionStore,
     quizAttemptStore,
+    conversationStore,
+    assistantGateway,
+    studySessionStore,
+    flashcardStudySessionStore,
     auditService,
   };
 

@@ -23,6 +23,7 @@ export function ReviewPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
+  const sessionId = searchParams.get("sessionId") || undefined;
   const courseIds = searchParams.get("courses")?.split(",").filter(Boolean) || [];
   const documentIds = searchParams.get("documents")?.split(",").filter(Boolean) || [];
   const rawMode = searchParams.get("mode");
@@ -51,6 +52,7 @@ export function ReviewPage() {
     <div className="w-full min-h-screen bg-[#0b1116] text-[#e0e6ed] relative overflow-x-hidden">
       <FlashcardExperience
         organizationId={organizationId}
+        sessionId={sessionId}
         courseIds={courseIds}
         documentIds={documentIds}
         mode={mode}

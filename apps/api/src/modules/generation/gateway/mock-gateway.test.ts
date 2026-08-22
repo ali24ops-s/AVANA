@@ -84,10 +84,10 @@ describe("MockModelGateway", () => {
 });
 
 describe("createModelGateway", () => {
-  it("selects the mock provider when unset or 'mock'", () => {
-    expect(createModelGateway()).toBeInstanceOf(MockModelGateway);
+  it("selects the mock provider when 'mock' is requested", () => {
     expect(createModelGateway("mock")).toBeInstanceOf(MockModelGateway);
     expect(createModelGateway("MOCK")).toBeInstanceOf(MockModelGateway);
+    expect(createModelGateway({ provider: "mock" })).toBeInstanceOf(MockModelGateway);
   });
 
   it("throws unprocessable for an unimplemented real provider", () => {

@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
 import type { OrganizationId } from "@avana/domain";
+import { defaultPolicy } from "@avana/domain";
 import { healthRoutes } from "./health.js";
 import { readinessRoutes } from "./readiness.js";
 import { organizationRoutes } from "../modules/organizations/index.js";
@@ -7,7 +8,13 @@ import { courseRoutes } from "../modules/courses/index.js";
 import { learningRoutes, contentRoutes } from "../modules/learning/index.js";
 import { documentRoutes } from "../modules/documents/index.js";
 import { generationRoutes, reviewRoutes } from "../modules/generation/index.js";
-import { studyRoutes } from "../modules/study/index.js";
+import {
+  studyRoutes,
+  assistantRoutes,
+  type AssistantConversationStore,
+  type StudySessionStore,
+  type FlashcardStudySessionStore,
+} from "../modules/study/index.js";
 import type {
   FlashcardStore,
   FlashcardReviewStore,
@@ -47,6 +54,10 @@ import type {
   EmailService,
 } from "../modules/identity/index.js";
 
+import type { AdminStore } from "../modules/admin/admin-store.js";
+import { adminRoutes } from "../modules/admin/index.js";
+import { DocumentProcessingService } from "../modules/documents/document-processing-service.js";
+
 export interface V1RouteOptions {
   config: IdentityPluginOptions["config"];
   sessionStore: SessionStore;
@@ -72,7 +83,12 @@ export interface V1RouteOptions {
   quizStore?: QuizStore;
   quizQuestionStore?: QuizQuestionStore;
   quizAttemptStore?: QuizAttemptStore;
+  conversationStore?: AssistantConversationStore;
+  assistantGateway?: ModelGateway;
+  studySessionStore?: StudySessionStore;
+  flashcardStudySessionStore?: FlashcardStudySessionStore;
   auditService?: AuditService;
+  adminStore?: AdminStore;
 }
 
 export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
@@ -208,6 +224,9 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       generationJobStore: opts.generationJobStore,
       flashcardStore: opts.flashcardStore,
       quizStore: opts.quizStore,
+      courseStore: opts.courseStore,
+      moduleStore: opts.moduleStore,
+      lessonStore: opts.lessonStore,
       auditService: opts.auditService,
     });
   }
@@ -242,6 +261,11 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       organizationStore: opts.organizationStore,
       auditService: opts.auditService,
       courseStore: opts.courseStore,
+      moduleStore: opts.moduleStore,
+      lessonStore: opts.lessonStore,
+      flashcardStore: opts.flashcardStore,
+      quizStore: opts.quizStore,
+      quizQuestionStore: opts.quizQuestionStore,
       systemOrganizationId: opts.config.systemOrganizationId as OrganizationId,
     });
   }
@@ -314,6 +338,60 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       lessonStore: opts.lessonStore,
       progressStore: opts.progressStore,
       auditService: opts.auditService,
+      systemOrganizationId: opts.config.systemOrganizationId as OrganizationId,
+      studySessionStore: opts.studySessionStore,
+      flashcardStudySessionStore: opts.flashcardStudySessionStore,
+    });
+  }
+
+  // Register AI Study Assistant routes (POST /v1/ai/ask)
+  if (
+    opts.config &&
+    opts.sessionStore &&
+    opts.userStore &&
+    (opts.assistantGateway || opts.gateway) &&
+    opts.conversationStore &&
+    opts.lessonStore &&
+    opts.moduleStore &&
+    opts.courseStore &&
+    opts.organizationStore
+  ) {
+    await app.register(assistantRoutes, {
+      sessionService: new SessionService(
+        opts.sessionStore,
+        opts.config.session,
+      ),
+      userStore: opts.userStore,
+      assistantGateway: (opts.assistantGateway ?? opts.gateway)!,
+      conversationStore: opts.conversationStore,
+      lessonStore: opts.lessonStore,
+      moduleStore: opts.moduleStore,
+      courseStore: opts.courseStore,
+      organizationStore: opts.organizationStore,
+      auditService: opts.auditService,
+      systemOrganizationId: opts.config.systemOrganizationId as OrganizationId,
+    });
+  }
+
+  // Register Admin routes
+  if (
+    opts.config &&
+    opts.sessionStore &&
+    opts.userStore &&
+    opts.adminStore
+  ) {
+    await app.register(adminRoutes, {
+      prefix: "/v1/admin",
+      sessionService: new SessionService(
+        opts.sessionStore,
+        opts.config.session,
+      ),
+      userStore: opts.userStore,
+      adminStore: opts.adminStore,
+      documentProcessingService: opts.documentStore && opts.documentChunkStore && opts.storageProvider ? new DocumentProcessingService(opts.documentStore, opts.documentChunkStore, opts.storageProvider, defaultPolicy, opts.auditService, opts.organizationStore) : undefined,
+      generationQueue: opts.queue,
+      generationJobStore: opts.generationJobStore,
     });
   }
 };
+

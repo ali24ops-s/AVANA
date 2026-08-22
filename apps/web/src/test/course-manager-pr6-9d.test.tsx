@@ -239,6 +239,9 @@ describe("DocumentStatusCard", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /تولید هوشمند محتوای آموزشی/i }));
 
+    const confirmBtn = await screen.findByRole("button", { name: /تولید محتوا/i });
+    fireEvent.click(confirmBtn);
+
     await waitFor(() => {
       expect(
         screen.getByText(/not in a generatable state|خطا در شروع تولید هوشمند محتوا/i),

@@ -378,15 +378,92 @@ export type ConfirmUploadResponse = {
   document: DocumentResource;
 };
 
+export type DocumentListPagination = {
+  total: number;
+  page: number;
+  limit: number;
+  total_pages: number;
+  next_cursor: string | null;
+};
+
 export type DocumentListResponse = {
   request_id: string;
   items: DocumentResource[];
-  pagination: Pagination;
+  pagination: DocumentListPagination;
 };
 
 export type DocumentGetResponse = {
   request_id: string;
   document: DocumentResource;
+};
+
+export type DocumentStatsResource = {
+  total_count: number;
+  total_size_bytes: number;
+  status_counts: Record<string, number>;
+  used_count: number;
+  unused_count: number;
+};
+
+export type DocumentStatsResponse = {
+  request_id: string;
+  stats: DocumentStatsResource;
+};
+
+export type UpdateDocumentRequest = {
+  original_name?: string;
+  course_id?: string | null;
+};
+
+export type DocumentUsageDetails = {
+  course: { id: UUID; name: string } | null;
+  modules: Array<{ id: UUID; title: string }>;
+  lessons_count: number;
+  flashcards_count: number;
+  quizzes_count: number;
+  chunks_count: number;
+  generated_contents_count?: number;
+};
+
+export type DocumentDetailResource = DocumentResource & {
+  storage_key?: string;
+  page_count?: number | null;
+  usage?: DocumentUsageDetails;
+};
+
+export type DocumentDetailResponse = {
+  request_id: string;
+  document: DocumentDetailResource;
+};
+
+export type BulkOperationItemResult = {
+  document_id: UUID;
+  success: boolean;
+  error?: {
+    code: string;
+    message: string;
+  };
+};
+
+export type BulkOperationResponse = {
+  request_id: string;
+  total: number;
+  succeeded: number;
+  failed: number;
+  results: BulkOperationItemResult[];
+};
+
+export type BulkDeleteRequest = {
+  document_ids: UUID[];
+};
+
+export type BulkReprocessRequest = {
+  document_ids: UUID[];
+};
+
+export type BulkAttachCourseRequest = {
+  document_ids: UUID[];
+  course_id: UUID | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -725,4 +802,120 @@ export type StudyRecommendationsResponse = {
   request_id: string;
   recommendations: StudyRecommendationResource[];
 };
+
+// ---------------------------------------------------------------------------
+// AI Study Assistant Contracts
+// ---------------------------------------------------------------------------
+
+export type AskAiAssistantContext = {
+  type: "lesson" | "dashboard";
+  lessonId?: UUID;
+  courseId?: UUID;
+};
+
+export type AskAiAssistantRequest = {
+  message: string;
+  context?: AskAiAssistantContext;
+  conversationId?: UUID;
+};
+
+export type AskAiAssistantResponse = {
+  request_id: string;
+  answer: string;
+  conversationId: UUID;
+  sources?: {
+    courseTitle?: string;
+    moduleTitle?: string;
+    lessonTitle?: string;
+  };
+};
+
+export type AiMessageResource = {
+  id: UUID;
+  conversationId: UUID;
+  role: "user" | "assistant" | "system";
+  content: string;
+  createdAt: string;
+};
+
+export type AiConversationDetailResponse = {
+  request_id: string;
+  conversationId: UUID;
+  messages: AiMessageResource[];
+};
+
+// ---------------------------------------------------------------------------
+// Flashcard Study Session Contracts
+// ---------------------------------------------------------------------------
+
+export type CreateFlashcardStudySessionRequest = {
+  courseId?: UUID;
+  courseIds?: UUID[];
+  moduleIds?: UUID[];
+  lessonIds?: UUID[];
+  documentIds?: UUID[];
+  mode?: "daily" | "exam" | "custom" | "normal";
+  customMode?: "weak" | "forgotten" | "overdue" | "review_ahead" | "new";
+  limit?: number;
+  aheadDays?: number;
+  title?: string;
+};
+
+export type FlashcardStudySessionSummary = {
+  id: UUID;
+  user_id: UUID;
+  organization_id: UUID;
+  course_id: UUID | null;
+  title: string;
+  mode: string;
+  custom_mode: string | null;
+  status: "in_progress" | "completed" | "cancelled";
+  total_cards: number;
+  completed_cards: number;
+  current_index: number;
+  current_card_id: UUID | null;
+  started_at: string;
+  last_activity_at: string;
+  completed_at: string | null;
+};
+
+export type CreateFlashcardStudySessionResponse = {
+  request_id: string;
+  session: FlashcardStudySessionSummary;
+};
+
+export type FlashcardStudySessionsListResponse = {
+  request_id: string;
+  sessions: FlashcardStudySessionSummary[];
+};
+
+export type FlashcardStudySessionDetailResponse = {
+  request_id: string;
+  session: FlashcardStudySessionSummary;
+  cards: FlashcardResource[];
+  session_cards: Array<{
+    id: UUID;
+    session_id: UUID;
+    flashcard_id: UUID | null;
+    sort_order: number;
+    status: "unseen" | "reviewed";
+    rating: string | null;
+    reviewed_at: string | null;
+  }>;
+};
+
+export type UpdateFlashcardStudySessionProgressRequest = {
+  current_index: number;
+  completed_cards?: number;
+  current_card_id?: UUID;
+  card_id?: UUID;
+  rating?: FlashcardRating;
+  reaction_ms?: number;
+};
+
+export type UpdateFlashcardStudySessionProgressResponse = {
+  request_id: string;
+  session: FlashcardStudySessionSummary;
+};
+
 

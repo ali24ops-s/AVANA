@@ -21,16 +21,24 @@ import type {
   FlashcardReviewRecord,
   FlashcardScheduleUpdate,
   UserFlashcardScheduleRecord,
+  QuizRecord,
+  QuizQuestionRecord,
   FlashcardStore,
   FlashcardReviewStore,
   UserFlashcardScheduleStore,
-  QuizRecord,
-  QuizQuestionRecord,
   QuizStore,
   QuizQuestionStore,
   QuizAttemptStore,
+  StudySessionStore,
+  FlashcardStudySessionStore,
 } from "../study-store.js";
-import type { QuizAttemptRecord } from "@avana/domain";
+import type {
+  QuizAttemptRecord,
+  StudySessionRecord,
+  FlashcardStudySessionRecord,
+  FlashcardStudySessionCardRecord,
+  FlashcardSessionStatus,
+} from "@avana/domain";
 
 // ---------------------------------------------------------------------------
 // InMemoryFlashcardStore
@@ -70,11 +78,13 @@ export class InMemoryFlashcardStore implements FlashcardStore {
 
   async listByOrganization(
     organizationId: OrganizationId,
+    systemOrganizationId?: OrganizationId,
   ): Promise<FlashcardRecord[]> {
     return Array.from(this.flashcards.values())
       .filter(
         (f) =>
-          f.organizationId === organizationId &&
+          (f.organizationId === organizationId ||
+            (systemOrganizationId && f.organizationId === systemOrganizationId)) &&
           f.deletedAt === null,
       )
       .map((f) => ({ ...f }));
@@ -288,10 +298,14 @@ export class InMemoryQuizStore implements QuizStore {
 
   async listByOrganization(
     organizationId: OrganizationId,
+    systemOrganizationId?: OrganizationId,
   ): Promise<QuizRecord[]> {
     return Array.from(this.quizzes.values())
       .filter(
-        (q) => q.organizationId === organizationId && q.deletedAt === null,
+        (q) =>
+          (q.organizationId === organizationId ||
+            (systemOrganizationId && q.organizationId === systemOrganizationId)) &&
+          q.deletedAt === null,
       )
       .map((q) => ({ ...q }));
   }
@@ -384,11 +398,22 @@ export class InMemoryQuizQuestionStore implements QuizQuestionStore {
 
   async listByFilter(filter: {
     organizationId?: OrganizationId;
+    systemOrganizationId?: OrganizationId;
     topics?: string[];
     difficulty?: string;
   }): Promise<QuizQuestionRecord[]> {
     return this.questions
       .filter((q) => {
+        if (filter.organizationId && this.quizStore) {
+          const quiz = this.quizStore.getAll().find((qz) => qz.id === q.quizId);
+          if (
+            quiz &&
+            quiz.organizationId !== filter.organizationId &&
+            (!filter.systemOrganizationId || quiz.organizationId !== filter.systemOrganizationId)
+          ) {
+            return false;
+          }
+        }
         if (filter.difficulty && filter.difficulty !== "all") {
           if ((q.difficulty || "medium") !== filter.difficulty) {
             return false;
@@ -492,6 +517,12 @@ export class InMemoryQuizAttemptStore implements QuizAttemptStore {
       .map((a) => ({ ...a }));
   }
 
+  async countCompletedByUser(userId: UserId): Promise<number> {
+    return Array.from(this.attempts.values()).filter(
+      (a) => a.userId === userId && (a.status === "completed" || a.completedAt !== null),
+    ).length;
+  }
+
   async listByUserAndCourse(
     userId: UserId,
     courseId: CourseId,
@@ -537,3 +568,240 @@ export class InMemoryQuizAttemptStore implements QuizAttemptStore {
     this.attempts.clear();
   }
 }
+
+// ---------------------------------------------------------------------------
+// InMemoryStudySessionStore
+// ---------------------------------------------------------------------------
+
+export class InMemoryStudySessionStore implements StudySessionStore {
+  private sessions: Map<string, StudySessionRecord> = new Map();
+
+  async create(
+    record: Omit<StudySessionRecord, "createdAt" | "updatedAt">,
+  ): Promise<StudySessionRecord> {
+    const now = new Date().toISOString();
+    const fullRecord: StudySessionRecord = {
+      ...record,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.sessions.set(record.id, { ...fullRecord });
+    return { ...fullRecord };
+  }
+
+  async findById(id: string): Promise<StudySessionRecord | undefined> {
+    const s = this.sessions.get(id);
+    return s ? { ...s } : undefined;
+  }
+
+  async findActiveByUser(userId: UserId): Promise<StudySessionRecord | undefined> {
+    const active = Array.from(this.sessions.values())
+      .filter((s) => s.userId === userId && (!s.endedAt || s.endedAt === null))
+      .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
+
+    return active[0] ? { ...active[0] } : undefined;
+  }
+
+  async update(record: StudySessionRecord): Promise<StudySessionRecord> {
+    const existing = this.sessions.get(record.id);
+    const updated: StudySessionRecord = {
+      ...existing,
+      ...record,
+      updatedAt: record.updatedAt || new Date().toISOString(),
+    };
+    this.sessions.set(record.id, { ...updated });
+    return { ...updated };
+  }
+
+  async closeActiveSessionsForUser(
+    userId: UserId,
+    endedAt: string,
+  ): Promise<void> {
+    for (const [id, s] of this.sessions) {
+      if (s.userId === userId && (!s.endedAt || s.endedAt === null)) {
+        this.sessions.set(id, {
+          ...s,
+          endedAt,
+          updatedAt: endedAt,
+        });
+      }
+    }
+  }
+
+  async listByUser(userId: UserId): Promise<StudySessionRecord[]> {
+    return Array.from(this.sessions.values())
+      .filter((s) => s.userId === userId)
+      .sort((a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime())
+      .map((s) => ({ ...s }));
+  }
+
+  async listByUserAndDateRange(
+    userId: UserId,
+    fromDate: string,
+    toDate: string,
+  ): Promise<StudySessionRecord[]> {
+    const from = new Date(fromDate).getTime();
+    const to = new Date(toDate).getTime();
+
+    return Array.from(this.sessions.values())
+      .filter((s) => {
+        if (s.userId !== userId) return false;
+        const start = new Date(s.startedAt).getTime();
+        return start >= from && start <= to;
+      })
+      .sort((a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime())
+      .map((s) => ({ ...s }));
+  }
+
+  insert(record: StudySessionRecord): void {
+    this.sessions.set(record.id, { ...record });
+  }
+
+  getAll(): StudySessionRecord[] {
+    return Array.from(this.sessions.values()).map((s) => ({ ...s }));
+  }
+
+  clear(): void {
+    this.sessions.clear();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// InMemoryFlashcardStudySessionStore
+// ---------------------------------------------------------------------------
+
+export class InMemoryFlashcardStudySessionStore
+  implements FlashcardStudySessionStore
+{
+  private sessions: Map<string, FlashcardStudySessionRecord> = new Map();
+  private sessionCards: Map<string, FlashcardStudySessionCardRecord[]> = new Map();
+
+  async createSessionWithCards(
+    session: Omit<FlashcardStudySessionRecord, "createdAt" | "updatedAt">,
+    cards: Array<{ flashcardId: string; sortOrder: number }>,
+  ): Promise<FlashcardStudySessionRecord> {
+    const now = new Date().toISOString();
+    const fullSession: FlashcardStudySessionRecord = {
+      ...session,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.sessions.set(session.id, { ...fullSession });
+
+    const cardRecords: FlashcardStudySessionCardRecord[] = cards.map((c, idx) => ({
+      id: `fssc-${session.id}-${idx}`,
+      sessionId: session.id,
+      flashcardId: c.flashcardId,
+      sortOrder: c.sortOrder,
+      status: "unseen",
+      rating: null,
+      reactionMs: null,
+      reviewedAt: null,
+      createdAt: now,
+    }));
+    this.sessionCards.set(session.id, cardRecords);
+
+    return { ...fullSession };
+  }
+
+  async findById(id: string): Promise<FlashcardStudySessionRecord | undefined> {
+    const s = this.sessions.get(id);
+    return s ? { ...s } : undefined;
+  }
+
+  async listActiveByUser(
+    userId: UserId,
+    organizationId?: OrganizationId,
+  ): Promise<FlashcardStudySessionRecord[]> {
+    return Array.from(this.sessions.values())
+      .filter((s) => {
+        if (s.userId !== userId) return false;
+        if (s.status !== "in_progress") return false;
+        if (organizationId && s.organizationId !== organizationId) return false;
+        return true;
+      })
+      .sort((a, b) => new Date(b.lastActivityAt).getTime() - new Date(a.lastActivityAt).getTime())
+      .map((s) => ({ ...s }));
+  }
+
+  async listSessionCards(
+    sessionId: string,
+  ): Promise<FlashcardStudySessionCardRecord[]> {
+    const cards = this.sessionCards.get(sessionId) || [];
+    return [...cards].sort((a, b) => a.sortOrder - b.sortOrder).map((c) => ({ ...c }));
+  }
+
+  async updateProgress(
+    sessionId: string,
+    data: {
+      currentIndex: number;
+      completedCards: number;
+      currentCardId?: string | null;
+      lastActivityAt: string;
+      cardUpdate?: {
+        flashcardId: string;
+        status: "reviewed";
+        rating?: string | null;
+        reactionMs?: number | null;
+        reviewedAt: string;
+      };
+    },
+  ): Promise<FlashcardStudySessionRecord | undefined> {
+    const existing = this.sessions.get(sessionId);
+    if (!existing) return undefined;
+
+    if (data.cardUpdate) {
+      const cards = this.sessionCards.get(sessionId) || [];
+      const card = cards.find((c) => c.flashcardId === data.cardUpdate!.flashcardId);
+      if (card) {
+        card.status = data.cardUpdate.status;
+        card.rating = data.cardUpdate.rating ?? null;
+        card.reactionMs = data.cardUpdate.reactionMs ?? null;
+        card.reviewedAt = data.cardUpdate.reviewedAt;
+      }
+    }
+
+    const updated: FlashcardStudySessionRecord = {
+      ...existing,
+      currentIndex: data.currentIndex,
+      completedCards: data.completedCards,
+      currentCardId: data.currentCardId ?? null,
+      lastActivityAt: data.lastActivityAt,
+      updatedAt: data.lastActivityAt,
+    };
+    this.sessions.set(sessionId, updated);
+    return { ...updated };
+  }
+
+  async updateStatus(
+    sessionId: string,
+    status: FlashcardSessionStatus,
+    completedAt?: string | null,
+    lastActivityAt?: string,
+  ): Promise<FlashcardStudySessionRecord | undefined> {
+    const existing = this.sessions.get(sessionId);
+    if (!existing) return undefined;
+
+    const now = lastActivityAt || new Date().toISOString();
+    const updated: FlashcardStudySessionRecord = {
+      ...existing,
+      status,
+      completedAt: completedAt ? completedAt : null,
+      lastActivityAt: now,
+      updatedAt: now,
+    };
+    this.sessions.set(sessionId, updated);
+    return { ...updated };
+  }
+
+  insert(record: FlashcardStudySessionRecord): void {
+    this.sessions.set(record.id, { ...record });
+  }
+
+  clear(): void {
+    this.sessions.clear();
+    this.sessionCards.clear();
+  }
+}
+
+

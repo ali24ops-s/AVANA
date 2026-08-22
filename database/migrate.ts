@@ -14,6 +14,10 @@ import { up as up0011 } from "./migrations/0011_exams_configuration.js";
 import { up as up0012 } from "./migrations/0012_taxonomy_lesson_relations.js";
 import { up as up0013 } from "./migrations/0013_document_module_invariant.js";
 import { up as up0014 } from "./migrations/0014_email_verification.js";
+import { up as up0015 } from "./migrations/0015_study_conversations.js";
+import { up as up0016 } from "./migrations/0016_study_sessions.js";
+import { up as up0017 } from "./migrations/0017_flashcard_study_sessions.js";
+import { up as up0018 } from "./migrations/0018_flashcard_session_reaction_ms.js";
 
 function localConnectionString(): string {
   const user = "avana";
@@ -59,6 +63,14 @@ async function runMigrations() {
     await up0013(db);
     console.log("Applying 0014_email_verification...");
     await up0014(db);
+    console.log("Applying 0015_study_conversations...");
+    await up0015(db);
+    console.log("Applying 0016_study_sessions...");
+    await up0016(db);
+    console.log("Applying 0017_flashcard_study_sessions...");
+    await up0017(db);
+    console.log("Applying 0018_flashcard_session_reaction_ms...");
+    await up0018(db);
 
     console.log("All database migrations applied successfully.");
   } catch (error) {

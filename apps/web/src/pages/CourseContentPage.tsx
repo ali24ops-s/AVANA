@@ -154,6 +154,9 @@ export function CourseContentPage() {
       void queryClient.invalidateQueries({
         queryKey: ["course-learning", courseId],
       });
+      void queryClient.invalidateQueries({
+        queryKey: ["document-content-status"],
+      });
       setDeletingLessonId(null);
       if (selectedLessonId === lessonId) {
         setSelectedLessonId(null);

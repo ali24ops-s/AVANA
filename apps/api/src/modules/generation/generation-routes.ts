@@ -34,12 +34,19 @@ import { makeAuthMiddleware } from "../../http/authMiddleware.js";
 import type {
   DocumentStore,
   DocumentChunkStore,
+  ModuleStore,
+  LessonStore,
 } from "../learning/learning-store.js";
 import type { CourseStore } from "../courses/course-store.js";
 import type {
   GeneratedContentStore,
   GeneratedContentCitationStore,
 } from "./generation-store.js";
+import type {
+  FlashcardStore,
+  QuizStore,
+  QuizQuestionStore,
+} from "../study/study-store.js";
 import type { GenerationJobStore } from "./generation-jobs-store.js";
 import type { GenerationQueue } from "./generation-queue.js";
 import type { ModelGateway } from "./gateway/index.js";
@@ -59,6 +66,11 @@ export interface GenerationRouteOptions {
   organizationStore?: OrganizationStore;
   auditService?: AuditService;
   courseStore?: CourseStore;
+  moduleStore?: ModuleStore;
+  lessonStore?: LessonStore;
+  flashcardStore?: FlashcardStore;
+  quizStore?: QuizStore;
+  quizQuestionStore?: QuizQuestionStore;
   systemOrganizationId?: OrganizationId;
 }
 
@@ -91,6 +103,11 @@ export const generationRoutes: FastifyPluginAsync<
     defaultPolicy,
     auditService,
     opts.organizationStore,
+    opts.moduleStore,
+    opts.lessonStore,
+    opts.flashcardStore,
+    opts.quizStore,
+    opts.quizQuestionStore,
   );
 
   /**
@@ -146,6 +163,49 @@ export const generationRoutes: FastifyPluginAsync<
   }
 
   // -----------------------------------------------------------------------
+  // GET /v1/organizations/:organizationId/courses/:courseId/documents/:documentId/content-status
+  // GET /v1/organizations/:organizationId/documents/:documentId/content-status
+  // -----------------------------------------------------------------------
+  const handleGetContentStatus = async (request: unknown) => {
+    const req = request as {
+      params: {
+        organizationId: string;
+        courseId?: string;
+        documentId: string;
+      };
+      id: string;
+    };
+    const actor = getActor(req);
+    const organizationId = getOrganizationId(req.params);
+    const documentId = getDocumentId(req.params);
+    const courseId = req.params.courseId ? getCourseId(req.params) : undefined;
+
+    const status = await service.getDocumentContentStatus(
+      actor,
+      organizationId,
+      documentId,
+      courseId,
+    );
+
+    return {
+      ...status,
+      request_id: req.id,
+    };
+  };
+
+  app.get(
+    "/v1/organizations/:organizationId/courses/:courseId/documents/:documentId/content-status",
+    { preHandler: [requireAuth] },
+    handleGetContentStatus,
+  );
+
+  app.get(
+    "/v1/organizations/:organizationId/documents/:documentId/content-status",
+    { preHandler: [requireAuth] },
+    handleGetContentStatus,
+  );
+
+  // -----------------------------------------------------------------------
   // POST /v1/organizations/:organizationId/courses/:courseId/documents/:documentId/generate
   // -----------------------------------------------------------------------
   app.post(
@@ -164,8 +224,23 @@ export const generationRoutes: FastifyPluginAsync<
 
       const body = (request.body ?? {}) as {
         types?: string[];
+        lesson?: boolean;
+        flashcards?: boolean;
+        exam?: boolean;
         prompt_version?: string;
       };
+
+      let requestedTypes: GeneratedContentType[] = [];
+      if (Array.isArray(body.types) && body.types.length > 0) {
+        requestedTypes = body.types as GeneratedContentType[];
+      } else {
+        if (body.lesson === true) requestedTypes.push("lesson");
+        if (body.flashcards === true) requestedTypes.push("flashcard");
+        if (body.exam === true) requestedTypes.push("quiz");
+      }
+      if (requestedTypes.length === 0) {
+        requestedTypes = ["lesson"];
+      }
 
       // Authorization: the queue job will itself call GenerationService which
       // re-authorizes `content:generate`. We still resolve the document here to
@@ -199,6 +274,29 @@ export const generationRoutes: FastifyPluginAsync<
         }
       }
 
+      // Server-side validation against DB content status:
+      // Filter out any requested types that already exist in DB
+      const contentStatus = await service.getDocumentContentStatus(
+        actor,
+        organizationId,
+        documentId,
+        courseId,
+      );
+
+      const nonExistingTypes = requestedTypes.filter((t) => {
+        if (t === "lesson" && contentStatus.lesson.generated) return false;
+        if (t === "flashcard" && contentStatus.flashcards.generated) return false;
+        if (t === "quiz" && contentStatus.exam.generated) return false;
+        return true;
+      });
+
+      if (nonExistingTypes.length === 0) {
+        throw new DomainError(
+          "conflict",
+          "تمام محتواهای درخواستی از قبل برای این فایل وجود دارند.",
+        );
+      }
+
       const generationKey = `doc:${documentId}:async:${randomUUID()}`;
 
       const result = await queue.enqueueGenerationJob({
@@ -207,7 +305,7 @@ export const generationRoutes: FastifyPluginAsync<
         organizationId,
         documentId,
         courseId: courseId as never,
-        types: (body.types as GeneratedContentType[] | undefined) ?? ["lesson"],
+        types: nonExistingTypes,
         promptVersion: body.prompt_version,
         generationKey,
       });

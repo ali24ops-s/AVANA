@@ -21,14 +21,29 @@ async function main(): Promise<void> {
   if (config.generation.aiProvider === "gemini") {
     process.stdout.write(`[worker] Gemini model: ${config.generation.geminiModel}\n`);
     const hasKey = Boolean(
-      config.generation.geminiApiKey &&
-        config.generation.geminiApiKey.trim().length > 0,
+      (config.generation.geminiApiKey &&
+        config.generation.geminiApiKey.trim().length > 0) ||
+      (config.generation.geminiApiKeys &&
+        config.generation.geminiApiKeys.length > 0),
     );
     process.stdout.write(`[worker] Gemini API key configured: ${hasKey}\n`);
 
     if (!hasKey) {
       throw new Error(
         "Configuration error: AI_PROVIDER is set to 'gemini' but GEMINI_API_KEY is missing or empty. Cannot start worker.",
+      );
+    }
+  } else if (config.generation.aiProvider === "groq") {
+    process.stdout.write(`[worker] Groq model: ${config.generation.groqModel}\n`);
+    const hasKey = Boolean(
+      config.generation.groqApiKey &&
+        config.generation.groqApiKey.trim().length > 0,
+    );
+    process.stdout.write(`[worker] Groq API key configured: ${hasKey}\n`);
+
+    if (!hasKey) {
+      throw new Error(
+        "Configuration error: AI_PROVIDER is set to 'groq' but GROQ_API_KEY is missing or empty. Cannot start worker.",
       );
     }
   }

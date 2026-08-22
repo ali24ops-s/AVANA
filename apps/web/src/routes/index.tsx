@@ -27,8 +27,28 @@ import { CourseContentPage } from "../pages/CourseContentPage.js";
 import { FlashcardsPage } from "../pages/FlashcardsPage.js";
 import { ReviewPage } from "../pages/ReviewPage.js";
 import { ExamsPage } from "../pages/ExamsPage.js";
-
+import { FilesPage } from "../pages/FilesPage.js";
 import { EmailVerificationPage } from "../components/shell/EmailVerificationPage.js";
+
+// Admin Imports
+import { AdminLayout } from "../components/shell/AdminLayout.js";
+import { AdminDashboardPage } from "../pages/admin/AdminDashboardPage.js";
+import { AdminUsersPage } from "../pages/admin/AdminUsersPage.js";
+import { AdminGenerationPage } from "../pages/admin/AdminGenerationPage.js";
+import { AdminIntegrityPage } from "../pages/admin/AdminIntegrityPage.js";
+import { AdminCoursesPage } from "../pages/admin/AdminCoursesPage.js";
+import { AdminDocumentsPage } from "../pages/admin/AdminDocumentsPage.js";
+import { AdminDocumentDetailPage } from "../pages/admin/AdminDocumentDetailPage.js";
+import { AdminContentPage } from "../pages/admin/AdminContentPage.js";
+import { AdminGenerationDetailPage } from "../pages/admin/AdminGenerationDetailPage.js";
+import { AdminSystemHealthPage } from "../pages/admin/AdminSystemHealthPage.js";
+import { AdminLogsPage } from "../pages/admin/AdminLogsPage.js";
+import { AdminAuditLogPage } from "../pages/admin/AdminAuditLogPage.js";
+import { AdminAnalyticsPage } from "../pages/admin/AdminAnalyticsPage.js";
+import { AdminAiAnalyticsPage } from "../pages/admin/AdminAiAnalyticsPage.js";
+import { AdminProvidersPage } from "../pages/admin/AdminProvidersPage.js";
+import { AdminPromptsPage } from "../pages/admin/AdminPromptsPage.js";
+import { AdminSettingsPage } from "../pages/admin/AdminSettingsPage.js";
 
 export const router = createBrowserRouter([
   // Public routes
@@ -104,11 +124,95 @@ export const router = createBrowserRouter([
             element: <ExamsPage />,
           },
           {
+            path: "files",
+            element: <FilesPage />,
+          },
+          {
             path: "*",
             element: <Navigate to="/home" replace />,
+          },
+        ],
+      },
+      // Admin Panel Routes
+      {
+        path: "admin",
+        element: <AdminLayout />,
+        children: [
+          {
+            index: true,
+            element: <Navigate to="/admin/dashboard" replace />,
+          },
+          {
+            path: "dashboard",
+            element: <AdminDashboardPage />,
+          },
+          {
+            path: "analytics",
+            element: <AdminAnalyticsPage />,
+          },
+          {
+            path: "analytics/ai",
+            element: <AdminAiAnalyticsPage />,
+          },
+          {
+            path: "courses",
+            element: <AdminCoursesPage />,
+          },
+          {
+            path: "documents",
+            element: <AdminDocumentsPage />,
+          },
+          {
+            path: "documents/:id",
+            element: <AdminDocumentDetailPage />,
+          },
+          {
+            path: "content",
+            element: <AdminContentPage />,
+          },
+          {
+            path: "users",
+            element: <AdminUsersPage />,
+          },
+          {
+            path: "generation",
+            element: <AdminGenerationPage />,
+          },
+          {
+            path: "generation/providers",
+            element: <AdminProvidersPage />,
+          },
+          {
+            path: "generation/prompts",
+            element: <AdminPromptsPage />,
+          },
+          {
+            path: "generation/:id",
+            element: <AdminGenerationDetailPage />,
+          },
+          {
+            path: "system/health",
+            element: <AdminSystemHealthPage />,
+          },
+          {
+            path: "system/integrity",
+            element: <AdminIntegrityPage />,
+          },
+          {
+            path: "system/logs",
+            element: <AdminLogsPage />,
+          },
+          {
+            path: "system/audit",
+            element: <AdminAuditLogPage />,
+          },
+          {
+            path: "settings",
+            element: <AdminSettingsPage />,
           },
         ],
       },
     ],
   },
 ]);
+

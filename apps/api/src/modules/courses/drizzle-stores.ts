@@ -14,6 +14,7 @@ import {
   courses,
   auditLogs,
   organizationMemberships,
+  courseMemberships,
 } from "@avana/database/schema";
 import type {
   CourseRecord,
@@ -197,4 +198,115 @@ export class DrizzleCourseStore implements CourseStore {
       });
     }
   }
+
+  async listUserCourses(
+    userId: UserId,
+    organizationId?: OrganizationId,
+    systemOrganizationId?: OrganizationId,
+  ): Promise<CourseRecord[]> {
+    const orgFilter =
+      organizationId && systemOrganizationId && systemOrganizationId !== organizationId
+        ? or(
+            eq(courses.organizationId, organizationId),
+            eq(courses.organizationId, systemOrganizationId),
+          )
+        : organizationId
+          ? eq(courses.organizationId, organizationId)
+          : undefined;
+
+    const whereClause = orgFilter
+      ? and(
+          eq(courseMemberships.userId, userId),
+          isNull(courses.deletedAt),
+          orgFilter,
+        )
+      : and(
+          eq(courseMemberships.userId, userId),
+          isNull(courses.deletedAt),
+        );
+
+    const rows = await this.db
+      .select({
+        id: courses.id,
+        organizationId: courses.organizationId,
+        name: courses.name,
+        subject: courses.subject,
+        examDate: courses.examDate,
+        createdAt: courses.createdAt,
+        updatedAt: courses.updatedAt,
+        deletedAt: courses.deletedAt,
+      })
+      .from(courseMemberships)
+      .innerJoin(courses, eq(courses.id, courseMemberships.courseId))
+      .where(whereClause);
+
+    return rows.map(toCourseRecord);
+  }
+
+  async addUserCourse(
+    userId: UserId,
+    courseId: CourseId,
+    role: string = "student",
+  ): Promise<void> {
+    const existing = await this.db
+      .select({ id: courseMemberships.id })
+      .from(courseMemberships)
+      .where(
+        and(
+          eq(courseMemberships.userId, userId),
+          eq(courseMemberships.courseId, courseId),
+        ),
+      )
+      .limit(1);
+
+    if (existing.length > 0) return;
+
+    await this.db.insert(courseMemberships).values({
+      userId,
+      courseId,
+      role,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+  }
+
+  async removeUserCourse(
+    userId: UserId,
+    courseId: CourseId,
+  ): Promise<void> {
+    await this.db
+      .delete(courseMemberships)
+      .where(
+        and(
+          eq(courseMemberships.userId, userId),
+          eq(courseMemberships.courseId, courseId),
+        ),
+      );
+  }
+
+  async syncUserCourses(
+    userId: UserId,
+    courseIds: CourseId[],
+  ): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      await tx
+        .delete(courseMemberships)
+        .where(eq(courseMemberships.userId, userId));
+
+      if (courseIds.length > 0) {
+        const now = new Date();
+        const uniqueIds = Array.from(new Set(courseIds));
+        for (const cId of uniqueIds) {
+          await tx.insert(courseMemberships).values({
+            userId,
+            courseId: cId,
+            role: "student",
+            createdAt: now,
+            updatedAt: now,
+          });
+        }
+      }
+    });
+  }
 }
+

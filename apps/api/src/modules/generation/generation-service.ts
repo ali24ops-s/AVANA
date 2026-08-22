@@ -56,12 +56,19 @@ import type {
   DocumentRecord,
   DocumentStore,
   DocumentChunkStore,
+  ModuleStore,
+  LessonStore,
 } from "../learning/learning-store.js";
 import type {
   GeneratedContentRecord,
   GeneratedContentStore,
   GeneratedContentCitationStore,
 } from "./generation-store.js";
+import type {
+  FlashcardStore,
+  QuizStore,
+  QuizQuestionStore,
+} from "../study/study-store.js";
 import type { ModelGateway } from "./gateway/index.js";
 import type { AuditService } from "../../observability/audit-service.js";
 import type { OrganizationStore } from "../organizations/organization-store.js";
@@ -69,6 +76,17 @@ import type { OrganizationStore } from "../organizations/organization-store.js";
 // ---------------------------------------------------------------------------
 // Response contract types
 // ---------------------------------------------------------------------------
+
+export type DocumentContentStatusResource = {
+  request_id: string;
+  document_id: DocumentId;
+  course_id: CourseId | null;
+  lesson: { generated: boolean; count: number };
+  flashcards: { generated: boolean; count: number };
+  exam: { generated: boolean; count: number };
+  can_generate: boolean;
+  all_generated: boolean;
+};
 
 export type GeneratedContentResource = {
   id: GeneratedContentId;
@@ -110,6 +128,11 @@ export class GenerationService {
     private readonly policy: AuthorizationPolicy = defaultPolicy,
     private readonly auditService?: AuditService,
     private readonly orgStore?: OrganizationStore,
+    private readonly moduleStore?: ModuleStore,
+    private readonly lessonStore?: LessonStore,
+    private readonly flashcardStore?: FlashcardStore,
+    private readonly quizStore?: QuizStore,
+    private readonly quizQuestionStore?: QuizQuestionStore,
   ) {}
 
   /**
@@ -1425,6 +1448,161 @@ export class GenerationService {
   }
 
   /**
+   * Calculate true database-backed content generation status for a document.
+   *
+   * Accurately determines whether lessons, flashcards, and quizzes exist in DB
+   * or active unrejected review drafts exist.
+   * If an item is deleted in DB, generated status reverts to false.
+   */
+  async getDocumentContentStatus(
+    actor: Actor,
+    organizationId: OrganizationId,
+    documentId: DocumentId,
+    courseId?: CourseId,
+  ): Promise<DocumentContentStatusResource> {
+    await this.authorize(actor, organizationId, "content:review");
+    const doc = await this.requireDocument(organizationId, documentId);
+
+    // 1. Resolve all generated content records for this document
+    const docContents = await this.generatedContentStore.listByDocument(
+      documentId,
+      organizationId,
+    );
+    const docContentIds = new Set(docContents.map((c) => c.id));
+
+    const activeDrafts = docContents.filter(
+      (c) =>
+        c.deletedAt === null &&
+        (c.status === "draft" || c.status === "edited"),
+    );
+
+    // 2. Calculate Lesson Status from DB & Drafts
+    let lessonCount = 0;
+    if (this.moduleStore && this.lessonStore) {
+      const moduleRecord = await this.moduleStore.findByDocument(documentId);
+      if (moduleRecord) {
+        const lessons = await this.lessonStore.listByModule(moduleRecord.id);
+        lessonCount = lessons.filter((l) => l.deletedAt === null).length;
+      }
+    }
+
+    let draftLessonCount = 0;
+    for (const draft of activeDrafts) {
+      if (draft.type === "lesson") {
+        const payload = draft.payload as any;
+        if (Array.isArray(payload?.sessions) && payload.sessions.length > 0) {
+          draftLessonCount += payload.sessions.length;
+        } else {
+          draftLessonCount += 1;
+        }
+      }
+    }
+
+    // 3. Calculate Flashcards Status from DB & Drafts
+    let flashcardCount = 0;
+    if (this.flashcardStore) {
+      const allCards = await this.flashcardStore.listByOrganization(organizationId);
+      flashcardCount = allCards.filter(
+        (f) =>
+          (f.documentId === documentId || (f.generatedContentId && docContentIds.has(f.generatedContentId))) &&
+          f.deletedAt === null,
+      ).length;
+    }
+
+    let draftFlashcardCount = 0;
+    for (const draft of activeDrafts) {
+      if (draft.type === "flashcard") {
+        const payload = draft.payload as any;
+        if (Array.isArray(payload?.cards) && payload.cards.length > 0) {
+          draftFlashcardCount += payload.cards.length;
+        } else if (Array.isArray(payload?.flashcards) && payload.flashcards.length > 0) {
+          draftFlashcardCount += payload.flashcards.length;
+        } else if (payload?.question && payload?.answer) {
+          draftFlashcardCount += 1;
+        }
+      }
+    }
+
+    // 4. Calculate Quizzes/Exam Status from DB & Drafts
+    let quizCount = 0;
+    let quizQuestionCount = 0;
+    if (this.quizStore) {
+      const allQuizzes = await this.quizStore.listByOrganization(organizationId);
+      const docQuizzes = allQuizzes.filter(
+        (q) =>
+          ((q as any).documentId === documentId ||
+            ((q as any).generatedContentId && docContentIds.has((q as any).generatedContentId))) &&
+          q.deletedAt === null,
+      );
+      quizCount = docQuizzes.length;
+      if (this.quizQuestionStore) {
+        for (const q of docQuizzes) {
+          const questions = await this.quizQuestionStore.listByQuiz(q.id);
+          quizQuestionCount += questions.filter(
+            (qq) => (qq as any).deletedAt === null || (qq as any).deletedAt === undefined,
+          ).length;
+        }
+      }
+    }
+
+    let draftQuizQuestionCount = 0;
+    for (const draft of activeDrafts) {
+      if (draft.type === "quiz") {
+        const payload = draft.payload as any;
+        if (Array.isArray(payload?.questions) && payload.questions.length > 0) {
+          draftQuizQuestionCount += payload.questions.length;
+        } else if (Array.isArray(payload?.quiz?.questions) && payload.quiz.questions.length > 0) {
+          draftQuizQuestionCount += payload.quiz.questions.length;
+        } else {
+          draftQuizQuestionCount += 1;
+        }
+      }
+    }
+
+    const totalLessonCount = lessonCount > 0 ? lessonCount : draftLessonCount;
+    const totalFlashcardCount = flashcardCount > 0 ? flashcardCount : draftFlashcardCount;
+    const totalExamCount =
+      quizQuestionCount > 0
+        ? quizQuestionCount
+        : (quizCount > 0 ? quizCount : draftQuizQuestionCount);
+
+    const lessonGenerated = totalLessonCount > 0;
+    const flashcardsGenerated = totalFlashcardCount > 0;
+    const examGenerated = totalExamCount > 0;
+
+    const allGenerated = lessonGenerated && flashcardsGenerated && examGenerated;
+
+    const generatableDocStatuses = new Set([
+      "uploaded",
+      "extracted",
+      "review_pending",
+      "ready",
+      "failed",
+    ]);
+    const canGenerate = !allGenerated && generatableDocStatuses.has(doc.status);
+
+    return {
+      request_id: randomUUID(),
+      document_id: documentId,
+      course_id: (courseId || doc.courseId || null) as CourseId | null,
+      lesson: {
+        generated: lessonGenerated,
+        count: totalLessonCount,
+      },
+      flashcards: {
+        generated: flashcardsGenerated,
+        count: totalFlashcardCount,
+      },
+      exam: {
+        generated: examGenerated,
+        count: totalExamCount,
+      },
+      can_generate: canGenerate,
+      all_generated: allGenerated,
+    };
+  }
+
+  /**
    * Generate content for a document (worker-ready entry point).
    *
    * Authorization: requires `content:generate`.
@@ -1466,9 +1644,9 @@ export class GenerationService {
       );
     }
 
-    // Idempotency: reuse existing drafts for the same key/type
+    // Idempotency: first check if existing drafts exist for the exact same generationKey (worker redelivery)
     const contents: GeneratedContentRecord[] = [];
-    const toGenerate: GeneratedContentType[] = [];
+    const pendingCheckTypes: GeneratedContentType[] = [];
     for (const type of enabled) {
       if (generationKey) {
         const existing = await this.generatedContentStore.findByGenerationKey(
@@ -1482,13 +1660,43 @@ export class GenerationService {
           continue;
         }
       }
-      toGenerate.push(type);
+      pendingCheckTypes.push(type);
+    }
+
+    // If all enabled types were already matched by generationKey, return them idempotently
+    if (pendingCheckTypes.length === 0) {
+      const resources = await Promise.all(
+        contents.map((r) => this.toResource(r)),
+      );
+      return { contents: resources, document_status: doc.status };
+    }
+
+    // Server-side validation: check DB content status and prevent re-generating already-existing types
+    const contentStatus = await this.getDocumentContentStatus(
+      actor,
+      organizationId,
+      documentId,
+      targetCourseId,
+    );
+
+    const toGenerate = pendingCheckTypes.filter((t) => {
+      if (t === "lesson" && contentStatus.lesson.generated) return false;
+      if (t === "flashcard" && contentStatus.flashcards.generated) return false;
+      if (t === "quiz" && contentStatus.exam.generated) return false;
+      return true;
+    });
+
+    if (toGenerate.length === 0 && contents.length === 0) {
+      throw new DomainError(
+        "conflict",
+        "تمام محتواهای درخواستی از قبل برای این فایل وجود دارند.",
+      );
     }
 
     // Nothing new to generate
     if (toGenerate.length === 0) {
       const resources = await Promise.all(
-        contents.map((c) => this.toResource(c)),
+        contents.map((r) => this.toResource(r)),
       );
       return { contents: resources, document_status: doc.status };
     }
@@ -1549,6 +1757,17 @@ export class GenerationService {
     });
 
     try {
+      const resolvedModelName =
+        (this.gateway as { modelName?: string }).modelName ??
+        this.gateway.model ??
+        "unknown";
+      process.stdout.write(
+        `[generation-service] Provider: ${this.gateway.provider}\n`,
+      );
+      process.stdout.write(
+        `[generation-service] Model: ${resolvedModelName}\n`,
+      );
+
       // Step 1: Content Planning & Coverage Analysis (1 API call)
       const planningRes = await this.extractContentPlan(
         doc,

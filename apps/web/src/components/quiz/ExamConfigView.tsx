@@ -36,13 +36,14 @@ export function ExamConfigView({ organizationId, onStartExam }: ExamConfigViewPr
 
   const [selectedCourses, setSelectedCourses] = useState<Set<string>>(new Set());
   const [selectedModules, setSelectedModules] = useState<Set<string>>(new Set());
+  const [selectedLessons, setSelectedLessons] = useState<Set<string>>(new Set());
 
   const [questionCount, setQuestionCount] = useState<number>(20);
   const [difficulty, setDifficulty] = useState<string>("medium");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isStarting, setIsStarting] = useState<boolean>(false);
 
-  // Map API response to 2-Level TaxonomyCourse format (Course -> Module)
+  // Map API response to 3-Level TaxonomyCourse format (Course -> Module -> Lesson)
   const taxonomyCourses: TaxonomyCourse[] = useMemo(() => {
     const rawList = topicsQuery.data?.courses || topicsQuery.data?.sections;
     if (!rawList) return [];
@@ -58,11 +59,23 @@ export function ExamConfigView({ organizationId, onStartExam }: ExamConfigViewPr
               m.moduleTitle !== "سایر سرفصل‌ها" &&
               m.title !== "سایر سرفصل‌ها",
           )
-          .map((m: any) => ({
-            id: m.moduleId || m.id,
-            title: m.moduleTitle || m.title,
-            itemCount: m.questionCount ?? m.itemCount,
-          }));
+          .map((m: any) => {
+            const rawLessons = m.lessons;
+            const validLessons = (rawLessons || [])
+              .filter((l: any) => (l.questionCount ?? l.itemCount ?? 0) > 0)
+              .map((l: any) => ({
+                id: l.lessonId || l.id,
+                title: l.lessonTitle || l.title,
+                itemCount: l.questionCount ?? l.itemCount,
+              }));
+
+            return {
+              id: m.moduleId || m.id,
+              title: m.moduleTitle || m.title,
+              itemCount: m.questionCount ?? m.itemCount,
+              lessons: validLessons.length > 0 ? validLessons : undefined,
+            };
+          });
         return {
           id: c.courseId || c.id,
           title: c.courseTitle || c.title,
@@ -85,35 +98,44 @@ export function ExamConfigView({ organizationId, onStartExam }: ExamConfigViewPr
       });
   }, [topicsQuery.data]);
 
-
-
   const handleTaxonomyChange = (selection: {
     courseIds: Set<string>;
     moduleIds: Set<string>;
+    lessonIds?: Set<string>;
   }) => {
     setSelectedCourses(selection.courseIds);
     setSelectedModules(selection.moduleIds);
+    setSelectedLessons(selection.lessonIds || new Set());
   };
 
-  // Calculate dynamic eligible questions count based on selected modules
+  // Calculate dynamic eligible questions count based on selected lessons & modules
   const availableQuestionsCount = useMemo(() => {
     if (taxonomyCourses.length === 0) return 0;
     let count = 0;
 
     for (const c of taxonomyCourses) {
       for (const m of c.modules) {
-        if (selectedModules.has(m.id)) {
+        if (m.lessons && m.lessons.length > 0) {
+          for (const l of m.lessons) {
+            if (selectedLessons.has(l.id)) {
+              count += l.itemCount ?? 0;
+            }
+          }
+        } else if (selectedModules.has(m.id)) {
           count += m.itemCount ?? 0;
         }
       }
     }
     return count;
-  }, [taxonomyCourses, selectedModules]);
+  }, [taxonomyCourses, selectedModules, selectedLessons]);
 
   // Compute Selection Summary string
   const selectionSummaryText = useMemo(() => {
+    if (selectedLessons.size > 0) {
+      return `${selectedCourses.size} دوره، ${selectedModules.size} بخش، ${selectedLessons.size} درس`;
+    }
     return `${selectedCourses.size} دوره، ${selectedModules.size} بخش`;
-  }, [selectedCourses, selectedModules]);
+  }, [selectedCourses, selectedModules, selectedLessons]);
 
   // Dynamic estimated time calculation (~1.5 minutes per question)
   const estimatedMinutes = Math.max(5, Math.round(questionCount * 1.5));
@@ -125,9 +147,11 @@ export function ExamConfigView({ organizationId, onStartExam }: ExamConfigViewPr
       const activeTopics = [
         ...Array.from(selectedCourses),
         ...Array.from(selectedModules),
+        ...Array.from(selectedLessons),
       ];
       const res = await studyApi.startExamAttempt(organizationId, {
         sections: Array.from(selectedModules),
+        chapters: Array.from(selectedLessons),
         topics: activeTopics,
         questionCount,
         difficulty,
@@ -186,7 +210,7 @@ export function ExamConfigView({ organizationId, onStartExam }: ExamConfigViewPr
                 <div>
                   <h2 className="text-lg font-bold text-white">انتخاب دوره‌ها و بخش‌های آزمون</h2>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    ساختار استاندارد Course → Module
+                    ساختار استاندارد Course → Module → Lesson
                   </p>
                 </div>
               </div>
@@ -201,6 +225,7 @@ export function ExamConfigView({ organizationId, onStartExam }: ExamConfigViewPr
                 courses={taxonomyCourses}
                 selectedCourseIds={selectedCourses}
                 selectedModuleIds={selectedModules}
+                selectedLessonIds={selectedLessons}
                 onSelectionChange={handleTaxonomyChange}
                 emptyMessage="برای این دوره هنوز سرفصل یا آزمونی ثبت نشده است."
                 itemLabelSingular="سؤال"

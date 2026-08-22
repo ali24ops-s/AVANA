@@ -391,4 +391,81 @@ describe("Materialization & Single Source of Truth Taxonomy Architecture Tests",
     expect(mod2).toBeDefined();
     expect(mod1!.id).not.toBe(mod2!.id);
   });
+
+  it("Test 14: materializeFlashcards maps sessionIndex to matching lesson_id and leaves invalid sessionIndex as null", async () => {
+    const docId = "doc-ch46-1" as DocumentId;
+    documentStore.insert(makeDoc(docId, orgId, courseId, "46.pdf"));
+
+    const lessonRecord: GeneratedContentRecord = {
+      id: randomUUID() as any,
+      organizationId: orgId,
+      courseId,
+      documentId: docId,
+      type: "lesson",
+      status: "draft",
+      payload: {
+        kind: "lesson",
+        title: "فصل: فارماکولوژی غدد",
+        contentMarkdown: "# متن",
+        citationChunkIds: [],
+        moduleTitle: "فصل: فارماکولوژی غدد",
+        sessions: [
+          { title: "جلسه ۱: انسولین", contentMarkdown: "# محتوا" },
+          { title: "جلسه ۲: متفورمین", contentMarkdown: "# محتوا" },
+        ],
+      } as any,
+      materializedLessonId: null,
+      model: "gemini-3.5-flash-lite",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      deletedAt: null,
+    } as any as GeneratedContentRecord;
+
+    const flashcardRecord: GeneratedContentRecord = {
+      id: randomUUID() as any,
+      organizationId: orgId,
+      courseId,
+      documentId: docId,
+      type: "flashcard",
+      status: "draft",
+      payload: {
+        kind: "flashcard",
+        cards: [
+          { question: "سوال ۱ درباره انسولین", answer: "پاسخ ۱", sessionIndex: 0 },
+          { question: "سوال ۲ درباره متفورمین", answer: "پاسخ ۲", sessionIndex: 1 },
+          { question: "سوال ۳ با sessionIndex نامعتبر", answer: "پاسخ ۳", sessionIndex: 99 },
+          { question: "سوال ۴ بدون sessionIndex", answer: "پاسخ ۴" },
+        ],
+      } as any,
+      materializedLessonId: null,
+      model: "gemini-3.5-flash-lite",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      deletedAt: null,
+    } as any as GeneratedContentRecord;
+
+    generatedContentStore.insert(lessonRecord);
+    generatedContentStore.insert(flashcardRecord);
+
+    const actor = { userId: "user-1", role: "organization_admin" } as any;
+
+    await reviewService.acceptContent(actor, orgId, lessonRecord.id);
+    await reviewService.acceptContent(actor, orgId, flashcardRecord.id);
+
+    const createdLessons = await lessonStore.listByModules([(await moduleStore.findByDocument(docId))!.id]);
+    expect(createdLessons.length).toBe(2);
+
+    const createdCards = await flashcardStore.listByCourse(courseId, orgId);
+    expect(createdCards.length).toBe(4);
+
+    const card1 = createdCards.find((c) => c.question === "سوال ۱ درباره انسولین");
+    const card2 = createdCards.find((c) => c.question === "سوال ۲ درباره متفورمین");
+    const card3 = createdCards.find((c) => c.question === "سوال ۳ با sessionIndex نامعتبر");
+    const card4 = createdCards.find((c) => c.question === "سوال ۴ بدون sessionIndex");
+
+    expect(card1?.lessonId).toBe(createdLessons[0].id);
+    expect(card2?.lessonId).toBe(createdLessons[1].id);
+    expect(card3?.lessonId).toBeNull();
+    expect(card4?.lessonId).toBeNull();
+  });
 });

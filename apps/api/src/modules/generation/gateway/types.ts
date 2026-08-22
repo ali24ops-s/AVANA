@@ -18,7 +18,7 @@ import type { DocumentId, OrganizationId } from "@avana/domain";
  * Extensible — future "openai" | "anthropic" | "azure" are added behind the
  * same ModelGateway interface. PR6-4 only provides the "mock" provider.
  */
-export type ModelProvider = "mock" | "gemini" | "cloudflare";
+export type ModelProvider = "mock" | "gemini" | "cloudflare" | "groq";
 
 /**
  * A single message in a completion request.
@@ -73,5 +73,6 @@ export type CompletionResult = {
  */
 export interface ModelGateway {
   readonly provider: ModelProvider;
+  readonly model?: string;
   complete(req: CompletionRequest): Promise<CompletionResult>;
 }

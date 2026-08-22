@@ -156,6 +156,94 @@ export class CourseService {
   }
 
   /**
+   * List courses enrolled/selected by the authenticated user in the given organization.
+   * Courses are sorted according to CANONICAL_COURSES priority order.
+   */
+  async listMyCourses(
+    actor: Actor,
+    organizationId: OrganizationId,
+  ): Promise<CourseRecord[]> {
+    const membership = await this.requireOrgMembership(actor, organizationId);
+    const scopedActor = { ...actor, role: membership.role as Actor["role"] };
+    const context: AuthContext = { organizationId };
+    this.policy.require("course:read", scopedActor, context);
+
+    const courses = await this.store.listUserCourses(
+      actor.userId,
+      organizationId,
+      this.systemOrganizationId,
+    );
+
+    return courses.slice().sort((a, b) => {
+      const idxA = CANONICAL_COURSES.indexOf(a.name as any);
+      const idxB = CANONICAL_COURSES.indexOf(b.name as any);
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+      if (idxA !== -1) return -1;
+      if (idxB !== -1) return 1;
+      return 0;
+    });
+  }
+
+  /**
+   * Add a course to the user's enrolled / personal courses.
+   */
+  async addMyCourse(
+    actor: Actor,
+    organizationId: OrganizationId,
+    courseId: CourseId,
+  ): Promise<void> {
+    const membership = await this.requireOrgMembership(actor, organizationId);
+    const scopedActor = { ...actor, role: membership.role as Actor["role"] };
+    const context: AuthContext = { organizationId, courseId };
+    this.policy.require("course:read", scopedActor, context);
+
+    // Verify the course exists and is accessible
+    await this.getCourse(actor, organizationId, courseId);
+
+    await this.store.addUserCourse(actor.userId, courseId);
+  }
+
+  /**
+   * Remove a course from the user's enrolled / personal courses.
+   * Does NOT delete or modify the main course in the database.
+   */
+  async removeMyCourse(
+    actor: Actor,
+    organizationId: OrganizationId,
+    courseId: CourseId,
+  ): Promise<void> {
+    const membership = await this.requireOrgMembership(actor, organizationId);
+    const scopedActor = { ...actor, role: membership.role as Actor["role"] };
+    const context: AuthContext = { organizationId, courseId };
+    this.policy.require("course:read", scopedActor, context);
+
+    await this.store.removeUserCourse(actor.userId, courseId);
+  }
+
+  /**
+   * Atomically synchronize the user's selected courses.
+   */
+  async syncMyCourses(
+    actor: Actor,
+    organizationId: OrganizationId,
+    courseIds: CourseId[],
+  ): Promise<CourseRecord[]> {
+    const membership = await this.requireOrgMembership(actor, organizationId);
+    const scopedActor = { ...actor, role: membership.role as Actor["role"] };
+    const context: AuthContext = { organizationId };
+    this.policy.require("course:read", scopedActor, context);
+
+    // Verify all specified courses exist and are accessible
+    for (const cId of courseIds) {
+      await this.getCourse(actor, organizationId, cId);
+    }
+
+    await this.store.syncUserCourses(actor.userId, courseIds);
+    return this.listMyCourses(actor, organizationId);
+  }
+
+
+  /**
    * Get a single course by ID, scoped to the actor's organization membership or system organization.
    * No course lookup by ID alone — always requires membership context.
    */

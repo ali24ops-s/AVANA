@@ -21,6 +21,7 @@ import {
   FileText,
   Zap,
 } from "lucide-react";
+import { useStudySessionTracker } from "../../hooks/useStudySessionTracker.js";
 
 // ─── Types ───────────────────────────────────────────────
 
@@ -389,6 +390,12 @@ export function AIMentorPage({
   const [showHistory, setShowHistory] = useState(true);
   const [showContext, setShowContext] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Track active educational study time for AI mentor sessions
+  useStudySessionTracker({
+    activityType: "ai_tutor",
+    enabled: true,
+  });
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });

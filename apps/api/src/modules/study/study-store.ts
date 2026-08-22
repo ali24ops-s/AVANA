@@ -20,6 +20,10 @@ import type {
 import type {
   FlashcardRating,
   QuizAttemptRecord,
+  StudySessionRecord,
+  FlashcardStudySessionRecord,
+  FlashcardStudySessionCardRecord,
+  FlashcardSessionStatus,
 } from "@avana/domain";
 
 // ---------------------------------------------------------------------------
@@ -134,6 +138,7 @@ export interface FlashcardStore {
 
   listByOrganization(
     organizationId: OrganizationId,
+    systemOrganizationId?: OrganizationId,
   ): Promise<FlashcardRecord[]>;
 
   create(record: FlashcardRecord): Promise<FlashcardRecord>;
@@ -206,6 +211,7 @@ export interface QuizStore {
 
   listByOrganization(
     organizationId: OrganizationId,
+    systemOrganizationId?: OrganizationId,
   ): Promise<QuizRecord[]>;
 
   create(record: QuizRecord): Promise<QuizRecord>;
@@ -232,6 +238,7 @@ export interface QuizQuestionStore {
   listByIds(ids: QuizQuestionId[]): Promise<QuizQuestionRecord[]>;
   listByFilter(filter: {
     organizationId?: OrganizationId;
+    systemOrganizationId?: OrganizationId;
     topics?: string[];
     difficulty?: string;
   }): Promise<QuizQuestionRecord[]>;
@@ -245,6 +252,8 @@ export interface QuizAttemptStore {
   findById(id: QuizAttemptId): Promise<QuizAttemptRecord | undefined>;
   listByUserAndQuiz(userId: UserId, quizId: QuizId): Promise<QuizAttemptRecord[]>;
   listByUser(userId: UserId): Promise<QuizAttemptRecord[]>;
+  /** Count total completed/submitted attempts for a user across all exams/quizzes. */
+  countCompletedByUser(userId: UserId): Promise<number>;
   /**
    * List all attempts across all quizzes in a course for a user.
    * Used for analytics aggregation.
@@ -253,3 +262,71 @@ export interface QuizAttemptStore {
   create(record: QuizAttemptRecord): Promise<QuizAttemptRecord>;
   update(record: QuizAttemptRecord): Promise<QuizAttemptRecord>;
 }
+
+export interface StudySessionStore {
+  create(
+    record: Omit<StudySessionRecord, "createdAt" | "updatedAt">,
+  ): Promise<StudySessionRecord>;
+
+  findById(id: string): Promise<StudySessionRecord | undefined>;
+
+  findActiveByUser(userId: UserId): Promise<StudySessionRecord | undefined>;
+
+  update(record: StudySessionRecord): Promise<StudySessionRecord>;
+
+  closeActiveSessionsForUser(
+    userId: UserId,
+    endedAt: string,
+  ): Promise<void>;
+
+  listByUser(userId: UserId): Promise<StudySessionRecord[]>;
+
+  listByUserAndDateRange(
+    userId: UserId,
+    fromDate: string,
+    toDate: string,
+  ): Promise<StudySessionRecord[]>;
+}
+
+export interface FlashcardStudySessionStore {
+  createSessionWithCards(
+    session: Omit<FlashcardStudySessionRecord, "createdAt" | "updatedAt">,
+    cards: Array<{ flashcardId: string; sortOrder: number }>,
+  ): Promise<FlashcardStudySessionRecord>;
+
+  findById(id: string): Promise<FlashcardStudySessionRecord | undefined>;
+
+  listActiveByUser(
+    userId: UserId,
+    organizationId?: OrganizationId,
+  ): Promise<FlashcardStudySessionRecord[]>;
+
+  listSessionCards(
+    sessionId: string,
+  ): Promise<FlashcardStudySessionCardRecord[]>;
+
+  updateProgress(
+    sessionId: string,
+    data: {
+      currentIndex: number;
+      completedCards: number;
+      currentCardId?: string | null;
+      lastActivityAt: string;
+      cardUpdate?: {
+        flashcardId: string;
+        status: "reviewed";
+        rating?: string | null;
+        reactionMs?: number | null;
+        reviewedAt: string;
+      };
+    },
+  ): Promise<FlashcardStudySessionRecord | undefined>;
+
+  updateStatus(
+    sessionId: string,
+    status: FlashcardSessionStatus,
+    completedAt?: string | null,
+    lastActivityAt?: string,
+  ): Promise<FlashcardStudySessionRecord | undefined>;
+}
+

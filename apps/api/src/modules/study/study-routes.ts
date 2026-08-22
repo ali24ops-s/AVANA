@@ -28,6 +28,8 @@ import {
   type CourseId,
   type FlashcardRating,
   type OrganizationId,
+  type FlashcardStudySessionRecord,
+  type FlashcardStudySessionCardRecord,
   DomainError,
   defaultPolicy,
   isFlashcardRating,
@@ -45,6 +47,9 @@ import type {
   QuizStore,
   QuizQuestionStore,
   QuizAttemptStore,
+  StudySessionStore,
+  FlashcardStudySessionStore,
+  FlashcardRecord,
 } from "./study-store.js";
 import type {
   ModuleStore,
@@ -70,6 +75,9 @@ export interface StudyRouteOptions {
   lessonStore: LessonStore;
   progressStore: ProgressStore;
   auditService?: AuditService;
+  systemOrganizationId?: OrganizationId;
+  studySessionStore?: StudySessionStore;
+  flashcardStudySessionStore?: FlashcardStudySessionStore;
 }
 
 const UUID_RE =
@@ -94,6 +102,9 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
     lessonStore,
     progressStore,
     auditService,
+    systemOrganizationId,
+    studySessionStore,
+    flashcardStudySessionStore,
   } = opts;
 
   const { requireAuth } = makeAuthMiddleware({ sessionService, userStore });
@@ -111,6 +122,9 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
     organizationStore,
     userFlashcardScheduleStore,
     courseStore,
+    systemOrganizationId,
+    studySessionStore,
+    flashcardStudySessionStore,
   );
 
   /** Helper to extract actor from authenticated request. */
@@ -147,6 +161,7 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
       const course = await courseStore.findByIdForUser(
         params.courseId as CourseId,
         actor.userId,
+        systemOrganizationId,
       );
       if (course) {
         return course.organizationId;
@@ -170,12 +185,12 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
     const organizationId = await resolveOrganizationId(actor, req.params as { organizationId: string });
 
     const [allFlashcards, userSchedules, userReviews, coursesInfo] = await Promise.all([
-      flashcardStore.listByOrganization(organizationId),
+      flashcardStore.listByOrganization(organizationId, systemOrganizationId),
       userFlashcardScheduleStore
         ? userFlashcardScheduleStore.listByUser(actor.userId)
         : Promise.resolve([]),
       flashcardReviewStore.listByUser(actor.userId),
-      courseStore?.listByOrganization(organizationId, actor.userId) || Promise.resolve([]),
+      courseStore?.listByOrganization(organizationId, actor.userId, systemOrganizationId) || Promise.resolve([]),
     ]);
 
     const scheduleMap = new Map(userSchedules.map((s) => [s.flashcardId, s]));
@@ -194,6 +209,7 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
         const moduleIds = courseModules.map((m) => m.id);
         const courseLessons = await lessonStore.listByModules(moduleIds);
 
+        const lessonToModuleMap = new Map<string, string>();
         const lessonMap = new Map<
           string,
           {
@@ -208,6 +224,7 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
         >();
 
         for (const les of courseLessons) {
+          lessonToModuleMap.set(les.id, les.moduleId);
           lessonMap.set(les.id, {
             lesson_id: les.id,
             title: les.title,
@@ -219,18 +236,73 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
           });
         }
 
+        const docToModuleMap = new Map<string, string>();
+        const moduleStatsMap = new Map<
+          string,
+          {
+            module_id: string;
+            title: string;
+            total_cards: number;
+            due_cards: number;
+            new_cards: number;
+            learning_cards: number;
+            overdue_cards: number;
+            lessons: Array<{
+              lesson_id: string;
+              title: string;
+              total_cards: number;
+              due_cards: number;
+              new_cards: number;
+              learning_cards: number;
+              overdue_cards: number;
+            }>;
+          }
+        >();
+
+        for (const m of courseModules) {
+          if (m.documentId) {
+            docToModuleMap.set(m.documentId, m.id);
+          }
+          moduleStatsMap.set(m.id, {
+            module_id: m.id,
+            title: m.title,
+            total_cards: 0,
+            due_cards: 0,
+            new_cards: 0,
+            learning_cards: 0,
+            overdue_cards: 0,
+            lessons: [] as Array<{
+              lesson_id: string;
+              title: string;
+              total_cards: number;
+              due_cards: number;
+              new_cards: number;
+              learning_cards: number;
+              overdue_cards: number;
+            }>,
+          });
+        }
+
         let cTotal = 0, cDue = 0, cOverdue = 0, cNew = 0, cLearning = 0;
 
         for (const f of allFlashcards) {
           if (f.courseId !== course.id) continue;
 
+          // Resolve module relationship:
+          // 1. Explicit lessonId -> lesson.moduleId
+          // 2. Explicit documentId -> module.documentId
+          // 3. Sole course module (courseModules.length === 1)
+          let targetModuleId: string | null = null;
           let matchedLessonId: string | null = f.lessonId ?? null;
-          if (!matchedLessonId && f.documentId) {
-            // Check if document maps to a single lesson in courseLessons
-            const found = courseLessons.find((l) => l.title.includes(f.documentId.slice(0, 8)));
-            if (found) matchedLessonId = found.id;
+          if (matchedLessonId && lessonToModuleMap.has(matchedLessonId)) {
+            targetModuleId = lessonToModuleMap.get(matchedLessonId)!;
+          } else if (f.documentId && docToModuleMap.has(f.documentId)) {
+            targetModuleId = docToModuleMap.get(f.documentId)!;
+          } else if (courseModules.length === 1) {
+            targetModuleId = courseModules[0].id;
           }
 
+          const mStats = targetModuleId ? moduleStatsMap.get(targetModuleId) : null;
           const lStats = matchedLessonId ? lessonMap.get(matchedLessonId) : null;
 
           const schedule = scheduleMap.get(f.id);
@@ -243,52 +315,42 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
           const isDue = isReviewed && dueAt !== null && dueAt <= now;
 
           cTotal += 1;
+          if (mStats) mStats.total_cards += 1;
           if (lStats) lStats.total_cards += 1;
 
           if (!isReviewed) {
             cNew += 1;
+            if (mStats) mStats.new_cards += 1;
             if (lStats) lStats.new_cards += 1;
           } else if (isDue) {
             cDue += 1;
+            if (mStats) mStats.due_cards += 1;
             if (lStats) lStats.due_cards += 1;
             if (intervalDays >= 1 && dueAt !== null && now.getTime() - dueAt.getTime() > 24 * 60 * 60 * 1000) {
               cOverdue += 1;
+              if (mStats) mStats.overdue_cards += 1;
               if (lStats) lStats.overdue_cards += 1;
             }
           } else if (intervalDays === 0) {
             cLearning += 1;
+            if (mStats) mStats.learning_cards += 1;
             if (lStats) lStats.learning_cards += 1;
           }
         }
 
-        const modulesSummaries = courseModules
+        const modulesSummaries = Array.from(moduleStatsMap.values())
           .map((m) => {
-            const modLessons = courseLessons
-              .filter((l) => l.moduleId === m.id)
-              .map((l) => lessonMap.get(l.id)!);
-
-            let mTotal = 0, mDue = 0, mOverdue = 0, mNew = 0, mLearning = 0;
-            for (const les of modLessons) {
-              mTotal += les.total_cards;
-              mDue += les.due_cards;
-              mOverdue += les.overdue_cards;
-              mNew += les.new_cards;
-              mLearning += les.learning_cards;
-            }
-
+            const moduleLessons = Array.from(lessonMap.values()).filter(
+              (l) => lessonToModuleMap.get(l.lesson_id) === m.module_id && l.total_cards > 0,
+            );
             return {
-              module_id: m.id,
-              title: m.title,
-              total_cards: mTotal,
-              due_cards: mDue,
-              new_cards: mNew,
-              learning_cards: mLearning,
-              overdue_cards: mOverdue,
+              ...m,
+              lessons: moduleLessons,
             };
           })
           .filter((m) => m.total_cards > 0);
 
-        if (cTotal === 0 || modulesSummaries.length === 0) {
+        if (cTotal === 0) {
           return null;
         }
 
@@ -515,6 +577,306 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
   );
 
   // -------------------------------------------------------------------------
+  // 4c. Flashcard Study Sessions (Persistence & Resume) Handlers
+  // -------------------------------------------------------------------------
+  function formatFlashcardStudySession(s: FlashcardStudySessionRecord) {
+    return {
+      id: s.id,
+      user_id: s.userId,
+      organization_id: s.organizationId,
+      course_id: s.courseId ?? null,
+      title: s.title,
+      mode: s.mode,
+      custom_mode: s.customMode ?? null,
+      status: s.status,
+      total_cards: s.totalCards,
+      completed_cards: s.completedCards,
+      current_index: s.currentIndex,
+      current_card_id: s.currentCardId ?? null,
+      started_at: s.startedAt,
+      last_activity_at: s.lastActivityAt,
+      completed_at: s.completedAt ?? null,
+    };
+  }
+
+  function formatFlashcardStudySessionCard(sc: FlashcardStudySessionCardRecord) {
+    return {
+      id: sc.id,
+      session_id: sc.sessionId,
+      flashcard_id: sc.flashcardId ?? null,
+      sort_order: sc.sortOrder,
+      status: sc.status,
+      rating: sc.rating ?? null,
+      reviewed_at: sc.reviewedAt ?? null,
+    };
+  }
+
+  function formatFlashcardResource(f: FlashcardRecord) {
+    return {
+      id: f.id,
+      organization_id: f.organizationId,
+      course_id: f.courseId,
+      document_id: f.documentId,
+      generated_content_id: f.generatedContentId ?? null,
+      question: f.question,
+      answer: f.answer,
+      explanation: f.explanation ?? null,
+      card_type: f.cardType ?? "definition",
+      difficulty: f.difficulty ?? "medium",
+      due_at: f.dueAt,
+      interval_days: f.intervalDays,
+      ease_factor: f.easeFactor,
+      created_at: f.createdAt,
+      updated_at: f.updatedAt,
+    };
+  }
+
+  const handleCreateFlashcardSession = async (request: unknown, reply: { code: (c: number) => void }) => {
+    const req = request as {
+      params: { organizationId: string };
+      body: {
+        courseId?: string;
+        courseIds?: string[];
+        moduleIds?: string[];
+        lessonIds?: string[];
+        documentIds?: string[];
+        mode?: "daily" | "exam" | "custom" | "normal";
+        customMode?: "weak" | "forgotten" | "overdue" | "review_ahead" | "new";
+        limit?: number;
+        aheadDays?: number;
+        title?: string;
+      };
+      id: string;
+    };
+    const actor = getActor(req);
+    const organizationId = await resolveOrganizationId(actor, req.params as { organizationId: string });
+
+    const session = await service.createFlashcardStudySession(
+      actor,
+      organizationId,
+      {
+        courseId: req.body?.courseId as CourseId,
+        courseIds: req.body?.courseIds as CourseId[],
+        moduleIds: req.body?.moduleIds,
+        lessonIds: req.body?.lessonIds,
+        documentIds: req.body?.documentIds,
+        mode: req.body?.mode,
+        customMode: req.body?.customMode,
+        limit: req.body?.limit,
+        aheadDays: req.body?.aheadDays,
+        title: req.body?.title,
+      },
+    );
+
+    console.log("[FLASHCARD_SESSION_DEBUG] CREATE", {
+      userId: actor.userId,
+      organizationId,
+      sessionId: session.id,
+      totalCards: session.totalCards,
+      status: session.status,
+    });
+
+    reply.code(201);
+    return {
+      request_id: req.id,
+      session: formatFlashcardStudySession(session),
+    };
+  };
+
+  app.post(
+    "/v1/organizations/:organizationId/study/flashcard-sessions",
+    { preHandler: [requireAuth] },
+    (req, reply) => handleCreateFlashcardSession(req, reply),
+  );
+
+  const handleListActiveFlashcardSessions = async (request: unknown) => {
+    const req = request as { params: { organizationId: string }; id: string };
+    const actor = getActor(req);
+    const organizationId = await resolveOrganizationId(actor, req.params as { organizationId: string });
+
+    const sessions = await service.listActiveFlashcardStudySessions(actor, organizationId);
+    
+    console.log("[FLASHCARD_SESSION_DEBUG] LIST_ACTIVE", {
+      userId: actor.userId,
+      organizationId,
+      activeSessionsCount: sessions.length,
+      sessionIds: sessions.map((s) => s.id),
+      statuses: sessions.map((s) => s.status),
+    });
+
+    const formatted = sessions.map(formatFlashcardStudySession);
+    return {
+      request_id: req.id,
+      sessions: formatted,
+      items: formatted,
+    };
+  };
+
+  app.get(
+    "/v1/organizations/:organizationId/study/flashcard-sessions",
+    { preHandler: [requireAuth] },
+    handleListActiveFlashcardSessions,
+  );
+
+  const handleGetFlashcardSessionDetail = async (request: unknown) => {
+    const req = request as {
+      params: { organizationId: string; sessionId: string };
+      id: string;
+    };
+    const actor = getActor(req);
+    const organizationId = await resolveOrganizationId(actor, req.params as { organizationId: string });
+
+    console.log("[FLASHCARD_SESSION_DEBUG] GET_SESSION start", {
+      sessionId: req.params.sessionId,
+      userId: actor.userId,
+      organizationId,
+    });
+
+    try {
+      const res = await service.getFlashcardStudySession(actor, organizationId, req.params.sessionId);
+      
+      console.log("[FLASHCARD_SESSION_DEBUG] GET_SESSION success", {
+        sessionId: req.params.sessionId,
+        status: res.session.status,
+        totalCards: res.session.totalCards,
+        completedCards: res.session.completedCards,
+        currentIndex: res.session.currentIndex,
+        currentCardId: res.session.currentCardId,
+        snapshotCardsCount: res.sessionCards.length,
+        returnedFlashcardsCount: res.cards.length
+      });
+
+      return {
+        request_id: req.id,
+        session: formatFlashcardStudySession(res.session),
+        cards: res.cards.map(formatFlashcardResource),
+        session_cards: res.sessionCards.map(formatFlashcardStudySessionCard),
+      };
+    } catch (error) {
+      console.error("[FLASHCARD_SESSION_DEBUG] GET_SESSION error", {
+        sessionId: req.params.sessionId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      throw error;
+    }
+  };
+
+  app.get(
+    "/v1/organizations/:organizationId/study/flashcard-sessions/:sessionId",
+    { preHandler: [requireAuth] },
+    handleGetFlashcardSessionDetail,
+  );
+
+  const handleUpdateFlashcardSessionProgress = async (request: unknown) => {
+    const req = request as {
+      params: { organizationId: string; sessionId: string };
+      body: {
+        current_index?: number;
+        completed_cards?: number;
+        current_card_id?: string;
+        card_id?: string;
+        rating?: FlashcardRating;
+        reaction_ms?: number;
+      };
+      id: string;
+    };
+    const actor = getActor(req);
+    const organizationId = await resolveOrganizationId(actor, req.params as { organizationId: string });
+
+    const session = await service.updateFlashcardStudySessionProgress(
+      actor,
+      organizationId,
+      req.params.sessionId,
+      {
+        currentIndex: req.body?.current_index ?? 0,
+        completedCards: req.body?.completed_cards,
+        currentCardId: req.body?.current_card_id,
+        cardId: req.body?.card_id,
+        rating: req.body?.rating,
+        reactionMs: req.body?.reaction_ms,
+      },
+    );
+
+    console.log("[FLASHCARD_SESSION_DEBUG] PROGRESS", {
+      sessionId: session.id,
+      userId: actor.userId,
+      currentIndex: session.currentIndex,
+      currentCardId: session.currentCardId,
+      completedCards: session.completedCards,
+      status: session.status,
+    });
+
+    return {
+      request_id: req.id,
+      session: formatFlashcardStudySession(session),
+    };
+  };
+
+  app.patch(
+    "/v1/organizations/:organizationId/study/flashcard-sessions/:sessionId/progress",
+    { preHandler: [requireAuth] },
+    handleUpdateFlashcardSessionProgress,
+  );
+
+  const handleCompleteFlashcardSession = async (request: unknown) => {
+    const req = request as {
+      params: { organizationId: string; sessionId: string };
+      id: string;
+    };
+    const actor = getActor(req);
+    const organizationId = await resolveOrganizationId(actor, req.params as { organizationId: string });
+
+    const session = await service.completeFlashcardStudySession(
+      actor,
+      organizationId,
+      req.params.sessionId,
+    );
+
+    console.log("[FLASHCARD_SESSION_DEBUG] CLOSE/COMPLETE", {
+      sessionId: session.id,
+      status: session.status,
+    });
+
+    return {
+      request_id: req.id,
+      session: formatFlashcardStudySession(session),
+    };
+  };
+
+  app.post(
+    "/v1/organizations/:organizationId/study/flashcard-sessions/:sessionId/complete",
+    { preHandler: [requireAuth] },
+    handleCompleteFlashcardSession,
+  );
+
+  const handleCancelFlashcardSession = async (request: unknown) => {
+    const req = request as {
+      params: { organizationId: string; sessionId: string };
+      id: string;
+    };
+    const actor = getActor(req);
+    const organizationId = await resolveOrganizationId(actor, req.params as { organizationId: string });
+
+
+    const session = await service.cancelFlashcardStudySession(
+      actor,
+      organizationId,
+      req.params.sessionId,
+    );
+
+    return {
+      request_id: req.id,
+      session: formatFlashcardStudySession(session),
+    };
+  };
+
+  app.post(
+    "/v1/organizations/:organizationId/study/flashcard-sessions/:sessionId/cancel",
+    { preHandler: [requireAuth] },
+    handleCancelFlashcardSession,
+  );
+
+  // -------------------------------------------------------------------------
   // 5. Flashcard Review Submission Handler
   // -------------------------------------------------------------------------
   const handleSubmitFlashcardReview = async (request: unknown) => {
@@ -574,8 +936,8 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
 
     const summary = await service.getExamTopicSummary(actor, organizationId);
 
-    // Format 2-level courses structure (Course -> Module) without exposing internal lessons array
-    const courses2Level = (summary.courses || []).map((c) => ({
+    // Format 3-level courses structure (Course -> Module -> Lesson) for complete Exam taxonomy
+    const courses3Level = (summary.courses || []).map((c) => ({
       courseId: c.courseId,
       courseTitle: c.courseTitle,
       questionCount: c.questionCount,
@@ -589,12 +951,22 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
         easyCount: m.easyCount,
         mediumCount: m.mediumCount,
         hardCount: m.hardCount,
+        lessons: (m.lessons || [])
+          .filter((l) => l.questionCount > 0)
+          .map((l) => ({
+            lessonId: l.lessonId,
+            lessonTitle: l.lessonTitle,
+            questionCount: l.questionCount,
+            easyCount: l.easyCount,
+            mediumCount: l.mediumCount,
+            hardCount: l.hardCount,
+          })),
       })),
     }));
 
     return {
       request_id: req.id,
-      courses: courses2Level,
+      courses: courses3Level,
       sections: summary.sections,
       topics: summary.topics,
     };
@@ -1030,4 +1402,210 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
     { preHandler: [requireAuth] },
     handleGetStudyRecommendations,
   );
+
+  // -------------------------------------------------------------------------
+  // 12. Delete Flashcards by Document Handler
+  // -------------------------------------------------------------------------
+  const handleDeleteFlashcardsByDocument = async (
+    request: unknown,
+    reply: { code: (c: number) => void },
+  ) => {
+    const req = request as {
+      params: { organizationId?: string; courseId?: string; documentId: string };
+      id: string;
+    };
+    const actor = getActor(req);
+    const organizationId = await resolveOrganizationId(actor, req.params);
+    const documentId = req.params.documentId;
+
+    await service.authorize(actor, organizationId, "study:read");
+    await flashcardStore.deleteByDocument(documentId as any, organizationId);
+
+    reply.code(204);
+    return;
+  };
+
+  app.delete(
+    "/v1/organizations/:organizationId/courses/:courseId/documents/:documentId/flashcards",
+    { preHandler: [requireAuth] },
+    handleDeleteFlashcardsByDocument,
+  );
+  app.delete(
+    "/v1/organizations/:organizationId/documents/:documentId/flashcards",
+    { preHandler: [requireAuth] },
+    handleDeleteFlashcardsByDocument,
+  );
+
+  // -------------------------------------------------------------------------
+  // 13. Delete Quizzes by Document Handler
+  // -------------------------------------------------------------------------
+  const handleDeleteQuizzesByDocument = async (
+    request: unknown,
+    reply: { code: (c: number) => void },
+  ) => {
+    const req = request as {
+      params: { organizationId?: string; courseId?: string; documentId: string };
+      id: string;
+    };
+    const actor = getActor(req);
+    const organizationId = await resolveOrganizationId(actor, req.params);
+    const documentId = req.params.documentId;
+
+    await service.authorize(actor, organizationId, "study:read");
+    await quizStore.deleteByDocument(documentId as any, organizationId);
+
+    reply.code(204);
+    return;
+  };
+
+  app.delete(
+    "/v1/organizations/:organizationId/courses/:courseId/documents/:documentId/quizzes",
+    { preHandler: [requireAuth] },
+    handleDeleteQuizzesByDocument,
+  );
+  app.delete(
+    "/v1/organizations/:organizationId/documents/:documentId/quizzes",
+    { preHandler: [requireAuth] },
+    handleDeleteQuizzesByDocument,
+  );
+
+  // -------------------------------------------------------------------------
+  // 14. Study Sessions & Active Time Tracking Handlers (PR6-10)
+  // -------------------------------------------------------------------------
+
+  /**
+   * POST /v1/study-sessions/start
+   * Starts a new active study session for an educational activity.
+   */
+  app.post(
+    "/v1/study-sessions/start",
+    { preHandler: [requireAuth] },
+    async (request, reply) => {
+      const req = request as {
+        body: {
+          activityType?: string;
+          courseId?: string;
+          moduleId?: string;
+          lessonId?: string;
+        };
+        id: string;
+      };
+      const actor = getActor(req);
+
+      if (!req.body || !req.body.activityType) {
+        throw new DomainError("bad_request", "Missing required field: activityType");
+      }
+
+      const session = await service.startStudySession(actor, {
+        activityType: req.body.activityType as any,
+        courseId: req.body.courseId,
+        moduleId: req.body.moduleId,
+        lessonId: req.body.lessonId,
+      });
+
+      reply.code(201);
+      return {
+        request_id: req.id,
+        session,
+      };
+    },
+  );
+
+  /**
+   * POST /v1/study-sessions/heartbeat
+   * Records active heartbeat for a study session.
+   */
+  app.post(
+    "/v1/study-sessions/heartbeat",
+    { preHandler: [requireAuth] },
+    async (request) => {
+      const req = request as {
+        body: {
+          sessionId?: string;
+        };
+        id: string;
+      };
+      const actor = getActor(req);
+
+      if (!req.body || !req.body.sessionId) {
+        throw new DomainError("bad_request", "Missing required field: sessionId");
+      }
+
+      const result = await service.recordHeartbeat(actor, req.body.sessionId);
+      return {
+        request_id: req.id,
+        ...result,
+      };
+    },
+  );
+
+  /**
+   * POST /v1/study-sessions/end
+   * Ends an active study session.
+   */
+  app.post(
+    "/v1/study-sessions/end",
+    { preHandler: [requireAuth] },
+    async (request) => {
+      const req = request as {
+        body: {
+          sessionId?: string;
+        };
+        id: string;
+      };
+      const actor = getActor(req);
+
+      if (!req.body || !req.body.sessionId) {
+        throw new DomainError("bad_request", "Missing required field: sessionId");
+      }
+
+      const result = await service.endStudySession(actor, req.body.sessionId);
+      return {
+        request_id: req.id,
+        ...result,
+      };
+    },
+  );
+
+  /**
+   * GET /v1/dashboard/stats, GET /v1/dashboard/study-time and GET /v1/study-sessions/weekly-summary
+   * Returns:
+   * - stats: { completedLessons, completedExams, currentStreak, longestStreak, todayIsActive, todayStudySeconds }
+   * - thisWeek, lastWeek, changePercent, daily study time breakdowns
+   */
+  const handleGetDashboardStats = async (request: unknown) => {
+    const req = request as {
+      query: { timezone?: string };
+      headers: { "x-timezone"?: string };
+      id: string;
+    };
+    const actor = getActor(req);
+    const timezone =
+      req.query?.timezone || req.headers?.["x-timezone"] || undefined;
+
+    const data = await service.getDashboardStats(actor, timezone);
+    return {
+      request_id: req.id,
+      ...data,
+    };
+  };
+
+  app.get(
+    "/v1/dashboard/stats",
+    { preHandler: [requireAuth] },
+    handleGetDashboardStats,
+  );
+
+  app.get(
+    "/v1/dashboard/study-time",
+    { preHandler: [requireAuth] },
+    handleGetDashboardStats,
+  );
+
+  app.get(
+    "/v1/study-sessions/weekly-summary",
+    { preHandler: [requireAuth] },
+    handleGetDashboardStats,
+  );
 };
+

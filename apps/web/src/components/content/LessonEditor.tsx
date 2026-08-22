@@ -133,6 +133,9 @@ export function LessonEditor({
       void queryClient.invalidateQueries({
         queryKey: ["course-learning", courseId],
       });
+      void queryClient.invalidateQueries({
+        queryKey: ["document-content-status"],
+      });
       setConfirmingDelete(false);
       if (onDelete) {
         onDelete();

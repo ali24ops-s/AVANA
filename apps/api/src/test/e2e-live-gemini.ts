@@ -35,9 +35,11 @@ import {
   InMemoryQuizStore,
   InMemoryQuizQuestionStore,
 } from "../../../api/src/modules/study/test/in-memory-stores.js";
-import { GeminiModelGateway } from "../../../api/src/modules/generation/gateway/gemini.js";
 import { GenerationService } from "../../../api/src/modules/generation/generation-service.js";
 import { ReviewService } from "../../../api/src/modules/generation/review-service.js";
+import { createModelGateway } from "../../../api/src/modules/generation/gateway/index.js";
+import { loadApiConfig } from "../../../api/src/config.js";
+import { loadMonorepoEnv } from "@avana/config";
 
 import type {
   LessonPayload,
@@ -47,17 +49,15 @@ import type {
 } from "@avana/domain";
 
 async function runLiveEndToEndVerification() {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey || apiKey.trim().length === 0) {
-    console.error("ERROR: GEMINI_API_KEY is not set.");
-    process.exit(1);
-  }
+  loadMonorepoEnv();
+  const config = loadApiConfig();
 
-  const modelName = process.env.GEMINI_MODEL || "gemini-3.6-flash";
+  const gateway = createModelGateway(config.generation);
+  const modelName = gateway.model || config.generation.geminiModel || "gemini-3.6-flash";
   console.log(`\n======================================================`);
   console.log(`AVANA AI Learning Engine - Live End-to-End Verification`);
   console.log(`Model: ${modelName}`);
-  console.log(`Provider: Gemini (Native REST with Structured JSON Output)`);
+  console.log(`Provider: ${gateway.provider} (Native REST with Structured JSON Output)`);
   console.log(`======================================================\n`);
 
   // 1. Initialize Stores
@@ -70,12 +70,6 @@ async function runLiveEndToEndVerification() {
   const flashcardStore = new InMemoryFlashcardStore();
   const quizStore = new InMemoryQuizStore();
   const quizQuestionStore = new InMemoryQuizQuestionStore();
-
-  const gateway = new GeminiModelGateway({
-    apiKey,
-    modelName,
-    timeoutMs: 60_000,
-  });
 
   const generationService = new GenerationService(
     generatedContentStore,

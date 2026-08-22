@@ -211,3 +211,43 @@ export type StudyRecommendation = {
   source:
     "accepted_lesson" | "flashcard_review" | "quiz_attempt" | "recommendation";
 };
+
+// ---------------------------------------------------------------------------
+// Flashcard Study Session & Resume Models
+// ---------------------------------------------------------------------------
+
+export type FlashcardSessionStatus = "in_progress" | "completed" | "cancelled";
+export type FlashcardSessionCardStatus = "unseen" | "reviewed";
+
+export type FlashcardStudySessionRecord = {
+  id: string;
+  userId: string;
+  organizationId: string;
+  courseId?: string | null;
+  title: string;
+  mode: string;
+  customMode?: string | null;
+  status: FlashcardSessionStatus;
+  totalCards: number;
+  completedCards: number;
+  currentIndex: number;
+  currentCardId?: string | null;
+  startedAt: string;
+  lastActivityAt: string;
+  completedAt?: string | null;
+  metadata?: Record<string, unknown> | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type FlashcardStudySessionCardRecord = {
+  id: string;
+  sessionId: string;
+  flashcardId?: string | null;
+  sortOrder: number;
+  status: FlashcardSessionCardStatus;
+  rating?: string | null;
+  reactionMs?: number | null;
+  reviewedAt?: string | null;
+  createdAt: string;
+};

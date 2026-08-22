@@ -243,4 +243,7 @@ export interface ProgressStore {
    * otherwise updates the existing record.
    */
   upsert(record: LessonProgressRecord): Promise<LessonProgressRecord>;
+
+  /** Count total unique completed lessons for a user across all courses. */
+  countCompletedByUser(userId: UserId): Promise<number>;
 }

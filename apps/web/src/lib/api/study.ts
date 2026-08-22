@@ -17,11 +17,98 @@ import type {
   StudyAnalyticsResponse,
   StudyRecommendationsResponse,
   FlashcardSummaryResponse,
+  CreateFlashcardStudySessionRequest,
+  CreateFlashcardStudySessionResponse,
+  FlashcardStudySessionsListResponse,
+  FlashcardStudySessionDetailResponse,
+  UpdateFlashcardStudySessionProgressRequest,
+  UpdateFlashcardStudySessionProgressResponse,
 } from "@avana/contracts";
 import type { ApiClient } from "./client.js";
 
 export function createStudyApi(client: ApiClient) {
   return {
+    /**
+     * POST /v1/organizations/:organizationId/study/flashcard-sessions
+     * Creates a new persistent flashcard study session snapshot.
+     */
+    createFlashcardStudySession(
+      organizationId: string,
+      data: CreateFlashcardStudySessionRequest,
+    ): Promise<CreateFlashcardStudySessionResponse> {
+      return client.post<CreateFlashcardStudySessionResponse>(
+        `/v1/organizations/${organizationId}/study/flashcard-sessions`,
+        data,
+      );
+    },
+
+    /**
+     * GET /v1/organizations/:organizationId/study/flashcard-sessions
+     * Lists active in-progress flashcard study sessions for the user.
+     */
+    getActiveFlashcardStudySessions(
+      organizationId: string,
+    ): Promise<FlashcardStudySessionsListResponse> {
+      return client.get<FlashcardStudySessionsListResponse>(
+        `/v1/organizations/${organizationId}/study/flashcard-sessions`,
+      );
+    },
+
+    /**
+     * GET /v1/organizations/:organizationId/study/flashcard-sessions/:sessionId
+     * Gets a flashcard study session and its snapshotted card queue.
+     */
+    getFlashcardStudySession(
+      organizationId: string,
+      sessionId: string,
+    ): Promise<FlashcardStudySessionDetailResponse> {
+      return client.get<FlashcardStudySessionDetailResponse>(
+        `/v1/organizations/${organizationId}/study/flashcard-sessions/${sessionId}`,
+      );
+    },
+
+    /**
+     * PATCH /v1/organizations/:organizationId/study/flashcard-sessions/:sessionId/progress
+     * Updates session index and card progress.
+     */
+    updateFlashcardStudySessionProgress(
+      organizationId: string,
+      sessionId: string,
+      data: UpdateFlashcardStudySessionProgressRequest,
+    ): Promise<UpdateFlashcardStudySessionProgressResponse> {
+      return client.patch<UpdateFlashcardStudySessionProgressResponse>(
+        `/v1/organizations/${organizationId}/study/flashcard-sessions/${sessionId}/progress`,
+        data,
+      );
+    },
+
+    /**
+     * POST /v1/organizations/:organizationId/study/flashcard-sessions/:sessionId/complete
+     * Explicitly completes a study session.
+     */
+    completeFlashcardStudySession(
+      organizationId: string,
+      sessionId: string,
+    ): Promise<UpdateFlashcardStudySessionProgressResponse> {
+      return client.post<UpdateFlashcardStudySessionProgressResponse>(
+        `/v1/organizations/${organizationId}/study/flashcard-sessions/${sessionId}/complete`,
+        {},
+      );
+    },
+
+    /**
+     * POST /v1/organizations/:organizationId/study/flashcard-sessions/:sessionId/cancel
+     * Cancels / abandons a study session (soft delete / status = cancelled).
+     */
+    cancelFlashcardStudySession(
+      organizationId: string,
+      sessionId: string,
+    ): Promise<UpdateFlashcardStudySessionProgressResponse> {
+      return client.post<UpdateFlashcardStudySessionProgressResponse>(
+        `/v1/organizations/${organizationId}/study/flashcard-sessions/${sessionId}/cancel`,
+        {},
+      );
+    },
     /**
      * GET /v1/organizations/:organizationId/courses/:courseId/flashcards
      * Lists all flashcards for a course along with the count of cards currently due.
@@ -405,7 +492,131 @@ export function createStudyApi(client: ApiClient) {
         `/v1/organizations/${organizationId}/courses/${courseId}/study/recommendations`,
       );
     },
+
+    /**
+     * POST /v1/study-sessions/start
+     * Starts a new active study session for an educational activity.
+     */
+    startStudySession(data: {
+      activityType: "lesson" | "flashcard" | "exam" | "ai_tutor" | "pdf";
+      courseId?: string;
+      moduleId?: string;
+      lessonId?: string;
+    }): Promise<{
+      request_id: string;
+      session: {
+        id: string;
+        userId: string;
+        activityType: string;
+        courseId?: string | null;
+        moduleId?: string | null;
+        lessonId?: string | null;
+        startedAt: string;
+        lastActivityAt: string;
+        endedAt?: string | null;
+        durationSeconds: number;
+      };
+    }> {
+      return client.post("/v1/study-sessions/start", data);
+    },
+
+    /**
+     * POST /v1/study-sessions/heartbeat
+     * Sends a heartbeat for an active study session.
+     */
+    heartbeatStudySession(sessionId: string): Promise<{
+      request_id: string;
+      sessionId: string;
+      durationSeconds: number;
+      lastActivityAt: string;
+    }> {
+      return client.post("/v1/study-sessions/heartbeat", { sessionId });
+    },
+
+    /**
+     * POST /v1/study-sessions/end
+     * Ends an active study session.
+     */
+    endStudySession(sessionId: string): Promise<{
+      request_id: string;
+      sessionId: string;
+      durationSeconds: number;
+      endedAt: string | null;
+    }> {
+      return client.post("/v1/study-sessions/end", { sessionId });
+    },
+
+    /**
+     * GET /v1/dashboard/stats
+     * Gets all aggregated dashboard metrics (completed lessons, completed exams, streaks, weekly study time).
+     */
+    getDashboardStats(timezone?: string): Promise<{
+      request_id: string;
+      stats: {
+        completedLessons: number;
+        completedExams: number;
+        currentStreak: number;
+        longestStreak: number;
+        todayIsActive: boolean;
+        todayStudySeconds: number;
+      };
+      thisWeek: {
+        seconds: number;
+        minutes: number;
+        formatted: string;
+      };
+      lastWeek: {
+        seconds: number;
+        minutes: number;
+        formatted: string;
+      };
+      changePercent: number | null;
+      daily: Array<{
+        date: string;
+        seconds: number;
+        minutes: number;
+      }>;
+    }> {
+      const tz = timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Tehran";
+      return client.get(`/v1/dashboard/stats?timezone=${encodeURIComponent(tz)}`);
+    },
+
+    /**
+     * GET /v1/dashboard/study-time
+     * Gets weekly study time metrics and breakdown for the dashboard.
+     */
+    getDashboardStudyTime(timezone?: string): Promise<{
+      request_id: string;
+      stats?: {
+        completedLessons: number;
+        completedExams: number;
+        currentStreak: number;
+        longestStreak: number;
+        todayIsActive: boolean;
+        todayStudySeconds: number;
+      };
+      thisWeek: {
+        seconds: number;
+        minutes: number;
+        formatted: string;
+      };
+      lastWeek: {
+        seconds: number;
+        minutes: number;
+        formatted: string;
+      };
+      changePercent: number | null;
+      daily: Array<{
+        date: string;
+        seconds: number;
+        minutes: number;
+      }>;
+    }> {
+      const tz = timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Tehran";
+      return client.get(`/v1/dashboard/study-time?timezone=${encodeURIComponent(tz)}`);
+    },
   };
 }
 
 export type StudyApi = ReturnType<typeof createStudyApi>;
+

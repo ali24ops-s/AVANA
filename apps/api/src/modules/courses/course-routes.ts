@@ -191,6 +191,156 @@ export const courseRoutes: FastifyPluginAsync<CourseRouteOptions> = async (
   );
 
   // ---------------------------------------------------------------------------
+  // GET /v1/organizations/:organizationId/courses/my — List user's selected courses
+  // ---------------------------------------------------------------------------
+  app.get(
+    "/v1/organizations/:organizationId/courses/my",
+    { preHandler: [requireAuth] },
+    async (request, _reply) => {
+      const actor = getActor(request);
+      const params = request.params as { organizationId: string };
+      const organizationId = getOrganizationId(params);
+
+      const courses = await courseService.listMyCourses(actor, organizationId);
+
+      return {
+        request_id: request.id,
+        items: courses.map((c) => ({
+          id: c.id,
+          title: c.name,
+          subject: c.subject,
+          exam_at: c.examDate,
+          created_at: c.createdAt,
+          updated_at: c.updatedAt,
+          archived: c.deletedAt !== null,
+        })),
+        pagination: {
+          limit: Math.max(1, courses.length),
+          next_cursor: null,
+        },
+      };
+    },
+  );
+
+  // ---------------------------------------------------------------------------
+  // POST /v1/organizations/:organizationId/courses/my — Add a course to user's list
+  // ---------------------------------------------------------------------------
+  app.post(
+    "/v1/organizations/:organizationId/courses/my",
+    { preHandler: [requireAuth] },
+    async (request, reply) => {
+      const actor = getActor(request);
+      const params = request.params as { organizationId: string };
+      const organizationId = getOrganizationId(params);
+      const body = request.body as {
+        course_id?: string;
+        courseId?: string;
+      };
+
+      const rawCourseId = body.course_id ?? body.courseId;
+      if (
+        !rawCourseId ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          rawCourseId,
+        )
+      ) {
+        throw new DomainError("bad_request", "Valid course ID is required");
+      }
+
+      await courseService.addMyCourse(
+        actor,
+        organizationId,
+        rawCourseId as CourseId,
+      );
+
+      reply.code(200);
+      return {
+        request_id: request.id,
+        success: true,
+      };
+    },
+  );
+
+  // ---------------------------------------------------------------------------
+  // PUT /v1/organizations/:organizationId/courses/my — Atomically sync user's courses
+  // ---------------------------------------------------------------------------
+  app.put(
+    "/v1/organizations/:organizationId/courses/my",
+    { preHandler: [requireAuth] },
+    async (request, _reply) => {
+      const actor = getActor(request);
+      const params = request.params as { organizationId: string };
+      const organizationId = getOrganizationId(params);
+      const body = request.body as {
+        course_ids?: string[];
+        courseIds?: string[];
+      };
+
+      const rawCourseIds = body.course_ids ?? body.courseIds ?? [];
+      if (!Array.isArray(rawCourseIds)) {
+        throw new DomainError("bad_request", "course_ids must be an array");
+      }
+
+      for (const id of rawCourseIds) {
+        if (
+          !id ||
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+            id,
+          )
+        ) {
+          throw new DomainError("bad_request", `Invalid course ID: ${id}`);
+        }
+      }
+
+      const courses = await courseService.syncMyCourses(
+        actor,
+        organizationId,
+        rawCourseIds as CourseId[],
+      );
+
+      return {
+        request_id: request.id,
+        items: courses.map((c) => ({
+          id: c.id,
+          title: c.name,
+          subject: c.subject,
+          exam_at: c.examDate,
+          created_at: c.createdAt,
+          updated_at: c.updatedAt,
+          archived: c.deletedAt !== null,
+        })),
+        pagination: {
+          limit: Math.max(1, courses.length),
+          next_cursor: null,
+        },
+      };
+    },
+  );
+
+  // ---------------------------------------------------------------------------
+  // DELETE /v1/organizations/:organizationId/courses/my/:courseId — Remove course from user's list
+  // ---------------------------------------------------------------------------
+  app.delete(
+    "/v1/organizations/:organizationId/courses/my/:courseId",
+    { preHandler: [requireAuth] },
+    async (request, reply) => {
+      const actor = getActor(request);
+      const params = request.params as {
+        organizationId: string;
+        courseId: string;
+      };
+      const organizationId = getOrganizationId(params);
+      const courseId = getCourseId(params);
+
+      await courseService.removeMyCourse(actor, organizationId, courseId);
+
+      reply.code(204);
+      return;
+    },
+  );
+
+
+  // ---------------------------------------------------------------------------
   // GET /v1/organizations/:organizationId/courses/:courseId — Get course
   // ---------------------------------------------------------------------------
   app.get(

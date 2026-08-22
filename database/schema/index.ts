@@ -897,3 +897,230 @@ export const quizAttempts = pgTable(
     ),
   }),
 );
+
+// ---------------------------------------------------------------------------
+// AI Study Assistant (Conversations & History)
+// ---------------------------------------------------------------------------
+
+/**
+ * Study Conversations table.
+ *
+ * Tracks individual AI study assistant conversation threads for a user,
+ * scoped optionally to a specific course and lesson.
+ */
+export const studyConversations = pgTable(
+  "study_conversations",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    organizationId: uuid("organization_id").references(
+      () => organizations.id,
+      { onDelete: "cascade" },
+    ),
+    courseId: uuid("course_id").references(() => courses.id, {
+      onDelete: "set null",
+    }),
+    lessonId: uuid("lesson_id").references(() => lessons.id, {
+      onDelete: "set null",
+    }),
+    title: varchar("title", { length: 255 }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    userIdx: index("idx_study_conversations_user").on(table.userId),
+    lessonIdx: index("idx_study_conversations_lesson").on(table.lessonId),
+    userUpdatedIdx: index("idx_study_conversations_user_updated").on(
+      table.userId,
+      table.updatedAt,
+    ),
+  }),
+);
+
+/**
+ * Study Conversation Messages table.
+ *
+ * Individual turns (user, assistant, system) within a study conversation.
+ */
+export const studyConversationMessages = pgTable(
+  "study_conversation_messages",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    conversationId: uuid("conversation_id")
+      .notNull()
+      .references(() => studyConversations.id, { onDelete: "cascade" }),
+    role: varchar("role", { length: 20 }).notNull(),
+    content: text("content").notNull(),
+    tokenUsage: jsonb("token_usage"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    convOrderIdx: index("idx_study_conv_messages_conv_order").on(
+      table.conversationId,
+      table.createdAt,
+    ),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// Study Sessions & Active Time Tracking (PR6-10)
+// ---------------------------------------------------------------------------
+
+/**
+ * Study Sessions table.
+ *
+ * Tracks active learning sessions across lessons, flashcards, exams,
+ * AI tutor interactions, and documents to accurately calculate real
+ * active educational study time without idle background counting.
+ */
+export const studySessions = pgTable(
+  "study_sessions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    activityType: varchar("activity_type", { length: 50 }).notNull(),
+    courseId: uuid("course_id").references(() => courses.id, {
+      onDelete: "set null",
+    }),
+    moduleId: uuid("module_id").references(() => modules.id, {
+      onDelete: "set null",
+    }),
+    lessonId: uuid("lesson_id").references(() => lessons.id, {
+      onDelete: "set null",
+    }),
+    startedAt: timestamp("started_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    lastActivityAt: timestamp("last_activity_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    durationSeconds: integer("duration_seconds").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    userIdx: index("idx_study_sessions_user").on(table.userId),
+    activityTypeIdx: index("idx_study_sessions_activity_type").on(
+      table.activityType,
+    ),
+    startedAtIdx: index("idx_study_sessions_started_at").on(table.startedAt),
+    endedAtIdx: index("idx_study_sessions_ended_at").on(table.endedAt),
+    userStartedIdx: index("idx_study_sessions_user_started").on(
+      table.userId,
+      table.startedAt,
+    ),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// Flashcard Study Sessions & Snapshot Resume
+// ---------------------------------------------------------------------------
+
+/**
+ * Flashcard Study Sessions table.
+ *
+ * Stores active and completed flashcard study sessions with aggregate progress
+ * so users can resume unfinished sessions across page refreshes, browser restarts,
+ * and device switches.
+ */
+export const flashcardStudySessions = pgTable(
+  "flashcard_study_sessions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    courseId: uuid("course_id").references(() => courses.id, {
+      onDelete: "set null",
+    }),
+    title: varchar("title", { length: 255 }).notNull(),
+    mode: varchar("mode", { length: 50 }).notNull().default("daily"),
+    customMode: varchar("custom_mode", { length: 50 }),
+    status: varchar("status", { length: 30 }).notNull().default("in_progress"),
+    totalCards: integer("total_cards").notNull().default(0),
+    completedCards: integer("completed_cards").notNull().default(0),
+    currentIndex: integer("current_index").notNull().default(0),
+    currentCardId: uuid("current_card_id"),
+    startedAt: timestamp("started_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    lastActivityAt: timestamp("last_activity_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    metadata: jsonb("metadata"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    userStatusIdx: index("idx_fss_user_status").on(
+      table.userId,
+      table.status,
+    ),
+    userLastActivityIdx: index("idx_fss_user_last_activity").on(
+      table.userId,
+      table.lastActivityAt,
+    ),
+    orgUserIdx: index("idx_fss_org_user").on(
+      table.organizationId,
+      table.userId,
+    ),
+  }),
+);
+
+/**
+ * Flashcard Study Session Cards table (Ordered Snapshot).
+ *
+ * Immutable snapshot of selected flashcards with their sequence order.
+ * Tracks per-card status within the specific study session.
+ */
+export const flashcardStudySessionCards = pgTable(
+  "flashcard_study_session_cards",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => flashcardStudySessions.id, { onDelete: "cascade" }),
+    flashcardId: uuid("flashcard_id").references(() => flashcards.id, {
+      onDelete: "set null",
+    }),
+    sortOrder: integer("sort_order").notNull().default(0),
+    status: varchar("status", { length: 30 }).notNull().default("unseen"),
+    rating: varchar("rating", { length: 20 }),
+    reactionMs: integer("reaction_ms"),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    sessionOrderIdx: index("idx_fss_cards_session_order").on(
+      table.sessionId,
+      table.sortOrder,
+    ),
+    flashcardIdx: index("idx_fss_cards_flashcard").on(table.flashcardId),
+  }),
+);
+

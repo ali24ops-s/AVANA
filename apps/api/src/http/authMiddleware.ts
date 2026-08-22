@@ -11,7 +11,7 @@
 import type { FastifyRequest, FastifyReply } from "fastify";
 import type { SessionService } from "../modules/identity/session-service.js";
 import type { UserStore } from "../modules/identity/user-store.js";
-import { DomainError } from "@avana/domain";
+import { DomainError, type Role } from "@avana/domain";
 
 export type AuthMiddlewareDeps = {
   sessionService: SessionService;
@@ -23,8 +23,9 @@ export type AuthMiddlewareDeps = {
  *
  * Usage in routes:
  * ```ts
- * const { requireAuth } = makeAuthMiddleware({ sessionService, userStore });
+ * const { requireAuth, requireRole } = makeAuthMiddleware({ sessionService, userStore });
  * app.get("/v1/some-resource", { preHandler: [requireAuth] }, handler);
+ * app.get("/v1/admin-resource", { preHandler: [requireAuth, requireRole('platform_admin')] }, handler);
  * ```
  */
 export function makeAuthMiddleware(deps: AuthMiddlewareDeps) {
@@ -67,5 +68,28 @@ export function makeAuthMiddleware(deps: AuthMiddlewareDeps) {
     };
   }
 
-  return { requireAuth };
+  /**
+   * Fastify preHandler hook generator for role-based authorization.
+   * Must be used AFTER `requireAuth`.
+   */
+  function requireRole(requiredRole: Role) {
+    return async function (
+      request: FastifyRequest,
+      _reply: FastifyReply,
+    ): Promise<void> {
+      const reqAny = request as unknown as {
+        user?: { userId: string; email: string; role: string };
+      };
+
+      if (!reqAny.user) {
+        throw new DomainError("unauthorized", "Not signed in");
+      }
+
+      if (reqAny.user.role !== requiredRole) {
+        throw new DomainError("forbidden", "Access denied. Insufficient permissions.");
+      }
+    };
+  }
+
+  return { requireAuth, requireRole };
 }

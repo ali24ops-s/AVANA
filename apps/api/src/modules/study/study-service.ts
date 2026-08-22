@@ -14,15 +14,26 @@ import {
   type AuthorizationPolicy,
   type CourseId,
   type FlashcardId,
+  type LessonId,
   type OrganizationId,
   type QuizAttemptId,
   type QuizId,
   type QuizQuestionId,
+  type StudySessionRecord,
+  type StartStudySessionInput,
+  type WeeklyStudyTimeSummary,
+  type DashboardStatsSummary,
   DomainError,
   nextReviewInterval,
   nextDueAt,
   auditFlashcardReviewed,
   auditQuizAttempted,
+  isStudyActivityType,
+  STUDY_SESSION_CONFIG,
+  validateTimezone,
+  getPersianWeekDates,
+  calculateWeeklyStudyTimeSummary,
+  calculateStreakSummary,
 } from "@avana/domain";
 import type {
   FlashcardRating,
@@ -31,6 +42,8 @@ import type {
   QuizAttemptRecord,
   StudyAnalytics,
   StudyRecommendation,
+  FlashcardStudySessionRecord,
+  FlashcardStudySessionCardRecord,
 } from "@avana/domain";
 import type {
   FlashcardStore,
@@ -39,6 +52,8 @@ import type {
   QuizStore,
   QuizQuestionStore,
   QuizAttemptStore,
+  StudySessionStore,
+  FlashcardStudySessionStore,
   FlashcardRecord,
   QuizRecord,
   QuizQuestionRecord,
@@ -67,6 +82,9 @@ export class StudyService {
     private readonly organizationStore?: OrganizationStore,
     private readonly userFlashcardScheduleStore?: UserFlashcardScheduleStore,
     private readonly courseStore?: CourseStore,
+    private readonly systemOrganizationId?: OrganizationId,
+    private readonly studySessionStore?: StudySessionStore,
+    private readonly flashcardStudySessionStore?: FlashcardStudySessionStore,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -120,23 +138,19 @@ export class StudyService {
   ): Promise<FlashcardRecord[]> {
     await this.authorizeRead(actor, organizationId);
 
-    const [allFlashcards, userSchedules, userReviews] = await Promise.all([
+    const [allFlashcards, userSchedules] = await Promise.all([
       this.flashcardStore.listByCourse(courseId, organizationId),
       this.userFlashcardScheduleStore
         ? this.userFlashcardScheduleStore.listByUser(actor.userId)
         : Promise.resolve([]),
-      this.flashcardReviewStore.listByUser(actor.userId),
     ]);
 
     const scheduleMap = new Map(userSchedules.map((s) => [s.flashcardId, s]));
-    const reviewedCardIds = new Set(userReviews.map((r) => r.flashcardId));
     const now = new Date();
 
     return allFlashcards
       .filter((f) => {
         const schedule = scheduleMap.get(f.id);
-        const isReviewed = schedule ? true : reviewedCardIds.has(f.id);
-        if (!isReviewed) return false;
         const rawDueAt = schedule ? schedule.dueAt : f.dueAt;
         if (!rawDueAt) return false;
         const dueAt = new Date(rawDueAt);
@@ -226,7 +240,7 @@ export class StudyService {
     await this.authorizeRead(actor, organizationId);
 
     const [allFlashcards, userSchedules, userReviews] = await Promise.all([
-      this.flashcardStore.listByOrganization(organizationId),
+      this.flashcardStore.listByOrganization(organizationId, this.systemOrganizationId),
       this.userFlashcardScheduleStore
         ? this.userFlashcardScheduleStore.listByUser(actor.userId)
         : Promise.resolve([]),
@@ -334,16 +348,14 @@ export class StudyService {
   ): Promise<FlashcardRecord[]> {
     await this.authorizeRead(actor, organizationId);
 
-    const [allFlashcards, userSchedules, userReviews] = await Promise.all([
-      this.flashcardStore.listByOrganization(organizationId),
+    const [allFlashcards, userSchedules] = await Promise.all([
+      this.flashcardStore.listByOrganization(organizationId, this.systemOrganizationId),
       this.userFlashcardScheduleStore
         ? this.userFlashcardScheduleStore.listByUser(actor.userId)
         : Promise.resolve([]),
-      this.flashcardReviewStore.listByUser(actor.userId),
     ]);
 
     const scheduleMap = new Map(userSchedules.map((s) => [s.flashcardId, s]));
-    const reviewedCardIds = new Set(userReviews.map((r) => r.flashcardId));
     const now = new Date();
     const courseSet = courseIds && courseIds.length > 0 ? new Set(courseIds) : null;
     const docSet = documentIds && documentIds.length > 0 ? new Set(documentIds) : null;
@@ -353,13 +365,9 @@ export class StudyService {
         if (courseSet && !courseSet.has(f.courseId)) return false;
         if (docSet && !docSet.has(f.documentId)) return false;
         const schedule = scheduleMap.get(f.id);
-        if (schedule) {
-          const dueAt = new Date(schedule.dueAt);
-          return !isNaN(dueAt.getTime()) && dueAt <= now;
-        }
-        if (!reviewedCardIds.has(f.id)) return false;
-        if (!f.dueAt) return false;
-        const dueAt = new Date(f.dueAt);
+        const rawDueAt = schedule ? schedule.dueAt : f.dueAt;
+        if (!rawDueAt) return false;
+        const dueAt = new Date(rawDueAt);
         return !isNaN(dueAt.getTime()) && dueAt <= now;
       })
       .map((f) => {
@@ -388,7 +396,7 @@ export class StudyService {
     await this.authorizeRead(actor, organizationId);
 
     const [allFlashcards, userSchedules] = await Promise.all([
-      this.flashcardStore.listByOrganization(organizationId),
+      this.flashcardStore.listByOrganization(organizationId, this.systemOrganizationId),
       this.userFlashcardScheduleStore
         ? this.userFlashcardScheduleStore.listByUser(actor.userId)
         : Promise.resolve([]),
@@ -465,7 +473,7 @@ export class StudyService {
     await this.authorizeRead(actor, organizationId);
 
     const [allFlashcards, userSchedules, userReviews] = await Promise.all([
-      this.flashcardStore.listByOrganization(organizationId),
+      this.flashcardStore.listByOrganization(organizationId, this.systemOrganizationId),
       this.userFlashcardScheduleStore
         ? this.userFlashcardScheduleStore.listByUser(actor.userId)
         : Promise.resolve([]),
@@ -526,6 +534,397 @@ export class StudyService {
   }
 
   // -------------------------------------------------------------------------
+  // Flashcard Study Sessions (Persistence & Resume)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Create a new flashcard study session snapshot with exact card ordering.
+   */
+  async createFlashcardStudySession(
+    actor: Actor,
+    organizationId: OrganizationId,
+    input: {
+      courseId?: CourseId;
+      courseIds?: CourseId[];
+      moduleIds?: string[];
+      lessonIds?: string[];
+      documentIds?: string[];
+      mode?: "daily" | "exam" | "custom" | "normal";
+      customMode?: "weak" | "forgotten" | "overdue" | "review_ahead" | "new";
+      limit?: number;
+      aheadDays?: number;
+      title?: string;
+    },
+  ): Promise<FlashcardStudySessionRecord> {
+    await this.authorizeRead(actor, organizationId);
+    if (!this.flashcardStudySessionStore) {
+      throw new DomainError("bad_request", "Flashcard study session store not configured");
+    }
+
+    const mode = input.mode || "daily";
+    let cards: FlashcardRecord[] = [];
+
+    // Resolve documentIds from moduleIds if provided and documentIds not explicitly given
+    let effectiveDocIds = input.documentIds ? [...input.documentIds] : [];
+    if (input.moduleIds && input.moduleIds.length > 0 && this.moduleStore) {
+      for (const modId of input.moduleIds) {
+        const mod = await this.moduleStore.findById(modId as any).catch(() => undefined);
+        if (mod && mod.documentId) {
+          effectiveDocIds.push(mod.documentId);
+        }
+      }
+    }
+    const resolvedDocIds = effectiveDocIds.length > 0 ? effectiveDocIds : undefined;
+
+    if (mode === "exam") {
+      cards = await this.getExamModeFlashcards(
+        actor,
+        organizationId,
+        input.courseIds,
+        input.limit ?? 50,
+        resolvedDocIds,
+      );
+    } else if (mode === "custom" && input.customMode) {
+      cards = await this.getCustomStudyFlashcards(
+        actor,
+        organizationId,
+        input.customMode,
+        input.courseIds,
+        input.limit ?? 50,
+        input.aheadDays ?? 3,
+        resolvedDocIds,
+      );
+    } else {
+      cards = await this.listFlashcardsForReviewMulti(
+        actor,
+        organizationId,
+        input.courseIds,
+        resolvedDocIds,
+      );
+      // Fallback: If no cards are due by timestamp but user explicitly requested study,
+      // return all cards within the selected course/document scope so a session is reliably created
+      if (cards.length === 0) {
+        const allOrgCards = await this.flashcardStore.listByOrganization(
+          organizationId,
+          this.systemOrganizationId,
+        );
+        const courseSet = input.courseIds && input.courseIds.length > 0 ? new Set(input.courseIds) : null;
+        const docSet = resolvedDocIds && resolvedDocIds.length > 0 ? new Set(resolvedDocIds) : null;
+        cards = allOrgCards.filter((f) => {
+          if (courseSet && !courseSet.has(f.courseId)) return false;
+          if (docSet && !docSet.has(f.documentId)) return false;
+          return !f.deletedAt;
+        });
+      }
+    }
+
+    if (cards.length === 0) {
+      throw new DomainError("bad_request", "هیچ فلش‌کارتی برای مطالعه یافت نشد");
+    }
+
+    // Determine a descriptive Persian title
+    let sessionTitle = input.title;
+    if (!sessionTitle) {
+      if (input.courseIds && input.courseIds.length === 1 && this.courseStore) {
+        const course = await this.courseStore.findByIdForUser(
+          input.courseIds[0],
+          actor.userId,
+          this.systemOrganizationId,
+        );
+        if (course) {
+          sessionTitle = `مطالعه ${course.name}`;
+        }
+      }
+      if (!sessionTitle) {
+        if (mode === "exam") {
+          sessionTitle = "مطالعه مرور آزمون";
+        } else if (mode === "custom") {
+          const modeLabels: Record<string, string> = {
+            weak: "مطالعه کارت‌های ضعیف",
+            forgotten: "مطالعه کارت‌های فراموش‌شده",
+            overdue: "مطالعه کارت‌های به‌تعویق‌افتاده",
+            review_ahead: "مطالعه پیش‌رو",
+            new: "مطالعه کارت‌های جدید",
+          };
+          sessionTitle = modeLabels[input.customMode || ""] || "مطالعه سفارشی";
+        } else {
+          sessionTitle = "مرور روزانه فلش‌کارت‌ها";
+        }
+      }
+    }
+
+    const now = new Date().toISOString();
+    const sessionId = randomUUID();
+
+    const sessionRecord = await this.flashcardStudySessionStore.createSessionWithCards(
+      {
+        id: sessionId,
+        userId: actor.userId,
+        organizationId,
+        courseId: input.courseId || (input.courseIds && input.courseIds.length === 1 ? input.courseIds[0] : null),
+        title: sessionTitle,
+        mode,
+        customMode: input.customMode ?? null,
+        status: "in_progress",
+        totalCards: cards.length,
+        completedCards: 0,
+        currentIndex: 0,
+        currentCardId: cards[0]?.id ?? null,
+        startedAt: now,
+        lastActivityAt: now,
+        completedAt: null,
+        metadata: {
+          courseIds: input.courseIds ?? [],
+          moduleIds: input.moduleIds ?? [],
+          lessonIds: input.lessonIds ?? [],
+          documentIds: input.documentIds ?? [],
+          limit: input.limit,
+          aheadDays: input.aheadDays,
+        },
+      },
+      cards.map((c, idx) => ({
+        flashcardId: c.id,
+        sortOrder: idx,
+      })),
+    );
+
+    return sessionRecord;
+  }
+
+  /**
+   * List all in-progress flashcard study sessions for the user.
+   */
+  async listActiveFlashcardStudySessions(
+    actor: Actor,
+    organizationId: OrganizationId,
+  ): Promise<FlashcardStudySessionRecord[]> {
+    await this.authorizeRead(actor, organizationId);
+    if (!this.flashcardStudySessionStore) {
+      return [];
+    }
+
+    return this.flashcardStudySessionStore.listActiveByUser(
+      actor.userId,
+      organizationId,
+    );
+  }
+
+  /**
+   * Get flashcard study session detail including snapshotted card ordering and flashcard resources.
+   * Handles deleted flashcards safely.
+   */
+  async getFlashcardStudySession(
+    actor: Actor,
+    organizationId: OrganizationId,
+    sessionId: string,
+  ): Promise<{
+    session: FlashcardStudySessionRecord;
+    cards: FlashcardRecord[];
+    sessionCards: FlashcardStudySessionCardRecord[];
+  }> {
+    await this.authorizeRead(actor, organizationId);
+    if (!this.flashcardStudySessionStore) {
+      throw new DomainError("not_found", "Flashcard study session store not configured");
+    }
+
+    const session = await this.flashcardStudySessionStore.findById(sessionId);
+    if (!session || session.organizationId !== organizationId) {
+      throw new DomainError("not_found", "مطالعه یافت نشد");
+    }
+
+    if (session.userId !== actor.userId) {
+      throw new DomainError("forbidden", "دسترسی به این مطالعه مجاز نیست");
+    }
+
+    const sessionCards = await this.flashcardStudySessionStore.listSessionCards(sessionId);
+    const allOrgCards = await this.flashcardStore.listByOrganization(
+      organizationId,
+      this.systemOrganizationId,
+    );
+    const cardMap = new Map(allOrgCards.map((c) => [c.id, c]));
+
+    // Preserve the snapshotted sortOrder and skip deleted cards safely
+    const orderedCards: FlashcardRecord[] = [];
+    let missingCount = 0;
+    for (const sc of sessionCards) {
+      if (sc.flashcardId) {
+        const found = cardMap.get(sc.flashcardId as FlashcardId);
+        if (found && !found.deletedAt) {
+          orderedCards.push(found);
+        } else {
+          missingCount++;
+        }
+      } else {
+        missingCount++;
+      }
+    }
+
+    console.log("[FLASHCARD_SESSION_DEBUG] SNAPSHOT", {
+      sessionId,
+      requestedCards: sessionCards.length,
+      missingCards: missingCount,
+      orderedCards: orderedCards.length,
+      currentIndex: session.currentIndex,
+    });
+
+    return {
+      session,
+      cards: orderedCards,
+      sessionCards,
+    };
+  }
+
+  /**
+   * Update flashcard study session progress atomically.
+   */
+  async updateFlashcardStudySessionProgress(
+    actor: Actor,
+    organizationId: OrganizationId,
+    sessionId: string,
+    data: {
+      currentIndex: number;
+      completedCards?: number;
+      currentCardId?: string;
+      cardId?: string;
+      rating?: FlashcardRating;
+      reactionMs?: number;
+    },
+  ): Promise<FlashcardStudySessionRecord> {
+    await this.authorizeFlashcardReview(actor, organizationId);
+    if (!this.flashcardStudySessionStore) {
+      throw new DomainError("bad_request", "Flashcard study session store not configured");
+    }
+
+    const session = await this.flashcardStudySessionStore.findById(sessionId);
+    if (!session || session.organizationId !== organizationId) {
+      throw new DomainError("not_found", "مطالعه یافت نشد");
+    }
+
+    if (session.userId !== actor.userId) {
+      throw new DomainError("forbidden", "دسترسی به این مطالعه مجاز نیست");
+    }
+
+    if (session.status !== "in_progress") {
+      return session;
+    }
+
+    const now = new Date().toISOString();
+    let completedCards = data.completedCards ?? session.completedCards;
+    if (data.cardId && data.completedCards === undefined) {
+      completedCards = Math.min(session.totalCards, completedCards + 1);
+    }
+
+    const cardUpdate = data.cardId
+      ? {
+          flashcardId: data.cardId,
+          status: "reviewed" as const,
+          rating: data.rating ?? null,
+          reactionMs: data.reactionMs ?? null,
+          reviewedAt: now,
+        }
+      : undefined;
+
+    const updated = await this.flashcardStudySessionStore.updateProgress(sessionId, {
+      currentIndex: data.currentIndex,
+      completedCards,
+      currentCardId: data.currentCardId ?? null,
+      lastActivityAt: now,
+      cardUpdate,
+    });
+
+    if (!updated) {
+      throw new DomainError("not_found", "مطالعه یافت نشد");
+    }
+
+    // If reached end, auto-mark completed
+    if (updated.currentIndex >= updated.totalCards || updated.completedCards >= updated.totalCards) {
+      const completed = await this.flashcardStudySessionStore.updateStatus(
+        sessionId,
+        "completed",
+        now,
+        now,
+      );
+      return completed || updated;
+    }
+
+    return updated;
+  }
+
+  /**
+   * Explicitly mark a study session as completed.
+   */
+  async completeFlashcardStudySession(
+    actor: Actor,
+    organizationId: OrganizationId,
+    sessionId: string,
+  ): Promise<FlashcardStudySessionRecord> {
+    await this.authorizeFlashcardReview(actor, organizationId);
+    if (!this.flashcardStudySessionStore) {
+      throw new DomainError("bad_request", "Flashcard study session store not configured");
+    }
+
+    const session = await this.flashcardStudySessionStore.findById(sessionId);
+    if (!session || session.organizationId !== organizationId) {
+      throw new DomainError("not_found", "مطالعه یافت نشد");
+    }
+
+    if (session.userId !== actor.userId) {
+      throw new DomainError("forbidden", "دسترسی به این مطالعه مجاز نیست");
+    }
+
+    const now = new Date().toISOString();
+    const updated = await this.flashcardStudySessionStore.updateStatus(
+      sessionId,
+      "completed",
+      now,
+      now,
+    );
+
+    if (!updated) {
+      throw new DomainError("not_found", "مطالعه یافت نشد");
+    }
+
+    return updated;
+  }
+
+  /**
+   * Cancel/abandon a study session (sets status = cancelled, soft delete only).
+   */
+  async cancelFlashcardStudySession(
+    actor: Actor,
+    organizationId: OrganizationId,
+    sessionId: string,
+  ): Promise<FlashcardStudySessionRecord> {
+    await this.authorizeFlashcardReview(actor, organizationId);
+    if (!this.flashcardStudySessionStore) {
+      throw new DomainError("bad_request", "Flashcard study session store not configured");
+    }
+
+    const session = await this.flashcardStudySessionStore.findById(sessionId);
+    if (!session || session.organizationId !== organizationId) {
+      throw new DomainError("not_found", "مطالعه یافت نشد");
+    }
+
+    if (session.userId !== actor.userId) {
+      throw new DomainError("forbidden", "دسترسی به این مطالعه مجاز نیست");
+    }
+
+    const now = new Date().toISOString();
+    const updated = await this.flashcardStudySessionStore.updateStatus(
+      sessionId,
+      "cancelled",
+      null,
+      now,
+    );
+
+    if (!updated) {
+      throw new DomainError("not_found", "مطالعه یافت نشد");
+    }
+
+    return updated;
+  }
+
+  // -------------------------------------------------------------------------
   // Quizzes
   // -------------------------------------------------------------------------
 
@@ -570,13 +969,14 @@ export class StudyService {
 
     const [coursesInfo, allQuestions, allQuizzes] = await Promise.all([
       this.courseStore
-        ? this.courseStore.listByOrganization(organizationId, actor.userId)
+        ? this.courseStore.listByOrganization(organizationId, actor.userId, this.systemOrganizationId)
         : Promise.resolve([]),
       this.quizQuestionStore.listByFilter({
         organizationId,
+        systemOrganizationId: this.systemOrganizationId,
       }),
       this.quizStore
-        ? this.quizStore.listByOrganization(organizationId)
+        ? this.quizStore.listByOrganization(organizationId, this.systemOrganizationId)
         : Promise.resolve([]),
     ]);
 
@@ -997,11 +1397,12 @@ export class StudyService {
     // Fetch candidate questions from DB
     const allQuestions = await this.quizQuestionStore.listByFilter({
       organizationId,
+      systemOrganizationId: this.systemOrganizationId,
       difficulty: "all",
     });
 
     const allQuizzes = this.quizStore
-      ? await this.quizStore.listByOrganization(organizationId)
+      ? await this.quizStore.listByOrganization(organizationId, this.systemOrganizationId)
       : [];
     const quizMap = new Map(allQuizzes.map((q) => [q.id, q]));
 
@@ -1532,4 +1933,257 @@ export class StudyService {
 
     return recommendations;
   }
+
+  // -------------------------------------------------------------------------
+  // Study Sessions & Active Time Tracking (PR6-10)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Starts a new educational study session for an active learning activity
+   * (lesson, flashcard, exam, ai_tutor, pdf).
+   *
+   * Enforces single active educational session policy: automatically finalizes
+   * any open active session for the same user to prevent double counting across tabs.
+   */
+  async startStudySession(
+    actor: Actor,
+    input: StartStudySessionInput,
+  ): Promise<StudySessionRecord> {
+    if (!this.studySessionStore) {
+      throw new DomainError("bad_request", "Study session store not configured");
+    }
+
+    if (!isStudyActivityType(input.activityType)) {
+      throw new DomainError("bad_request", `Invalid study activity type: ${input.activityType}`);
+    }
+
+    const now = new Date().toISOString();
+
+    // Finalize any previous open session for this user to avoid double counting
+    await this.studySessionStore.closeActiveSessionsForUser(actor.userId, now);
+
+    const id = randomUUID();
+    const record = await this.studySessionStore.create({
+      id,
+      userId: actor.userId,
+      activityType: input.activityType,
+      courseId: input.courseId ? (input.courseId as CourseId) : null,
+      moduleId: input.moduleId ?? null,
+      lessonId: input.lessonId ? (input.lessonId as LessonId) : null,
+      startedAt: now,
+      lastActivityAt: now,
+      endedAt: null,
+      durationSeconds: 0,
+    });
+
+    return record;
+  }
+
+  /**
+   * Records a heartbeat for an active study session.
+   *
+   * Duration calculation rules (Server-side validation):
+   * - Calculates elapsed time between now and lastActivityAt.
+   * - If elapsed <= IDLE_TIMEOUT_SECONDS (120s): user was active, adds elapsed time (capped by MAX_HEARTBEAT_GAP_SECONDS).
+   * - If elapsed > IDLE_TIMEOUT_SECONDS: idle period detected, do NOT add idle gap; resume tracking from now.
+   * - Client duration or client timestamps are never accepted or trusted.
+   */
+  async recordHeartbeat(
+    actor: Actor,
+    sessionId: string,
+  ): Promise<{ sessionId: string; durationSeconds: number; lastActivityAt: string }> {
+    if (!this.studySessionStore) {
+      throw new DomainError("bad_request", "Study session store not configured");
+    }
+
+    const session = await this.studySessionStore.findById(sessionId);
+    if (!session || session.userId !== actor.userId) {
+      throw new DomainError("not_found", "Study session not found");
+    }
+
+    if (session.endedAt) {
+      throw new DomainError("bad_request", "Study session has already ended");
+    }
+
+    const now = new Date();
+    const lastActivity = new Date(session.lastActivityAt);
+    const elapsedSeconds = Math.max(
+      0,
+      Math.floor((now.getTime() - lastActivity.getTime()) / 1000),
+    );
+
+    let addedSeconds = 0;
+    if (elapsedSeconds <= STUDY_SESSION_CONFIG.IDLE_TIMEOUT_SECONDS) {
+      // User was active within idle timeout
+      addedSeconds = Math.min(
+        elapsedSeconds,
+        STUDY_SESSION_CONFIG.MAX_HEARTBEAT_GAP_SECONDS,
+      );
+    } else {
+      // User was idle for > 2 minutes. Do NOT credit idle time.
+      addedSeconds = 0;
+    }
+
+    const updatedDuration = session.durationSeconds + addedSeconds;
+    const updatedRecord = await this.studySessionStore.update({
+      ...session,
+      lastActivityAt: now.toISOString(),
+      durationSeconds: updatedDuration,
+      updatedAt: now.toISOString(),
+    });
+
+    return {
+      sessionId: updatedRecord.id,
+      durationSeconds: updatedRecord.durationSeconds,
+      lastActivityAt: updatedRecord.lastActivityAt,
+    };
+  }
+
+  /**
+   * Ends an active study session (e.g. on navigation departure, lesson switch, modal close).
+   * Best-effort finalization that bounds elapsed time.
+   */
+  async endStudySession(
+    actor: Actor,
+    sessionId: string,
+  ): Promise<{ sessionId: string; durationSeconds: number; endedAt: string | null }> {
+    if (!this.studySessionStore) {
+      throw new DomainError("bad_request", "Study session store not configured");
+    }
+
+    const session = await this.studySessionStore.findById(sessionId);
+    if (!session || session.userId !== actor.userId) {
+      throw new DomainError("not_found", "Study session not found");
+    }
+
+    if (session.endedAt) {
+      return {
+        sessionId: session.id,
+        durationSeconds: session.durationSeconds,
+        endedAt: session.endedAt,
+      };
+    }
+
+    const now = new Date();
+    const lastActivity = new Date(session.lastActivityAt);
+    const elapsedSeconds = Math.max(
+      0,
+      Math.floor((now.getTime() - lastActivity.getTime()) / 1000),
+    );
+
+    let addedSeconds = 0;
+    if (elapsedSeconds <= STUDY_SESSION_CONFIG.IDLE_TIMEOUT_SECONDS) {
+      addedSeconds = Math.min(
+        elapsedSeconds,
+        STUDY_SESSION_CONFIG.MAX_HEARTBEAT_GAP_SECONDS,
+      );
+    }
+
+    const finalDuration = session.durationSeconds + addedSeconds;
+    const nowIso = now.toISOString();
+
+    const updatedRecord = await this.studySessionStore.update({
+      ...session,
+      lastActivityAt: nowIso,
+      endedAt: nowIso,
+      durationSeconds: finalDuration,
+      updatedAt: nowIso,
+    });
+
+    return {
+      sessionId: updatedRecord.id,
+      durationSeconds: updatedRecord.durationSeconds,
+      endedAt: updatedRecord.endedAt ?? null,
+    };
+  }
+
+  /**
+   * Aggregates active study time for this week, comparison with last week,
+   * and 7-day daily breakdown for the dashboard.
+   *
+   * Computes week boundaries based on the validated user timezone (with Asia/Tehran fallback)
+   * where the Iranian/Persian week starts on Saturday (شنبه).
+   */
+  async getWeeklyStudyTimeSummary(
+    actor: Actor,
+    timezone?: string,
+  ): Promise<WeeklyStudyTimeSummary> {
+    if (!this.studySessionStore) {
+      throw new DomainError("bad_request", "Study session store not configured");
+    }
+
+    const validTz = validateTimezone(timezone);
+    const now = new Date();
+    const weekRange = getPersianWeekDates(now, validTz);
+
+    // Query all sessions from the start of last week until now
+    const sessions = await this.studySessionStore.listByUserAndDateRange(
+      actor.userId,
+      `${weekRange.earliestDate}T00:00:00.000Z`,
+      now.toISOString(),
+    );
+
+    return calculateWeeklyStudyTimeSummary(sessions, now, validTz);
+  }
+
+  /**
+   * Aggregates all dashboard metrics for the authenticated user:
+   * - completedLessons: Total unique completed lessons (from lesson_progress)
+   * - completedExams: Total completed/submitted exams & quizzes (from quiz_attempts)
+   * - currentStreak & longestStreak: Based on study days with >= 5 min active study time (from study_sessions)
+   * - todayIsActive & todayStudySeconds: Real-time status for today
+   * - thisWeek & lastWeek study time summary: Persian week breakdown
+   *
+   * All metrics are scoped strictly to the authenticated actor's userId.
+   * Concurrently queries stores with zero N+1 queries.
+   */
+  async getDashboardStats(
+    actor: Actor,
+    timezone?: string,
+  ): Promise<{
+    stats: DashboardStatsSummary;
+    thisWeek: WeeklyStudyTimeSummary["thisWeek"];
+    lastWeek: WeeklyStudyTimeSummary["lastWeek"];
+    changePercent: WeeklyStudyTimeSummary["changePercent"];
+    daily: WeeklyStudyTimeSummary["daily"];
+  }> {
+    const validTz = validateTimezone(timezone);
+    const now = new Date();
+
+    const [completedLessons, completedExams, allUserSessions] =
+      await Promise.all([
+        this.progressStore.countCompletedByUser(actor.userId),
+        this.quizAttemptStore.countCompletedByUser(actor.userId),
+        this.studySessionStore
+          ? this.studySessionStore.listByUser(actor.userId)
+          : Promise.resolve([]),
+      ]);
+
+    const weeklySummary = calculateWeeklyStudyTimeSummary(
+      allUserSessions,
+      now,
+      validTz,
+    );
+    const streakSummary = calculateStreakSummary(
+      allUserSessions,
+      now,
+      validTz,
+    );
+
+    return {
+      stats: {
+        completedLessons,
+        completedExams,
+        currentStreak: streakSummary.currentStreak,
+        longestStreak: streakSummary.longestStreak,
+        todayIsActive: streakSummary.todayIsActive,
+        todayStudySeconds: streakSummary.todayStudySeconds,
+      },
+      thisWeek: weeklySummary.thisWeek,
+      lastWeek: weeklySummary.lastWeek,
+      changePercent: weeklySummary.changePercent,
+      daily: weeklySummary.daily,
+    };
+  }
 }
+

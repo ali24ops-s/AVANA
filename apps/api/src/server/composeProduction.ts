@@ -51,13 +51,18 @@ import {
   DrizzleQuizStore,
   DrizzleQuizQuestionStore,
   DrizzleQuizAttemptStore,
-} from "../modules/study/drizzle-stores.js";
+  DrizzleAssistantConversationStore,
+  DrizzleStudySessionStore,
+  DrizzleFlashcardStudySessionStore,
+} from "../modules/study/index.js";
 import {
   createModelGateway,
   BullMqGenerationQueue,
+  type ModelGateway,
 } from "../modules/generation/index.js";
 import { DrizzleAuditStore } from "../observability/drizzle-stores.js";
 import { AuditService } from "../observability/audit-service.js";
+import { DrizzleAdminStore } from "../modules/admin/drizzle-stores.js";
 import { LocalStorageProvider } from "../modules/storage/index.js";
 import { seedLocalDevData } from "../dev/seed.js";
 import type { V1RouteOptions } from "../routes/v1.js";
@@ -260,10 +265,13 @@ export async function composeProduction(
   const gateway = createModelGateway({
     provider: config.generation.aiProvider,
     geminiApiKey: config.generation.geminiApiKey,
+    geminiApiKeys: config.generation.geminiApiKeys,
     geminiModel: config.generation.geminiModel,
     cloudflareAccountId: config.generation.cloudflareAccountId,
     cloudflareApiToken: config.generation.cloudflareApiToken,
     cloudflareAiModel: config.generation.cloudflareAiModel,
+    groqApiKey: config.generation.groqApiKey,
+    groqModel: config.generation.groqModel,
   });
 
   // BullMQ generation queue (Redis-backed producer).
@@ -278,13 +286,35 @@ export async function composeProduction(
     config.storage.local.directory,
   );
 
-  // Study stores (PR6-7)
+  // Study stores (PR6-7 & Assistant)
   const flashcardStore = new DrizzleFlashcardStore(db);
   const flashcardReviewStore = new DrizzleFlashcardReviewStore(db);
   const userFlashcardScheduleStore = new DrizzleUserFlashcardScheduleStore(db);
   const quizStore = new DrizzleQuizStore(db);
   const quizQuestionStore = new DrizzleQuizQuestionStore(db);
   const quizAttemptStore = new DrizzleQuizAttemptStore(db);
+  const conversationStore = new DrizzleAssistantConversationStore(db);
+  const studySessionStore = new DrizzleStudySessionStore(db);
+  const flashcardStudySessionStore = new DrizzleFlashcardStudySessionStore(db);
+  
+  // Admin Store
+  const adminStore = new DrizzleAdminStore(db);
+
+  // Cloudflare AI Model Gateway dedicated for Study Assistant
+  let assistantGateway: ModelGateway;
+  if (
+    config.generation.cloudflareAccountId &&
+    config.generation.cloudflareApiToken
+  ) {
+    assistantGateway = createModelGateway({
+      provider: "cloudflare",
+      cloudflareAccountId: config.generation.cloudflareAccountId,
+      cloudflareApiToken: config.generation.cloudflareApiToken,
+      cloudflareAiModel: config.generation.cloudflareAiModel,
+    });
+  } else {
+    assistantGateway = gateway;
+  }
 
   const auditStore = new DrizzleAuditStore(db);
   const auditService = new AuditService(auditStore);
@@ -314,7 +344,12 @@ export async function composeProduction(
     quizStore,
     quizQuestionStore,
     quizAttemptStore,
+    conversationStore,
+    assistantGateway,
+    studySessionStore,
+    flashcardStudySessionStore,
     auditService,
+    adminStore,
   };
 
   // Seed demo data for development only — not in production

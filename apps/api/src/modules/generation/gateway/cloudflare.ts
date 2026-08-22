@@ -41,6 +41,10 @@ export class CloudflareModelGateway implements ModelGateway {
   private readonly timeoutMs: number;
   private readonly fetchFn: typeof fetch;
 
+  get model(): string {
+    return this.modelName;
+  }
+
   constructor(options: CloudflareModelGatewayOptions) {
     if (!options.accountId || options.accountId.trim().length === 0) {
       throw new DomainError(

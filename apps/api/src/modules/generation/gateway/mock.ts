@@ -627,6 +627,7 @@ function buildPayload(type: string, promptText = ""): unknown {
  */
 export class MockModelGateway implements ModelGateway {
   readonly provider = "mock" as const;
+  readonly model = "mock-1";
 
   async complete(req: CompletionRequest): Promise<{
     text: string;

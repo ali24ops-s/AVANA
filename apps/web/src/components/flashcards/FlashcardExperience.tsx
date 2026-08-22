@@ -18,11 +18,13 @@ import {
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
 import { createStudyApi } from "../../lib/api/study.js";
+import { useStudySessionTracker } from "../../hooks/useStudySessionTracker.js";
 import type { FlashcardResource, FlashcardRating } from "@avana/contracts";
 import { nextReviewInterval } from "@avana/domain";
 
 export interface FlashcardExperienceProps {
   organizationId: string;
+  sessionId?: string;
   courseId?: string;
   courseIds?: string[];
   documentIds?: string[];
@@ -63,6 +65,7 @@ function getIntervalHint(
 
 export function FlashcardExperience({
   organizationId,
+  sessionId,
   courseId,
   courseIds = [],
   documentIds = [],
@@ -73,6 +76,7 @@ export function FlashcardExperience({
   onBack,
 }: FlashcardExperienceProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [hasInitializedSession, setHasInitializedSession] = useState(false);
   const [isFlipped, setIsFlipped] = useState(false);
   const [flipTimestamp, setFlipTimestamp] = useState<number>(0);
   const [sessionStartTime] = useState<number>(Date.now());
@@ -89,7 +93,15 @@ export function FlashcardExperience({
   // If courseId is provided but not in courseIds, add it (for backward compatibility)
   const effectiveCourseIds = courseId && courseIds.length === 0 ? [courseId] : courseIds;
 
-  // Fetch due cards for spaced-repetition / exam / custom review
+  // Session query when resuming a persistent study session
+  const sessionQuery = useQuery({
+    queryKey: ["flashcard-study-session", organizationId, sessionId],
+    queryFn: () => studyApi.getFlashcardStudySession(organizationId, sessionId!),
+    enabled: Boolean(organizationId && sessionId),
+    staleTime: 0,
+  });
+
+  // Fetch due cards for spaced-repetition / exam / custom review when not in a persistent session
   const queueQuery = useQuery({
     queryKey: [
       "flashcards-queue",
@@ -126,7 +138,7 @@ export function FlashcardExperience({
         documentIds.length > 0 ? documentIds : undefined,
       );
     },
-    enabled: !!organizationId,
+    enabled: Boolean(organizationId && !sessionId),
   });
 
   // Fetch summary to get total counts
@@ -136,8 +148,128 @@ export function FlashcardExperience({
     enabled: !!organizationId,
   });
 
-  const dueCards = queueQuery.data?.due_cards ?? [];
+  const sessionCards = sessionQuery.data?.cards as FlashcardResource[] | undefined;
+  const dueCards = sessionId
+    ? (sessionCards ?? [])
+    : (queueQuery.data?.due_cards ?? []);
   const rawCurrentCard = dueCards[currentIndex] as FlashcardResource | undefined;
+
+  // Initialize index & results when resuming a persistent study session
+  useEffect(() => {
+    if (sessionId && sessionQuery.data?.session && !hasInitializedSession) {
+      const session = sessionQuery.data.session;
+      const initialIdx = Number(
+        session.current_index ??
+        (session as any).currentIndex ??
+        0,
+      );
+      
+      let targetIdx = initialIdx;
+      // If we have full snapshot cards, calculate target index based on non-deleted mapped cards
+      const allSessionCards = sessionQuery.data.session_cards || [];
+      if (allSessionCards.length > 0 && sessionCards) {
+        let validBefore = 0;
+        for (let i = 0; i < Math.min(initialIdx, allSessionCards.length); i++) {
+          if (allSessionCards[i].flashcard_id && sessionCards.some((c: any) => c.id === allSessionCards[i].flashcard_id)) {
+            validBefore++;
+          }
+        }
+        targetIdx = validBefore;
+      }
+      
+      // Hydrate previously reviewed cards into results state from snapshot
+      const initialResults: ReviewResult[] = allSessionCards
+        .filter((sc) => sc.status === "reviewed" && sc.flashcard_id)
+        .map((sc) => ({
+          cardId: sc.flashcard_id!,
+          rating: (sc.rating as FlashcardRating) || "good",
+          reactionMs: (sc as any).reaction_ms ?? (sc as any).reactionMs ?? 0,
+        }));
+
+      setResults(initialResults);
+      setCurrentIndex(targetIdx);
+      setHasInitializedSession(true);
+
+      if (
+        session.status === "completed" ||
+        (session.total_cards > 0 && session.completed_cards >= session.total_cards) ||
+        (sessionCards && targetIdx >= sessionCards.length && sessionCards.length > 0)
+      ) {
+        setIsCompleted(true);
+      }
+    }
+  }, [sessionId, sessionQuery.data, sessionCards, hasInitializedSession]);
+
+  // Session mutations
+  const updateSessionProgressMutation = useMutation({
+    mutationFn: async (vars: {
+      newIndex: number;
+      currentCardId?: string;
+      cardId?: string;
+      rating?: FlashcardRating;
+      reactionMs?: number;
+    }) => {
+      if (sessionId) {
+        let dbCurrentIndex = vars.newIndex;
+        const allSessionCards = sessionQuery.data?.session_cards;
+        if (allSessionCards && allSessionCards.length > 0 && sessionCards) {
+          const nextCard = dueCards[vars.newIndex];
+          if (nextCard) {
+            const foundIdx = allSessionCards.findIndex((sc: any) => sc.flashcard_id === nextCard.id);
+            if (foundIdx !== -1) {
+              dbCurrentIndex = foundIdx;
+            }
+          } else {
+            // Reached the end
+            dbCurrentIndex = allSessionCards.length;
+          }
+        }
+        
+        return studyApi.updateFlashcardStudySessionProgress(
+          organizationId,
+          sessionId,
+          {
+            current_index: dbCurrentIndex,
+            current_card_id: vars.currentCardId,
+            card_id: vars.cardId,
+            rating: vars.rating,
+            reaction_ms: vars.reactionMs,
+          },
+        );
+      }
+      return Promise.resolve();
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["flashcard-sessions", organizationId],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["flashcard-study-session", organizationId, sessionId],
+      });
+    },
+  });
+
+  const completeSessionMutation = useMutation({
+    mutationFn: async () => {
+      if (!sessionId) return;
+      return studyApi.completeFlashcardStudySession(organizationId, sessionId);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["flashcard-sessions", organizationId],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["flashcard-study-session", organizationId, sessionId],
+      });
+    },
+  });
+
+  // Track active educational study time for flashcard reviews
+  useStudySessionTracker({
+    activityType: "flashcard",
+    courseId: courseId || (effectiveCourseIds.length === 1 ? effectiveCourseIds[0] : undefined),
+    enabled: dueCards.length > 0 && !isCompleted,
+  });
 
   // In-place editing state
   const [editedCards, setEditedCards] = useState<Record<string, { question: string; answer: string }>>({});
@@ -237,7 +369,6 @@ export function FlashcardExperience({
     setFlipTimestamp((prev) => (prev > 0 ? prev : Date.now()));
   }, []);
 
-
   const handleRating = useCallback(
     (rating: FlashcardRating) => {
       if (!currentCard || !isFlipped || isSubmitting || reviewMutation.isPending) return;
@@ -260,16 +391,40 @@ export function FlashcardExperience({
               rating,
               reactionMs,
             };
-            setResults((prev) => [...prev, newResult]);
+            setResults((prev) => {
+              const existingIdx = prev.findIndex((r) => r.cardId === currentCard.id);
+              if (existingIdx >= 0) {
+                const copy = [...prev];
+                copy[existingIdx] = newResult;
+                return copy;
+              }
+              return [...prev, newResult];
+            });
             setSelectedRating(null);
             setIsSubmitting(false);
 
-            if (currentIndex + 1 < dueCards.length) {
+            const nextIndex = currentIndex + 1;
+            const nextCard = dueCards[nextIndex];
+
+            if (sessionId) {
+              updateSessionProgressMutation.mutate({
+                newIndex: nextIndex,
+                currentCardId: nextCard?.id,
+                cardId: currentCard.id,
+                rating,
+                reactionMs,
+              });
+            }
+
+            if (nextIndex < dueCards.length) {
               setIsFlipped(false);
               setFlipTimestamp(0);
-              setCurrentIndex((prev) => prev + 1);
+              setCurrentIndex(nextIndex);
             } else {
               setIsCompleted(true);
+              if (sessionId) {
+                completeSessionMutation.mutate();
+              }
               void queryClient.invalidateQueries({
                 queryKey: ["flashcards-queue", organizationId],
               });
@@ -289,7 +444,10 @@ export function FlashcardExperience({
       reviewMutation,
       flipTimestamp,
       currentIndex,
-      dueCards.length,
+      dueCards,
+      sessionId,
+      updateSessionProgressMutation,
+      completeSessionMutation,
       organizationId,
       queryClient,
     ],
@@ -297,21 +455,37 @@ export function FlashcardExperience({
 
   const handlePrevCard = useCallback(() => {
     if (currentIndex > 0) {
-      setCurrentIndex((prev) => prev - 1);
+      const prevIdx = currentIndex - 1;
+      const prevCard = dueCards[prevIdx];
+      setCurrentIndex(prevIdx);
       setIsFlipped(false);
       setFlipTimestamp(0);
+      if (sessionId) {
+        updateSessionProgressMutation.mutate({
+          newIndex: prevIdx,
+          currentCardId: prevCard?.id,
+        });
+      }
     }
-  }, [currentIndex]);
+  }, [currentIndex, dueCards, sessionId, updateSessionProgressMutation]);
 
   const handleNextCard = useCallback(() => {
     if (!isFlipped) {
       handleFlip();
     } else if (currentIndex + 1 < dueCards.length) {
-      setCurrentIndex((prev) => prev + 1);
+      const nextIdx = currentIndex + 1;
+      const nextCard = dueCards[nextIdx];
+      setCurrentIndex(nextIdx);
       setIsFlipped(false);
       setFlipTimestamp(0);
+      if (sessionId) {
+        updateSessionProgressMutation.mutate({
+          newIndex: nextIdx,
+          currentCardId: nextCard?.id,
+        });
+      }
     }
-  }, [currentIndex, dueCards.length, isFlipped, handleFlip]);
+  }, [currentIndex, dueCards, isFlipped, handleFlip, sessionId, updateSessionProgressMutation]);
 
   const togglePriority = (priority: "high" | "medium" | "low") => {
     if (!currentCard) return;
@@ -358,14 +532,26 @@ export function FlashcardExperience({
   }, [isFlipped, isCompleted, currentCard, isSubmitting, handleFlip, handleRating]);
 
   // Dynamic calculations for stats panel
-  const unseenCount = dueCards.filter(
-    (c) => !c.interval_days || c.interval_days === 0,
-  ).length;
-  const reviewCount = Math.max(0, dueCards.length - unseenCount - results.length);
+  const totalSessionCards = sessionId
+    ? (sessionQuery.data?.session?.total_cards ?? dueCards.length)
+    : dueCards.length;
+
   const finishedCount = results.length;
 
+  const unseenCount = sessionId
+    ? Math.max(0, totalSessionCards - finishedCount)
+    : dueCards.filter((c) => !c.interval_days || c.interval_days === 0).length;
+
+  const reviewCount = sessionId
+    ? results.filter((r) => r.rating === "again" || r.rating === "hard").length
+    : Math.max(0, dueCards.length - unseenCount - results.length);
+
+  const isDataLoading = (sessionId ? sessionQuery.isLoading : queueQuery.isLoading) || summaryQuery.isLoading;
+  const isDataError = sessionId ? sessionQuery.isError : queueQuery.isError;
+  const dataErrorMessage = (sessionId ? sessionQuery.error?.message : queueQuery.error?.message) || "خطایی در دریافت کارت‌ها رخ داد.";
+
   // Loading state
-  if (queueQuery.isLoading || summaryQuery.isLoading) {
+  if (isDataLoading) {
     return (
       <div className="flex flex-col items-center justify-center py-28 gap-4 min-h-[60vh]">
         <Loader2 className="w-10 h-10 animate-spin text-[#14b8a6]" />
@@ -377,7 +563,13 @@ export function FlashcardExperience({
   }
 
   // Error state
-  if (queueQuery.isError) {
+  if (isDataError) {
+    console.error("[FLASHCARD_RESUME_DEBUG]", {
+      sessionId,
+      organizationId,
+      sessionQueryError: sessionQuery.error,
+      queueQueryError: queueQuery.error,
+    });
     return (
       <div className="max-w-md mx-auto my-16 p-8 glass-panel rounded-3xl border border-[#94a3b8]/20 text-center space-y-5 shadow-2xl">
         <AlertCircle className="w-12 h-12 text-red-400 mx-auto" />
@@ -385,13 +577,17 @@ export function FlashcardExperience({
           خطا در بارگذاری فلش‌کارت‌ها
         </h3>
         <p className="text-xs text-[#94a3b8]">
-          {queueQuery.error?.message || "خطایی در دریافت کارت‌ها رخ داد."}
+          {dataErrorMessage}
         </p>
         <div className="flex items-center justify-center gap-3 pt-2">
           <button
             type="button"
             onClick={() => {
-              void queueQuery.refetch();
+              if (sessionId) {
+                void sessionQuery.refetch();
+              } else {
+                void queueQuery.refetch();
+              }
               void summaryQuery.refetch();
             }}
             className="px-5 py-2.5 bg-[#14b8a6] hover:bg-[#0f766e] text-white rounded-xl text-xs font-bold transition-all shadow-md"

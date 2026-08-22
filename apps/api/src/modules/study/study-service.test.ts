@@ -218,14 +218,12 @@ describe("StudyService", () => {
       const past = new Date(now.getTime() - 1000 * 60 * 60).toISOString(); // 1 hr ago (due)
       const future = new Date(now.getTime() + 1000 * 60 * 60 * 24).toISOString(); // 1 day future (not due)
 
-      const dueCard = seedFlashcard({ dueAt: past });
-      seedReview(student.userId, dueCard.id);
-
+      const unreviewedCard = seedFlashcard({ dueAt: past });
       const futureCard = seedFlashcard({ dueAt: future });
       seedReview(student.userId, futureCard.id);
 
-      // Unread card (no review seed)
-      seedFlashcard({ dueAt: past });
+      const dueCard = seedFlashcard({ dueAt: past });
+      seedReview(student.userId, dueCard.id);
 
       const dueList = await service.listFlashcardsForReview(
         student,
@@ -233,18 +231,18 @@ describe("StudyService", () => {
         courseId,
       );
 
-      expect(dueList.length).toBe(1);
-      expect(dueList[0].id).toBe(dueCard.id);
+      expect(dueList.length).toBe(2);
+      expect(dueList.map((c) => c.id).sort()).toEqual([unreviewedCard.id, dueCard.id].sort());
     });
 
     describe("Ready for Review (dueReviewCards) strict requirements", () => {
-      it("does not count unread cards, future cards, or null dueAt in due cards count", async () => {
+      it("includes unread cards with dueAt <= now, excludes future cards and null dueAt in review queue", async () => {
         const now = new Date();
         const past = new Date(now.getTime() - 1000 * 60 * 60).toISOString();
         const future = new Date(now.getTime() + 1000 * 60 * 60 * 24).toISOString();
 
-        // 1. Unread card with past dueAt -> NOT due
-        seedFlashcard({ dueAt: past });
+        // 1. Unread card with past dueAt -> DUE for initial review
+        const unreadDueCard = seedFlashcard({ dueAt: past });
 
         // 2. Read card with future dueAt -> NOT due
         const futureCard = seedFlashcard({ dueAt: future });
@@ -268,16 +266,16 @@ describe("StudyService", () => {
 
         expect(courseStats).toBeDefined();
         const dueQueue = await service.listFlashcardsForReview(student, organizationId, courseId);
-        expect(dueQueue.length).toBe(2);
-        expect(dueQueue.map((c) => c.id).sort()).toEqual([dueCard1.id, dueCard2.id].sort());
+        expect(dueQueue.length).toBe(3);
+        expect(dueQueue.map((c) => c.id).sort()).toEqual([unreadDueCard.id, dueCard1.id, dueCard2.id].sort());
       });
 
-      it("enforces due count invariants: unseen+past=>0, reviewed+future=>0, reviewed+past=>1", async () => {
+      it("enforces due count invariants: unseen+past=>0 due / 1 new, reviewed+future=>0, reviewed+past=>1 due", async () => {
         const now = new Date();
         const past = new Date(now.getTime() - 1000 * 60 * 60).toISOString();
         const future = new Date(now.getTime() + 1000 * 60 * 60 * 24).toISOString();
 
-        // 1. unseen + due_at <= now -> due = 0
+        // 1. unseen + due_at <= now -> due = 0, newCards = 1
         seedFlashcard({ dueAt: past });
 
         // 2. reviewed + due_at > now -> due = 0
@@ -296,7 +294,7 @@ describe("StudyService", () => {
         expect(courseStats.newCards).toBe(1); // Unseen card
       });
 
-      it("ensures multi-user isolation (User A review does not affect User B due count)", async () => {
+      it("ensures multi-user isolation (User A review does not affect User B schedule)", async () => {
         const studentB: Actor = { userId: "user-b-id" as UserId, role: "student" };
         const now = new Date();
         const past = new Date(now.getTime() - 1000 * 60 * 60).toISOString();
@@ -317,7 +315,7 @@ describe("StudyService", () => {
         expect(summaryB.courseMap.get(courseId)!.due).toBe(0);
 
         const queueB = await service.listFlashcardsForReview(studentB, organizationId, courseId);
-        expect(queueB.length).toBe(0);
+        expect(queueB.length).toBe(1); // User B sees the card ready for initial review
       });
     });
 

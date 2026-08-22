@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Calendar,
   AlertCircle,
@@ -20,6 +20,7 @@ import { createOrganizationApi } from "../lib/api/organizations.js";
 import { createDocumentsApi } from "../lib/api/documents.js";
 import { useAuth } from "../providers/AuthProvider.js";
 import { TaxonomySelector } from "../components/study/TaxonomySelector.js";
+import { UnfinishedSessionsList } from "../components/flashcards/UnfinishedSessionsList.js";
 
 const EXAM_MODE_LIMITS = [20, 50, 100, 200, "all"] as const;
 type ExamLimit = (typeof EXAM_MODE_LIMITS)[number];
@@ -31,6 +32,7 @@ export function FlashcardsPage() {
   const studyApi = createStudyApi(apiClient);
   const docApi = createDocumentsApi(apiClient);
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const orgQuery = useQuery({
     queryKey: ["organizations"],
@@ -45,6 +47,7 @@ export function FlashcardsPage() {
 
   const [selectedCourses, setSelectedCourses] = useState<Set<string>>(new Set());
   const [selectedModules, setSelectedModules] = useState<Set<string>>(new Set());
+  const [selectedLessons, setSelectedLessons] = useState<Set<string>>(new Set());
 
   const [examLimit, setExamLimit] = useState<ExamLimit>(50);
   const [reviewAheadDays, setReviewAheadDays] = useState<number>(3);
@@ -78,12 +81,16 @@ export function FlashcardsPage() {
   const handleTaxonomyChange = (selection: {
     courseIds: Set<string>;
     moduleIds: Set<string>;
+    lessonIds?: Set<string>;
   }) => {
     setSelectedCourses(selection.courseIds);
     setSelectedModules(selection.moduleIds);
+    if (selection.lessonIds) {
+      setSelectedLessons(selection.lessonIds);
+    }
   };
 
-  // Build clean taxonomy tree filtering out modules with 0 flashcards
+  // Build clean taxonomy tree filtering out modules and lessons with 0 flashcards while retaining courses with total_cards > 0
   const validCourses = useMemo(() => {
     if (!summary?.courses) return [];
     return (summary.courses || [])
@@ -91,24 +98,30 @@ export function FlashcardsPage() {
         const rawModules = c.modules;
         const validModules = (rawModules || [])
           .filter((m: any) => (m.total_cards ?? m.itemCount ?? 0) > 0)
-          .map((m: any) => ({
-            id: m.module_id || m.id,
-            title: m.title,
-            itemCount: m.total_cards ?? m.itemCount,
-          }));
+          .map((m: any) => {
+            const rawLessons = m.lessons;
+            const validLessons = (rawLessons || [])
+              .filter((l: any) => (l.total_cards ?? l.itemCount ?? 0) > 0)
+              .map((l: any) => ({
+                id: l.lesson_id || l.id,
+                title: l.title,
+                itemCount: l.total_cards ?? l.itemCount,
+              }));
+            return {
+              id: m.module_id || m.id,
+              title: m.title,
+              itemCount: m.total_cards ?? m.itemCount,
+              lessons: validLessons,
+            };
+          });
         return {
           id: c.course_id || c.id,
           title: c.title,
           itemCount: c.total_cards ?? c.itemCount,
           modules: validModules,
-          hasRawModules: Array.isArray(rawModules) && rawModules.length > 0,
         };
       })
-      .filter((c: any) => {
-        if ((c.itemCount ?? 0) <= 0) return false;
-        if (c.hasRawModules) return c.modules.length > 0;
-        return true;
-      });
+      .filter((c: any) => (c.itemCount ?? 0) > 0);
   }, [summary?.courses]);
 
   // Compute total available modules across all courses
@@ -187,30 +200,85 @@ export function FlashcardsPage() {
     return params;
   };
 
-  const startNormalReview = (specificCourseId?: string) => {
-    const params = buildQueryParams();
-    if (specificCourseId) {
-      params.set("courses", specificCourseId);
+  const [isStartingSession, setIsStartingSession] = useState(false);
+
+  const startStudySession = async (
+    mode: "daily" | "exam" | "custom",
+    options?: {
+      customMode?: "weak" | "forgotten" | "review_ahead" | "new";
+      aheadDays?: number;
+      limit?: number;
+      specificCourseId?: string;
+    },
+  ) => {
+    if (!organizationId || isStartingSession) return;
+    setIsStartingSession(true);
+
+    try {
+      const courseIds = options?.specificCourseId
+        ? [options.specificCourseId]
+        : Array.from(selectedCourses);
+      const moduleIds = Array.from(selectedModules);
+      const lessonIds = Array.from(selectedLessons);
+
+      const res = await studyApi.createFlashcardStudySession(organizationId, {
+        courseIds: courseIds.length > 0 ? courseIds : undefined,
+        moduleIds: moduleIds.length > 0 ? moduleIds : undefined,
+        lessonIds: lessonIds.length > 0 ? lessonIds : undefined,
+        mode: mode === "daily" ? "daily" : mode === "exam" ? "exam" : "custom",
+        customMode: options?.customMode,
+        aheadDays: options?.aheadDays,
+        limit: options?.limit,
+      });
+
+      if (res?.session?.id) {
+        void queryClient.invalidateQueries({
+          queryKey: ["flashcard-sessions", organizationId],
+        });
+        navigate(`/flashcards/review?sessionId=${res.session.id}`);
+      } else {
+        const params = buildQueryParams();
+        if (mode === "exam") {
+          params.set("mode", "exam");
+          if (options?.limit) params.set("limit", String(options.limit));
+        } else if (mode === "custom") {
+          params.set("mode", "custom");
+          if (options?.customMode) params.set("customMode", options.customMode);
+          if (options?.aheadDays) params.set("aheadDays", String(options.aheadDays));
+        }
+        navigate(`/flashcards/review?${params.toString()}`);
+      }
+    } catch (err) {
+      console.error("Failed to create study session, falling back to query review:", err);
+      const params = buildQueryParams();
+      if (mode === "exam") {
+        params.set("mode", "exam");
+        if (options?.limit) params.set("limit", String(options.limit));
+      } else if (mode === "custom") {
+        params.set("mode", "custom");
+        if (options?.customMode) params.set("customMode", options.customMode);
+        if (options?.aheadDays) params.set("aheadDays", String(options.aheadDays));
+      }
+      navigate(`/flashcards/review?${params.toString()}`);
+    } finally {
+      setIsStartingSession(false);
     }
-    const queryString = params.toString();
-    navigate(`/flashcards/review${queryString ? `?${queryString}` : ""}`);
+  };
+
+  const startNormalReview = (specificCourseId?: string) => {
+    void startStudySession("daily", { specificCourseId });
   };
 
   const startExamMode = () => {
-    const params = buildQueryParams();
-    params.set("mode", "exam");
-    params.set("limit", String(examLimit));
-    navigate(`/flashcards/review?${params.toString()}`);
+    const limitNum = typeof examLimit === "number" ? examLimit : undefined;
+    void startStudySession("exam", { limit: limitNum });
   };
 
   const startCustomStudy = (mode: "weak" | "forgotten" | "review_ahead" | "new") => {
-    const params = buildQueryParams();
-    params.set("mode", "custom");
-    params.set("customMode", mode);
-    if (mode === "review_ahead") {
-      params.set("aheadDays", String(reviewAheadDays));
-    }
-    navigate(`/flashcards/review?${params.toString()}`);
+    void startStudySession("custom", {
+      customMode: mode,
+      aheadDays: mode === "review_ahead" ? reviewAheadDays : undefined,
+    });
   };
 
   const handleStartStudy = () => {
@@ -281,7 +349,7 @@ export function FlashcardsPage() {
       {/* Background Ambient Glow */}
       <div className="fixed top-0 right-0 w-[800px] h-[800px] bg-[#0f766e]/10 rounded-full blur-[120px] pointer-events-none -z-0" />
 
-      <main className="max-w-7xl mx-auto w-full relative z-10 flex-1 flex flex-col space-y-6">
+      <main className="max-w-7xl mx-auto w-full relative z-10 flex-1 flex flex-col space-y-4">
         {/* Header Section */}
         <header className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 border-b border-slate-800/60 pb-6 shrink-0">
           <div>
@@ -316,7 +384,7 @@ export function FlashcardsPage() {
         </header>
 
         {/* Bento Grid Layout */}
-        <div className="flex-1 grid grid-cols-1 md:grid-cols-4 md:grid-rows-4 gap-4 pb-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           {/* Tile 1: Title / Main Info Tile (Col 1-2, Row 1) */}
           <div className="bg-slate-800/40 hover:bg-slate-800/70 border border-white/5 hover:border-white/10 rounded-3xl p-6 md:col-span-2 md:row-span-1 flex flex-col justify-center relative overflow-hidden transition-all duration-300 group">
             <div className="absolute left-0 top-0 opacity-10 text-[#0f766e] transform scale-[2] -translate-x-4 -translate-y-4 group-hover:scale-[2.2] transition-transform duration-700 pointer-events-none">
@@ -448,6 +516,7 @@ export function FlashcardsPage() {
                 courses={validCourses}
                 selectedCourseIds={selectedCourses}
                 selectedModuleIds={selectedModules}
+                selectedLessonIds={selectedLessons}
                 onSelectionChange={handleTaxonomyChange}
                 emptyMessage="برای این دوره هنوز سرفصل یا فلشکارتی ثبت نشده است."
                 itemLabelSingular="کارت"
@@ -560,6 +629,18 @@ export function FlashcardsPage() {
             </div>
           </button>
         </div>
+
+        {/* Separator Divider */}
+        <div className="w-full border-t border-slate-700" />
+
+        {/* Unfinished Study Sessions List (Resume Previous Sessions) */}
+        <UnfinishedSessionsList
+          organizationId={organizationId}
+          onSelectSession={(sessionId) =>
+            navigate(`/flashcards/review?sessionId=${sessionId}`)
+          }
+          className="w-full"
+        />
       </main>
 
       {/* Limits Modal */}

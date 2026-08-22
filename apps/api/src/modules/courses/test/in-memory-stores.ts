@@ -14,6 +14,7 @@ import type { CourseRecord, CourseStore } from "../course-store.js";
 
 export class InMemoryCourseStore implements CourseStore {
   private courses: Map<string, CourseRecord> = new Map();
+  private userCourses: Map<string, Set<string>> = new Map(); // userId -> Set of courseIds
   private auditEvents: AuditEvent[] = [];
 
   async create(records: {
@@ -77,4 +78,53 @@ export class InMemoryCourseStore implements CourseStore {
   getAuditEvents(): readonly AuditEvent[] {
     return this.auditEvents;
   }
+
+  async listUserCourses(
+    userId: UserId,
+    organizationId?: OrganizationId,
+    systemOrganizationId?: OrganizationId,
+  ): Promise<CourseRecord[]> {
+    const enrolledIds = this.userCourses.get(userId) ?? new Set();
+    return Array.from(this.courses.values())
+      .filter(
+        (c) =>
+          enrolledIds.has(c.id) &&
+          c.deletedAt === null &&
+          (!organizationId ||
+            c.organizationId === organizationId ||
+            (systemOrganizationId && c.organizationId === systemOrganizationId)),
+      )
+      .map((c) => ({ ...c }));
+  }
+
+  async addUserCourse(
+    userId: UserId,
+    courseId: CourseId,
+    _role?: string,
+  ): Promise<void> {
+    let set = this.userCourses.get(userId);
+    if (!set) {
+      set = new Set();
+      this.userCourses.set(userId, set);
+    }
+    set.add(courseId);
+  }
+
+  async removeUserCourse(
+    userId: UserId,
+    courseId: CourseId,
+  ): Promise<void> {
+    const set = this.userCourses.get(userId);
+    if (set) {
+      set.delete(courseId);
+    }
+  }
+
+  async syncUserCourses(
+    userId: UserId,
+    courseIds: CourseId[],
+  ): Promise<void> {
+    this.userCourses.set(userId, new Set(courseIds));
+  }
 }
+

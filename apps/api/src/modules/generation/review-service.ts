@@ -776,9 +776,27 @@ export class ReviewService {
       return false;
     });
 
+    // Determine clean extracted title from AI payload
+    const extractedTitle =
+      payloadModuleTitle?.trim() ||
+      payloadTopic?.trim() ||
+      ((record.payload as any)?.title
+        ? (record.payload as any).title.replace(/^آزمون (ارزیابی آموخته‌ها: |ارزیابی: |)/, "").trim()
+        : null);
+
+    const isFilenameFallback = (t: string) => this.isFilenameFallback(t);
+
     if (targetModule) {
+      let needsUpdate = false;
       if (!targetModule.documentId) {
         targetModule.documentId = record.documentId;
+        needsUpdate = true;
+      }
+      if (extractedTitle && isFilenameFallback(targetModule.title)) {
+        targetModule.title = extractedTitle.startsWith("فصل") ? extractedTitle : `فصل: ${extractedTitle}`;
+        needsUpdate = true;
+      }
+      if (needsUpdate) {
         await this.moduleStore.update(targetModule).catch(() => {});
       }
       return targetModule;
@@ -786,9 +804,9 @@ export class ReviewService {
 
     // 4. Determine title for new module (Identity is documentId, Title is metadata)
     const resolvedTitle =
-      payloadModuleTitle?.trim() ||
-      payloadTopic?.trim() ||
-      (cleanDocName ? `فصل: ${cleanDocName}` : "سرفصل آموزشی استخراج‌شده");
+      extractedTitle
+        ? (extractedTitle.startsWith("فصل") ? extractedTitle : `فصل: ${extractedTitle}`)
+        : (cleanDocName ? `فصل: ${cleanDocName}` : "سرفصل آموزشی استخراج‌شده");
 
     const now = new Date().toISOString();
 
@@ -874,11 +892,20 @@ export class ReviewService {
     const cards = rawCards.map((c: any) => {
       let cLessonId: LessonId | null = null;
       if (lessons.length > 0) {
-        const cardTopic = (c.topic ?? payload.topic ?? "").toLowerCase().trim();
-        const match = cardTopic
-          ? lessons.find((l) => l.title.toLowerCase().includes(cardTopic))
-          : null;
-        cLessonId = match ? match.id : null;
+        if (typeof c.sessionIndex === "number" && !isNaN(c.sessionIndex)) {
+          const matchBySortOrder = lessons.find((l) => l.sortOrder === c.sessionIndex);
+          if (matchBySortOrder) {
+            cLessonId = matchBySortOrder.id;
+          } else if (c.sessionIndex >= 0 && c.sessionIndex < lessons.length) {
+            cLessonId = lessons[c.sessionIndex].id;
+          }
+        } else if (c.topic || payload.topic) {
+          const cardTopic = (c.topic ?? payload.topic ?? "").toLowerCase().trim();
+          const match = cardTopic
+            ? lessons.find((l) => l.title.toLowerCase().includes(cardTopic))
+            : null;
+          cLessonId = match ? match.id : null;
+        }
       }
 
       const qText = c.front ?? c.question ?? "سوال Flashcard";
@@ -954,6 +981,7 @@ export class ReviewService {
         explanation?: string;
         difficulty?: string;
         topic?: string;
+        sessionIndex?: number;
       }>;
     };
 
@@ -1028,18 +1056,49 @@ export class ReviewService {
           ? choices[0]
           : "گزینه ۱";
 
-      // Attempt to map question to a specific lesson in the module ONLY if topic aligns
+      // Deterministically map question to a specific lesson in the module using sessionIndex, sortOrder, topic or block fallback
       let qLessonId: LessonId | null = null;
       if (lessons.length > 0) {
-        const qTopic = (q.topic ?? payload.topic ?? "").toLowerCase().trim();
-        const match = qTopic
-          ? lessons.find((l) => l.title.toLowerCase().includes(qTopic))
-          : null;
-        if (match) {
-          qLessonId = match.id;
-          if (!matchedLessonId) matchedLessonId = match.id;
+        if (typeof q.sessionIndex === "number" && !isNaN(q.sessionIndex)) {
+          const matchBySortOrder = lessons.find((l) => l.sortOrder === q.sessionIndex);
+          if (matchBySortOrder) {
+            qLessonId = matchBySortOrder.id;
+          } else if (q.sessionIndex >= 0 && q.sessionIndex < lessons.length) {
+            qLessonId = lessons[q.sessionIndex].id;
+          } else if (q.sessionIndex - 1 >= 0 && q.sessionIndex - 1 < lessons.length) {
+            qLessonId = lessons[q.sessionIndex - 1].id;
+          }
+        } else if (q.topic || payload.topic) {
+          const qTopic = (q.topic ?? payload.topic ?? "").toLowerCase().trim();
+          const match = qTopic
+            ? lessons.find((l) => l.title.toLowerCase().includes(qTopic))
+            : null;
+          if (match) {
+            qLessonId = match.id;
+          }
+        }
+
+        if (!qLessonId && rawQuestions.length >= lessons.length) {
+          const blockIdx = Math.min(
+            lessons.length - 1,
+            Math.floor((index / rawQuestions.length) * lessons.length),
+          );
+          if (lessons[blockIdx]) {
+            qLessonId = lessons[blockIdx].id;
+          }
+        }
+
+        if (qLessonId && !matchedLessonId) {
+          matchedLessonId = qLessonId;
         }
       }
+
+      const mappedLesson = qLessonId ? lessons.find((l) => l.id === qLessonId) : null;
+      const rawQTopic = q.topic ?? defaultTopic;
+      const cleanQuestionTopic =
+        mappedLesson?.title ||
+        (rawQTopic && !this.isFilenameFallback(rawQTopic) ? rawQTopic : null) ||
+        targetModule.title;
 
       return {
         id: parseQuizQuestionId(randomUUID()),
@@ -1047,7 +1106,7 @@ export class ReviewService {
         generatedContentId: record.id,
         lessonId: qLessonId,
         question: q.question,
-        topic: q.topic ?? defaultTopic,
+        topic: cleanQuestionTopic,
         difficulty: q.difficulty ?? payload.difficulty ?? defaultDifficulty,
         questionType: q.questionType ?? "multiple_choice",
         choices: choices.length > 0 ? choices : null,
@@ -1064,5 +1123,13 @@ export class ReviewService {
     }
 
     return matchedLessonId;
+  }
+
+  private isFilenameFallback(t: string | null | undefined): boolean {
+    if (!t) return true;
+    const c = t.replace(/^فصل:\s*/, "").trim();
+    if (/^\d+$/.test(c)) return true;
+    if (/\.(pdf|docx|pptx|txt)$/i.test(c)) return true;
+    return false;
   }
 }

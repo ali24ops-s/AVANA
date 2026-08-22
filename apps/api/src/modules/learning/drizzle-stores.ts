@@ -8,7 +8,7 @@
  * on read to match the domain shape expected by in-memory stores.
  */
 
-import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { DbClient } from "@avana/database/client";
 import {
   modules,
@@ -444,6 +444,20 @@ export class DrizzleProgressStore implements ProgressStore {
       .returning();
 
     return toProgressRecord(row);
+  }
+
+  async countCompletedByUser(userId: UserId): Promise<number> {
+    const result = await this.db
+      .select({ count: sql<number>`count(*)` })
+      .from(lessonProgress)
+      .where(
+        and(
+          eq(lessonProgress.userId, userId),
+          eq(lessonProgress.completed, true),
+        ),
+      );
+
+    return Number(result[0]?.count ?? 0);
   }
 }
 

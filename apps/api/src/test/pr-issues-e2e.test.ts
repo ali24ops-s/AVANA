@@ -531,17 +531,42 @@ describe("AVANA 3-Issue Fix E2E Verification", () => {
         expect(genRes1.statusCode).toBe(202);
         await runWorkerForLastJob(actor);
 
-        // 2. Second generation on the SAME document (clicking "تولید هوشمند محتوای آموزشی" again)
+        // 2. Second generation on the SAME document while content exists is rejected with 409 Conflict
         const genRes2 = await app.inject({
           method: "POST",
           url: `/v1/organizations/${organizationId}/courses/${courseId}/documents/${doc.id}/generate`,
           cookies: { avana_session: token },
           payload: { types: ["lesson", "flashcard", "quiz"] },
         });
-        expect(genRes2.statusCode).toBe(202);
+        expect(genRes2.statusCode).toBe(409);
+
+        // 3. Reject all drafts in review queue so content can be re-generated
+        const reviewRes = await app.inject({
+          method: "GET",
+          url: `/v1/organizations/${organizationId}/courses/${courseId}/generated/review-queue`,
+          cookies: { avana_session: token },
+        });
+        const pendingItems = (JSON.parse(reviewRes.body) as { pending: Array<{ id: string }> }).pending;
+        for (const item of pendingItems) {
+          await app.inject({
+            method: "POST",
+            url: `/v1/organizations/${organizationId}/courses/${courseId}/generated/${item.id}/reject`,
+            cookies: { avana_session: token },
+            payload: { reason: "Need regenerate" },
+          });
+        }
+
+        // 4. Once drafts are rejected/deleted, generation succeeds again with 202
+        const genRes3 = await app.inject({
+          method: "POST",
+          url: `/v1/organizations/${organizationId}/courses/${courseId}/documents/${doc.id}/generate`,
+          cookies: { avana_session: token },
+          payload: { types: ["lesson", "flashcard", "quiz"] },
+        });
+        expect(genRes3.statusCode).toBe(202);
         await expect(runWorkerForLastJob(actor)).resolves.not.toThrow();
 
-        // 3. Verify review queue contains active fresh drafts for this document
+        // 5. Verify review queue contains active fresh drafts for this document
         const queueRes = await app.inject({
           method: "GET",
           url: `/v1/organizations/${organizationId}/courses/${courseId}/generated/review-queue`,

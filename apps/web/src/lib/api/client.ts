@@ -23,7 +23,7 @@ export type ApiClientOptions = {
 };
 
 export type RequestOptions = {
-  method?: "GET" | "POST" | "PATCH" | "DELETE";
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   body?: unknown;
   headers?: Record<string, string>;
 };
@@ -63,9 +63,10 @@ export function createApiClient(options: ApiClientOptions) {
     }
 
     // Attach CSRF token for state-changing requests
-    if (options.csrfToken && ["POST", "PATCH", "DELETE"].includes(method)) {
+    if (options.csrfToken && ["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
       headers["x-csrf-token"] = options.csrfToken;
     }
+
 
     const response = await fetch(`${baseUrl}${path}`, {
       method,
@@ -159,6 +160,13 @@ export function createApiClient(options: ApiClientOptions) {
     ): Promise<T> {
       return request<T>(path, { ...opts, method: "POST", body });
     },
+    put<T>(
+      path: string,
+      body?: unknown,
+      opts?: Omit<RequestOptions, "method" | "body">,
+    ): Promise<T> {
+      return request<T>(path, { ...opts, method: "PUT", body });
+    },
     patch<T>(
       path: string,
       body?: unknown,
@@ -171,5 +179,6 @@ export function createApiClient(options: ApiClientOptions) {
     },
   };
 }
+
 
 export type ApiClient = ReturnType<typeof createApiClient>;

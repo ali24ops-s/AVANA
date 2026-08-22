@@ -185,8 +185,17 @@ describe("Smart Educational Content Generation Button & End-to-End Flow", () => 
     expect(generateBtn).toBeDefined();
     expect((generateBtn as HTMLButtonElement).disabled).toBe(false);
 
-    // Step 2: Click the button
+    // Step 2: Click the button to open selection modal
     fireEvent.click(generateBtn);
+
+    // Step 2b: Verify modal «انتخاب محتوای موردنظر» opened
+    expect(await screen.findByText("انتخاب محتوای موردنظر")).toBeDefined();
+
+    // Step 2c: Click «تولید محتوا» inside modal to confirm
+    const confirmBtn = await screen.findByRole("button", {
+      name: /تولید محتوا/i,
+    });
+    fireEvent.click(confirmBtn);
 
     // Step 3: Verify POST /generate was called with exact URL & payload
     await waitFor(() => {

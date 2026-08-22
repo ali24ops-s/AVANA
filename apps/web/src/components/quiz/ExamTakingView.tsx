@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
 import { createStudyApi } from "../../lib/api/study.js";
+import { useStudySessionTracker } from "../../hooks/useStudySessionTracker.js";
 
 export interface ExamTakingViewProps {
   organizationId: string;
@@ -39,6 +40,12 @@ export function ExamTakingView({
   const [answers, setAnswers] = useState<Record<string, unknown>>(initialAnswers || {});
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Track active educational study time for exam taking
+  useStudySessionTracker({
+    activityType: "exam",
+    enabled: questions.length > 0 && !isSubmitting,
+  });
 
   // Modals state
   const [showConfirmModal, setShowConfirmModal] = useState<boolean>(false);

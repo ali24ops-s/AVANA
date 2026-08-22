@@ -28,7 +28,15 @@ export async function up(db: any) {
         AND gc.deleted_at IS NULL
         AND l.deleted_at IS NULL
     ) sub
-    WHERE m.id = sub.module_id AND m.document_id IS NULL;
+    WHERE m.id = sub.module_id 
+      AND m.document_id IS NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM modules m2 
+        WHERE m2.course_id = m.course_id 
+          AND m2.document_id = sub.document_id 
+          AND m2.deleted_at IS NULL 
+          AND m2.id <> m.id
+      );
 
     -- Backfill document_id from quiz_questions & lessons if not set
     UPDATE modules m
@@ -42,7 +50,15 @@ export async function up(db: any) {
         AND q.deleted_at IS NULL
         AND l.deleted_at IS NULL
     ) sub
-    WHERE m.id = sub.module_id AND m.document_id IS NULL;
+    WHERE m.id = sub.module_id 
+      AND m.document_id IS NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM modules m2 
+        WHERE m2.course_id = m.course_id 
+          AND m2.document_id = sub.document_id 
+          AND m2.deleted_at IS NULL 
+          AND m2.id <> m.id
+      );
 
     -- Deduplicate historical duplicate modules before creating unique index
     DO $$

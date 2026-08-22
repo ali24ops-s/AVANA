@@ -14,6 +14,7 @@ import {
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
 import { createStudyApi } from "../../lib/api/study.js";
+import { useStudySessionTracker } from "../../hooks/useStudySessionTracker.js";
 import type {
   QuizQuestionResource,
   QuizAttemptResult,
@@ -43,6 +44,13 @@ export function QuizExperience({
   const quizQuery = useQuery({
     queryKey: ["quiz-detail", organizationId, courseId, quizId],
     queryFn: () => studyApi.getQuiz(organizationId, courseId, quizId),
+  });
+
+  // Track active educational study time for quiz taking
+  useStudySessionTracker({
+    activityType: "exam",
+    courseId,
+    enabled: Boolean(quizQuery.data?.quiz) && !attemptResult,
   });
 
   const submitMutation = useMutation({

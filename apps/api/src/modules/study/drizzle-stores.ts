@@ -5,7 +5,7 @@
  * on read to match the domain shape.
  */
 
-import { and, asc, count, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, count, eq, inArray, isNull, isNotNull, or, sql } from "drizzle-orm";
 import type { DbClient } from "@avana/database/client";
 import {
   flashcards,
@@ -14,6 +14,9 @@ import {
   quizzes,
   quizQuestions,
   quizAttempts,
+  studySessions,
+  flashcardStudySessions,
+  flashcardStudySessionCards,
 } from "@avana/database/schema";
 import type {
   FlashcardRecord,
@@ -28,6 +31,8 @@ import type {
   QuizStore,
   QuizQuestionStore,
   QuizAttemptStore,
+  StudySessionStore,
+  FlashcardStudySessionStore,
 } from "./study-store.js";
 import type {
   CourseId,
@@ -41,6 +46,10 @@ import type {
   UserId,
   QuizAttemptRecord,
   FlashcardRating,
+  StudySessionRecord,
+  FlashcardStudySessionRecord,
+  FlashcardStudySessionCardRecord,
+  FlashcardSessionStatus,
 } from "@avana/domain";
 
 // ---------------------------------------------------------------------------
@@ -230,6 +239,36 @@ function toQuizAttemptRecord(row: {
   };
 }
 
+function toStudySessionRecord(row: {
+  id: string;
+  userId: string;
+  activityType: string;
+  courseId: string | null;
+  moduleId: string | null;
+  lessonId: string | null;
+  startedAt: Date;
+  lastActivityAt: Date;
+  endedAt: Date | null;
+  durationSeconds: number;
+  createdAt: Date;
+  updatedAt: Date;
+}): StudySessionRecord {
+  return {
+    id: row.id,
+    userId: row.userId as UserId,
+    activityType: row.activityType as any,
+    courseId: (row.courseId as CourseId) ?? null,
+    moduleId: row.moduleId ?? null,
+    lessonId: row.lessonId ?? null,
+    startedAt: row.startedAt.toISOString(),
+    lastActivityAt: row.lastActivityAt.toISOString(),
+    endedAt: row.endedAt ? row.endedAt.toISOString() : null,
+    durationSeconds: row.durationSeconds,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // DrizzleFlashcardStore
 // ---------------------------------------------------------------------------
@@ -279,16 +318,20 @@ export class DrizzleFlashcardStore implements FlashcardStore {
 
   async listByOrganization(
     organizationId: OrganizationId,
+    systemOrganizationId?: OrganizationId,
   ): Promise<FlashcardRecord[]> {
+    const orgFilter =
+      systemOrganizationId && systemOrganizationId !== organizationId
+        ? or(
+            eq(flashcards.organizationId, organizationId),
+            eq(flashcards.organizationId, systemOrganizationId),
+          )
+        : eq(flashcards.organizationId, organizationId);
+
     const rows = await this.db
       .select()
       .from(flashcards)
-      .where(
-        and(
-          eq(flashcards.organizationId, organizationId),
-          isNull(flashcards.deletedAt),
-        ),
-      )
+      .where(and(orgFilter, isNull(flashcards.deletedAt)))
       .orderBy(asc(flashcards.createdAt));
 
     return rows.map(toFlashcardRecord);
@@ -575,16 +618,20 @@ export class DrizzleQuizStore implements QuizStore {
 
   async listByOrganization(
     organizationId: OrganizationId,
+    systemOrganizationId?: OrganizationId,
   ): Promise<QuizRecord[]> {
+    const orgFilter =
+      systemOrganizationId && systemOrganizationId !== organizationId
+        ? or(
+            eq(quizzes.organizationId, organizationId),
+            eq(quizzes.organizationId, systemOrganizationId),
+          )
+        : eq(quizzes.organizationId, organizationId);
+
     const rows = await this.db
       .select()
       .from(quizzes)
-      .where(
-        and(
-          eq(quizzes.organizationId, organizationId),
-          isNull(quizzes.deletedAt),
-        ),
-      )
+      .where(and(orgFilter, isNull(quizzes.deletedAt)))
       .orderBy(asc(quizzes.createdAt));
 
     return rows.map(toQuizRecord);
@@ -677,6 +724,7 @@ export class DrizzleQuizQuestionStore implements QuizQuestionStore {
 
   async listByFilter(filter: {
     organizationId?: OrganizationId;
+    systemOrganizationId?: OrganizationId;
     topics?: string[];
     difficulty?: string;
   }): Promise<QuizQuestionRecord[]> {
@@ -689,7 +737,19 @@ export class DrizzleQuizQuestionStore implements QuizQuestionStore {
     const conditions = [isNull(quizzes.deletedAt)];
 
     if (filter.organizationId) {
-      conditions.push(eq(quizzes.organizationId, filter.organizationId));
+      if (
+        filter.systemOrganizationId &&
+        filter.systemOrganizationId !== filter.organizationId
+      ) {
+        conditions.push(
+          or(
+            eq(quizzes.organizationId, filter.organizationId),
+            eq(quizzes.organizationId, filter.systemOrganizationId),
+          )!,
+        );
+      } else {
+        conditions.push(eq(quizzes.organizationId, filter.organizationId));
+      }
     }
 
     if (filter.difficulty && filter.difficulty !== "all") {
@@ -839,6 +899,23 @@ export class DrizzleQuizAttemptStore implements QuizAttemptStore {
     return rows.map(toQuizAttemptRecord);
   }
 
+  async countCompletedByUser(userId: UserId): Promise<number> {
+    const result = await this.db
+      .select({ count: sql<number>`count(*)` })
+      .from(quizAttempts)
+      .where(
+        and(
+          eq(quizAttempts.userId, userId),
+          or(
+            eq(quizAttempts.status, "completed"),
+            isNotNull(quizAttempts.completedAt),
+          )!,
+        ),
+      );
+
+    return Number(result[0]?.count ?? 0);
+  }
+
   async listByUserAndCourse(
     userId: UserId,
     courseId: CourseId,
@@ -894,3 +971,358 @@ export class DrizzleQuizAttemptStore implements QuizAttemptStore {
     return toQuizAttemptRecord(row);
   }
 }
+
+// ---------------------------------------------------------------------------
+// DrizzleStudySessionStore
+// ---------------------------------------------------------------------------
+
+export class DrizzleStudySessionStore implements StudySessionStore {
+  constructor(private readonly db: DbClient) {}
+
+  async create(
+    record: Omit<StudySessionRecord, "createdAt" | "updatedAt">,
+  ): Promise<StudySessionRecord> {
+    const [row] = await this.db
+      .insert(studySessions)
+      .values({
+        id: record.id,
+        userId: record.userId,
+        activityType: record.activityType,
+        courseId: record.courseId ?? null,
+        moduleId: record.moduleId ?? null,
+        lessonId: record.lessonId ?? null,
+        startedAt: new Date(record.startedAt),
+        lastActivityAt: new Date(record.lastActivityAt),
+        endedAt: record.endedAt ? new Date(record.endedAt) : null,
+        durationSeconds: record.durationSeconds,
+      })
+      .returning();
+
+    return toStudySessionRecord(row);
+  }
+
+  async findById(id: string): Promise<StudySessionRecord | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(studySessions)
+      .where(eq(studySessions.id, id))
+      .limit(1);
+
+    return row ? toStudySessionRecord(row) : undefined;
+  }
+
+  async findActiveByUser(userId: UserId): Promise<StudySessionRecord | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(studySessions)
+      .where(
+        and(
+          eq(studySessions.userId, userId),
+          isNull(studySessions.endedAt),
+        ),
+      )
+      .orderBy(sql`${studySessions.startedAt} DESC`)
+      .limit(1);
+
+    return row ? toStudySessionRecord(row) : undefined;
+  }
+
+  async update(record: StudySessionRecord): Promise<StudySessionRecord> {
+    const [row] = await this.db
+      .update(studySessions)
+      .set({
+        lastActivityAt: new Date(record.lastActivityAt),
+        endedAt: record.endedAt ? new Date(record.endedAt) : null,
+        durationSeconds: record.durationSeconds,
+        updatedAt: new Date(record.updatedAt),
+      })
+      .where(eq(studySessions.id, record.id))
+      .returning();
+
+    return toStudySessionRecord(row);
+  }
+
+  async closeActiveSessionsForUser(
+    userId: UserId,
+    endedAt: string,
+  ): Promise<void> {
+    const endedDate = new Date(endedAt);
+    await this.db
+      .update(studySessions)
+      .set({
+        endedAt: endedDate,
+        updatedAt: endedDate,
+      })
+      .where(
+        and(
+          eq(studySessions.userId, userId),
+          isNull(studySessions.endedAt),
+        ),
+      );
+  }
+
+  async listByUser(userId: UserId): Promise<StudySessionRecord[]> {
+    const rows = await this.db
+      .select()
+      .from(studySessions)
+      .where(eq(studySessions.userId, userId))
+      .orderBy(sql`${studySessions.startedAt} ASC`);
+
+    return rows.map(toStudySessionRecord);
+  }
+
+  async listByUserAndDateRange(
+    userId: UserId,
+    fromDate: string,
+    toDate: string,
+  ): Promise<StudySessionRecord[]> {
+    const from = new Date(fromDate);
+    const to = new Date(toDate);
+
+    const rows = await this.db
+      .select()
+      .from(studySessions)
+      .where(
+        and(
+          eq(studySessions.userId, userId),
+          sql`${studySessions.startedAt} >= ${from}`,
+          sql`${studySessions.startedAt} <= ${to}`,
+        ),
+      )
+      .orderBy(sql`${studySessions.startedAt} ASC`);
+
+    return rows.map(toStudySessionRecord);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Flashcard Study Session Helpers & Store
+// ---------------------------------------------------------------------------
+
+function toFlashcardStudySessionRecord(row: {
+  id: string;
+  userId: string;
+  organizationId: string;
+  courseId: string | null;
+  title: string;
+  mode: string;
+  customMode: string | null;
+  status: string;
+  totalCards: number;
+  completedCards: number;
+  currentIndex: number;
+  currentCardId: string | null;
+  startedAt: Date;
+  lastActivityAt: Date;
+  completedAt: Date | null;
+  metadata: unknown;
+  createdAt: Date;
+  updatedAt: Date;
+}): FlashcardStudySessionRecord {
+  return {
+    id: row.id,
+    userId: row.userId,
+    organizationId: row.organizationId,
+    courseId: row.courseId ?? null,
+    title: row.title,
+    mode: row.mode,
+    customMode: row.customMode ?? null,
+    status: row.status as FlashcardSessionStatus,
+    totalCards: row.totalCards,
+    completedCards: row.completedCards,
+    currentIndex: row.currentIndex,
+    currentCardId: row.currentCardId ?? null,
+    startedAt: row.startedAt.toISOString(),
+    lastActivityAt: row.lastActivityAt.toISOString(),
+    completedAt: row.completedAt ? row.completedAt.toISOString() : null,
+    metadata: (row.metadata as Record<string, unknown>) ?? null,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+function toFlashcardStudySessionCardRecord(row: {
+  id: string;
+  sessionId: string;
+  flashcardId: string | null;
+  sortOrder: number;
+  status: string;
+  rating: string | null;
+  reactionMs: number | null;
+  reviewedAt: Date | null;
+  createdAt: Date;
+}): FlashcardStudySessionCardRecord {
+  return {
+    id: row.id,
+    sessionId: row.sessionId,
+    flashcardId: row.flashcardId ?? null,
+    sortOrder: row.sortOrder,
+    status: row.status as "unseen" | "reviewed",
+    rating: row.rating ?? null,
+    reactionMs: row.reactionMs ?? null,
+    reviewedAt: row.reviewedAt ? (row.reviewedAt instanceof Date ? row.reviewedAt.toISOString() : new Date(row.reviewedAt as any).toISOString()) : null,
+    createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : new Date(row.createdAt).toISOString(),
+  };
+}
+
+export class DrizzleFlashcardStudySessionStore
+  implements FlashcardStudySessionStore
+{
+  constructor(private readonly db: DbClient) {}
+
+  async createSessionWithCards(
+    session: Omit<FlashcardStudySessionRecord, "createdAt" | "updatedAt">,
+    cards: Array<{ flashcardId: string; sortOrder: number }>,
+  ): Promise<FlashcardStudySessionRecord> {
+    const [sessionRow] = await this.db
+      .insert(flashcardStudySessions)
+      .values({
+        id: session.id,
+        userId: session.userId,
+        organizationId: session.organizationId,
+        courseId: session.courseId ?? null,
+        title: session.title,
+        mode: session.mode,
+        customMode: session.customMode ?? null,
+        status: session.status,
+        totalCards: session.totalCards,
+        completedCards: session.completedCards,
+        currentIndex: session.currentIndex,
+        currentCardId: session.currentCardId ?? null,
+        startedAt: new Date(session.startedAt),
+        lastActivityAt: new Date(session.lastActivityAt),
+        completedAt: session.completedAt ? new Date(session.completedAt) : null,
+        metadata: session.metadata ?? null,
+      })
+      .returning();
+
+    if (cards.length > 0) {
+      await this.db.insert(flashcardStudySessionCards).values(
+        cards.map((c) => ({
+          sessionId: session.id,
+          flashcardId: c.flashcardId,
+          sortOrder: c.sortOrder,
+          status: "unseen",
+        })),
+      );
+    }
+
+    return toFlashcardStudySessionRecord(sessionRow);
+  }
+
+  async findById(id: string): Promise<FlashcardStudySessionRecord | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(flashcardStudySessions)
+      .where(eq(flashcardStudySessions.id, id))
+      .limit(1);
+
+    return row ? toFlashcardStudySessionRecord(row) : undefined;
+  }
+
+  async listActiveByUser(
+    userId: UserId,
+    organizationId?: OrganizationId,
+  ): Promise<FlashcardStudySessionRecord[]> {
+    const conditions = [
+      eq(flashcardStudySessions.userId, userId),
+      eq(flashcardStudySessions.status, "in_progress"),
+    ];
+    if (organizationId) {
+      conditions.push(eq(flashcardStudySessions.organizationId, organizationId));
+    }
+
+    const rows = await this.db
+      .select()
+      .from(flashcardStudySessions)
+      .where(and(...conditions))
+      .orderBy(sql`${flashcardStudySessions.lastActivityAt} DESC`);
+
+    return rows.map(toFlashcardStudySessionRecord);
+  }
+
+  async listSessionCards(
+    sessionId: string,
+  ): Promise<FlashcardStudySessionCardRecord[]> {
+    const rows = await this.db
+      .select()
+      .from(flashcardStudySessionCards)
+      .where(eq(flashcardStudySessionCards.sessionId, sessionId))
+      .orderBy(asc(flashcardStudySessionCards.sortOrder));
+
+    return rows.map(toFlashcardStudySessionCardRecord);
+  }
+
+  async updateProgress(
+    sessionId: string,
+    data: {
+      currentIndex: number;
+      completedCards: number;
+      currentCardId?: string | null;
+      lastActivityAt: string;
+      cardUpdate?: {
+        flashcardId: string;
+        status: "reviewed";
+        rating?: string | null;
+        reactionMs?: number | null;
+        reviewedAt: string;
+      };
+    },
+  ): Promise<FlashcardStudySessionRecord | undefined> {
+    const now = new Date(data.lastActivityAt);
+
+    if (data.cardUpdate) {
+      await this.db
+        .update(flashcardStudySessionCards)
+        .set({
+          status: data.cardUpdate.status,
+          rating: data.cardUpdate.rating ?? null,
+          reactionMs: data.cardUpdate.reactionMs ?? null,
+          reviewedAt: new Date(data.cardUpdate.reviewedAt),
+        })
+        .where(
+          and(
+            eq(flashcardStudySessionCards.sessionId, sessionId),
+            eq(flashcardStudySessionCards.flashcardId, data.cardUpdate.flashcardId),
+          ),
+        );
+    }
+
+    const [sessionRow] = await this.db
+      .update(flashcardStudySessions)
+      .set({
+        currentIndex: data.currentIndex,
+        completedCards: data.completedCards,
+        currentCardId: data.currentCardId ?? null,
+        lastActivityAt: now,
+        updatedAt: now,
+      })
+      .where(eq(flashcardStudySessions.id, sessionId))
+      .returning();
+
+    return sessionRow ? toFlashcardStudySessionRecord(sessionRow) : undefined;
+  }
+
+  async updateStatus(
+    sessionId: string,
+    status: FlashcardSessionStatus,
+    completedAt?: string | null,
+    lastActivityAt?: string,
+  ): Promise<FlashcardStudySessionRecord | undefined> {
+    const now = lastActivityAt ? new Date(lastActivityAt) : new Date();
+    const [row] = await this.db
+      .update(flashcardStudySessions)
+      .set({
+        status,
+        completedAt: completedAt ? new Date(completedAt) : null,
+        lastActivityAt: now,
+        updatedAt: now,
+      })
+      .where(eq(flashcardStudySessions.id, sessionId))
+      .returning();
+
+    return row ? toFlashcardStudySessionRecord(row) : undefined;
+  }
+}
+
+

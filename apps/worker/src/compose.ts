@@ -53,10 +53,13 @@ export async function composeWorker(
   const gateway = createModelGateway({
     provider: config.generation.aiProvider,
     geminiApiKey: config.generation.geminiApiKey,
+    geminiApiKeys: config.generation.geminiApiKeys,
     geminiModel: config.generation.geminiModel,
     cloudflareAccountId: config.generation.cloudflareAccountId,
     cloudflareApiToken: config.generation.cloudflareApiToken,
     cloudflareAiModel: config.generation.cloudflareAiModel,
+    groqApiKey: config.generation.groqApiKey,
+    groqModel: config.generation.groqModel,
   });
 
   // Audit service.

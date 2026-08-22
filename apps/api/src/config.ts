@@ -74,12 +74,45 @@ export type ApiConfig = {
     aiProvider: string;
     queueName: string;
     geminiApiKey?: string;
+    geminiApiKeys: string[];
     geminiModel: string;
     cloudflareAccountId?: string;
     cloudflareApiToken?: string;
     cloudflareAiModel: string;
+    groqApiKey?: string;
+    groqModel: string;
   };
 };
+
+function parseGeminiApiKeys(env: NodeJS.ProcessEnv): string[] {
+  const keys: string[] = [];
+
+  if (env.GEMINI_API_KEYS && env.GEMINI_API_KEYS.trim().length > 0) {
+    const splitKeys = env.GEMINI_API_KEYS.split(",")
+      .map((k) => k.trim())
+      .filter((k) => k.length > 0);
+    keys.push(...splitKeys);
+  }
+
+  for (let i = 1; i <= 10; i++) {
+    const key = env[`GEMINI_API_KEY_${i}`];
+    if (key && key.trim().length > 0) {
+      const trimmed = key.trim();
+      if (!keys.includes(trimmed)) {
+        keys.push(trimmed);
+      }
+    }
+  }
+
+  if (env.GEMINI_API_KEY && env.GEMINI_API_KEY.trim().length > 0) {
+    const trimmed = env.GEMINI_API_KEY.trim();
+    if (!keys.includes(trimmed)) {
+      keys.push(trimmed);
+    }
+  }
+
+  return keys;
+}
 
 function getOptionalString(
   env: NodeJS.ProcessEnv,
@@ -232,9 +265,10 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
       "b4a0b464-16db-4087-92b7-163a1e6f6776",
     ),
     generation: {
-      aiProvider: getOptionalString(env, "AI_PROVIDER", "mock"),
+      aiProvider: getOptionalString(env, "AI_PROVIDER", "gemini"),
       queueName: getOptionalString(env, "AI_GENERATION_QUEUE", "content_generate"),
       geminiApiKey: env.GEMINI_API_KEY,
+      geminiApiKeys: parseGeminiApiKeys(env),
       geminiModel: getOptionalString(env, "GEMINI_MODEL", "gemini-3.6-flash"),
       cloudflareAccountId: env.CLOUDFLARE_ACCOUNT_ID,
       cloudflareApiToken: env.CLOUDFLARE_API_TOKEN,
@@ -242,6 +276,12 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
         env,
         "CLOUDFLARE_AI_MODEL",
         "@cf/zai-org/glm-4.7-flash",
+      ),
+      groqApiKey: env.GROQ_API_KEY,
+      groqModel: getOptionalString(
+        env,
+        "GROQ_MODEL",
+        "openai/gpt-oss-120b",
       ),
     },
   };

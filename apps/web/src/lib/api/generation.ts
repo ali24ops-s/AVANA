@@ -11,6 +11,28 @@ import type {
 } from "@avana/contracts";
 import type { ApiClient } from "./client.js";
 
+export type DocumentContentStatus = {
+  generated: boolean;
+  count: number;
+};
+
+export type DocumentContentStatusResponse = {
+  request_id: string;
+  document_id: string;
+  course_id: string | null;
+  lesson: DocumentContentStatus;
+  flashcards: DocumentContentStatus;
+  exam: DocumentContentStatus;
+  can_generate: boolean;
+  all_generated: boolean;
+};
+
+export type GenerateContentOptions = GenerateContentRequest & {
+  lesson?: boolean;
+  flashcards?: boolean;
+  exam?: boolean;
+};
+
 export type GenerationJobResource = {
   id: string;
   organization_id: string;
@@ -41,6 +63,21 @@ export type TriggerGenerationResponse = {
 export function createGenerationApi(client: ApiClient) {
   return {
     /**
+     * GET /v1/organizations/:organizationId/documents/:documentId/content-status
+     * Returns true DB status for lesson, flashcards, and exam.
+     */
+    getDocumentContentStatus(
+      organizationId: string,
+      documentId: string,
+      courseId?: string | null,
+    ): Promise<DocumentContentStatusResponse> {
+      const url = courseId
+        ? `/v1/organizations/${organizationId}/courses/${courseId}/documents/${documentId}/content-status`
+        : `/v1/organizations/${organizationId}/documents/${documentId}/content-status`;
+      return client.get<DocumentContentStatusResponse>(url);
+    },
+
+    /**
      * POST /v1/organizations/:organizationId/courses/:courseId/documents/:documentId/generate
      * Starts async content generation job (returns 202 with job_id).
      */
@@ -48,7 +85,7 @@ export function createGenerationApi(client: ApiClient) {
       organizationId: string,
       courseId: string,
       documentId: string,
-      data?: GenerateContentRequest,
+      data?: GenerateContentOptions,
     ): Promise<TriggerGenerationResponse> {
       return client.post<TriggerGenerationResponse>(
         `/v1/organizations/${organizationId}/courses/${courseId}/documents/${documentId}/generate`,

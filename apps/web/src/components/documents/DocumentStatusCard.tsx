@@ -13,6 +13,7 @@ import {
 import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
 import { createDocumentsApi } from "../../lib/api/documents.js";
 import { createGenerationApi } from "../../lib/api/generation.js";
+import { GenerateContentModal } from "./GenerateContentModal.js";
 import type { DocumentResource, DocumentStatus } from "@avana/contracts";
 
 export interface DocumentStatusCardProps {
@@ -34,6 +35,34 @@ const TRANSIENT_STATUSES: ReadonlySet<DocumentStatus> = new Set<DocumentStatus>(
   "generating",
 ]);
 
+function formatGenerationErrorMessage(errorMessage?: string | null): string {
+  if (!errorMessage) {
+    return "خطای ناشناخته در پردازش جاب. لطفاً دوباره تلاش کنید.";
+  }
+  const lower = errorMessage.toLowerCase();
+  if (
+    lower.includes("quota_exhausted") ||
+    lower.includes("rate_limit_exceeded") ||
+    lower.includes("unavailable (key-") ||
+    lower.includes("resource_exhausted") ||
+    lower.includes("generaterequestsperday") ||
+    lower.includes("free_tier_requests") ||
+    lower.includes("سهمیه")
+  ) {
+    return "تولید محتوا انجام نشد. سهمیه سرویس هوش مصنوعی در حال حاضر به پایان رسیده است. لطفاً کمی بعد دوباره تلاش کنید.";
+  }
+  if (
+    lower.includes("fetch failed") ||
+    lower.includes("network error") ||
+    lower.includes("econnrefused") ||
+    lower.includes("timed out") ||
+    lower.includes("timeout")
+  ) {
+    return "خطا در برقراری ارتباط با سرویس هوش مصنوعی. لطفاً اتصال اینترنت را بررسی و مجدداً تلاش کنید.";
+  }
+  return `خطا در تولید هوشمند: ${errorMessage}`;
+}
+
 export function DocumentStatusCard({
   document,
   organizationId,
@@ -41,6 +70,7 @@ export function DocumentStatusCard({
   onNavigateToReview,
 }: DocumentStatusCardProps) {
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [extractError, setExtractError] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -69,14 +99,24 @@ export function DocumentStatusCard({
       ? document.course_id
       : null);
 
+  // Query database-backed content generation status (lesson, flashcards, exam)
+  const contentStatusQuery = useQuery({
+    queryKey: ["document-content-status", organizationId, document.id, resolvedCourseId],
+    queryFn: () => genApi.getDocumentContentStatus(organizationId, document.id, resolvedCourseId),
+    enabled: Boolean(organizationId && document.id),
+  });
+
+  const contentStatus = contentStatusQuery.data;
+  const isAllGenerated = Boolean(contentStatus?.all_generated);
+
   // Poll generation job status if active
   const jobQuery = useQuery({
     queryKey: ["generation-job", organizationId, resolvedCourseId, document.id, activeJobId],
     queryFn: () => genApi.getGenerationJob(organizationId, resolvedCourseId!, document.id, activeJobId!),
     enabled: Boolean(activeJobId && resolvedCourseId),
     refetchInterval: (query) => {
-      const jobStatus = query.state.data?.job.status;
-      if (jobStatus === "succeeded" || jobStatus === "failed") {
+      const jobStatus = query.state.data?.job?.status;
+      if (jobStatus === "succeeded" || jobStatus === "failed" || query.state.error) {
         return false;
       }
       return 2000;
@@ -85,7 +125,7 @@ export function DocumentStatusCard({
 
   // Automatically refresh queries when generation finishes
   useEffect(() => {
-    if (jobQuery.data?.job.status === "succeeded") {
+    if (jobQuery.data?.job?.status === "succeeded") {
       if (resolvedCourseId) {
         void queryClient.invalidateQueries({
           queryKey: ["review-queue", organizationId, resolvedCourseId],
@@ -97,8 +137,11 @@ export function DocumentStatusCard({
       void queryClient.invalidateQueries({
         queryKey: ["document-status", organizationId, document.id],
       });
+      void queryClient.invalidateQueries({
+        queryKey: ["document-content-status", organizationId, document.id],
+      });
     }
-  }, [jobQuery.data?.job.status, organizationId, resolvedCourseId, document.id, queryClient]);
+  }, [jobQuery.data?.job?.status, organizationId, resolvedCourseId, document.id, queryClient]);
 
   // Trigger text extraction mutation (if retry needed)
   const extractMutation = useMutation({
@@ -107,6 +150,9 @@ export function DocumentStatusCard({
       setExtractError(null);
       void queryClient.invalidateQueries({
         queryKey: ["document-status", organizationId, document.id],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["document-content-status", organizationId, document.id],
       });
     },
     onError: (err: Error) => {
@@ -132,15 +178,18 @@ export function DocumentStatusCard({
       void queryClient.invalidateQueries({
         queryKey: ["document-status", organizationId, document.id],
       });
+      void queryClient.invalidateQueries({
+        queryKey: ["document-content-status", organizationId, document.id],
+      });
     },
     onError: (err: Error) => {
       setDeleteError(err.message || "خطا در حذف سند");
     },
   });
 
-  // Trigger generation mutation
+  // Trigger generation mutation with selected content types
   const generateMutation = useMutation({
-    mutationFn: () => {
+    mutationFn: (options?: { types?: ("lesson" | "flashcard" | "quiz")[] }) => {
       if (!resolvedCourseId) {
         throw new Error("لطفاً ابتدا یک دوره آموزشی انتخاب کنید.");
       }
@@ -149,23 +198,40 @@ export function DocumentStatusCard({
         resolvedCourseId,
         document.id,
         {
-          types: ["lesson", "flashcard", "quiz"],
+          types: options?.types ?? ["lesson", "flashcard", "quiz"],
         },
       );
     },
     onSuccess: (res) => {
       setGenerateError(null);
       setActiveJobId(res.job_id);
+      setIsModalOpen(false);
       if (resolvedCourseId) {
         void queryClient.invalidateQueries({
           queryKey: ["review-queue", organizationId, resolvedCourseId],
         });
       }
+      void queryClient.invalidateQueries({
+        queryKey: ["document-content-status", organizationId, document.id],
+      });
     },
     onError: (err: Error) => {
       setGenerateError(err.message || "خطا در شروع تولید هوشمند محتوا");
     },
   });
+
+  const handleConfirmGenerate = (selected: {
+    lesson: boolean;
+    flashcards: boolean;
+    exam: boolean;
+  }) => {
+    const types: Array<"lesson" | "flashcard" | "quiz"> = [];
+    if (selected.lesson) types.push("lesson");
+    if (selected.flashcards) types.push("flashcard");
+    if (selected.exam) types.push("quiz");
+
+    generateMutation.mutate({ types });
+  };
 
   const isWaiting =
     currentStatus === "uploaded" ||
@@ -184,7 +250,12 @@ export function DocumentStatusCard({
   const isFailed = currentStatus === "failed";
   const isGenerating =
     generateMutation.isPending ||
-    Boolean(activeJobId && jobQuery.data?.job.status !== "succeeded" && jobQuery.data?.job.status !== "failed");
+    Boolean(
+      activeJobId &&
+        jobQuery.data?.job?.status !== "succeeded" &&
+        jobQuery.data?.job?.status !== "failed" &&
+        !jobQuery.isError,
+    );
 
   const getStatusLabel = (status: string) => {
     switch (status) {
@@ -341,11 +412,11 @@ export function DocumentStatusCard({
           <span>{generateError}</span>
         </div>
       )}
-      {jobQuery.data?.job.status === "failed" && (
+      {jobQuery.data?.job?.status === "failed" && (
         <div className="flex items-center gap-2 p-3 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-xl text-red-700 dark:text-red-400 text-xs">
           <AlertCircle className="w-4 h-4 flex-shrink-0" />
           <span>
-            خطا در تولید هوشمند: {jobQuery.data.job.error_message || "خطای ناشناخته در پردازش جاب"}
+            {formatGenerationErrorMessage(jobQuery.data.job?.error_message)}
           </span>
         </div>
       )}
@@ -367,18 +438,37 @@ export function DocumentStatusCard({
             <span>{extractMutation.isPending ? "در حال تلاش مجدد..." : "تلاش مجدد استخراج"}</span>
           </button>
         ) : isExtracted ? (
-          <div className="flex items-center gap-3 w-full justify-between">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full justify-between">
             <button
               type="button"
-              onClick={() => generateMutation.mutate()}
-              disabled={Boolean(isGenerating) || !resolvedCourseId}
-              title={!resolvedCourseId ? "لطفاً ابتدا یک دوره آموزشی انتخاب کنید" : undefined}
-              className="px-5 py-2.5 bg-[#008080] hover:bg-[#006666] disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-2 transition-all shadow-sm"
+              onClick={() => {
+                if (!isAllGenerated) {
+                  setIsModalOpen(true);
+                }
+              }}
+              disabled={Boolean(isGenerating) || !resolvedCourseId || isAllGenerated}
+              title={
+                isAllGenerated
+                  ? "درس، فلش‌کارت و آزمون این فایل قبلاً تولید شده‌اند."
+                  : !resolvedCourseId
+                  ? "لطفاً ابتدا یک دوره آموزشی انتخاب کنید"
+                  : undefined
+              }
+              className={`px-5 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-sm ${
+                isAllGenerated
+                  ? "bg-slate-800 text-teal-400/80 border border-teal-500/30 cursor-not-allowed opacity-90"
+                  : "bg-[#008080] hover:bg-[#006666] disabled:opacity-50 text-white"
+              }`}
             >
               {isGenerating ? (
                 <>
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
                   <span>در حال تولید هوشمند محتوا...</span>
+                </>
+              ) : isAllGenerated ? (
+                <>
+                  <CheckCircle2 className="w-3.5 h-3.5 text-teal-400" />
+                  <span>تمام محتوای این فایل تولید شده است</span>
                 </>
               ) : (
                 <>
@@ -392,7 +482,7 @@ export function DocumentStatusCard({
               <button
                 type="button"
                 onClick={onNavigateToReview}
-                className="px-3.5 py-2 text-[#008080] hover:bg-[#008080]/10 rounded-xl text-xs font-bold flex items-center gap-1 transition-colors"
+                className="px-3.5 py-2 text-[#008080] hover:bg-[#008080]/10 rounded-xl text-xs font-bold flex items-center justify-center gap-1 transition-colors"
               >
                 <span>صف بازبینی محتوا</span>
                 <ChevronLeft className="w-3.5 h-3.5" />
@@ -417,7 +507,7 @@ export function DocumentStatusCard({
       </div>
 
       {/* Generation success alert */}
-      {jobQuery.data?.job.status === "succeeded" && (
+      {jobQuery.data?.job?.status === "succeeded" && (
         <div className="flex items-center justify-between p-3.5 bg-[#008080]/10 border border-[#008080]/30 rounded-2xl text-[#008080] text-xs font-bold">
           <div className="flex items-center gap-2">
             <Sparkles className="w-4 h-4" />
@@ -434,6 +524,17 @@ export function DocumentStatusCard({
           )}
         </div>
       )}
+
+      {/* Selective Content Generation Modal */}
+      <GenerateContentModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        documentName={document.original_name}
+        contentStatus={contentStatus}
+        isLoadingStatus={contentStatusQuery.isLoading}
+        isGenerating={generateMutation.isPending || Boolean(isGenerating)}
+        onConfirmGenerate={handleConfirmGenerate}
+      />
     </div>
   );
 }

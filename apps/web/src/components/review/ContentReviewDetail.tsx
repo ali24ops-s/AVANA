@@ -63,10 +63,13 @@ export function ContentReviewDetail({
         queryKey: ["course-learning", courseId],
       });
       void queryClient.invalidateQueries({
-        queryKey: ["flashcards", organizationId, courseId],
+        queryKey: ["flashcards", organizationId],
       });
       void queryClient.invalidateQueries({
-        queryKey: ["flashcards-queue", organizationId, courseId],
+        queryKey: ["flashcards-queue", organizationId],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["flashcard-summary", organizationId],
       });
       void queryClient.invalidateQueries({
         queryKey: ["quizzes", organizationId, courseId],

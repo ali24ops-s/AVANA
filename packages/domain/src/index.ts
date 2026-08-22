@@ -9,6 +9,7 @@ export * from "./roles.js";
 export * from "./generation.js";
 export * from "./generation-budget.js";
 export * from "./study.js";
+export * from "./study-session.js";
 
 export * from "./auth/index.js";
 

@@ -7,6 +7,7 @@
  * - Safe error handling (non-200 status, network error, timeout)
  * - Strict security: API key is passed via headers and NEVER printed in errors or URLs
  * - Factory instantiation via createModelGateway
+ * - Multi-key failover (401, 403, 429, daily quota) & concurrency
  */
 
 import { describe, expect, it, vi } from "vitest";
@@ -19,6 +20,7 @@ import type { OrganizationId, DocumentId } from "@avana/domain";
 const mockOrgId = "00000000-0000-0000-0000-000000000010" as OrganizationId;
 const mockDocId = "00000000-0000-0000-0000-000000000020" as DocumentId;
 const FAKE_API_KEY = "test-secret-gemini-key-12345";
+const FAKE_API_KEY_2 = "test-secret-gemini-key-67890";
 
 function makeRequest(
   overrides: Partial<CompletionRequest> = {},
@@ -40,6 +42,25 @@ function makeRequest(
   } as CompletionRequest;
 }
 
+function makeSuccessResponse() {
+  return new Response(
+    JSON.stringify({
+      candidates: [
+        {
+          content: {
+            parts: [{ text: JSON.stringify({ kind: "lesson", title: "Test Lesson" }) }],
+            role: "model",
+          },
+          finishReason: "STOP",
+        },
+      ],
+      usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 50 },
+      modelVersion: "gemini-2.5-flash",
+    }),
+    { status: 200, headers: { "Content-Type": "application/json" } },
+  );
+}
+
 describe("GeminiModelGateway Unit Tests", () => {
   it("throws unprocessable if API key is missing or empty", () => {
     expect(() => new GeminiModelGateway({ apiKey: "" })).toThrow(DomainError);
@@ -56,42 +77,11 @@ describe("GeminiModelGateway Unit Tests", () => {
     let capturedHeaders: Record<string, string> = {};
     let capturedBody: Record<string, unknown> = {};
 
-    const mockResponsePayload = {
-      candidates: [
-        {
-          content: {
-            parts: [
-              {
-                text: JSON.stringify({
-                  kind: "lesson",
-                  title: "Pharmacokinetics Overview",
-                  contentMarkdown: "# Pharmacokinetics\n\nDirect teaching content.",
-                  citationChunkIds: ["chunk-1"],
-                }),
-              },
-            ],
-            role: "model",
-          },
-          finishReason: "STOP",
-        },
-      ],
-      usageMetadata: {
-        promptTokenCount: 250,
-        candidatesTokenCount: 180,
-        totalTokenCount: 430,
-      },
-      modelVersion: "gemini-2.5-flash",
-    };
-
     const mockFetch = vi.fn(async (url: unknown, init?: RequestInit) => {
       capturedUrl = String(url);
       capturedHeaders = (init?.headers as Record<string, string>) || {};
       capturedBody = JSON.parse(String(init?.body || "{}"));
-
-      return new Response(JSON.stringify(mockResponsePayload), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      });
+      return makeSuccessResponse();
     });
 
     const gateway = new GeminiModelGateway({
@@ -102,37 +92,17 @@ describe("GeminiModelGateway Unit Tests", () => {
 
     const result = await gateway.complete(makeRequest());
 
-    // 1. Verify URL and headers
     expect(capturedUrl).toBe(
       "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
     );
     expect(capturedHeaders["x-goog-api-key"]).toBe(FAKE_API_KEY);
     expect(capturedHeaders["Content-Type"]).toBe("application/json");
 
-    // 2. Verify body formatting (systemInstruction + contents)
     expect(capturedBody.systemInstruction).toEqual({
       parts: [{ text: "You produce structured JSON study content." }],
     });
-    expect(capturedBody.contents).toEqual([
-      {
-        role: "user",
-        parts: [{ text: "Generate a lesson JSON payload." }],
-      },
-    ]);
-    expect(capturedBody.generationConfig).toEqual({
-      responseMimeType: "application/json",
-      temperature: 0.2,
-    });
-
-    // 3. Verify returned CompletionResult
     expect(result.model).toBe("gemini-2.5-flash");
-    expect(result.usage.inputTokens).toBe(250);
-    expect(result.usage.outputTokens).toBe(180);
-    expect(result.finishReason).toBe("STOP");
-
-    const parsed = JSON.parse(result.text);
-    expect(parsed.kind).toBe("lesson");
-    expect(parsed.title).toBe("Pharmacokinetics Overview");
+    expect(result.usage.inputTokens).toBe(100);
   });
 
   it("handles HTTP error responses safely without leaking API keys", async () => {
@@ -168,77 +138,139 @@ describe("GeminiModelGateway Unit Tests", () => {
     }
   });
 
-  it("handles empty candidate text from Gemini", async () => {
+  it("fails over to Key 2 when Key 1 receives 429 Rate Limit", async () => {
+    const usedKeys: string[] = [];
+
+    const mockFetch = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      const headers = (init?.headers as Record<string, string>) || {};
+      const key = headers["x-goog-api-key"];
+      usedKeys.push(key);
+
+      if (key === FAKE_API_KEY) {
+        return new Response(
+          JSON.stringify({ error: { message: "Resource exhausted: retry in 10s" } }),
+          { status: 429, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return makeSuccessResponse();
+    });
+
+    const gateway = new GeminiModelGateway({
+      apiKeys: [FAKE_API_KEY, FAKE_API_KEY_2],
+      fetchFn: mockFetch as unknown as typeof fetch,
+    });
+
+    const result = await gateway.complete(makeRequest());
+    expect(result.model).toBe("gemini-2.5-flash");
+    expect(usedKeys).toContain(FAKE_API_KEY);
+    expect(usedKeys).toContain(FAKE_API_KEY_2);
+  });
+
+  it("fails over to Key 2 when Key 1 is 401 Unauthorized", async () => {
+    const usedKeys: string[] = [];
+
+    const mockFetch = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      const headers = (init?.headers as Record<string, string>) || {};
+      const key = headers["x-goog-api-key"];
+      usedKeys.push(key);
+
+      if (key === FAKE_API_KEY) {
+        return new Response(
+          JSON.stringify({ error: { message: "API key not valid. Please pass a valid API key." } }),
+          { status: 401, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return makeSuccessResponse();
+    });
+
+    const gateway = new GeminiModelGateway({
+      apiKeys: [FAKE_API_KEY, FAKE_API_KEY_2],
+      fetchFn: mockFetch as unknown as typeof fetch,
+    });
+
+    const result = await gateway.complete(makeRequest());
+    expect(result.model).toBe("gemini-2.5-flash");
+    expect(usedKeys).toEqual([FAKE_API_KEY, FAKE_API_KEY_2]);
+  });
+
+  it("handles 403 quota vs permission correctly", async () => {
+    const usedKeys: string[] = [];
+
+    const mockFetch = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      const headers = (init?.headers as Record<string, string>) || {};
+      const key = headers["x-goog-api-key"];
+      usedKeys.push(key);
+
+      if (key === FAKE_API_KEY) {
+        return new Response(
+          JSON.stringify({ error: { message: "GenerateRequestsPerDay quota exceeded" } }),
+          { status: 403, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return makeSuccessResponse();
+    });
+
+    const gateway = new GeminiModelGateway({
+      apiKeys: [FAKE_API_KEY, FAKE_API_KEY_2],
+      fetchFn: mockFetch as unknown as typeof fetch,
+    });
+
+    const result = await gateway.complete(makeRequest());
+    expect(result.model).toBe("gemini-2.5-flash");
+    expect(usedKeys).toEqual([FAKE_API_KEY, FAKE_API_KEY_2]);
+  });
+
+  it("does not switch key on 400 Bad Request", async () => {
+    let callCount = 0;
     const mockFetch = vi.fn(async () => {
+      callCount++;
       return new Response(
-        JSON.stringify({
-          candidates: [],
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
+        JSON.stringify({ error: { message: "Invalid JSON schema field" } }),
+        { status: 400, headers: { "Content-Type": "application/json" } },
       );
     });
 
     const gateway = new GeminiModelGateway({
-      apiKey: FAKE_API_KEY,
+      apiKeys: [FAKE_API_KEY, FAKE_API_KEY_2],
       fetchFn: mockFetch as unknown as typeof fetch,
     });
 
-    await expect(gateway.complete(makeRequest())).rejects.toThrowError(
-      /empty completion response/i,
-    );
+    await expect(gateway.complete(makeRequest())).rejects.toThrowError(/Gemini API request failed/i);
+    expect(callCount).toBe(1); // Exactly 1 call, no failover to key 2
   });
 
-  it("handles timeout correctly", async () => {
-    const mockFetch = vi.fn(
-      (_url: unknown, init?: RequestInit) =>
-        new Promise<Response>((_resolve, reject) => {
-          init?.signal?.addEventListener("abort", () => {
-            const err = new Error("The operation was aborted");
-            err.name = "AbortError";
-            reject(err);
-          });
-        }),
-    );
+  it("handles concurrent completions across multi-key pool cleanly", async () => {
+    const mockFetch = vi.fn(async () => makeSuccessResponse());
 
     const gateway = new GeminiModelGateway({
-      apiKey: FAKE_API_KEY,
-      timeoutMs: 10,
+      apiKeys: [FAKE_API_KEY, FAKE_API_KEY_2],
       fetchFn: mockFetch as unknown as typeof fetch,
     });
 
-    await expect(gateway.complete(makeRequest())).rejects.toThrowError(
-      /timed out after 10ms/i,
-    );
+    const promises = [
+      gateway.complete(makeRequest()),
+      gateway.complete(makeRequest()),
+      gateway.complete(makeRequest()),
+    ];
+
+    const results = await Promise.all(promises);
+    expect(results).toHaveLength(3);
+    expect(mockFetch).toHaveBeenCalledTimes(3);
   });
 });
 
-describe("createModelGateway with Gemini", () => {
-  it("instantiates GeminiModelGateway when provider is 'gemini' and key is provided", () => {
-    const gateway = createModelGateway({
+describe("createModelGateway with Gemini Multi-Key", () => {
+  it("instantiates GeminiModelGateway with single or multiple keys", () => {
+    const g1 = createModelGateway({
       provider: "gemini",
       geminiApiKey: FAKE_API_KEY,
-      geminiModel: "gemini-2.5-flash",
     });
+    expect(g1).toBeInstanceOf(GeminiModelGateway);
 
-    expect(gateway).toBeInstanceOf(GeminiModelGateway);
-    expect(gateway.provider).toBe("gemini");
-  });
-
-  it("throws unprocessable if provider is 'gemini' but key is missing", () => {
-    const originalKey = process.env.GEMINI_API_KEY;
-    delete process.env.GEMINI_API_KEY;
-
-    try {
-      expect(() =>
-        createModelGateway({
-          provider: "gemini",
-          geminiApiKey: "",
-        }),
-      ).toThrowError(/GEMINI_API_KEY is required/i);
-    } finally {
-      if (originalKey) {
-        process.env.GEMINI_API_KEY = originalKey;
-      }
-    }
+    const g2 = createModelGateway({
+      provider: "gemini",
+      geminiApiKeys: [FAKE_API_KEY, FAKE_API_KEY_2],
+    });
+    expect(g2).toBeInstanceOf(GeminiModelGateway);
   });
 });

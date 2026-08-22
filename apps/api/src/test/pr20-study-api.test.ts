@@ -368,14 +368,14 @@ describe("PR6-7: Study Consumption & Analytics API", () => {
       expect(res1.statusCode).toBe(200);
       expect(JSON.parse(res1.body).due_cards.length).toBe(1);
 
-      // user2 (in same org, but hasn't reviewed the card) sees 0 due cards
+      // user2 (in same org, has not reviewed card yet) sees 1 card due for initial review
       const res2 = await app.inject({
         method: "GET",
         url: `/v1/organizations/${orgId}/courses/${courseId}/flashcards/review-queue`,
         cookies: { avana_session: user2Token },
       });
       expect(res2.statusCode).toBe(200);
-      expect(JSON.parse(res2.body).due_cards.length).toBe(0);
+      expect(JSON.parse(res2.body).due_cards.length).toBe(1);
     });
 
     it("POST .../flashcards/:flashcardId/review advances schedule and emits audit log", async () => {

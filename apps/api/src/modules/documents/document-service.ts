@@ -28,7 +28,10 @@ import type {
   DocumentStatus,
   DocumentStore,
   DocumentChunkStore,
+  ModuleStore,
+  LessonStore,
 } from "../learning/learning-store.js";
+import type { CourseStore } from "../courses/course-store.js";
 import type {
   OrganizationStore,
   MembershipRecord,
@@ -38,6 +41,12 @@ import type { GenerationJobStore } from "../generation/generation-jobs-store.js"
 import type { FlashcardStore, QuizStore } from "../study/study-store.js";
 import type { StorageProvider } from "../storage/storage-provider.js";
 import type { AuditService } from "../../observability/audit-service.js";
+import type { DocumentProcessingService } from "./document-processing-service.js";
+import type {
+  DocumentDetailResource,
+  BulkOperationResponse,
+  BulkOperationItemResult,
+} from "@avana/contracts";
 
 // ---------------------------------------------------------------------------
 // Validation constants
@@ -116,6 +125,33 @@ export type DocumentResource = {
   updated_at: string;
 };
 
+export type DocumentListFilter = {
+  search?: string;
+  status?: DocumentStatus;
+  type?: string; // mime type prefix, e.g. "application/pdf"
+  courseId?: string;
+  used?: "used" | "unused";
+  sort?: "newest" | "oldest" | "largest" | "smallest" | "name" | "updated";
+  page?: number;
+  limit?: number;
+};
+
+export type DocumentListPage = {
+  items: DocumentResource[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+};
+
+export type DocumentStats = {
+  total_count: number;
+  total_size_bytes: number;
+  status_counts: Record<string, number>;
+  used_count: number;
+  unused_count: number;
+};
+
 export type UploadIntentResponse = {
   document_id: DocumentId;
   storage_key: string;
@@ -161,7 +197,12 @@ function sha256Hex(data: Buffer): string {
   return createHash("sha256").update(data).digest("hex");
 }
 
-function toDocumentResource(doc: DocumentRecord): DocumentResource {
+function mapDocumentStatus(status: DocumentRecord["status"]): import("@avana/contracts").DocumentStatus {
+  if (status === "processing") return "extracting";
+  return status as import("@avana/contracts").DocumentStatus;
+}
+
+function toDocumentResource(doc: DocumentRecord): import("@avana/contracts").DocumentResource {
   return {
     id: doc.id,
     organization_id: doc.organizationId,
@@ -171,7 +212,7 @@ function toDocumentResource(doc: DocumentRecord): DocumentResource {
     mime_type: doc.mimeType,
     size_bytes: doc.sizeBytes,
     sha256: doc.sha256,
-    status: doc.status,
+    status: mapDocumentStatus(doc.status),
     error_code: doc.errorCode,
     retry_count: doc.retryCount,
     created_at: doc.createdAt,
@@ -191,6 +232,9 @@ export class DocumentService {
     private readonly generationJobStore?: GenerationJobStore,
     private readonly flashcardStore?: FlashcardStore,
     private readonly quizStore?: QuizStore,
+    private readonly courseStore?: CourseStore,
+    private readonly moduleStore?: ModuleStore,
+    private readonly lessonStore?: LessonStore,
   ) {}
 
   /**
@@ -222,6 +266,20 @@ export class DocumentService {
     const scopedActor = { ...actor, role: membership.role };
     const context: AuthContext = { organizationId };
     this.policy.require(action, scopedActor, context);
+  }
+
+  /**
+   * Resolve the actor's role in an organization (returns null if not a member).
+   */
+  private async getMembershipRole(
+    actor: Actor,
+    organizationId: OrganizationId,
+  ): Promise<string | null> {
+    const membership = await this.organizationStore.findMembership(
+      organizationId,
+      actor.userId,
+    );
+    return membership?.role ?? null;
   }
 
   /**
@@ -352,27 +410,174 @@ export class DocumentService {
   }
 
   /**
-   * List documents in an organization.
+   * List documents in an organization with optional filters and pagination.
    *
-   * Authorization: requires document:read. If userId is provided, results are
-   * scoped to that user's uploads ("my uploads").
+   * Authorization: requires document:read.
+   * - organization_admin / course_editor: see all org documents
+   * - student: sees only their own uploads
+   */
+  /**
+   * List documents in an organization with optional filters and pagination.
+   *
+   * Authorization: requires document:read.
+   * - organization_admin / course_editor: see all org documents
+   * - student: sees only their own uploads
    */
   async listDocuments(
     actor: Actor,
     organizationId: OrganizationId,
-    ownerUserId?: UserId,
-  ): Promise<DocumentResource[]> {
+    filters: DocumentListFilter | string = {},
+  ): Promise<DocumentListPage> {
     await this.authorize(actor, organizationId, "document:read");
 
-    const docs = ownerUserId
-      ? await this.store.listByOwner(organizationId, ownerUserId)
-      : await this.store.listByOrganization(organizationId);
+    const parsedFilters: DocumentListFilter =
+      typeof filters === "string" ? {} : (filters || {});
 
-    return docs.map(toDocumentResource);
+    const role = await this.getMembershipRole(actor, organizationId);
+    const isPrivileged =
+      role === "organization_admin" ||
+      role === "course_editor" ||
+      role === "teacher" ||
+      role === "platform_admin" ||
+      role === "support_agent";
+
+    // Fetch the full list — filtering will be applied in-memory for now.
+    const allDocs = isPrivileged
+      ? await this.store.listByOrganization(organizationId)
+      : await this.store.listByOwner(organizationId, actor.userId);
+
+    let docs = allDocs;
+
+    // If a string was passed (legacy ownerUserId filter)
+    if (typeof filters === "string") {
+      docs = docs.filter((d) => d.ownerUserId === filters);
+    }
+
+    // --- server-side filtering ---
+    if (typeof parsedFilters.search === "string") {
+      const q = parsedFilters.search.toLowerCase().trim();
+      if (q.length > 0) {
+        docs = docs.filter((d) => d.originalName.toLowerCase().includes(q));
+      }
+    }
+    if (parsedFilters.status) {
+      docs = docs.filter((d) => d.status === parsedFilters.status);
+    }
+    if (parsedFilters.type) {
+      const typeLower = parsedFilters.type.toLowerCase();
+      docs = docs.filter((d) => d.mimeType.toLowerCase().startsWith(typeLower));
+    }
+    if (parsedFilters.courseId) {
+      docs = docs.filter((d) => d.courseId === parsedFilters.courseId);
+    }
+    if (parsedFilters.used === "used") {
+      docs = docs.filter((d) => d.courseId !== null);
+    } else if (parsedFilters.used === "unused") {
+      docs = docs.filter((d) => d.courseId === null);
+    }
+
+    // --- sorting ---
+    const sort = parsedFilters.sort ?? "newest";
+    docs = [...docs].sort((a, b) => {
+      switch (sort) {
+        case "newest":
+          return b.createdAt.localeCompare(a.createdAt);
+        case "oldest":
+          return a.createdAt.localeCompare(b.createdAt);
+        case "largest":
+          return b.sizeBytes - a.sizeBytes;
+        case "smallest":
+          return a.sizeBytes - b.sizeBytes;
+        case "name":
+          return a.originalName.localeCompare(b.originalName);
+        case "updated":
+          return b.updatedAt.localeCompare(a.updatedAt);
+        default:
+          return b.createdAt.localeCompare(a.createdAt);
+      }
+    });
+
+    // --- pagination ---
+    const limit = Math.min(Math.max(parsedFilters.limit ?? 25, 1), 100);
+    const page = Math.max(parsedFilters.page ?? 1, 1);
+    const total = docs.length;
+    const totalPages = Math.ceil(total / limit) || 1;
+    const start = (page - 1) * limit;
+    const pageItems = docs.slice(start, start + limit);
+
+    return {
+      items: pageItems.map(toDocumentResource),
+      total,
+      page,
+      limit,
+      totalPages,
+    };
   }
 
   /**
-   * Get a single document, scoped to the organization.
+   * Return aggregate statistics for documents in an organization.
+   */
+  async getDocumentStats(
+    actor: Actor,
+    organizationId: OrganizationId,
+  ): Promise<DocumentStats> {
+    await this.authorize(actor, organizationId, "document:read");
+
+    const role = await this.getMembershipRole(actor, organizationId);
+    const isPrivileged =
+      role === "organization_admin" ||
+      role === "course_editor" ||
+      role === "teacher" ||
+      role === "platform_admin" ||
+      role === "support_agent";
+
+    const docs = isPrivileged
+      ? await this.store.listByOrganization(organizationId)
+      : await this.store.listByOwner(organizationId, actor.userId);
+
+    const statusCounts: Record<string, number> = {};
+    let totalSize = 0;
+    let usedCount = 0;
+
+    for (const doc of docs) {
+      statusCounts[doc.status] = (statusCounts[doc.status] ?? 0) + 1;
+      totalSize += doc.sizeBytes;
+      if (doc.courseId) usedCount++;
+    }
+
+    return {
+      total_count: docs.length,
+      total_size_bytes: totalSize,
+      status_counts: statusCounts,
+      used_count: usedCount,
+      unused_count: docs.length - usedCount,
+    };
+  }
+
+  /**
+   * Read document bytes for download/preview (org-scoped).
+   */
+  async downloadDocument(
+    actor: Actor,
+    organizationId: OrganizationId,
+    documentId: DocumentId,
+  ): Promise<{ data: Buffer; mimeType: string; originalName: string }> {
+    await this.authorize(actor, organizationId, "document:read");
+
+    const doc = await this.store.findByIdForOrganization(
+      documentId,
+      organizationId,
+    );
+    if (!doc) {
+      throw new DomainError("not_found", "Document not found");
+    }
+
+    const data = await this.storageProvider.read(doc.storageKey);
+    return { data, mimeType: doc.mimeType, originalName: doc.originalName };
+  }
+
+  /**
+   * Get a single document, scoped to the organization, enriched with full usage hierarchy.
    *
    * Authorization: requires document:read. Returns non-disclosing 404 if the
    * document does not exist or belongs to another organization.
@@ -381,6 +586,106 @@ export class DocumentService {
     actor: Actor,
     organizationId: OrganizationId,
     documentId: DocumentId,
+  ): Promise<DocumentDetailResource> {
+    await this.authorize(actor, organizationId, "document:read");
+
+    const doc = await this.store.findByIdForOrganization(
+      documentId,
+      organizationId,
+    );
+    if (!doc) {
+      throw new DomainError("not_found", "Document not found");
+    }
+
+    // Resolve linked course information
+    let courseInfo: { id: string; name: string } | null = null;
+    if (doc.courseId && this.courseStore) {
+      const course = await this.courseStore.findByIdForUser(
+        doc.courseId as CourseId,
+        actor.userId,
+      );
+      if (course) {
+        courseInfo = { id: course.id, name: course.name };
+      }
+    }
+
+    // Resolve linked module information
+    const moduleList: Array<{ id: string; title: string }> = [];
+    let lessonCount = 0;
+    if (this.moduleStore) {
+      const mod = await this.moduleStore.findByDocument(documentId);
+      if (mod) {
+        moduleList.push({ id: mod.id, title: mod.title });
+        if (this.lessonStore) {
+          const lessons = await this.lessonStore.listByModule(mod.id);
+          lessonCount = lessons.length;
+        }
+      }
+    }
+
+    // Count chunks
+    let chunkCount = 0;
+    if (this.chunkStore) {
+      const chunks = await this.chunkStore.listByDocument(documentId);
+      chunkCount = chunks.length;
+    }
+
+    // Count flashcards
+    let flashcardCount = 0;
+    if (this.flashcardStore) {
+      if (doc.courseId) {
+        const cards = await this.flashcardStore.listByCourse(doc.courseId, organizationId);
+        flashcardCount = cards.filter((c) => c.documentId === documentId).length;
+      } else {
+        const cards = await this.flashcardStore.listByOrganization(organizationId);
+        flashcardCount = cards.filter((c) => c.documentId === documentId).length;
+      }
+    }
+
+    // Count quizzes
+    let quizCount = 0;
+    if (this.quizStore) {
+      if (doc.courseId) {
+        const qz = await this.quizStore.listByCourse(doc.courseId, organizationId);
+        quizCount = qz.filter((q) => q.documentId === documentId).length;
+      } else {
+        const qz = await this.quizStore.listByOrganization(organizationId);
+        quizCount = qz.filter((q) => q.documentId === documentId).length;
+      }
+    }
+
+    // Count generated content drafts
+    let generatedContentCount = 0;
+    if (this.generatedContentStore) {
+      const contents = await this.generatedContentStore.listByDocument(documentId, organizationId);
+      generatedContentCount = contents.length;
+    }
+
+    return {
+      ...toDocumentResource(doc),
+      storage_key: doc.storageKey,
+      page_count: doc.pageCount,
+      usage: {
+        course: courseInfo,
+        modules: moduleList,
+        lessons_count: lessonCount,
+        flashcards_count: flashcardCount,
+        quizzes_count: quizCount,
+        chunks_count: chunkCount,
+        generated_contents_count: generatedContentCount,
+      },
+    };
+  }
+
+  /**
+   * Update a document's metadata (original_name, course_id).
+   * Renaming does NOT mutate the storage_key to keep physical storage and references stable.
+   */
+  async updateDocument(
+    actor: Actor,
+    organizationId: OrganizationId,
+    documentId: DocumentId,
+    input: { originalName?: string; courseId?: string | null },
   ): Promise<DocumentResource> {
     await this.authorize(actor, organizationId, "document:read");
 
@@ -392,14 +697,59 @@ export class DocumentService {
       throw new DomainError("not_found", "Document not found");
     }
 
+    let updated = false;
+    let newOriginalName = doc.originalName;
+    let newCourseId = doc.courseId;
+
+    if (input.originalName !== undefined) {
+      const trimmed = input.originalName.trim();
+      if (!trimmed) {
+        throw new DomainError("bad_request", "File name cannot be empty");
+      }
+      if (trimmed.length > 255) {
+        throw new DomainError("bad_request", "File name must not exceed 255 characters");
+      }
+      newOriginalName = trimmed;
+      updated = true;
+    }
+
+    if (input.courseId !== undefined) {
+      if (input.courseId === null) {
+        newCourseId = null;
+        updated = true;
+      } else {
+        if (this.courseStore) {
+          const course = await this.courseStore.findByIdForUser(
+            input.courseId as CourseId,
+            actor.userId,
+          );
+          if (!course || course.organizationId !== organizationId) {
+            throw new DomainError("bad_request", "Course does not belong to this organization");
+          }
+        }
+        newCourseId = input.courseId as CourseId;
+        updated = true;
+      }
+    }
+
+    if (updated) {
+      const updatedRecord: DocumentRecord = {
+        ...doc,
+        originalName: newOriginalName,
+        courseId: newCourseId,
+        updatedAt: new Date().toISOString(),
+      };
+      await this.store.update(updatedRecord);
+      return toDocumentResource(updatedRecord);
+    }
+
     return toDocumentResource(doc);
   }
 
   /**
-   * Soft-delete a document and remove its file from storage.
+   * Soft-delete a document and remove its file from storage and source-owned data (chunks).
    *
-   * Authorization: requires document:read (delete is owner/content action;
-   * the policy layer governs role restrictions). Non-disclosing 404 if the
+   * Authorization: requires document:read. Non-disclosing 404 if the
    * document does not exist or belongs to another organization.
    */
   async deleteDocument(
@@ -420,7 +770,7 @@ export class DocumentService {
     // Remove the file from storage (best-effort; idempotent).
     await this.storageProvider.delete(doc.storageKey);
 
-    // Clean up extracted chunks for this document.
+    // Clean up extracted chunks for this document (source-owned data).
     if (this.chunkStore) {
       await this.chunkStore.deleteByDocument(documentId);
     }
@@ -456,5 +806,136 @@ export class DocumentService {
         ),
       ]);
     }
+  }
+
+  /**
+   * Bulk delete documents with partial-failure reporting.
+   */
+  async bulkDelete(
+    actor: Actor,
+    organizationId: OrganizationId,
+    documentIds: DocumentId[],
+  ): Promise<BulkOperationResponse> {
+    await this.authorize(actor, organizationId, "document:read");
+
+    const results: BulkOperationItemResult[] = [];
+    let succeeded = 0;
+    let failed = 0;
+
+    for (const docId of documentIds) {
+      try {
+        await this.deleteDocument(actor, organizationId, docId);
+        results.push({ document_id: docId, success: true });
+        succeeded++;
+      } catch (err) {
+        failed++;
+        const code =
+          err instanceof DomainError
+            ? err.code
+            : "delete_failed";
+        const message = err instanceof Error ? err.message : "Failed to delete document";
+        results.push({
+          document_id: docId,
+          success: false,
+          error: { code, message },
+        });
+      }
+    }
+
+    return {
+      request_id: randomUUID(),
+      total: documentIds.length,
+      succeeded,
+      failed,
+      results,
+    };
+  }
+
+  /**
+   * Bulk attach / move documents to a course with partial-failure reporting.
+   */
+  async bulkAttachCourse(
+    actor: Actor,
+    organizationId: OrganizationId,
+    documentIds: DocumentId[],
+    courseId: CourseId | null,
+  ): Promise<BulkOperationResponse> {
+    await this.authorize(actor, organizationId, "document:read");
+
+    const results: BulkOperationItemResult[] = [];
+    let succeeded = 0;
+    let failed = 0;
+
+    for (const docId of documentIds) {
+      try {
+        await this.updateDocument(actor, organizationId, docId, { courseId });
+        results.push({ document_id: docId, success: true });
+        succeeded++;
+      } catch (err) {
+        failed++;
+        const code =
+          err instanceof DomainError
+            ? err.code
+            : "update_failed";
+        const message = err instanceof Error ? err.message : "Failed to attach course";
+        results.push({
+          document_id: docId,
+          success: false,
+          error: { code, message },
+        });
+      }
+    }
+
+    return {
+      request_id: randomUUID(),
+      total: documentIds.length,
+      succeeded,
+      failed,
+      results,
+    };
+  }
+
+  /**
+   * Bulk reprocess documents with partial-failure reporting.
+   */
+  async bulkReprocess(
+    actor: Actor,
+    organizationId: OrganizationId,
+    documentIds: DocumentId[],
+    processingService: DocumentProcessingService,
+  ): Promise<BulkOperationResponse> {
+    await this.authorize(actor, organizationId, "document:read");
+
+    const results: BulkOperationItemResult[] = [];
+    let succeeded = 0;
+    let failed = 0;
+
+    for (const docId of documentIds) {
+      try {
+        await processingService.reprocessDocument(actor, organizationId, docId);
+        results.push({ document_id: docId, success: true });
+        succeeded++;
+      } catch (err) {
+        failed++;
+        const code =
+          err instanceof DomainError
+            ? err.code
+            : "reprocess_failed";
+        const message = err instanceof Error ? err.message : "Failed to reprocess document";
+        results.push({
+          document_id: docId,
+          success: false,
+          error: { code, message },
+        });
+      }
+    }
+
+    return {
+      request_id: randomUUID(),
+      total: documentIds.length,
+      succeeded,
+      failed,
+      results,
+    };
   }
 }

@@ -413,4 +413,39 @@ describe("PR-6 database schema", () => {
     const attemptCols = getTableColumns(schema.quizAttempts);
     expect(attemptCols).not.toHaveProperty("deletedAt");
   });
+
+  test("flashcard_study_sessions table is defined and has required columns", () => {
+    expect(schema.flashcardStudySessions).toBeDefined();
+    const cols = getTableColumns(schema.flashcardStudySessions);
+    expect(cols).toHaveProperty("id");
+    expect(cols).toHaveProperty("userId");
+    expect(cols).toHaveProperty("organizationId");
+    expect(cols).toHaveProperty("courseId");
+    expect(cols).toHaveProperty("title");
+    expect(cols).toHaveProperty("mode");
+    expect(cols).toHaveProperty("status");
+    expect(cols).toHaveProperty("totalCards");
+    expect(cols).toHaveProperty("completedCards");
+    expect(cols).toHaveProperty("currentIndex");
+    expect(cols).toHaveProperty("currentCardId");
+    expect(cols).toHaveProperty("startedAt");
+    expect(cols).toHaveProperty("lastActivityAt");
+    expect(cols).toHaveProperty("completedAt");
+    expect(cols).toHaveProperty("createdAt");
+    expect(cols).toHaveProperty("updatedAt");
+  });
+
+  test("flashcard_study_session_cards table is defined and has required columns", () => {
+    expect(schema.flashcardStudySessionCards).toBeDefined();
+    const cols = getTableColumns(schema.flashcardStudySessionCards);
+    expect(cols).toHaveProperty("id");
+    expect(cols).toHaveProperty("sessionId");
+    expect(cols).toHaveProperty("flashcardId");
+    expect(cols).toHaveProperty("sortOrder");
+    expect(cols).toHaveProperty("status");
+    expect(cols).toHaveProperty("rating");
+    expect(cols).toHaveProperty("reviewedAt");
+    expect(cols).toHaveProperty("createdAt");
+  });
 });
+

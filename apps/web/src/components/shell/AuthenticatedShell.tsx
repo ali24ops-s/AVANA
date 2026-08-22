@@ -51,6 +51,7 @@ export function AuthenticatedShell() {
   const isCoursesActive = location.pathname.startsWith("/courses");
   const isFlashcardsActive = location.pathname.startsWith("/flashcards");
   const isExamsActive = location.pathname.startsWith("/exams");
+  const isFilesActive = location.pathname.startsWith("/files");
 
   return (
     <div
@@ -102,7 +103,7 @@ export function AuthenticatedShell() {
                 <span>آزمون‌ها</span>
               </HeaderNavLink>
 
-              <HeaderNavLink to="/home#upload-section" active={false}>
+              <HeaderNavLink to="/files" active={isFilesActive}>
                 <FolderOpen className="w-4 h-4" />
                 <span>فایل‌ها</span>
               </HeaderNavLink>
@@ -204,8 +205,8 @@ export function AuthenticatedShell() {
           </MobileDrawerLink>
 
           <MobileDrawerLink
-            to="/home#upload-section"
-            active={false}
+            to="/files"
+            active={isFilesActive}
             onClick={() => setMobileMenuOpen(false)}
           >
             <FolderOpen className="w-5 h-5" />

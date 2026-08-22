@@ -33,13 +33,17 @@ import {
   defaultPolicy,
 } from "@avana/domain";
 import { DocumentService } from "./document-service.js";
+import type { DocumentListFilter } from "./document-service.js";
 import { DocumentProcessingService } from "./document-processing-service.js";
 import type { AuthMiddlewareDeps } from "../../http/authMiddleware.js";
 import { makeAuthMiddleware } from "../../http/authMiddleware.js";
 import type {
   DocumentStore,
   DocumentChunkStore,
+  ModuleStore,
+  LessonStore,
 } from "../learning/learning-store.js";
+import type { CourseStore } from "../courses/course-store.js";
 import type { OrganizationStore } from "../organizations/organization-store.js";
 import type { GeneratedContentStore } from "../generation/generation-store.js";
 import type { GenerationJobStore } from "../generation/generation-jobs-store.js";
@@ -58,6 +62,9 @@ export interface DocumentRouteOptions {
   generationJobStore?: GenerationJobStore;
   flashcardStore?: FlashcardStore;
   quizStore?: QuizStore;
+  courseStore?: CourseStore;
+  moduleStore?: ModuleStore;
+  lessonStore?: LessonStore;
   auditService?: AuditService;
 }
 
@@ -79,6 +86,9 @@ export const documentRoutes: FastifyPluginAsync<DocumentRouteOptions> = async (
     generationJobStore,
     flashcardStore,
     quizStore,
+    courseStore,
+    moduleStore,
+    lessonStore,
     auditService,
   } = opts;
 
@@ -94,6 +104,9 @@ export const documentRoutes: FastifyPluginAsync<DocumentRouteOptions> = async (
     generationJobStore,
     flashcardStore,
     quizStore,
+    courseStore,
+    moduleStore,
+    lessonStore,
   );
   const processingService = new DocumentProcessingService(
     documentStore,
@@ -261,7 +274,34 @@ export const documentRoutes: FastifyPluginAsync<DocumentRouteOptions> = async (
   );
 
   // ---------------------------------------------------------------------------
+  // GET /v1/organizations/:organizationId/documents/stats
+  // Return aggregate file statistics (count, size, status breakdown).
+  // Must be registered BEFORE the /:documentId route to avoid param conflict.
+  // ---------------------------------------------------------------------------
+  app.get(
+    "/v1/organizations/:organizationId/documents/stats",
+    { preHandler: [requireAuth] },
+    async (request, _reply) => {
+      const actor = getActor(request);
+      const organizationId = getOrganizationId(
+        request.params as { organizationId: string },
+      );
+
+      const stats = await documentService.getDocumentStats(
+        actor,
+        organizationId,
+      );
+
+      return {
+        request_id: request.id,
+        stats,
+      };
+    },
+  );
+
+  // ---------------------------------------------------------------------------
   // GET /v1/organizations/:organizationId/documents
+  // Query params: search, status, type, course_id, used, sort, page, limit
   // ---------------------------------------------------------------------------
   app.get(
     "/v1/organizations/:organizationId/documents",
@@ -272,20 +312,150 @@ export const documentRoutes: FastifyPluginAsync<DocumentRouteOptions> = async (
         request.params as { organizationId: string },
       );
 
-      const documents = await documentService.listDocuments(
+      const query = request.query as {
+        search?: string;
+        status?: string;
+        type?: string;
+        course_id?: string;
+        used?: string;
+        sort?: string;
+        page?: string;
+        limit?: string;
+      };
+
+      const filter: DocumentListFilter = {
+        search: query.search?.trim() || undefined,
+        status: query.status as DocumentListFilter["status"] | undefined,
+        type: query.type || undefined,
+        courseId: query.course_id && UUID_RE.test(query.course_id) ? query.course_id : undefined,
+        used: (query.used === "used" || query.used === "unused") ? query.used : undefined,
+        sort: query.sort as DocumentListFilter["sort"] | undefined,
+        page: query.page ? parseInt(query.page, 10) : undefined,
+        limit: query.limit ? parseInt(query.limit, 10) : undefined,
+      };
+
+      const result = await documentService.listDocuments(
         actor,
         organizationId,
-        actor.userId,
+        filter,
       );
 
       return {
         request_id: request.id,
-        items: documents,
+        items: result.items,
         pagination: {
-          limit: Math.max(1, documents.length),
+          total: result.total,
+          page: result.page,
+          limit: result.limit,
+          total_pages: result.totalPages,
           next_cursor: null,
         },
       };
+    },
+  );
+
+  // ---------------------------------------------------------------------------
+  // POST /v1/organizations/:organizationId/documents/bulk-delete
+  // ---------------------------------------------------------------------------
+  app.post(
+    "/v1/organizations/:organizationId/documents/bulk-delete",
+    { preHandler: [requireAuth] },
+    async (request, _reply) => {
+      const actor = getActor(request);
+      const organizationId = getOrganizationId(
+        request.params as { organizationId: string },
+      );
+      const body = request.body as { document_ids?: string[] };
+
+      if (!Array.isArray(body?.document_ids)) {
+        throw new DomainError("bad_request", "document_ids array is required");
+      }
+
+      const documentIds = body.document_ids
+        .filter((id) => typeof id === "string" && UUID_RE.test(id))
+        .map((id) => parseDocumentId(id, "documentId"));
+
+      const result = await documentService.bulkDelete(
+        actor,
+        organizationId,
+        documentIds,
+      );
+
+      return result;
+    },
+  );
+
+  // ---------------------------------------------------------------------------
+  // POST /v1/organizations/:organizationId/documents/bulk-reprocess
+  // ---------------------------------------------------------------------------
+  app.post(
+    "/v1/organizations/:organizationId/documents/bulk-reprocess",
+    { preHandler: [requireAuth] },
+    async (request, _reply) => {
+      const actor = getActor(request);
+      const organizationId = getOrganizationId(
+        request.params as { organizationId: string },
+      );
+      const body = request.body as { document_ids?: string[] };
+
+      if (!Array.isArray(body?.document_ids)) {
+        throw new DomainError("bad_request", "document_ids array is required");
+      }
+
+      const documentIds = body.document_ids
+        .filter((id) => typeof id === "string" && UUID_RE.test(id))
+        .map((id) => parseDocumentId(id, "documentId"));
+
+      const result = await documentService.bulkReprocess(
+        actor,
+        organizationId,
+        documentIds,
+        processingService,
+      );
+
+      return result;
+    },
+  );
+
+  // ---------------------------------------------------------------------------
+  // POST /v1/organizations/:organizationId/documents/bulk-attach-course
+  // ---------------------------------------------------------------------------
+  app.post(
+    "/v1/organizations/:organizationId/documents/bulk-attach-course",
+    { preHandler: [requireAuth] },
+    async (request, _reply) => {
+      const actor = getActor(request);
+      const organizationId = getOrganizationId(
+        request.params as { organizationId: string },
+      );
+      const body = request.body as {
+        document_ids?: string[];
+        course_id?: string | null;
+      };
+
+      if (!Array.isArray(body?.document_ids)) {
+        throw new DomainError("bad_request", "document_ids array is required");
+      }
+
+      const courseId =
+        body.course_id === null || body.course_id === undefined
+          ? null
+          : UUID_RE.test(body.course_id)
+          ? (body.course_id as import("@avana/domain").CourseId)
+          : null;
+
+      const documentIds = body.document_ids
+        .filter((id) => typeof id === "string" && UUID_RE.test(id))
+        .map((id) => parseDocumentId(id, "documentId"));
+
+      const result = await documentService.bulkAttachCourse(
+        actor,
+        organizationId,
+        documentIds,
+        courseId,
+      );
+
+      return result;
     },
   );
 
@@ -314,6 +484,76 @@ export const documentRoutes: FastifyPluginAsync<DocumentRouteOptions> = async (
         request_id: request.id,
         document: doc,
       };
+    },
+  );
+
+  // ---------------------------------------------------------------------------
+  // PATCH /v1/organizations/:organizationId/documents/:documentId
+  // ---------------------------------------------------------------------------
+  app.patch(
+    "/v1/organizations/:organizationId/documents/:documentId",
+    { preHandler: [requireAuth] },
+    async (request, _reply) => {
+      const actor = getActor(request);
+      const params = request.params as {
+        organizationId: string;
+        documentId: string;
+      };
+      const organizationId = getOrganizationId(params);
+      const documentId = getDocumentId(params);
+      const body = request.body as {
+        original_name?: string;
+        course_id?: string | null;
+      };
+
+      const updated = await documentService.updateDocument(
+        actor,
+        organizationId,
+        documentId,
+        {
+          originalName: body?.original_name,
+          courseId: body?.course_id,
+        },
+      );
+
+      return {
+        request_id: request.id,
+        document: updated,
+      };
+    },
+  );
+
+  // ---------------------------------------------------------------------------
+  // GET /v1/organizations/:organizationId/documents/:documentId/download
+  // Streams the file for preview or download.
+  // ---------------------------------------------------------------------------
+  app.get(
+    "/v1/organizations/:organizationId/documents/:documentId/download",
+    { preHandler: [requireAuth] },
+    async (request, reply) => {
+      const actor = getActor(request);
+      const params = request.params as {
+        organizationId: string;
+        documentId: string;
+      };
+      const organizationId = getOrganizationId(params);
+      const documentId = getDocumentId(params);
+      const query = request.query as { inline?: string };
+
+      const { data, mimeType, originalName } =
+        await documentService.downloadDocument(actor, organizationId, documentId);
+
+      const disposition = query.inline === "1"
+        ? `inline; filename="${originalName}"`
+        : `attachment; filename="${originalName}"`;
+
+      reply
+        .header("Content-Type", mimeType)
+        .header("Content-Disposition", disposition)
+        .header("Content-Length", data.length)
+        .header("Cache-Control", "private, max-age=3600");
+
+      return reply.send(data);
     },
   );
 
@@ -385,6 +625,35 @@ export const documentRoutes: FastifyPluginAsync<DocumentRouteOptions> = async (
       const documentId = getDocumentId(params);
 
       const status = await processingService.getExtractionStatus(
+        actor,
+        organizationId,
+        documentId,
+      );
+
+      return {
+        request_id: request.id,
+        status,
+      };
+    },
+  );
+
+  // ---------------------------------------------------------------------------
+  // POST /v1/organizations/:organizationId/documents/:documentId/reprocess
+  // Force re-extraction and chunk regeneration.
+  // ---------------------------------------------------------------------------
+  app.post(
+    "/v1/organizations/:organizationId/documents/:documentId/reprocess",
+    { preHandler: [requireAuth] },
+    async (request, _reply) => {
+      const actor = getActor(request);
+      const params = request.params as {
+        organizationId: string;
+        documentId: string;
+      };
+      const organizationId = getOrganizationId(params);
+      const documentId = getDocumentId(params);
+
+      const status = await processingService.reprocessDocument(
         actor,
         organizationId,
         documentId,

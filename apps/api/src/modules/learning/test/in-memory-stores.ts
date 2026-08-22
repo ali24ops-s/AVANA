@@ -192,6 +192,13 @@ export class InMemoryProgressStore implements ProgressStore {
     return { ...record };
   }
 
+  /** Count completed lessons for a user. */
+  async countCompletedByUser(userId: UserId): Promise<number> {
+    return Array.from(this.progressRecords.values()).filter(
+      (p) => p.userId === userId && p.completed,
+    ).length;
+  }
+
   /** Clear all progress records (for test isolation). */
   clear(): void {
     this.progressRecords.clear();

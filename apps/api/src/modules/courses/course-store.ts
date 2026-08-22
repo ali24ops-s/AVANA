@@ -55,4 +55,30 @@ export interface CourseStore {
 
   /** Persist audit events (used by service layer). */
   appendAuditEvents(events: readonly AuditEvent[]): void;
+
+  /** List courses enrolled/selected by a specific user. */
+  listUserCourses(
+    userId: UserId,
+    organizationId?: OrganizationId,
+    systemOrganizationId?: OrganizationId,
+  ): Promise<CourseRecord[]>;
+
+  /** Add a course to a user's enrolled courses. Idempotent. */
+  addUserCourse(
+    userId: UserId,
+    courseId: CourseId,
+    role?: string,
+  ): Promise<void>;
+
+  /** Remove a course from a user's enrolled courses. */
+  removeUserCourse(
+    userId: UserId,
+    courseId: CourseId,
+  ): Promise<void>;
+
+  /** Atomically sync the full list of enrolled course IDs for a user. */
+  syncUserCourses(
+    userId: UserId,
+    courseIds: CourseId[],
+  ): Promise<void>;
 }
