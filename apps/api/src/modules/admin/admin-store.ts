@@ -144,7 +144,7 @@ export interface AdminGenerationDetail extends AdminGenerationJobRecord {
 export interface AdminStore {
   // Phase 1
   getDashboardStats(): Promise<DashboardStats>;
-  listUsers(params: { page: number; pageSize: number; search?: string }): Promise<AdminUsersList>;
+  listUsers(params: { page: number; pageSize: number; search?: string; role?: string; status?: string }): Promise<AdminUsersList>;
   listGenerationJobs(params: { page: number; pageSize: number; status?: string }): Promise<{ jobs: AdminGenerationJobRecord[]; totalCount: number }>;
   getDataIntegrityReport(): Promise<DataIntegrityReport>;
 
@@ -160,6 +160,7 @@ export interface AdminStore {
   listLessons(params: { page: number; pageSize: number; search?: string }): Promise<{ lessons: AdminLessonRecord[]; totalCount: number }>;
   listFlashcards(params: { page: number; pageSize: number; search?: string }): Promise<{ flashcards: AdminFlashcardRecord[]; totalCount: number }>;
   listExams(params: { page: number; pageSize: number; search?: string }): Promise<{ exams: AdminExamRecord[]; totalCount: number }>;
+  getCourseHierarchy(courseId: string): Promise<any | null>;
   getGenerationJob(id: string): Promise<AdminGenerationDetail | null>;
 
   // Phase 3 Analytics

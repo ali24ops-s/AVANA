@@ -41,8 +41,8 @@ describe("canManageCourseContent", () => {
     expect(canManageCourseContent(membershipsOf("support_agent"))).toBe(false);
   });
 
-  it("returns false when the only membership is platform_admin", () => {
-    expect(canManageCourseContent(membershipsOf("platform_admin"))).toBe(false);
+  it("returns true when a membership is platform_admin", () => {
+    expect(canManageCourseContent(membershipsOf("platform_admin"))).toBe(true);
   });
 
   it("returns true when any membership has a content-management role", () => {

@@ -11,14 +11,14 @@
 
 import { eq, and, desc, sql } from "drizzle-orm";
 import type { DbClient } from "@avana/database/client";
-import { users, sessions, emailVerificationCodes, auditLogs } from "@avana/database/schema";
+import { users, sessions, emailVerificationCodes, auditLogs, organizationMemberships } from "@avana/database/schema";
 import type { SessionRecord, SessionStore } from "./session-store.js";
 import type { UserRecord, UserStore } from "./user-store.js";
 import type {
   EmailVerificationCodeRecord,
   EmailVerificationStore,
 } from "./email-verification-store.js";
-import type { UserId, VerifiedIdentity } from "@avana/domain";
+import { resolveEffectiveRole, type Role, type UserId, type VerifiedIdentity } from "@avana/domain";
 import { randomUUID } from "node:crypto";
 
 // ---------------------------------------------------------------------------
@@ -50,19 +50,22 @@ function toSessionRecord(row: {
 }
 
 /**
- * Map a database user row to the UserRecord domain shape.
+ * Map a database user row to the UserRecord domain shape with resolved effective role.
  */
-function toUserRecord(row: {
-  id: string;
-  email: string;
-  name: string;
-  emailVerifiedAt?: Date | null;
-}): UserRecord {
+function toUserRecord(
+  row: {
+    id: string;
+    email: string;
+    name: string;
+    emailVerifiedAt?: Date | null;
+  },
+  effectiveRole: Role = "student",
+): UserRecord {
   return {
     id: row.id as UserId,
     email: row.email,
     name: row.name,
-    role: "student", // Default role; role column not yet in schema
+    role: effectiveRole,
     emailVerifiedAt: row.emailVerifiedAt?.toISOString() ?? null,
     emailVerified: row.emailVerifiedAt != null,
   };
@@ -135,45 +138,75 @@ export class DrizzleUserStore implements UserStore {
 
   async findByEmail(email: string): Promise<UserRecord | undefined> {
     const normalizedEmail = email.trim().toLowerCase();
-    const row = await this.db
-      .select()
+    const rows = await this.db
+      .select({
+        user: users,
+        role: organizationMemberships.role,
+      })
       .from(users)
-      .where(eq(users.email, normalizedEmail))
-      .limit(1)
-      .then((rows) => rows[0]);
+      .leftJoin(
+        organizationMemberships,
+        eq(organizationMemberships.userId, users.id),
+      )
+      .where(eq(users.email, normalizedEmail));
 
-    if (!row) return undefined;
-    return toUserRecord(row);
+    if (rows.length === 0) return undefined;
+    const userRow = rows[0].user;
+    const roles = rows
+      .map((r) => r.role)
+      .filter((r): r is Role => r != null);
+    const effectiveRole = resolveEffectiveRole(roles);
+    return toUserRecord(userRow, effectiveRole);
   }
 
   async findWithPasswordByEmail(
     email: string,
   ): Promise<(UserRecord & { passwordHash?: string | null }) | undefined> {
     const normalizedEmail = email.trim().toLowerCase();
-    const row = await this.db
-      .select()
+    const rows = await this.db
+      .select({
+        user: users,
+        role: organizationMemberships.role,
+      })
       .from(users)
-      .where(eq(users.email, normalizedEmail))
-      .limit(1)
-      .then((rows) => rows[0]);
+      .leftJoin(
+        organizationMemberships,
+        eq(organizationMemberships.userId, users.id),
+      )
+      .where(eq(users.email, normalizedEmail));
 
-    if (!row) return undefined;
+    if (rows.length === 0) return undefined;
+    const userRow = rows[0].user;
+    const roles = rows
+      .map((r) => r.role)
+      .filter((r): r is Role => r != null);
+    const effectiveRole = resolveEffectiveRole(roles);
     return {
-      ...toUserRecord(row),
-      passwordHash: row.passwordHash ?? null,
+      ...toUserRecord(userRow, effectiveRole),
+      passwordHash: userRow.passwordHash ?? null,
     };
   }
 
   async findById(id: UserId): Promise<UserRecord | undefined> {
-    const row = await this.db
-      .select()
+    const rows = await this.db
+      .select({
+        user: users,
+        role: organizationMemberships.role,
+      })
       .from(users)
-      .where(eq(users.id, id))
-      .limit(1)
-      .then((rows) => rows[0]);
+      .leftJoin(
+        organizationMemberships,
+        eq(organizationMemberships.userId, users.id),
+      )
+      .where(eq(users.id, id));
 
-    if (!row) return undefined;
-    return toUserRecord(row);
+    if (rows.length === 0) return undefined;
+    const userRow = rows[0].user;
+    const roles = rows
+      .map((r) => r.role)
+      .filter((r): r is Role => r != null);
+    const effectiveRole = resolveEffectiveRole(roles);
+    return toUserRecord(userRow, effectiveRole);
   }
 
   async createFromVerifiedIdentity(

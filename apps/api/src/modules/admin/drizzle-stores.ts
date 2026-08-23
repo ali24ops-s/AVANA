@@ -19,6 +19,7 @@ import {
   generatedContents,
   organizationMemberships,
 } from "@avana/database/schema";
+import { resolveEffectiveRole, type Role } from "@avana/domain";
 import type { AdminStore, DashboardStats, AdminUsersList, AdminGenerationJobRecord, DataIntegrityReport, AdminCourseRecord, AdminDocumentRecord, AdminSystemHealth, AdminLogRecord, AdminAuditRecord, AdminLessonRecord, AdminFlashcardRecord, AdminExamRecord, AdminGenerationDetail } from "./admin-store.js";
 
 export class DrizzleAdminStore implements AdminStore {
@@ -67,41 +68,84 @@ export class DrizzleAdminStore implements AdminStore {
     };
   }
 
-  async listUsers(params: { page: number; pageSize: number; search?: string }): Promise<AdminUsersList> {
-    const { page, pageSize, search } = params;
+  async listUsers(params: { page: number; pageSize: number; search?: string; role?: string; status?: string }): Promise<AdminUsersList> {
+    const { page, pageSize, search, role, status } = params;
     const offset = (page - 1) * pageSize;
 
-    let baseQuery = this.db.select().from(users).where(isNull(users.deletedAt)) as any;
-    let countQuery = this.db.select({ count: count() }).from(users).where(isNull(users.deletedAt)) as any;
+    let baseFilter = isNull(users.deletedAt) as any;
 
     if (search) {
-      const searchFilter = and(
-        isNull(users.deletedAt),
+      baseFilter = and(
+        baseFilter,
         or(
           ilike(users.email, `%${search}%`),
           ilike(users.name, `%${search}%`)
         )
-      );
-      baseQuery = this.db.select().from(users).where(searchFilter) as any;
-      countQuery = this.db.select({ count: count() }).from(users).where(searchFilter) as any;
+      ) as any;
     }
+
+    if (status) {
+      if (status === "active") {
+        baseFilter = and(baseFilter, sql`${users.emailVerifiedAt} IS NOT NULL`) as any;
+      } else if (status === "inactive") {
+        baseFilter = and(baseFilter, sql`${users.emailVerifiedAt} IS NULL`) as any;
+      }
+    }
+
+    if (role) {
+      baseFilter = and(
+        baseFilter,
+        inArray(
+          users.id,
+          this.db.select({ userId: organizationMemberships.userId })
+            .from(organizationMemberships)
+            .where(eq(organizationMemberships.role, role))
+        )
+      ) as any;
+    }
+
+    let baseQuery = this.db.select().from(users).where(baseFilter) as any;
+    let countQuery = this.db.select({ count: count() }).from(users).where(baseFilter) as any;
 
     const [totalRes, userRows] = await Promise.all([
       countQuery,
       baseQuery.limit(pageSize).offset(offset).orderBy(desc(users.createdAt)),
     ]);
 
+    const userIds = userRows.map((u: any) => u.id);
+    let membershipRows: Array<{ userId: string; role: string }> = [];
+    if (userIds.length > 0) {
+      membershipRows = await this.db
+        .select({
+          userId: organizationMemberships.userId,
+          role: organizationMemberships.role,
+        })
+        .from(organizationMemberships)
+        .where(inArray(organizationMemberships.userId, userIds));
+    }
+
+    const rolesMap = new Map<string, Role[]>();
+    for (const m of membershipRows) {
+      const list = rolesMap.get(m.userId) || [];
+      list.push(m.role as Role);
+      rolesMap.set(m.userId, list);
+    }
+
     return {
       totalCount: totalRes[0].count,
-      users: userRows.map((u: any) => ({
-        id: u.id,
-        email: u.email,
-        name: u.name,
-        role: "student", // Would come from roles if available in users table, default for now
-        emailVerified: u.emailVerifiedAt != null,
-        createdAt: u.createdAt.toISOString(),
-        lastActiveAt: u.updatedAt.toISOString(), // proxy for last active
-      })),
+      users: userRows.map((u: any) => {
+        const userRoles = rolesMap.get(u.id) || [];
+        const effectiveRole = resolveEffectiveRole(userRoles);
+        return {
+          id: u.id,
+          email: u.email,
+          name: u.name,
+          role: effectiveRole,
+          emailVerified: u.emailVerifiedAt != null,
+          createdAt: u.createdAt.toISOString(),
+          lastActiveAt: u.updatedAt.toISOString(), // proxy for last active
+        };
+      }),
     };
   }
 
@@ -512,6 +556,74 @@ export class DrizzleAdminStore implements AdminStore {
         questionCount: questionCounts.get(r.exam.id) || 0,
         createdAt: r.exam.createdAt.toISOString(),
       })),
+    };
+  }
+
+  async getCourseHierarchy(courseId: string): Promise<any | null> {
+    const courseRes = await this.db.select().from(courses).where(eq(courses.id, courseId)).limit(1);
+    if (!courseRes.length) return null;
+    const course = courseRes[0];
+
+    const courseModules = await this.db.select().from(modules)
+      .where(and(eq(modules.courseId, courseId), isNull(modules.deletedAt)))
+      .orderBy(modules.sortOrder);
+
+    const moduleIds = courseModules.map((m) => m.id);
+    let courseLessons: any[] = [];
+    if (moduleIds.length > 0) {
+      courseLessons = await this.db.select({
+        id: lessons.id,
+        moduleId: lessons.moduleId,
+        title: lessons.title,
+        publicationStatus: lessons.publicationStatus,
+        createdAt: lessons.createdAt,
+        hasContent: sql<boolean>`length(${lessons.contentMarkdown}) > 0`.as('has_content')
+      }).from(lessons)
+      .where(and(inArray(lessons.moduleId, moduleIds), isNull(lessons.deletedAt)))
+      .orderBy(lessons.sortOrder);
+      
+      const lessonIds = courseLessons.map((l) => l.id);
+      
+      if (lessonIds.length > 0) {
+        const fcCounts = await this.db.select({ lessonId: flashcards.lessonId, count: count() })
+          .from(flashcards)
+          .where(and(inArray(flashcards.lessonId, lessonIds), isNull(flashcards.deletedAt)))
+          .groupBy(flashcards.lessonId);
+          
+        const qCounts = await this.db.select({ lessonId: quizQuestions.lessonId, count: count() })
+          .from(quizQuestions)
+          .where(inArray(quizQuestions.lessonId, lessonIds))
+          .groupBy(quizQuestions.lessonId);
+          
+        const fcMap = new Map(fcCounts.map((r) => [r.lessonId, r.count]));
+        const qMap = new Map(qCounts.map((r) => [r.lessonId, r.count]));
+
+        courseLessons = courseLessons.map((l) => ({
+          ...l,
+          flashcards: fcMap.get(l.id) || 0,
+          quizzes: qMap.get(l.id) || 0,
+          hasContent: Boolean(l.hasContent),
+        }));
+      }
+    }
+
+    return {
+      id: course.id,
+      name: course.name,
+      subject: course.subject,
+      modules: courseModules.map((m) => ({
+        id: m.id,
+        title: m.title,
+        lessons: courseLessons.filter((l) => l.moduleId === m.id).map((l) => ({
+          id: l.id,
+          title: l.title,
+          publicationStatus: l.publicationStatus,
+          flashcardCount: l.flashcards || 0,
+          quizCount: l.quizzes || 0,
+          hasContent: l.hasContent || false,
+          createdAt: l.createdAt.toISOString()
+        })),
+      }))
     };
   }
 

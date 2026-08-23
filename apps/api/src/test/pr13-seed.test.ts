@@ -93,10 +93,8 @@ describe("PR-13: Development seed data", () => {
         user: { id: string; email: string; role: string };
         memberships: Array<{ organization_id: string; role: string }>;
       };
-      expect(signInBody.user.email).toBe("alice@example.com");
-      // The base user.role stays "student"; the organization_admin role is
-      // exposed via the memberships array (PR5-D2 role resolution).
-      expect(signInBody.user.role).toBe("student");
+      // Alice is the seeded organization_admin, so her effective role is organization_admin
+      expect(signInBody.user.role).toBe("organization_admin");
       expect(signInBody.memberships).toHaveLength(1);
       expect(signInBody.memberships[0]!.role).toBe("organization_admin");
 

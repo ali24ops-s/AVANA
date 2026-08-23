@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
 import type { IdentityAdapter } from "@avana/domain";
-import { DomainError } from "@avana/domain";
+import { DomainError, resolveEffectiveRole, type Role } from "@avana/domain";
 import type { SessionService } from "./session-service.js";
 import type { UserStore } from "./user-store.js";
 import type { EmailVerificationStore } from "./email-verification-store.js";
@@ -183,13 +183,18 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
       userRecord.emailVerifiedAt ?? userRecord.emailVerified,
     );
 
+    const membershipRoles = memberships.map((m) => m.role as Role);
+    const effectiveRole = membershipRoles.length > 0
+      ? resolveEffectiveRole(membershipRoles)
+      : (userRecord.role as Role || "student");
+
     return {
       request_id: request.id,
       user: {
         id: userRecord.id,
         email: userRecord.email,
         name: userRecord.name,
-        role: userRecord.role,
+        role: effectiveRole,
         emailVerified: isVerified,
       },
       memberships,
@@ -302,13 +307,18 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
       userRecord.id,
     );
 
+    const membershipRoles = memberships.map((m) => m.role as Role);
+    const effectiveRole = membershipRoles.length > 0
+      ? resolveEffectiveRole(membershipRoles)
+      : (userRecord.role as Role || "student");
+
     return {
       request_id: request.id,
       user: {
         id: userRecord.id,
         email: userRecord.email,
         name: userRecord.name,
-        role: userRecord.role,
+        role: effectiveRole,
         emailVerified: false,
       },
       memberships,
@@ -403,13 +413,18 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
       userRecord.emailVerifiedAt ?? userRecord.emailVerified,
     );
 
+    const membershipRoles = memberships.map((m) => m.role as Role);
+    const effectiveRole = membershipRoles.length > 0
+      ? resolveEffectiveRole(membershipRoles)
+      : (userRecord.role as Role || "student");
+
     return {
       request_id: request.id,
       user: {
         id: userRecord.id,
         email: userRecord.email,
         name: userRecord.name,
-        role: userRecord.role,
+        role: effectiveRole,
         emailVerified: isVerified,
       },
       memberships,
@@ -494,13 +509,18 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
     const userRecord = await userStore.findById(userId);
     const memberships = await resolveMemberships(organizationStore, userId);
 
+    const membershipRoles = memberships.map((m) => m.role as Role);
+    const effectiveRole = membershipRoles.length > 0
+      ? resolveEffectiveRole(membershipRoles)
+      : (userRecord!.role as Role || "student");
+
     return {
       request_id: request.id,
       user: {
         id: userRecord!.id,
         email: userRecord!.email,
         name: userRecord!.name,
-        role: userRecord!.role,
+        role: effectiveRole,
         emailVerified: true,
       },
       memberships,

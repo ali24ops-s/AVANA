@@ -50,6 +50,15 @@ const allActions: AuthAction[] = [
   "content:publish",
   "document:upload",
   "document:read",
+  "content:generate",
+  "content:review",
+  "content:accept",
+  "content:reject",
+  "content:regenerate",
+  "content:edit",
+  "flashcard:review",
+  "quiz:attempt",
+  "study:read",
 ];
 
 describe("RoleBasedPolicy", () => {
@@ -172,8 +181,29 @@ describe("RoleBasedPolicy", () => {
     });
   });
 
+  describe("platform_admin role", () => {
+    const actor = makeActor("platform_admin");
+
+    it("allows all platform actions (course, document, learning, content, study, org)", () => {
+      for (const action of allActions) {
+        expect(
+          policy.check(action, actor, defaultContext),
+          `platform_admin should be permitted for action: ${action}`,
+        ).toBe(true);
+      }
+    });
+
+    it("require() succeeds for all platform actions without throwing", () => {
+      for (const action of allActions) {
+        expect(() =>
+          policy.require(action, actor, defaultContext),
+        ).not.toThrow();
+      }
+    });
+  });
+
   describe("reserved higher roles", () => {
-    it.each(["support_agent", "platform_admin"])(
+    it.each(["support_agent"])(
       "does not grant Sprint 1 permissions to %s",
       (role) => {
         const actor = makeActor(role);

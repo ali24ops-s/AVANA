@@ -43,6 +43,7 @@ import { defaultPolicy } from "@avana/domain";
 import { LocalStorageProvider } from "../modules/storage/index.js";
 import { InMemoryAuditStore } from "../observability/test/in-memory-stores.js";
 import { AuditService } from "../observability/audit-service.js";
+import { InMemoryAdminStore } from "../modules/admin/index.js";
 import { seedLocalDevData } from "../dev/seed.js";
 import type { V1RouteOptions } from "../routes/v1.js";
 import type { ApiConfig } from "../config.js";
@@ -63,8 +64,8 @@ export async function composeLocalDev(
 ): Promise<LocalDevDependencies> {
   // In-memory stores
   const sessionStore = new InMemorySessionStore();
-  const userStore = new InMemoryUserStore();
   const organizationStore = new InMemoryOrganizationStore();
+  const userStore = new InMemoryUserStore(organizationStore);
   const courseStore = new InMemoryCourseStore();
   const moduleStore = new InMemoryModuleStore();
   const lessonStore = new InMemoryLessonStore();
@@ -85,6 +86,9 @@ export async function composeLocalDev(
   const conversationStore = new InMemoryAssistantConversationStore();
   const studySessionStore = new InMemoryStudySessionStore();
   const flashcardStudySessionStore = new InMemoryFlashcardStudySessionStore();
+
+  // Admin store
+  const adminStore = new InMemoryAdminStore();
 
   // Model gateway (Gemini default, or mock/cloudflare/groq if configured).
   const gateway = createModelGateway({
@@ -160,6 +164,7 @@ export async function composeLocalDev(
     studySessionStore,
     flashcardStudySessionStore,
     auditService,
+    adminStore,
   };
 
   // Seed demo data for local development — awaited before routes register

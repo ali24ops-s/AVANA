@@ -12,6 +12,7 @@
  *
  * The existing authorization model (packages/domain/src/authorization/policy.ts)
  * grants `content:write` and `content:publish` to:
+ *   - platform_admin
  *   - organization_admin
  *   - course_editor
  *
@@ -25,6 +26,7 @@ import type { Role, UserMembership } from "@avana/contracts";
  * Roles that are permitted to manage course content.
  */
 const CONTENT_MANAGER_ROLES: ReadonlySet<Role> = new Set<Role>([
+  "platform_admin",
   "organization_admin",
   "course_editor",
 ]);

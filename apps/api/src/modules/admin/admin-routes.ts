@@ -34,11 +34,11 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
   });
 
   app.get("/users", async (request, reply) => {
-    const query = request.query as { page?: string; pageSize?: string; search?: string };
+    const query = request.query as { page?: string; pageSize?: string; search?: string; role?: string; status?: string };
     const page = query.page ? parseInt(query.page, 10) : 1;
     const pageSize = query.pageSize ? parseInt(query.pageSize, 10) : 20;
     
-    const result = await adminService.listUsers(page, pageSize, query.search);
+    const result = await adminService.listUsers(page, pageSize, query.search, query.role, query.status);
     return reply.send(result);
   });
 
@@ -147,6 +147,18 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
       return reply.send(data);
     } catch (error) {
       request.log.error({ err: error }, "Failed to get generation job");
+      return reply.status(500).send({ code: "internal_error" });
+    }
+  });
+
+  app.get("/content/courses/:id/hierarchy", async (request, reply) => {
+    try {
+      const params = request.params as { id: string };
+      const data = await opts.adminStore.getCourseHierarchy(params.id);
+      if (!data) return reply.status(404).send({ code: "not_found" });
+      return reply.send(data);
+    } catch (error) {
+      request.log.error({ err: error }, "Failed to get course hierarchy");
       return reply.status(500).send({ code: "internal_error" });
     }
   });
@@ -300,12 +312,13 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
   app.patch<{ Params: { id: string }; Body: { role: string } }>(
     "/users/:id/role",
     async (request, reply) => {
-      const adminId = (request as any).user.userId;
+      const user = (request as unknown as { user: { userId: string; email: string; role: string } }).user;
+      const adminId = user.userId;
       const { id } = request.params;
-      const { role } = request.body;
+      const { role } = request.body || {};
       
       const validRoles = ["student", "teacher", "course_editor", "organization_admin", "support_agent", "platform_admin"];
-      if (!validRoles.includes(role)) {
+      if (!role || !validRoles.includes(role)) {
         return reply.status(400).send({ code: "invalid_input", message: "Invalid role" });
       }
 
@@ -317,6 +330,9 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
         if (error.message === "user_has_no_org") {
            return reply.status(409).send({ code: "conflict", message: "User does not belong to any organization." });
         }
+        if (error.message === "multi_org_requires_explicit_handling") {
+           return reply.status(409).send({ code: "conflict", message: "User belongs to multiple organizations; explicit organization handling is required." });
+        }
         return reply.status(500).send({ code: "internal_error" });
       }
     }
@@ -325,9 +341,24 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
   app.patch<{ Params: { id: string }; Body: { name?: string; subject?: string } }>(
     "/courses/:id",
     async (request, reply) => {
-      const adminId = (request as any).user.userId;
+      const user = (request as unknown as { user: { userId: string; email: string; role: string } }).user;
+      const adminId = user.userId;
       const { id } = request.params;
-      const payload = request.body;
+      const body = request.body || {};
+
+      const payload: { name?: string; subject?: string } = {};
+      if (typeof body.name === "string" && body.name.trim().length > 0) {
+        payload.name = body.name.trim();
+      }
+      if (body.subject !== undefined) {
+        if (typeof body.subject === "string") {
+          payload.subject = body.subject.trim();
+        }
+      }
+
+      if (Object.keys(payload).length === 0) {
+        return reply.status(400).send({ code: "invalid_input", message: "No valid fields provided to update" });
+      }
 
       try {
         await opts.adminStore.updateCourseMetadata(adminId, id, payload);
@@ -345,7 +376,7 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
   app.post<{ Params: { id: string } }>(
     "/documents/:id/retry",
     async (request, reply) => {
-      const actor = (request as any).user;
+      const user = (request as unknown as { user: { userId: string; email: string; role: string } }).user;
       const { id } = request.params;
       
       try {
@@ -362,13 +393,11 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
         if (!orgId) throw new Error("Missing organizationId on document");
 
         // The audit log for the explicit retry intent
-        await opts.adminStore.retryDocumentProcessing(actor.id, id);
+        await opts.adminStore.retryDocumentProcessing(user.userId, id);
         
         // Use reprocessDocument with correct argument order: actor, orgId, docId
-        // DO NOT AWAIT it if it's supposed to be async, but processDocument is actually async, let's await it or kick it to background?
-        // Usually processDocument blocks, but let's await it so the admin gets the result synchronously.
         await opts.documentProcessingService.reprocessDocument(
-          { userId: actor.id, role: actor.role as any }, 
+          { userId: user.userId, role: user.role as any }, 
           orgId, 
           id as any
         );
@@ -384,7 +413,7 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
   app.post<{ Params: { id: string } }>(
     "/generation/:id/retry",
     async (request, reply) => {
-      const actor = (request as any).user;
+      const user = (request as unknown as { user: { userId: string; email: string; role: string } }).user;
       const { id } = request.params;
       
       try {
@@ -402,7 +431,7 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
         }
 
         // Keep the manual audit log intent since queue might not emit one for 'retry' specifically
-        await opts.adminStore.retryGenerationJob(actor.id, id);
+        await opts.adminStore.retryGenerationJob(user.userId, id);
         
         // Use the enqueueGenerationJob API directly from the queue
         await opts.generationQueue.enqueueGenerationJob(job.payload as any);

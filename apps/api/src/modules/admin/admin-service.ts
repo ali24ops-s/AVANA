@@ -14,11 +14,11 @@ export class AdminService {
     return this.store.getDashboardStats();
   }
 
-  async listUsers(page: number, pageSize: number, search?: string): Promise<AdminUsersList> {
+  async listUsers(page: number, pageSize: number, search?: string, role?: string, status?: string): Promise<AdminUsersList> {
     if (page < 1) throw new DomainError("bad_request", "Page must be >= 1");
     if (pageSize < 1 || pageSize > 100) throw new DomainError("bad_request", "Page size must be between 1 and 100");
     
-    return this.store.listUsers({ page, pageSize, search });
+    return this.store.listUsers({ page, pageSize, search, role, status });
   }
 
   async listGenerationJobs(page: number, pageSize: number, status?: string): Promise<{ jobs: AdminGenerationJobRecord[]; totalCount: number }> {

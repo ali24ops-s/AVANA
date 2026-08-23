@@ -166,17 +166,18 @@ describe("PR5-D2: Organization membership role resolution", () => {
       // Creating an org makes the user an organization_admin
       await createOrg(app, token, "Admin Org");
       const me = await getMe(app, token);
-      expect(me.user.role).toBe("student");
+      expect(me.user.role).toBe("organization_admin");
       expect(me.memberships).toHaveLength(1);
       expect(me.memberships[0]!.role).toBe("organization_admin");
 
-      // A fresh sign-in should also expose the memberships
+      // A fresh sign-in should also expose the memberships and effective role
       const signIn2 = await app.inject({
         method: "POST",
         url: "/v1/auth/sign-in",
         payload: { email: "admin@example.com", name: "Admin" },
       });
       const signIn2Body = JSON.parse(signIn2.body) as MeBody;
+      expect(signIn2Body.user.role).toBe("organization_admin");
       expect(signIn2Body.memberships[0]!.role).toBe("organization_admin");
 
       await app.close();
@@ -192,7 +193,7 @@ describe("PR5-D2: Organization membership role resolution", () => {
       orgStore.setMembershipRole(org.id, userId, "course_editor");
 
       const me = await getMe(app, token);
-      expect(me.user.role).toBe("student");
+      expect(me.user.role).toBe("course_editor");
       expect(me.memberships).toHaveLength(1);
       expect(me.memberships[0]!.role).toBe("course_editor");
       await app.close();

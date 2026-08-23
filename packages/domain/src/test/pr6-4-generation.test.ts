@@ -132,8 +132,15 @@ describe("PR6-4 generation policy actions", () => {
     }
   });
 
-  it("denies reserved higher roles content actions", () => {
-    for (const role of ["support_agent", "platform_admin"]) {
+  it("allows platform admins all content actions", () => {
+    const actor = makeActor("platform_admin");
+    for (const action of editorActions) {
+      expect(policy.check(action, actor, defaultContext)).toBe(true);
+    }
+  });
+
+  it("denies reserved support role content actions", () => {
+    for (const role of ["support_agent"]) {
       const actor = makeActor(role);
       for (const action of editorActions) {
         expect(policy.check(action, actor, defaultContext)).toBe(false);

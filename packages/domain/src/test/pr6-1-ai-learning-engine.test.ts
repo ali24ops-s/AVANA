@@ -168,8 +168,14 @@ describe("PR6-1 document policy actions", () => {
     expect(policy.check("document:read", actor, defaultContext)).toBe(true);
   });
 
-  it("denies reserved roles document actions", () => {
-    for (const role of ["support_agent", "platform_admin"]) {
+  it("allows platform admins to upload and read documents", () => {
+    const actor = makeActor("platform_admin");
+    expect(policy.check("document:upload", actor, defaultContext)).toBe(true);
+    expect(policy.check("document:read", actor, defaultContext)).toBe(true);
+  });
+
+  it("denies reserved support role document actions", () => {
+    for (const role of ["support_agent"]) {
       const actor = makeActor(role);
       expect(policy.check("document:upload", actor, defaultContext)).toBe(
         false,

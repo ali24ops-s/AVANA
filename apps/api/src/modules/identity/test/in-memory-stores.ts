@@ -2,9 +2,10 @@
  * In-memory implementations of SessionStore and UserStore for testing.
  */
 
-import type { UserId } from "@avana/domain";
+import { resolveEffectiveRole, type UserId } from "@avana/domain";
 import type { SessionRecord, SessionStore } from "../session-store.js";
 import type { UserRecord, UserStore } from "../user-store.js";
+import type { OrganizationStore } from "../../organizations/organization-store.js";
 import { randomUUID } from "node:crypto";
 
 import type {
@@ -73,13 +74,34 @@ export class InMemorySessionStore implements SessionStore {
 
 export class InMemoryUserStore implements UserStore {
   private users: Map<string, UserRecord & { passwordHash?: string | null }> = new Map();
+  private organizationStore?: OrganizationStore;
+
+  constructor(organizationStore?: OrganizationStore) {
+    this.organizationStore = organizationStore;
+  }
+
+  setOrganizationStore(orgStore: OrganizationStore): void {
+    this.organizationStore = orgStore;
+  }
+
+  private async resolveRole(userId: UserId, fallbackRole: string): Promise<string> {
+    if (this.organizationStore) {
+      const memberships = await this.organizationStore.listMembershipsByUserId(userId);
+      if (memberships.length > 0) {
+        const roles = memberships.map((m) => m.role);
+        return resolveEffectiveRole(roles);
+      }
+    }
+    return fallbackRole;
+  }
 
   async findByEmail(email: string): Promise<UserRecord | undefined> {
     const norm = email.trim().toLowerCase();
     for (const user of this.users.values()) {
       if (user.email.trim().toLowerCase() === norm) {
         const { passwordHash: _, ...rest } = user;
-        return rest;
+        const role = await this.resolveRole(user.id, rest.role);
+        return { ...rest, role };
       }
     }
     return undefined;
@@ -90,7 +112,10 @@ export class InMemoryUserStore implements UserStore {
   ): Promise<(UserRecord & { passwordHash?: string | null }) | undefined> {
     const norm = email.trim().toLowerCase();
     for (const user of this.users.values()) {
-      if (user.email.trim().toLowerCase() === norm) return { ...user };
+      if (user.email.trim().toLowerCase() === norm) {
+        const role = await this.resolveRole(user.id, user.role);
+        return { ...user, role };
+      }
     }
     return undefined;
   }
@@ -99,7 +124,8 @@ export class InMemoryUserStore implements UserStore {
     const user = this.users.get(id);
     if (!user) return undefined;
     const { passwordHash: _, ...rest } = user;
-    return rest;
+    const role = await this.resolveRole(user.id, rest.role);
+    return { ...rest, role };
   }
 
   async createFromVerifiedIdentity(identity: {

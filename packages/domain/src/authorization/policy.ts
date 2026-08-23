@@ -136,30 +136,35 @@ export interface AuthorizationPolicy {
  *
  * Permission matrix:
  *
- * | Action                    | student | course_editor | org_admin |
- * |---------------------------|---------|---------------|-----------|
- * | org:read                  | ✓       | ✓             | ✓         |
- * | org:update                | ✗       | ✗             | ✓         |
- * | org:delete                | ✗       | ✗             | ✗         |
- * | org:list_members          | ✗       | ✗             | ✓         |
- * | org:manage_memberships    | ✗       | ✗             | ✓         |
- * | course:create             | ✓       | ✓             | ✓         |
- * | course:read               | ✓       | ✓             | ✓         |
- * | course:update             | ✗       | ✓             | ✓         |
- * | course:archive            | ✗       | ✗             | ✓         |
- * | course:delete             | ✗       | ✗             | ✗         |
- * | course:manage_memberships | ✗       | ✗             | ✓         |
- * | learning:read             | ✓       | ✓             | ✓         |
- * | progress:write            | ✓       | ✓             | ✓         |
- * | progress:read             | ✓       | ✓             | ✓         |
- * | content:write             | ✗       | ✓             | ✓         |
- * | content:publish           | ✗       | ✓             | ✓         |
- * | content:generate          | ✓       | ✓             | ✓         |
- * | content:review            | ✓       | ✓             | ✓         |
- * | content:accept            | ✗       | ✓             | ✓         |
- * | content:reject            | ✗       | ✓             | ✓         |
- * | content:regenerate        | ✗       | ✓             | ✓         |
- * | content:edit              | ✗       | ✓             | ✓         |
+ * | Action                    | student | course_editor | org_admin | platform_admin |
+ * |---------------------------|---------|---------------|-----------|----------------|
+ * | org:read                  | ✓       | ✓             | ✓         | ✓              |
+ * | org:update                | ✗       | ✗             | ✓         | ✓              |
+ * | org:delete                | ✗       | ✗             | ✗         | ✓              |
+ * | org:list_members          | ✗       | ✗             | ✓         | ✓              |
+ * | org:manage_memberships    | ✗       | ✗             | ✓         | ✓              |
+ * | course:create             | ✓       | ✓             | ✓         | ✓              |
+ * | course:read               | ✓       | ✓             | ✓         | ✓              |
+ * | course:update             | ✗       | ✓             | ✓         | ✓              |
+ * | course:archive            | ✗       | ✗             | ✓         | ✓              |
+ * | course:delete             | ✗       | ✗             | ✗         | ✓              |
+ * | course:manage_memberships | ✗       | ✗             | ✓         | ✓              |
+ * | learning:read             | ✓       | ✓             | ✓         | ✓              |
+ * | progress:write            | ✓       | ✓             | ✓         | ✓              |
+ * | progress:read             | ✓       | ✓             | ✓         | ✓              |
+ * | content:write             | ✗       | ✓             | ✓         | ✓              |
+ * | content:publish           | ✗       | ✓             | ✓         | ✓              |
+ * | document:upload           | ✓       | ✓             | ✓         | ✓              |
+ * | document:read             | ✓       | ✓             | ✓         | ✓              |
+ * | content:generate          | ✓       | ✓             | ✓         | ✓              |
+ * | content:review            | ✓       | ✓             | ✓         | ✓              |
+ * | content:accept            | ✗       | ✓             | ✓         | ✓              |
+ * | content:reject            | ✗       | ✓             | ✓         | ✓              |
+ * | content:regenerate        | ✗       | ✓             | ✓         | ✓              |
+ * | content:edit              | ✗       | ✓             | ✓         | ✓              |
+ * | flashcard:review          | ✓       | ✓             | ✓         | ✓              |
+ * | quiz:attempt              | ✓       | ✓             | ✓         | ✓              |
+ * | study:read                | ✓       | ✓             | ✓         | ✓              |
  *
  * org:create is handled specially — any authenticated user can create
  * an organization (they become the admin).
@@ -260,9 +265,43 @@ export class RoleBasedPolicy implements AuthorizationPolicy {
       ]),
     );
 
-    // Higher roles are reserved and receive no Sprint 1 permissions.
+    // Platform admin permissions (top-level superuser role with full platform permissions)
+    this.rolePermissions.set(
+      "platform_admin",
+      new Set([
+        "org:create",
+        "org:read",
+        "org:update",
+        "org:delete",
+        "org:list_members",
+        "org:manage_memberships",
+        "course:create",
+        "course:read",
+        "course:update",
+        "course:archive",
+        "course:delete",
+        "course:manage_memberships",
+        "learning:read",
+        "progress:write",
+        "progress:read",
+        "content:write",
+        "content:publish",
+        "document:upload",
+        "document:read",
+        "content:generate",
+        "content:review",
+        "content:accept",
+        "content:reject",
+        "content:regenerate",
+        "content:edit",
+        "flashcard:review",
+        "quiz:attempt",
+        "study:read",
+      ]),
+    );
+
+    // Reserved support role
     this.rolePermissions.set("support_agent", new Set());
-    this.rolePermissions.set("platform_admin", new Set());
   }
 
   require(action: AuthAction, actor: Actor, _context: AuthContext): void {
