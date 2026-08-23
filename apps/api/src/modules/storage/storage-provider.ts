@@ -62,4 +62,7 @@ export interface StorageProvider {
 
   /** Read the object bytes at the given storage key. */
   read(storageKey: string): Promise<Buffer>;
+
+  /** Stream the object bytes at the given storage key. */
+  readStream?(storageKey: string): Promise<NodeJS.ReadableStream>;
 }

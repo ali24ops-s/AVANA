@@ -747,6 +747,113 @@ export class DocumentService {
   }
 
   /**
+   * Delete a document bypassing organization membership checks (Admin only).
+   */
+  async adminDeleteDocument(
+    actor: Actor,
+    organizationId: OrganizationId,
+    documentId: DocumentId,
+  ): Promise<void> {
+    if (actor.role !== "platform_admin") {
+      throw new DomainError("forbidden", "Only platform admins can use this operation");
+    }
+
+    const doc = await this.store.findByIdForOrganization(
+      documentId,
+      organizationId,
+    );
+    if (!doc) {
+      throw new DomainError("not_found", "Document not found");
+    }
+
+    // Remove the file from storage (best-effort; idempotent).
+    await this.storageProvider.delete(doc.storageKey);
+
+    // Clean up extracted chunks for this document (source-owned data).
+    if (this.chunkStore) {
+      await this.chunkStore.deleteByDocument(documentId);
+    }
+
+    // Clean up unaccepted generated content drafts.
+    if (this.generatedContentStore) {
+      await this.generatedContentStore.deleteByDocument(documentId, organizationId);
+    }
+
+    // Clean up generation jobs for this document.
+    if (this.generationJobStore) {
+      await this.generationJobStore.deleteByDocument(documentId, organizationId);
+    }
+
+    // Clean up associated flashcards and quizzes if stores are available.
+    if (this.flashcardStore) {
+      await this.flashcardStore.deleteByDocument(documentId, organizationId);
+    }
+    if (this.quizStore) {
+      await this.quizStore.deleteByDocument(documentId, organizationId);
+    }
+
+    // Soft-delete the metadata row.
+    await this.store.delete(documentId);
+
+    if (this.auditService) {
+      await this.auditService.emit([
+        auditDocumentDeleted(
+          actor.userId,
+          organizationId,
+          documentId,
+          doc.courseId ?? "",
+        ),
+      ]);
+    }
+  }
+
+  /**
+   * Download a document bypassing organization membership checks (Admin only).
+   * Streams the document instead of loading it entirely into memory.
+   */
+  async adminDownloadDocument(
+    actor: Actor,
+    organizationId: OrganizationId,
+    documentId: DocumentId,
+  ): Promise<{ stream: NodeJS.ReadableStream; sizeBytes: number; mimeType: string; originalName: string }> {
+    if (actor.role !== "platform_admin") {
+      throw new DomainError("forbidden", "Only platform admins can use this operation");
+    }
+
+    const doc = await this.store.findByIdForOrganization(
+      documentId,
+      organizationId,
+    );
+    if (!doc) {
+      throw new DomainError("not_found", "Document not found");
+    }
+
+    try {
+      let stream: NodeJS.ReadableStream;
+      if (this.storageProvider.readStream) {
+        stream = await this.storageProvider.readStream(doc.storageKey);
+      } else {
+        const data = await this.storageProvider.read(doc.storageKey);
+        // Fallback for providers that don't implement stream
+        const { Readable } = await import("node:stream");
+        stream = Readable.from(data);
+      }
+
+      return {
+        stream,
+        sizeBytes: doc.sizeBytes,
+        mimeType: doc.mimeType,
+        originalName: doc.originalName,
+      };
+    } catch (err: any) {
+      if (err.code === "ENOENT") {
+        throw new DomainError("not_found", "Document file not found in storage");
+      }
+      throw err;
+    }
+  }
+
+  /**
    * Soft-delete a document and remove its file from storage and source-owned data (chunks).
    *
    * Authorization: requires document:read. Non-disclosing 404 if the

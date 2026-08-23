@@ -94,6 +94,7 @@ export function createAdminApi(client: {
   get: <T>(path: string, options?: any) => Promise<T>;
   post: <T>(path: string, data?: any, options?: any) => Promise<T>;
   patch: <T>(path: string, data?: any, options?: any) => Promise<T>;
+  delete: <T>(path: string, options?: any) => Promise<T>;
 }) {
   return {
     async getDashboardStats(): Promise<DashboardStats> {
@@ -142,6 +143,12 @@ export function createAdminApi(client: {
     async retryGenerationJob(jobId: string): Promise<{ success: boolean }> {
       return client.post<{ success: boolean }>(`/v1/admin/generation/${jobId}/retry`);
     },
+    async deleteDocument(documentId: string): Promise<void> {
+      return client.delete(`/v1/admin/documents/${documentId}`);
+    },
+    getDownloadUrl(documentId: string): string {
+      return `${getApiBaseUrl()}/v1/admin/documents/${documentId}/download`;
+    },
   };
 }
 
@@ -151,4 +158,5 @@ const rawClient = createApiClient({ baseUrl: getApiBaseUrl() });
 export const api = {
   get: <T>(path: string, options?: any) => rawClient.get<T>(`/v1${path}`, options),
   post: <T>(path: string, data?: any, options?: any) => rawClient.post<T>(`/v1${path}`, data, options),
+  delete: <T>(path: string, options?: any) => rawClient.delete<T>(`/v1${path}`, options),
 };

@@ -67,7 +67,21 @@ describe("Platform Admin Authorization Regression Tests", () => {
     chunkStore = new InMemoryDocumentChunkStore();
     auditStore = new InMemoryAuditStore();
     auditService = new AuditService(auditStore);
-    adminStore = new InMemoryAdminStore();
+    adminStore = new (class extends InMemoryAdminStore {
+      async getDocument(id: string) {
+        const doc = documentStore.getAll().find(d => d.id === id);
+        if (!doc) return null;
+        return {
+          id: doc.id,
+          organizationId: doc.organizationId,
+          status: doc.status,
+          originalName: doc.originalName,
+          mimeType: doc.mimeType,
+          sizeBytes: doc.sizeBytes,
+          createdAt: doc.createdAt,
+        } as any;
+      }
+    })();
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "avana-test-reg-"));
     storage = new LocalStorageProvider(tempDir);
   });
@@ -254,6 +268,116 @@ describe("Platform Admin Authorization Regression Tests", () => {
       cookies: { avana_session: teacherToken },
     });
     expect(adminDashboardRes.statusCode).toBe(403);
+
+    await app.close();
+  });
+
+  it("platform_admin can download and delete documents without org membership", async () => {
+    const app = await buildApp();
+
+    const { token: adminToken } = await createAuthenticatedUser(app, "admin@avana.test", "platform_admin");
+    const { token: studentToken } = await createAuthenticatedUser(app, "student@avana.test", "student");
+
+    // Student creates org so admin is NOT a member
+    const orgRes = await app.inject({
+      method: "POST",
+      url: "/v1/organizations",
+      cookies: { avana_session: studentToken },
+      payload: { name: "Student Org" },
+    });
+    const org = (orgRes.json() as any).organization;
+
+    // Student uploads document
+    await app.inject({
+      method: "POST",
+      url: `/v1/organizations/${org.id}/documents/upload-intent`,
+      cookies: { avana_session: studentToken },
+      payload: { original_name: "test.txt", mime_type: "text/plain", size_bytes: 100 },
+    });
+
+    const boundary = "------------------------testboundary";
+    const body = Buffer.from(
+      `--${boundary}\r\n` +
+      `Content-Disposition: form-data; name="file"; filename="test.txt"\r\n` +
+      `Content-Type: text/plain\r\n\r\n` +
+      `test content\r\n` +
+      `--${boundary}--\r\n`
+    );
+
+    const createDocRes = await app.inject({
+      method: "POST",
+      url: `/v1/organizations/${org.id}/documents`,
+      cookies: { avana_session: studentToken },
+      headers: { "Content-Type": `multipart/form-data; boundary=${boundary}` },
+      payload: body,
+    });
+    
+    const doc = createDocRes.json() as any;
+    const docId = doc.document?.id || doc.id;
+
+    // 1. Platform Admin Download -> 200
+    const downloadRes = await app.inject({
+      method: "GET",
+      url: `/v1/admin/documents/${docId}/download`,
+      cookies: { avana_session: adminToken },
+    });
+    expect(downloadRes.statusCode).toBe(200);
+    expect(downloadRes.headers["content-disposition"]).toContain("test.txt");
+
+    // 3. Student Admin Download -> 403
+    const studentDownloadRes = await app.inject({
+      method: "GET",
+      url: `/v1/admin/documents/${docId}/download`,
+      cookies: { avana_session: studentToken },
+    });
+    expect(studentDownloadRes.statusCode).toBe(403);
+
+    // 4. Student Admin Delete -> 403
+    const studentDeleteRes = await app.inject({
+      method: "DELETE",
+      url: `/v1/admin/documents/${docId}`,
+      cookies: { avana_session: studentToken },
+    });
+    expect(studentDeleteRes.statusCode).toBe(403);
+
+    // 2. Platform Admin Delete -> 204
+    const adminDeleteRes = await app.inject({
+      method: "DELETE",
+      url: `/v1/admin/documents/${docId}`,
+      cookies: { avana_session: adminToken },
+    });
+    expect(adminDeleteRes.statusCode).toBe(204);
+
+    // 5. Deleted document Admin Download -> 404
+    const notFoundDownload = await app.inject({
+      method: "GET",
+      url: `/v1/admin/documents/${docId}/download`,
+      cookies: { avana_session: adminToken },
+    });
+    expect(notFoundDownload.statusCode).toBe(404);
+
+    // 6. Non-existent document -> 404
+    const nonExistentId = "00000000-0000-0000-0000-000000000000";
+    const nonExistentDownload = await app.inject({
+      method: "GET",
+      url: `/v1/admin/documents/${nonExistentId}/download`,
+      cookies: { avana_session: adminToken },
+    });
+    expect(nonExistentDownload.statusCode).toBe(404);
+
+    // 7. Storage file missing but DB record present -> 404
+    // Restore the document in DB for testing
+    const docRecord = documentStore.getAll().find(d => d.id === docId);
+    if (docRecord) {
+      docRecord.deletedAt = null; // Un-delete
+    }
+    // Storage is already deleted by adminDeleteRes
+    const missingStorageDownload = await app.inject({
+      method: "GET",
+      url: `/v1/admin/documents/${docId}/download`,
+      cookies: { avana_session: adminToken },
+    });
+    expect(missingStorageDownload.statusCode).toBe(404);
 
     await app.close();
   });

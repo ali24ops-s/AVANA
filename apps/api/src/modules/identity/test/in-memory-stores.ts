@@ -89,7 +89,7 @@ export class InMemoryUserStore implements UserStore {
       const memberships = await this.organizationStore.listMembershipsByUserId(userId);
       if (memberships.length > 0) {
         const roles = memberships.map((m) => m.role);
-        return resolveEffectiveRole(roles);
+        return resolveEffectiveRole([...roles as any[], fallbackRole]);
       }
     }
     return fallbackRole;

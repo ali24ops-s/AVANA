@@ -12,6 +12,7 @@ import { Roles } from "@avana/domain";
 export interface AdminRouteOptions extends AuthMiddlewareDeps {
   adminStore: AdminStore;
   documentProcessingService?: any;
+  documentService?: any;
   generationQueue?: any;
   generationJobStore?: any;
 }
@@ -93,6 +94,72 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
     } catch (error) {
       request.log.error({ err: error }, "Failed to get document");
       return reply.status(500).send({ code: "internal_error" });
+    }
+  });
+
+  app.delete("/documents/:id", async (request, reply) => {
+    try {
+      const user = (request as unknown as { user: { userId: string; email: string; role: string } }).user;
+      const params = request.params as { id: string };
+      
+      const doc = await opts.adminStore.getDocument(params.id);
+      if (!doc) return reply.status(404).send({ code: "not_found" });
+      
+      if (!opts.documentService) {
+        return reply.status(500).send({ code: "internal_error", message: "DocumentService not available" });
+      }
+
+      await opts.documentService.adminDeleteDocument(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        { userId: user.userId, role: user.role as any },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        doc.organizationId as any,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        params.id as any
+      );
+
+      reply.code(204);
+      return;
+    } catch (error: any) {
+      request.log.error({ err: error }, "Failed to delete document");
+      return reply.status(500).send({ code: "internal_error", message: error.message });
+    }
+  });
+
+  app.get("/documents/:id/download", async (request, reply) => {
+    try {
+      const user = (request as unknown as { user: { userId: string; email: string; role: string } }).user;
+      const params = request.params as { id: string };
+      
+      const doc = await opts.adminStore.getDocument(params.id);
+      if (!doc) return reply.status(404).send({ code: "not_found" });
+      
+      if (!opts.documentService) {
+        return reply.status(500).send({ code: "internal_error", message: "DocumentService not available" });
+      }
+
+
+      const { stream, sizeBytes, mimeType, originalName } = await opts.documentService.adminDownloadDocument(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        { userId: user.userId, role: user.role as any },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        doc.organizationId as any,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        params.id as any
+      );
+
+      reply
+        .header("Content-Type", mimeType)
+        .header("Content-Disposition", `attachment; filename="${originalName}"`)
+        .header("Content-Length", sizeBytes)
+        .header("Cache-Control", "private, max-age=3600")
+        .send(stream);
+    } catch (error: any) {
+      request.log.error({ err: error }, "Failed to download document");
+      if (error.code === "not_found" || error.message === "Document not found") {
+        return reply.status(404).send({ code: "not_found" });
+      }
+      return reply.status(500).send({ code: "internal_error", message: error.message });
     }
   });
 

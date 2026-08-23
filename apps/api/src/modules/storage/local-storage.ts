@@ -11,6 +11,7 @@
  */
 
 import fs from "node:fs/promises";
+import { createReadStream } from "node:fs";
 import path from "node:path";
 import type {
   StorageProvider,
@@ -79,5 +80,14 @@ export class LocalStorageProvider implements StorageProvider {
   async read(storageKey: string): Promise<Buffer> {
     const filePath = this.resolvePath(storageKey);
     return fs.readFile(filePath);
+  }
+
+  async readStream(storageKey: string): Promise<NodeJS.ReadableStream> {
+    const filePath = this.resolvePath(storageKey);
+    // Explicitly check for file existence so we can throw the same error type
+    // or let the stream error be handled. A stream throws on next tick for ENOENT,
+    // but the API prefers an immediate rejection if the file doesn't exist.
+    await fs.access(filePath);
+    return createReadStream(filePath);
   }
 }

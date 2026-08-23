@@ -57,6 +57,7 @@ import type {
 import type { AdminStore } from "../modules/admin/admin-store.js";
 import { adminRoutes } from "../modules/admin/index.js";
 import { DocumentProcessingService } from "../modules/documents/document-processing-service.js";
+import { DocumentService } from "../modules/documents/document-service.js";
 
 export interface V1RouteOptions {
   config: IdentityPluginOptions["config"];
@@ -389,6 +390,7 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       userStore: opts.userStore,
       adminStore: opts.adminStore,
       documentProcessingService: opts.documentStore && opts.documentChunkStore && opts.storageProvider ? new DocumentProcessingService(opts.documentStore, opts.documentChunkStore, opts.storageProvider, defaultPolicy, opts.auditService, opts.organizationStore) : undefined,
+      documentService: opts.documentStore && opts.storageProvider && opts.organizationStore ? new DocumentService(opts.documentStore, opts.storageProvider, opts.organizationStore, defaultPolicy, opts.auditService, opts.documentChunkStore, opts.generatedContentStore, opts.generationJobStore, opts.flashcardStore, opts.quizStore, opts.courseStore, opts.moduleStore, opts.lessonStore) : undefined,
       generationQueue: opts.queue,
       generationJobStore: opts.generationJobStore,
     });

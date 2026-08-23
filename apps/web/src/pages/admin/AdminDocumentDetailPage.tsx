@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { api } from "../../lib/api/admin";
 import { useAdmin } from "../../hooks/useAdmin.js";
 import { useMutation } from "@tanstack/react-query";
 import { AdminStatusBadge, AdminConfirmModal } from "../../components/admin/AdminUI";
-import { ArrowRight, FileText, HardDrive, User, Calendar, AlertTriangle, RefreshCw } from "lucide-react";
+import { ArrowRight, FileText, HardDrive, User, Calendar, AlertTriangle, RefreshCw, Download, Trash2 } from "lucide-react";
 
 interface DocumentDetail {
   id: string;
@@ -15,10 +15,13 @@ interface DocumentDetail {
   createdAt: string;
   courseName?: string;
   ownerEmail?: string;
+  errorCode?: string | null;
+  retryCount?: number;
 }
 
 export function AdminDocumentDetailPage() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const adminApi = useAdmin();
   const [doc, setDoc] = useState<DocumentDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -41,6 +44,32 @@ export function AdminDocumentDetailPage() {
       alert("خطا در تلاش مجدد: " + err.message);
     }
   });
+
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const deleteMutation = useMutation({
+    mutationFn: async () => {
+      if (!id) throw new Error("No ID");
+      return adminApi.deleteDocument(id);
+    },
+    onSuccess: () => {
+      setIsDeleteModalOpen(false);
+      navigate("/admin/documents");
+    },
+    onError: (err: any) => {
+      alert("خطا در حذف فایل: " + err.message);
+    }
+  });
+
+  const handleDownload = () => {
+    if (!id) return;
+    const url = adminApi.getDownloadUrl(id);
+    const a = window.document.createElement("a");
+    a.href = url;
+    a.download = doc?.originalName || "document";
+    window.document.body.appendChild(a);
+    a.click();
+    window.document.body.removeChild(a);
+  };
 
   useEffect(() => {
     const fetchDoc = async () => {
@@ -77,12 +106,26 @@ export function AdminDocumentDetailPage() {
         {(doc.status === 'failed' || doc.status === 'error') && (
           <button 
             onClick={() => setIsRetryModalOpen(true)}
-            className="mr-auto flex items-center gap-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 px-4 py-2 rounded-lg text-sm transition-colors"
+            className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 px-4 py-2 rounded-lg text-sm transition-colors"
           >
             <RefreshCw className="w-4 h-4" />
-            تلاش مجدد (Retry)
+            تلاش مجدد
           </button>
         )}
+        <button 
+          onClick={handleDownload}
+          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm transition-colors"
+        >
+          <Download className="w-4 h-4" />
+          دانلود فایل
+        </button>
+        <button 
+          onClick={() => setIsDeleteModalOpen(true)}
+          className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm transition-colors mr-auto"
+        >
+          <Trash2 className="w-4 h-4" />
+          حذف سند
+        </button>
       </div>
 
       <AdminConfirmModal
@@ -93,6 +136,25 @@ export function AdminDocumentDetailPage() {
         onCancel={() => setIsRetryModalOpen(false)}
         onConfirm={() => retryMutation.mutate()}
       />
+
+      <AdminConfirmModal
+        isOpen={isDeleteModalOpen}
+        title="حذف سند"
+        description="آیا از حذف این سند اطمینان دارید؟ با حذف فایل، تمامی چانک‌ها و اطلاعات استخراج شده مرتبط با آن نیز حذف خواهند شد. این عملیات قابل بازگشت نیست."
+        isProcessing={deleteMutation.isPending}
+        onCancel={() => setIsDeleteModalOpen(false)}
+        onConfirm={() => deleteMutation.mutate()}
+      />
+
+      {doc.errorCode && (
+        <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-4 rounded-xl flex items-start gap-3">
+          <AlertTriangle className="w-5 h-5 mt-0.5 shrink-0" />
+          <div>
+            <h3 className="font-medium text-red-300">خطا در پردازش فایل</h3>
+            <p className="text-sm mt-1">کد خطا: {doc.errorCode}</p>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="glass-panel p-6 rounded-2xl border border-white/5 space-y-4">
