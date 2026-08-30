@@ -49,10 +49,17 @@ export class QualityAnalyzer {
         emptyPages++;
       }
       
-      // Count unicode replacement characters and control characters (excluding newline/tab)
-      const corruptedMatch = text.match(/[\uFFFD\u0000-\u0008\u000B-\u000C\u000E-\u001F]/g);
-      if (corruptedMatch) {
-        corruptedChars += corruptedMatch.length;
+      // Count unicode replacement characters and control characters (excluding newline \x0A and tab \x09)
+      for (let i = 0; i < text.length; i++) {
+        const code = text.charCodeAt(i);
+        if (
+          code === 0xfffd ||
+          (code >= 0x00 && code <= 0x08) ||
+          (code >= 0x0b && code <= 0x0c) ||
+          (code >= 0x0e && code <= 0x1f)
+        ) {
+          corruptedChars++;
+        }
       }
     }
 
@@ -88,7 +95,7 @@ export class QualityAnalyzer {
 
     // 5. Garbage / Noise Health (15%)
     let noiseHealth = 100;
-    let noiseWarnings: string[] = [];
+    const noiseWarnings: string[] = [];
     
     if (totalChars > 0) {
       const combinedText = result.pages.map(p => p.rawText).join("\n");
@@ -120,7 +127,7 @@ export class QualityAnalyzer {
 
     // Calculate Base Score (Max 100)
     // We weight Density (60) and Coverage (40) as the foundational quality of the text
-    let baseScore = (pageCoverage * 0.4) + (textDensity * 0.6);
+    const baseScore = (pageCoverage * 0.4) + (textDensity * 0.6);
 
     // Apply Severe Penalties for Garbage/Noise/Corruption
     let penalty = 0;

@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * ArvanCloudModelGateway unit tests.
  *
@@ -18,6 +17,7 @@
 
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { DomainError } from "@avana/domain";
+import type { OrganizationId, DocumentId } from "@avana/domain";
 import {
   ArvanCloudModelGateway,
   DEFAULT_ARVANCLOUD_MODEL,
@@ -41,8 +41,8 @@ function createMockCompletionRequest(
       { role: "user", content: "Generate 1 lesson about Beta Blockers." },
     ],
     correlationId: "corr-arvan-1",
-    organizationId: "org-test-1" as any,
-    documentId: "doc-test-1" as any,
+    organizationId: "org-test-1" as OrganizationId,
+    documentId: "doc-test-1" as DocumentId,
     ...overrides,
   };
 }
@@ -123,13 +123,13 @@ describe("ArvanCloudModelGateway Unit Tests", () => {
     let capturedUrl = "";
     let capturedMethod = "";
     let capturedHeaders: Record<string, string> = {};
-    let capturedBody: any = null;
+    let capturedBody: { model?: string; messages?: Array<{ role: string; content: string }> } = {};
 
     const mockFetch = vi.fn().mockImplementation(async (url: string, opts: RequestInit) => {
       capturedUrl = url;
       capturedMethod = opts.method || "GET";
       capturedHeaders = (opts.headers || {}) as Record<string, string>;
-      capturedBody = JSON.parse(opts.body as string);
+      capturedBody = JSON.parse(opts.body as string) as { model?: string; messages?: Array<{ role: string; content: string }> };
 
       const fakeData = mockOpenAIResponse(
         JSON.stringify({
@@ -164,8 +164,8 @@ describe("ArvanCloudModelGateway Unit Tests", () => {
 
     expect(capturedBody.model).toBe("DeepSeek-V4-Flash");
     expect(capturedBody.messages).toHaveLength(2);
-    expect(capturedBody.messages[0].role).toBe("system");
-    expect(capturedBody.messages[1].role).toBe("user");
+    expect(capturedBody.messages?.[0]?.role).toBe("system");
+    expect(capturedBody.messages?.[1]?.role).toBe("user");
 
     expect(result.model).toBe("DeepSeek-V4-Flash");
     expect(result.usage.inputTokens).toBe(55);
@@ -178,23 +178,23 @@ describe("ArvanCloudModelGateway Unit Tests", () => {
     let capturedAuth = "";
 
     const mockFetch = vi.fn().mockImplementation(async (_url: string, opts: RequestInit) => {
-      capturedAuth = (opts.headers as any)["Authorization"];
+      capturedAuth = (opts.headers as Record<string, string>)?.["Authorization"] ?? "";
       return new Response(JSON.stringify(mockOpenAIResponse("output 1")), { status: 200 });
     });
 
     const gw = new ArvanCloudModelGateway({
       apiKey: FAKE_MACHINE_USER_KEY,
       authScheme: "Bearer",
-      fetchFn: mockFetch as any,
+      fetchFn: mockFetch as unknown as typeof fetch,
     });
     await gw.complete(createMockCompletionRequest());
     expect(capturedAuth).toBe(`Bearer ${FAKE_MACHINE_USER_KEY}`);
   });
 
   it("applies response_format: { type: 'json_object' } when jsonSchema is requested", async () => {
-    let capturedBody: any = null;
+    let capturedBody: { response_format?: { type: string } } = {};
     const mockFetch = vi.fn().mockImplementation(async (_url: string, opts: RequestInit) => {
-      capturedBody = JSON.parse(opts.body as string);
+      capturedBody = JSON.parse(opts.body as string) as { response_format?: { type: string } };
       return new Response(
         JSON.stringify(
           mockOpenAIResponse(
@@ -306,10 +306,11 @@ describe("ArvanCloudModelGateway Unit Tests", () => {
     try {
       await gateway.complete(createMockCompletionRequest());
       expect.fail("Should have thrown DomainError");
-    } catch (err: any) {
+    } catch (err: unknown) {
       expect(err).toBeInstanceOf(DomainError);
-      expect(err.code).toBe("rate_limit_exceeded");
-      expect(err.message).toContain("retry after 30");
+      const domainErr = err as DomainError;
+      expect(domainErr.code).toBe("rate_limit_exceeded");
+      expect(domainErr.message).toContain("retry after 30");
     }
   });
 
@@ -364,9 +365,7 @@ describe("ArvanCloudModelGateway Unit Tests", () => {
   });
 
   it("redacts API key from all network error messages and logs", async () => {
-    let attempts = 0;
     const mockFetch = vi.fn().mockImplementation(async () => {
-      attempts++;
       throw new Error(`Failed to connect to https://arvancloudai.ir/gateway/models/DeepSeek-V4-Flash/auth/${FAKE_MACHINE_USER_KEY}/v1`);
     });
 
@@ -378,13 +377,14 @@ describe("ArvanCloudModelGateway Unit Tests", () => {
     try {
       await gateway.complete(createMockCompletionRequest());
       expect.fail("Should have thrown network error");
-    } catch (err: any) {
-      expect(err.message).toContain("[REDACTED]");
-      expect(err.message).not.toContain(FAKE_MACHINE_USER_KEY);
+    } catch (err: unknown) {
+      const error = err as Error;
+      expect(error.message).toContain("[REDACTED]");
+      expect(error.message).not.toContain(FAKE_MACHINE_USER_KEY);
     }
   }, 10000);
 
-  it("instantiates ArvanCloudModelGateway via createModelGateway with AI_PRIMARY_PROVIDER=arvancloud", () => {
+  it("instantiates ArvanCloudModelGateway via createModelGateway when provider is arvancloud", () => {
     process.env.AI_PRIMARY_PROVIDER = "arvancloud";
     process.env.ARVANCLOUD_API_KEY = FAKE_MACHINE_USER_KEY;
     const gateway = createModelGateway();
