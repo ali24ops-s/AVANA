@@ -40,6 +40,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Build internal packages
+        run: npm run build --workspace=@avana/contracts --workspace=@avana/domain
+
       - name: Type check frontend
         run: npm run type-check --workspace=@avana/web
 
