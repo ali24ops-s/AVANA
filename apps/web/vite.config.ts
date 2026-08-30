@@ -1,8 +1,9 @@
+import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import { viteSingleFile } from "vite-plugin-singlefile";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -10,11 +11,47 @@ const __dirname = path.dirname(__filename);
 
 const isDev = process.env.NODE_ENV !== "production";
 
+// GitHub Pages uses repository name as subpath: /<repo-name>/
+// Remote repository is 'AVANA', so default base for production is '/AVANA/' unless overridden by env
+const base =
+  process.env.BASE_PATH ||
+  process.env.VITE_BASE_PATH ||
+  process.env.BASE_URL ||
+  (isDev ? "/" : "/AVANA/");
+
+/**
+ * Plugin to duplicate index.html to 404.html and create .nojekyll in production dist
+ * to guarantee SPA routing works on direct refresh in GitHub Pages without Jekyll processing.
+ */
+function githubPagesSpaPlugin(): Plugin {
+  return {
+    name: "github-pages-spa-plugin",
+    closeBundle() {
+      const distDir = path.resolve(__dirname, "dist");
+      const indexPath = path.join(distDir, "index.html");
+      const notFoundPath = path.join(distDir, "404.html");
+      const noJekyllPath = path.join(distDir, ".nojekyll");
+
+      try {
+        if (fs.existsSync(indexPath)) {
+          fs.copyFileSync(indexPath, notFoundPath);
+          fs.writeFileSync(noJekyllPath, "");
+        }
+      } catch (err) {
+        console.warn("Failed to generate 404.html/.nojekyll for GitHub Pages:", err);
+      }
+    },
+  };
+}
+
 // https://vite.dev/config/
 export default defineConfig({
+  base,
   // viteSingleFile is only used in production build mode.
   // In dev it conflicts with the proxy and HMR.
-  plugins: isDev ? [react(), tailwindcss()] : [react(), tailwindcss(), viteSingleFile()],
+  plugins: isDev
+    ? [react(), tailwindcss()]
+    : [react(), tailwindcss(), viteSingleFile(), githubPagesSpaPlugin()],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "src"),

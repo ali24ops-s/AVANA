@@ -31,14 +31,15 @@ export type RequestOptions = {
 /**
  * Get the API base URL for the current environment.
  *
- * Returns an empty string so all API requests use same-origin relative URLs
- * (e.g. /v1/organizations), which go through the Vite dev server proxy
- * in development. In production, requests are same-origin.
- *
- * The Vite proxy (vite.config.ts) forwards /v1/* to the API backend.
+ * Returns configurable VITE_API_BASE_URL / VITE_API_URL if set.
+ * In development, returns an empty string so all API requests use same-origin relative URLs
+ * (e.g. /v1/organizations) through the Vite dev server proxy to the backend.
  */
 export function getApiBaseUrl(): string {
-  return "";
+  const envUrl =
+    (import.meta.env.VITE_API_BASE_URL as string | undefined) ||
+    (import.meta.env.VITE_API_URL as string | undefined);
+  return envUrl ? envUrl.replace(/\/+$/, "") : "";
 }
 
 /**
