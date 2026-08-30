@@ -32,7 +32,7 @@ import type { OrganizationId, DocumentId } from "@avana/domain";
 
 const mockOrgId = "00000000-0000-0000-0000-000000000010" as OrganizationId;
 const mockDocId = "00000000-0000-0000-0000-000000000020" as DocumentId;
-const FAKE_GAPGPT_KEY = "gap_test_secret_key_123456789";
+const FAKE_GAPGPT_KEY = "test-gapgpt-key";
 
 function makeRequest(
   overrides: Partial<CompletionRequest> = {},
@@ -397,7 +397,7 @@ describe("createModelGateway with GapGPT", () => {
     expect(gateway.model).toBe("gpt-5.6-luna");
   });
 
-  it("instantiates GapGPTModelGateway when AI_PROVIDER=gapgpt in process.env", () => {
+  it("instantiates GapGPTModelGateway when AI_PROVIDER is gapgpt in process.env", () => {
     process.env.AI_PROVIDER = "gapgpt";
     process.env.GAPGPT_API_KEY = FAKE_GAPGPT_KEY;
 
@@ -406,7 +406,7 @@ describe("createModelGateway with GapGPT", () => {
     expect(gateway.provider).toBe("gapgpt");
   });
 
-  it("instantiates GapGPTModelGateway when AI_CONTENT_PROVIDER=gapgpt in process.env", () => {
+  it("instantiates GapGPTModelGateway when AI_CONTENT_PROVIDER is gapgpt in process.env", () => {
     process.env.AI_CONTENT_PROVIDER = "gapgpt";
     process.env.AI_PROVIDER = "gemini";
     process.env.GAPGPT_API_KEY = FAKE_GAPGPT_KEY;
@@ -416,7 +416,7 @@ describe("createModelGateway with GapGPT", () => {
     expect(gateway.provider).toBe("gapgpt");
   });
 
-  it("instantiates GapGPTModelGateway when AI_PRIMARY_PROVIDER=gapgpt is configured in process.env", () => {
+  it("instantiates GapGPTModelGateway when AI_PRIMARY_PROVIDER is gapgpt is configured in process.env", () => {
     process.env.AI_PRIMARY_PROVIDER = "gapgpt";
     process.env.GAPGPT_API_KEY = FAKE_GAPGPT_KEY;
 
@@ -426,7 +426,7 @@ describe("createModelGateway with GapGPT", () => {
     expect(gateway.model).toBe("gpt-5.6-luna");
   });
 
-  it("throws DomainError if AI_PROVIDER=gapgpt but GAPGPT_API_KEY is missing", () => {
+  it("throws DomainError if AI_PROVIDER is gapgpt but GAPGPT_API_KEY is missing", () => {
     process.env.AI_PROVIDER = "gapgpt";
     expect(() => createModelGateway()).toThrow(
       "GAPGPT_API_KEY is required when AI_PROVIDER is 'gapgpt'",

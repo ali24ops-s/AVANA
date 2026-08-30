@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * Provider Selection & Safety Tests.
  *
@@ -45,12 +44,12 @@ import {
 } from "../../learning/test/in-memory-stores.js";
 import type { Actor, DocumentId, OrganizationId } from "@avana/domain";
 
-const FAKE_ARVAN_KEY = "arvan_fake_secret_key_123456789";
-const FAKE_GEMINI_KEY = "AIzaSyFakeGeminiApiKey123456789";
-const FAKE_GROQ_KEY = "gsk_fake_groq_api_key_123456789";
-const FAKE_GAPGPT_KEY = "gap_fake_gapgpt_api_key_123456789";
-const FAKE_CF_ACCOUNT = "cf_account_123456789";
-const FAKE_CF_TOKEN = "cf_token_123456789";
+const FAKE_ARVAN_KEY = "test-arvan-key";
+const FAKE_GEMINI_KEY = "test-gemini-key";
+const FAKE_GROQ_KEY = "test-groq-key";
+const FAKE_GAPGPT_KEY = "test-gapgpt-key";
+const FAKE_CF_ACCOUNT = "test-cf-account";
+const FAKE_CF_TOKEN = "test-cf-token";
 
 describe("Provider Selection & Safety Architecture", () => {
   const originalEnv = { ...process.env };
@@ -230,9 +229,9 @@ describe("Provider Selection & Safety Architecture", () => {
       expect(gateway).not.toBeInstanceOf(FallbackModelGateway);
 
       // Inject mock fetch directly into gateway instance for network interception
-      (gateway as any).fetchFn = mockFetch;
+      (gateway as GeminiModelGateway & { fetchFn?: typeof fetch }).fetchFn = mockFetch as unknown as typeof fetch;
 
-      let caughtError: any;
+      let caughtError: unknown;
       try {
         await gateway.complete({
           promptVersion: "v1",
@@ -248,7 +247,8 @@ describe("Provider Selection & Safety Architecture", () => {
       // Assertions: exact Gemini error is thrown, and zero other providers were called
       expect(caughtError).toBeDefined();
       expect(caughtError).toBeInstanceOf(DomainError);
-      expect(caughtError.message).toContain("Gemini API request failed");
+      const err = caughtError as DomainError;
+      expect(err.message).toContain("Gemini API request failed");
       expect(geminiCalls).toBeGreaterThanOrEqual(1);
       expect(gapgptCalls).toBe(0);
       expect(groqCalls).toBe(0);
@@ -642,25 +642,27 @@ describe("Provider Selection & Safety Architecture", () => {
   // Requirement 4: Individual Provider Selections
   // -------------------------------------------------------------------------
   describe("Requirement 4: Individual Provider Selections", () => {
-    it("selects Gemini when AI_PRIMARY_PROVIDER=gemini", () => {
+    it("selects Gemini when AI_PRIMARY_PROVIDER is gemini", () => {
       process.env.AI_PRIMARY_PROVIDER = "gemini";
       process.env.GEMINI_API_KEY = FAKE_GEMINI_KEY;
 
       const gateway = createModelGateway();
       expect(gateway).toBeInstanceOf(GeminiModelGateway);
       expect(gateway.provider).toBe("gemini");
+      expect(gateway.model).toBe("gemini-3.6-flash");
     });
 
-    it("selects GapGPT when AI_PRIMARY_PROVIDER=gapgpt", () => {
+    it("selects GapGPT when AI_PRIMARY_PROVIDER is gapgpt", () => {
       process.env.AI_PRIMARY_PROVIDER = "gapgpt";
       process.env.GAPGPT_API_KEY = FAKE_GAPGPT_KEY;
 
       const gateway = createModelGateway();
       expect(gateway).toBeInstanceOf(GapGPTModelGateway);
       expect(gateway.provider).toBe("gapgpt");
+      expect(gateway.model).toBe("gpt-5.6-luna");
     });
 
-    it("selects Groq when AI_PRIMARY_PROVIDER=groq", () => {
+    it("selects Groq when AI_PRIMARY_PROVIDER is groq", () => {
       process.env.AI_PRIMARY_PROVIDER = "groq";
       process.env.GROQ_API_KEY = FAKE_GROQ_KEY;
 
@@ -669,7 +671,7 @@ describe("Provider Selection & Safety Architecture", () => {
       expect(gateway.provider).toBe("groq");
     });
 
-    it("selects ArvanCloud when AI_PRIMARY_PROVIDER=arvancloud", () => {
+    it("selects ArvanCloud when AI_PRIMARY_PROVIDER is arvancloud", () => {
       process.env.AI_PRIMARY_PROVIDER = "arvancloud";
       process.env.ARVANCLOUD_API_KEY = FAKE_ARVAN_KEY;
 
@@ -679,7 +681,7 @@ describe("Provider Selection & Safety Architecture", () => {
       expect(gateway.model).toBe("DeepSeek-V4-Flash");
     });
 
-    it("selects Cloudflare when AI_PRIMARY_PROVIDER=cloudflare", () => {
+    it("selects Cloudflare when AI_PRIMARY_PROVIDER is cloudflare", () => {
       process.env.AI_PRIMARY_PROVIDER = "cloudflare";
       process.env.CLOUDFLARE_ACCOUNT_ID = FAKE_CF_ACCOUNT;
       process.env.CLOUDFLARE_API_TOKEN = FAKE_CF_TOKEN;

@@ -137,7 +137,7 @@ describe("GroqModelGateway Unit Tests", () => {
   it("formats request correctly with response_format: json_schema strict mode when jsonSchema is provided", async () => {
     let capturedUrl = "";
     let capturedHeaders: Record<string, string> = {};
-    let capturedBody: Record<string, any> = {};
+    let capturedBody: Record<string, unknown> = {};
 
     const mockFetch = vi.fn(async (url: unknown, init?: RequestInit) => {
       capturedUrl = String(url);

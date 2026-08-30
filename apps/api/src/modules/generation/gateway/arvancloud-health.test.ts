@@ -1,10 +1,9 @@
-// @ts-nocheck
 /**
  * Health check & Integration Test for ArvanCloudModelGateway.
  *
  * Design:
  * - Mocked health check runs in all environments (CI / local tests).
- * - Live integration test is conditionally enabled ONLY when RUN_ARVANCLOUD_INTEGRATION_TESTS=true
+ * - Live integration test is conditionally enabled ONLY when RUN_ARVANCLOUD_INTEGRATION_TESTS is true
  *   and ARVANCLOUD_API_KEY / ARVANCLOUD_API_TOKEN is present.
  * - ZERO credential exposure guarantee: API key/token is never logged or exposed in test reports.
  */
@@ -22,13 +21,13 @@ const shouldRunLive =
 
 describe("ArvanCloud Health Check & Diagnostics", () => {
   it("executes simulated health check roundtrip successfully with zero credential leakage", async () => {
-    const fakeKey = "arvan_mock_health_check_key_abc123";
+    const fakeKey = "test-health-key";
     let authHeaderValue = "";
     let requestedUrl = "";
 
     const mockFetch = vi.fn().mockImplementation(async (url: string, opts: RequestInit) => {
       requestedUrl = url;
-      authHeaderValue = (opts.headers as any)?.["Authorization"] || "";
+      authHeaderValue = (opts.headers as Record<string, string>)?.["Authorization"] || "";
       return new Response(
         JSON.stringify({
           id: "chatcmpl-health-check",
