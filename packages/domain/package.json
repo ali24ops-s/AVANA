@@ -7,7 +7,7 @@
   "types": "./src/index.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
+      "types": "./src/index.ts",
       "import": "./dist/index.js",
       "default": "./src/index.ts"
     },
@@ -17,7 +17,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc --build tsconfig.build.json",
+    "build": "tsc --build tsconfig.build.json --force",
     "type-check": "tsc --noEmit",
     "test": "vitest run"
   },

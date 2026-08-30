@@ -9,9 +9,11 @@
       "types": "./client.ts"
     },
     "./schema": {
+      "types": "./schema/index.ts",
       "import": "./schema/index.js",
-      "types": "./schema/index.js"
-    }
+      "default": "./schema/index.ts"
+    },
+    "./package.json": "./package.json"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.2",

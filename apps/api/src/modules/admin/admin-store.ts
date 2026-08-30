@@ -99,7 +99,7 @@ export interface AdminAuditRecord {
   entity: string;
   entityId: string;
   timestamp: string;
-  metadata: any;
+  metadata: Record<string, unknown> | null;
 }
 
 export interface AdminLessonRecord {
@@ -141,6 +141,72 @@ export interface AdminGenerationDetail extends AdminGenerationJobRecord {
   payload?: unknown;
 }
 
+export interface AdminCourseHierarchyLesson {
+  id: string;
+  title: string;
+  publicationStatus: string;
+  flashcardCount: number;
+  quizCount: number;
+  hasContent: boolean;
+  createdAt: string;
+}
+
+export interface AdminCourseHierarchyModule {
+  id: string;
+  title: string;
+  lessons: AdminCourseHierarchyLesson[];
+}
+
+export interface AdminCourseHierarchy {
+  id: string;
+  name: string;
+  subject: string | null;
+  modules: AdminCourseHierarchyModule[];
+}
+
+export interface AdminAnalyticsPeriodStats {
+  newUsers: number;
+  courses: number;
+  lessons: number;
+  flashcards: number;
+  quizzes: number;
+  aiJobs: number;
+  aiSuccess: number;
+  aiFailed: number;
+}
+
+export interface AdminAnalytics {
+  total: {
+    totalUsers: number;
+    totalLessons: number;
+  };
+  today: AdminAnalyticsPeriodStats;
+  last7Days: AdminAnalyticsPeriodStats;
+  last30Days: AdminAnalyticsPeriodStats;
+}
+
+export interface AdminAiAnalyticsOverview {
+  totalJobs: number;
+  successful: number;
+  failed: number;
+  processing: number;
+  successRate: number;
+  averageDurationMs: number;
+}
+
+export interface AdminAiAnalyticsTokens {
+  available: boolean;
+  input: number;
+  output: number;
+  total: number;
+}
+
+export interface AdminAiAnalytics {
+  overview: AdminAiAnalyticsOverview;
+  byType: Record<string, { total: number; success: number }>;
+  tokens: AdminAiAnalyticsTokens;
+}
+
 export interface AdminStore {
   // Phase 1
   getDashboardStats(): Promise<DashboardStats>;
@@ -160,12 +226,12 @@ export interface AdminStore {
   listLessons(params: { page: number; pageSize: number; search?: string }): Promise<{ lessons: AdminLessonRecord[]; totalCount: number }>;
   listFlashcards(params: { page: number; pageSize: number; search?: string }): Promise<{ flashcards: AdminFlashcardRecord[]; totalCount: number }>;
   listExams(params: { page: number; pageSize: number; search?: string }): Promise<{ exams: AdminExamRecord[]; totalCount: number }>;
-  getCourseHierarchy(courseId: string): Promise<any | null>;
+  getCourseHierarchy(courseId: string): Promise<AdminCourseHierarchy | null>;
   getGenerationJob(id: string): Promise<AdminGenerationDetail | null>;
 
   // Phase 3 Analytics
-  getAnalytics(): Promise<any>;
-  getAiAnalytics(): Promise<any>;
+  getAnalytics(): Promise<AdminAnalytics>;
+  getAiAnalytics(): Promise<AdminAiAnalytics>;
 
   // Phase 4: Mutations
   updateUserRole(adminId: string, targetUserId: string, newRole: string): Promise<void>;

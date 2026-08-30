@@ -2,7 +2,7 @@
  * Drizzle-backed implementation of AdminStore.
  */
 
-import { count, eq, sql, gte, ilike, or, desc, isNull, and, inArray } from "drizzle-orm";
+import { count, eq, sql, gte, ilike, or, desc, isNull, isNotNull, and, inArray, type SQL } from "drizzle-orm";
 import type { DbClient } from "@avana/database/client";
 import { randomUUID } from "node:crypto";
 import {
@@ -20,7 +20,25 @@ import {
   organizationMemberships,
 } from "@avana/database/schema";
 import { resolveEffectiveRole, type Role } from "@avana/domain";
-import type { AdminStore, DashboardStats, AdminUsersList, AdminGenerationJobRecord, DataIntegrityReport, AdminCourseRecord, AdminDocumentRecord, AdminSystemHealth, AdminLogRecord, AdminAuditRecord, AdminLessonRecord, AdminFlashcardRecord, AdminExamRecord, AdminGenerationDetail } from "./admin-store.js";
+import type {
+  AdminStore,
+  DashboardStats,
+  AdminUsersList,
+  AdminGenerationJobRecord,
+  DataIntegrityReport,
+  AdminCourseRecord,
+  AdminDocumentRecord,
+  AdminSystemHealth,
+  AdminLogRecord,
+  AdminAuditRecord,
+  AdminLessonRecord,
+  AdminFlashcardRecord,
+  AdminExamRecord,
+  AdminGenerationDetail,
+  AdminCourseHierarchy,
+  AdminAnalytics,
+  AdminAiAnalytics,
+} from "./admin-store.js";
 
 export class DrizzleAdminStore implements AdminStore {
   constructor(private readonly db: DbClient) {}
@@ -72,47 +90,46 @@ export class DrizzleAdminStore implements AdminStore {
     const { page, pageSize, search, role, status } = params;
     const offset = (page - 1) * pageSize;
 
-    let baseFilter = isNull(users.deletedAt) as any;
+    const conditions: Array<SQL | undefined> = [isNull(users.deletedAt)];
 
     if (search) {
-      baseFilter = and(
-        baseFilter,
+      conditions.push(
         or(
           ilike(users.email, `%${search}%`),
           ilike(users.name, `%${search}%`)
         )
-      ) as any;
+      );
     }
 
     if (status) {
       if (status === "active") {
-        baseFilter = and(baseFilter, sql`${users.emailVerifiedAt} IS NOT NULL`) as any;
+        conditions.push(isNotNull(users.emailVerifiedAt));
       } else if (status === "inactive") {
-        baseFilter = and(baseFilter, sql`${users.emailVerifiedAt} IS NULL`) as any;
+        conditions.push(isNull(users.emailVerifiedAt));
       }
     }
 
     if (role) {
-      baseFilter = and(
-        baseFilter,
+      conditions.push(
         inArray(
           users.id,
           this.db.select({ userId: organizationMemberships.userId })
             .from(organizationMemberships)
             .where(eq(organizationMemberships.role, role))
         )
-      ) as any;
+      );
     }
 
-    let baseQuery = this.db.select().from(users).where(baseFilter) as any;
-    let countQuery = this.db.select({ count: count() }).from(users).where(baseFilter) as any;
+    const whereClause = and(...conditions);
+    const baseQuery = this.db.select().from(users).where(whereClause);
+    const countQuery = this.db.select({ count: count() }).from(users).where(whereClause);
 
     const [totalRes, userRows] = await Promise.all([
       countQuery,
       baseQuery.limit(pageSize).offset(offset).orderBy(desc(users.createdAt)),
     ]);
 
-    const userIds = userRows.map((u: any) => u.id);
+    const userIds = userRows.map((u) => u.id);
     let membershipRows: Array<{ userId: string; role: string }> = [];
     if (userIds.length > 0) {
       membershipRows = await this.db
@@ -133,13 +150,13 @@ export class DrizzleAdminStore implements AdminStore {
 
     return {
       totalCount: totalRes[0].count,
-      users: userRows.map((u: any) => {
+      users: userRows.map((u) => {
         const userRoles = rolesMap.get(u.id) || [];
         const effectiveRole = resolveEffectiveRole(userRoles);
         return {
           id: u.id,
           email: u.email,
-          name: u.name,
+          name: u.name ?? undefined,
           role: effectiveRole,
           emailVerified: u.emailVerifiedAt != null,
           createdAt: u.createdAt.toISOString(),
@@ -153,7 +170,13 @@ export class DrizzleAdminStore implements AdminStore {
     const { page, pageSize, status } = params;
     const offset = (page - 1) * pageSize;
 
-    let baseQuery = this.db.select({
+    const conditions: Array<SQL | undefined> = [isNull(generationJobs.deletedAt)];
+    if (status) {
+      conditions.push(eq(generationJobs.status, status));
+    }
+    const whereClause = and(...conditions);
+
+    const baseQuery = this.db.select({
       job: generationJobs,
       documentName: documents.originalName,
       userEmail: users.email,
@@ -161,29 +184,11 @@ export class DrizzleAdminStore implements AdminStore {
     .from(generationJobs)
     .leftJoin(documents, eq(generationJobs.documentId, documents.id))
     .leftJoin(users, eq(documents.ownerUserId, users.id))
-    .where(isNull(generationJobs.deletedAt)) as any;
+    .where(whereClause);
 
-    let countQuery = this.db.select({ count: count() })
+    const countQuery = this.db.select({ count: count() })
       .from(generationJobs)
-      .where(isNull(generationJobs.deletedAt)) as any;
-
-    if (status) {
-      const statusFilter = and(isNull(generationJobs.deletedAt), eq(generationJobs.status, status));
-      
-      baseQuery = this.db.select({
-        job: generationJobs,
-        documentName: documents.originalName,
-        userEmail: users.email,
-      })
-      .from(generationJobs)
-      .leftJoin(documents, eq(generationJobs.documentId, documents.id))
-      .leftJoin(users, eq(documents.ownerUserId, users.id))
-      .where(statusFilter) as any;
-
-      countQuery = this.db.select({ count: count() })
-        .from(generationJobs)
-        .where(statusFilter) as any;
-    }
+      .where(whereClause);
 
     const [totalRes, rows] = await Promise.all([
       countQuery,
@@ -192,7 +197,7 @@ export class DrizzleAdminStore implements AdminStore {
 
     return {
       totalCount: totalRes[0].count,
-      jobs: rows.map((r: any) => ({
+      jobs: rows.map((r) => ({
         id: r.job.id,
         type: r.job.type,
         status: r.job.status,
@@ -240,34 +245,28 @@ export class DrizzleAdminStore implements AdminStore {
     const { page, pageSize, search } = params;
     const offset = (page - 1) * pageSize;
 
-    let baseQuery = this.db.select().from(courses).where(isNull(courses.deletedAt)) as any;
-    let countQuery = this.db.select({ count: count() }).from(courses).where(isNull(courses.deletedAt)) as any;
-
+    const conditions: Array<SQL | undefined> = [isNull(courses.deletedAt)];
     if (search) {
-      const searchFilter = and(isNull(courses.deletedAt), ilike(courses.name, `%${search}%`));
-      baseQuery = this.db.select().from(courses).where(searchFilter) as any;
-      countQuery = this.db.select({ count: count() }).from(courses).where(searchFilter) as any;
+      conditions.push(ilike(courses.name, `%${search}%`));
     }
+    const whereClause = and(...conditions);
+
+    const baseQuery = this.db.select().from(courses).where(whereClause);
+    const countQuery = this.db.select({ count: count() }).from(courses).where(whereClause);
 
     const [totalRes, courseRows] = await Promise.all([
       countQuery,
       baseQuery.limit(pageSize).offset(offset).orderBy(sql`${courses.createdAt} DESC`),
     ]);
 
-    // For simplicity, we can fetch counts per course in a separate query if courseRows is small (e.g. 20)
-    // or use a single subquery. For 20 rows, 4 parallel count queries per row is fine for a lightweight Admin panel,
-    // but better to do it cleanly. We will use a group by query for the IDs.
-    const courseIds = courseRows.map((c: any) => c.id);
-    const courseStats = new Map();
+    const courseIds = courseRows.map((c) => c.id);
+    const courseStats = new Map<string, { modules: number; lessons: number; flashcards: number; quizzes: number }>();
 
     if (courseIds.length > 0) {
       const [modulesCounts, lessonsCounts, flashcardsCounts, quizzesCounts] = await Promise.all([
         this.db.select({ courseId: modules.courseId, count: count() }).from(modules).where(inArray(modules.courseId, courseIds)).groupBy(modules.courseId),
-        // lessons are linked to courses via modules. Oh, wait, lessons have moduleId.
         this.db.select({ courseId: modules.courseId, count: count() }).from(lessons).innerJoin(modules, eq(lessons.moduleId, modules.id)).where(and(inArray(modules.courseId, courseIds), isNull(lessons.deletedAt))).groupBy(modules.courseId),
-        // flashcards linked via lessons
         this.db.select({ courseId: modules.courseId, count: count() }).from(flashcards).innerJoin(lessons, eq(flashcards.lessonId, lessons.id)).innerJoin(modules, eq(lessons.moduleId, modules.id)).where(and(inArray(modules.courseId, courseIds), isNull(flashcards.deletedAt))).groupBy(modules.courseId),
-        // quizzes linked via quiz_questions -> lesson -> module
         this.db.select({ courseId: modules.courseId, count: count() })
           .from(quizzes)
           .innerJoin(quizQuestions, eq(quizzes.id, quizQuestions.quizId))
@@ -280,15 +279,27 @@ export class DrizzleAdminStore implements AdminStore {
       for (const id of courseIds) {
         courseStats.set(id, { modules: 0, lessons: 0, flashcards: 0, quizzes: 0 });
       }
-      for (const row of modulesCounts) courseStats.get(row.courseId).modules = row.count;
-      for (const row of lessonsCounts) courseStats.get(row.courseId).lessons = row.count;
-      for (const row of flashcardsCounts) courseStats.get(row.courseId).flashcards = row.count;
-      for (const row of quizzesCounts) courseStats.get(row.courseId).quizzes = row.count;
+      for (const row of modulesCounts) {
+        const stats = courseStats.get(row.courseId);
+        if (stats) stats.modules = row.count;
+      }
+      for (const row of lessonsCounts) {
+        const stats = courseStats.get(row.courseId);
+        if (stats) stats.lessons = row.count;
+      }
+      for (const row of flashcardsCounts) {
+        const stats = courseStats.get(row.courseId);
+        if (stats) stats.flashcards = row.count;
+      }
+      for (const row of quizzesCounts) {
+        const stats = courseStats.get(row.courseId);
+        if (stats) stats.quizzes = row.count;
+      }
     }
 
     return {
       totalCount: totalRes[0].count,
-      courses: courseRows.map((c: any) => ({
+      courses: courseRows.map((c) => ({
         id: c.id,
         name: c.name,
         subject: c.subject,
@@ -302,16 +313,17 @@ export class DrizzleAdminStore implements AdminStore {
     const { page, pageSize, search, status } = params;
     const offset = (page - 1) * pageSize;
 
-    let baseFilter = isNull(documents.deletedAt);
+    const conditions: Array<SQL | undefined> = [isNull(documents.deletedAt)];
     if (search) {
-      baseFilter = and(baseFilter, ilike(documents.originalName, `%${search}%`)) as any;
+      conditions.push(ilike(documents.originalName, `%${search}%`));
     }
     if (status) {
-      baseFilter = and(baseFilter, eq(documents.status, status)) as any;
+      conditions.push(eq(documents.status, status));
     }
+    const whereClause = and(...conditions);
 
     const [totalRes, docRows] = await Promise.all([
-      this.db.select({ count: count() }).from(documents).where(baseFilter),
+      this.db.select({ count: count() }).from(documents).where(whereClause),
       this.db.select({
         doc: documents,
         courseName: courses.name,
@@ -320,7 +332,7 @@ export class DrizzleAdminStore implements AdminStore {
       .from(documents)
       .leftJoin(courses, eq(documents.courseId, courses.id))
       .leftJoin(users, eq(documents.ownerUserId, users.id))
-      .where(baseFilter)
+      .where(whereClause)
       .limit(pageSize)
       .offset(offset)
       .orderBy(sql`${documents.createdAt} DESC`),
@@ -328,7 +340,7 @@ export class DrizzleAdminStore implements AdminStore {
 
     return {
       totalCount: totalRes[0].count,
-      documents: docRows.map((row: any) => ({
+      documents: docRows.map((row) => ({
         id: row.doc.id,
         organizationId: row.doc.organizationId,
         originalName: row.doc.originalName,
@@ -397,31 +409,33 @@ export class DrizzleAdminStore implements AdminStore {
     const { page, pageSize, search, action, entityType, adminEmail } = params;
     const offset = (page - 1) * pageSize;
 
-    let baseFilter = undefined as any;
-    if (action) baseFilter = baseFilter ? and(baseFilter, eq(auditLogs.action, action)) : eq(auditLogs.action, action);
-    if (entityType) baseFilter = baseFilter ? and(baseFilter, eq(auditLogs.entityType, entityType)) : eq(auditLogs.entityType, entityType);
-    if (adminEmail) baseFilter = baseFilter ? and(baseFilter, eq(users.email, adminEmail)) : eq(users.email, adminEmail);
+    const conditions: Array<SQL | undefined> = [];
+    if (action) conditions.push(eq(auditLogs.action, action));
+    if (entityType) conditions.push(eq(auditLogs.entityType, entityType));
+    if (adminEmail) conditions.push(eq(users.email, adminEmail));
     if (search) {
-      const searchFilter = or(
-        ilike(auditLogs.action, `%${search}%`),
-        ilike(auditLogs.entityType, `%${search}%`),
-        ilike(users.email, `%${search}%`),
-        sql`${auditLogs.details}::text ILIKE ${`%${search}%`}`
+      conditions.push(
+        or(
+          ilike(auditLogs.action, `%${search}%`),
+          ilike(auditLogs.entityType, `%${search}%`),
+          ilike(users.email, `%${search}%`),
+          sql`${auditLogs.details}::text ILIKE ${`%${search}%`}`
+        )
       );
-      baseFilter = baseFilter ? and(baseFilter, searchFilter) : searchFilter;
     }
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
     const [totalRes, rows] = await Promise.all([
       this.db.select({ count: count() }).from(auditLogs)
         .leftJoin(users, eq(auditLogs.actorId, users.id))
-        .where(baseFilter),
+        .where(whereClause),
       this.db.select({
         log: auditLogs,
         adminEmail: users.email,
       })
       .from(auditLogs)
       .leftJoin(users, eq(auditLogs.actorId, users.id))
-      .where(baseFilter)
+      .where(whereClause)
       .limit(pageSize)
       .offset(offset)
       .orderBy(sql`${auditLogs.createdAt} DESC`),
@@ -436,7 +450,7 @@ export class DrizzleAdminStore implements AdminStore {
         entity: r.log.entityType,
         entityId: r.log.entityId,
         timestamp: r.log.createdAt.toISOString(),
-        metadata: r.log.details || {},
+        metadata: (r.log.details as Record<string, unknown> | null) ?? null,
       })),
     };
   }
@@ -445,13 +459,14 @@ export class DrizzleAdminStore implements AdminStore {
     const { page, pageSize, search } = params;
     const offset = (page - 1) * pageSize;
 
-    let baseFilter = isNull(lessons.deletedAt);
+    const conditions: Array<SQL | undefined> = [isNull(lessons.deletedAt)];
     if (search) {
-      baseFilter = and(baseFilter, ilike(lessons.title, `%${search}%`)) as any;
+      conditions.push(ilike(lessons.title, `%${search}%`));
     }
+    const whereClause = and(...conditions);
 
     const [totalRes, rows] = await Promise.all([
-      this.db.select({ count: count() }).from(lessons).where(baseFilter),
+      this.db.select({ count: count() }).from(lessons).where(whereClause),
       this.db.select({
         lesson: lessons,
         moduleTitle: modules.title,
@@ -460,7 +475,7 @@ export class DrizzleAdminStore implements AdminStore {
       .from(lessons)
       .leftJoin(modules, eq(lessons.moduleId, modules.id))
       .leftJoin(courses, eq(modules.courseId, courses.id))
-      .where(baseFilter)
+      .where(whereClause)
       .limit(pageSize)
       .offset(offset)
       .orderBy(sql`${lessons.createdAt} DESC`),
@@ -483,20 +498,21 @@ export class DrizzleAdminStore implements AdminStore {
     const { page, pageSize, search } = params;
     const offset = (page - 1) * pageSize;
 
-    let baseFilter = isNull(flashcards.deletedAt);
+    const conditions: Array<SQL | undefined> = [isNull(flashcards.deletedAt)];
     if (search) {
-      baseFilter = and(baseFilter, ilike(flashcards.question, `%${search}%`)) as any;
+      conditions.push(ilike(flashcards.question, `%${search}%`));
     }
+    const whereClause = and(...conditions);
 
     const [totalRes, rows] = await Promise.all([
-      this.db.select({ count: count() }).from(flashcards).where(baseFilter),
+      this.db.select({ count: count() }).from(flashcards).where(whereClause),
       this.db.select({
         flashcard: flashcards,
         lessonTitle: lessons.title,
       })
       .from(flashcards)
       .leftJoin(lessons, eq(flashcards.lessonId, lessons.id))
-      .where(baseFilter)
+      .where(whereClause)
       .limit(pageSize)
       .offset(offset)
       .orderBy(sql`${flashcards.createdAt} DESC`),
@@ -518,18 +534,19 @@ export class DrizzleAdminStore implements AdminStore {
     const { page, pageSize, search } = params;
     const offset = (page - 1) * pageSize;
 
-    let baseFilter = isNull(quizzes.deletedAt);
+    const conditions: Array<SQL | undefined> = [isNull(quizzes.deletedAt)];
     if (search) {
-      baseFilter = and(baseFilter, ilike(quizzes.title, `%${search}%`)) as any;
+      conditions.push(ilike(quizzes.title, `%${search}%`));
     }
+    const whereClause = and(...conditions);
 
     const [totalRes, rows] = await Promise.all([
-      this.db.select({ count: count() }).from(quizzes).where(baseFilter),
+      this.db.select({ count: count() }).from(quizzes).where(whereClause),
       this.db.select({
         exam: quizzes,
       })
       .from(quizzes)
-      .where(baseFilter)
+      .where(whereClause)
       .limit(pageSize)
       .offset(offset)
       .orderBy(sql`${quizzes.createdAt} DESC`),
@@ -537,7 +554,7 @@ export class DrizzleAdminStore implements AdminStore {
     
     // fetch question counts for rows
     const examIds = rows.map(r => r.exam.id);
-    const questionCounts = new Map();
+    const questionCounts = new Map<string, number>();
     if (examIds.length > 0) {
       const counts = await this.db.select({ quizId: quizQuestions.quizId, count: count() })
         .from(quizQuestions)
@@ -559,7 +576,7 @@ export class DrizzleAdminStore implements AdminStore {
     };
   }
 
-  async getCourseHierarchy(courseId: string): Promise<any | null> {
+  async getCourseHierarchy(courseId: string): Promise<AdminCourseHierarchy | null> {
     const courseRes = await this.db.select().from(courses).where(eq(courses.id, courseId)).limit(1);
     if (!courseRes.length) return null;
     const course = courseRes[0];
@@ -569,9 +586,18 @@ export class DrizzleAdminStore implements AdminStore {
       .orderBy(modules.sortOrder);
 
     const moduleIds = courseModules.map((m) => m.id);
-    let courseLessons: any[] = [];
+    let courseLessons: Array<{
+      id: string;
+      moduleId: string;
+      title: string;
+      publicationStatus: string;
+      createdAt: Date;
+      hasContent: boolean;
+      flashcards?: number;
+      quizzes?: number;
+    }> = [];
     if (moduleIds.length > 0) {
-      courseLessons = await this.db.select({
+      const dbLessons = await this.db.select({
         id: lessons.id,
         moduleId: lessons.moduleId,
         title: lessons.title,
@@ -582,7 +608,7 @@ export class DrizzleAdminStore implements AdminStore {
       .where(and(inArray(lessons.moduleId, moduleIds), isNull(lessons.deletedAt)))
       .orderBy(lessons.sortOrder);
       
-      const lessonIds = courseLessons.map((l) => l.id);
+      const lessonIds = dbLessons.map((l) => l.id);
       
       if (lessonIds.length > 0) {
         const fcCounts = await this.db.select({ lessonId: flashcards.lessonId, count: count() })
@@ -598,10 +624,17 @@ export class DrizzleAdminStore implements AdminStore {
         const fcMap = new Map(fcCounts.map((r) => [r.lessonId, r.count]));
         const qMap = new Map(qCounts.map((r) => [r.lessonId, r.count]));
 
-        courseLessons = courseLessons.map((l) => ({
+        courseLessons = dbLessons.map((l) => ({
           ...l,
           flashcards: fcMap.get(l.id) || 0,
           quizzes: qMap.get(l.id) || 0,
+          hasContent: Boolean(l.hasContent),
+        }));
+      } else {
+        courseLessons = dbLessons.map((l) => ({
+          ...l,
+          flashcards: 0,
+          quizzes: 0,
           hasContent: Boolean(l.hasContent),
         }));
       }
@@ -657,7 +690,7 @@ export class DrizzleAdminStore implements AdminStore {
     };
   }
 
-  async getAnalytics(): Promise<any> {
+  async getAnalytics(): Promise<AdminAnalytics> {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const d7 = new Date(today);
@@ -693,7 +726,7 @@ export class DrizzleAdminStore implements AdminStore {
     return { total, today: tToday, last7Days: t7, last30Days: t30 };
   }
 
-  async getAiAnalytics(): Promise<any> {
+  async getAiAnalytics(): Promise<AdminAiAnalytics> {
     const jobs = await this.db.select({
       type: generationJobs.type,
       status: generationJobs.status,
@@ -732,12 +765,14 @@ export class DrizzleAdminStore implements AdminStore {
     let hasTokenData = false;
 
     for (const row of contents) {
-      if (row.tokenUsage) {
-        const usage = row.tokenUsage as any;
-        if (typeof usage.inputTokens === 'number' || typeof usage.outputTokens === 'number' || typeof usage.prompt_tokens === 'number') {
+      if (row.tokenUsage && typeof row.tokenUsage === "object") {
+        const usage = row.tokenUsage as Record<string, unknown>;
+        const inputTokens = typeof usage.inputTokens === 'number' ? usage.inputTokens : (typeof usage.prompt_tokens === 'number' ? usage.prompt_tokens : 0);
+        const outputTokens = typeof usage.outputTokens === 'number' ? usage.outputTokens : (typeof usage.completion_tokens === 'number' ? usage.completion_tokens : 0);
+        if (inputTokens > 0 || outputTokens > 0) {
           hasTokenData = true;
-          input += (usage.inputTokens || usage.prompt_tokens || 0);
-          output += (usage.outputTokens || usage.completion_tokens || 0);
+          input += inputTokens;
+          output += outputTokens;
         }
       }
     }
@@ -774,7 +809,7 @@ export class DrizzleAdminStore implements AdminStore {
     await this.db.transaction(async (tx) => {
       const memberships = await tx.select().from(organizationMemberships)
         .where(eq(organizationMemberships.userId, targetUserId));
-        
+      
       if (memberships.length === 0) {
         throw new Error("user_has_no_org");
       }
@@ -803,7 +838,7 @@ export class DrizzleAdminStore implements AdminStore {
   
   async updateCourseMetadata(adminId: string, courseId: string, payload: { name?: string; subject?: string }): Promise<void> {
     await this.db.transaction(async (tx) => {
-      const updateData: any = { updatedAt: new Date() };
+      const updateData: { updatedAt: Date; name?: string; subject?: string } = { updatedAt: new Date() };
       if (payload.name !== undefined) updateData.name = payload.name;
       if (payload.subject !== undefined) updateData.subject = payload.subject;
       

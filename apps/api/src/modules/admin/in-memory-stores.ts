@@ -18,6 +18,9 @@ import type {
   AdminFlashcardRecord,
   AdminExamRecord,
   AdminGenerationDetail,
+  AdminCourseHierarchy,
+  AdminAnalytics,
+  AdminAiAnalytics,
 } from "./admin-store.js";
 
 export class InMemoryAdminStore implements AdminStore {
@@ -94,7 +97,7 @@ export class InMemoryAdminStore implements AdminStore {
     return { exams: [], totalCount: 0 };
   }
 
-  async getCourseHierarchy(_courseId: string): Promise<any | null> {
+  async getCourseHierarchy(_courseId: string): Promise<AdminCourseHierarchy | null> {
     return null;
   }
 
@@ -102,12 +105,43 @@ export class InMemoryAdminStore implements AdminStore {
     return null;
   }
 
-  async getAnalytics(): Promise<any> {
-    return {};
+  async getAnalytics(): Promise<AdminAnalytics> {
+    const emptyStats = {
+      newUsers: 0,
+      courses: 0,
+      lessons: 0,
+      flashcards: 0,
+      quizzes: 0,
+      aiJobs: 0,
+      aiSuccess: 0,
+      aiFailed: 0,
+    };
+    return {
+      total: { totalUsers: 0, totalLessons: 0 },
+      today: emptyStats,
+      last7Days: emptyStats,
+      last30Days: emptyStats,
+    };
   }
 
-  async getAiAnalytics(): Promise<any> {
-    return {};
+  async getAiAnalytics(): Promise<AdminAiAnalytics> {
+    return {
+      overview: {
+        totalJobs: 0,
+        successful: 0,
+        failed: 0,
+        processing: 0,
+        successRate: 0,
+        averageDurationMs: 0,
+      },
+      byType: {},
+      tokens: {
+        available: false,
+        input: 0,
+        output: 0,
+        total: 0,
+      },
+    };
   }
 
   async updateUserRole(_adminId: string, _targetUserId: string, _newRole: string): Promise<void> {

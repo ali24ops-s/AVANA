@@ -17,7 +17,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc --build",
+    "build": "tsc --build --force",
     "type-check": "tsc --noEmit",
     "validate:openapi": "node ./scripts/validateOpenApi.node.ts"
   },
