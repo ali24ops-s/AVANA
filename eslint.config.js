@@ -32,7 +32,12 @@ export default tseslint.config(
       "no-console": "error",
       "no-secrets/no-secrets": [
         "error",
-        { ignoreContent: ["Cardiovascular_Pharmacology_Week12.pdf"] },
+        {
+          ignoreContent: [
+            "Cardiovascular_Pharmacology_Week12.pdf",
+            "multi_org_requires_explicit_handling",
+          ],
+        },
       ],
       "@typescript-eslint/no-explicit-any": "error",
       "@typescript-eslint/no-unused-vars": [

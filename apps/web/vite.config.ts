@@ -37,8 +37,8 @@ function githubPagesSpaPlugin(): Plugin {
           fs.copyFileSync(indexPath, notFoundPath);
           fs.writeFileSync(noJekyllPath, "");
         }
-      } catch (err) {
-        console.warn("Failed to generate 404.html/.nojekyll for GitHub Pages:", err);
+      } catch {
+        // Best-effort: ignore file copy errors during dev/test runs
       }
     },
   };

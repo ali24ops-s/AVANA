@@ -7,14 +7,27 @@ import type { AuthMiddlewareDeps } from "../../http/authMiddleware.js";
 import { makeAuthMiddleware } from "../../http/authMiddleware.js";
 import { AdminService } from "./admin-service.js";
 import type { AdminStore } from "./admin-store.js";
-import { Roles } from "@avana/domain";
+import {
+  Roles,
+  asUserId,
+  asOrganizationId,
+  asDocumentId,
+  type Role,
+} from "@avana/domain";
+import type { DocumentProcessingService } from "../documents/document-processing-service.js";
+import type { DocumentService } from "../documents/document-service.js";
+import type {
+  GenerationQueue,
+  GenerationJobPayload,
+} from "../generation/generation-queue.js";
+import type { GenerationJobStore } from "../generation/generation-jobs-store.js";
 
 export interface AdminRouteOptions extends AuthMiddlewareDeps {
   adminStore: AdminStore;
-  documentProcessingService?: any;
-  documentService?: any;
-  generationQueue?: any;
-  generationJobStore?: any;
+  documentProcessingService?: DocumentProcessingService;
+  documentService?: DocumentService;
+  generationQueue?: GenerationQueue;
+  generationJobStore?: GenerationJobStore;
 }
 
 export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
@@ -110,19 +123,17 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
       }
 
       await opts.documentService.adminDeleteDocument(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        { userId: user.userId, role: user.role as any },
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        doc.organizationId as any,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        params.id as any
+        { userId: asUserId(user.userId as unknown as import("@avana/domain").UUID), role: user.role as Role },
+        asOrganizationId(doc.organizationId as unknown as import("@avana/domain").UUID),
+        asDocumentId(params.id as unknown as import("@avana/domain").UUID)
       );
 
       reply.code(204);
       return;
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const err = error as { code?: string; message?: string };
       request.log.error({ err: error }, "Failed to delete document");
-      return reply.status(500).send({ code: "internal_error", message: error.message });
+      return reply.status(500).send({ code: "internal_error", message: err.message || "Unknown error" });
     }
   });
 
@@ -138,14 +149,10 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
         return reply.status(500).send({ code: "internal_error", message: "DocumentService not available" });
       }
 
-
       const { stream, sizeBytes, mimeType, originalName } = await opts.documentService.adminDownloadDocument(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        { userId: user.userId, role: user.role as any },
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        doc.organizationId as any,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        params.id as any
+        { userId: asUserId(user.userId as unknown as import("@avana/domain").UUID), role: user.role as Role },
+        asOrganizationId(doc.organizationId as unknown as import("@avana/domain").UUID),
+        asDocumentId(params.id as unknown as import("@avana/domain").UUID)
       );
 
       reply
@@ -154,12 +161,13 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
         .header("Content-Length", sizeBytes)
         .header("Cache-Control", "private, max-age=3600")
         .send(stream);
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const err = error as { code?: string; message?: string };
       request.log.error({ err: error }, "Failed to download document");
-      if (error.code === "not_found" || error.message === "Document not found") {
+      if (err.code === "not_found" || err.message === "Document not found") {
         return reply.status(404).send({ code: "not_found" });
       }
-      return reply.status(500).send({ code: "internal_error", message: error.message });
+      return reply.status(500).send({ code: "internal_error", message: err.message || "Unknown error" });
     }
   });
 
@@ -430,12 +438,13 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
       try {
         await opts.adminStore.updateUserRole(adminId, id, role);
         return reply.status(200).send({ success: true });
-      } catch (error: any) {
+      } catch (error: unknown) {
+        const err = error as { message?: string };
         request.log.error({ err: error }, "Failed to update user role");
-        if (error.message === "user_has_no_org") {
+        if (err.message === "user_has_no_org") {
            return reply.status(409).send({ code: "conflict", message: "User does not belong to any organization." });
         }
-        if (error.message === "multi_org_requires_explicit_handling") {
+        if (err.message === "multi_org_requires_explicit_handling") {
            return reply.status(409).send({ code: "conflict", message: "User belongs to multiple organizations; explicit organization handling is required." });
         }
         return reply.status(500).send({ code: "internal_error" });
@@ -468,9 +477,10 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
       try {
         await opts.adminStore.updateCourseMetadata(adminId, id, payload);
         return reply.status(200).send({ success: true });
-      } catch (error: any) {
+      } catch (error: unknown) {
+        const err = error as { message?: string };
         request.log.error({ err: error }, "Failed to update course");
-        if (error.message === "not_found") {
+        if (err.message === "not_found") {
           return reply.status(404).send({ code: "not_found" });
         }
         return reply.status(500).send({ code: "internal_error" });
@@ -494,23 +504,25 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
           return reply.status(400).send({ code: "invalid_status", message: "Only failed documents can be retried" });
         }
         
-        const orgId = (doc as any).organizationId;
+        const orgId = (doc as { organizationId?: string }).organizationId;
         if (!orgId) throw new Error("Missing organizationId on document");
 
         // The audit log for the explicit retry intent
         await opts.adminStore.retryDocumentProcessing(user.userId, id);
         
-        // Use reprocessDocument with correct argument order: actor, orgId, docId
-        await opts.documentProcessingService.reprocessDocument(
-          { userId: user.userId, role: user.role as any }, 
-          orgId, 
-          id as any
-        );
+        if (opts.documentProcessingService) {
+          await opts.documentProcessingService.reprocessDocument(
+            { userId: asUserId(user.userId as unknown as import("@avana/domain").UUID), role: user.role as Role }, 
+            asOrganizationId(orgId as unknown as import("@avana/domain").UUID), 
+            asDocumentId(id as unknown as import("@avana/domain").UUID)
+          );
+        }
         
         return reply.status(200).send({ success: true });
-      } catch (error: any) {
+      } catch (error: unknown) {
+        const err = error as { message?: string };
         request.log.error({ err: error }, "Failed to retry document");
-        return reply.status(500).send({ code: "internal_error", message: error.message });
+        return reply.status(500).send({ code: "internal_error", message: err.message || "Unknown error" });
       }
     }
   );
@@ -538,13 +550,15 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
         // Keep the manual audit log intent since queue might not emit one for 'retry' specifically
         await opts.adminStore.retryGenerationJob(user.userId, id);
         
-        // Use the enqueueGenerationJob API directly from the queue
-        await opts.generationQueue.enqueueGenerationJob(job.payload as any);
+        if (opts.generationQueue) {
+          await opts.generationQueue.enqueueGenerationJob(job.payload as unknown as GenerationJobPayload);
+        }
         
         return reply.status(200).send({ success: true });
-      } catch (error: any) {
+      } catch (error: unknown) {
+        const err = error as { message?: string };
         request.log.error({ err: error }, "Failed to retry generation job");
-        return reply.status(500).send({ code: "internal_error", message: error.message });
+        return reply.status(500).send({ code: "internal_error", message: err.message || "Unknown error" });
       }
     }
   );

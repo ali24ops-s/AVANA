@@ -83,10 +83,6 @@ export async function seedLocalDevData(stores: SeedStores): Promise<{
     userStore,
     organizationStore,
     courseStore,
-    moduleStore: _moduleStore,
-    lessonStore: _lessonStore,
-    quizStore: _quizStore,
-    quizQuestionStore: _quizQuestionStore,
   } = stores;
 
   const seeded = {
