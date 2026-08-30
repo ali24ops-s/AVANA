@@ -141,9 +141,10 @@ export class CourseService {
       this.systemOrganizationId,
     );
 
+    const canonicalOrder: readonly string[] = CANONICAL_COURSES;
     return courses.slice().sort((a, b) => {
-      const idxA = CANONICAL_COURSES.indexOf(a.name as any);
-      const idxB = CANONICAL_COURSES.indexOf(b.name as any);
+      const idxA = canonicalOrder.indexOf(a.name);
+      const idxB = canonicalOrder.indexOf(b.name);
       if (idxA !== -1 && idxB !== -1) return idxA - idxB;
       if (idxA !== -1) return -1;
       if (idxB !== -1) return 1;
@@ -170,9 +171,10 @@ export class CourseService {
       this.systemOrganizationId,
     );
 
+    const canonicalOrder: readonly string[] = CANONICAL_COURSES;
     return courses.slice().sort((a, b) => {
-      const idxA = CANONICAL_COURSES.indexOf(a.name as any);
-      const idxB = CANONICAL_COURSES.indexOf(b.name as any);
+      const idxA = canonicalOrder.indexOf(a.name);
+      const idxB = canonicalOrder.indexOf(b.name);
       if (idxA !== -1 && idxB !== -1) return idxA - idxB;
       if (idxA !== -1) return -1;
       if (idxB !== -1) return 1;

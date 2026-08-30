@@ -103,8 +103,8 @@ export async function checkRedisHealth(
     });
 
     return await Promise.race([probePromise, timeoutPromise]);
-  } catch (err: any) {
-    const rawMsg = err?.message || String(err);
+  } catch (err: unknown) {
+    const rawMsg = err instanceof Error ? err.message : String(err);
     const sanitized = sanitizeRedisError(rawMsg, redisUrl);
 
     return {

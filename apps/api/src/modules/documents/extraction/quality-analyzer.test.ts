@@ -1,7 +1,6 @@
-// @ts-nocheck
 import { describe, it, expect } from "vitest";
 import { QualityAnalyzer } from "./quality-analyzer.js";
-import type { ExtractionResult } from "./types.js";
+import type { ExtractionResult, ExtractedPage } from "./types.js";
 
 describe("QualityAnalyzer", () => {
   it("should return poor score for empty document (no pages)", () => {
@@ -28,7 +27,7 @@ describe("QualityAnalyzer", () => {
   });
 
   it("should penalize for partial extraction (low page coverage)", () => {
-    const pages = [];
+    const pages: ExtractedPage[] = [];
     for (let i = 1; i <= 30; i++) {
       pages.push({
         pageNumber: i,
@@ -96,19 +95,9 @@ describe("QualityAnalyzer", () => {
   });
 
   it("boundary tests for score levels", () => {
-    const testLevel = (score: number, expectedLevel: string) => {
-      // Mock score logic by just setting a very precise input?
-      // Since it's deterministic, let's just test the if condition inside directly?
-      // Well, we can't mock private internals without restructuring. The logic is:
-      // >= 80 excellent, >= 50 medium, < 50 poor.
-      // We can trust the tests covering the actual output levels.
-    };
-    
-    // Instead of mocking, let's construct explicit cases.
-    
-    // Poor case
+    // Poor case: only spaces -> high noise, low density
     const poorResult: ExtractionResult = {
-      pages: [{ pageNumber: 1, characterCount: 50, rawText: " ".repeat(50) }] // only spaces -> high noise, low density
+      pages: [{ pageNumber: 1, characterCount: 50, rawText: " ".repeat(50) }]
     };
     const poorReport = QualityAnalyzer.analyze(poorResult);
     expect(poorReport.level).toBe("poor");

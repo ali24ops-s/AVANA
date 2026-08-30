@@ -44,6 +44,7 @@ import type { AuditService } from "../../observability/audit-service.js";
 import type { DocumentProcessingService } from "./document-processing-service.js";
 import type {
   DocumentDetailResource,
+  DocumentQualityLevel,
   BulkOperationResponse,
   BulkOperationItemResult,
 } from "@avana/contracts";
@@ -216,7 +217,7 @@ function toDocumentResource(doc: DocumentRecord): import("@avana/contracts").Doc
     error_code: doc.errorCode,
     retry_count: doc.retryCount,
     quality_score: doc.qualityScore ?? null,
-    quality_level: (doc.qualityLevel as any) ?? null,
+    quality_level: (doc.qualityLevel as DocumentQualityLevel | null) ?? null,
     quality_report: doc.qualityReport ?? null,
     quality_analyzed_at: doc.qualityAnalyzedAt ?? null,
     created_at: doc.createdAt,
@@ -846,8 +847,8 @@ export class DocumentService {
         mimeType: doc.mimeType,
         originalName: doc.originalName,
       };
-    } catch (err: any) {
-      if (err.code === "ENOENT") {
+    } catch (err: unknown) {
+      if ((err as { code?: string })?.code === "ENOENT") {
         throw new DomainError("not_found", "Document file not found in storage");
       }
       throw err;

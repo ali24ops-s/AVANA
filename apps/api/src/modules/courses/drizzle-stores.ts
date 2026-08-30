@@ -32,7 +32,7 @@ import type {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function toCourseRecord(row: {
+type CourseRowInput = {
   id: string;
   organizationId: string;
   name: string;
@@ -41,7 +41,9 @@ function toCourseRecord(row: {
   createdAt: Date | string;
   updatedAt: Date | string;
   deletedAt: Date | string | null;
-}): CourseRecord {
+};
+
+function toCourseRecord(row: CourseRowInput): CourseRecord {
   return {
     id: row.id as CourseId,
     organizationId: row.organizationId as OrganizationId,
@@ -383,9 +385,9 @@ export class DrizzleCourseStore implements CourseStore {
       LIMIT ${limit}
     `);
 
-    const resultRows: any[] = Array.isArray(queryResult)
-      ? queryResult
-      : ((queryResult as any)?.rows ?? []);
+    const resultRows: CourseRowInput[] = Array.isArray(queryResult)
+      ? (queryResult as unknown as CourseRowInput[])
+      : (((queryResult as { rows?: unknown[] })?.rows ?? []) as unknown as CourseRowInput[]);
 
     return resultRows.map(toCourseRecord);
   }
