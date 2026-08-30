@@ -70,3 +70,15 @@ pgdata/
 *.pid
 *.sock
 
+# Local exploratory & debug scripts
+apps/api/query-doc.mjs
+apps/api/scratch-inspect-courses-detail.ts
+apps/api/scratch-inspect-courses.ts
+apps/api/scratch-test-fastify.ts
+apps/api/src/test/server-debug.ts
+print_routes.mjs
+query_lesson.mjs
+test-quality-garbage.ts
+test-quality.ts
+test_delete_api.mjs
+test_delete_curl.mjs
