@@ -1,32 +1,63 @@
+# Dependencies
 node_modules/
+.pnpm-store/
+
+# Production & build output
 dist/
+build/
+out/
+.next/
 coverage/
 *.tsbuildinfo
-*.log
 
+# Build tool and linter caches
+.turbo/
+.vite/
+.parcel-cache/
+.cache/
+.eslintcache
+webpack-stats.json
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+vitest_output.log
+
+# Environment variables (preserve examples)
 .env
 .env.*
 !.env.example
 !**/.env.example
 
+# Operating system files
 .DS_Store
+Thumbs.db
+
+# IDE & AI Assistant configurations
+.idea/
+.claude/
+.continue/
 .vscode/*
 !.vscode/extensions.json
 !.vscode/settings.json
 
+# Test & E2E artifacts
 playwright-report/
 test-results/
 
-# Build and cache directories
-.turbo/
-.vite/
-.parcel-cache/
-.next/
-.cache/
-.eslintcache
-webpack-stats.json
+# Local document storage & user uploads
+storage/uploads/
+**/storage/uploads/
 
-# Local database files (dev/test only) — migrations and schema are kept in version control
+# Local exploratory & scratch workspace
+scratch/
+backups/
+*.bak
+
+# Local database runtime files (dev/test only)
 *.sqlite
 *.sqlite3
 *.db
@@ -38,3 +69,4 @@ redis_data/
 pgdata/
 *.pid
 *.sock
+

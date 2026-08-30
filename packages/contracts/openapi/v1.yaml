@@ -1759,6 +1759,63 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /v1/search:
+    get:
+      operationId: globalSearch
+      summary: Search accessible courses and shared content
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: Search keyword
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          description: Max results per category
+          schema:
+            type: integer
+            default: 10
+      responses:
+        "200":
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - request_id
+                  - query
+                  - total
+                  - results
+                  - grouped
+                properties:
+                  request_id:
+                    type: string
+                  query:
+                    type: string
+                  total:
+                    type: integer
+                  results:
+                    type: array
+                    items:
+                      type: object
+                  grouped:
+                    type: object
+        "400":
+          description: Invalid search query
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
 components:
   securitySchemes: {}
 
@@ -2525,6 +2582,13 @@ components:
         - ready
         - failed
 
+    DocumentQualityLevel:
+      type: string
+      enum:
+        - excellent
+        - medium
+        - poor
+
     DocumentResource:
       type: object
       additionalProperties: false
@@ -2540,6 +2604,10 @@ components:
         - status
         - error_code
         - retry_count
+        - quality_score
+        - quality_level
+        - quality_report
+        - quality_analyzed_at
         - created_at
         - updated_at
       properties:
@@ -2574,6 +2642,21 @@ components:
         retry_count:
           type: integer
           minimum: 0
+        quality_score:
+          type: integer
+          nullable: true
+          minimum: 0
+          maximum: 100
+        quality_level:
+          $ref: "#/components/schemas/DocumentQualityLevel"
+          nullable: true
+        quality_report:
+          type: object
+          nullable: true
+        quality_analyzed_at:
+          type: string
+          nullable: true
+          description: UTC ISO datetime
         created_at:
           type: string
           description: UTC ISO datetime
@@ -2685,6 +2768,7 @@ components:
         - flashcard
         - quiz
         - recommendation
+        - review_summary
 
     GeneratedContentStatus:
       type: string
@@ -2808,6 +2892,8 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/GeneratedContentResource"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
 
     GeneratedContentResponse:
       type: object
@@ -2858,6 +2944,8 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ReviewQueueResource"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
 
     SourceChunkResource:
       type: object

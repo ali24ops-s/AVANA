@@ -44,7 +44,7 @@ export function AdminUsersPage() {
     },
     onError: (err: any) => {
       console.error(err);
-      alert("خطا در بروزرسانی نقش کاربر. کاربر ممکن است عضو هیچ سازمانی نباشد.");
+      alert("خطا در بروزرسانی نقش کاربر. لطفاً مجدداً تلاش کنید.");
     }
   });
 

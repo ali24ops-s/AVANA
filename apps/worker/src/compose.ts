@@ -21,7 +21,10 @@ import {
   DrizzleGeneratedContentCitationStore,
   DrizzleGenerationJobStore,
 } from "@avana/api/generation/drizzle-stores";
-import { createModelGateway } from "@avana/api/generation/gateway";
+import {
+  createModelGateway,
+  type ModelGateway,
+} from "@avana/api/generation/gateway";
 import { GenerationService } from "@avana/api/generation/generation-service";
 import { DrizzleAuditStore } from "@avana/api/observability/drizzle-stores";
 import { AuditService } from "@avana/api/observability/audit-service";
@@ -30,6 +33,7 @@ import type { WorkerConfig } from "./config.js";
 export interface WorkerDependencies {
   generationService: GenerationService;
   generationJobStore: DrizzleGenerationJobStore;
+  gateway: ModelGateway;
   close: () => Promise<void>;
 }
 
@@ -52,6 +56,7 @@ export async function composeWorker(
   // Model gateway (mock provider unless a real provider is configured).
   const gateway = createModelGateway({
     provider: config.generation.aiProvider,
+    enableFallback: config.generation.enableFallback,
     geminiApiKey: config.generation.geminiApiKey,
     geminiApiKeys: config.generation.geminiApiKeys,
     geminiModel: config.generation.geminiModel,
@@ -60,6 +65,13 @@ export async function composeWorker(
     cloudflareAiModel: config.generation.cloudflareAiModel,
     groqApiKey: config.generation.groqApiKey,
     groqModel: config.generation.groqModel,
+    gapgptApiKey: config.generation.gapgptApiKey,
+    gapgptBaseUrl: config.generation.gapgptBaseUrl,
+    gapgptModel: config.generation.gapgptModel,
+    arvancloudApiKey: config.generation.arvancloudApiKey,
+    arvancloudBaseUrl: config.generation.arvancloudBaseUrl,
+    arvancloudModel: config.generation.arvancloudModel,
+    arvancloudAuthScheme: config.generation.arvancloudAuthScheme,
   });
 
   // Audit service.
@@ -80,6 +92,7 @@ export async function composeWorker(
   return {
     generationService,
     generationJobStore,
+    gateway,
     close,
   };
 }

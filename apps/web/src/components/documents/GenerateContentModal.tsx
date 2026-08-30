@@ -10,6 +10,7 @@ import {
   AlertCircle,
   Loader2,
   Info,
+  Zap,
 } from "lucide-react";
 import type { DocumentContentStatus } from "../../lib/api/generation.js";
 
@@ -21,6 +22,7 @@ export interface GenerateContentModalProps {
     lesson: DocumentContentStatus;
     flashcards: DocumentContentStatus;
     exam: DocumentContentStatus;
+    review_summary?: DocumentContentStatus;
     all_generated?: boolean;
     can_generate?: boolean;
   } | null;
@@ -30,6 +32,7 @@ export interface GenerateContentModalProps {
     lesson: boolean;
     flashcards: boolean;
     exam: boolean;
+    review_summary: boolean;
   }) => void;
 }
 
@@ -46,14 +49,15 @@ export function GenerateContentModal({
   const [selectedLesson, setSelectedLesson] = useState(true);
   const [selectedFlashcards, setSelectedFlashcards] = useState(true);
   const [selectedExam, setSelectedExam] = useState(true);
+  const [selectedReviewSummary, setSelectedReviewSummary] = useState(false);
 
   // Sync initial selection when modal opens or contentStatus changes
   useEffect(() => {
     if (isOpen && contentStatus) {
-      // By default: select if NOT already generated; if already generated, keep checked but disabled
       setSelectedLesson(true);
       setSelectedFlashcards(true);
       setSelectedExam(true);
+      setSelectedReviewSummary(false);
     }
   }, [isOpen, contentStatus]);
 
@@ -83,13 +87,15 @@ export function GenerateContentModal({
   const isLessonGenerated = Boolean(contentStatus?.lesson?.generated);
   const isFlashcardsGenerated = Boolean(contentStatus?.flashcards?.generated);
   const isExamGenerated = Boolean(contentStatus?.exam?.generated);
+  const isReviewSummaryGenerated = Boolean(contentStatus?.review_summary?.generated);
 
   // Determine how many NEW (ungenerated) items are selected
   const newItemsToGenerate = useMemo(() => {
-    const items: Array<"lesson" | "flashcard" | "quiz"> = [];
+    const items: Array<"lesson" | "flashcard" | "quiz" | "review_summary"> = [];
     if (!isLessonGenerated && selectedLesson) items.push("lesson");
     if (!isFlashcardsGenerated && selectedFlashcards) items.push("flashcard");
     if (!isExamGenerated && selectedExam) items.push("quiz");
+    if (!isReviewSummaryGenerated && selectedReviewSummary) items.push("review_summary");
     return items;
   }, [
     isLessonGenerated,
@@ -98,10 +104,15 @@ export function GenerateContentModal({
     selectedFlashcards,
     isExamGenerated,
     selectedExam,
+    isReviewSummaryGenerated,
+    selectedReviewSummary,
   ]);
 
   const allAvailableGenerated =
-    isLessonGenerated && isFlashcardsGenerated && isExamGenerated;
+    isLessonGenerated &&
+    isFlashcardsGenerated &&
+    isExamGenerated &&
+    isReviewSummaryGenerated;
   const hasNoNewSelection = newItemsToGenerate.length === 0;
 
   if (!isOpen) return null;
@@ -114,6 +125,7 @@ export function GenerateContentModal({
       lesson: !isLessonGenerated && selectedLesson,
       flashcards: !isFlashcardsGenerated && selectedFlashcards,
       exam: !isExamGenerated && selectedExam,
+      review_summary: !isReviewSummaryGenerated && selectedReviewSummary,
     });
   };
 
@@ -350,6 +362,58 @@ export function GenerateContentModal({
                     onChange={(e) => setSelectedExam(e.target.checked)}
                     className="w-5 h-5 rounded-lg border-slate-700 bg-slate-800 text-amber-500 focus:ring-amber-500 focus:ring-offset-0 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed mt-1"
                     aria-label="انتخاب آزمون"
+                  />
+                </label>
+
+                {/* 4. REVIEW SUMMARY OPTION */}
+                <label
+                  className={`flex items-start justify-between gap-4 p-4 rounded-2xl border transition-all cursor-pointer select-none ${
+                    isReviewSummaryGenerated
+                      ? "bg-slate-900/60 border-slate-800 opacity-80 cursor-not-allowed"
+                      : selectedReviewSummary
+                      ? "bg-teal-950/30 border-teal-400/50 shadow-sm"
+                      : "bg-slate-900/40 border-slate-800 hover:border-slate-700"
+                  }`}
+                >
+                  <div className="flex items-start gap-3.5 min-w-0">
+                    <div
+                      className={`p-2.5 rounded-xl border shrink-0 mt-0.5 ${
+                        isReviewSummaryGenerated
+                          ? "bg-emerald-950/30 border-emerald-500/30 text-emerald-400"
+                          : "bg-teal-500/10 border-teal-500/30 text-teal-400"
+                      }`}
+                    >
+                      <Zap className="w-5 h-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-sm text-slate-100">
+                          خلاصه مروری (Review Summary)
+                        </span>
+                        {isReviewSummaryGenerated ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                            <CheckCircle2 className="w-3 h-3" />
+                            <span>تولید شده</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-500/10 text-teal-300 border border-teal-500/20">
+                            مرور ۱۰–۱۵ دقیقه‌ای
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-400 mt-1">
+                        نسخه فوق‌العاده فشرده با حداکثر اطلاعات مهم و نکات کلیدی آزمونی
+                      </p>
+                    </div>
+                  </div>
+
+                  <input
+                    type="checkbox"
+                    checked={isReviewSummaryGenerated || selectedReviewSummary}
+                    disabled={isReviewSummaryGenerated || isGenerating}
+                    onChange={(e) => setSelectedReviewSummary(e.target.checked)}
+                    className="w-5 h-5 rounded-lg border-slate-700 bg-slate-800 text-teal-500 focus:ring-teal-500 focus:ring-offset-0 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed mt-1"
+                    aria-label="انتخاب خلاصه مروری"
                   />
                 </label>
               </div>

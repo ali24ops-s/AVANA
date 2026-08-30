@@ -48,7 +48,7 @@ import { PdfTextExtractor } from "../modules/documents/extraction/pdf-extractor.
 async function main() {
   const envPath = resolve(process.cwd(), ".env");
   let geminiKey = process.env.GEMINI_API_KEY;
-  let dbUrl = process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/avana";
+  let dbUrl = process.env.DATABASE_URL || "postgres://avana:avana@localhost:5432/avana";
 
   if (existsSync(envPath)) {
     const envContent = readFileSync(envPath, "utf-8");

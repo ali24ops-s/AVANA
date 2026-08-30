@@ -26,6 +26,7 @@ export function AdminPagination({ page, totalPages, totalCount, onPageChange }: 
         <button
           disabled={page === 1}
           onClick={() => onPageChange(page - 1)}
+          aria-label="صفحه قبل"
           className="p-1 rounded bg-slate-800 text-slate-300 disabled:opacity-50 hover:bg-slate-700 transition-colors"
         >
           <ChevronRight className="w-5 h-5" />
@@ -36,6 +37,7 @@ export function AdminPagination({ page, totalPages, totalCount, onPageChange }: 
         <button
           disabled={page >= totalPages}
           onClick={() => onPageChange(page + 1)}
+          aria-label="صفحه بعد"
           className="p-1 rounded bg-slate-800 text-slate-300 disabled:opacity-50 hover:bg-slate-700 transition-colors"
         >
           <ChevronLeft className="w-5 h-5" />
@@ -54,8 +56,15 @@ export function AdminStatusBadge({ status, colorMap }: { status: string; colorMa
     published: "text-green-400 bg-green-400/10",
     draft: "text-slate-400 bg-slate-400/10",
     error: "text-red-400 bg-red-400/10",
+    unhealthy: "text-red-400 bg-red-400/10",
     healthy: "text-green-400 bg-green-400/10",
-    warning: "text-orange-400 bg-orange-400/10",
+    warning: "text-amber-400 bg-amber-400/10",
+    degraded: "text-amber-400 bg-amber-400/10",
+    disabled: "text-slate-400 bg-slate-800",
+    not_configured: "text-slate-400 bg-slate-800",
+    unknown: "text-slate-400 bg-slate-800",
+    active: "text-teal-400 bg-teal-500/20",
+    inactive: "text-slate-400 bg-slate-800",
   };
   const mapToUse = colorMap || defaultColors;
   const color = mapToUse[status.toLowerCase()] || "text-slate-400 bg-slate-800";

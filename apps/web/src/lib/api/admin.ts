@@ -60,6 +60,23 @@ export interface AdminGenerationJobRecord {
   userEmail?: string;
 }
 
+export interface AdminGenerationDetail extends AdminGenerationJobRecord {
+  startedAt?: string;
+  durationMs?: number;
+  retryCount?: number;
+  errorType?: string;
+  httpStatus?: number;
+  payload?: unknown;
+  model?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  user?: { id: string; email: string };
+  organization?: { id: string; name: string };
+  document?: { id: string; originalName: string };
+  course?: { id: string; name?: string };
+}
+
 export interface DataIntegrityReport {
   lessonsWithoutModule: number;
   flashcardsWithoutLesson: number;
@@ -68,11 +85,24 @@ export interface DataIntegrityReport {
   failedGenerations: number;
 }
 
+export interface ServiceHealthDetail {
+  status: "healthy" | "degraded" | "warning" | "error" | "unhealthy" | "disabled" | "not_configured" | "unknown";
+  latencyMs?: number | null;
+  reason?: string | null;
+  provider?: string;
+  model?: string;
+}
+
 export interface AdminSystemHealth {
-  database: "healthy" | "error";
-  redis: "healthy" | "error" | "unknown";
-  ai: "healthy" | "warning" | "error" | "unknown";
+  database: "healthy" | "error" | "unhealthy";
+  redis: "healthy" | "error" | "unhealthy" | "disabled" | "not_configured" | "unknown";
+  ai: "healthy" | "warning" | "degraded" | "error" | "unhealthy" | "disabled" | "not_configured" | "unknown";
   lastCheck: string;
+  services?: {
+    database: ServiceHealthDetail;
+    redis: ServiceHealthDetail;
+    ai: ServiceHealthDetail;
+  };
 }
 
 export interface AdminAuditRecord {
@@ -121,9 +151,10 @@ export function createAdminApi(client: {
       return client.get<AdminCoursesList>(`/v1/admin/courses?page=${page}&pageSize=${pageSize}${searchParam}`);
     },
 
-    async listGenerationJobs(page = 1, pageSize = 20, status?: string): Promise<{ jobs: AdminGenerationJobRecord[]; totalCount: number }> {
+    async listGenerationJobs(page = 1, pageSize = 20, status?: string, search?: string): Promise<{ jobs: AdminGenerationJobRecord[]; totalCount: number }> {
       const statusParam = status ? `&status=${encodeURIComponent(status)}` : "";
-      return client.get<{ jobs: AdminGenerationJobRecord[]; totalCount: number }>(`/v1/admin/generation?page=${page}&pageSize=${pageSize}${statusParam}`);
+      const searchParam = search ? `&search=${encodeURIComponent(search)}` : "";
+      return client.get<{ jobs: AdminGenerationJobRecord[]; totalCount: number }>(`/v1/admin/generation?page=${page}&pageSize=${pageSize}${statusParam}${searchParam}`);
     },
 
     async getDataIntegrityReport(): Promise<DataIntegrityReport> {
@@ -149,7 +180,25 @@ export function createAdminApi(client: {
     getDownloadUrl(documentId: string): string {
       return `${getApiBaseUrl()}/v1/admin/documents/${documentId}/download`;
     },
+    async getPrompts(): Promise<{ prompts: AdminPromptRecord[] }> {
+      return client.get<{ prompts: AdminPromptRecord[] }>("/v1/admin/prompts");
+    },
   };
+}
+
+export interface AdminPromptRecord {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  provider: string;
+  model: string;
+  systemPrompt: string;
+  userPrompt: string;
+  variables: string[];
+  sourceFile: string;
+  sourceLocation: string;
+  status: "active" | "inactive";
 }
 
 import { createApiClient, getApiBaseUrl } from "./client.js";

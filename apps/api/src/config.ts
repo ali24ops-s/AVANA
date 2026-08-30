@@ -72,6 +72,7 @@ export type ApiConfig = {
   systemOrganizationId: string;
   generation: {
     aiProvider: string;
+    enableFallback: boolean;
     queueName: string;
     geminiApiKey?: string;
     geminiApiKeys: string[];
@@ -81,6 +82,14 @@ export type ApiConfig = {
     cloudflareAiModel: string;
     groqApiKey?: string;
     groqModel: string;
+    gapgptApiKey?: string;
+    gapgptBaseUrl?: string;
+    gapgptModel: string;
+    arvancloudApiKey?: string;
+    arvancloudApiToken?: string;
+    arvancloudBaseUrl?: string;
+    arvancloudModel: string;
+    arvancloudAuthScheme?: string;
   };
 };
 
@@ -265,7 +274,16 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
       "b4a0b464-16db-4087-92b7-163a1e6f6776",
     ),
     generation: {
-      aiProvider: getOptionalString(env, "AI_PROVIDER", "gemini"),
+      aiProvider: getOptionalString(
+        env,
+        "AI_PRIMARY_PROVIDER",
+        getOptionalString(
+          env,
+          "AI_CONTENT_PROVIDER",
+          getOptionalString(env, "AI_PROVIDER", "gemini"),
+        ),
+      ),
+      enableFallback: env.AI_ENABLE_FALLBACK === "true",
       queueName: getOptionalString(env, "AI_GENERATION_QUEUE", "content_generate"),
       geminiApiKey: env.GEMINI_API_KEY,
       geminiApiKeys: parseGeminiApiKeys(env),
@@ -283,6 +301,22 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
         "GROQ_MODEL",
         "openai/gpt-oss-120b",
       ),
+      gapgptApiKey: env.GAPGPT_API_KEY,
+      gapgptBaseUrl: env.GAPGPT_BASE_URL,
+      gapgptModel: getOptionalString(env, "GAPGPT_MODEL", "gpt-5.6-luna"),
+      arvancloudApiKey: env.ARVANCLOUD_API_KEY,
+      arvancloudApiToken: env.ARVANCLOUD_API_TOKEN || env.ARVANCLOUD_API_KEY,
+      arvancloudBaseUrl: getOptionalString(
+        env,
+        "ARVANCLOUD_BASE_URL",
+        "https://arvancloudai.ir/gateway/models/DeepSeek-R1-qwen-7b-awq",
+      ),
+      arvancloudModel: getOptionalString(
+        env,
+        "ARVANCLOUD_MODEL",
+        "DeepSeek-R1-qwen-7b-awq",
+      ),
+      arvancloudAuthScheme: env.ARVANCLOUD_AUTH_SCHEME,
     },
   };
 }

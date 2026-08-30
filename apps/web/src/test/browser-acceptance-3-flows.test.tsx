@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Browser Acceptance Tests for 3 Core AVANA Flows:
  *

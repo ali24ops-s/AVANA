@@ -271,7 +271,12 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
 
   app.get("/generation/providers", async (_request, reply) => {
     // Determine active provider from process.env or fallback to 'gemini'
-    const activeProvider = (process.env.AI_PROVIDER || "gemini").toLowerCase();
+    const activeProvider = (
+      process.env.AI_PRIMARY_PROVIDER ||
+      process.env.AI_CONTENT_PROVIDER ||
+      process.env.AI_PROVIDER ||
+      "gemini"
+    ).toLowerCase();
     const providers = [
       {
         name: "Gemini",
@@ -282,10 +287,10 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
         health: "unknown",
       },
       {
-        name: "Cloudflare AI",
-        id: "cloudflare",
-        status: activeProvider === "cloudflare" ? "active" : "inactive",
-        model: process.env.CLOUDFLARE_AI_MODEL || "@cf/meta/llama-2-7b-chat-int8",
+        name: "GapGPT",
+        id: "gapgpt",
+        status: activeProvider === "gapgpt" ? "active" : "inactive",
+        model: process.env.GAPGPT_MODEL || "gpt-5.6-luna",
         priority: 2,
         health: "unknown",
       },
@@ -293,8 +298,24 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
         name: "Groq",
         id: "groq",
         status: activeProvider === "groq" ? "active" : "inactive",
-        model: process.env.GROQ_MODEL || "mixtral-8x7b-32768",
+        model: process.env.GROQ_MODEL || "openai/gpt-oss-120b",
         priority: 3,
+        health: "unknown",
+      },
+      {
+        name: "ArvanCloud AI",
+        id: "arvancloud",
+        status: activeProvider === "arvancloud" ? "active" : "inactive",
+        model: process.env.ARVANCLOUD_MODEL || "DeepSeek-R1-qwen-7b-awq",
+        priority: 4,
+        health: "unknown",
+      },
+      {
+        name: "Cloudflare AI",
+        id: "cloudflare",
+        status: activeProvider === "cloudflare" ? "active" : "inactive",
+        model: process.env.CLOUDFLARE_AI_MODEL || "@cf/zai-org/glm-4.7-flash",
+        priority: 5,
         health: "unknown",
       },
       {
@@ -333,6 +354,23 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
   });
 
   app.get("/settings", async (_request, reply) => {
+    const activeProvider = (
+      process.env.AI_PRIMARY_PROVIDER ||
+      process.env.AI_CONTENT_PROVIDER ||
+      process.env.AI_PROVIDER ||
+      "gemini"
+    ).toLowerCase();
+    const activeModel =
+      activeProvider === "gemini"
+        ? process.env.GEMINI_MODEL || "gemini-3.6-flash"
+        : activeProvider === "gapgpt"
+          ? process.env.GAPGPT_MODEL || "gpt-5.6-luna"
+          : activeProvider === "groq"
+            ? process.env.GROQ_MODEL || "openai/gpt-oss-120b"
+            : activeProvider === "arvancloud"
+              ? process.env.ARVANCLOUD_MODEL || "DeepSeek-R1-qwen-7b-awq"
+              : process.env.CLOUDFLARE_AI_MODEL || "@cf/zai-org/glm-4.7-flash";
+
     const settings = {
       general: {
         appName: "AVANA",
@@ -340,8 +378,8 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
         version: "1.0.0",
       },
       ai: {
-        activeProvider: process.env.AI_PROVIDER || "gemini",
-        activeModel: process.env.GEMINI_MODEL || "gemini-3.6-flash",
+        activeProvider,
+        activeModel,
       },
       system: {
         database: "PostgreSQL",

@@ -1,6 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
-import { formatPersianDate, useCurrentPersianDate } from "./date.js";
+import {
+  formatPersianDate,
+  useCurrentPersianDate,
+  calculateDaysRemaining,
+  formatPersianExamDate,
+  gregorianToJalali,
+  jalaliToGregorian,
+  getJalaliMonthDays,
+  getJalaliFirstDayOfWeek,
+} from "./date.js";
 
 describe("Persian Date Utilities (utils/date.ts)", () => {
   beforeEach(() => {
@@ -124,6 +133,66 @@ describe("Persian Date Utilities (utils/date.ts)", () => {
 
       unmount();
       expect(clearTimeoutSpy).toHaveBeenCalled();
+    });
+  });
+
+  describe("calculateDaysRemaining", () => {
+    it("calculates 0 days for today", () => {
+      const now = new Date(2026, 7, 20, 14, 30, 0);
+      const examStr = "2026-08-20T09:00:00Z";
+      expect(calculateDaysRemaining(examStr, now)).toBe(0);
+    });
+
+    it("calculates positive days for future dates", () => {
+      const now = new Date(2026, 7, 20, 10, 0, 0);
+      const examStr = "2026-08-25T10:00:00Z";
+      expect(calculateDaysRemaining(examStr, now)).toBe(5);
+    });
+
+    it("calculates negative days for past dates", () => {
+      const now = new Date(2026, 7, 20, 10, 0, 0);
+      const examStr = "2026-08-15T10:00:00Z";
+      expect(calculateDaysRemaining(examStr, now)).toBe(-5);
+    });
+  });
+
+  describe("formatPersianExamDate", () => {
+    it("formats Persian exam dates accurately", () => {
+      const date = new Date(2026, 7, 25);
+      const formatted = formatPersianExamDate(date);
+      expect(formatted).toContain("شهریور");
+      expect(formatted).toContain("۱۴۰۵");
+    });
+  });
+
+  describe("Jalali Conversion & Date Math", () => {
+    it("converts Gregorian date to Jalali correctly", () => {
+      // 2026-08-20 -> 1405/05/29 (29 Mordad 1405)
+      const res = gregorianToJalali(new Date(2026, 7, 20, 12, 0, 0));
+      expect(res.jy).toBe(1405);
+      expect(res.jm).toBe(5);
+      expect(res.jd).toBe(29);
+    });
+
+    it("converts Jalali date to Gregorian accurately", () => {
+      // 1405/05/29 -> 2026-08-20
+      const gDate = jalaliToGregorian(1405, 5, 29);
+      expect(gDate.getFullYear()).toBe(2026);
+      expect(gDate.getMonth()).toBe(7); // 7 = August (0-indexed)
+      expect(gDate.getDate()).toBe(20);
+    });
+
+    it("returns correct number of days in Jalali months", () => {
+      expect(getJalaliMonthDays(1405, 1)).toBe(31); // Farvardin
+      expect(getJalaliMonthDays(1405, 6)).toBe(31); // Shahrivar
+      expect(getJalaliMonthDays(1405, 7)).toBe(30); // Mehr
+      expect(getJalaliMonthDays(1405, 11)).toBe(30); // Bahman
+    });
+
+    it("calculates correct first weekday of Jalali month", () => {
+      // 1 Farvardin 1404: 2025-03-21 (Friday -> index 6 in Persian week)
+      const firstWeekday = getJalaliFirstDayOfWeek(1404, 1);
+      expect(firstWeekday).toBe(6); // Friday
     });
   });
 });

@@ -19,14 +19,20 @@ export function createReviewApi(client: ApiClient) {
   return {
     /**
      * GET /v1/organizations/:organizationId/courses/:courseId/generated/review-queue
-     * Lists generated content pending review for a course.
+     * Lists generated content pending review for a course with optional pagination and filters.
      */
     getReviewQueue(
       organizationId: string,
       courseId: string,
+      options?: { page?: number; limit?: number; type?: string },
     ): Promise<ReviewQueueResponse> {
+      const params = new URLSearchParams();
+      if (options?.page) params.set("page", String(options.page));
+      if (options?.limit) params.set("limit", String(options.limit));
+      if (options?.type) params.set("type", options.type);
+      const qs = params.toString();
       return client.get<ReviewQueueResponse>(
-        `/v1/organizations/${organizationId}/courses/${courseId}/generated/review-queue`,
+        `/v1/organizations/${organizationId}/courses/${courseId}/generated/review-queue${qs ? `?${qs}` : ""}`,
       );
     },
 

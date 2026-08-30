@@ -55,7 +55,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
     items: [
       { name: "تاریخچه تولیدات", href: "/admin/generation", icon: History },
       { name: "ارائه‌دهندگان AI", href: "/admin/generation/providers", icon: Server },
-      { name: "مدیریت پرامپت‌ها", href: "/admin/generation/prompts", icon: MessageSquare },
+      { name: "بازرس پرامپت‌ها (Prompt Inspector)", href: "/admin/generation/prompts", icon: MessageSquare },
     ],
   },
   {

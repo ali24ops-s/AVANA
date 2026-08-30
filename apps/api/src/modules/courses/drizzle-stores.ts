@@ -8,7 +8,7 @@
  * on read to match the domain shape expected by in-memory stores.
  */
 
-import { and, eq, isNull, or } from "drizzle-orm";
+import { and, eq, isNull, or, sql } from "drizzle-orm";
 import type { DbClient } from "@avana/database/client";
 import {
   courses,
@@ -37,20 +37,32 @@ function toCourseRecord(row: {
   organizationId: string;
   name: string;
   subject: string | null;
-  examDate: Date | null;
-  createdAt: Date;
-  updatedAt: Date;
-  deletedAt: Date | null;
+  examDate: Date | string | null;
+  createdAt: Date | string;
+  updatedAt: Date | string;
+  deletedAt: Date | string | null;
 }): CourseRecord {
   return {
     id: row.id as CourseId,
     organizationId: row.organizationId as OrganizationId,
     name: row.name,
     subject: row.subject,
-    examDate: row.examDate?.toISOString() ?? null,
-    createdAt: row.createdAt.toISOString(),
-    updatedAt: row.updatedAt.toISOString(),
-    deletedAt: row.deletedAt?.toISOString() ?? null,
+    examDate:
+      row.examDate instanceof Date
+        ? row.examDate.toISOString()
+        : row.examDate ?? null,
+    createdAt:
+      row.createdAt instanceof Date
+        ? row.createdAt.toISOString()
+        : new Date(row.createdAt).toISOString(),
+    updatedAt:
+      row.updatedAt instanceof Date
+        ? row.updatedAt.toISOString()
+        : new Date(row.updatedAt).toISOString(),
+    deletedAt:
+      row.deletedAt instanceof Date
+        ? row.deletedAt.toISOString()
+        : (row.deletedAt ? new Date(row.deletedAt).toISOString() : null),
   };
 }
 
@@ -93,6 +105,18 @@ export class DrizzleCourseStore implements CourseStore {
     });
 
     return result;
+  }
+
+  async findById(courseId: CourseId): Promise<CourseRecord | undefined> {
+    const row = await this.db
+      .select()
+      .from(courses)
+      .where(and(eq(courses.id, courseId), isNull(courses.deletedAt)))
+      .limit(1)
+      .then((rows) => rows[0]);
+
+    if (!row) return undefined;
+    return toCourseRecord(row);
   }
 
   async findByIdForUser(
@@ -308,5 +332,63 @@ export class DrizzleCourseStore implements CourseStore {
       }
     });
   }
+
+  async listPopular(
+    organizationId: OrganizationId,
+    systemOrganizationId?: OrganizationId,
+    limit: number = 8,
+  ): Promise<CourseRecord[]> {
+    const orgFilter =
+      systemOrganizationId && systemOrganizationId !== organizationId
+        ? sql`(c.organization_id = ${organizationId} OR c.organization_id = ${systemOrganizationId})`
+        : sql`c.organization_id = ${organizationId}`;
+
+    const queryResult = await this.db.execute(sql`
+      SELECT 
+        c.id,
+        c.organization_id AS "organizationId",
+        c.name,
+        c.subject,
+        c.exam_date AS "examDate",
+        c.created_at AS "createdAt",
+        c.updated_at AS "updatedAt",
+        c.deleted_at AS "deletedAt"
+      FROM courses c
+      LEFT JOIN (
+        SELECT course_id, COUNT(DISTINCT user_id) AS added_users
+        FROM course_memberships
+        GROUP BY course_id
+      ) m_stat ON m_stat.course_id = c.id
+      LEFT JOIN (
+        SELECT 
+          m.course_id,
+          COUNT(DISTINCT lp.user_id) AS active_users,
+          COUNT(DISTINCT CASE WHEN lp.completed = true THEN lp.user_id END) AS completed_users
+        FROM lesson_progress lp
+        JOIN lessons l ON l.id = lp.lesson_id AND l.deleted_at IS NULL
+        JOIN modules m ON m.id = l.module_id AND m.deleted_at IS NULL
+        GROUP BY m.course_id
+      ) p_stat ON p_stat.course_id = c.id
+      WHERE ${orgFilter}
+        AND c.deleted_at IS NULL
+      ORDER BY 
+        (
+          COALESCE(m_stat.added_users, 0) * 5 +
+          COALESCE(p_stat.active_users, 0) * 3 +
+          COALESCE(p_stat.completed_users, 0) * 2
+        ) DESC,
+        c.created_at DESC,
+        c.name ASC,
+        c.id ASC
+      LIMIT ${limit}
+    `);
+
+    const resultRows: any[] = Array.isArray(queryResult)
+      ? queryResult
+      : ((queryResult as any)?.rows ?? []);
+
+    return resultRows.map(toCourseRecord);
+  }
 }
+
 

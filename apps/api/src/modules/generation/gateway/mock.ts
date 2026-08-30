@@ -40,6 +40,7 @@ function detectType(req: CompletionRequest): string {
         "quiz_topic",
         "quiz_supplemental",
         "recommendation",
+        "review_summary",
         "lesson",
       ].includes(normalized)
     ) {
@@ -113,6 +114,13 @@ function detectType(req: CompletionRequest): string {
   }
   if (haystack.includes("recommendation")) {
     return "recommendation";
+  }
+  if (
+    haystack.includes("REVIEW SUMMARY") ||
+    haystack.includes("review_summary") ||
+    haystack.includes("خلاصه مروری")
+  ) {
+    return "review_summary";
   }
   return "lesson";
 }
@@ -581,6 +589,53 @@ function buildPayload(type: string, promptText = ""): unknown {
         summary: "Prioritized study guidance synthesized from the source.",
         topics: ["Topic 1", "Topic 2"],
         citationChunkIds: [],
+      };
+    }
+    case "review_summary": {
+      const chunkIdsMatch = promptText.match(
+        /AVAILABLE CHUNK IDs:\s*(\[[^\]]*\])/i,
+      );
+      let availableChunkIds: string[] = [];
+      if (chunkIdsMatch && chunkIdsMatch[1]) {
+        try {
+          availableChunkIds = JSON.parse(chunkIdsMatch[1]);
+        } catch {
+          // ignore
+        }
+      }
+      const firstChunkId = availableChunkIds[0] || "chunk-1";
+
+      return {
+        kind: "review_summary",
+        title: "خلاصه مروری جامع",
+        estimatedReadingMinutes: 12,
+        overview:
+          "خلاصه فوق‌العاده متمرکز و فشرده از هسته اصلی مبحث و مفاهیم پایه‌ای.",
+        sections: [
+          {
+            title: "بخش ۱: اصول پایه و مکانیسم‌های کلیدی",
+            keyPoints: [
+              "نکته کلیدی اول در مورد مکانیسم عمل و پاتوفیزیولوژی",
+              "نکته کلیدی دوم در مورد فارماکوکینتیک و متابولیسم",
+            ],
+            mechanisms: ["مکانیسم دقیق مهار و فعال‌سازی گیرنده‌ها"],
+            classifications: ["طبقه‌بندی ساختاری و دارویی"],
+            comparisons: [
+              {
+                conceptA: "داروی گروه اول",
+                conceptB: "داروی گروه دوم",
+                keyDifferences: "تفاوت در نیمه‌عمر و شدت اثر مهاری",
+              },
+            ],
+            memorizationPoints: ["دوز معمول و نسبت‌های طلایی"],
+            examPoints: ["نکته پرتکرار آزمون‌های جامع"],
+            citationChunkIds: [firstChunkId],
+          },
+        ],
+        finalTakeaways: [
+          "جمع‌بندی نهایی و نکات طلایی جهت مرور سریع قبل از آزمون",
+        ],
+        citationChunkIds: availableChunkIds,
       };
     }
     case "lesson":

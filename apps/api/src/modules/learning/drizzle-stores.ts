@@ -133,6 +133,10 @@ function toDocumentRecord(row: {
   status: string;
   errorCode: string | null;
   retryCount: number;
+  qualityScore: number | null;
+  qualityLevel: string | null;
+  qualityReport: unknown | null;
+  qualityAnalyzedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
   deletedAt: Date | null;
@@ -151,6 +155,10 @@ function toDocumentRecord(row: {
     status: row.status as DocumentRecord["status"],
     errorCode: row.errorCode,
     retryCount: row.retryCount,
+    qualityScore: row.qualityScore,
+    qualityLevel: row.qualityLevel,
+    qualityReport: row.qualityReport,
+    qualityAnalyzedAt: row.qualityAnalyzedAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     deletedAt: row.deletedAt?.toISOString() ?? null,
@@ -608,6 +616,10 @@ export class DrizzleDocumentStore implements DocumentStore {
         status: document.status,
         errorCode: document.errorCode,
         retryCount: document.retryCount,
+        qualityScore: document.qualityScore,
+        qualityLevel: document.qualityLevel,
+        qualityReport: document.qualityReport,
+        qualityAnalyzedAt: document.qualityAnalyzedAt ? new Date(document.qualityAnalyzedAt) : null,
         createdAt: new Date(document.createdAt),
         updatedAt: new Date(document.updatedAt),
         deletedAt: null,
@@ -626,6 +638,10 @@ export class DrizzleDocumentStore implements DocumentStore {
         status: document.status,
         errorCode: document.errorCode,
         retryCount: document.retryCount,
+        qualityScore: document.qualityScore,
+        qualityLevel: document.qualityLevel,
+        qualityReport: document.qualityReport,
+        qualityAnalyzedAt: document.qualityAnalyzedAt ? new Date(document.qualityAnalyzedAt) : null,
         updatedAt: new Date(document.updatedAt),
       })
       .where(eq(documents.id, document.id))

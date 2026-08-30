@@ -324,15 +324,12 @@ export function calculateWeeklyStudyTimeSummary(
     }
   }
 
-  // Calculate percentage change
+  // Calculate percentage change only when this week > 0 and last week > 0
   let changePercent: number | null = null;
-  if (lastWeekTotalSeconds > 0) {
+  if (thisWeekTotalSeconds > 0 && lastWeekTotalSeconds > 0) {
     const diff = thisWeekTotalSeconds - lastWeekTotalSeconds;
     changePercent = Math.round((diff / lastWeekTotalSeconds) * 100);
-  } else if (thisWeekTotalSeconds === 0 && lastWeekTotalSeconds === 0) {
-    changePercent = 0;
   } else {
-    // If last week was 0 and this week > 0, return null so UI handles empty baseline cleanly
     changePercent = null;
   }
 
@@ -358,6 +355,115 @@ export function calculateWeeklyStudyTimeSummary(
     },
     changePercent,
     daily,
+  };
+}
+
+export type StudyTimeComparisonResult =
+  | {
+      type: "increase";
+      changePercent: number;
+      text: string;
+    }
+  | {
+      type: "decrease";
+      changePercent: number;
+      text: string;
+    }
+  | {
+      type: "same";
+      text: string;
+    }
+  | {
+      type: "last_week_reference";
+      formattedLastWeek: string;
+      text: string;
+    }
+  | {
+      type: "new_start";
+      text: string;
+    }
+  | {
+      type: "no_data";
+      text: string;
+    };
+
+/**
+ * Determines the comparison presentation between this week's and last week's study times.
+ *
+ * Rules:
+ * 1. If lastWeek has 0 study time:
+ *    - If thisWeek > 0: "شروع شد 🌱" (prevents division by zero, NaN, Infinity)
+ *    - If thisWeek === 0: "هفته قبل: هنوز مطالعه‌ای ثبت نشده"
+ * 2. If thisWeek < lastWeek * 0.5 (strictly less than 50% of last week):
+ *    - Do NOT show percentage decrease (↓ X%).
+ *    - Instead, display last week's study time: "هفته قبل: {lastWeekFormatted}".
+ * 3. If thisWeek >= lastWeek * 0.5 and thisWeek < lastWeek:
+ *    - Display actual percentage decrease: "↓ X٪ نسبت به هفته قبل".
+ * 4. If thisWeek === lastWeek:
+ *    - "مشابه هفته قبل".
+ * 5. If thisWeek > lastWeek:
+ *    - Display actual percentage increase: "↑ X٪ نسبت به هفته قبل".
+ */
+export function getWeeklyStudyComparison(
+  thisWeekSeconds: number,
+  lastWeekSeconds: number,
+  lastWeekFormatted?: string,
+): StudyTimeComparisonResult {
+  const formattedLast =
+    lastWeekFormatted || formatStudyDurationPersian(lastWeekSeconds);
+
+  const effectiveThisWeekSeconds = Math.max(0, thisWeekSeconds);
+  const effectiveLastWeekSeconds = Math.max(0, lastWeekSeconds);
+
+  // When last week has 0 study time
+  if (effectiveLastWeekSeconds === 0) {
+    if (effectiveThisWeekSeconds > 0) {
+      return {
+        type: "new_start",
+        text: "شروع شد 🌱",
+      };
+    }
+    return {
+      type: "no_data",
+      text: "هفته قبل: هنوز مطالعه‌ای ثبت نشده",
+    };
+  }
+
+  // When this week is strictly less than 50% of last week:
+  // Do NOT show negative percentage reduction; show last week reference instead.
+  if (effectiveThisWeekSeconds < effectiveLastWeekSeconds * 0.5) {
+    return {
+      type: "last_week_reference",
+      formattedLastWeek: formattedLast,
+      text: `هفته قبل: ${formattedLast}`,
+    };
+  }
+
+  // When this week is >= 50% of last week:
+  if (effectiveThisWeekSeconds > effectiveLastWeekSeconds) {
+    const diff = effectiveThisWeekSeconds - effectiveLastWeekSeconds;
+    const changePercent = Math.round((diff / effectiveLastWeekSeconds) * 100);
+    return {
+      type: "increase",
+      changePercent,
+      text: `↑ ${toPersianDigits(changePercent)}٪ نسبت به هفته قبل`,
+    };
+  }
+
+  if (effectiveThisWeekSeconds === effectiveLastWeekSeconds) {
+    return {
+      type: "same",
+      text: "مشابه هفته قبل",
+    };
+  }
+
+  // effectiveThisWeekSeconds >= 50% of lastWeek and < lastWeek:
+  const diff = effectiveLastWeekSeconds - effectiveThisWeekSeconds;
+  const changePercent = Math.round((diff / effectiveLastWeekSeconds) * 100);
+  return {
+    type: "decrease",
+    changePercent,
+    text: `↓ ${toPersianDigits(changePercent)}٪ نسبت به هفته قبل`,
   };
 }
 

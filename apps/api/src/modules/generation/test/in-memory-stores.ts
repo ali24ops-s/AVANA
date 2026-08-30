@@ -137,6 +137,28 @@ export class InMemoryGeneratedContentStore implements GeneratedContentStore {
     }
   }
 
+  async deleteDraftsByDocument(
+    documentId: DocumentId,
+    organizationId: OrganizationId,
+  ): Promise<void> {
+    for (const [id, c] of this.contents) {
+      if (
+        c.documentId === documentId &&
+        c.organizationId === organizationId &&
+        (c.status === "draft" ||
+          c.status === "regenerating" ||
+          c.status === "edited" ||
+          c.status === "rejected") &&
+        c.deletedAt === null
+      ) {
+        this.contents.set(id, {
+          ...c,
+          deletedAt: new Date().toISOString(),
+        });
+      }
+    }
+  }
+
   async deleteDraftsByDocumentAndType(
     documentId: DocumentId,
     type: GeneratedContentType,

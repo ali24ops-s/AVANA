@@ -37,6 +37,7 @@ export const users = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     email: varchar("email", { length: 320 }).notNull().unique(),
     name: varchar("name", { length: 255 }).notNull(),
+    globalRole: varchar("global_role", { length: 50 }),
     passwordHash: varchar("password_hash", { length: 255 }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
@@ -49,6 +50,7 @@ export const users = pgTable(
   },
   (table) => ({
     emailIdx: uniqueIndex("idx_users_email").on(table.email),
+    globalRoleIdx: index("idx_users_global_role").on(table.globalRole),
   }),
 );
 
@@ -445,6 +447,10 @@ export const documents = pgTable(
     status: varchar("status", { length: 30 }).notNull().default("uploaded"),
     errorCode: varchar("error_code", { length: 100 }),
     retryCount: integer("retry_count").notNull().default(0),
+    qualityScore: integer("quality_score"),
+    qualityLevel: varchar("quality_level", { length: 20 }),
+    qualityReport: jsonb("quality_report"),
+    qualityAnalyzedAt: timestamp("quality_analyzed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -520,9 +526,9 @@ export const generatedContents = pgTable(
     organizationId: uuid("organization_id")
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
-    documentId: uuid("document_id")
-      .notNull()
-      .references(() => documents.id, { onDelete: "cascade" }),
+    documentId: uuid("document_id").references(() => documents.id, {
+      onDelete: "set null",
+    }),
     courseId: uuid("course_id")
       .notNull()
       .references(() => courses.id, { onDelete: "cascade" }),
@@ -661,9 +667,9 @@ export const flashcards = pgTable(
     courseId: uuid("course_id")
       .notNull()
       .references(() => courses.id, { onDelete: "cascade" }),
-    documentId: uuid("document_id")
-      .notNull()
-      .references(() => documents.id, { onDelete: "cascade" }),
+    documentId: uuid("document_id").references(() => documents.id, {
+      onDelete: "set null",
+    }),
     generatedContentId: uuid("generated_content_id").references(
       () => generatedContents.id,
     ),
@@ -795,7 +801,7 @@ export const quizzes = pgTable(
       .notNull()
       .references(() => courses.id, { onDelete: "cascade" }),
     documentId: uuid("document_id")
-      .references(() => documents.id, { onDelete: "cascade" }),
+      .references(() => documents.id, { onDelete: "set null" }),
     title: varchar("title", { length: 255 }).notNull(),
     topic: varchar("topic", { length: 255 }),
     difficulty: varchar("difficulty", { length: 20 }).default("medium"),
@@ -1123,4 +1129,146 @@ export const flashcardStudySessionCards = pgTable(
     flashcardIdx: index("idx_fss_cards_flashcard").on(table.flashcardId),
   }),
 );
+
+// ---------------------------------------------------------------------------
+// Content Packs & Library
+// ---------------------------------------------------------------------------
+
+/**
+ * Content Packs table.
+ *
+ * Immutable, shareable collection of 4 AI-generated educational contents
+ * (lesson, flashcard, quiz, review_summary) published to the public Avana Library.
+ */
+export const contentPacks = pgTable(
+  "content_packs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    creatorUserId: uuid("creator_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    organizationId: uuid("organization_id").references(
+      () => organizations.id,
+      { onDelete: "set null" },
+    ),
+    sourceDocumentId: uuid("source_document_id").references(
+      () => documents.id,
+      { onDelete: "set null" },
+    ),
+    title: varchar("title", { length: 255 }).notNull(),
+    description: text("description"),
+    subject: varchar("subject", { length: 255 }),
+    status: varchar("status", { length: 30 }).notNull().default("published"),
+    publishedAt: timestamp("published_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    usageCount: integer("usage_count").notNull().default(0),
+    metadata: jsonb("metadata").notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (table) => ({
+    activeSourceDocUniqueIdx: uniqueIndex(
+      "idx_content_packs_active_source_doc",
+    )
+      .on(table.sourceDocumentId)
+      .where(
+        sql`${table.status} = 'published' AND ${table.deletedAt} IS NULL AND ${table.sourceDocumentId} IS NOT NULL`,
+      ),
+    statusUsageIdx: index("idx_content_packs_status_usage").on(
+      table.status,
+      table.usageCount,
+    ),
+    subjectStatusIdx: index("idx_content_packs_subject_status").on(
+      table.subject,
+      table.status,
+    ),
+    creatorIdx: index("idx_content_packs_creator").on(table.creatorUserId),
+    sourceDocIdx: index("idx_content_packs_source_doc").on(
+      table.sourceDocumentId,
+    ),
+  }),
+);
+
+/**
+ * Content Pack Items table.
+ *
+ * Stores immutable payload snapshots of each of the 4 accepted contents.
+ * Serving public library details and add-to-course materialization NEVER
+ * depends on generated_contents.
+ */
+export const contentPackItems = pgTable(
+  "content_pack_items",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    contentPackId: uuid("content_pack_id")
+      .notNull()
+      .references(() => contentPacks.id, { onDelete: "cascade" }),
+    contentType: varchar("content_type", { length: 30 }).notNull(),
+    sourceGeneratedContentId: uuid("source_generated_content_id").references(
+      () => generatedContents.id,
+      { onDelete: "set null" },
+    ),
+    payloadSnapshot: jsonb("payload_snapshot").notNull(),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    packTypeIdx: uniqueIndex("idx_content_pack_items_pack_type").on(
+      table.contentPackId,
+      table.contentType,
+    ),
+  }),
+);
+
+/**
+ * Content Pack Usages table.
+ *
+ * Tracks installations of content packs into student courses.
+ * UNIQUE(content_pack_id, user_id, target_course_id) ensures one installation
+ * per user per course.
+ */
+export const contentPackUsages = pgTable(
+  "content_pack_usages",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    contentPackId: uuid("content_pack_id")
+      .notNull()
+      .references(() => contentPacks.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    targetCourseId: uuid("target_course_id")
+      .notNull()
+      .references(() => courses.id, { onDelete: "cascade" }),
+    targetModuleId: uuid("target_module_id").references(() => modules.id, {
+      onDelete: "set null",
+    }),
+    addedAt: timestamp("added_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    userCourseUniqueIdx: uniqueIndex("idx_content_pack_usages_pack_user_course").on(
+      table.contentPackId,
+      table.userId,
+      table.targetCourseId,
+    ),
+    userPackIdx: index("idx_content_pack_usages_user_pack").on(
+      table.contentPackId,
+      table.userId,
+    ),
+    targetCourseIdx: index("idx_content_pack_usages_target_course").on(
+      table.targetCourseId,
+    ),
+  }),
+);
+
 

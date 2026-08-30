@@ -28,6 +28,7 @@ import { FlashcardsPage } from "../pages/FlashcardsPage.js";
 import { ReviewPage } from "../pages/ReviewPage.js";
 import { ExamsPage } from "../pages/ExamsPage.js";
 import { FilesPage } from "../pages/FilesPage.js";
+import { LibraryPage } from "../pages/LibraryPage.js";
 import { EmailVerificationPage } from "../components/shell/EmailVerificationPage.js";
 
 // Admin Imports
@@ -126,6 +127,10 @@ export const router = createBrowserRouter([
           {
             path: "files",
             element: <FilesPage />,
+          },
+          {
+            path: "library",
+            element: <LibraryPage />,
           },
           {
             path: "*",

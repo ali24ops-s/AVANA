@@ -164,6 +164,10 @@ export class DocumentProcessingService {
         originalName: doc.originalName,
       });
 
+      // Analyze Quality
+      const { QualityAnalyzer } = await import("./extraction/quality-analyzer.js");
+      const qualityReport = QualityAnalyzer.analyze(result);
+
       // Build and persist chunks.
       const chunks = buildChunks(documentId, organizationId, result.pages, 1);
 
@@ -177,6 +181,10 @@ export class DocumentProcessingService {
         ...doc,
         status: "extracted",
         pageCount: result.pages.length,
+        qualityScore: qualityReport.score,
+        qualityLevel: qualityReport.level,
+        qualityReport,
+        qualityAnalyzedAt: new Date().toISOString(),
         errorCode: null,
         retryCount: 0,
         updatedAt: new Date().toISOString(),

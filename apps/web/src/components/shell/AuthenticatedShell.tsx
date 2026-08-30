@@ -18,12 +18,13 @@ import {
   HelpCircle,
   FolderOpen,
   Settings,
-  Search,
   Bell,
   Menu,
   X,
+  Library as LibraryIcon,
 } from "lucide-react";
 import { useAuth } from "../../providers/AuthProvider.js";
+import { HeaderSearch } from "./HeaderSearch.js";
 
 export function AuthenticatedShell() {
   const { user, isLoading, error, signOut } = useAuth();
@@ -52,6 +53,7 @@ export function AuthenticatedShell() {
   const isFlashcardsActive = location.pathname.startsWith("/flashcards");
   const isExamsActive = location.pathname.startsWith("/exams");
   const isFilesActive = location.pathname.startsWith("/files");
+  const isLibraryActive = location.pathname.startsWith("/library");
 
   return (
     <div
@@ -107,20 +109,18 @@ export function AuthenticatedShell() {
                 <FolderOpen className="w-4 h-4" />
                 <span>فایل‌ها</span>
               </HeaderNavLink>
+
+              <HeaderNavLink to="/library" active={isLibraryActive}>
+                <LibraryIcon className="w-4 h-4" />
+                <span>کتابخانه</span>
+              </HeaderNavLink>
             </nav>
           </div>
 
           {/* Controls & User Profile (RTL Left side) */}
           <div className="flex items-center gap-3 shrink-0">
-            {/* Search Bar (Desktop) */}
-            <div className="hidden lg:block relative">
-              <Search className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                placeholder="جستجو در دوره‌ها..."
-                className="w-48 xl:w-56 pl-4 pr-9 py-1.5 rounded-full border border-white/10 bg-white/5 text-slate-200 text-xs placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 transition-all"
-              />
-            </div>
+            {/* Real Search Bar (Desktop) */}
+            <HeaderSearch />
 
             {/* Notifications Button */}
             <button
@@ -211,6 +211,15 @@ export function AuthenticatedShell() {
           >
             <FolderOpen className="w-5 h-5" />
             <span>فایل‌ها</span>
+          </MobileDrawerLink>
+
+          <MobileDrawerLink
+            to="/library"
+            active={isLibraryActive}
+            onClick={() => setMobileMenuOpen(false)}
+          >
+            <LibraryIcon className="w-5 h-5" />
+            <span>کتابخانه عمومی</span>
           </MobileDrawerLink>
 
           <div className="mt-auto pt-4 border-t border-white/10">

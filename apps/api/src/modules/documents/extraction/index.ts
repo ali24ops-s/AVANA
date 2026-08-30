@@ -36,3 +36,4 @@ export {
   SUPPORTED_MIME_TYPES,
 } from "./extractor-registry.js";
 export { buildChunks, estimateTokens, sha256Hex } from "./chunker.js";
+export * from "./quality-analyzer.js";

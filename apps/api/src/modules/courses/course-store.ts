@@ -36,6 +36,9 @@ export interface CourseStore {
   /** Atomically insert a course and its audit events. */
   create(records: CreateCourseRecords): Promise<CourseRecord>;
 
+  /** Find a course by ID directly without user scoping (used for internal existence/ownership validation). */
+  findById(courseId: CourseId): Promise<CourseRecord | undefined>;
+
   /** Find a course through the requesting user's organization membership or system organization. */
   findByIdForUser(
     courseId: CourseId,
@@ -81,4 +84,12 @@ export interface CourseStore {
     userId: UserId,
     courseIds: CourseId[],
   ): Promise<void>;
+
+  /** List most popular courses within accessible scope (organization + system) sorted by popularity metric. */
+  listPopular(
+    organizationId: OrganizationId,
+    systemOrganizationId?: OrganizationId,
+    limit?: number,
+  ): Promise<CourseRecord[]>;
 }
+

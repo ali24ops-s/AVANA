@@ -581,4 +581,375 @@ describe("Document Content Status & DB Source of Truth Flow", () => {
     expect(status.flashcards.generated).toBe(true);
     expect(status.flashcards.count).toBe(8);
   });
+
+  // =========================================================================
+  // Publish Eligibility Invariant Verification (8 Strict Scenarios)
+  // Invariant: has_publishable_content is true iff at least 1 accepted content exists
+  // =========================================================================
+  describe("Publish Eligibility Invariant (8 Conditions)", () => {
+    // Condition 1: Lesson accepted => Publish visible
+    it("1. Lesson accepted => has_publishable_content: true", async () => {
+      generatedContentStore.insert({
+        id: "gen-lesson-acc" as GeneratedContentId,
+        organizationId: orgId,
+        documentId: docId,
+        courseId,
+        type: "lesson",
+        status: "accepted",
+        payload: { kind: "lesson", sessions: [{ title: "L1" }] } as any,
+        generationKey: null,
+        promptVersion: null,
+        model: "test-model",
+        tokenUsage: null,
+        reviewedBy: "admin",
+        reviewedAt: new Date().toISOString(),
+        reviewReason: null,
+        editedBy: null,
+        editedAt: null,
+        acceptedBy: "admin",
+        acceptedAt: new Date().toISOString(),
+        previousPayload: null,
+        materializedLessonId: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+
+      const status = await generationService.getDocumentContentStatus(
+        actor,
+        orgId,
+        docId,
+        courseId,
+      );
+
+      expect(status.lesson.accepted).toBe(true);
+      expect(status.has_publishable_content).toBe(true);
+    });
+
+    // Condition 2: Lesson generated but draft => Publish hidden
+    it("2. Lesson generated but draft => has_publishable_content: false", async () => {
+      generatedContentStore.insert({
+        id: "gen-lesson-draft" as GeneratedContentId,
+        organizationId: orgId,
+        documentId: docId,
+        courseId,
+        type: "lesson",
+        status: "draft",
+        payload: { kind: "lesson", sessions: [{ title: "L1" }] } as any,
+        generationKey: null,
+        promptVersion: null,
+        model: "test-model",
+        tokenUsage: null,
+        reviewedBy: null,
+        reviewedAt: null,
+        reviewReason: null,
+        editedBy: null,
+        editedAt: null,
+        acceptedBy: null,
+        acceptedAt: null,
+        previousPayload: null,
+        materializedLessonId: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+
+      const status = await generationService.getDocumentContentStatus(
+        actor,
+        orgId,
+        docId,
+        courseId,
+      );
+
+      expect(status.lesson.generated).toBe(true);
+      expect(status.lesson.accepted).toBe(false);
+      expect(status.has_publishable_content).toBe(false);
+    });
+
+    // Condition 3: Lesson rejected => Publish hidden
+    it("3. Lesson rejected => has_publishable_content: false", async () => {
+      generatedContentStore.insert({
+        id: "gen-lesson-rej" as GeneratedContentId,
+        organizationId: orgId,
+        documentId: docId,
+        courseId,
+        type: "lesson",
+        status: "rejected",
+        payload: { kind: "lesson", sessions: [{ title: "L1" }] } as any,
+        generationKey: null,
+        promptVersion: null,
+        model: "test-model",
+        tokenUsage: null,
+        reviewedBy: "admin",
+        reviewedAt: new Date().toISOString(),
+        reviewReason: "Not accurate",
+        editedBy: null,
+        editedAt: null,
+        acceptedBy: null,
+        acceptedAt: null,
+        previousPayload: null,
+        materializedLessonId: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+
+      const status = await generationService.getDocumentContentStatus(
+        actor,
+        orgId,
+        docId,
+        courseId,
+      );
+
+      expect(status.lesson.accepted).toBe(false);
+      expect(status.has_publishable_content).toBe(false);
+    });
+
+    // Condition 4: Flashcard accepted => Publish visible
+    it("4. Flashcard accepted => has_publishable_content: true", async () => {
+      generatedContentStore.insert({
+        id: "gen-fc-acc" as GeneratedContentId,
+        organizationId: orgId,
+        documentId: docId,
+        courseId,
+        type: "flashcard",
+        status: "accepted",
+        payload: { kind: "flashcard", cards: [{ question: "Q1", answer: "A1" }] } as any,
+        generationKey: null,
+        promptVersion: null,
+        model: "test-model",
+        tokenUsage: null,
+        reviewedBy: "admin",
+        reviewedAt: new Date().toISOString(),
+        reviewReason: null,
+        editedBy: null,
+        editedAt: null,
+        acceptedBy: "admin",
+        acceptedAt: new Date().toISOString(),
+        previousPayload: null,
+        materializedLessonId: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+
+      const status = await generationService.getDocumentContentStatus(
+        actor,
+        orgId,
+        docId,
+        courseId,
+      );
+
+      expect(status.flashcards.accepted).toBe(true);
+      expect(status.has_publishable_content).toBe(true);
+    });
+
+    // Condition 5: Quiz accepted => Publish visible
+    it("5. Quiz accepted => has_publishable_content: true", async () => {
+      generatedContentStore.insert({
+        id: "gen-quiz-acc" as GeneratedContentId,
+        organizationId: orgId,
+        documentId: docId,
+        courseId,
+        type: "quiz",
+        status: "accepted",
+        payload: { kind: "quiz", questions: [{ question: "Q1", options: ["A", "B"], correctIndex: 0 }] } as any,
+        generationKey: null,
+        promptVersion: null,
+        model: "test-model",
+        tokenUsage: null,
+        reviewedBy: "admin",
+        reviewedAt: new Date().toISOString(),
+        reviewReason: null,
+        editedBy: null,
+        editedAt: null,
+        acceptedBy: "admin",
+        acceptedAt: new Date().toISOString(),
+        previousPayload: null,
+        materializedLessonId: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+
+      const status = await generationService.getDocumentContentStatus(
+        actor,
+        orgId,
+        docId,
+        courseId,
+      );
+
+      expect(status.exam.accepted).toBe(true);
+      expect(status.has_publishable_content).toBe(true);
+    });
+
+    // Condition 6: Review Summary accepted => Publish visible
+    it("6. Review Summary accepted => has_publishable_content: true", async () => {
+      generatedContentStore.insert({
+        id: "gen-sum-acc" as GeneratedContentId,
+        organizationId: orgId,
+        documentId: docId,
+        courseId,
+        type: "review_summary",
+        status: "accepted",
+        payload: { kind: "review_summary", summary: "Test summary", keyTakeaways: [] } as any,
+        generationKey: null,
+        promptVersion: null,
+        model: "test-model",
+        tokenUsage: null,
+        reviewedBy: "admin",
+        reviewedAt: new Date().toISOString(),
+        reviewReason: null,
+        editedBy: null,
+        editedAt: null,
+        acceptedBy: "admin",
+        acceptedAt: new Date().toISOString(),
+        previousPayload: null,
+        materializedLessonId: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+
+      const status = await generationService.getDocumentContentStatus(
+        actor,
+        orgId,
+        docId,
+        courseId,
+      );
+
+      expect(status.review_summary?.accepted).toBe(true);
+      expect(status.has_publishable_content).toBe(true);
+    });
+
+    // Condition 7: Only draft and rejected contents => Publish hidden
+    it("7. Only draft and rejected contents => has_publishable_content: false", async () => {
+      generatedContentStore.insert({
+        id: "gen-l-draft" as GeneratedContentId,
+        organizationId: orgId,
+        documentId: docId,
+        courseId,
+        type: "lesson",
+        status: "draft",
+        payload: { kind: "lesson", sessions: [{ title: "L1" }] } as any,
+        generationKey: null,
+        promptVersion: null,
+        model: "test-model",
+        tokenUsage: null,
+        reviewedBy: null,
+        reviewedAt: null,
+        reviewReason: null,
+        editedBy: null,
+        editedAt: null,
+        acceptedBy: null,
+        acceptedAt: null,
+        previousPayload: null,
+        materializedLessonId: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+      generatedContentStore.insert({
+        id: "gen-fc-rej" as GeneratedContentId,
+        organizationId: orgId,
+        documentId: docId,
+        courseId,
+        type: "flashcard",
+        status: "rejected",
+        payload: { kind: "flashcard", cards: [{ question: "Q1", answer: "A1" }] } as any,
+        generationKey: null,
+        promptVersion: null,
+        model: "test-model",
+        tokenUsage: null,
+        reviewedBy: "admin",
+        reviewedAt: new Date().toISOString(),
+        reviewReason: "Bad cards",
+        editedBy: null,
+        editedAt: null,
+        acceptedBy: null,
+        acceptedAt: null,
+        previousPayload: null,
+        materializedLessonId: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+
+      const status = await generationService.getDocumentContentStatus(
+        actor,
+        orgId,
+        docId,
+        courseId,
+      );
+
+      expect(status.lesson.accepted).toBe(false);
+      expect(status.flashcards.accepted).toBe(false);
+      expect(status.has_publishable_content).toBe(false);
+    });
+
+    // Condition 8: Lesson draft + Quiz accepted => Publish visible
+    it("8. Lesson draft + Quiz accepted => has_publishable_content: true", async () => {
+      generatedContentStore.insert({
+        id: "gen-l-draft-8" as GeneratedContentId,
+        organizationId: orgId,
+        documentId: docId,
+        courseId,
+        type: "lesson",
+        status: "draft",
+        payload: { kind: "lesson", sessions: [{ title: "L1" }] } as any,
+        generationKey: null,
+        promptVersion: null,
+        model: "test-model",
+        tokenUsage: null,
+        reviewedBy: null,
+        reviewedAt: null,
+        reviewReason: null,
+        editedBy: null,
+        editedAt: null,
+        acceptedBy: null,
+        acceptedAt: null,
+        previousPayload: null,
+        materializedLessonId: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+      generatedContentStore.insert({
+        id: "gen-q-acc-8" as GeneratedContentId,
+        organizationId: orgId,
+        documentId: docId,
+        courseId,
+        type: "quiz",
+        status: "accepted",
+        payload: { kind: "quiz", questions: [{ question: "Q1", options: ["A", "B"], correctIndex: 0 }] } as any,
+        generationKey: null,
+        promptVersion: null,
+        model: "test-model",
+        tokenUsage: null,
+        reviewedBy: "admin",
+        reviewedAt: new Date().toISOString(),
+        reviewReason: null,
+        editedBy: null,
+        editedAt: null,
+        acceptedBy: "admin",
+        acceptedAt: new Date().toISOString(),
+        previousPayload: null,
+        materializedLessonId: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+
+      const status = await generationService.getDocumentContentStatus(
+        actor,
+        orgId,
+        docId,
+        courseId,
+      );
+
+      expect(status.lesson.accepted).toBe(false);
+      expect(status.exam.accepted).toBe(true);
+      expect(status.has_publishable_content).toBe(true);
+    });
+  });
 });

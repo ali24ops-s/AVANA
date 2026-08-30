@@ -14,6 +14,7 @@ import type { ApiClient } from "./client.js";
 export type DocumentContentStatus = {
   generated: boolean;
   count: number;
+  accepted?: boolean;
 };
 
 export type DocumentContentStatusResponse = {
@@ -23,14 +24,17 @@ export type DocumentContentStatusResponse = {
   lesson: DocumentContentStatus;
   flashcards: DocumentContentStatus;
   exam: DocumentContentStatus;
+  review_summary?: DocumentContentStatus;
   can_generate: boolean;
   all_generated: boolean;
+  has_publishable_content?: boolean;
 };
 
 export type GenerateContentOptions = GenerateContentRequest & {
   lesson?: boolean;
   flashcards?: boolean;
   exam?: boolean;
+  review_summary?: boolean;
 };
 
 export type GenerationJobResource = {
@@ -64,7 +68,7 @@ export function createGenerationApi(client: ApiClient) {
   return {
     /**
      * GET /v1/organizations/:organizationId/documents/:documentId/content-status
-     * Returns true DB status for lesson, flashcards, and exam.
+     * Returns true DB status for lesson, flashcards, exam, and review summary.
      */
     getDocumentContentStatus(
       organizationId: string,
@@ -110,15 +114,21 @@ export function createGenerationApi(client: ApiClient) {
 
     /**
      * GET /v1/organizations/:organizationId/courses/:courseId/documents/:documentId/generated
-     * Lists generated content drafts for a document.
+     * Lists generated content drafts for a document with optional pagination and filters.
      */
     listGeneratedContent(
       organizationId: string,
       courseId: string,
       documentId: string,
+      options?: { page?: number; limit?: number; type?: string },
     ): Promise<GeneratedContentListResponse> {
+      const params = new URLSearchParams();
+      if (options?.page) params.set("page", String(options.page));
+      if (options?.limit) params.set("limit", String(options.limit));
+      if (options?.type) params.set("type", options.type);
+      const qs = params.toString();
       return client.get<GeneratedContentListResponse>(
-        `/v1/organizations/${organizationId}/courses/${courseId}/documents/${documentId}/generated`,
+        `/v1/organizations/${organizationId}/courses/${courseId}/documents/${documentId}/generated${qs ? `?${qs}` : ""}`,
       );
     },
 
@@ -134,6 +144,40 @@ export function createGenerationApi(client: ApiClient) {
     ): Promise<GeneratedContentResponse> {
       return client.get<GeneratedContentResponse>(
         `/v1/organizations/${organizationId}/courses/${courseId}/documents/${documentId}/generated/${contentId}`,
+      );
+    },
+
+    /**
+     * GET /v1/organizations/:organizationId/courses/:courseId/documents/:documentId/review-summary
+     * Gets the generated Review Summary for a document.
+     */
+    getReviewSummary(
+      organizationId: string,
+      documentId: string,
+      courseId?: string | null,
+    ): Promise<{ request_id: string; content: GeneratedContentResponse["content"] | null }> {
+      const url = courseId
+        ? `/v1/organizations/${organizationId}/courses/${courseId}/documents/${documentId}/review-summary`
+        : `/v1/organizations/${organizationId}/documents/${documentId}/review-summary`;
+      return client.get<{ request_id: string; content: GeneratedContentResponse["content"] | null }>(url);
+    },
+
+    /**
+     * POST /v1/organizations/:organizationId/courses/:courseId/documents/:documentId/review-summary
+     * Generates or fetches the Review Summary for a document.
+     */
+    triggerReviewSummary(
+      organizationId: string,
+      documentId: string,
+      courseId?: string | null,
+      options?: { prompt_version?: string; force?: boolean },
+    ): Promise<{ request_id: string; content: GeneratedContentResponse["content"] }> {
+      const url = courseId
+        ? `/v1/organizations/${organizationId}/courses/${courseId}/documents/${documentId}/review-summary`
+        : `/v1/organizations/${organizationId}/documents/${documentId}/review-summary`;
+      return client.post<{ request_id: string; content: GeneratedContentResponse["content"] }>(
+        url,
+        options ?? {},
       );
     },
   };

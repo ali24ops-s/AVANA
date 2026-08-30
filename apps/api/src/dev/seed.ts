@@ -46,22 +46,17 @@ export interface SeedStores {
 const DEMO_USER_EMAIL = "alice@example.com";
 const DEMO_ORG_NAME = "AVANA Demo Organization";
 const DEMO_COURSES = [
-  "فارماکولوژی ۱",
-  "فارماکولوژی ۲",
-  "فارماکولوژی ۳",
-  "دارودرمانی ۱",
-  "دارودرمانی ۲",
-  "دارودرمانی ۳",
-  "دارودرمانی ۴",
-  "گیاهان دارویی",
-  "فارماکوگنوزی ۱",
-  "فارماکوگنوزی ۲",
-  "میکروب‌شناسی",
-  "قارچ و انگل‌شناسی",
-  "ایمونولوژی",
-  "فیزیولوژی ۱",
-  "فیزیولوژی ۲",
-  "Medicinal Chemistry Introduction",
+  { name: "شیمی دارویی ۱", subject: "شیمی دارویی" },
+  { name: "شیمی دارویی ۲", subject: "شیمی دارویی" },
+  { name: "شیمی دارویی ۳", subject: "شیمی دارویی" },
+  { name: "فارماسیوتیکس ۱", subject: "فارماسیوتیکس" },
+  { name: "فارماسیوتیکس ۲", subject: "فارماسیوتیکس" },
+  { name: "فارماسیوتیکس ۳", subject: "فارماسیوتیکس" },
+  { name: "فارماسیوتیکس ۴", subject: "فارماسیوتیکس" },
+  { name: "فارماسیوتیکس ۵", subject: "فارماسیوتیکس" },
+  { name: "بافت شناسی", subject: "علوم پایه" },
+  { name: "بیولوژی", subject: "علوم پایه" },
+  { name: "سم شناسی", subject: "سم‌شناسی" },
 ];
 
 function generateSlug(name: string): string {
@@ -90,8 +85,8 @@ export async function seedLocalDevData(stores: SeedStores): Promise<{
     courseStore,
     moduleStore: _moduleStore,
     lessonStore: _lessonStore,
-    quizStore,
-    quizQuestionStore,
+    quizStore: _quizStore,
+    quizQuestionStore: _quizQuestionStore,
   } = stores;
 
   const seeded = {
@@ -165,27 +160,11 @@ export async function seedLocalDevData(stores: SeedStores): Promise<{
 
   const orgId = organization.id as OrganizationId;
 
-  const existingCourses = await courseStore.listByOrganization(orgId, aliceId);
-
-  // First check if an existing course has name "Pharmacology Basics" and rename to "فارماکولوژی ۱"
-  const existingPharmBasics = existingCourses.find((c) => c.name === "Pharmacology Basics");
-  if (existingPharmBasics) {
-    existingPharmBasics.name = "فارماکولوژی ۱";
-    await courseStore.update(existingPharmBasics);
-  }
-
   const updatedCourses = await courseStore.listByOrganization(orgId, aliceId);
   const existingNames = new Set(updatedCourses.map((c) => c.name));
 
-  let pharmacologyCourseId: CourseId | null =
-    (updatedCourses.find((c) => c.name === "فارماکولوژی ۱" || c.name === "Pharmacology Basics")?.id as CourseId) ?? null;
-
-  for (const courseName of DEMO_COURSES) {
-    if (existingNames.has(courseName)) {
-      const existing = updatedCourses.find((c) => c.name === courseName);
-      if (existing && (courseName === "فارماکولوژی ۱" || courseName === "Pharmacology Basics")) {
-        pharmacologyCourseId = existing.id as CourseId;
-      }
+  for (const courseItem of DEMO_COURSES) {
+    if (existingNames.has(courseItem.name)) {
       continue;
     }
 
@@ -195,8 +174,8 @@ export async function seedLocalDevData(stores: SeedStores): Promise<{
     const course = {
       id: courseId,
       organizationId: orgId,
-      name: courseName,
-      subject: (courseName === "فارماکولوژی ۱" || courseName === "Pharmacology Basics") ? "Pharmacy" : null,
+      name: courseItem.name,
+      subject: courseItem.subject,
       examDate: null as string | null,
       createdAt: now,
       updatedAt: now,
@@ -204,22 +183,11 @@ export async function seedLocalDevData(stores: SeedStores): Promise<{
     };
 
     const auditEvents = [
-      auditCourseCreated(aliceId, orgId, courseId, courseName, null, null),
+      auditCourseCreated(aliceId, orgId, courseId, courseItem.name, courseItem.subject, null),
     ] as const;
 
     await courseStore.create({ course, auditEvents });
-    seeded.courses.push(courseName);
-
-    if (courseName === "فارماکولوژی ۱" || courseName === "Pharmacology Basics") {
-      pharmacologyCourseId = courseId;
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // 4. Seed Quizzes & Questions
-  // ---------------------------------------------------------------------------
-  if (pharmacologyCourseId && quizStore && quizQuestionStore) {
-    seeded.quizzes = false;
+    seeded.courses.push(courseItem.name);
   }
 
   return {

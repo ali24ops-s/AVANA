@@ -348,6 +348,11 @@ export class InMemoryDocumentChunkStore implements DocumentChunkStore {
     this.chunks.set(chunk.id, { ...chunk });
   }
 
+  async create(chunk: DocumentChunkRecord): Promise<DocumentChunkRecord> {
+    this.chunks.set(chunk.id, { ...chunk });
+    return { ...chunk };
+  }
+
   async createMany(
     chunks: DocumentChunkRecord[],
   ): Promise<DocumentChunkRecord[]> {

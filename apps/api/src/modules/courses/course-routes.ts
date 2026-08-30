@@ -223,6 +223,42 @@ export const courseRoutes: FastifyPluginAsync<CourseRouteOptions> = async (
   );
 
   // ---------------------------------------------------------------------------
+  // GET /v1/organizations/:organizationId/courses/popular — List popular courses
+  // ---------------------------------------------------------------------------
+  app.get(
+    "/v1/organizations/:organizationId/courses/popular",
+    { preHandler: [requireAuth] },
+    async (request, _reply) => {
+      const actor = getActor(request);
+      const params = request.params as { organizationId: string };
+      const organizationId = getOrganizationId(params);
+
+      const courses = await courseService.listPopularCourses(
+        actor,
+        organizationId,
+        8,
+      );
+
+      return {
+        request_id: request.id,
+        items: courses.map((c) => ({
+          id: c.id,
+          title: c.name,
+          subject: c.subject,
+          exam_at: c.examDate,
+          created_at: c.createdAt,
+          updated_at: c.updatedAt,
+          archived: c.deletedAt !== null,
+        })),
+        pagination: {
+          limit: 8,
+          next_cursor: null,
+        },
+      };
+    },
+  );
+
+  // ---------------------------------------------------------------------------
   // POST /v1/organizations/:organizationId/courses/my — Add a course to user's list
   // ---------------------------------------------------------------------------
   app.post(

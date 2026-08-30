@@ -34,7 +34,7 @@ export type FlashcardRecord = {
   id: FlashcardId;
   organizationId: OrganizationId;
   courseId: CourseId;
-  documentId: DocumentId;
+  documentId?: DocumentId | null;
   generatedContentId: GeneratedContentId | null;
   lessonId?: LessonId | null;
   question: string;

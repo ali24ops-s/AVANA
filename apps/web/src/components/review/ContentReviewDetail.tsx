@@ -9,7 +9,11 @@ import {
   Sparkles,
   AlertCircle,
   Loader2,
+  Clock,
+  Zap,
+  Bookmark,
 } from "lucide-react";
+import type { ReviewSummaryPayload } from "@avana/domain";
 import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
 import { createReviewApi } from "../../lib/api/review.js";
 import { MarkdownRenderer } from "../markdown/MarkdownRenderer.js";
@@ -230,7 +234,15 @@ export function ContentReviewDetail({
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
               <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-md bg-[#008080]/10 text-[#008080]">
-                {content.type === "lesson" ? "درس" : content.type === "flashcard" ? "فلش‌کارت" : "آزمون"}
+                {content.type === "lesson"
+                  ? "درس"
+                  : content.type === "flashcard"
+                  ? "فلش‌کارت"
+                  : content.type === "quiz"
+                  ? "آزمون"
+                  : content.type === "review_summary"
+                  ? "خلاصه مروری"
+                  : "محتوای آموزشی"}
               </span>
               <span className="text-xs text-[var(--color-text-muted)]">
                 وضعیت: <strong className="text-[var(--color-text)]">در انتظار بازبینی</strong>
@@ -523,6 +535,218 @@ export function ContentReviewDetail({
               )}
             </div>
           )}
+
+          {/* Review Summary preview */}
+          {content.type === "review_summary" && (() => {
+            const summaryPayload = payload as unknown as Partial<ReviewSummaryPayload>;
+            const sections = Array.isArray(summaryPayload.sections) ? summaryPayload.sections : [];
+            const finalTakeaways = Array.isArray(summaryPayload.finalTakeaways) ? summaryPayload.finalTakeaways : [];
+
+            return (
+              <div className="space-y-5">
+                {/* Header info */}
+                <div className="flex flex-wrap items-center justify-between gap-3 p-4 bg-[var(--color-surface-warm)] rounded-2xl border border-[var(--color-border)]">
+                  <div className="flex items-center gap-2">
+                    <Zap className="w-4 h-4 text-[#007a7a]" />
+                    <h4 className="text-xs font-bold text-[var(--color-text)]">
+                      {summaryPayload.title || "خلاصه مروری مبحث"}
+                    </h4>
+                  </div>
+                  {typeof summaryPayload.estimatedReadingMinutes === "number" && (
+                    <div className="flex items-center gap-1.5 text-xs text-[var(--color-text-muted)] font-medium">
+                      <Clock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                      <span>
+                        زمان تخمینی مطالعه: {summaryPayload.estimatedReadingMinutes} دقیقه
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Overview */}
+                {Boolean(summaryPayload.overview) && (
+                  <div className="p-4 bg-[var(--color-surface-warm)] rounded-2xl border border-[var(--color-border)] space-y-2">
+                    <div className="flex items-center gap-2 text-[#007a7a]">
+                      <Sparkles className="w-4 h-4" />
+                      <h4 className="text-xs font-bold">چکیده یک‌دقیقه‌ای</h4>
+                    </div>
+                    <p className="text-xs text-[var(--color-text)] leading-relaxed">
+                      {summaryPayload.overview}
+                    </p>
+                  </div>
+                )}
+
+                {/* Sections */}
+                {sections.length > 0 && (
+                  <div className="space-y-4">
+                    {sections.map((section, sIdx) => {
+                      const hasKeyPoints = Array.isArray(section.keyPoints) && section.keyPoints.length > 0;
+                      const hasMechanisms = Array.isArray(section.mechanisms) && section.mechanisms.length > 0;
+                      const hasClassifications = Array.isArray(section.classifications) && section.classifications.length > 0;
+                      const hasComparisons = Array.isArray(section.comparisons) && section.comparisons.length > 0;
+                      const hasMemorization = Array.isArray(section.memorizationPoints) && section.memorizationPoints.length > 0;
+                      const hasExamPoints = Array.isArray(section.examPoints) && section.examPoints.length > 0;
+
+                      return (
+                        <div
+                          key={sIdx}
+                          className="p-4 bg-[var(--color-surface-warm)] rounded-2xl border border-[var(--color-border)] space-y-3"
+                        >
+                          <div className="flex items-center gap-2 pb-2 border-b border-[var(--color-border)]">
+                            <span className="w-6 h-6 rounded-lg bg-[#008080]/10 text-[#008080] flex items-center justify-center font-bold text-xs flex-shrink-0">
+                              {sIdx + 1}
+                            </span>
+                            <h4 className="text-xs font-bold text-[var(--color-text)]">
+                              {section.title || `بخش ${sIdx + 1}`}
+                            </h4>
+                          </div>
+
+                          {/* Key Points */}
+                          {hasKeyPoints && (
+                            <div className="space-y-1.5">
+                              <span className="text-[11px] font-bold text-[#007a7a] block">
+                                نکات کلیدی و مفاهیم اصلی:
+                              </span>
+                              <ul className="space-y-1 text-xs text-[var(--color-text)] pr-3 list-disc">
+                                {section.keyPoints.map((point, pIdx) => (
+                                  <li key={pIdx} className="leading-relaxed">
+                                    {point}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+
+                          {/* Mechanisms & Classifications */}
+                          {(hasMechanisms || hasClassifications) && (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                              {hasMechanisms && (
+                                <div className="p-3 bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)] space-y-1.5">
+                                  <span className="text-[11px] font-bold text-cyan-700 dark:text-cyan-400 block">
+                                    مکانیسم‌ها:
+                                  </span>
+                                  <ul className="space-y-1 text-xs text-[var(--color-text)] pr-3 list-disc">
+                                    {section.mechanisms!.map((m, mIdx) => (
+                                      <li key={mIdx} className="leading-relaxed">
+                                        {m}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+                              {hasClassifications && (
+                                <div className="p-3 bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)] space-y-1.5">
+                                  <span className="text-[11px] font-bold text-blue-700 dark:text-blue-400 block">
+                                    دسته‌بندی و طبقه‌بندی:
+                                  </span>
+                                  <ul className="space-y-1 text-xs text-[var(--color-text)] pr-3 list-disc">
+                                    {section.classifications!.map((c, cIdx) => (
+                                      <li key={cIdx} className="leading-relaxed">
+                                        {c}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Comparisons */}
+                          {hasComparisons && (
+                            <div className="p-3 bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)] space-y-2">
+                              <span className="text-[11px] font-bold text-purple-700 dark:text-purple-400 block">
+                                مقایسه‌ها و تفاوت‌های کلیدی:
+                              </span>
+                              <div className="space-y-1.5">
+                                {section.comparisons!.map((comp, compIdx) => {
+                                  if (typeof comp === "string") {
+                                    return (
+                                      <p key={compIdx} className="text-xs text-[var(--color-text)] leading-relaxed">
+                                        • {comp}
+                                      </p>
+                                    );
+                                  }
+                                  return (
+                                    <div
+                                      key={compIdx}
+                                      className="p-2 bg-[var(--color-surface-warm)] rounded-lg text-xs space-y-1 border border-[var(--color-border)]"
+                                    >
+                                      <div className="flex items-center gap-2 font-bold text-[var(--color-text)]">
+                                        <span>{comp.conceptA}</span>
+                                        <span className="text-purple-600 dark:text-purple-400 font-normal">
+                                          در مقایسه با
+                                        </span>
+                                        <span>{comp.conceptB}</span>
+                                      </div>
+                                      {comp.keyDifferences && (
+                                        <p className="text-[var(--color-text-muted)] text-[11px] leading-relaxed">
+                                          {comp.keyDifferences}
+                                        </p>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Memorization & Exam Points */}
+                          {(hasMemorization || hasExamPoints) && (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                              {hasMemorization && (
+                                <div className="p-3 bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)] space-y-1.5">
+                                  <span className="text-[11px] font-bold text-amber-700 dark:text-amber-400 block">
+                                    نکات حفظی و اعداد مهم:
+                                  </span>
+                                  <ul className="space-y-1 text-xs text-[var(--color-text)] pr-3 list-disc">
+                                    {section.memorizationPoints!.map((item, idx) => (
+                                      <li key={idx} className="leading-relaxed">
+                                        {item}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+                              {hasExamPoints && (
+                                <div className="p-3 bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)] space-y-1.5">
+                                  <span className="text-[11px] font-bold text-rose-700 dark:text-rose-400 block">
+                                    نکات آزمونی و پرتکرار:
+                                  </span>
+                                  <ul className="space-y-1 text-xs text-[var(--color-text)] pr-3 list-disc">
+                                    {section.examPoints!.map((item, idx) => (
+                                      <li key={idx} className="leading-relaxed">
+                                        {item}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Final Takeaways */}
+                {finalTakeaways.length > 0 && (
+                  <div className="p-4 bg-[var(--color-surface-warm)] rounded-2xl border border-[var(--color-border)] space-y-2">
+                    <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400">
+                      <Bookmark className="w-4 h-4" />
+                      <h4 className="text-xs font-bold">جمع‌بندی نهایی</h4>
+                    </div>
+                    <ul className="space-y-1.5 text-xs text-[var(--color-text)] pr-3 list-disc">
+                      {finalTakeaways.map((takeaway, tIdx) => (
+                        <li key={tIdx} className="leading-relaxed">
+                          {takeaway}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </div>
       </div>
 

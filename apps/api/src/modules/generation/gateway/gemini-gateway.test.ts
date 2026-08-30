@@ -273,4 +273,13 @@ describe("createModelGateway with Gemini Multi-Key", () => {
     });
     expect(g2).toBeInstanceOf(GeminiModelGateway);
   });
+
+  it("instantiates GeminiModelGateway by default when createModelGateway is called with no arguments", () => {
+    process.env.GEMINI_API_KEY = FAKE_API_KEY;
+
+    const gateway = createModelGateway();
+    expect(gateway).toBeInstanceOf(GeminiModelGateway);
+    expect(gateway.provider).toBe("gemini");
+    expect(gateway.model).toBe("gemini-3.6-flash");
+  });
 });

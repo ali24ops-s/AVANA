@@ -6,6 +6,7 @@ import {
   validateTimezone,
   getPersianWeekDates,
   calculateWeeklyStudyTimeSummary,
+  getWeeklyStudyComparison,
   calculateStreakSummary,
   type StudySessionRecord,
 } from "../study-session.js";
@@ -132,7 +133,7 @@ describe("Study Session Domain Primitives", () => {
       expect(summary.daily[2].seconds).toBe(0);
     });
 
-    it("returns null changePercent when last week has 0 activity but this week has activity", () => {
+    it("returns null changePercent when last week has 0 activity but this week has activity (thisWeek > 0, lastWeek = 0)", () => {
       const refDate = new Date("2026-08-21T12:00:00Z");
       const mockSessions: StudySessionRecord[] = [
         {
@@ -153,7 +154,32 @@ describe("Study Session Domain Primitives", () => {
       expect(summary.changePercent).toBeNull();
     });
 
-    it("returns 0 changePercent and 0 time when there is no activity at all", () => {
+    it("returns null changePercent when this week has 0 activity but last week has activity (thisWeek = 0, lastWeek > 0)", () => {
+      const refDate = new Date("2026-08-21T12:00:00Z");
+      const mockSessions: StudySessionRecord[] = [
+        {
+          id: "s1",
+          userId: "u1",
+          activityType: "lesson",
+          startedAt: "2026-08-10T08:00:00Z", // Last week
+          lastActivityAt: "2026-08-10T08:30:00Z",
+          durationSeconds: 1800, // 30 min
+          createdAt: "2026-08-10T08:00:00Z",
+          updatedAt: "2026-08-10T08:30:00Z",
+        },
+      ];
+
+      const summary = calculateWeeklyStudyTimeSummary(mockSessions, refDate, "Asia/Tehran");
+      expect(summary.thisWeek.seconds).toBe(0);
+      expect(summary.thisWeek.minutes).toBe(0);
+      expect(summary.thisWeek.formatted).toBe("۰ دقیقه");
+      expect(summary.lastWeek.seconds).toBe(1800);
+      expect(summary.lastWeek.minutes).toBe(30);
+      expect(summary.lastWeek.formatted).toBe("۳۰ دقیقه");
+      expect(summary.changePercent).toBeNull();
+    });
+
+    it("returns null changePercent and 0 time when there is no activity at all (thisWeek = 0, lastWeek = 0)", () => {
       const summary = calculateWeeklyStudyTimeSummary([]);
       expect(summary.thisWeek.seconds).toBe(0);
       expect(summary.thisWeek.minutes).toBe(0);
@@ -161,7 +187,103 @@ describe("Study Session Domain Primitives", () => {
       expect(summary.lastWeek.seconds).toBe(0);
       expect(summary.lastWeek.minutes).toBe(0);
       expect(summary.lastWeek.formatted).toBe("۰ دقیقه");
-      expect(summary.changePercent).toBe(0);
+      expect(summary.changePercent).toBeNull();
+    });
+  });
+
+  describe("Weekly Study Comparison Presentation Engine (getWeeklyStudyComparison)", () => {
+    const tenHours = 10 * 3600; // 36000 sec
+
+    it("Case 0 / 10h: thisWeek = 0, lastWeek = 10h -> shows last week reference without % reduction", () => {
+      const result = getWeeklyStudyComparison(0, tenHours);
+      expect(result.type).toBe("last_week_reference");
+      expect(result.text).toBe("هفته قبل: ۱۰ ساعت");
+    });
+
+    it("Case 3h / 10h: thisWeek = 3h (< 50%), lastWeek = 10h -> shows last week reference without reduction %", () => {
+      const result = getWeeklyStudyComparison(3 * 3600, tenHours);
+      expect(result.type).toBe("last_week_reference");
+      expect(result.text).toBe("هفته قبل: ۱۰ ساعت");
+    });
+
+    it("Case 4h / 10h: thisWeek = 4h (< 50%), lastWeek = 10h -> shows last week reference without reduction %", () => {
+      const result = getWeeklyStudyComparison(4 * 3600, tenHours);
+      expect(result.type).toBe("last_week_reference");
+      expect(result.text).toBe("هفته قبل: ۱۰ ساعت");
+    });
+
+    it("Case 5h / 10h: thisWeek = 5h (exactly 50%), lastWeek = 10h -> percentage comparison allowed, shows ↓ 50%", () => {
+      const result = getWeeklyStudyComparison(5 * 3600, tenHours);
+      expect(result.type).toBe("decrease");
+      if (result.type === "decrease") {
+        expect(result.changePercent).toBe(50);
+      }
+      expect(result.text).toBe("↓ ۵۰٪ نسبت به هفته قبل");
+    });
+
+    it("Case 8h / 10h: thisWeek = 8h (80% of last week, >= 50%), lastWeek = 10h -> shows actual 20% reduction", () => {
+      const result = getWeeklyStudyComparison(8 * 3600, tenHours);
+      expect(result.type).toBe("decrease");
+      if (result.type === "decrease") {
+        expect(result.changePercent).toBe(20);
+      }
+      expect(result.text).toBe("↓ ۲۰٪ نسبت به هفته قبل");
+    });
+
+    it("Case 10h / 10h: thisWeek = 10h, lastWeek = 10h -> shows 'مشابه هفته قبل'", () => {
+      const result = getWeeklyStudyComparison(10 * 3600, tenHours);
+      expect(result.type).toBe("same");
+      expect(result.text).toBe("مشابه هفته قبل");
+    });
+
+    it("Case 12h / 10h: thisWeek = 12h, lastWeek = 10h -> shows actual 20% increase", () => {
+      const result = getWeeklyStudyComparison(12 * 3600, tenHours);
+      expect(result.type).toBe("increase");
+      if (result.type === "increase") {
+        expect(result.changePercent).toBe(20);
+      }
+      expect(result.text).toBe("↑ ۲۰٪ نسبت به هفته قبل");
+    });
+
+    it("Case 0 / 0: thisWeek = 0, lastWeek = 0 -> shows no data message", () => {
+      const result = getWeeklyStudyComparison(0, 0);
+      expect(result.type).toBe("no_data");
+      expect(result.text).toBe("هفته قبل: هنوز مطالعه‌ای ثبت نشده");
+    });
+
+    it("Case 2h / 0: thisWeek = 2h, lastWeek = 0 -> shows 'شروع شد 🌱' without NaN/Infinity", () => {
+      const result = getWeeklyStudyComparison(2 * 3600, 0);
+      expect(result.type).toBe("new_start");
+      expect(result.text).toBe("شروع شد 🌱");
+    });
+
+    it("Real DB Scenario: thisWeek = 317s (5m), lastWeek = 29326s (8h 8m) -> shows 'هفته قبل: ۸ ساعت و ۸ دقیقه' (never ↓ 99%)", () => {
+      const result = getWeeklyStudyComparison(317, 29326);
+      expect(result.type).toBe("last_week_reference");
+      expect(result.text).toBe("هفته قبل: ۸ ساعت و ۸ دقیقه");
+      expect(result.text).not.toContain("۹۹٪");
+      expect(result.text).not.toContain("↓");
+    });
+
+    it("Real DB Scenario: thisWeek = 0, lastWeek = 29326s (8h 8m) -> shows 'هفته قبل: ۸ ساعت و ۸ دقیقه'", () => {
+      const result = getWeeklyStudyComparison(0, 29326);
+      expect(result.type).toBe("last_week_reference");
+      expect(result.text).toBe("هفته قبل: ۸ ساعت و ۸ دقیقه");
+    });
+
+    it("Edge Case: lastWeek = 10000, thisWeek = 4999 (< 50%) -> shows last week reference", () => {
+      const result = getWeeklyStudyComparison(4999, 10000);
+      expect(result.type).toBe("last_week_reference");
+      expect(result.text).toBe("هفته قبل: ۲ ساعت و ۴۶ دقیقه");
+    });
+
+    it("Edge Case: lastWeek = 10000, thisWeek = 5000 (>= 50%) -> shows ↓ 50%", () => {
+      const result = getWeeklyStudyComparison(5000, 10000);
+      expect(result.type).toBe("decrease");
+      if (result.type === "decrease") {
+        expect(result.changePercent).toBe(50);
+      }
+      expect(result.text).toBe("↓ ۵۰٪ نسبت به هفته قبل");
     });
   });
 

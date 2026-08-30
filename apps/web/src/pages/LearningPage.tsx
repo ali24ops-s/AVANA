@@ -30,6 +30,7 @@ import {
   BarChart3,
   UploadCloud,
   Sparkles,
+  Zap,
   PanelRightClose,
   PanelRightOpen,
   ListOrdered,
@@ -40,6 +41,7 @@ import { FlashcardExperience } from "../components/flashcards/FlashcardExperienc
 import { QuizListView } from "../components/quiz/QuizListView.js";
 import { StudyAnalyticsView } from "../components/analytics/StudyAnalyticsView.js";
 import { CourseDocumentsView } from "../components/documents/CourseDocumentsView.js";
+import { CourseReviewSummaryView } from "../components/documents/CourseReviewSummaryView.js";
 import { ReviewQueueList } from "../components/review/ReviewQueueList.js";
 import { useAuth } from "../providers/AuthProvider.js";
 import { createApiClient, getApiBaseUrl } from "../lib/api/client.js";
@@ -62,6 +64,7 @@ type LearningTab =
   | "lessons"
   | "flashcards"
   | "quizzes"
+  | "review_summary"
   | "analytics"
   | "documents"
   | "review";
@@ -103,6 +106,7 @@ export function LearningPage() {
     "lessons",
     "flashcards",
     "quizzes",
+    "review_summary",
     "analytics",
     "documents",
     "review",
@@ -359,6 +363,12 @@ export function LearningPage() {
           onClick={() => setTab("lessons")}
         />
         <TabButton
+          icon={Zap}
+          label="خلاصه مروری"
+          active={activeTab === "review_summary"}
+          onClick={() => setTab("review_summary")}
+        />
+        <TabButton
           icon={Layers}
           label="فلش‌کارت‌ها"
           active={activeTab === "flashcards"}
@@ -395,6 +405,15 @@ export function LearningPage() {
       </div>
 
       {/* Tab Content */}
+      {activeTab === "review_summary" && (
+        <CourseReviewSummaryView
+          organizationId={organization.id}
+          courseId={courseId!}
+          onNavigateToFlashcards={() => setTab("flashcards")}
+          onNavigateToQuiz={() => setTab("quizzes")}
+        />
+      )}
+
       {activeTab === "flashcards" && (
         <div className="space-y-6">
           <div className="flex items-center justify-between bg-[var(--color-surface)] p-4 rounded-2xl border border-[var(--color-border)]">

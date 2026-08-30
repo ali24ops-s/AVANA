@@ -27,6 +27,7 @@ import {
 import {
   InMemoryFlashcardStore,
   InMemoryFlashcardReviewStore,
+  InMemoryUserFlashcardScheduleStore,
   InMemoryQuizStore,
   InMemoryQuizQuestionStore,
   InMemoryQuizAttemptStore,
@@ -44,6 +45,10 @@ import { LocalStorageProvider } from "../modules/storage/index.js";
 import { InMemoryAuditStore } from "../observability/test/in-memory-stores.js";
 import { AuditService } from "../observability/audit-service.js";
 import { InMemoryAdminStore } from "../modules/admin/index.js";
+import {
+  InMemoryContentPackStore,
+  InMemoryContentPackUsageStore,
+} from "../modules/library/index.js";
 import { seedLocalDevData } from "../dev/seed.js";
 import type { V1RouteOptions } from "../routes/v1.js";
 import type { ApiConfig } from "../config.js";
@@ -80,6 +85,7 @@ export async function composeLocalDev(
   // Study stores
   const flashcardStore = new InMemoryFlashcardStore();
   const flashcardReviewStore = new InMemoryFlashcardReviewStore();
+  const userFlashcardScheduleStore = new InMemoryUserFlashcardScheduleStore();
   const quizStore = new InMemoryQuizStore();
   const quizQuestionStore = new InMemoryQuizQuestionStore();
   const quizAttemptStore = new InMemoryQuizAttemptStore(quizStore);
@@ -90,9 +96,23 @@ export async function composeLocalDev(
   // Admin store
   const adminStore = new InMemoryAdminStore();
 
+  // Library & Content Pack stores
+  const contentPackUsageStore = new InMemoryContentPackUsageStore();
+  const contentPackStore = new InMemoryContentPackStore(
+    userStore,
+    moduleStore,
+    lessonStore,
+    flashcardStore,
+    quizStore,
+    quizQuestionStore,
+    generatedContentStore,
+    contentPackUsageStore,
+  );
+
   // Model gateway (Gemini default, or mock/cloudflare/groq if configured).
   const gateway = createModelGateway({
     provider: config.generation.aiProvider,
+    enableFallback: config.generation.enableFallback,
     geminiApiKey: config.generation.geminiApiKey,
     geminiApiKeys: config.generation.geminiApiKeys,
     geminiModel: config.generation.geminiModel,
@@ -101,6 +121,9 @@ export async function composeLocalDev(
     cloudflareAiModel: config.generation.cloudflareAiModel,
     groqApiKey: config.generation.groqApiKey,
     groqModel: config.generation.groqModel,
+    gapgptApiKey: config.generation.gapgptApiKey,
+    gapgptBaseUrl: config.generation.gapgptBaseUrl,
+    gapgptModel: config.generation.gapgptModel,
   });
 
   // Assistant gateway using Cloudflare if configured
@@ -156,6 +179,7 @@ export async function composeLocalDev(
     gateway,
     flashcardStore,
     flashcardReviewStore,
+    userFlashcardScheduleStore,
     quizStore,
     quizQuestionStore,
     quizAttemptStore,
@@ -165,6 +189,8 @@ export async function composeLocalDev(
     flashcardStudySessionStore,
     auditService,
     adminStore,
+    contentPackStore,
+    contentPackUsageStore,
   };
 
   // Seed demo data for local development — awaited before routes register

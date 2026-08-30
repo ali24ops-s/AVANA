@@ -95,54 +95,30 @@ async function main() {
     // -----------------------------------------------------------------------
     if (org) {
       const canonicalCourses = [
-        "فارماکولوژی ۱",
-        "فارماکولوژی ۲",
-        "فارماکولوژی ۳",
-        "دارودرمانی ۱",
-        "دارودرمانی ۲",
-        "دارودرمانی ۳",
-        "دارودرمانی ۴",
-        "گیاهان دارویی",
-        "فارماکوگنوزی ۱",
-        "فارماکوگنوزی ۲",
-        "میکروب‌شناسی",
-        "قارچ و انگل‌شناسی",
-        "ایمونولوژی",
-        "فیزیولوژی ۱",
-        "فیزیولوژی ۲",
+        { name: "شیمی دارویی ۱", subject: "شیمی دارویی" },
+        { name: "شیمی دارویی ۲", subject: "شیمی دارویی" },
+        { name: "شیمی دارویی ۳", subject: "شیمی دارویی" },
+        { name: "فارماسیوتیکس ۱", subject: "فارماسیوتیکس" },
+        { name: "فارماسیوتیکس ۲", subject: "فارماسیوتیکس" },
+        { name: "فارماسیوتیکس ۳", subject: "فارماسیوتیکس" },
+        { name: "فارماسیوتیکس ۴", subject: "فارماسیوتیکس" },
+        { name: "فارماسیوتیکس ۵", subject: "فارماسیوتیکس" },
+        { name: "بافت شناسی", subject: "علوم پایه" },
+        { name: "بیولوژی", subject: "علوم پایه" },
+        { name: "سم شناسی", subject: "سم‌شناسی" },
       ];
 
-      for (const name of canonicalCourses) {
+      for (const item of canonicalCourses) {
         await db
           .insert(schema.courses)
           .values({
             organizationId: org.id,
-            name,
-            subject: name.startsWith("فارماکولوژی") ? "Pharmacology" : null,
+            name: item.name,
+            subject: item.subject,
           })
           .onConflictDoNothing()
           .returning();
       }
-
-      await db
-        .insert(schema.courses)
-        .values({
-          organizationId: org.id,
-          name: "Introduction to Biology 101",
-          subject: "Biology",
-        })
-        .onConflictDoNothing()
-        .returning();
-
-      await db
-        .insert(schema.courses)
-        .values({
-          organizationId: org.id,
-          name: "Advanced Mathematics",
-          subject: "Mathematics",
-        })
-        .onConflictDoNothing()
-        .returning();
     }
 
     console.log("Seed complete \u2014 synthetic data inserted.");

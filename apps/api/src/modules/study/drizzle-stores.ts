@@ -60,7 +60,7 @@ function toFlashcardRecord(row: {
   id: string;
   organizationId: string;
   courseId: string;
-  documentId: string;
+  documentId: string | null;
   generatedContentId: string | null;
   lessonId?: string | null;
   question: string;
@@ -79,7 +79,7 @@ function toFlashcardRecord(row: {
     id: row.id as FlashcardId,
     organizationId: row.organizationId as OrganizationId,
     courseId: row.courseId as CourseId,
-    documentId: row.documentId as DocumentId,
+    documentId: (row.documentId as DocumentId) ?? null,
     generatedContentId: row.generatedContentId as GeneratedContentId | null,
     lessonId: (row.lessonId as any) ?? null,
     question: row.question,

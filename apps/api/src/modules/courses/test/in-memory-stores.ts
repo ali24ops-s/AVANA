@@ -30,6 +30,12 @@ export class InMemoryCourseStore implements CourseStore {
     return records.course;
   }
 
+  async findById(courseId: CourseId): Promise<CourseRecord | undefined> {
+    const course = this.courses.get(courseId);
+    if (!course || course.deletedAt !== null) return undefined;
+    return { ...course };
+  }
+
   async findByIdForUser(
     courseId: CourseId,
     _userId: UserId,
@@ -120,11 +126,77 @@ export class InMemoryCourseStore implements CourseStore {
     }
   }
 
+  private courseMetrics: Map<
+    string,
+    { activeUsers: number; completedUsers: number }
+  > = new Map();
+
+  setCourseMetrics(
+    courseId: string,
+    metrics: { activeUsers: number; completedUsers: number },
+  ): void {
+    this.courseMetrics.set(courseId, metrics);
+  }
+
   async syncUserCourses(
     userId: UserId,
     courseIds: CourseId[],
   ): Promise<void> {
     this.userCourses.set(userId, new Set(courseIds));
   }
+
+  async listPopular(
+    organizationId: OrganizationId,
+    systemOrganizationId?: OrganizationId,
+    limit: number = 8,
+  ): Promise<CourseRecord[]> {
+    const candidateCourses = Array.from(this.courses.values()).filter(
+      (c) =>
+        c.deletedAt === null &&
+        (!organizationId ||
+          c.organizationId === organizationId ||
+          (systemOrganizationId && c.organizationId === systemOrganizationId)),
+    );
+
+    const scoredCourses = candidateCourses.map((c) => {
+      let addedUsers = 0;
+      for (const [, courseSet] of this.userCourses.entries()) {
+        if (courseSet.has(c.id)) {
+          addedUsers++;
+        }
+      }
+
+      const extra = this.courseMetrics.get(c.id) ?? {
+        activeUsers: 0,
+        completedUsers: 0,
+      };
+
+      const score =
+        addedUsers * 5 + extra.activeUsers * 3 + extra.completedUsers * 2;
+
+      return {
+        course: { ...c },
+        score,
+      };
+    });
+
+    scoredCourses.sort((a, b) => {
+      if (b.score !== a.score) {
+        return b.score - a.score;
+      }
+      const timeA = new Date(a.course.createdAt).getTime();
+      const timeB = new Date(b.course.createdAt).getTime();
+      if (timeB !== timeA) {
+        return timeB - timeA;
+      }
+      if (a.course.name !== b.course.name) {
+        return a.course.name.localeCompare(b.course.name);
+      }
+      return a.course.id.localeCompare(b.course.id);
+    });
+
+    return scoredCourses.slice(0, limit).map((sc) => sc.course);
+  }
 }
+
 

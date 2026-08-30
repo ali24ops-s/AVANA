@@ -1,6 +1,9 @@
 @import "tailwindcss";
 
 :root {
+  /* Layout Dimensions */
+  --header-height: 5rem;
+
   /* Stitch Dark Glassmorphic Palette Specification */
   --color-primary: #008080;
   --color-primary-dark: #005a5a;

@@ -50,7 +50,7 @@ import type {
 function toGeneratedContentRecord(row: {
   id: string;
   organizationId: string;
-  documentId: string;
+  documentId: string | null;
   courseId: string;
   type: string;
   status: string;
@@ -79,7 +79,7 @@ function toGeneratedContentRecord(row: {
   return {
     id: row.id as GeneratedContentId,
     organizationId: row.organizationId as OrganizationId,
-    documentId: row.documentId as DocumentId,
+    documentId: (row.documentId as DocumentId) ?? null,
     courseId: row.courseId as CourseId,
     type: row.type as GeneratedContentType,
     status: row.status as GeneratedContentStatus,
@@ -283,6 +283,23 @@ export class DrizzleGeneratedContentStore implements GeneratedContentStore {
         and(
           eq(generatedContents.documentId, documentId),
           eq(generatedContents.organizationId, organizationId),
+          isNull(generatedContents.deletedAt),
+        ),
+      );
+  }
+
+  async deleteDraftsByDocument(
+    documentId: DocumentId,
+    organizationId: OrganizationId,
+  ): Promise<void> {
+    await this.db
+      .update(generatedContents)
+      .set({ deletedAt: new Date() })
+      .where(
+        and(
+          eq(generatedContents.documentId, documentId),
+          eq(generatedContents.organizationId, organizationId),
+          inArray(generatedContents.status, ["draft", "regenerating", "edited", "rejected"]),
           isNull(generatedContents.deletedAt),
         ),
       );

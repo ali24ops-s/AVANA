@@ -422,3 +422,84 @@ export function calculateGenerationBudget(
     calculatedAt: new Date().toISOString(),
   };
 }
+
+// ---------------------------------------------------------------------------
+// Review Summary Budgeting & Reading Time Configuration
+// ---------------------------------------------------------------------------
+
+export interface ReviewSummaryConfig {
+  targetReadingMinutes: number;
+  minReadingMinutes: number;
+  maxReadingMinutes: number;
+  wordsPerMinute: number;
+  targetWordBudget: number;
+  minWordBudget: number;
+  maxWordBudget: number;
+  maxSections: number;
+}
+
+/**
+ * Calculates adaptive Review Summary budget targeting a 10–15 minute reading experience.
+ *
+ * Grounded in academic Persian reading speed (~150-180 wpm) and document complexity.
+ */
+export function getReviewSummaryConfig(
+  input?: Partial<GenerationBudgetInput>,
+): ReviewSummaryConfig {
+  const wordsPerMinute = 120; // Adjusted for dense, bulleted, high-yield academic Persian
+
+  const chunkCount = input?.chunkCount ?? 5;
+  const sizeCategory = input?.totalTokens
+    ? classifyDocumentSize(input.totalTokens)
+    : "medium";
+
+  let targetWordBudget = 1200;
+  let minWordBudget = 1000;
+  let maxWordBudget = 1500;
+  let maxSections = 6;
+
+  if (sizeCategory === "very_small" || chunkCount <= 2) {
+    targetWordBudget = 600;
+    minWordBudget = 400;
+    maxWordBudget = 800;
+    maxSections = 3;
+  } else if (sizeCategory === "small" || chunkCount <= 5) {
+    targetWordBudget = 850;
+    minWordBudget = 700;
+    maxWordBudget = 1000;
+    maxSections = 4;
+  } else if (sizeCategory === "medium") {
+    targetWordBudget = 1250;
+    minWordBudget = 1000;
+    maxWordBudget = 1500;
+    maxSections = 6;
+  } else if (sizeCategory === "large") {
+    targetWordBudget = 1600;
+    minWordBudget = 1400;
+    maxWordBudget = 1800;
+    maxSections = 8;
+  } else {
+    // very_large
+    targetWordBudget = 2000;
+    minWordBudget = 1700;
+    maxWordBudget = 2400;
+    maxSections = 10;
+  }
+
+  // Calculate estimated reading times based on the adaptive word budgets
+  const targetReadingMinutes = Math.round(targetWordBudget / wordsPerMinute);
+  const minReadingMinutes = Math.round(minWordBudget / wordsPerMinute);
+  const maxReadingMinutes = Math.round(maxWordBudget / wordsPerMinute);
+
+  return {
+    targetReadingMinutes,
+    minReadingMinutes,
+    maxReadingMinutes,
+    wordsPerMinute,
+    targetWordBudget,
+    minWordBudget,
+    maxWordBudget,
+    maxSections,
+  };
+}
+

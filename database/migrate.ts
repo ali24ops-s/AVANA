@@ -18,6 +18,10 @@ import { up as up0015 } from "./migrations/0015_study_conversations.js";
 import { up as up0016 } from "./migrations/0016_study_sessions.js";
 import { up as up0017 } from "./migrations/0017_flashcard_study_sessions.js";
 import { up as up0018 } from "./migrations/0018_flashcard_session_reaction_ms.js";
+import { up as up0019 } from "./migrations/0019_user_global_role.js";
+import { up as up0020 } from "./migrations/0020_document_quality.js";
+import { up as up0021 } from "./migrations/0021_content_packs.js";
+import { up as up0022 } from "./migrations/0022_decouple_document_content.js";
 
 function localConnectionString(): string {
   const user = "avana";
@@ -71,6 +75,14 @@ async function runMigrations() {
     await up0017(db);
     console.log("Applying 0018_flashcard_session_reaction_ms...");
     await up0018(db);
+    console.log("Applying 0019_user_global_role...");
+    await up0019(db);
+    console.log("Applying 0020_document_quality...");
+    await up0020(db);
+    console.log("Applying 0021_content_packs...");
+    await up0021(db);
+    console.log("Applying 0022_decouple_document_content...");
+    await up0022(db);
 
     console.log("All database migrations applied successfully.");
   } catch (error) {

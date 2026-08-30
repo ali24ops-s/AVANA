@@ -69,15 +69,18 @@ export function FileDeleteModal({
             )}
 
             <p>
-              با حذف فایل، منبع فیزیکی از سرور و کلیه چانک‌های متنی استخراج‌شده پاک خواهند شد.
+              با حذف فایل، فایل منبع خام از سرور و کلیه چانک‌های متنی استخراج‌شده پاک خواهند شد.
             </p>
 
             {/* Dependency Warning */}
             {hasDependencies && !isBulk && (
               <div className="pt-2 border-t border-white/10 space-y-2">
-                <span className="font-bold text-amber-400 block">
-                  هشدار وابستگی‌های آموزشی:
+                <span className="font-bold text-teal-400 block">
+                  محتوای آموزشی تاییدشده در دوره باقی می‌ماند:
                 </span>
+                <p className="text-[11px] text-slate-400">
+                  درس‌ها، فلش‌کارت‌ها و آزمون‌های تاییدشده از دوره شما حذف نخواهند شد و برای مطالعه در دسترس باقی می‌مانند.
+                </p>
                 <ul className="space-y-1 text-slate-300">
                   {usage?.course && (
                     <li className="flex items-center gap-1.5">
@@ -88,19 +91,19 @@ export function FileDeleteModal({
                   {(usage?.lessons_count ?? 0) > 0 && (
                     <li className="flex items-center gap-1.5">
                       <FileText className="w-3.5 h-3.5 text-blue-400 shrink-0" />
-                      <span>{usage?.lessons_count} درس تولیدشده از این فایل</span>
+                      <span>{usage?.lessons_count} درس فعال در دوره</span>
                     </li>
                   )}
                   {(usage?.flashcards_count ?? 0) > 0 && (
                     <li className="flex items-center gap-1.5">
                       <Layers className="w-3.5 h-3.5 text-purple-400 shrink-0" />
-                      <span>{usage?.flashcards_count} فلش‌کارت متصل</span>
+                      <span>{usage?.flashcards_count} فلش‌کارت فعال در دوره</span>
                     </li>
                   )}
                   {(usage?.quizzes_count ?? 0) > 0 && (
                     <li className="flex items-center gap-1.5">
                       <HelpCircle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                      <span>{usage?.quizzes_count} آزمون مرتبط</span>
+                      <span>{usage?.quizzes_count} آزمون فعال در دوره</span>
                     </li>
                   )}
                 </ul>

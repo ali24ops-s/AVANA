@@ -354,9 +354,15 @@ export type DocumentResource = {
   status: DocumentStatus;
   error_code: string | null;
   retry_count: number;
+  quality_score: number | null;
+  quality_level: DocumentQualityLevel | null;
+  quality_report: any | null;
+  quality_analyzed_at: string | null;
   created_at: string;
   updated_at: string;
 };
+
+export type DocumentQualityLevel = "excellent" | "medium" | "poor";
 
 export type UploadIntentRequest = {
   original_name: string;
@@ -495,7 +501,11 @@ export type DocumentStatusResponse = {
  * PR6-4; flashcard/quiz/recommendation are activated in later PRs.
  */
 export type GeneratedContentType =
-  "lesson" | "flashcard" | "quiz" | "recommendation";
+  | "lesson"
+  | "flashcard"
+  | "quiz"
+  | "recommendation"
+  | "review_summary";
 
 /**
  * AI artifact lifecycle (separate from the document processing lifecycle).
@@ -541,6 +551,7 @@ export type GenerateContentResponse = {
 export type GeneratedContentListResponse = {
   request_id: string;
   contents: GeneratedContentResource[];
+  pagination?: Pagination;
 };
 
 export type GeneratedContentResponse = {
@@ -565,6 +576,7 @@ export type ReviewQueueResource = {
 export type ReviewQueueResponse = {
   request_id: string;
   pending: ReviewQueueResource[];
+  pagination?: Pagination;
 };
 
 export type SourceChunkResource = {
@@ -917,5 +929,33 @@ export type UpdateFlashcardStudySessionProgressResponse = {
   request_id: string;
   session: FlashcardStudySessionSummary;
 };
+
+// ---------------------------------------------------------------------------
+// Search
+// ---------------------------------------------------------------------------
+
+export type SearchResultType = "course" | "shared_content";
+
+export type SearchResultItem = {
+  id: UUID;
+  type: SearchResultType;
+  title: string;
+  subtitle?: string | null;
+  description?: string | null;
+  target_url: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type SearchResponse = {
+  request_id: string;
+  query: string;
+  total: number;
+  results: SearchResultItem[];
+  grouped: {
+    courses: SearchResultItem[];
+    shared_content: SearchResultItem[];
+  };
+};
+
 
 

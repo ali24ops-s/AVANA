@@ -43,6 +43,7 @@ import {
   type ModuleId,
   type OrganizationId,
   DomainError,
+  canonicalizeAndShuffleQuestion,
   parseFlashcardId,
   parseQuizId,
   parseQuizQuestionId,
@@ -179,6 +180,7 @@ export class ReviewService {
       | "content:edit"
       | "content:regenerate",
   ): Promise<void> {
+    let scopedActor = actor;
     if (
       this.organizationStore &&
       typeof this.organizationStore.findMembership === "function"
@@ -187,16 +189,76 @@ export class ReviewService {
         organizationId,
         actor.userId,
       );
-      if (!membership) {
+      if (!membership && actor.role !== "platform_admin") {
         throw new DomainError("not_found", "Organization not found");
       }
-      const scopedActor = { ...actor, role: membership.role as Actor["role"] };
-      const context: AuthContext = { organizationId };
-      this.policy.require(action, scopedActor, context);
-      return;
+      const role =
+        actor.role === "platform_admin"
+          ? "platform_admin"
+          : (membership?.role as Actor["role"] ?? actor.role);
+      scopedActor = { ...actor, role };
     }
     const context: AuthContext = { organizationId };
-    this.policy.require(action, actor, context);
+    this.policy.require(action, scopedActor, context);
+  }
+
+  /**
+   * Authorize a mutating review action (accept, reject, edit, regenerate).
+   *
+   * Security Rules:
+   * 1. Actor must be a member of the organization (non-disclosing 404).
+   * 2. Either the actor's scoped role has permission (course_editor, org_admin, platform_admin),
+   *    OR the actor is the owner of the document that produced this content (doc.ownerUserId === actor.userId).
+   */
+  async authorizeAction(
+    actor: Actor,
+    organizationId: OrganizationId,
+    action:
+      | "content:accept"
+      | "content:reject"
+      | "content:edit"
+      | "content:regenerate",
+    record: GeneratedContentRecord,
+  ): Promise<void> {
+    let scopedActor = actor;
+    if (
+      this.organizationStore &&
+      typeof this.organizationStore.findMembership === "function"
+    ) {
+      const membership = await this.organizationStore.findMembership(
+        organizationId,
+        actor.userId,
+      );
+      if (!membership && actor.role !== "platform_admin") {
+        throw new DomainError("not_found", "Organization not found");
+      }
+      const role =
+        actor.role === "platform_admin"
+          ? "platform_admin"
+          : (membership?.role as Actor["role"] ?? actor.role);
+      scopedActor = { ...actor, role };
+    }
+
+    const context: AuthContext = { organizationId };
+    const hasRolePermission = this.policy.check(action, scopedActor, context);
+
+    let isOwner = false;
+    if (record.documentId && this.documentStore) {
+      const doc = await this.documentStore.findByIdForOrganization(
+        record.documentId,
+        organizationId,
+      );
+      if (doc && doc.ownerUserId === actor.userId) {
+        isOwner = true;
+      }
+    }
+
+    if (!hasRolePermission && !isOwner) {
+      throw new DomainError(
+        "forbidden",
+        `Action '${action}' not permitted for role '${scopedActor.role}' on content not owned by user`,
+      );
+    }
   }
 
   private async requireContent(
@@ -223,9 +285,7 @@ export class ReviewService {
     courseId: CourseId,
     requestId: string,
   ): Promise<ReviewQueueResponse> {
-    // Review-queue exposes drafts — only editors/admins may review AI output.
-    // Students may read only accepted content (already materialized lessons).
-    await this.authorize(actor, organizationId, "content:accept");
+    await this.authorize(actor, organizationId, "content:review");
 
     const pending = await this.generatedContentStore.listByCourse(
       courseId,
@@ -242,7 +302,7 @@ export class ReviewService {
     );
 
     const resources = pending
-      .filter((c) => activeDocIds.has(c.documentId))
+      .filter((c) => Boolean(c.documentId && activeDocIds.has(c.documentId)))
       .filter((c) => c.status === "draft" || c.status === "edited")
       .map((c) => this.toReviewQueueResource(c));
 
@@ -277,7 +337,7 @@ export class ReviewService {
     }
     return {
       id: c.id,
-      document_id: c.documentId,
+      document_id: (c.documentId ?? "") as DocumentId,
       course_id: c.courseId,
       type: c.type,
       status: c.status,
@@ -303,14 +363,18 @@ export class ReviewService {
       record.id,
     );
     const chunkIds = citations.map((c) => c.documentChunkId);
-    const document = await this.documentStore.findByIdForOrganization(
-      record.documentId,
-      organizationId,
-    );
-    if (!document) {
+    const document = record.documentId
+      ? await this.documentStore.findByIdForOrganization(
+          record.documentId,
+          organizationId,
+        )
+      : null;
+    if (!document && record.documentId) {
       throw new DomainError("not_found", "Document not found");
     }
-    const allChunks = await this.chunkStore.listByDocument(record.documentId);
+    const allChunks = record.documentId
+      ? await this.chunkStore.listByDocument(record.documentId)
+      : [];
 
     const sourceChunks = allChunks
       .filter((ch) => chunkIds.includes(ch.id))
@@ -327,7 +391,7 @@ export class ReviewService {
       request_id: requestId,
       content: {
         id: record.id,
-        document_id: record.documentId,
+        document_id: (record.documentId ?? "") as DocumentId,
         course_id: record.courseId,
         type: record.type,
         status: record.status,
@@ -374,9 +438,8 @@ export class ReviewService {
     organizationId: OrganizationId,
     contentId: GeneratedContentId,
   ): Promise<AcceptContentResult> {
-    await this.authorize(actor, organizationId, "content:accept");
-
     const record = await this.requireContent(organizationId, contentId);
+    await this.authorizeAction(actor, organizationId, "content:accept", record);
 
     // Idempotent accept: already accepted → return existing materialization.
     if (record.status === "accepted") {
@@ -425,7 +488,7 @@ export class ReviewService {
     if (this.auditService) {
       await this.auditService.emit([
         auditContentAccepted(actor.userId, organizationId, record.id, {
-          documentId: record.documentId,
+          documentId: record.documentId ?? "",
           type: record.type,
         }),
       ]);
@@ -447,13 +510,12 @@ export class ReviewService {
     contentId: GeneratedContentId,
     reason: string,
   ): Promise<RejectContentResult> {
-    await this.authorize(actor, organizationId, "content:reject");
+    const record = await this.requireContent(organizationId, contentId);
+    await this.authorizeAction(actor, organizationId, "content:reject", record);
 
     if (!reason || reason.trim().length === 0) {
       throw new DomainError("bad_request", "Rejection reason is required");
     }
-
-    const record = await this.requireContent(organizationId, contentId);
 
     if (record.status === "rejected") {
       return { content_id: record.id, status: "rejected" };
@@ -479,7 +541,7 @@ export class ReviewService {
     if (this.auditService) {
       await this.auditService.emit([
         auditContentRejected(actor.userId, organizationId, record.id, {
-          documentId: record.documentId,
+          documentId: record.documentId ?? "",
           type: record.type,
         }),
       ]);
@@ -498,13 +560,12 @@ export class ReviewService {
     contentId: GeneratedContentId,
     updates: { payload: GeneratedContentRecord["payload"] },
   ): Promise<ContentReviewResource> {
-    await this.authorize(actor, organizationId, "content:edit");
+    const record = await this.requireContent(organizationId, contentId);
+    await this.authorizeAction(actor, organizationId, "content:edit", record);
 
     if (!updates.payload) {
       throw new DomainError("bad_request", "Edited payload is required");
     }
-
-    const record = await this.requireContent(organizationId, contentId);
 
     if (record.status !== "draft" && record.status !== "edited") {
       throw new DomainError(
@@ -529,7 +590,7 @@ export class ReviewService {
     if (this.auditService) {
       await this.auditService.emit([
         auditContentEdited(actor.userId, organizationId, record.id, {
-          documentId: record.documentId,
+          documentId: record.documentId ?? "",
           type: record.type,
           changedFields: ["payload"],
         }),
@@ -549,9 +610,8 @@ export class ReviewService {
     organizationId: OrganizationId,
     contentId: GeneratedContentId,
   ): Promise<RegenerateContentResult> {
-    await this.authorize(actor, organizationId, "content:regenerate");
-
     const record = await this.requireContent(organizationId, contentId);
+    await this.authorizeAction(actor, organizationId, "content:regenerate", record);
 
     if (record.status === "regenerating") {
       throw new DomainError("conflict", "Content is already being regenerated");
@@ -578,7 +638,7 @@ export class ReviewService {
       actorUserId: actor.userId,
       actorRole: actor.role,
       organizationId,
-      documentId: record.documentId,
+      documentId: (record.documentId ?? "") as DocumentId,
       courseId: record.courseId,
       types: [record.type],
       promptVersion: record.promptVersion ?? undefined,
@@ -588,7 +648,7 @@ export class ReviewService {
     if (this.auditService) {
       await this.auditService.emit([
         auditContentRegenerated(actor.userId, organizationId, record.id, {
-          documentId: record.documentId,
+          documentId: record.documentId ?? "",
           type: record.type,
           generationKey,
         }),
@@ -649,27 +709,29 @@ export class ReviewService {
           ];
 
     // 3. Clean up / soft-delete prior lessons materialized for this document/module to avoid duplication
-    const priorDrafts = await this.generatedContentStore.listByDocument(
-      record.documentId,
-      record.organizationId,
-    );
-    const priorLessonDrafts = priorDrafts.filter(
-      (g) => g.type === "lesson" && g.id !== record.id && g.materializedLessonId,
-    );
-    for (const prior of priorLessonDrafts) {
-      if (prior.materializedLessonId) {
-        const priorLesson = await this.lessonStore.findById(
-          prior.materializedLessonId as LessonId,
-        );
-        if (priorLesson) {
-          await this.lessonStore.delete(priorLesson.id);
+    if (record.documentId) {
+      const priorDrafts = await this.generatedContentStore.listByDocument(
+        record.documentId,
+        record.organizationId,
+      );
+      const priorLessonDrafts = priorDrafts.filter(
+        (g) => g.type === "lesson" && g.id !== record.id && g.materializedLessonId,
+      );
+      for (const prior of priorLessonDrafts) {
+        if (prior.materializedLessonId) {
+          const priorLesson = await this.lessonStore.findById(
+            prior.materializedLessonId as LessonId,
+          );
+          if (priorLesson) {
+            await this.lessonStore.delete(priorLesson.id);
+          }
         }
+        await this.generatedContentStore.update({
+          ...prior,
+          deletedAt: now,
+          updatedAt: now,
+        });
       }
-      await this.generatedContentStore.update({
-        ...prior,
-        deletedAt: now,
-        updatedAt: now,
-      });
     }
 
     // 4. Create each session as a distinct LessonRecord
@@ -720,13 +782,15 @@ export class ReviewService {
     }
 
     // 1. Primary Identity: Check if a Module is already explicitly linked to this documentId
-    let targetModule = await this.moduleStore.findByDocument(record.documentId);
+    let targetModule = record.documentId
+      ? await this.moduleStore.findByDocument(record.documentId)
+      : undefined;
     if (targetModule) {
       return targetModule;
     }
 
     // 2. Check previously materialized generated content records for this document
-    if (this.generatedContentStore) {
+    if (this.generatedContentStore && record.documentId) {
       const docContents = await this.generatedContentStore.listByDocument(
         record.documentId,
         record.organizationId,
@@ -738,7 +802,7 @@ export class ReviewService {
             const mod = await this.moduleStore.findById(lesson.moduleId);
             if (mod) {
               // Update module's documentId reference if missing
-              if (!mod.documentId) {
+              if (!mod.documentId && record.documentId) {
                 mod.documentId = record.documentId;
                 await this.moduleStore.update(mod).catch(() => {});
               }
@@ -750,7 +814,7 @@ export class ReviewService {
     }
 
     // Fetch document metadata for title fallback if needed
-    const doc = this.documentStore
+    const doc = this.documentStore && record.documentId
       ? await this.documentStore.findByIdForOrganization(
           record.documentId,
           record.organizationId,
@@ -788,7 +852,7 @@ export class ReviewService {
 
     if (targetModule) {
       let needsUpdate = false;
-      if (!targetModule.documentId) {
+      if (!targetModule.documentId && record.documentId) {
         targetModule.documentId = record.documentId;
         needsUpdate = true;
       }
@@ -827,7 +891,7 @@ export class ReviewService {
     } catch (err: any) {
       // Race condition catch: if another concurrent process inserted the module milliseconds ago
       if (err?.code === "23505" || err?.message?.includes("idx_modules_course_document_unique")) {
-        const raceModule = await this.moduleStore.findByDocument(record.documentId);
+        const raceModule = record.documentId ? await this.moduleStore.findByDocument(record.documentId) : undefined;
         if (raceModule) return raceModule;
       }
       throw err;
@@ -851,10 +915,12 @@ export class ReviewService {
     if (existing) return;
 
     // Clean up previous flashcards for this document to avoid duplicate card piles
-    await this.flashcardStore.deleteByDocument(
-      record.documentId,
-      record.organizationId,
-    );
+    if (record.documentId) {
+      await this.flashcardStore.deleteByDocument(
+        record.documentId,
+        record.organizationId,
+      );
+    }
 
     const now = new Date().toISOString();
     const payload = record.payload as {
@@ -951,10 +1017,12 @@ export class ReviewService {
     if (existing) return record.materializedLessonId ?? null;
 
     // Clean up previous quizzes for this document to avoid duplicate quizzes
-    await this.quizStore.deleteByDocument(
-      record.documentId,
-      record.organizationId,
-    );
+    if (record.documentId) {
+      await this.quizStore.deleteByDocument(
+        record.documentId,
+        record.organizationId,
+      );
+    }
 
     const now = new Date().toISOString();
 
@@ -1100,17 +1168,24 @@ export class ReviewService {
         (rawQTopic && !this.isFilenameFallback(rawQTopic) ? rawQTopic : null) ||
         targetModule.title;
 
+      const shuffled = canonicalizeAndShuffleQuestion({
+        question: q.question,
+        choices,
+        correctAnswer,
+        explanation: q.explanation ?? payload.explanation ?? null,
+      });
+
       return {
         id: parseQuizQuestionId(randomUUID()),
         quizId,
         generatedContentId: record.id,
         lessonId: qLessonId,
-        question: q.question,
+        question: shuffled.question ?? q.question,
         topic: cleanQuestionTopic,
         difficulty: q.difficulty ?? payload.difficulty ?? defaultDifficulty,
         questionType: q.questionType ?? "multiple_choice",
-        choices: choices.length > 0 ? choices : null,
-        correctAnswer,
+        choices: shuffled.choices && shuffled.choices.length > 0 ? shuffled.choices : null,
+        correctAnswer: shuffled.correctAnswer,
         explanation: q.explanation ?? payload.explanation ?? null,
         sortOrder: index,
         createdAt: now,

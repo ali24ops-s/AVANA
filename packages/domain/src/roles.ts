@@ -35,20 +35,13 @@ export function isRole(value: string): value is Role {
 // ---------------------------------------------------------------------------
 
 /**
- * Precedence ordering used to resolve a single "effective" role when a user
- * holds multiple roles (e.g. across multiple organization memberships).
+ * Precedence ordering for Organization-scoped roles.
+ * Higher precedence (earlier in the array) wins when resolving organization memberships.
  *
- * Higher precedence (earlier in the array) wins. This follows the existing
- * authorization policy: `organization_admin` and `course_editor` are the
- * content-management roles, with `organization_admin` strictly more
- * privileged than `course_editor`. `platform_admin`/`support_agent` are
- * reserved and given the highest precedence so they are never masked by a
- * lower org membership role.
- *
- * No new roles are introduced — this only ranks the existing `Role` values.
+ * NOTE: platform_admin is strictly EXCLUDED from organization roles because it is a
+ * Global Platform Role and must only be granted via users.global_role.
  */
-const ROLE_PRECEDENCE: readonly Role[] = [
-  Roles.platform_admin,
+export const ORGANIZATION_ROLE_PRECEDENCE: readonly Role[] = [
   Roles.support_agent,
   Roles.organization_admin,
   Roles.course_editor,
@@ -57,16 +50,52 @@ const ROLE_PRECEDENCE: readonly Role[] = [
 ];
 
 /**
- * Return the most-privileged role among the provided roles.
+ * Resolves a user's effective role by combining their Global Platform Role and
+ * their organization membership roles.
  *
- * Used to expose a single effective role to the frontend. If `roles` is empty
- * or contains no recognized roles, returns `"student"` as a safe default.
+ * Enforcement Rules:
+ * 1. Global Role: If globalRole === "platform_admin", the effective role is ALWAYS "platform_admin".
+ * 2. Organization Roles: When globalRole is NULL (or not platform_admin), only valid
+ *    organization-scoped roles (organization_admin, course_editor, teacher, student)
+ *    are considered according to ORGANIZATION_ROLE_PRECEDENCE.
+ *    Any "platform_admin" value in membership roles is strictly IGNORED and cannot grant
+ *    platform admin privileges.
+ * 3. Fallback: If no valid organization roles exist and globalRole is NULL, returns "student".
  */
-export function resolveEffectiveRole(roles: readonly Role[]): Role {
-  for (const candidate of ROLE_PRECEDENCE) {
-    if (roles.includes(candidate)) {
+export function resolveEffectiveRole(
+  globalRoleOrRoles:
+    | Role
+    | string
+    | null
+    | undefined
+    | readonly (Role | string | null | undefined)[],
+  membershipRoles?: readonly (Role | string | null | undefined)[],
+): Role {
+  let globalRole: string | null | undefined = null;
+  let orgRoles: readonly (Role | string | null | undefined)[] = [];
+
+  if (Array.isArray(globalRoleOrRoles)) {
+    // Calling convention: resolveEffectiveRole([globalRole, ...membershipRoles])
+    globalRole = globalRoleOrRoles[0];
+    orgRoles = globalRoleOrRoles.slice(1);
+  } else {
+    // Calling convention: resolveEffectiveRole(globalRole, membershipRoles)
+    globalRole = globalRoleOrRoles as Role | string | null | undefined;
+    orgRoles = membershipRoles ?? [];
+  }
+
+  // 1. If globalRole === platform_admin, effective role is platform_admin
+  if (globalRole === Roles.platform_admin) {
+    return Roles.platform_admin;
+  }
+
+  // 2. Resolve organization-scoped roles (strictly excluding platform_admin)
+  for (const candidate of ORGANIZATION_ROLE_PRECEDENCE) {
+    if (orgRoles.includes(candidate)) {
       return candidate;
     }
   }
+
+  // 3. Fallback to student default
   return Roles.student;
 }

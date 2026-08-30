@@ -89,11 +89,17 @@ describe("PR6-4 generation content types", () => {
     expect(payload.citationChunkIds).toHaveLength(2);
   });
 
-  it("enables lesson, flashcard, and quiz for runtime generation", () => {
-    expect(ENABLED_GENERATION_TYPES).toEqual(["lesson", "flashcard", "quiz"]);
+  it("enables lesson, flashcard, quiz, and review_summary for runtime generation", () => {
+    expect(ENABLED_GENERATION_TYPES).toEqual([
+      "lesson",
+      "flashcard",
+      "quiz",
+      "review_summary",
+    ]);
     expect(isGenerationTypeEnabled("lesson")).toBe(true);
     expect(isGenerationTypeEnabled("flashcard")).toBe(true);
     expect(isGenerationTypeEnabled("quiz")).toBe(true);
+    expect(isGenerationTypeEnabled("review_summary")).toBe(true);
     expect(isGenerationTypeEnabled("recommendation")).toBe(false);
   });
 });
@@ -109,13 +115,22 @@ describe("PR6-4 generation policy actions", () => {
     "content:regenerate",
   ] as const;
 
-  it("allows students to generate and review content but denies accept/reject/regenerate", () => {
+  it("allows students to generate and review content but denies accept, reject, edit, and regenerate", () => {
     const actor = makeActor("student");
     expect(policy.check("content:generate", actor, defaultContext)).toBe(true);
     expect(policy.check("content:review", actor, defaultContext)).toBe(true);
     expect(policy.check("content:accept", actor, defaultContext)).toBe(false);
     expect(policy.check("content:reject", actor, defaultContext)).toBe(false);
     expect(policy.check("content:regenerate", actor, defaultContext)).toBe(false);
+    expect(policy.check("content:edit", actor, defaultContext)).toBe(false);
+  });
+
+  it("strictly denies administrative actions for students", () => {
+    const actor = makeActor("student");
+    expect(policy.check("org:delete", actor, defaultContext)).toBe(false);
+    expect(policy.check("org:manage_memberships", actor, defaultContext)).toBe(false);
+    expect(policy.check("course:delete", actor, defaultContext)).toBe(false);
+    expect(policy.check("course:archive", actor, defaultContext)).toBe(false);
   });
 
   it("allows course editors all content actions", () => {

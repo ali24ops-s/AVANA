@@ -19,6 +19,15 @@ export function createCourseApi(client: ApiClient) {
     },
 
     /**
+     * GET /v1/organizations/:organizationId/courses/popular — List popular courses across Avana.
+     */
+    listPopularCourses(organizationId: string): Promise<CourseListResponse> {
+      return client.get<CourseListResponse>(
+        `/v1/organizations/${organizationId}/courses/popular`,
+      );
+    },
+
+    /**
      * GET /v1/organizations/:organizationId/courses/my — List user's selected courses.
      */
     listMyCourses(organizationId: string): Promise<CourseListResponse> {
@@ -74,6 +83,24 @@ export function createCourseApi(client: ApiClient) {
     ): Promise<CourseResponse> {
       return client.get<CourseResponse>(
         `/v1/organizations/${organizationId}/courses/${courseId}`,
+      );
+    },
+
+    /**
+     * PATCH /v1/organizations/:organizationId/courses/:courseId — Update a course.
+     */
+    updateCourse(
+      organizationId: string,
+      courseId: string,
+      payload: {
+        title?: string;
+        subject?: string | null;
+        exam_at?: string | null;
+      },
+    ): Promise<CourseResponse> {
+      return client.patch<CourseResponse>(
+        `/v1/organizations/${organizationId}/courses/${courseId}`,
+        payload,
       );
     },
   };

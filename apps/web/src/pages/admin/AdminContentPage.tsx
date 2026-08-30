@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../../lib/api/admin";
-import { AdminSearch, AdminStatusBadge } from "../../components/admin/AdminUI";
+import { AdminSearch, AdminStatusBadge, AdminPagination } from "../../components/admin/AdminUI";
 import { ChevronDown, ChevronLeft, Folder, FileText, Layers, BrainCircuit, HelpCircle, BookOpen } from "lucide-react";
 
 export function AdminContentPage() {
@@ -9,6 +9,9 @@ export function AdminContentPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const pageSize = 10;
   const [expandedCourse, setExpandedCourse] = useState<string | null>(null);
 
   useEffect(() => {
@@ -30,11 +33,12 @@ export function AdminContentPage() {
     const fetchCourses = async () => {
       setLoading(true);
       try {
-        const params = search ? { search } : {};
-        // Fetch up to 100 courses for curriculum explorer
-        const res = await api.get<{ courses: any[] }>(`/admin/courses`, { params: { ...params, pageSize: 100 } });
+        const params: Record<string, any> = { page, pageSize };
+        if (search) params.search = search;
+        const res = await api.get<{ courses: any[]; totalCount?: number }>(`/admin/courses`, { params });
         if (active) {
           setCourses(res.courses || []);
+          setTotalCount(res.totalCount ?? res.courses?.length ?? 0);
           setError(null);
         }
       } catch (err: any) {
@@ -43,9 +47,17 @@ export function AdminContentPage() {
         if (active) setLoading(false);
       }
     };
-    const t = setTimeout(fetchCourses, 300);
+    const delay = search ? 300 : 0;
+    const t = setTimeout(fetchCourses, delay);
     return () => { active = false; clearTimeout(t); };
-  }, [search]);
+  }, [search, page]);
+
+  const handleSearchChange = (value: string) => {
+    setSearch(value);
+    setPage(1);
+  };
+
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
 
   return (
     <div className="space-y-6 pb-20">
@@ -66,7 +78,7 @@ export function AdminContentPage() {
 
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-slate-800/30 p-4 rounded-2xl border border-white/5 gap-4">
         <h2 className="text-lg font-semibold text-slate-200">مرورگر محتوا (Curriculum Explorer)</h2>
-        <AdminSearch value={search} onChange={setSearch} placeholder="جستجوی دوره..." />
+        <AdminSearch value={search} onChange={handleSearchChange} placeholder="جستجوی دوره..." />
       </div>
 
       <div className="space-y-3">
@@ -93,6 +105,15 @@ export function AdminContentPage() {
           ))
         )}
       </div>
+
+      {!loading && !error && courses.length > 0 && totalPages > 1 && (
+        <AdminPagination
+          page={page}
+          totalPages={totalPages}
+          totalCount={totalCount}
+          onPageChange={setPage}
+        />
+      )}
     </div>
   );
 }

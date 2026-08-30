@@ -139,6 +139,7 @@ export class InMemoryUserStore implements UserStore {
     const record: UserRecord = {
       id,
       email: normEmail,
+      name: identity.name,
       role: "student",
       emailVerifiedAt: new Date().toISOString(),
       emailVerified: true,

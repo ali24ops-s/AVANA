@@ -168,7 +168,7 @@ describe("useStudySessionTracker Hook & Study Time Display", () => {
     });
   });
 
-  it("renders dynamic study time and change percentage on Dashboard", async () => {
+  it("renders dynamic study time and change percentage on Dashboard (thisWeek > 0, lastWeek > 0)", async () => {
     vi.useRealTimers();
 
     vi.spyOn(globalThis, "fetch").mockImplementation((url) => {
@@ -228,6 +228,663 @@ describe("useStudySessionTracker Hook & Study Time Display", () => {
       expect(screen.getByText("۴ ساعت و ۳۵ دقیقه")).toBeInTheDocument();
     });
 
-    expect(screen.getByText(/۲۵٪ نسبت به هفته قبل/)).toBeInTheDocument();
+    expect(screen.getByText(/↑ ۲۵٪ نسبت به هفته قبل/)).toBeInTheDocument();
+  });
+
+  it("displays last week study time without percentage change when thisWeek = 0 and lastWeek > 0", async () => {
+    vi.useRealTimers();
+
+    vi.spyOn(globalThis, "fetch").mockImplementation((url) => {
+      const urlStr = String(url);
+      if (urlStr.includes("/v1/me")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              request_id: "req-me",
+              user: { id: "u-1", email: "student@avana.ir", role: "student" },
+            }),
+        } as Response);
+      }
+      if (urlStr.includes("/v1/dashboard/study-time")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              request_id: "req-st",
+              thisWeek: {
+                seconds: 0,
+                minutes: 0,
+                formatted: "۰ دقیقه",
+              },
+              lastWeek: {
+                seconds: 15600,
+                minutes: 260,
+                formatted: "۴ ساعت و ۲۰ دقیقه",
+              },
+              changePercent: null,
+              daily: [],
+            }),
+        } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ items: [] }),
+      } as Response);
+    });
+
+    const queryClient = createTestQueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <MemoryRouter initialEntries={["/home"]}>
+            <HomePage />
+          </MemoryRouter>
+        </AuthProvider>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("۰ دقیقه")).toBeInTheDocument();
+    });
+
+    // Should display last week study time
+    expect(screen.getByText("هفته قبل: ۴ ساعت و ۲۰ دقیقه")).toBeInTheDocument();
+    // Should NOT display percentage change or drop indicators
+    expect(screen.queryByText(/نسبت به هفته قبل/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/۱۰۰٪/)).not.toBeInTheDocument();
+  });
+
+  it("Integration test: 100 minutes last week and 0 minutes this week -> displays 'هفته قبل: ۱ ساعت و ۴۰ دقیقه' without ↓ 99% or any reduction %", async () => {
+    vi.useRealTimers();
+
+    vi.spyOn(globalThis, "fetch").mockImplementation((url) => {
+      const urlStr = String(url);
+      if (urlStr.includes("/v1/me")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              request_id: "req-me",
+              user: { id: "u-1", email: "student@avana.ir", role: "student" },
+            }),
+        } as Response);
+      }
+      if (urlStr.includes("/v1/dashboard/study-time")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              request_id: "req-st",
+              thisWeek: {
+                seconds: 0,
+                minutes: 0,
+                formatted: "۰ دقیقه",
+              },
+              lastWeek: {
+                seconds: 6000,
+                minutes: 100,
+                formatted: "۱ ساعت و ۴۰ دقیقه",
+              },
+              changePercent: null,
+              daily: [],
+            }),
+        } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ items: [] }),
+      } as Response);
+    });
+
+    const queryClient = createTestQueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <MemoryRouter initialEntries={["/home"]}>
+            <HomePage />
+          </MemoryRouter>
+        </AuthProvider>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("۰ دقیقه")).toBeInTheDocument();
+    });
+
+    // Exact output required
+    expect(screen.getByText("هفته قبل: ۱ ساعت و ۴۰ دقیقه")).toBeInTheDocument();
+
+    // Must NOT contain 99% or 100% or any reduction arrow
+    expect(screen.queryByText(/۹۹٪/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/۱۰۰٪/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/↓/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/نسبت به هفته قبل/)).not.toBeInTheDocument();
+  });
+
+  it("Integration test: 100 minutes last week and 20s sub-minute noise this week -> displays 'هفته قبل: ۱ ساعت و ۴۰ دقیقه' without ↓ 99%", async () => {
+    vi.useRealTimers();
+
+    vi.spyOn(globalThis, "fetch").mockImplementation((url) => {
+      const urlStr = String(url);
+      if (urlStr.includes("/v1/me")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              request_id: "req-me",
+              user: { id: "u-1", email: "student@avana.ir", role: "student" },
+            }),
+        } as Response);
+      }
+      if (urlStr.includes("/v1/dashboard/study-time")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              request_id: "req-st",
+              thisWeek: {
+                seconds: 20,
+                minutes: 0,
+                formatted: "۰ دقیقه",
+              },
+              lastWeek: {
+                seconds: 6000,
+                minutes: 100,
+                formatted: "۱ ساعت و ۴۰ دقیقه",
+              },
+              changePercent: null,
+              daily: [],
+            }),
+        } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ items: [] }),
+      } as Response);
+    });
+
+    const queryClient = createTestQueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <MemoryRouter initialEntries={["/home"]}>
+            <HomePage />
+          </MemoryRouter>
+        </AuthProvider>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("۰ دقیقه")).toBeInTheDocument();
+    });
+
+    // Exact output required
+    expect(screen.getByText("هفته قبل: ۱ ساعت و ۴۰ دقیقه")).toBeInTheDocument();
+
+    // Must NOT contain 99% or 100% or any reduction arrow
+    expect(screen.queryByText(/۹۹٪/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/۱۰۰٪/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/↓/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/نسبت به هفته قبل/)).not.toBeInTheDocument();
+  });
+
+  it("displays appropriate empty message when thisWeek = 0 and lastWeek = 0", async () => {
+    vi.useRealTimers();
+
+    vi.spyOn(globalThis, "fetch").mockImplementation((url) => {
+      const urlStr = String(url);
+      if (urlStr.includes("/v1/me")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              request_id: "req-me",
+              user: { id: "u-1", email: "student@avana.ir", role: "student" },
+            }),
+        } as Response);
+      }
+      if (urlStr.includes("/v1/dashboard/study-time")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              request_id: "req-st",
+              thisWeek: {
+                seconds: 0,
+                minutes: 0,
+                formatted: "۰ دقیقه",
+              },
+              lastWeek: {
+                seconds: 0,
+                minutes: 0,
+                formatted: "۰ دقیقه",
+              },
+              changePercent: null,
+              daily: [],
+            }),
+        } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ items: [] }),
+      } as Response);
+    });
+
+    const queryClient = createTestQueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <MemoryRouter initialEntries={["/home"]}>
+            <HomePage />
+          </MemoryRouter>
+        </AuthProvider>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("۰ دقیقه")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("هفته قبل: هنوز مطالعه‌ای ثبت نشده")).toBeInTheDocument();
+    expect(screen.queryByText(/نسبت به هفته قبل/)).not.toBeInTheDocument();
+  });
+
+  it("Case 5 / 10 (exact 50%): allows percentage comparison and displays ↓ 50%", async () => {
+    vi.useRealTimers();
+
+    vi.spyOn(globalThis, "fetch").mockImplementation((url) => {
+      const urlStr = String(url);
+      if (urlStr.includes("/v1/me")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              request_id: "req-me",
+              user: { id: "u-1", email: "student@avana.ir", role: "student" },
+            }),
+        } as Response);
+      }
+      if (urlStr.includes("/v1/dashboard/study-time")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              request_id: "req-st",
+              thisWeek: {
+                seconds: 18000,
+                minutes: 300,
+                formatted: "۵ ساعت",
+              },
+              lastWeek: {
+                seconds: 36000,
+                minutes: 600,
+                formatted: "۱۰ ساعت",
+              },
+              changePercent: -50,
+              daily: [],
+            }),
+        } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ items: [] }),
+      } as Response);
+    });
+
+    const queryClient = createTestQueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <MemoryRouter initialEntries={["/home"]}>
+            <HomePage />
+          </MemoryRouter>
+        </AuthProvider>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("۵ ساعت")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("↓ ۵۰٪ نسبت به هفته قبل")).toBeInTheDocument();
+  });
+
+  it("Case 4 / 10 (< 50%): displays last week study time without reduction percentage", async () => {
+    vi.useRealTimers();
+
+    vi.spyOn(globalThis, "fetch").mockImplementation((url) => {
+      const urlStr = String(url);
+      if (urlStr.includes("/v1/me")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              request_id: "req-me",
+              user: { id: "u-1", email: "student@avana.ir", role: "student" },
+            }),
+        } as Response);
+      }
+      if (urlStr.includes("/v1/dashboard/study-time")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              request_id: "req-st",
+              thisWeek: {
+                seconds: 14400,
+                minutes: 240,
+                formatted: "۴ ساعت",
+              },
+              lastWeek: {
+                seconds: 36000,
+                minutes: 600,
+                formatted: "۱۰ ساعت",
+              },
+              changePercent: -60,
+              daily: [],
+            }),
+        } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ items: [] }),
+      } as Response);
+    });
+
+    const queryClient = createTestQueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <MemoryRouter initialEntries={["/home"]}>
+            <HomePage />
+          </MemoryRouter>
+        </AuthProvider>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("۴ ساعت")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("هفته قبل: ۱۰ ساعت")).toBeInTheDocument();
+    expect(screen.queryByText(/↓/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/۶۰٪/)).not.toBeInTheDocument();
+  });
+
+  it("Real DB scenario: thisWeek = 317s (5m) and lastWeek = 29326s (8h 8m) -> displays 'هفته قبل: ۸ ساعت و ۸ دقیقه' without ↓ 99%", async () => {
+    vi.useRealTimers();
+
+    vi.spyOn(globalThis, "fetch").mockImplementation((url) => {
+      const urlStr = String(url);
+      if (urlStr.includes("/v1/me")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              request_id: "req-me",
+              user: { id: "u-1", email: "ali1383mohammadlo@gmail.com", role: "student" },
+            }),
+        } as Response);
+      }
+      if (urlStr.includes("/v1/dashboard/study-time")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              request_id: "req-st",
+              thisWeek: {
+                seconds: 317,
+                minutes: 5,
+                formatted: "۵ دقیقه",
+              },
+              lastWeek: {
+                seconds: 29326,
+                minutes: 489,
+                formatted: "۸ ساعت و ۸ دقیقه",
+              },
+              changePercent: -99,
+              daily: [],
+            }),
+        } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ items: [] }),
+      } as Response);
+    });
+
+    const queryClient = createTestQueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <MemoryRouter initialEntries={["/home"]}>
+            <HomePage />
+          </MemoryRouter>
+        </AuthProvider>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("۵ دقیقه")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("هفته قبل: ۸ ساعت و ۸ دقیقه")).toBeInTheDocument();
+    expect(screen.queryByText(/۹۹٪/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/↓/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/نسبت به هفته قبل/)).not.toBeInTheDocument();
+  });
+
+  it("Case 10 / 10: displays 'مشابه هفته قبل' when thisWeek equals lastWeek", async () => {
+    vi.useRealTimers();
+
+    vi.spyOn(globalThis, "fetch").mockImplementation((url) => {
+      const urlStr = String(url);
+      if (urlStr.includes("/v1/me")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              request_id: "req-me",
+              user: { id: "u-1", email: "student@avana.ir", role: "student" },
+            }),
+        } as Response);
+      }
+      if (urlStr.includes("/v1/dashboard/study-time")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              request_id: "req-st",
+              thisWeek: {
+                seconds: 36000,
+                minutes: 600,
+                formatted: "۱۰ ساعت",
+              },
+              lastWeek: {
+                seconds: 36000,
+                minutes: 600,
+                formatted: "۱۰ ساعت",
+              },
+              changePercent: 0,
+              daily: [],
+            }),
+        } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ items: [] }),
+      } as Response);
+    });
+
+    const queryClient = createTestQueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <MemoryRouter initialEntries={["/home"]}>
+            <HomePage />
+          </MemoryRouter>
+        </AuthProvider>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("۱۰ ساعت")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("مشابه هفته قبل")).toBeInTheDocument();
+  });
+
+  it("Case 12 / 10: displays '↑ ۲۰٪ نسبت به هفته قبل'", async () => {
+    vi.useRealTimers();
+
+    vi.spyOn(globalThis, "fetch").mockImplementation((url) => {
+      const urlStr = String(url);
+      if (urlStr.includes("/v1/me")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              request_id: "req-me",
+              user: { id: "u-1", email: "student@avana.ir", role: "student" },
+            }),
+        } as Response);
+      }
+      if (urlStr.includes("/v1/dashboard/study-time")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              request_id: "req-st",
+              thisWeek: {
+                seconds: 43200,
+                minutes: 720,
+                formatted: "۱۲ ساعت",
+              },
+              lastWeek: {
+                seconds: 36000,
+                minutes: 600,
+                formatted: "۱۰ ساعت",
+              },
+              changePercent: 20,
+              daily: [],
+            }),
+        } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ items: [] }),
+      } as Response);
+    });
+
+    const queryClient = createTestQueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <MemoryRouter initialEntries={["/home"]}>
+            <HomePage />
+          </MemoryRouter>
+        </AuthProvider>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("۱۲ ساعت")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("↑ ۲۰٪ نسبت به هفته قبل")).toBeInTheDocument();
+  });
+
+  it("displays 'شروع شد 🌱' when thisWeek > 0 and lastWeek = 0 without NaN/Infinity", async () => {
+    vi.useRealTimers();
+
+    vi.spyOn(globalThis, "fetch").mockImplementation((url) => {
+      const urlStr = String(url);
+      if (urlStr.includes("/v1/me")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              request_id: "req-me",
+              user: { id: "u-1", email: "student@avana.ir", role: "student" },
+            }),
+        } as Response);
+      }
+      if (urlStr.includes("/v1/dashboard/study-time")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              request_id: "req-st",
+              thisWeek: {
+                seconds: 3600,
+                minutes: 60,
+                formatted: "۱ ساعت",
+              },
+              lastWeek: {
+                seconds: 0,
+                minutes: 0,
+                formatted: "۰ دقیقه",
+              },
+              changePercent: null,
+              daily: [],
+            }),
+        } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ items: [] }),
+      } as Response);
+    });
+
+    const queryClient = createTestQueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <MemoryRouter initialEntries={["/home"]}>
+            <HomePage />
+          </MemoryRouter>
+        </AuthProvider>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("۱ ساعت")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("شروع شد 🌱")).toBeInTheDocument();
+    expect(screen.queryByText(/NaN/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Infinity/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/نسبت به هفته قبل/)).not.toBeInTheDocument();
   });
 });

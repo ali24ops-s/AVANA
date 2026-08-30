@@ -38,6 +38,7 @@ describe("PR-6 database schema", () => {
     expect(cols).toHaveProperty("id");
     expect(cols).toHaveProperty("email");
     expect(cols).toHaveProperty("name");
+    expect(cols).toHaveProperty("globalRole");
     expect(cols).toHaveProperty("createdAt");
     expect(cols).toHaveProperty("updatedAt");
     expect(cols).toHaveProperty("deletedAt");

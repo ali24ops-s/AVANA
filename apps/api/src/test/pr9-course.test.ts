@@ -378,7 +378,7 @@ describe("PR-9: Course vertical slice", () => {
       await app.close();
     });
 
-    it("rejects update by student role", async () => {
+    it("rejects update by student role when modifying title or subject", async () => {
       const app = await buildApp();
 
       // Sign in and create org (user is org_admin by default)
@@ -399,7 +399,7 @@ describe("PR-9: Course vertical slice", () => {
         course: { id: string };
       };
 
-      // Try to update (student does NOT have course:update)
+      // Try to update title (student does NOT have course:update)
       const updateRes = await app.inject({
         method: "PATCH",
         url: `/v1/organizations/${org.id}/courses/${created.course.id}`,
@@ -407,6 +407,44 @@ describe("PR-9: Course vertical slice", () => {
         payload: { title: "Hacked Title" },
       });
       expect(updateRes.statusCode).toBe(403);
+      await app.close();
+    });
+
+    it("allows student to update exam_at date without course:update permission", async () => {
+      const app = await buildApp();
+
+      const { token, userId } = await signIn(app, "student-exam@example.com");
+      const org = await createOrg(app, token, "Student Exam Org");
+
+      // Change role to student
+      setOrgMembershipRole(userId, org.id, "student");
+
+      // Create a course
+      const createRes = await app.inject({
+        method: "POST",
+        url: `/v1/organizations/${org.id}/courses`,
+        cookies: { avana_session: token },
+        payload: { title: "Exam Course", subject: null, exam_at: null },
+      });
+      const created = JSON.parse(createRes.body) as {
+        course: { id: string };
+      };
+
+      // Student sets exam_at
+      const examDate = "2026-09-15T00:00:00.000Z";
+      const updateRes = await app.inject({
+        method: "PATCH",
+        url: `/v1/organizations/${org.id}/courses/${created.course.id}`,
+        cookies: { avana_session: token },
+        payload: { exam_at: examDate },
+      });
+      expect(updateRes.statusCode).toBe(200);
+      const updateBody = JSON.parse(updateRes.body) as {
+        course: { id: string; exam_at: string; title: string };
+      };
+      expect(updateBody.course.exam_at).toBe(examDate);
+      expect(updateBody.course.title).toBe("Exam Course");
+
       await app.close();
     });
   });

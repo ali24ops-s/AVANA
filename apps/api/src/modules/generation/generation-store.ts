@@ -41,7 +41,7 @@ export type TokenUsageRecord = {
 export type GeneratedContentRecord = {
   id: GeneratedContentId;
   organizationId: OrganizationId;
-  documentId: DocumentId;
+  documentId: DocumentId | null;
   courseId: CourseId;
   type: GeneratedContentType;
   status: GeneratedContentStatus;
@@ -131,6 +131,15 @@ export interface GeneratedContentStore {
    * Soft-delete all generated contents for a document.
    */
   deleteByDocument(
+    documentId: DocumentId,
+    organizationId: OrganizationId,
+  ): Promise<void>;
+
+  /**
+   * Soft-delete any unaccepted drafts / non-accepted records for a document.
+   * Keeps accepted items intact so their materialized records and review summaries remain active.
+   */
+  deleteDraftsByDocument(
     documentId: DocumentId,
     organizationId: OrganizationId,
   ): Promise<void>;

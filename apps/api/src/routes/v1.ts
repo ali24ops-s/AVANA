@@ -8,6 +8,12 @@ import { courseRoutes } from "../modules/courses/index.js";
 import { learningRoutes, contentRoutes } from "../modules/learning/index.js";
 import { documentRoutes } from "../modules/documents/index.js";
 import { generationRoutes, reviewRoutes } from "../modules/generation/index.js";
+import { libraryRoutes } from "../modules/library/index.js";
+import type {
+  ContentPackStore,
+  ContentPackUsageStore,
+} from "../modules/library/index.js";
+import { searchRoutes, type SearchStore } from "../modules/search/index.js";
 import {
   studyRoutes,
   assistantRoutes,
@@ -90,6 +96,9 @@ export interface V1RouteOptions {
   flashcardStudySessionStore?: FlashcardStudySessionStore;
   auditService?: AuditService;
   adminStore?: AdminStore;
+  contentPackStore?: ContentPackStore;
+  contentPackUsageStore?: ContentPackUsageStore;
+  searchStore?: SearchStore;
 }
 
 export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
@@ -395,5 +404,50 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       generationJobStore: opts.generationJobStore,
     });
   }
+
+  // Register Library & Content Pack routes
+  if (
+    opts.config &&
+    opts.sessionStore &&
+    opts.userStore &&
+    opts.contentPackStore &&
+    opts.contentPackUsageStore &&
+    opts.documentStore &&
+    opts.generatedContentStore
+  ) {
+    await app.register(libraryRoutes, {
+      sessionService: new SessionService(
+        opts.sessionStore,
+        opts.config.session,
+      ),
+      userStore: opts.userStore,
+      contentPackStore: opts.contentPackStore,
+      contentPackUsageStore: opts.contentPackUsageStore,
+      documentStore: opts.documentStore,
+      generatedContentStore: opts.generatedContentStore,
+      organizationStore: opts.organizationStore,
+      courseStore: opts.courseStore,
+      auditService: opts.auditService,
+    });
+  }
+
+  // Register Search routes if all stores provided
+  if (
+    opts.config &&
+    opts.sessionStore &&
+    opts.userStore &&
+    opts.searchStore
+  ) {
+    await app.register(searchRoutes, {
+      sessionService: new SessionService(
+        opts.sessionStore,
+        opts.config.session,
+      ),
+      userStore: opts.userStore,
+      searchStore: opts.searchStore,
+      systemOrganizationId: opts.config.systemOrganizationId as OrganizationId,
+    });
+  }
 };
+
 

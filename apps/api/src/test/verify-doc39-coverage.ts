@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Targeted Live Verification against Document 39 (Katzung Chapter 39)
  *

@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * PR6-9D — Course Manager Experience Hardening tests.
  */

@@ -63,6 +63,11 @@ import {
 import { DrizzleAuditStore } from "../observability/drizzle-stores.js";
 import { AuditService } from "../observability/audit-service.js";
 import { DrizzleAdminStore } from "../modules/admin/drizzle-stores.js";
+import {
+  DrizzleContentPackStore,
+  DrizzleContentPackUsageStore,
+} from "../modules/library/index.js";
+import { DrizzleSearchStore } from "../modules/search/index.js";
 import { LocalStorageProvider } from "../modules/storage/index.js";
 import { seedLocalDevData } from "../dev/seed.js";
 import type { V1RouteOptions } from "../routes/v1.js";
@@ -264,6 +269,7 @@ export async function composeProduction(
   const generationJobStore = new DrizzleGenerationJobStore(db);
   const gateway = createModelGateway({
     provider: config.generation.aiProvider,
+    enableFallback: config.generation.enableFallback,
     geminiApiKey: config.generation.geminiApiKey,
     geminiApiKeys: config.generation.geminiApiKeys,
     geminiModel: config.generation.geminiModel,
@@ -272,6 +278,13 @@ export async function composeProduction(
     cloudflareAiModel: config.generation.cloudflareAiModel,
     groqApiKey: config.generation.groqApiKey,
     groqModel: config.generation.groqModel,
+    gapgptApiKey: config.generation.gapgptApiKey,
+    gapgptBaseUrl: config.generation.gapgptBaseUrl,
+    gapgptModel: config.generation.gapgptModel,
+    arvancloudApiKey: config.generation.arvancloudApiKey,
+    arvancloudBaseUrl: config.generation.arvancloudBaseUrl,
+    arvancloudModel: config.generation.arvancloudModel,
+    arvancloudAuthScheme: config.generation.arvancloudAuthScheme,
   });
 
   // BullMQ generation queue (Redis-backed producer).
@@ -300,6 +313,10 @@ export async function composeProduction(
   // Admin Store
   const adminStore = new DrizzleAdminStore(db);
 
+  // Library & Content Pack Stores
+  const contentPackStore = new DrizzleContentPackStore(db);
+  const contentPackUsageStore = new DrizzleContentPackUsageStore(db);
+
   // Cloudflare AI Model Gateway dedicated for Study Assistant
   let assistantGateway: ModelGateway;
   if (
@@ -318,6 +335,7 @@ export async function composeProduction(
 
   const auditStore = new DrizzleAuditStore(db);
   const auditService = new AuditService(auditStore);
+  const searchStore = new DrizzleSearchStore(db);
 
   const v1Options: V1RouteOptions = {
     config,
@@ -350,6 +368,9 @@ export async function composeProduction(
     flashcardStudySessionStore,
     auditService,
     adminStore,
+    contentPackStore,
+    contentPackUsageStore,
+    searchStore,
   };
 
   // Seed demo data for development only — not in production
@@ -362,32 +383,14 @@ export async function composeProduction(
       auditService,
     });
 
-    // After base seed completes, seed modules and lessons directly via Drizzle
-    // (not through store interfaces, which don't expose create methods)
-    const lastCourse = seedResult.seeded.courses.at(-1);
-    const pharmacologyCourseId = lastCourse
-      ? ((
-          await courseStore.listByOrganization(
-            seedResult.organizationId,
-            seedResult.userId,
-          )
-        ).find((c) => c.name === "فارماکولوژی ۱" || c.name === "Pharmacology Basics")?.id ?? null)
-      : null;
-
-    let learningSeeded = { modules: false, lessons: false };
-    if (pharmacologyCourseId) {
-      learningSeeded = await seedModulesAndLessons(
-        db,
-        pharmacologyCourseId as CourseId,
-      );
+    if (seedResult.seeded.courses.length > 0) {
+      await seedModulesAndLessons(db, seedResult.seeded.courses[0] as CourseId);
     }
 
     process.stdout.write(
       `[seed] User count: ${seedResult.seeded.user ? 1 : 0}, ` +
         `Organization count: ${seedResult.seeded.organization ? 1 : 0}, ` +
-        `Course count: ${seedResult.seeded.courses.length}, ` +
-        `Modules: ${learningSeeded.modules ? 2 : 0}, ` +
-        `Lessons: ${learningSeeded.lessons ? 6 : 0}\n`,
+        `Course count: ${seedResult.seeded.courses.length}\n`,
     );
   }
 

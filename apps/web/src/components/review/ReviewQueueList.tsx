@@ -6,6 +6,7 @@ import {
   Layers,
   HelpCircle,
   ChevronLeft,
+  ChevronRight,
   Loader2,
   AlertCircle,
 } from "lucide-react";
@@ -25,14 +26,21 @@ export function ReviewQueueList({
 }: ReviewQueueListProps) {
   const [activeContentId, setActiveContentId] = useState<string | null>(null);
   const [typeFilter, setTypeFilter] = useState<GeneratedContentType | "all">("all");
+  const [page, setPage] = useState(1);
 
   const apiClient = createApiClient({ baseUrl: getApiBaseUrl() });
   const reviewApi = createReviewApi(apiClient);
 
   const queueQuery = useQuery({
-    queryKey: ["review-queue", organizationId, courseId],
-    queryFn: () => reviewApi.getReviewQueue(organizationId, courseId),
-    refetchInterval: 3000,
+    queryKey: ["review-queue", organizationId, courseId, typeFilter, page],
+    queryFn: () =>
+      reviewApi.getReviewQueue(organizationId, courseId, {
+        page,
+        limit: 20,
+        type: typeFilter !== "all" ? typeFilter : undefined,
+      }),
+    refetchInterval: 5000,
+    placeholderData: (previousData) => previousData,
   });
 
   if (activeContentId) {
@@ -128,7 +136,10 @@ export function ReviewQueueList({
             <button
               type="button"
               key={t}
-              onClick={() => setTypeFilter(t)}
+              onClick={() => {
+                setTypeFilter(t);
+                setPage(1);
+              }}
               aria-pressed={typeFilter === t}
               className={`px-3 py-1.5 rounded-lg font-bold transition-all ${
                 typeFilter === t
@@ -192,6 +203,41 @@ export function ReviewQueueList({
           ))}
         </div>
       )}
+
+      {/* Pagination footer */}
+      {(() => {
+        const totalPages =
+          (queueQuery.data?.pagination as any)?.total_pages ??
+          (queueQuery.data?.pagination as any)?.totalPages ??
+          1;
+        const total = (queueQuery.data?.pagination as any)?.total ?? items.length;
+        if (totalPages <= 1) return null;
+        return (
+          <div className="flex items-center justify-between pt-4 border-t border-[var(--color-border)]">
+            <span className="text-xs text-[var(--color-text-muted)]">
+              مجموع: {total} مورد (صفحه {page} از {totalPages})
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={page <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                className="p-1.5 rounded-lg border border-[var(--color-border)] text-[var(--color-text)] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--color-surface-warm)]"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                disabled={page >= totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                className="p-1.5 rounded-lg border border-[var(--color-border)] text-[var(--color-text)] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--color-surface-warm)]"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

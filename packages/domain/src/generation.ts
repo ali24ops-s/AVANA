@@ -22,7 +22,11 @@
  * for PR6-4; the others are reserved for PR6-5+.
  */
 export type GeneratedContentType =
-  "lesson" | "flashcard" | "quiz" | "recommendation";
+  | "lesson"
+  | "flashcard"
+  | "quiz"
+  | "recommendation"
+  | "review_summary";
 
 /**
  * AI artifact lifecycle (separate from the document processing lifecycle).
@@ -66,7 +70,13 @@ export function isGenerationJobStatus(v: string): v is GenerationJobStatus {
  * Extensible — future "openai" | "anthropic" | "azure" are added behind the
  * ModelGateway abstraction. PR6-4 only provides the "mock" provider.
  */
-export type ModelProvider = "mock" | "gemini";
+export type ModelProvider =
+  | "mock"
+  | "gemini"
+  | "cloudflare"
+  | "groq"
+  | "gapgpt"
+  | "arvancloud";
 
 // ---------------------------------------------------------------------------
 // Generated content payloads
@@ -117,15 +127,30 @@ export type FlashcardPayload = {
   citationChunkIds: string[];
 };
 
+export type QuizQuestionCategory =
+  | "recall"
+  | "application"
+  | "mechanism_discrimination"
+  | "clinical_reasoning"
+  | "adverse_effect_differential"
+  | "contraindication_nuance"
+  | "pharmacokinetic_comparison";
+
+export type QuizQuestionDifficulty = "easy" | "medium" | "hard";
+
 export type QuizPayload = {
   kind: "quiz";
   title: string;
   questions: Array<{
+    sessionIndex?: number;
     question: string;
     questionType: "multiple_choice" | "true_false" | "fill_blank";
+    difficulty?: QuizQuestionDifficulty;
+    category?: QuizQuestionCategory | string;
     choices?: string[];
     correctAnswer: unknown;
     explanation?: string;
+    distractorRationale?: Record<string, string> | Array<{ choice: string; reason: string }>;
   }>;
   citationChunkIds: string[];
 };
@@ -137,8 +162,40 @@ export type RecommendationPayload = {
   citationChunkIds: string[];
 };
 
+export type ReviewSummaryComparison = {
+  conceptA: string;
+  conceptB: string;
+  keyDifferences: string;
+};
+
+export type ReviewSummarySection = {
+  title: string;
+  keyPoints: string[];
+  mechanisms?: string[];
+  classifications?: string[];
+  comparisons?: ReviewSummaryComparison[] | string[];
+  memorizationPoints?: string[];
+  examPoints?: string[];
+  citationChunkIds?: string[];
+};
+
+export type ReviewSummaryPayload = {
+  kind: "review_summary";
+  title: string;
+  estimatedReadingMinutes: number;
+  overview: string;
+  sections: ReviewSummarySection[];
+  finalTakeaways: string[];
+  citationChunkIds: string[];
+  targetReadingMinutes?: number;
+};
+
 export type GeneratedContentPayload =
-  LessonPayload | FlashcardPayload | QuizPayload | RecommendationPayload;
+  | LessonPayload
+  | FlashcardPayload
+  | QuizPayload
+  | RecommendationPayload
+  | ReviewSummaryPayload;
 
 // ---------------------------------------------------------------------------
 // Runtime generation scope
@@ -152,19 +209,17 @@ export const ALL_GENERATION_TYPES: readonly GeneratedContentType[] = [
   "flashcard",
   "quiz",
   "recommendation",
+  "review_summary",
 ];
 
 /**
  * Generation types currently enabled for active generation workflows.
- *
- * SPRINT_06 milestone PRs gate feature activations: PR6-4 only
- * activates `lesson`. Flashcard/quiz generation workflows are activated in
- * later PRs after the lesson pipeline is stable.
  */
 export const ENABLED_GENERATION_TYPES: readonly GeneratedContentType[] = [
   "lesson",
   "flashcard",
   "quiz",
+  "review_summary",
 ];
 
 /**

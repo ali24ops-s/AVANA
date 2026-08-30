@@ -215,6 +215,10 @@ function toDocumentResource(doc: DocumentRecord): import("@avana/contracts").Doc
     status: mapDocumentStatus(doc.status),
     error_code: doc.errorCode,
     retry_count: doc.retryCount,
+    quality_score: doc.qualityScore ?? null,
+    quality_level: (doc.qualityLevel as any) ?? null,
+    quality_report: doc.qualityReport ?? null,
+    quality_analyzed_at: doc.qualityAnalyzedAt ?? null,
     created_at: doc.createdAt,
     updated_at: doc.updatedAt,
   };
@@ -386,6 +390,10 @@ export class DocumentService {
       status: "uploaded",
       errorCode: null,
       retryCount: 0,
+      qualityScore: null,
+      qualityLevel: null,
+      qualityReport: null,
+      qualityAnalyzedAt: null,
       createdAt: now,
       updatedAt: now,
       deletedAt: null,
@@ -774,22 +782,15 @@ export class DocumentService {
       await this.chunkStore.deleteByDocument(documentId);
     }
 
-    // Clean up unaccepted generated content drafts.
+    // Clean up unaccepted generated content drafts (drafts, regenerating, edited, rejected).
+    // Accepted contents (including accepted review summaries) remain intact.
     if (this.generatedContentStore) {
-      await this.generatedContentStore.deleteByDocument(documentId, organizationId);
+      await this.generatedContentStore.deleteDraftsByDocument(documentId, organizationId);
     }
 
     // Clean up generation jobs for this document.
     if (this.generationJobStore) {
       await this.generationJobStore.deleteByDocument(documentId, organizationId);
-    }
-
-    // Clean up associated flashcards and quizzes if stores are available.
-    if (this.flashcardStore) {
-      await this.flashcardStore.deleteByDocument(documentId, organizationId);
-    }
-    if (this.quizStore) {
-      await this.quizStore.deleteByDocument(documentId, organizationId);
     }
 
     // Soft-delete the metadata row.
@@ -882,22 +883,15 @@ export class DocumentService {
       await this.chunkStore.deleteByDocument(documentId);
     }
 
-    // Clean up unaccepted generated content drafts.
+    // Clean up unaccepted generated content drafts (drafts, regenerating, edited, rejected).
+    // Accepted contents (including accepted review summaries) remain intact.
     if (this.generatedContentStore) {
-      await this.generatedContentStore.deleteByDocument(documentId, organizationId);
+      await this.generatedContentStore.deleteDraftsByDocument(documentId, organizationId);
     }
 
     // Clean up generation jobs for this document.
     if (this.generationJobStore) {
       await this.generationJobStore.deleteByDocument(documentId, organizationId);
-    }
-
-    // Clean up associated flashcards and quizzes if stores are available.
-    if (this.flashcardStore) {
-      await this.flashcardStore.deleteByDocument(documentId, organizationId);
-    }
-    if (this.quizStore) {
-      await this.quizStore.deleteByDocument(documentId, organizationId);
     }
 
     // Soft-delete the metadata row.

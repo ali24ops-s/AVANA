@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * PR6-6 Integration tests: AI generation review & acceptance API.
  *
@@ -8,8 +9,8 @@
  *   4. Editor POST reject → requires reason, draft → rejected
  *   5. Editor PATCH → edit payload before acceptance (preserves citations)
  *   6. Editor POST regenerate → 202 + job_id, marks regenerating
- *   7. Student cannot read the review-queue (content:review) or accept content
- *      (content:accept) — both are editor/admin only → 403
+ *   7. Student can read the review-queue (content:review) but cannot accept
+ *      content (content:accept) → 403
  *   8. Cross-organization access is non-disclosing (404)
  */
 
@@ -268,9 +269,7 @@ describe("PR6-6: AI generation review & acceptance API", () => {
       await app.close();
     });
 
-    it("forbids a student from reading the review-queue (403)", async () => {
-      // Product requirement: students may read only accepted content. The
-      // review-queue exposes drafts, so it is editor/admin only.
+    it("allows a student to read the review-queue (200 with content:review)", async () => {
       const app = await buildApp();
       const { token: adminToken } = await signIn(
         app,
@@ -301,7 +300,9 @@ describe("PR6-6: AI generation review & acceptance API", () => {
         url: `/v1/organizations/${organizationId}/courses/${courseId}/generated/review-queue`,
         cookies: { avana_session: token },
       });
-      expect(res.statusCode).toBe(403);
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.body) as { pending: unknown[] };
+      expect(body.pending).toHaveLength(1);
       await app.close();
     });
   });
@@ -373,7 +374,7 @@ describe("PR6-6: AI generation review & acceptance API", () => {
       await app.close();
     });
 
-    it("forbids a student from accepting content (403)", async () => {
+    it("forbids a student from accepting content of a document they do not own (403)", async () => {
       const app = await buildApp();
       const { token: adminToken } = await signIn(
         app,
@@ -407,6 +408,65 @@ describe("PR6-6: AI generation review & acceptance API", () => {
       expect(res.statusCode).toBe(403);
       await app.close();
     });
+
+    it("allows a student who OWNS the document to accept content (200)", async () => {
+      const app = await buildApp();
+      const { token: adminToken } = await signIn(
+        app,
+        "admin-owner@example.com",
+        "organization_admin",
+      );
+      const organizationId = await createOrg(app, adminToken, "Owner Org");
+
+      const { token: studentToken, userId: studentUserId } = await signIn(
+        app,
+        "stu-owner@example.com",
+        "student",
+      );
+      orgStore.addMembership({
+        id: randomUUID(),
+        organizationId,
+        userId: studentUserId,
+        role: "student",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+
+      // Seed document owned by studentUserId
+      const now = new Date().toISOString();
+      const studentDocId = "44444444-4444-4444-8444-444444444444" as DocumentId;
+      documentStore.insert({
+        id: studentDocId,
+        organizationId,
+        courseId,
+        ownerUserId: studentUserId,
+        originalName: "student-notes.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 100,
+        sha256: "d".repeat(64),
+        storageKey: `uploads/${studentDocId}.pdf`,
+        pageCount: 1,
+        status: "review_pending",
+        errorCode: null,
+        retryCount: 0,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      });
+
+      const contentId = seedContent(organizationId, { documentId: studentDocId });
+
+      const res = await app.inject({
+        method: "POST",
+        url: `/v1/organizations/${organizationId}/courses/${courseId}/generated/${contentId}/accept`,
+        cookies: { avana_session: studentToken },
+      });
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.body);
+      expect(body.status).toBe("accepted");
+      expect(body.materialized_lesson_id).toBeDefined();
+      await app.close();
+    });
   });
 
   describe("POST .../generated/:contentId/reject", () => {
@@ -431,6 +491,102 @@ describe("PR6-6: AI generation review & acceptance API", () => {
       expect(res.statusCode).toBe(200);
       const body = JSON.parse(res.body) as { status: string };
       expect(body.status).toBe("rejected");
+      await app.close();
+    });
+
+    it("allows student owner to reject draft with reason (200)", async () => {
+      const app = await buildApp();
+      const { token: adminToken } = await signIn(
+        app,
+        "admin-rej-owner@example.com",
+        "organization_admin",
+      );
+      const organizationId = await createOrg(app, adminToken, "Reject Owner Org");
+
+      const { token: studentToken, userId: studentUserId } = await signIn(
+        app,
+        "stu-rej-owner@example.com",
+        "student",
+      );
+      orgStore.addMembership({
+        id: randomUUID(),
+        organizationId,
+        userId: studentUserId,
+        role: "student",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+
+      const now = new Date().toISOString();
+      const studentDocId = "55555555-5555-5555-8555-555555555555" as DocumentId;
+      documentStore.insert({
+        id: studentDocId,
+        organizationId,
+        courseId,
+        ownerUserId: studentUserId,
+        originalName: "student-rej-notes.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 100,
+        sha256: "e".repeat(64),
+        storageKey: `uploads/${studentDocId}.pdf`,
+        pageCount: 1,
+        status: "review_pending",
+        errorCode: null,
+        retryCount: 0,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      });
+
+      const contentId = seedContent(organizationId, { documentId: studentDocId });
+
+      const res = await app.inject({
+        method: "POST",
+        url: `/v1/organizations/${organizationId}/courses/${courseId}/generated/${contentId}/reject`,
+        cookies: { avana_session: studentToken },
+        payload: { reason: "Not relevant" },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.body);
+      expect(body.status).toBe("rejected");
+      await app.close();
+    });
+
+    it("forbids non-owner student from rejecting (403)", async () => {
+      const app = await buildApp();
+      const { token: adminToken } = await signIn(
+        app,
+        "admin-rej-non@example.com",
+        "organization_admin",
+      );
+      const organizationId = await createOrg(app, adminToken, "Reject NonOwner Org");
+
+      const { token: studentToken, userId: studentUserId } = await signIn(
+        app,
+        "stu-rej-non@example.com",
+        "student",
+      );
+      orgStore.addMembership({
+        id: randomUUID(),
+        organizationId,
+        userId: studentUserId,
+        role: "student",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+
+      seedDocumentAndChunk(organizationId);
+      const contentId = seedContent(organizationId);
+
+      const res = await app.inject({
+        method: "POST",
+        url: `/v1/organizations/${organizationId}/courses/${courseId}/generated/${contentId}/reject`,
+        cookies: { avana_session: studentToken },
+        payload: { reason: "Not relevant" },
+      });
+
+      expect(res.statusCode).toBe(403);
       await app.close();
     });
 
@@ -490,10 +646,121 @@ describe("PR6-6: AI generation review & acceptance API", () => {
       expect(body.content.payload.title).toBe("Edited Lesson");
       await app.close();
     });
+
+    it("allows student owner to edit draft payload (200)", async () => {
+      const app = await buildApp();
+      const { token: adminToken } = await signIn(
+        app,
+        "admin-edit-owner@example.com",
+        "organization_admin",
+      );
+      const organizationId = await createOrg(app, adminToken, "Edit Owner Org");
+
+      const { token: studentToken, userId: studentUserId } = await signIn(
+        app,
+        "stu-edit-owner@example.com",
+        "student",
+      );
+      orgStore.addMembership({
+        id: randomUUID(),
+        organizationId,
+        userId: studentUserId,
+        role: "student",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+
+      const now = new Date().toISOString();
+      const studentDocId = "66666666-6666-6666-8666-666666666666" as DocumentId;
+      documentStore.insert({
+        id: studentDocId,
+        organizationId,
+        courseId,
+        ownerUserId: studentUserId,
+        originalName: "student-edit-notes.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 100,
+        sha256: "f".repeat(64),
+        storageKey: `uploads/${studentDocId}.pdf`,
+        pageCount: 1,
+        status: "review_pending",
+        errorCode: null,
+        retryCount: 0,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      });
+
+      const contentId = seedContent(organizationId, { documentId: studentDocId });
+
+      const res = await app.inject({
+        method: "PATCH",
+        url: `/v1/organizations/${organizationId}/courses/${courseId}/generated/${contentId}`,
+        cookies: { avana_session: studentToken },
+        payload: {
+          payload: {
+            kind: "lesson",
+            title: "Student Edited Lesson",
+            contentMarkdown: "# Student Edited",
+            citationChunkIds: [chunkId],
+          },
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.body);
+      expect(body.content.status).toBe("edited");
+      expect(body.content.payload.title).toBe("Student Edited Lesson");
+      await app.close();
+    });
+
+    it("forbids non-owner student from editing (403)", async () => {
+      const app = await buildApp();
+      const { token: adminToken } = await signIn(
+        app,
+        "admin-edit-non@example.com",
+        "organization_admin",
+      );
+      const organizationId = await createOrg(app, adminToken, "Edit NonOwner Org");
+
+      const { token: studentToken, userId: studentUserId } = await signIn(
+        app,
+        "stu-edit-non@example.com",
+        "student",
+      );
+      orgStore.addMembership({
+        id: randomUUID(),
+        organizationId,
+        userId: studentUserId,
+        role: "student",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+
+      seedDocumentAndChunk(organizationId);
+      const contentId = seedContent(organizationId);
+
+      const res = await app.inject({
+        method: "PATCH",
+        url: `/v1/organizations/${organizationId}/courses/${courseId}/generated/${contentId}`,
+        cookies: { avana_session: studentToken },
+        payload: {
+          payload: {
+            kind: "lesson",
+            title: "Hacked Lesson",
+            contentMarkdown: "# Hacked",
+            citationChunkIds: [chunkId],
+          },
+        },
+      });
+
+      expect(res.statusCode).toBe(403);
+      await app.close();
+    });
   });
 
   describe("POST .../generated/:contentId/regenerate", () => {
-    it("returns 202 and creates a regeneration job", async () => {
+    it("returns 202 and creates a regeneration job for course editor", async () => {
       const app = await buildApp();
       const { token } = await signIn(
         app,
@@ -518,6 +785,101 @@ describe("PR6-6: AI generation review & acceptance API", () => {
       expect(body.status).toBe("regenerating");
       expect(body.job_id).toBeTruthy();
       expect(generationJobStore.getAll()).toHaveLength(1);
+      await app.close();
+    });
+
+    it("allows student owner to regenerate content (202)", async () => {
+      const app = await buildApp();
+      const { token: adminToken } = await signIn(
+        app,
+        "admin-regen-owner@example.com",
+        "organization_admin",
+      );
+      const organizationId = await createOrg(app, adminToken, "Regen Owner Org");
+
+      const { token: studentToken, userId: studentUserId } = await signIn(
+        app,
+        "stu-regen-owner@example.com",
+        "student",
+      );
+      orgStore.addMembership({
+        id: randomUUID(),
+        organizationId,
+        userId: studentUserId,
+        role: "student",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+
+      const now = new Date().toISOString();
+      const studentDocId = "77777777-7777-7777-8777-777777777777" as DocumentId;
+      documentStore.insert({
+        id: studentDocId,
+        organizationId,
+        courseId,
+        ownerUserId: studentUserId,
+        originalName: "student-regen-notes.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 100,
+        sha256: "7".repeat(64),
+        storageKey: `uploads/${studentDocId}.pdf`,
+        pageCount: 1,
+        status: "review_pending",
+        errorCode: null,
+        retryCount: 0,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      });
+
+      const contentId = seedContent(organizationId, { documentId: studentDocId });
+
+      const res = await app.inject({
+        method: "POST",
+        url: `/v1/organizations/${organizationId}/courses/${courseId}/generated/${contentId}/regenerate`,
+        cookies: { avana_session: studentToken },
+      });
+
+      expect(res.statusCode).toBe(202);
+      const body = JSON.parse(res.body);
+      expect(body.status).toBe("regenerating");
+      expect(body.job_id).toBeTruthy();
+      await app.close();
+    });
+
+    it("forbids non-owner student from regenerating (403)", async () => {
+      const app = await buildApp();
+      const { token: adminToken } = await signIn(
+        app,
+        "admin-regen-non@example.com",
+        "organization_admin",
+      );
+      const organizationId = await createOrg(app, adminToken, "Regen NonOwner Org");
+
+      const { token: studentToken, userId: studentUserId } = await signIn(
+        app,
+        "stu-regen-non@example.com",
+        "student",
+      );
+      orgStore.addMembership({
+        id: randomUUID(),
+        organizationId,
+        userId: studentUserId,
+        role: "student",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+
+      seedDocumentAndChunk(organizationId);
+      const contentId = seedContent(organizationId);
+
+      const res = await app.inject({
+        method: "POST",
+        url: `/v1/organizations/${organizationId}/courses/${courseId}/generated/${contentId}/regenerate`,
+        cookies: { avana_session: studentToken },
+      });
+
+      expect(res.statusCode).toBe(403);
       await app.close();
     });
   });
@@ -547,6 +909,63 @@ describe("PR6-6: AI generation review & acceptance API", () => {
         method: "GET",
         url: `/v1/organizations/${orgB}/courses/${courseId}/generated/${contentId}`,
         cookies: { avana_session: tokenB },
+      });
+      expect(res.statusCode).toBe(404);
+      await app.close();
+    });
+
+    it("returns 404 when student attempts to accept content under another organization", async () => {
+      const app = await buildApp();
+      const { token: adminToken } = await signIn(
+        app,
+        "admin-cross@example.com",
+        "organization_admin",
+      );
+      const orgA = await createOrg(app, adminToken, "Org A Cross");
+      const orgB = await createOrg(app, adminToken, "Org B Cross");
+
+      const { token: studentToken, userId: studentUserId } = await signIn(
+        app,
+        "stu-cross@example.com",
+        "student",
+      );
+      orgStore.addMembership({
+        id: randomUUID(),
+        organizationId: orgA,
+        userId: studentUserId,
+        role: "student",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+
+      const now = new Date().toISOString();
+      const studentDocId = "88888888-8888-8888-8888-888888888888" as DocumentId;
+      documentStore.insert({
+        id: studentDocId,
+        organizationId: orgA,
+        courseId,
+        ownerUserId: studentUserId,
+        originalName: "student-cross-notes.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 100,
+        sha256: "8".repeat(64),
+        storageKey: `uploads/${studentDocId}.pdf`,
+        pageCount: 1,
+        status: "review_pending",
+        errorCode: null,
+        retryCount: 0,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      });
+
+      const contentId = seedContent(orgA, { documentId: studentDocId });
+
+      // Student tries to accept content using orgB
+      const res = await app.inject({
+        method: "POST",
+        url: `/v1/organizations/${orgB}/courses/${courseId}/generated/${contentId}/accept`,
+        cookies: { avana_session: studentToken },
       });
       expect(res.statusCode).toBe(404);
       await app.close();

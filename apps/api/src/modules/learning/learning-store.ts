@@ -95,6 +95,10 @@ export type DocumentRecord = {
   status: DocumentStatus;
   errorCode: string | null;
   retryCount: number;
+  qualityScore: number | null;
+  qualityLevel: string | null;
+  qualityReport: any | null;
+  qualityAnalyzedAt: string | null;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;

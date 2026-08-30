@@ -24,6 +24,7 @@
     "db:generate": "drizzle-kit generate --config=database/drizzle.config.ts",
     "db:migrate": "tsx database/migrate.ts",
     "db:seed": "tsx database/seeds/seed.ts",
+    "db:seed:popular": "node scripts/seed-popular-courses.mjs",
     "db:studio": "drizzle-kit studio --config=database/drizzle.config.ts"
   },
   "devDependencies": {

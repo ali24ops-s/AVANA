@@ -37,6 +37,9 @@ export type FlashcardReviewId = Brand<UUID, "flashcardReviewId">;
 export type QuizId = Brand<UUID, "quizId">;
 export type QuizQuestionId = Brand<UUID, "quizQuestionId">;
 export type QuizAttemptId = Brand<UUID, "quizAttemptId">;
+export type ContentPackId = Brand<UUID, "contentPackId">;
+export type ContentPackItemId = Brand<UUID, "contentPackItemId">;
+export type ContentPackUsageId = Brand<UUID, "contentPackUsageId">;
 
 export function asUserId(id: UUID): UserId {
   return id as UserId;
@@ -94,6 +97,10 @@ export function asQuizAttemptId(id: UUID): QuizAttemptId {
   return id as QuizAttemptId;
 }
 
+export function isCourseId(value: string): value is CourseId {
+  return isUUID(value);
+}
+
 export function isModuleId(value: string): value is ModuleId {
   return isUUID(value);
 }
@@ -143,6 +150,13 @@ export function isQuizQuestionId(value: string): value is QuizQuestionId {
 
 export function isQuizAttemptId(value: string): value is QuizAttemptId {
   return isUUID(value);
+}
+
+export function parseCourseId(value: string, fieldName = "courseId"): CourseId {
+  if (!isCourseId(value)) {
+    throw new Error(`Invalid UUID for ${fieldName}`);
+  }
+  return value as CourseId;
 }
 
 export function parseModuleId(value: string, fieldName = "moduleId"): ModuleId {
@@ -245,3 +259,58 @@ export function parseQuizAttemptId(
   }
   return value as QuizAttemptId;
 }
+
+export function asContentPackId(id: UUID): ContentPackId {
+  return id as ContentPackId;
+}
+
+export function asContentPackItemId(id: UUID): ContentPackItemId {
+  return id as ContentPackItemId;
+}
+
+export function asContentPackUsageId(id: UUID): ContentPackUsageId {
+  return id as ContentPackUsageId;
+}
+
+export function isContentPackId(value: string): value is ContentPackId {
+  return isUUID(value);
+}
+
+export function isContentPackItemId(value: string): value is ContentPackItemId {
+  return isUUID(value);
+}
+
+export function isContentPackUsageId(value: string): value is ContentPackUsageId {
+  return isUUID(value);
+}
+
+export function parseContentPackId(
+  value: string,
+  fieldName = "contentPackId",
+): ContentPackId {
+  if (!isContentPackId(value)) {
+    throw new Error(`Invalid UUID for ${fieldName}`);
+  }
+  return value as ContentPackId;
+}
+
+export function parseContentPackItemId(
+  value: string,
+  fieldName = "contentPackItemId",
+): ContentPackItemId {
+  if (!isContentPackItemId(value)) {
+    throw new Error(`Invalid UUID for ${fieldName}`);
+  }
+  return value as ContentPackItemId;
+}
+
+export function parseContentPackUsageId(
+  value: string,
+  fieldName = "contentPackUsageId",
+): ContentPackUsageId {
+  if (!isContentPackUsageId(value)) {
+    throw new Error(`Invalid UUID for ${fieldName}`);
+  }
+  return value as ContentPackUsageId;
+}
+

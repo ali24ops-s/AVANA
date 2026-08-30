@@ -31,21 +31,17 @@ export type CourseUpdateInput = {
 };
 
 export const CANONICAL_COURSES = [
-  "فارماکولوژی ۱",
-  "فارماکولوژی ۲",
-  "فارماکولوژی ۳",
-  "دارودرمانی ۱",
-  "دارودرمانی ۲",
-  "دارودرمانی ۳",
-  "دارودرمانی ۴",
-  "گیاهان دارویی",
-  "فارماکوگنوزی ۱",
-  "فارماکوگنوزی ۲",
-  "میکروب‌شناسی",
-  "قارچ و انگل‌شناسی",
-  "ایمونولوژی",
-  "فیزیولوژی ۱",
-  "فیزیولوژی ۲",
+  "شیمی دارویی ۱",
+  "شیمی دارویی ۲",
+  "شیمی دارویی ۳",
+  "فارماسیوتیکس ۱",
+  "فارماسیوتیکس ۲",
+  "فارماسیوتیکس ۳",
+  "فارماسیوتیکس ۴",
+  "فارماسیوتیکس ۵",
+  "بافت شناسی",
+  "بیولوژی",
+  "سم شناسی",
 ] as const;
 
 export class CourseService {
@@ -185,6 +181,28 @@ export class CourseService {
   }
 
   /**
+   * List most popular courses in the system/organization scope.
+   * Returns up to `limit` (default: 8) courses ranked by real user adoption and learning signals.
+   * Excludes archived/deleted courses and maintains tenant isolation.
+   */
+  async listPopularCourses(
+    actor: Actor,
+    organizationId: OrganizationId,
+    limit = 8,
+  ): Promise<CourseRecord[]> {
+    const membership = await this.requireOrgMembership(actor, organizationId);
+    const scopedActor = { ...actor, role: membership.role as Actor["role"] };
+    const context: AuthContext = { organizationId };
+    this.policy.require("course:read", scopedActor, context);
+
+    return this.store.listPopular(
+      organizationId,
+      this.systemOrganizationId,
+      limit,
+    );
+  }
+
+  /**
    * Add a course to the user's enrolled / personal courses.
    */
   async addMyCourse(
@@ -291,15 +309,33 @@ export class CourseService {
     const membership = await this.requireOrgMembership(actor, organizationId);
     const scopedActor = { ...actor, role: membership.role as Actor["role"] };
     const context: AuthContext = { organizationId, courseId };
-    this.policy.require("course:update", scopedActor, context);
 
-    const course = await this.store.findByIdForUser(courseId, actor.userId);
+    const isOnlyExamDate =
+      input.examAt !== undefined &&
+      input.title === undefined &&
+      input.subject === undefined;
+
+    if (isOnlyExamDate) {
+      this.policy.require("course:read", scopedActor, context);
+    } else {
+      this.policy.require("course:update", scopedActor, context);
+    }
+
+    const course = await this.store.findByIdForUser(
+      courseId,
+      actor.userId,
+      this.systemOrganizationId,
+    );
     if (!course) {
       throw new DomainError("not_found", "Course not found");
     }
 
-    // Ensure the course belongs to the requesting organization (cross-tenant isolation)
-    if (course.organizationId !== organizationId) {
+    // Ensure the course belongs to the requesting organization or system organization (cross-tenant isolation)
+    if (
+      course.organizationId !== organizationId &&
+      (!this.systemOrganizationId ||
+        course.organizationId !== this.systemOrganizationId)
+    ) {
       throw new DomainError("not_found", "Course not found");
     }
 
@@ -369,13 +405,21 @@ export class CourseService {
     const context: AuthContext = { organizationId, courseId };
     this.policy.require("course:archive", scopedActor, context);
 
-    const course = await this.store.findByIdForUser(courseId, actor.userId);
+    const course = await this.store.findByIdForUser(
+      courseId,
+      actor.userId,
+      this.systemOrganizationId,
+    );
     if (!course) {
       throw new DomainError("not_found", "Course not found");
     }
 
-    // Ensure the course belongs to the requesting organization (cross-tenant isolation)
-    if (course.organizationId !== organizationId) {
+    // Ensure the course belongs to the requesting organization or system organization (cross-tenant isolation)
+    if (
+      course.organizationId !== organizationId &&
+      (!this.systemOrganizationId ||
+        course.organizationId !== this.systemOrganizationId)
+    ) {
       throw new DomainError("not_found", "Course not found");
     }
 

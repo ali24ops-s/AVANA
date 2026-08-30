@@ -363,7 +363,7 @@ export class StudyService {
     return allFlashcards
       .filter((f) => {
         if (courseSet && !courseSet.has(f.courseId)) return false;
-        if (docSet && !docSet.has(f.documentId)) return false;
+        if (docSet && (!f.documentId || !docSet.has(f.documentId))) return false;
         const schedule = scheduleMap.get(f.id);
         const rawDueAt = schedule ? schedule.dueAt : f.dueAt;
         if (!rawDueAt) return false;
@@ -422,7 +422,7 @@ export class StudyService {
       filtered = filtered.filter((f) => courseSet.has(f.courseId));
     }
     if (docSet) {
-      filtered = filtered.filter((f) => docSet.has(f.documentId));
+      filtered = filtered.filter((f) => Boolean(f.documentId && docSet.has(f.documentId)));
     }
 
     // Sorting heuristic for Exam Mode
@@ -497,7 +497,11 @@ export class StudyService {
       };
     });
 
-    let filtered = mapped.filter((f) => (!courseSet || courseSet.has(f.courseId)) && (!docSet || docSet.has(f.documentId)));
+    let filtered = mapped.filter(
+      (f) =>
+        (!courseSet || courseSet.has(f.courseId)) &&
+        (!docSet || Boolean(f.documentId && docSet.has(f.documentId))),
+    );
 
     if (mode === "weak" || mode === "forgotten") {
       filtered = filtered.filter((f) => Number(f.easeFactor) < 2.3 || f.intervalDays === 0);
@@ -612,7 +616,7 @@ export class StudyService {
         const docSet = resolvedDocIds && resolvedDocIds.length > 0 ? new Set(resolvedDocIds) : null;
         cards = allOrgCards.filter((f) => {
           if (courseSet && !courseSet.has(f.courseId)) return false;
-          if (docSet && !docSet.has(f.documentId)) return false;
+          if (docSet && (!f.documentId || !docSet.has(f.documentId))) return false;
           return !f.deletedAt;
         });
       }

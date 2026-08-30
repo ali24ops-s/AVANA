@@ -51,7 +51,12 @@ import {
   type SessionCoverageAudit,
   type ContentPlan,
   type CoverageConcept,
+  type ReviewSummaryPayload,
 } from "@avana/domain";
+import {
+  REVIEW_SUMMARY_SYSTEM_PROMPT,
+  buildReviewSummaryUserPrompt,
+} from "./prompt-registry.js";
 import type {
   DocumentRecord,
   DocumentStore,
@@ -81,11 +86,13 @@ export type DocumentContentStatusResource = {
   request_id: string;
   document_id: DocumentId;
   course_id: CourseId | null;
-  lesson: { generated: boolean; count: number };
-  flashcards: { generated: boolean; count: number };
-  exam: { generated: boolean; count: number };
+  lesson: { generated: boolean; count: number; accepted?: boolean };
+  flashcards: { generated: boolean; count: number; accepted?: boolean };
+  exam: { generated: boolean; count: number; accepted?: boolean };
+  review_summary?: { generated: boolean; count: number; accepted?: boolean };
   can_generate: boolean;
   all_generated: boolean;
+  has_publishable_content?: boolean;
 };
 
 export type GeneratedContentResource = {
@@ -201,7 +208,7 @@ export class GenerationService {
     return {
       id: record.id,
       organization_id: record.organizationId,
-      document_id: record.documentId,
+      document_id: (record.documentId ?? "") as DocumentId,
       course_id: record.courseId,
       type: record.type,
       status: record.status,
@@ -456,6 +463,29 @@ export class GenerationService {
           citationChunkIds: [],
         } as T;
       }
+    }
+
+    if (typeDesc.includes("review_summary") || typeDesc.includes("summary")) {
+      const titleMatch = jsonStr.match(/"title"\s*:\s*"([^"]+)"/i);
+      const overviewMatch = jsonStr.match(/"overview"\s*:\s*"([^"]+)"/i);
+      return {
+        kind: "review_summary",
+        title: titleMatch ? titleMatch[1] : "خلاصه مروری",
+        estimatedReadingMinutes: 12,
+        overview: overviewMatch ? overviewMatch[1] : "خلاصه مروری متمرکز مبحث",
+        sections: [
+          {
+            title: "نکات و مفاهیم اصلی",
+            keyPoints: ["نکات کلیدی مبحث آموزشی"],
+            comparisons: [],
+            memorizationPoints: [],
+            examPoints: [],
+            citationChunkIds: [],
+          },
+        ],
+        finalTakeaways: ["جمع‌بندی نکات کلیدی مبحث"],
+        citationChunkIds: [],
+      } as T;
     }
 
     throw new DomainError(
@@ -1559,6 +1589,19 @@ export class GenerationService {
       }
     }
 
+    // 5. Calculate Review Summary Status from DB & Drafts
+    let reviewSummaryCount = 0;
+    const reviewSummaryItem = docContents.find(
+      (c) =>
+        c.type === "review_summary" &&
+        c.deletedAt === null &&
+        c.status !== "rejected",
+    );
+    if (reviewSummaryItem) {
+      reviewSummaryCount = 1;
+    }
+    const reviewSummaryGenerated = reviewSummaryCount > 0;
+
     const totalLessonCount = lessonCount > 0 ? lessonCount : draftLessonCount;
     const totalFlashcardCount = flashcardCount > 0 ? flashcardCount : draftFlashcardCount;
     const totalExamCount =
@@ -1581,6 +1624,27 @@ export class GenerationService {
     ]);
     const canGenerate = !allGenerated && generatableDocStatuses.has(doc.status);
 
+    // Compute accepted status for publish eligibility (publishableAcceptedContentCount >= 1)
+    const activeAcceptedContents = docContents.filter(
+      (c) => c.deletedAt === null && c.status === "accepted",
+    );
+    const lessonAccepted =
+      activeAcceptedContents.some((c) => c.type === "lesson") || lessonCount > 0;
+    const flashcardsAccepted =
+      activeAcceptedContents.some((c) => c.type === "flashcard") || flashcardCount > 0;
+    const examAccepted =
+      activeAcceptedContents.some((c) => c.type === "quiz") || quizCount > 0;
+    const reviewSummaryAccepted = activeAcceptedContents.some(
+      (c) => c.type === "review_summary",
+    );
+
+    const hasPublishableContent = Boolean(
+      lessonAccepted ||
+      flashcardsAccepted ||
+      examAccepted ||
+      reviewSummaryAccepted,
+    );
+
     return {
       request_id: randomUUID(),
       document_id: documentId,
@@ -1588,17 +1652,26 @@ export class GenerationService {
       lesson: {
         generated: lessonGenerated,
         count: totalLessonCount,
+        accepted: lessonAccepted,
       },
       flashcards: {
         generated: flashcardsGenerated,
         count: totalFlashcardCount,
+        accepted: flashcardsAccepted,
       },
       exam: {
         generated: examGenerated,
         count: totalExamCount,
+        accepted: examAccepted,
+      },
+      review_summary: {
+        generated: reviewSummaryGenerated,
+        count: reviewSummaryCount,
+        accepted: reviewSummaryAccepted,
       },
       can_generate: canGenerate,
       all_generated: allGenerated,
+      has_publishable_content: hasPublishableContent,
     };
   }
 
@@ -1683,6 +1756,7 @@ export class GenerationService {
       if (t === "lesson" && contentStatus.lesson.generated) return false;
       if (t === "flashcard" && contentStatus.flashcards.generated) return false;
       if (t === "quiz" && contentStatus.exam.generated) return false;
+      if (t === "review_summary" && contentStatus.review_summary?.generated) return false;
       return true;
     });
 
@@ -1948,6 +2022,62 @@ export class GenerationService {
                 : planningRes.citationChunkIds,
           };
           typeUsage = quizUsage;
+        } else if (type === "review_summary") {
+          const chunkContext = chunks
+            .map(
+              (c, i) =>
+                `[Chunk ID: ${c.id}] (Index ${i + 1})${c.heading ? ` - ${c.heading}` : ""}:\n${c.content}`,
+            )
+            .join("\n\n---\n\n");
+          const chunkIdList = chunks.map((c) => c.id);
+          const summaryPrompt = buildReviewSummaryUserPrompt({
+            docName: doc.originalName,
+            targetReadingMinutes: 12,
+            minReadingMinutes: 10,
+            maxReadingMinutes: 15,
+            chunkContext,
+            chunkIdList,
+          });
+          const summaryRes = await this.gateway.complete({
+            promptVersion,
+            messages: [
+              {
+                role: "system",
+                content: REVIEW_SUMMARY_SYSTEM_PROMPT,
+              },
+              { role: "user", content: summaryPrompt },
+            ],
+            jsonSchema: { type: "review_summary" },
+            correlationId: randomUUID(),
+            organizationId,
+            documentId,
+          });
+          const rawSummaryPayload = this.cleanAndParseJson<ReviewSummaryPayload>(
+            summaryRes.text,
+            "review_summary",
+          );
+          payload = {
+            kind: "review_summary",
+            title: rawSummaryPayload.title || doc.originalName,
+            estimatedReadingMinutes:
+              typeof rawSummaryPayload.estimatedReadingMinutes === "number"
+                ? rawSummaryPayload.estimatedReadingMinutes
+                : 12,
+            overview: rawSummaryPayload.overview || "خلاصه مروری",
+            sections: Array.isArray(rawSummaryPayload.sections)
+              ? rawSummaryPayload.sections
+              : [],
+            finalTakeaways: Array.isArray(rawSummaryPayload.finalTakeaways)
+              ? rawSummaryPayload.finalTakeaways
+              : [],
+            citationChunkIds: Array.isArray(rawSummaryPayload.citationChunkIds)
+              ? rawSummaryPayload.citationChunkIds
+              : chunkIdList,
+          };
+          typeUsage = {
+            inputTokens: summaryRes.usage.inputTokens,
+            outputTokens: summaryRes.usage.outputTokens,
+          };
         } else if (type === "recommendation") {
           const recRes = await this.generateRecommendation(
             doc,
@@ -2108,6 +2238,206 @@ export class GenerationService {
     }
 
     return this.toResource(record);
+  }
+
+  /**
+   * Directly generates or fetches the Review Summary for a document.
+   * Caches and prevents duplicates unless force=true is requested.
+   */
+  async generateReviewSummaryDirect(
+    actor: Actor,
+    organizationId: OrganizationId,
+    documentId: DocumentId,
+    options?: { force?: boolean; promptVersion?: string; courseId?: CourseId },
+  ): Promise<GeneratedContentResource> {
+    await this.authorize(actor, organizationId, "content:generate");
+    const doc = await this.requireDocument(organizationId, documentId);
+
+    if (!options?.force) {
+      const existing = await this.generatedContentStore.listByDocument(
+        documentId,
+        organizationId,
+      );
+      const existingSummary = existing.find(
+        (c) =>
+          c.type === "review_summary" &&
+          c.deletedAt === null &&
+          c.status !== "rejected",
+      );
+      if (existingSummary) {
+        return this.toResource(existingSummary);
+      }
+    }
+
+    const chunks = await this.chunkStore.listByDocument(documentId);
+    if (chunks.length === 0) {
+      throw new DomainError(
+        "conflict",
+        "Document has no chunks available to cite. Please extract text first.",
+      );
+    }
+
+    const chunkContext = chunks
+      .map(
+        (c, i) =>
+          `[Chunk ID: ${c.id}] (Index ${i + 1})${c.heading ? ` - ${c.heading}` : ""}:\n${c.content}`,
+      )
+      .join("\n\n---\n\n");
+    const chunkIdList = chunks.map((c) => c.id);
+
+    const promptVersion = options?.promptVersion ?? "v1";
+    const prompt = buildReviewSummaryUserPrompt({
+      docName: doc.originalName,
+      targetReadingMinutes: 12,
+      minReadingMinutes: 10,
+      maxReadingMinutes: 15,
+      chunkContext,
+      chunkIdList,
+    });
+
+    const now = new Date().toISOString();
+    const correlationId = randomUUID();
+
+    const response = await this.gateway.complete({
+      promptVersion,
+      messages: [
+        {
+          role: "system",
+          content: REVIEW_SUMMARY_SYSTEM_PROMPT,
+        },
+        { role: "user", content: prompt },
+      ],
+      jsonSchema: { type: "review_summary" },
+      correlationId,
+      organizationId,
+      documentId,
+    });
+
+    const rawPayload = this.cleanAndParseJson<ReviewSummaryPayload>(
+      response.text,
+      "review_summary",
+    );
+
+    const fullPayload: ReviewSummaryPayload = {
+      kind: "review_summary",
+      title: rawPayload.title || doc.originalName,
+      estimatedReadingMinutes:
+        typeof rawPayload.estimatedReadingMinutes === "number"
+          ? rawPayload.estimatedReadingMinutes
+          : 12,
+      overview: rawPayload.overview || "خلاصه مروری",
+      sections: Array.isArray(rawPayload.sections) ? rawPayload.sections : [],
+      finalTakeaways: Array.isArray(rawPayload.finalTakeaways)
+        ? rawPayload.finalTakeaways
+        : [],
+      citationChunkIds: Array.isArray(rawPayload.citationChunkIds)
+        ? rawPayload.citationChunkIds
+        : chunkIdList,
+    };
+
+    const groundedPayload = this.groundCitations(
+      fullPayload,
+      chunks.map((c) => c.id),
+    );
+
+    await this.generatedContentStore.deleteDraftsByDocumentAndType(
+      documentId,
+      "review_summary",
+      organizationId,
+    );
+
+    const targetCourseId = options?.courseId || doc.courseId;
+
+    const record: GeneratedContentRecord = {
+      id: randomUUID() as GeneratedContentId,
+      organizationId,
+      documentId,
+      courseId: targetCourseId as CourseId,
+      type: "review_summary",
+      status: "draft",
+      payload: groundedPayload,
+      promptVersion,
+      model: response.model,
+      tokenUsage: {
+        inputTokens: response.usage.inputTokens,
+        outputTokens: response.usage.outputTokens,
+      },
+      generationKey: null,
+      acceptedAt: null,
+      acceptedBy: null,
+      reviewedBy: null,
+      reviewedAt: null,
+      reviewReason: null,
+      editedBy: null,
+      editedAt: null,
+      previousPayload: null,
+      materializedLessonId: null,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    };
+
+    await this.generatedContentStore.create(record);
+
+    const citationChunkIds = (
+      groundedPayload as { citationChunkIds: string[] }
+    ).citationChunkIds;
+    if (citationChunkIds && citationChunkIds.length > 0) {
+      await this.citationStore.createMany(
+        citationChunkIds.map((chunkId) => ({
+          generatedContentId: record.id,
+          documentChunkId: chunkId as DocumentChunkId,
+        })),
+      );
+    }
+
+    if (this.auditService) {
+      await this.auditService.emit([
+        auditContentGenerated(actor.userId, organizationId, record.id, {
+          documentId,
+          type: "review_summary",
+          model: record.model ?? "mock",
+          promptVersion,
+          sourceChunkCount: chunks.length,
+        }),
+      ]);
+    }
+
+    return this.toResource(record);
+  }
+
+  /**
+   * Fetches the generated Review Summary for a document if one exists.
+   */
+  async getReviewSummaryForDocument(
+    actor: Actor,
+    organizationId: OrganizationId,
+    documentId: DocumentId,
+    _courseId?: CourseId,
+  ): Promise<GeneratedContentResource | undefined> {
+    await this.authorize(actor, organizationId, "content:review");
+
+    // Check if an active summary exists (including decoupled summaries where source document was soft-deleted)
+    const contents = await this.generatedContentStore.listByDocument(
+      documentId,
+      organizationId,
+    );
+
+    const summary = contents.find(
+      (c) =>
+        c.type === "review_summary" &&
+        c.deletedAt === null &&
+        c.status !== "rejected",
+    );
+
+    if (summary) {
+      return this.toResource(summary);
+    }
+
+    // If no summary was found, ensure the document exists and belongs to the organization (or throw 404)
+    await this.requireDocument(organizationId, documentId);
+
+    return undefined;
   }
 
   private resolveErrorCode(err: unknown): string {

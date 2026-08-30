@@ -439,4 +439,95 @@ export const generationRoutes: FastifyPluginAsync<
       };
     },
   );
+
+  // -----------------------------------------------------------------------
+  // GET /v1/organizations/:organizationId/courses/:courseId/documents/:documentId/review-summary
+  // GET /v1/organizations/:organizationId/documents/:documentId/review-summary
+  // -----------------------------------------------------------------------
+  const handleGetReviewSummary = async (request: unknown) => {
+    const req = request as {
+      params: {
+        organizationId: string;
+        courseId?: string;
+        documentId: string;
+      };
+      id: string;
+    };
+    const actor = getActor(req);
+    const organizationId = getOrganizationId(req.params);
+    const documentId = getDocumentId(req.params);
+    const courseId = req.params.courseId ? getCourseId(req.params) : undefined;
+
+    const content = await service.getReviewSummaryForDocument(
+      actor,
+      organizationId,
+      documentId,
+      courseId,
+    );
+
+    return {
+      request_id: req.id,
+      content: content ?? null,
+    };
+  };
+
+  app.get(
+    "/v1/organizations/:organizationId/courses/:courseId/documents/:documentId/review-summary",
+    { preHandler: [requireAuth] },
+    handleGetReviewSummary,
+  );
+
+  app.get(
+    "/v1/organizations/:organizationId/documents/:documentId/review-summary",
+    { preHandler: [requireAuth] },
+    handleGetReviewSummary,
+  );
+
+  // -----------------------------------------------------------------------
+  // POST /v1/organizations/:organizationId/courses/:courseId/documents/:documentId/review-summary
+  // POST /v1/organizations/:organizationId/documents/:documentId/review-summary
+  // -----------------------------------------------------------------------
+  const handlePostReviewSummary = async (request: unknown) => {
+    const req = request as {
+      params: {
+        organizationId: string;
+        courseId?: string;
+        documentId: string;
+      };
+      body?: { prompt_version?: string; force?: boolean };
+      id: string;
+    };
+    const actor = getActor(req);
+    const organizationId = getOrganizationId(req.params);
+    const documentId = getDocumentId(req.params);
+    const courseId = req.params.courseId ? getCourseId(req.params) : undefined;
+
+    const content = await service.generateReviewSummaryDirect(
+      actor,
+      organizationId,
+      documentId,
+      {
+        force: req.body?.force ?? false,
+        promptVersion: req.body?.prompt_version,
+        courseId,
+      },
+    );
+
+    return {
+      request_id: req.id,
+      content,
+    };
+  };
+
+  app.post(
+    "/v1/organizations/:organizationId/courses/:courseId/documents/:documentId/review-summary",
+    { preHandler: [requireAuth] },
+    handlePostReviewSummary,
+  );
+
+  app.post(
+    "/v1/organizations/:organizationId/documents/:documentId/review-summary",
+    { preHandler: [requireAuth] },
+    handlePostReviewSummary,
+  );
 };

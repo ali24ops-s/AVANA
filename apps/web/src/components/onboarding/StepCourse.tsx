@@ -9,21 +9,17 @@ interface StepCourseProps {
 }
 
 const courses = [
-  { name: "فارماکولوژی ۱", emoji: "💊", color: "from-blue-500 to-cyan-500" },
-  { name: "فارماکولوژی ۲", emoji: "🧪", color: "from-blue-500 to-indigo-500" },
-  { name: "فارماکولوژی ۳", emoji: "🧬", color: "from-indigo-500 to-purple-500" },
-  { name: "دارودرمانی ۱", emoji: "🩺", color: "from-teal-500 to-emerald-500" },
-  { name: "دارودرمانی ۲", emoji: "🏥", color: "from-emerald-500 to-green-500" },
-  { name: "دارودرمانی ۳", emoji: "💊", color: "from-cyan-500 to-teal-500" },
-  { name: "دارودرمانی ۴", emoji: "💉", color: "from-sky-500 to-blue-500" },
-  { name: "گیاهان دارویی", emoji: "🌿", color: "from-green-500 to-emerald-600" },
-  { name: "فارماکوگنوزی ۱", emoji: "🍃", color: "from-lime-500 to-green-500" },
-  { name: "فارماکوگنوزی ۲", emoji: "🌱", color: "from-emerald-500 to-teal-600" },
-  { name: "میکروب‌شناسی", emoji: "🦠", color: "from-purple-500 to-pink-500" },
-  { name: "قارچ و انگل‌شناسی", emoji: "🔬", color: "from-fuchsia-500 to-rose-500" },
-  { name: "ایمونولوژی", emoji: "🛡️", color: "from-amber-500 to-orange-500" },
-  { name: "فیزیولوژی ۱", emoji: "❤️", color: "from-red-500 to-orange-500" },
-  { name: "فیزیولوژی ۲", emoji: "🫀", color: "from-rose-500 to-red-600" },
+  { name: "شیمی دارویی ۱", emoji: "⚗️", color: "from-blue-500 to-cyan-500" },
+  { name: "شیمی دارویی ۲", emoji: "🧪", color: "from-blue-500 to-indigo-500" },
+  { name: "شیمی دارویی ۳", emoji: "🔬", color: "from-indigo-500 to-purple-500" },
+  { name: "فارماسیوتیکس ۱", emoji: "💊", color: "from-teal-500 to-emerald-500" },
+  { name: "فارماسیوتیکس ۲", emoji: "🧴", color: "from-emerald-500 to-green-500" },
+  { name: "فارماسیوتیکس ۳", emoji: "💉", color: "from-cyan-500 to-teal-500" },
+  { name: "فارماسیوتیکس ۴", emoji: "🩺", color: "from-sky-500 to-blue-500" },
+  { name: "فارماسیوتیکس ۵", emoji: "🏥", color: "from-cyan-600 to-blue-600" },
+  { name: "بافت شناسی", emoji: "🧬", color: "from-amber-500 to-orange-500" },
+  { name: "بیولوژی", emoji: "🧫", color: "from-green-500 to-emerald-600" },
+  { name: "سم شناسی", emoji: "☠️", color: "from-rose-500 to-red-600" },
 ];
 
 export function StepCourse({ data, onUpdate, onNext }: StepCourseProps) {
