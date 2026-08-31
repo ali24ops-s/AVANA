@@ -39,6 +39,7 @@ import {
   createModelGateway,
   InMemoryGenerationQueue,
   GenerationService,
+  type ModelGateway,
 } from "../modules/generation/index.js";
 import { defaultPolicy } from "@avana/domain";
 import { LocalStorageProvider } from "../modules/storage/index.js";
@@ -53,6 +54,10 @@ import { seedLocalDevData } from "../dev/seed.js";
 import type { V1RouteOptions } from "../routes/v1.js";
 import type { ApiConfig } from "../config.js";
 
+export interface ComposeLocalDevOptions {
+  gateway?: ModelGateway;
+}
+
 export interface LocalDevDependencies {
   v1Options: V1RouteOptions;
   auditService: AuditService;
@@ -66,6 +71,7 @@ export interface LocalDevDependencies {
  */
 export async function composeLocalDev(
   config: ApiConfig,
+  options?: ComposeLocalDevOptions,
 ): Promise<LocalDevDependencies> {
   // In-memory stores
   const sessionStore = new InMemorySessionStore();
@@ -109,22 +115,24 @@ export async function composeLocalDev(
     contentPackUsageStore,
   );
 
-  // Model gateway (Gemini default, or mock/cloudflare/groq if configured).
-  const gateway = createModelGateway({
-    provider: config.generation.aiProvider,
-    enableFallback: config.generation.enableFallback,
-    geminiApiKey: config.generation.geminiApiKey,
-    geminiApiKeys: config.generation.geminiApiKeys,
-    geminiModel: config.generation.geminiModel,
-    cloudflareAccountId: config.generation.cloudflareAccountId,
-    cloudflareApiToken: config.generation.cloudflareApiToken,
-    cloudflareAiModel: config.generation.cloudflareAiModel,
-    groqApiKey: config.generation.groqApiKey,
-    groqModel: config.generation.groqModel,
-    gapgptApiKey: config.generation.gapgptApiKey,
-    gapgptBaseUrl: config.generation.gapgptBaseUrl,
-    gapgptModel: config.generation.gapgptModel,
-  });
+  // Model gateway (Gemini default, or mock/cloudflare/groq if configured, or injected gateway).
+  const gateway =
+    options?.gateway ??
+    createModelGateway({
+      provider: config.generation.aiProvider,
+      enableFallback: config.generation.enableFallback,
+      geminiApiKey: config.generation.geminiApiKey,
+      geminiApiKeys: config.generation.geminiApiKeys,
+      geminiModel: config.generation.geminiModel,
+      cloudflareAccountId: config.generation.cloudflareAccountId,
+      cloudflareApiToken: config.generation.cloudflareApiToken,
+      cloudflareAiModel: config.generation.cloudflareAiModel,
+      groqApiKey: config.generation.groqApiKey,
+      groqModel: config.generation.groqModel,
+      gapgptApiKey: config.generation.gapgptApiKey,
+      gapgptBaseUrl: config.generation.gapgptBaseUrl,
+      gapgptModel: config.generation.gapgptModel,
+    });
 
   // Assistant gateway using Cloudflare if configured
   const assistantGateway =

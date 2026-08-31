@@ -12,7 +12,7 @@ import { DrizzleUserStore } from "../modules/identity/drizzle-stores.js";
 import { v1Routes } from "../routes/v1.js";
 import { Roles, type Role, type UserId, type OrganizationId } from "@avana/domain";
 import { createDbClient } from "@avana/database/client";
-import { users, auditLogs } from "@avana/database/schema";
+import { users, organizations, organizationMemberships, auditLogs } from "@avana/database/schema";
 import { sql, eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 
@@ -485,8 +485,9 @@ describe("PostgreSQL Integration: Drizzle Stores with users.global_role", () => 
 
     const adminId = randomUUID();
     const targetUserId = randomUUID();
+    const orgId = randomUUID();
 
-    // 1. Insert admin and target user in real DB
+    // 1. Insert admin, target user, organization, and membership in real DB
     await dbClient.db.insert(users).values({
       id: adminId,
       email: `db_admin_${Date.now()}@avana.test`,
@@ -499,6 +500,19 @@ describe("PostgreSQL Integration: Drizzle Stores with users.global_role", () => 
       email: `db_user_${Date.now()}@avana.test`,
       name: "DB User",
       globalRole: null,
+    });
+
+    await dbClient.db.insert(organizations).values({
+      id: orgId,
+      name: "Test DB Org",
+      slug: `test-db-org-${Date.now()}-${randomUUID().slice(0, 8)}`,
+    });
+
+    await dbClient.db.insert(organizationMemberships).values({
+      id: randomUUID(),
+      organizationId: orgId,
+      userId: targetUserId,
+      role: "student",
     });
 
     // Verify initial role is student fallback

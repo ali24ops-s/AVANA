@@ -238,8 +238,11 @@ describe("PR-13: Development seed data", () => {
       const devConfig = loadApiConfig();
       expect(devConfig.nodeEnv).toBe("test");
 
-      // composeLocalDev should work without throwing
-      const result = await composeLocalDev(devConfig);
+      // composeLocalDev should work without throwing by injecting MockModelGateway
+      const { MockModelGateway } = await import("../modules/generation/index.js");
+      const result = await composeLocalDev(devConfig, {
+        gateway: new MockModelGateway(),
+      });
       expect(result.v1Options).toBeDefined();
       expect(result.auditService).toBeDefined();
     });

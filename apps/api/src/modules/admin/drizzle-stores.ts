@@ -863,10 +863,20 @@ export class DrizzleAdminStore implements AdminStore {
       
       const membership = memberships[0];
       
-      await tx.update(organizationMemberships)
-        .set({ role: newRole, updatedAt: new Date() })
-        .where(eq(organizationMemberships.id, membership.id));
-        
+      if (newRole === "platform_admin") {
+        await tx.update(users)
+          .set({ globalRole: "platform_admin", updatedAt: new Date() })
+          .where(eq(users.id, targetUserId));
+      } else {
+        await tx.update(users)
+          .set({ globalRole: null, updatedAt: new Date() })
+          .where(eq(users.id, targetUserId));
+
+        await tx.update(organizationMemberships)
+          .set({ role: newRole, updatedAt: new Date() })
+          .where(eq(organizationMemberships.id, membership.id));
+      }
+
       await tx.insert(auditLogs).values({
         id: randomUUID(),
         actorId: adminId,
