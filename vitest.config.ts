@@ -5,6 +5,7 @@ export default defineConfig({
     projects: [
       "apps/web/vitest.config.ts",
       "apps/api/vitest.config.ts",
+      "packages/config/vitest.config.ts",
       "packages/domain/vitest.config.ts",
       "tools/eslint-boundaries/vitest.config.ts",
       "database/vitest.config.ts",

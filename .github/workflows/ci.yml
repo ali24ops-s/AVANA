@@ -47,7 +47,7 @@ jobs:
         run: npm ci
 
       - name: Build internal packages
-        run: npm run build --workspace=@avana/contracts --workspace=@avana/domain
+        run: npm run build:packages
 
       - name: Type check
         run: npm run type-check
