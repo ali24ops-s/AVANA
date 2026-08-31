@@ -1,7 +1,17 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createDbClient } from "@avana/database/client";
 import { sql } from "drizzle-orm";
-import type { Actor, OrganizationId, QuizQuestionId, UserId } from "@avana/domain";
+import { randomUUID } from "node:crypto";
+import * as schema from "@avana/database/schema";
+import type {
+  Actor,
+  CourseId,
+  DocumentId,
+  OrganizationId,
+  QuizId,
+  QuizQuestionId,
+  UserId,
+} from "@avana/domain";
 import {
   DrizzleQuizStore,
   DrizzleQuizQuestionStore,
@@ -74,18 +84,104 @@ describe("Live PostgreSQL Exam Flow & Choice Position Verification", () => {
       return;
     }
 
-    // 1. Find an active user and organization
-    const memRes = await client.db.execute(sql`SELECT user_id, organization_id FROM organization_memberships LIMIT 1;`);
-    const firstRow = memRes.rows[0] as { organization_id: string; user_id: string };
-    const orgId = firstRow.organization_id as OrganizationId;
-    const userId = firstRow.user_id as UserId;
+    const { db } = client;
+    const orgId = randomUUID() as OrganizationId;
+    const userId = randomUUID() as UserId;
+    const courseId = randomUUID() as CourseId;
+    const docId = randomUUID() as DocumentId;
+    const quizId = randomUUID() as QuizId;
+
+    // 1. Setup Organization, User, Membership, Course, Document, Quiz in DB
+    await db.insert(schema.organizations).values({
+      id: orgId,
+      name: "Live Exam Test Org",
+      slug: `live-exam-org-${orgId.slice(0, 8)}`,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    await db.insert(schema.users).values({
+      id: userId,
+      email: `exam-student-${userId.slice(0, 8)}@test.com`,
+      name: "Exam Test Student",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    await db.insert(schema.organizationMemberships).values({
+      id: randomUUID(),
+      organizationId: orgId,
+      userId: userId,
+      role: "student",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    await db.insert(schema.courses).values({
+      id: courseId,
+      organizationId: orgId,
+      name: "دوره فارماکولوژی آزمون",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    await db.insert(schema.documents).values({
+      id: docId,
+      organizationId: orgId,
+      courseId: courseId,
+      ownerUserId: userId,
+      originalName: "فارماکولوژی_قلب.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 4096,
+      sha256: `sha256_${docId.slice(0, 8)}`,
+      storageKey: `/storage/${docId}.pdf`,
+      status: "ready",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    await db.insert(schema.quizzes).values({
+      id: quizId,
+      organizationId: orgId,
+      courseId: courseId,
+      documentId: docId,
+      title: "آزمون فارماکولوژی قلب و عروق",
+      topic: "فارماکولوژی",
+      difficulty: "medium",
+      status: "published",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    // 2. Insert 10 Quiz Questions with multiple choices
+    const questionsData = Array.from({ length: 10 }, (_, i) => ({
+      id: randomUUID() as QuizQuestionId,
+      quizId: quizId,
+      question: `سوال شماره ${i + 1}: کدام گزینه درباره دسته دارویی ${i + 1} صحیح است؟`,
+      topic: "فارماکولوژی",
+      questionType: "multiple_choice",
+      choices: [
+        `گزینه صحیح شماره ${i + 1}`,
+        `گزینه غلط اول شماره ${i + 1}`,
+        `گزینه غلط دوم شماره ${i + 1}`,
+        `گزینه غلط سوم شماره ${i + 1}`,
+      ],
+      correctAnswer: `گزینه صحیح شماره ${i + 1}`,
+      explanation: `توضیح پاسخ صحیح سوال ${i + 1}`,
+      difficulty: "medium",
+      sortOrder: i + 1,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }));
+
+    await db.insert(schema.quizQuestions).values(questionsData);
 
     const actor: Actor = {
       userId,
       role: "student",
     };
 
-    // 2. Start Exam Attempt
+    // 3. Start Exam Attempt
     const attempt = await studyService.startConfiguredExamAttempt(actor, orgId, {
       questionCount: 10,
     });
@@ -95,7 +191,7 @@ describe("Live PostgreSQL Exam Flow & Choice Position Verification", () => {
     const dbQuestions = await quizQuestionStore.listByIds(qIds);
     const dbMap = new Map(dbQuestions.map((q) => [q.id, q]));
 
-    // 3. Verify choices order in API matches live DB exactly
+    // 4. Verify choices order in API matches live DB exactly
     const answerSubmissions: Array<{ questionId: string; answer: unknown }> = [];
     const initialChoicesSnapshot = attempt.questions.map((q) => ({
       id: q.id,
@@ -114,7 +210,7 @@ describe("Live PostgreSQL Exam Flow & Choice Position Verification", () => {
       });
     }
 
-    // 4. Simulate Page Refresh
+    // 5. Simulate Page Refresh
     const refreshed = await studyService.getExamAttempt(actor, orgId, attempt.attemptId);
     expect(refreshed.isCompleted).toBe(false);
     expect(refreshed.questions).toHaveLength(10);
@@ -122,7 +218,7 @@ describe("Live PostgreSQL Exam Flow & Choice Position Verification", () => {
       expect(refQ.choices).toEqual(initialChoicesSnapshot[idx].choices);
     });
 
-    // 5. Submit Answers
+    // 6. Submit Answers
     const submitResult = await studyService.submitConfiguredExamAttempt(
       actor,
       orgId,
@@ -134,7 +230,7 @@ describe("Live PostgreSQL Exam Flow & Choice Position Verification", () => {
     expect(submitResult.correct).toBe(10);
     expect(submitResult.total).toBe(10);
 
-    // 6. Review Completed Attempt
+    // 7. Review Completed Attempt
     const completed = await studyService.getExamAttempt(actor, orgId, attempt.attemptId);
     expect(completed.isCompleted).toBe(true);
     expect(completed.attempt.status).toBe("completed");
@@ -143,3 +239,4 @@ describe("Live PostgreSQL Exam Flow & Choice Position Verification", () => {
     });
   });
 });
+
