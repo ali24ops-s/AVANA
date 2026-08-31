@@ -56,6 +56,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
   // Stable API references across renders (useRef to avoid infinite loops)
   const authApiRef = useRef(
     createAuthApi(createApiClient({ baseUrl: getApiBaseUrl() })),
@@ -71,10 +79,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const fetchMe = useCallback(async () => {
     try {
       const response = await authApi.getMe();
+      if (!isMountedRef.current) return;
       setUser(response.user);
       setMemberships(response.memberships ?? []);
       setError(null);
     } catch (err) {
+      if (!isMountedRef.current) return;
       if (
         err instanceof ApiError &&
         (err.code === "unauthorized" || err.code === "not_found")
@@ -90,7 +100,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setError(err instanceof ApiError ? err.message : "Failed to load user");
       }
     } finally {
-      setIsLoading(false);
+      if (isMountedRef.current) {
+        setIsLoading(false);
+      }
     }
   }, [authApi]);
 

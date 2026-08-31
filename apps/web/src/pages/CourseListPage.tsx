@@ -26,7 +26,7 @@ import { createCourseApi } from "../lib/api/courses.js";
 import { createLearningApi } from "../lib/api/learning.js";
 import { CourseSelectionModal } from "../components/courses/CourseSelectionModal.js";
 import { CourseDeleteConfirmModal } from "../components/courses/CourseDeleteConfirmModal.js";
-import type { OrganizationResource, CourseResource } from "@avana/contracts";
+import type { OrganizationResource, CourseResource, CourseListResponse } from "@avana/contracts";
 
 /**
  * Hook to fetch the first organization for the current user.
@@ -111,7 +111,10 @@ export function CourseListPage() {
   const syncMutation = useMutation({
     mutationFn: (courseIds: string[]) =>
       courseApi.syncMyCourses(organization!.id, courseIds),
-    onSuccess: () => {
+    onSuccess: (data) => {
+      if (data && organization?.id) {
+        queryClient.setQueryData(["my-courses", organization.id], data);
+      }
       void queryClient.invalidateQueries({
         queryKey: ["my-courses", organization?.id],
       });
@@ -126,7 +129,19 @@ export function CourseListPage() {
   const deleteMutation = useMutation({
     mutationFn: (courseId: string) =>
       courseApi.removeMyCourse(organization!.id, courseId),
-    onSuccess: () => {
+    onSuccess: (_, courseId) => {
+      if (organization?.id) {
+        queryClient.setQueryData<CourseListResponse>(
+          ["my-courses", organization.id],
+          (old) => {
+            if (!old) return old;
+            return {
+              ...old,
+              items: (old.items || []).filter((c) => c.id !== courseId),
+            };
+          },
+        );
+      }
       void queryClient.invalidateQueries({
         queryKey: ["my-courses", organization?.id],
       });

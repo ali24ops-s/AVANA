@@ -109,7 +109,7 @@ describe("Route protection", () => {
     });
   });
 
-  it("allows unverified authenticated user to access protected routes (UNVERIFIED !== UNAUTHENTICATED)", async () => {
+  it("redirects unverified authenticated user to /verify-email", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue({
       ok: true,
       status: 200,
@@ -133,6 +133,12 @@ describe("Route protection", () => {
               path="/sign-in"
               element={<div data-testid="sign-in-page">Sign In Page</div>}
             />
+            <Route
+              path="/verify-email"
+              element={
+                <div data-testid="verify-email-page">Verify Email Page</div>
+              }
+            />
             <Route element={<ProtectedRoute />}>
               <Route
                 index
@@ -147,8 +153,9 @@ describe("Route protection", () => {
     );
 
     await waitFor(() => {
-      const elements = screen.getAllByTestId("protected-page");
+      const elements = screen.getAllByTestId("verify-email-page");
       expect(elements.length).toBeGreaterThanOrEqual(1);
     });
+    expect(screen.queryByTestId("protected-page")).toBeNull();
   });
 });
