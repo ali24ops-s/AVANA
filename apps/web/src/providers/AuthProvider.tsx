@@ -75,8 +75,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setMemberships(response.memberships ?? []);
       setError(null);
     } catch (err) {
-      if (err instanceof ApiError && err.code === "unauthorized") {
-        // Not signed in — this is expected, not an error
+      if (
+        err instanceof ApiError &&
+        (err.code === "unauthorized" || err.code === "not_found")
+      ) {
+        // Not signed in or running on static host without auth backend — this is expected, not an error
         setUser(null);
         setMemberships([]);
         setError(null);

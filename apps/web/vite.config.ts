@@ -13,11 +13,20 @@ const isDev = process.env.NODE_ENV !== "production";
 
 // GitHub Pages uses repository name as subpath: /<repo-name>/
 // Remote repository is 'AVANA', so default base for production is '/AVANA/' unless overridden by env
-const base =
+const rawBase =
   process.env.BASE_PATH ||
   process.env.VITE_BASE_PATH ||
   process.env.BASE_URL ||
   (isDev ? "/" : "/AVANA/");
+
+const base =
+  rawBase === "./"
+    ? "./"
+    : rawBase.startsWith("/")
+      ? rawBase.endsWith("/")
+        ? rawBase
+        : `${rawBase}/`
+      : `/${rawBase}/`;
 
 /**
  * Plugin to duplicate index.html to 404.html and create .nojekyll in production dist

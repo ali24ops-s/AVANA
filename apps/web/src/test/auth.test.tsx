@@ -122,6 +122,34 @@ describe("AuthProvider", () => {
     expect(lastElement("error").textContent).toBe("null");
   });
 
+  it("handles /v1/me 404 — unauthenticated on static host (not an error)", async () => {
+    const mockNotFoundResponse = {
+      ok: false,
+      status: 404,
+      json: () =>
+        Promise.resolve({
+          request_id: "test-req",
+          error: { code: "not_found", message: "The requested resource was not found." },
+        }),
+    } as Response;
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(mockNotFoundResponse);
+
+    renderWithProviders(
+      <AuthProvider>
+        <TestConsumer />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => {
+      expect(lastElement("loading").textContent).toBe("false");
+    });
+
+    expect(lastElement("authenticated").textContent).toBe("false");
+    expect(lastElement("user-email").textContent).toBe("null");
+    expect(lastElement("error").textContent).toBe("null");
+  });
+
   it("handles /v1/me network failure — sets error state", async () => {
     vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("Network error"));
 

@@ -41,7 +41,11 @@ jobs:
         run: npm ci
 
       - name: Build internal packages
-        run: npm run build --workspace=@avana/contracts --workspace=@avana/domain
+        run: npm run build:packages
+
+      - name: Setup Pages
+        id: pages
+        uses: actions/configure-pages@v5
 
       - name: Type check frontend
         run: npm run type-check --workspace=@avana/web
@@ -49,11 +53,8 @@ jobs:
       - name: Build frontend
         run: npm run build --workspace=@avana/web
         env:
-          # Automatically derive base path from repository name (e.g., /AVANA/)
-          BASE_PATH: /${{ github.event.repository.name }}/
-
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
+          # Automatically derive base path from Pages setup (e.g., /AVANA/)
+          BASE_PATH: ${{ steps.pages.outputs.base_path || '/AVANA/' }}
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
