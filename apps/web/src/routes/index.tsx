@@ -51,175 +51,191 @@ import { AdminProvidersPage } from "../pages/admin/AdminProvidersPage.js";
 import { AdminPromptsPage } from "../pages/admin/AdminPromptsPage.js";
 import { AdminSettingsPage } from "../pages/admin/AdminSettingsPage.js";
 
-export const router = createBrowserRouter([
-  // Public routes
-  {
-    path: "/",
-    element: <LandingPage />,
-  },
-  {
-    path: "/sign-in",
-    element: <SignInPage />,
-  },
-  {
-    path: "/login",
-    element: <SignInPage />,
-  },
-  {
-    path: "/register",
-    element: <RegisterPage />,
-  },
-  {
-    path: "/sign-up",
-    element: <RegisterPage />,
-  },
+const getRouterBasename = () => {
+  if (typeof window !== "undefined") {
+    // If running under /AVANA subpath (e.g. GitHub Pages https://<user>.github.io/AVANA/)
+    if (window.location.pathname.startsWith("/AVANA")) {
+      return "/AVANA";
+    }
+    // Otherwise on localhost, preview server, or custom domain, use root "/"
+    return "/";
+  }
+  const raw = import.meta.env.BASE_URL || "/";
+  return raw === "./" || raw === "." ? "/" : (raw.length > 1 ? raw.replace(/\/+$/, "") : raw);
+};
 
-  // Protected routes (require authentication)
+export const router = createBrowserRouter(
+  [
+    // Public routes
+    {
+      path: "/",
+      element: <LandingPage />,
+    },
+    {
+      path: "/sign-in",
+      element: <SignInPage />,
+    },
+    {
+      path: "/login",
+      element: <SignInPage />,
+    },
+    {
+      path: "/register",
+      element: <RegisterPage />,
+    },
+    {
+      path: "/sign-up",
+      element: <RegisterPage />,
+    },
+
+    // Protected routes (require authentication)
+    {
+      path: "/",
+      element: <ProtectedRoute />,
+      children: [
+        {
+          path: "verify-email",
+          element: <EmailVerificationPage />,
+        },
+        {
+          element: <AuthenticatedShell />,
+          children: [
+            {
+              path: "home",
+              element: <HomePage />,
+            },
+            {
+              path: "courses",
+              element: <CourseListPage />,
+            },
+            {
+              path: "courses/:courseId",
+              element: <LearningPage />,
+            },
+            {
+              path: "courses/:courseId/manage",
+              element: <RequireCourseManager />,
+              children: [
+                {
+                  index: true,
+                  element: <CourseContentPage />,
+                },
+              ],
+            },
+            {
+              path: "flashcards",
+              element: <FlashcardsPage />,
+            },
+            {
+              path: "flashcards/review",
+              element: <ReviewPage />,
+            },
+            {
+              path: "exams",
+              element: <ExamsPage />,
+            },
+            {
+              path: "exams/attempt/:attemptId",
+              element: <ExamsPage />,
+            },
+            {
+              path: "files",
+              element: <FilesPage />,
+            },
+            {
+              path: "library",
+              element: <LibraryPage />,
+            },
+            {
+              path: "*",
+              element: <Navigate to="/home" replace />,
+            },
+          ],
+        },
+        // Admin Panel Routes
+        {
+          path: "admin",
+          element: <AdminLayout />,
+          children: [
+            {
+              index: true,
+              element: <Navigate to="/admin/dashboard" replace />,
+            },
+            {
+              path: "dashboard",
+              element: <AdminDashboardPage />,
+            },
+            {
+              path: "analytics",
+              element: <AdminAnalyticsPage />,
+            },
+            {
+              path: "analytics/ai",
+              element: <AdminAiAnalyticsPage />,
+            },
+            {
+              path: "courses",
+              element: <AdminCoursesPage />,
+            },
+            {
+              path: "documents",
+              element: <AdminDocumentsPage />,
+            },
+            {
+              path: "documents/:id",
+              element: <AdminDocumentDetailPage />,
+            },
+            {
+              path: "content",
+              element: <AdminContentPage />,
+            },
+            {
+              path: "users",
+              element: <AdminUsersPage />,
+            },
+            {
+              path: "generation",
+              element: <AdminGenerationPage />,
+            },
+            {
+              path: "generation/providers",
+              element: <AdminProvidersPage />,
+            },
+            {
+              path: "generation/prompts",
+              element: <AdminPromptsPage />,
+            },
+            {
+              path: "generation/:id",
+              element: <AdminGenerationDetailPage />,
+            },
+            {
+              path: "system/health",
+              element: <AdminSystemHealthPage />,
+            },
+            {
+              path: "system/integrity",
+              element: <AdminIntegrityPage />,
+            },
+            {
+              path: "system/logs",
+              element: <AdminLogsPage />,
+            },
+            {
+              path: "system/audit",
+              element: <AdminAuditLogPage />,
+            },
+            {
+              path: "settings",
+              element: <AdminSettingsPage />,
+            },
+          ],
+        },
+      ],
+    },
+  ],
   {
-    path: "/",
-    element: <ProtectedRoute />,
-    children: [
-      {
-        path: "verify-email",
-        element: <EmailVerificationPage />,
-      },
-      {
-        element: <AuthenticatedShell />,
-        children: [
-          {
-            path: "home",
-            element: <HomePage />,
-          },
-          {
-            path: "courses",
-            element: <CourseListPage />,
-          },
-          {
-            path: "courses/:courseId",
-            element: <LearningPage />,
-          },
-          {
-            path: "courses/:courseId/manage",
-            element: <RequireCourseManager />,
-            children: [
-              {
-                index: true,
-                element: <CourseContentPage />,
-              },
-            ],
-          },
-          {
-            path: "flashcards",
-            element: <FlashcardsPage />,
-          },
-          {
-            path: "flashcards/review",
-            element: <ReviewPage />,
-          },
-          {
-            path: "exams",
-            element: <ExamsPage />,
-          },
-          {
-            path: "exams/attempt/:attemptId",
-            element: <ExamsPage />,
-          },
-          {
-            path: "files",
-            element: <FilesPage />,
-          },
-          {
-            path: "library",
-            element: <LibraryPage />,
-          },
-          {
-            path: "*",
-            element: <Navigate to="/home" replace />,
-          },
-        ],
-      },
-      // Admin Panel Routes
-      {
-        path: "admin",
-        element: <AdminLayout />,
-        children: [
-          {
-            index: true,
-            element: <Navigate to="/admin/dashboard" replace />,
-          },
-          {
-            path: "dashboard",
-            element: <AdminDashboardPage />,
-          },
-          {
-            path: "analytics",
-            element: <AdminAnalyticsPage />,
-          },
-          {
-            path: "analytics/ai",
-            element: <AdminAiAnalyticsPage />,
-          },
-          {
-            path: "courses",
-            element: <AdminCoursesPage />,
-          },
-          {
-            path: "documents",
-            element: <AdminDocumentsPage />,
-          },
-          {
-            path: "documents/:id",
-            element: <AdminDocumentDetailPage />,
-          },
-          {
-            path: "content",
-            element: <AdminContentPage />,
-          },
-          {
-            path: "users",
-            element: <AdminUsersPage />,
-          },
-          {
-            path: "generation",
-            element: <AdminGenerationPage />,
-          },
-          {
-            path: "generation/providers",
-            element: <AdminProvidersPage />,
-          },
-          {
-            path: "generation/prompts",
-            element: <AdminPromptsPage />,
-          },
-          {
-            path: "generation/:id",
-            element: <AdminGenerationDetailPage />,
-          },
-          {
-            path: "system/health",
-            element: <AdminSystemHealthPage />,
-          },
-          {
-            path: "system/integrity",
-            element: <AdminIntegrityPage />,
-          },
-          {
-            path: "system/logs",
-            element: <AdminLogsPage />,
-          },
-          {
-            path: "system/audit",
-            element: <AdminAuditLogPage />,
-          },
-          {
-            path: "settings",
-            element: <AdminSettingsPage />,
-          },
-        ],
-      },
-    ],
+    basename: getRouterBasename(),
   },
-], {
-  basename: import.meta.env.BASE_URL,
-});
+);
 

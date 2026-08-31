@@ -9,25 +9,6 @@ import { viteSingleFile } from "vite-plugin-singlefile";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const isDev = process.env.NODE_ENV !== "production";
-
-// GitHub Pages uses repository name as subpath: /<repo-name>/
-// Remote repository is 'AVANA', so default base for production is '/AVANA/' unless overridden by env
-const rawBase =
-  process.env.BASE_PATH ||
-  process.env.VITE_BASE_PATH ||
-  process.env.BASE_URL ||
-  (isDev ? "/" : "/AVANA/");
-
-const base =
-  rawBase === "./"
-    ? "./"
-    : rawBase.startsWith("/")
-      ? rawBase.endsWith("/")
-        ? rawBase
-        : `${rawBase}/`
-      : `/${rawBase}/`;
-
 /**
  * Plugin to duplicate index.html to 404.html and create .nojekyll in production dist
  * to guarantee SPA routing works on direct refresh in GitHub Pages without Jekyll processing.
@@ -53,36 +34,60 @@ function githubPagesSpaPlugin(): Plugin {
   };
 }
 
-// https://vite.dev/config/
-export default defineConfig({
-  base,
-  // viteSingleFile is only used in production build mode.
-  // In dev it conflicts with the proxy and HMR.
-  plugins: isDev
-    ? [react(), tailwindcss()]
-    : [react(), tailwindcss(), viteSingleFile(), githubPagesSpaPlugin()],
-  resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "src"),
+export default defineConfig(({ command, mode }) => {
+  const isBuild = command === "build";
+  const isDev = !isBuild && mode !== "production";
+
+  const rawBase =
+    process.env.BASE_PATH ||
+    process.env.VITE_BASE_PATH ||
+    process.env.BASE_URL ||
+    (isDev ? "/" : "/AVANA/");
+
+  const base =
+    rawBase === "./"
+      ? "./"
+      : rawBase.startsWith("/")
+        ? rawBase.endsWith("/")
+          ? rawBase
+          : `${rawBase}/`
+        : `/${rawBase}/`;
+
+  return {
+    base,
+    // viteSingleFile is only used in production build mode.
+    // In dev it conflicts with the proxy and HMR.
+    plugins: isDev
+      ? [react(), tailwindcss()]
+      : [
+          react(),
+          tailwindcss(),
+          viteSingleFile({ overrideConfig: { base } }),
+          githubPagesSpaPlugin(),
+        ],
+    resolve: {
+      alias: {
+        "@": path.resolve(__dirname, "src"),
+      },
     },
-  },
-  server: {
-    // Bind to 127.0.0.1 only — prevents IPv4/IPv6 address ambiguity where
-    // macOS can route 'localhost' to different sockets across sessions.
-    host: "127.0.0.1",
-    port: 5173,
-    // Fail immediately if port is taken by a stale process instead of
-    // silently picking 5174, 5175, etc. which confuse the browser.
-    strictPort: true,
-    proxy: {
-      "/v1": {
-        target: "http://127.0.0.1:3000",
-        changeOrigin: true,
-        // Preserve host so cookies/CORS work correctly
-        headers: {
-          "X-Forwarded-Host": "localhost:5173",
+    server: {
+      // Bind to 127.0.0.1 only — prevents IPv4/IPv6 address ambiguity where
+      // macOS can route 'localhost' to different sockets across sessions.
+      host: "127.0.0.1",
+      port: 5173,
+      // Fail immediately if port is taken by a stale process instead of
+      // silently picking 5174, 5175, etc. which confuse the browser.
+      strictPort: true,
+      proxy: {
+        "/v1": {
+          target: "http://127.0.0.1:3000",
+          changeOrigin: true,
+          // Preserve host so cookies/CORS work correctly
+          headers: {
+            "X-Forwarded-Host": "localhost:5173",
+          },
         },
       },
     },
-  },
+  };
 });
