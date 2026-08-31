@@ -3,11 +3,22 @@ import { api } from "../../lib/api/admin";
 import { Users, BookOpen, Layers, CheckCircle, Cpu, AlertTriangle } from "lucide-react";
 import { AdminLoadingState, AdminErrorState } from "../../components/admin/AdminUI";
 
+interface PeriodStats {
+  newUsers: number;
+  courses: number;
+  lessons: number;
+  flashcards: number;
+  quizzes: number;
+  aiJobs: number;
+  aiSuccess: number;
+  aiFailed: number;
+}
+
 interface AnalyticsData {
   total: { totalUsers: number; totalLessons: number };
-  today: any;
-  last7Days: any;
-  last30Days: any;
+  today: PeriodStats;
+  last7Days: PeriodStats;
+  last30Days: PeriodStats;
 }
 
 export function AdminAnalyticsPage() {
@@ -51,7 +62,17 @@ export function AdminAnalyticsPage() {
   );
 }
 
-function StatCard({ title, value, icon, color }: any) {
+function StatCard({
+  title,
+  value,
+  icon,
+  color,
+}: {
+  title: string;
+  value: string | number;
+  icon: React.ReactNode;
+  color: string;
+}) {
   return (
     <div className="glass-panel p-6 rounded-2xl border border-white/5 flex items-center gap-4">
       <div className={`p-3 rounded-xl bg-slate-800 ${color}`}>{icon}</div>
@@ -63,7 +84,7 @@ function StatCard({ title, value, icon, color }: any) {
   );
 }
 
-function PeriodCard({ title, stats }: any) {
+function PeriodCard({ title, stats }: { title: string; stats: PeriodStats }) {
   return (
     <div className="glass-panel p-6 rounded-2xl border border-white/5 space-y-4">
       <h2 className="text-lg font-semibold text-white border-b border-white/10 pb-2">{title}</h2>

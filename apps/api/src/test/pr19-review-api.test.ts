@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * PR6-6 Integration tests: AI generation review & acceptance API.
  *

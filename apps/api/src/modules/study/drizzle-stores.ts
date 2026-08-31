@@ -50,6 +50,8 @@ import type {
   FlashcardStudySessionRecord,
   FlashcardStudySessionCardRecord,
   FlashcardSessionStatus,
+  LessonId,
+  StudyActivityType,
 } from "@avana/domain";
 
 // ---------------------------------------------------------------------------
@@ -81,7 +83,7 @@ function toFlashcardRecord(row: {
     courseId: row.courseId as CourseId,
     documentId: (row.documentId as DocumentId) ?? null,
     generatedContentId: row.generatedContentId as GeneratedContentId | null,
-    lessonId: (row.lessonId as any) ?? null,
+    lessonId: (row.lessonId as LessonId) ?? null,
     question: row.question,
     answer: row.answer,
     explanation: row.explanation,
@@ -197,7 +199,7 @@ function toQuizQuestionRecord(row: {
     id: row.id as QuizQuestionId,
     quizId: row.quizId as QuizId,
     generatedContentId: row.generatedContentId as GeneratedContentId | null,
-    lessonId: (row.lessonId as any) ?? null,
+    lessonId: (row.lessonId as LessonId) ?? null,
     question: row.question,
     topic: row.topic ?? null,
     difficulty: row.difficulty ?? "medium",
@@ -256,7 +258,7 @@ function toStudySessionRecord(row: {
   return {
     id: row.id,
     userId: row.userId as UserId,
-    activityType: row.activityType as any,
+    activityType: row.activityType as StudyActivityType,
     courseId: (row.courseId as CourseId) ?? null,
     moduleId: row.moduleId ?? null,
     lessonId: row.lessonId ?? null,
@@ -728,7 +730,7 @@ export class DrizzleQuizQuestionStore implements QuizQuestionStore {
     topics?: string[];
     difficulty?: string;
   }): Promise<QuizQuestionRecord[]> {
-    let query = this.db
+    const query = this.db
       .select({ question: quizQuestions })
       .from(quizQuestions)
       .innerJoin(quizzes, eq(quizQuestions.quizId, quizzes.id))
@@ -781,7 +783,7 @@ export class DrizzleQuizQuestionStore implements QuizQuestionStore {
   async countByTopicAndDifficulty(
     organizationId?: OrganizationId,
   ): Promise<Array<{ topic: string; difficulty: string; questionCount: number }>> {
-    let query = this.db
+    const query = this.db
       .select({
         questionTopic: quizQuestions.topic,
         quizTopic: quizzes.topic,
@@ -1160,8 +1162,8 @@ function toFlashcardStudySessionCardRecord(row: {
     status: row.status as "unseen" | "reviewed",
     rating: row.rating ?? null,
     reactionMs: row.reactionMs ?? null,
-    reviewedAt: row.reviewedAt ? (row.reviewedAt instanceof Date ? row.reviewedAt.toISOString() : new Date(row.reviewedAt as any).toISOString()) : null,
-    createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : new Date(row.createdAt).toISOString(),
+    reviewedAt: row.reviewedAt ? (row.reviewedAt instanceof Date ? row.reviewedAt.toISOString() : new Date(String(row.reviewedAt)).toISOString()) : null,
+    createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : new Date(String(row.createdAt)).toISOString(),
   };
 }
 

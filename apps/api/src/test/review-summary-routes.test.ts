@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import { randomUUID } from "node:crypto";
 import { createApp } from "../server/createApp.js";
@@ -27,7 +26,7 @@ import { createModelGateway } from "../modules/generation/index.js";
 import { LocalStorageProvider } from "../modules/storage/index.js";
 import { InMemoryAuditStore } from "../observability/test/in-memory-stores.js";
 import { AuditService } from "../observability/audit-service.js";
-import type { OrganizationId, UserId } from "@avana/domain";
+import type { CourseId, DocumentChunkId, DocumentId, OrganizationId, UserId } from "@avana/domain";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -132,7 +131,7 @@ describe("Review Summary HTTP Routes", () => {
     const orgBody = JSON.parse(orgRes.body) as { organization: { id: string } };
     const organizationId = orgBody.organization.id as OrganizationId;
 
-    const courseId = "3a6d05f7-f61b-4470-9b72-6b56686bb09e" as any;
+    const courseId = "3a6d05f7-f61b-4470-9b72-6b56686bb09e" as CourseId;
     const now = new Date().toISOString();
     await courseStore.create({
       course: {
@@ -157,8 +156,8 @@ describe("Review Summary HTTP Routes", () => {
 
     // Seed document with chunks directly in stores
     const now = new Date().toISOString();
-    const docId = randomUUID() as any;
-    const chunkId = randomUUID() as any;
+    const docId = randomUUID() as DocumentId;
+    const chunkId = randomUUID() as DocumentChunkId;
     const ownerUserId = randomUUID() as UserId;
     await documentStore.create({
       id: docId,

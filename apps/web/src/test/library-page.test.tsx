@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, cleanup, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -521,7 +520,7 @@ describe("Public Content Library & Content Packs Web UI Suite", () => {
   // -------------------------------------------------------------------------
   describe("Add to Course Selection & Result Flows", () => {
     it("allows selecting target course and shows instant materialized breakdown on success", async () => {
-      vi.spyOn(global, "fetch").mockImplementation((url, init) => {
+      vi.spyOn(global, "fetch").mockImplementation((url, _init) => {
         const urlStr = String(url);
         if (urlStr.includes("/v1/organizations") && urlStr.includes("/courses/my")) {
           return Promise.resolve({
@@ -1144,7 +1143,7 @@ describe("Public Content Library & Content Packs Web UI Suite", () => {
     });
 
     it("7. Confirm button becomes disabled while request is pending", async () => {
-      let resolvePromise: (val: any) => void;
+      let resolvePromise: (val: Response) => void;
       const pendingPromise = new Promise((resolve) => {
         resolvePromise = resolve;
       });
@@ -1384,7 +1383,7 @@ describe("Public Content Library & Content Packs Web UI Suite", () => {
     });
 
     it("13. Escape/backdrop do NOT close Modal while publishing", async () => {
-      let resolvePromise: (val: any) => void;
+      let resolvePromise: (val: Response) => void;
       const pendingPromise = new Promise((resolve) => {
         resolvePromise = resolve;
       });
@@ -1649,7 +1648,7 @@ describe("Public Content Library & Content Packs Web UI Suite", () => {
     };
 
     // Helper to mock document status
-    const mockDocStatusFetch = (contentStatus: any) => {
+    const mockDocStatusFetch = (contentStatus: unknown) => {
       vi.spyOn(global, "fetch").mockImplementation((url) => {
         if (String(url).includes("/content-status")) {
           return Promise.resolve({

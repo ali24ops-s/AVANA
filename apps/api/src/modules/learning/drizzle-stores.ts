@@ -157,7 +157,7 @@ function toDocumentRecord(row: {
     retryCount: row.retryCount,
     qualityScore: row.qualityScore,
     qualityLevel: row.qualityLevel,
-    qualityReport: row.qualityReport,
+    qualityReport: (row.qualityReport as Record<string, unknown>) ?? null,
     qualityAnalyzedAt: row.qualityAnalyzedAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),

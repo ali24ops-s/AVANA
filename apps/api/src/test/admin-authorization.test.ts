@@ -28,6 +28,11 @@ describe("Admin Authorization & Role Resolution", () => {
     // Helper to create a user with a specific role in an organization
     async function createUserWithRole(email: string, role: Role) {
       const user = await userStore.createUserWithPassword({ email, passwordHash: "x" });
+      if (role === Roles.platform_admin) {
+        user.globalRole = "platform_admin";
+        user.role = "platform_admin";
+        userStore.insert({ ...user });
+      }
       const orgId = randomUUID() as OrganizationId;
       orgStore.addMembership({
         id: randomUUID(),
@@ -81,7 +86,7 @@ describe("Admin Authorization & Role Resolution", () => {
       "/v1/admin/settings/features",
     ];
 
-    const mutationEndpoints = [
+    const mutationEndpoints: Array<{ method: "PATCH" | "POST"; url: string; payload: Record<string, unknown> }> = [
       { method: "PATCH", url: "/v1/admin/users/user-123/role", payload: { role: "teacher" } },
       { method: "PATCH", url: "/v1/admin/courses/course-123", payload: { name: "test" } },
       { method: "POST", url: "/v1/admin/documents/doc-123/retry", payload: {} },
@@ -94,7 +99,7 @@ describe("Admin Authorization & Role Resolution", () => {
 
     for (const ep of mutationEndpoints) {
       const resp = await app.inject({
-        method: ep.method as any,
+        method: ep.method,
         url: ep.url,
         payload: ep.payload,
       });
@@ -131,7 +136,7 @@ describe("Admin Authorization & Role Resolution", () => {
 
     for (const ep of mutationEndpoints) {
       const resp = await app.inject({
-        method: ep.method as any,
+        method: ep.method,
         url: ep.url,
         payload: ep.payload,
         cookies: { avana_session: student.sessionToken },
@@ -166,22 +171,16 @@ describe("Admin Authorization & Role Resolution", () => {
     });
     expect(invalidCourseRes.statusCode).toBe(400);
 
-    // 6. Multi-membership resolution test:
-    // Case A: User is "student" in Org 1, and "platform_admin" in Org 2 -> effective role is platform_admin -> ALLOW (200)
+    // Case A: User is "student" in Org 1, and globalRole is "platform_admin" -> effective role is platform_admin -> ALLOW (200)
     const multiAdmin = await userStore.createUserWithPassword({ email: "multiadmin@test.com", passwordHash: "x" });
+    multiAdmin.globalRole = "platform_admin";
+    multiAdmin.role = "platform_admin";
+    userStore.insert({ ...multiAdmin });
     orgStore.addMembership({
       id: randomUUID(),
       organizationId: randomUUID() as OrganizationId,
       userId: multiAdmin.id as UserId,
       role: Roles.student,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    });
-    orgStore.addMembership({
-      id: randomUUID(),
-      organizationId: randomUUID() as OrganizationId,
-      userId: multiAdmin.id as UserId,
-      role: Roles.platform_admin,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });

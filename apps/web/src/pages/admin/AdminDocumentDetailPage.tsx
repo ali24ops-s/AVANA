@@ -40,8 +40,9 @@ export function AdminDocumentDetailPage() {
         api.get<DocumentDetail>(`/admin/documents/${id}`).then(setDoc);
       }
     },
-    onError: (err: any) => {
-      alert("خطا در تلاش مجدد: " + err.message);
+    onError: (err: unknown) => {
+      const msg = err instanceof Error ? err.message : "خطای ناشناخته";
+      alert("خطا در تلاش مجدد: " + msg);
     }
   });
 
@@ -55,8 +56,9 @@ export function AdminDocumentDetailPage() {
       setIsDeleteModalOpen(false);
       navigate("/admin/documents");
     },
-    onError: (err: any) => {
-      alert("خطا در حذف فایل: " + err.message);
+    onError: (err: unknown) => {
+      const msg = err instanceof Error ? err.message : "خطای ناشناخته";
+      alert("خطا در حذف فایل: " + msg);
     }
   });
 
@@ -76,8 +78,8 @@ export function AdminDocumentDetailPage() {
       try {
         const res = await api.get<DocumentDetail>(`/admin/documents/${id}`);
         setDoc(res);
-      } catch (err: any) {
-        setError(err.message || "خطا در دریافت جزئیات فایل");
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : "خطا در دریافت جزئیات فایل");
       } finally {
         setLoading(false);
       }

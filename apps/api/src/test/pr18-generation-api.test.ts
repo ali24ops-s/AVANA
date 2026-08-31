@@ -237,7 +237,7 @@ describe("PR6-5: AI generation API (async)", () => {
     try {
       await courseStore.create({
         course: {
-          id: courseId as any,
+          id: courseId,
           organizationId: orgId,
           name: "Test Course",
           subject: "Pharmacology",

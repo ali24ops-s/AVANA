@@ -26,6 +26,7 @@ import { MockModelGateway } from "../modules/generation/gateway/mock.js";
 import type {
   CourseId,
   LessonId,
+  ModuleId,
   OrganizationId,
   UserId,
 } from "@avana/domain";
@@ -112,7 +113,7 @@ describe("AI Study Assistant API Integration Tests (POST /v1/ai/ask)", () => {
     expect(registerRes.statusCode).toBe(200);
     const parsedBody = registerRes.json();
     userId = parsedBody.user.id;
-    sessionCookie = `avana_session=${extractSessionToken(registerRes as any)}`;
+    sessionCookie = `avana_session=${extractSessionToken(registerRes)}`;
 
     // Create organization & membership
     orgId = randomUUID() as OrganizationId;
@@ -152,7 +153,7 @@ describe("AI Study Assistant API Integration Tests (POST /v1/ai/ask)", () => {
       auditEvents: [],
     });
 
-    const moduleId = randomUUID() as any;
+    const moduleId = randomUUID() as ModuleId;
     const moduleRecord = await moduleStore.create({
       id: moduleId,
       courseId,
@@ -353,7 +354,7 @@ describe("AI Study Assistant API Integration Tests (POST /v1/ai/ask)", () => {
       auditEvents: [],
     });
 
-    const otherModId = randomUUID() as any;
+    const otherModId = randomUUID() as ModuleId;
     const otherMod = await moduleStore.create({
       id: otherModId,
       courseId: otherCourse.id,

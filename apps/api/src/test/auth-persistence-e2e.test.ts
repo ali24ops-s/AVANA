@@ -6,7 +6,7 @@ import { InMemorySessionStore, InMemoryUserStore } from "../modules/identity/tes
 import { InMemoryOrganizationStore } from "../modules/organizations/test/in-memory-stores.js";
 import type { FastifyInstance } from "fastify";
 
-function extractCookie(res: { headers: Record<string, any> }, name: string): string | undefined {
+function extractCookie(res: { headers: Record<string, string | string[] | number | undefined> }, name: string): string | undefined {
   const setCookie = res.headers["set-cookie"];
   if (!setCookie) return undefined;
   const cookies = Array.isArray(setCookie) ? setCookie : [setCookie];
@@ -167,8 +167,8 @@ describe("Authentication Persistence & Multi-Session Verification", () => {
   });
 
   it("Email normalization works across mixed case and whitespace", async () => {
-    const rawEmail = "  User_Normalized@Example.COM  ";
-    const normalizedEmail = "user_normalized@example.com";
+    const rawEmail = `  USER_NORM@example.com  `;
+    const normalizedEmail = "user_norm@example.com";
 
     const regRes = await app.inject({
       method: "POST",
@@ -186,7 +186,7 @@ describe("Authentication Persistence & Multi-Session Verification", () => {
       method: "POST",
       url: "/v1/auth/sign-in",
       payload: {
-        email: "USER_NORMALIZED@EXAMPLE.COM",
+        email: "USER_NORM@EXAMPLE.COM",
         password: testPassword,
       },
     });

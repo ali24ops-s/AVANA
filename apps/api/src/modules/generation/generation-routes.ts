@@ -392,6 +392,7 @@ export const generationRoutes: FastifyPluginAsync<
         courseId: string;
         documentId: string;
       };
+      const query = (request.query as { page?: string; limit?: string }) || {};
       const organizationId = getOrganizationId(params);
       const documentId = getDocumentId(params);
 
@@ -401,9 +402,34 @@ export const generationRoutes: FastifyPluginAsync<
         documentId,
       );
 
+      const sorted = [...contents].sort((a, b) => {
+        const timeA = new Date(a.created_at).getTime();
+        const timeB = new Date(b.created_at).getTime();
+        if (timeA !== timeB) return timeA - timeB;
+        return a.id.localeCompare(b.id);
+      });
+
+      const total = sorted.length;
+      const page = query.page ? Math.max(1, parseInt(query.page, 10)) : 1;
+      const limit = query.limit ? Math.max(1, parseInt(query.limit, 10)) : undefined;
+      const effectiveLimit = limit ?? total;
+      const totalPages = Math.ceil(total / (effectiveLimit || 1)) || 1;
+
+      const paginated = limit !== undefined || query.page !== undefined
+        ? sorted.slice((page - 1) * effectiveLimit, page * effectiveLimit)
+        : sorted;
+
       return {
         request_id: request.id,
-        contents,
+        contents: paginated,
+        pagination: {
+          page,
+          limit: limit ?? total,
+          total,
+          totalPages,
+          total_pages: totalPages,
+          next_cursor: null,
+        },
       };
     },
   );

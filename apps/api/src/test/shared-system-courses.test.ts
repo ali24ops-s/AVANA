@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import promisesFs from "node:fs/promises";
 import path from "node:path";
@@ -150,7 +149,7 @@ describe("Shared System Courses Integration Tests", () => {
         deletedAt: null,
       },
       membership: {
-        id: randomUUID() as any,
+        id: randomUUID(),
         organizationId: userOrgId,
         userId: user.id,
         role: "organization_admin",

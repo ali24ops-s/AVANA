@@ -196,7 +196,7 @@ describe("AuthProvider", () => {
       } as Response;
     });
 
-    let authContext: any;
+    let authContext: ReturnType<typeof useAuth>;
     function ConsumerWithSignIn() {
       authContext = useAuth();
       return <div data-testid="error">{authContext.error ?? "null"}</div>;

@@ -23,6 +23,7 @@ import {
 } from "../modules/identity/test/in-memory-stores.js";
 import { InMemoryOrganizationStore } from "../modules/organizations/test/in-memory-stores.js";
 import { InMemoryCourseStore } from "../modules/courses/test/in-memory-stores.js";
+import type { OrganizationId, UserId } from "@avana/domain";
 
 function makeTestConfig() {
   process.env.NODE_ENV = "test";
@@ -266,9 +267,9 @@ describe("My Courses (دوره‌های من) Integration Tests", () => {
     // Add user 2 to org
     const user2 = await signIn(app, "user2@example.com");
     orgStore.addMembership({
-      id: "membership-user2" as any,
-      organizationId: org.id as any,
-      userId: user2.userId as any,
+      id: "membership-user2",
+      organizationId: org.id as OrganizationId,
+      userId: user2.userId as UserId,
       role: "student",
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),

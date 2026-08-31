@@ -206,11 +206,14 @@ export function ReviewQueueList({
 
       {/* Pagination footer */}
       {(() => {
-        const totalPages =
-          (queueQuery.data?.pagination as any)?.total_pages ??
-          (queueQuery.data?.pagination as any)?.totalPages ??
-          1;
-        const total = (queueQuery.data?.pagination as any)?.total ?? items.length;
+        type PaginationShape = {
+          total_pages?: number;
+          totalPages?: number;
+          total?: number;
+        };
+        const pag = queueQuery.data?.pagination as PaginationShape | undefined;
+        const totalPages = pag?.total_pages ?? pag?.totalPages ?? 1;
+        const total = pag?.total ?? items.length;
         if (totalPages <= 1) return null;
         return (
           <div className="flex items-center justify-between pt-4 border-t border-[var(--color-border)]">

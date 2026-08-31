@@ -29,8 +29,9 @@ export function AdminGenerationDetailPage() {
         api.get<AdminGenerationDetail>(`/admin/generation/${id}`).then(setJob);
       }
     },
-    onError: (err: any) => {
-      alert("خطا در تلاش مجدد: " + err.message);
+    onError: (err: unknown) => {
+      const msg = err instanceof Error ? err.message : "خطای ناشناخته";
+      alert("خطا در تلاش مجدد: " + msg);
     }
   });
 
@@ -39,8 +40,8 @@ export function AdminGenerationDetailPage() {
       try {
         const res = await api.get<AdminGenerationDetail>(`/admin/generation/${id}`);
         setJob(res);
-      } catch (err: any) {
-        setError(err.message || "خطا در دریافت جزئیات Job");
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : "خطا در دریافت جزئیات Job");
       } finally {
         setLoading(false);
       }

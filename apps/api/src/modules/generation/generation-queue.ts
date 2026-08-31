@@ -147,10 +147,9 @@ export class InMemoryGenerationQueue implements GenerationQueue {
           });
         } catch (err: unknown) {
           const failedAt = new Date().toISOString();
-          const errorAny = err as any;
           const errorCode =
-            errorAny?.code && typeof errorAny.code === "string"
-              ? errorAny.code
+            err && typeof err === "object" && "code" in err && typeof (err as { code: unknown }).code === "string"
+              ? (err as { code: string }).code
               : "generation_failed";
           const errorMessage = err instanceof Error ? err.message : String(err);
           await this.jobStore.update({

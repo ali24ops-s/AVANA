@@ -356,10 +356,23 @@ export type DocumentResource = {
   retry_count: number;
   quality_score: number | null;
   quality_level: DocumentQualityLevel | null;
-  quality_report: any | null;
+  quality_report: QualityReport | null;
   quality_analyzed_at: string | null;
   created_at: string;
   updated_at: string;
+};
+
+export type QualityReport = {
+  score?: number;
+  level?: DocumentQualityLevel;
+  metrics?: {
+    extractionHealth?: number;
+    characterHealth?: number;
+    textDensity?: number;
+    pageCoverage?: number;
+    noiseHealth?: number;
+  };
+  warnings?: string[];
 };
 
 export type DocumentQualityLevel = "excellent" | "medium" | "poor";

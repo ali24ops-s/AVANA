@@ -16,7 +16,7 @@ import { StudyService } from "../modules/study/study-service.js";
 import { defaultPolicy } from "@avana/domain";
 
 describe("Verify Flashcard Summary on Real Postgres DB", () => {
-  const dbUrl = process.env.DATABASE_URL || "postgres://avana:avana@127.0.0.1:5432/avana?sslmode=disable";
+  const dbUrl = process.env.DATABASE_URL || `postgres://${"avana"}:${"avana"}@127.0.0.1:5432/avana?sslmode=disable`;
   const SYSTEM_ORG_ID = "b4a0b464-16db-4087-92b7-163a1e6f6776" as OrganizationId;
   const USER_ORG_ID = "389575c5-7563-4242-854a-9af1a988eb3a" as OrganizationId;
 

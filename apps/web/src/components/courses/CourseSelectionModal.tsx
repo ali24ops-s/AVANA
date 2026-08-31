@@ -61,8 +61,7 @@ export function CourseSelectionModal({
         document.body.style.overflow = "";
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  }, [open, selectedCourseIds]);
 
   if (!open) return null;
 

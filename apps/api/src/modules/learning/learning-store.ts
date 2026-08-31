@@ -97,7 +97,7 @@ export type DocumentRecord = {
   retryCount: number;
   qualityScore: number | null;
   qualityLevel: string | null;
-  qualityReport: any | null;
+  qualityReport: Record<string, unknown> | null;
   qualityAnalyzedAt: string | null;
   createdAt: string;
   updatedAt: string;

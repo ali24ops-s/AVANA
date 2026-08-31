@@ -111,7 +111,17 @@ export function AdminAiAnalyticsPage() {
   );
 }
 
-function StatCard({ title, value, icon, color }: any) {
+function StatCard({
+  title,
+  value,
+  icon,
+  color,
+}: {
+  title: string;
+  value: string | number;
+  icon: React.ReactNode;
+  color: string;
+}) {
   return (
     <div className="glass-panel p-6 rounded-2xl border border-white/5 flex items-center gap-4">
       <div className={`p-3 rounded-xl bg-slate-800 ${color}`}>{icon}</div>

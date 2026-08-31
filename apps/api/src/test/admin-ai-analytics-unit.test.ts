@@ -4,10 +4,11 @@
 
 import { describe, expect, it, vi } from "vitest";
 import { DrizzleAdminStore } from "../modules/admin/drizzle-stores.js";
+import type { DbClient } from "@avana/database/client";
 
 describe("DrizzleAdminStore getAiAnalytics - Unit & Edge Case Tests", () => {
   it("Scenario 1: Zero jobs and zero tokens produce expected empty analytics contract", async () => {
-    const mockDb: any = {
+    const mockDb = {
       select: vi.fn().mockReturnValue({
         from: vi.fn().mockReturnValue({
           where: vi.fn().mockImplementation(() => {
@@ -70,7 +71,7 @@ describe("DrizzleAdminStore getAiAnalytics - Unit & Edge Case Tests", () => {
       }),
     }));
 
-    const store = new DrizzleAdminStore(mockDb);
+    const store = new DrizzleAdminStore(mockDb as unknown as DbClient["db"]);
     const res = await store.getAiAnalytics();
 
     expect(res).toEqual({
@@ -94,7 +95,7 @@ describe("DrizzleAdminStore getAiAnalytics - Unit & Edge Case Tests", () => {
 
   it("Scenario 2: Correctly maps aggregated database rows with non-zero metrics", async () => {
     let callCount = 0;
-    const mockDb: any = {
+    const mockDb = {
       select: vi.fn().mockImplementation(() => ({
         from: vi.fn().mockImplementation(() => {
           callCount++;
@@ -137,7 +138,7 @@ describe("DrizzleAdminStore getAiAnalytics - Unit & Edge Case Tests", () => {
       })),
     };
 
-    const store = new DrizzleAdminStore(mockDb);
+    const store = new DrizzleAdminStore(mockDb as unknown as DbClient["db"]);
     const res = await store.getAiAnalytics();
 
     expect(res.overview.totalJobs).toBe(10);
@@ -162,7 +163,7 @@ describe("DrizzleAdminStore getAiAnalytics - Unit & Edge Case Tests", () => {
 
   it("Scenario 3: Safely handles null or undefined row returns from DB queries", async () => {
     let callCount = 0;
-    const mockDb: any = {
+    const mockDb = {
       select: vi.fn().mockImplementation(() => ({
         from: vi.fn().mockImplementation(() => {
           callCount++;
@@ -184,7 +185,7 @@ describe("DrizzleAdminStore getAiAnalytics - Unit & Edge Case Tests", () => {
       })),
     };
 
-    const store = new DrizzleAdminStore(mockDb);
+    const store = new DrizzleAdminStore(mockDb as unknown as DbClient["db"]);
     const res = await store.getAiAnalytics();
 
     expect(res.overview.totalJobs).toBe(0);

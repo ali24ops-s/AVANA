@@ -63,8 +63,10 @@ export class InMemoryModuleStore implements ModuleStore {
           m.documentId === module.documentId &&
           m.deletedAt === null
         ) {
-          const err = new Error(`duplicate key value violates unique constraint "idx_modules_course_document_unique"`);
-          (err as any).code = "23505";
+          const err = Object.assign(
+            new Error(`duplicate key value violates unique constraint "idx_modules_course_document_unique"`),
+            { code: "23505" },
+          );
           throw err;
         }
       }

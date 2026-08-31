@@ -1113,7 +1113,7 @@ export function getPromptRegistry(runtimeMetadata?: {
         "historyMessages",
       ],
       sourceFile: "apps/api/src/modules/study/assistant-service.ts",
-      sourceLocation: "StudyAssistantService.buildSystemPrompt",
+      sourceLocation: "StudyAssistantService / buildSystemPrompt",
       status: "active",
     },
     {
@@ -1129,7 +1129,7 @@ export function getPromptRegistry(runtimeMetadata?: {
         "پیام کاربر (userMessage) به همراه تاریخچه مکالمه اخیر (historyMessages)",
       variables: ["userMessage", "historyMessages"],
       sourceFile: "apps/api/src/modules/study/assistant-service.ts",
-      sourceLocation: "StudyAssistantService.buildSystemPrompt",
+      sourceLocation: "StudyAssistantService / buildSystemPrompt",
       status: "active",
     },
   ];

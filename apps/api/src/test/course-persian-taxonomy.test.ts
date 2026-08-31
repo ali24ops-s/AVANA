@@ -1,6 +1,14 @@
-// @ts-nocheck
 import { describe, it, expect, beforeEach } from "vitest";
-import type { Actor, CourseId, OrganizationId } from "@avana/domain";
+import type {
+  Actor,
+  CourseId,
+  DocumentId,
+  FlashcardId,
+  ModuleId,
+  OrganizationId,
+  QuizId,
+  UserId,
+} from "@avana/domain";
 import { CANONICAL_COURSES, CourseService } from "../modules/courses/course-service.js";
 import { InMemoryCourseStore } from "../modules/courses/test/in-memory-stores.js";
 import { seedLocalDevData } from "../dev/seed.js";
@@ -138,7 +146,7 @@ describe("Persian Educational Courses Standardization Tests", () => {
     });
 
     await moduleStore.create({
-      id: moduleId as any,
+      id: moduleId as ModuleId,
       courseId,
       documentId: null,
       title: "ADME Basics",
@@ -167,10 +175,10 @@ describe("Persian Educational Courses Standardization Tests", () => {
     const orgId = "org-1" as OrganizationId;
 
     await flashcardStore.create({
-      id: "fc-1" as any,
+      id: "fc-1" as FlashcardId,
       organizationId: orgId,
       courseId,
-      documentId: null as any,
+      documentId: null,
       generatedContentId: null,
       lessonId: null,
       question: "Digoxin mechanism",
@@ -196,10 +204,10 @@ describe("Persian Educational Courses Standardization Tests", () => {
     const orgId = "org-1" as OrganizationId;
 
     await quizStore.create({
-      id: "quiz-1" as any,
+      id: "quiz-1" as QuizId,
       organizationId: orgId,
       courseId,
-      documentId: null as any,
+      documentId: null,
       title: "Pharmacology Quiz 1",
       topic: "Pharmacodynamics",
       difficulty: "easy",
@@ -237,10 +245,10 @@ describe("Persian Educational Courses Standardization Tests", () => {
     const orgId = "org-1" as OrganizationId;
 
     await documentStore.create({
-      id: "doc-1" as any,
+      id: "doc-1" as DocumentId,
       organizationId: orgId,
       courseId,
-      ownerUserId: "user-1" as any,
+      ownerUserId: "user-1" as UserId,
       originalName: "digoxin.pdf",
       mimeType: "application/pdf",
       sizeBytes: 1024,

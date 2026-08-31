@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, it, expect, beforeEach } from "vitest";
 import { randomUUID } from "crypto";
 import { ReviewService } from "../modules/generation/review-service.js";
@@ -6,21 +5,38 @@ import {
   InMemoryModuleStore,
   InMemoryLessonStore,
   InMemoryDocumentStore,
+  InMemoryDocumentChunkStore,
 } from "../modules/learning/test/in-memory-stores.js";
-import { InMemoryGeneratedContentStore } from "../modules/generation/test/in-memory-stores.js";
-import { InMemoryQuizStore, InMemoryQuizQuestionStore, InMemoryFlashcardStore } from "../modules/study/test/in-memory-stores.js";
-import type { CourseId, DocumentId, OrganizationId } from "@avana/domain";
+import {
+  InMemoryGeneratedContentStore,
+  InMemoryGeneratedContentCitationStore,
+} from "../modules/generation/test/in-memory-stores.js";
+import {
+  InMemoryQuizStore,
+  InMemoryQuizQuestionStore,
+  InMemoryFlashcardStore,
+} from "../modules/study/test/in-memory-stores.js";
+import type {
+  Actor,
+  CourseId,
+  DocumentId,
+  GeneratedContentId,
+  GeneratedContentPayload,
+  OrganizationId,
+  UserId,
+} from "@avana/domain";
+import { RoleBasedPolicy } from "@avana/domain";
 import type { GeneratedContentRecord } from "../modules/generation/generation-store.js";
 import type { DocumentRecord } from "../modules/learning/learning-store.js";
-// @ts-ignore
-import { repairChapter39Data } from "../../../../scripts/repair-ch39-data.mjs";
+import type { GenerationQueueService } from "../modules/generation/generation-queue.js";
+import type { AuditService } from "../observability/audit-service.js";
 
 function makeDoc(id: DocumentId, orgId: OrganizationId, courseId: CourseId, originalName: string): DocumentRecord {
   return {
     id,
     organizationId: orgId,
     courseId,
-    ownerUserId: "user-1" as any,
+    ownerUserId: "user-1" as UserId,
     originalName,
     mimeType: "application/pdf",
     sizeBytes: 1000,
@@ -58,22 +74,25 @@ describe("Materialization & Single Source of Truth Taxonomy Architecture Tests",
     quizQuestionStore = new InMemoryQuizQuestionStore();
     flashcardStore = new InMemoryFlashcardStore();
 
-    const policyMock = { require: () => {} } as any;
-    const auditServiceMock = { emit: async () => {} } as any;
+    const policy = new RoleBasedPolicy();
+    const auditServiceMock = { emit: async () => {} } as unknown as AuditService;
+    const dummyQueue = { enqueueGenerationJob: async () => ({ generationJobId: "job-1" }) } as unknown as GenerationQueueService;
+    const citationStore = new InMemoryGeneratedContentCitationStore();
+    const chunkStore = new InMemoryDocumentChunkStore();
 
     reviewService = new ReviewService(
-      generatedContentStore as any,
-      {} as any,
-      documentStore as any,
-      {} as any,
-      moduleStore as any,
-      lessonStore as any,
-      policyMock,
-      {} as any,
+      generatedContentStore,
+      citationStore,
+      documentStore,
+      chunkStore,
+      moduleStore,
+      lessonStore,
+      policy,
+      dummyQueue,
       auditServiceMock,
-      flashcardStore as any,
-      quizStore as any,
-      quizQuestionStore as any,
+      flashcardStore,
+      quizStore,
+      quizQuestionStore,
     );
   });
 
@@ -82,7 +101,7 @@ describe("Materialization & Single Source of Truth Taxonomy Architecture Tests",
     documentStore.insert(makeDoc(docId, orgId, courseId, "40.pdf"));
 
     const lessonRecord: GeneratedContentRecord = {
-      id: randomUUID() as any,
+      id: randomUUID() as GeneratedContentId,
       organizationId: orgId,
       courseId,
       documentId: docId,
@@ -98,16 +117,16 @@ describe("Materialization & Single Source of Truth Taxonomy Architecture Tests",
           { title: "جلسه ۱: درمان زخم معده", contentMarkdown: "# محتوا" },
           { title: "جلسه ۲: داروهای ضد تهوع", contentMarkdown: "# محتوا" },
         ],
-      } as any,
+      } as unknown as GeneratedContentPayload,
       materializedLessonId: null,
       model: "gemini-3.5-flash-lite",
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       deletedAt: null,
-    } as any as GeneratedContentRecord;
+    };
 
     const quizRecord: GeneratedContentRecord = {
-      id: randomUUID() as any,
+      id: randomUUID() as GeneratedContentId,
       organizationId: orgId,
       courseId,
       documentId: docId,
@@ -121,18 +140,18 @@ describe("Materialization & Single Source of Truth Taxonomy Architecture Tests",
         questions: [
           { question: "سوال ۱ در مورد زخم معده", questionType: "multiple_choice", correctAnswer: "الف", topic: "درمان زخم معده" }
         ],
-      } as any,
+      } as unknown as GeneratedContentPayload,
       materializedLessonId: null,
       model: "gemini-3.5-flash-lite",
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       deletedAt: null,
-    } as any as GeneratedContentRecord;
+    };
 
     generatedContentStore.insert(lessonRecord);
     generatedContentStore.insert(quizRecord);
 
-    const actor = { userId: "user-1", role: "organization_admin" } as any;
+    const actor: Actor = { userId: "user-1" as UserId, role: "organization_admin" };
 
     // Materialize Lesson first
     await reviewService.acceptContent(actor, orgId, lessonRecord.id);
@@ -149,7 +168,7 @@ describe("Materialization & Single Source of Truth Taxonomy Architecture Tests",
     documentStore.insert(makeDoc(docId, orgId, courseId, "41.pdf"));
 
     const quizRecord: GeneratedContentRecord = {
-      id: randomUUID() as any,
+      id: randomUUID() as GeneratedContentId,
       organizationId: orgId,
       courseId,
       documentId: docId,
@@ -161,16 +180,16 @@ describe("Materialization & Single Source of Truth Taxonomy Architecture Tests",
         moduleTitle: "فصل: داروشناسی کلیه و دیورتیک‌ها",
         topic: "دیورتیک‌ها",
         questions: [{ question: "مکانیزم اثر فورزماید چیست؟", questionType: "multiple_choice", correctAnswer: "الف" }]
-      } as any,
+      } as unknown as GeneratedContentPayload,
       materializedLessonId: null,
       model: "gemini-3.5-flash-lite",
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       deletedAt: null,
-    } as any as GeneratedContentRecord;
+    };
 
     generatedContentStore.insert(quizRecord);
-    const actor = { userId: "user-1", role: "organization_admin" } as any;
+    const actor: Actor = { userId: "user-1" as UserId, role: "organization_admin" };
 
     // Materialize Quiz BEFORE Lesson
     await reviewService.acceptContent(actor, orgId, quizRecord.id);
@@ -189,7 +208,7 @@ describe("Materialization & Single Source of Truth Taxonomy Architecture Tests",
     documentStore.insert(makeDoc(docId, orgId, courseId, "random_doc_42.pdf"));
 
     const lessonRecord: GeneratedContentRecord = {
-      id: randomUUID() as any,
+      id: randomUUID() as GeneratedContentId,
       organizationId: orgId,
       courseId,
       documentId: docId,
@@ -202,16 +221,16 @@ describe("Materialization & Single Source of Truth Taxonomy Architecture Tests",
         citationChunkIds: [],
         moduleTitle: "فصل ۴۲: فارماکوتراپی عفونت‌ها",
         sessions: [{ title: "جلسه ۱", contentMarkdown: "متن" }],
-      } as any,
+      } as unknown as GeneratedContentPayload,
       materializedLessonId: null,
       model: "gemini-3.5-flash-lite",
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       deletedAt: null,
-    } as any as GeneratedContentRecord;
+    };
 
     generatedContentStore.insert(lessonRecord);
-    const actor = { userId: "user-1", role: "organization_admin" } as any;
+    const actor: Actor = { userId: "user-1" as UserId, role: "organization_admin" };
 
     await reviewService.acceptContent(actor, orgId, lessonRecord.id);
     const modules = await moduleStore.listByCourse(courseId);
@@ -220,6 +239,10 @@ describe("Materialization & Single Source of Truth Taxonomy Architecture Tests",
   });
 
   it("Test 8: Repair script is idempotent when executed multiple times", async () => {
+    const { repairChapter39Data } = (await import(
+      "../../../../scripts/repair-ch39-data.mjs"
+    )) as unknown as { repairChapter39Data: () => Promise<{ status: string }> };
+
     const res1 = await repairChapter39Data();
     expect(res1.status).toBe("already_repaired");
 
@@ -232,7 +255,7 @@ describe("Materialization & Single Source of Truth Taxonomy Architecture Tests",
     documentStore.insert(makeDoc(docId, orgId, courseId, "43.pdf"));
 
     const flashcardRecord: GeneratedContentRecord = {
-      id: randomUUID() as any,
+      id: randomUUID() as GeneratedContentId,
       organizationId: orgId,
       courseId,
       documentId: docId,
@@ -244,16 +267,16 @@ describe("Materialization & Single Source of Truth Taxonomy Architecture Tests",
         moduleTitle: "فصل: فارماکولوژی اعصاب",
         topic: "اعصاب",
         flashcards: [{ front: "سوال ۱", back: "پاسخ ۱", topic: "اعصاب" }],
-      } as any,
+      } as unknown as GeneratedContentPayload,
       materializedLessonId: null,
       model: "gemini-3.5-flash-lite",
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       deletedAt: null,
-    } as any as GeneratedContentRecord;
+    };
 
     generatedContentStore.insert(flashcardRecord);
-    const actor = { userId: "user-1", role: "organization_admin" } as any;
+    const actor: Actor = { userId: "user-1" as UserId, role: "organization_admin" };
 
     await reviewService.acceptContent(actor, orgId, flashcardRecord.id);
 
@@ -268,7 +291,7 @@ describe("Materialization & Single Source of Truth Taxonomy Architecture Tests",
     documentStore.insert(makeDoc(docId, orgId, courseId, "44.pdf"));
 
     const lessonRecord: GeneratedContentRecord = {
-      id: randomUUID() as any,
+      id: randomUUID() as GeneratedContentId,
       organizationId: orgId,
       courseId,
       documentId: docId,
@@ -281,16 +304,16 @@ describe("Materialization & Single Source of Truth Taxonomy Architecture Tests",
         citationChunkIds: [],
         moduleTitle: "فصل: فارماکولوژی غدد",
         sessions: [{ title: "جلسه ۱: انسولین", contentMarkdown: "# محتوا" }],
-      } as any,
+      } as unknown as GeneratedContentPayload,
       materializedLessonId: null,
       model: "gemini-3.5-flash-lite",
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       deletedAt: null,
-    } as any as GeneratedContentRecord;
+    };
 
     const quizRecord: GeneratedContentRecord = {
-      id: randomUUID() as any,
+      id: randomUUID() as GeneratedContentId,
       organizationId: orgId,
       courseId,
       documentId: docId,
@@ -302,18 +325,18 @@ describe("Materialization & Single Source of Truth Taxonomy Architecture Tests",
         moduleTitle: "فصل: فارماکولوژی غدد",
         topic: "موضوع نامرتبط بدون لسن",
         questions: [{ question: "سوال درباره موضوع نامرتبط", questionType: "multiple_choice", correctAnswer: "الف", topic: "موضوع نامرتبط بدون لسن" }],
-      } as any,
+      } as unknown as GeneratedContentPayload,
       materializedLessonId: null,
       model: "gemini-3.5-flash-lite",
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       deletedAt: null,
-    } as any as GeneratedContentRecord;
+    };
 
     generatedContentStore.insert(lessonRecord);
     generatedContentStore.insert(quizRecord);
 
-    const actor = { userId: "user-1", role: "organization_admin" } as any;
+    const actor: Actor = { userId: "user-1" as UserId, role: "organization_admin" };
 
     // Concurrent materialization via Promise.all
     await Promise.all([
@@ -336,7 +359,7 @@ describe("Materialization & Single Source of Truth Taxonomy Architecture Tests",
     documentStore.insert(makeDoc(doc2, orgId, courseId, "45_part2.pdf"));
 
     const lesson1: GeneratedContentRecord = {
-      id: randomUUID() as any,
+      id: randomUUID() as GeneratedContentId,
       organizationId: orgId,
       courseId,
       documentId: doc1,
@@ -349,16 +372,16 @@ describe("Materialization & Single Source of Truth Taxonomy Architecture Tests",
         citationChunkIds: [],
         moduleTitle: "فصل ۴۵ بخش ۱",
         sessions: [{ title: "جلسه ۱", contentMarkdown: "# محتوا" }],
-      } as any,
+      } as unknown as GeneratedContentPayload,
       materializedLessonId: null,
       model: "gemini-3.5-flash-lite",
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       deletedAt: null,
-    } as any as GeneratedContentRecord;
+    };
 
     const lesson2: GeneratedContentRecord = {
-      id: randomUUID() as any,
+      id: randomUUID() as GeneratedContentId,
       organizationId: orgId,
       courseId,
       documentId: doc2,
@@ -371,18 +394,18 @@ describe("Materialization & Single Source of Truth Taxonomy Architecture Tests",
         citationChunkIds: [],
         moduleTitle: "فصل ۴۵ بخش ۲",
         sessions: [{ title: "جلسه ۱", contentMarkdown: "# محتوا" }],
-      } as any,
+      } as unknown as GeneratedContentPayload,
       materializedLessonId: null,
       model: "gemini-3.5-flash-lite",
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       deletedAt: null,
-    } as any as GeneratedContentRecord;
+    };
 
     generatedContentStore.insert(lesson1);
     generatedContentStore.insert(lesson2);
 
-    const actor = { userId: "user-1", role: "organization_admin" } as any;
+    const actor: Actor = { userId: "user-1" as UserId, role: "organization_admin" };
     await reviewService.acceptContent(actor, orgId, lesson1.id);
     await reviewService.acceptContent(actor, orgId, lesson2.id);
 
@@ -398,7 +421,7 @@ describe("Materialization & Single Source of Truth Taxonomy Architecture Tests",
     documentStore.insert(makeDoc(docId, orgId, courseId, "46.pdf"));
 
     const lessonRecord: GeneratedContentRecord = {
-      id: randomUUID() as any,
+      id: randomUUID() as GeneratedContentId,
       organizationId: orgId,
       courseId,
       documentId: docId,
@@ -414,16 +437,16 @@ describe("Materialization & Single Source of Truth Taxonomy Architecture Tests",
           { title: "جلسه ۱: انسولین", contentMarkdown: "# محتوا" },
           { title: "جلسه ۲: متفورمین", contentMarkdown: "# محتوا" },
         ],
-      } as any,
+      } as unknown as GeneratedContentPayload,
       materializedLessonId: null,
       model: "gemini-3.5-flash-lite",
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       deletedAt: null,
-    } as any as GeneratedContentRecord;
+    };
 
     const flashcardRecord: GeneratedContentRecord = {
-      id: randomUUID() as any,
+      id: randomUUID() as GeneratedContentId,
       organizationId: orgId,
       courseId,
       documentId: docId,
@@ -437,18 +460,18 @@ describe("Materialization & Single Source of Truth Taxonomy Architecture Tests",
           { question: "سوال ۳ با sessionIndex نامعتبر", answer: "پاسخ ۳", sessionIndex: 99 },
           { question: "سوال ۴ بدون sessionIndex", answer: "پاسخ ۴" },
         ],
-      } as any,
+      } as unknown as GeneratedContentPayload,
       materializedLessonId: null,
       model: "gemini-3.5-flash-lite",
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       deletedAt: null,
-    } as any as GeneratedContentRecord;
+    };
 
     generatedContentStore.insert(lessonRecord);
     generatedContentStore.insert(flashcardRecord);
 
-    const actor = { userId: "user-1", role: "organization_admin" } as any;
+    const actor: Actor = { userId: "user-1" as UserId, role: "organization_admin" };
 
     await reviewService.acceptContent(actor, orgId, lessonRecord.id);
     await reviewService.acceptContent(actor, orgId, flashcardRecord.id);

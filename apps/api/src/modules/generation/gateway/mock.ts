@@ -709,4 +709,17 @@ export class MockModelGateway implements ModelGateway {
       finishReason: "stop",
     };
   }
+
+  async checkHealth(): Promise<{
+    status: "healthy" | "unhealthy" | "degraded";
+    provider: "mock";
+    latencyMs: number;
+    reason?: string;
+  }> {
+    return {
+      status: "healthy",
+      provider: "mock",
+      latencyMs: 0,
+    };
+  }
 }

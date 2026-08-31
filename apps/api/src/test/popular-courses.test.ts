@@ -23,7 +23,7 @@ import {
 } from "../modules/identity/test/in-memory-stores.js";
 import { InMemoryOrganizationStore } from "../modules/organizations/test/in-memory-stores.js";
 import { InMemoryCourseStore } from "../modules/courses/test/in-memory-stores.js";
-import type { CourseId } from "@avana/domain";
+import type { CourseId, OrganizationId, UserId } from "@avana/domain";
 
 function makeTestConfig() {
   process.env.NODE_ENV = "test";
@@ -38,7 +38,7 @@ function extractSessionToken(res: {
   return cookie?.value;
 }
 
-describe("Popular Avana Courses (محبوب‌ترین دوره‌های آوانا) Integration Tests", () => {
+describe("Popular Avana Courses (محبوب‌ترین دوره‌ها) Integration Tests", () => {
   let config: ReturnType<typeof loadApiConfig>;
   let sessionStore: InMemorySessionStore;
   let userStore: InMemoryUserStore;
@@ -132,17 +132,17 @@ describe("Popular Avana Courses (محبوب‌ترین دوره‌های آوا�
 
     // Add student 2 and student 3 to organization
     orgStore.addMembership({
-      id: "mem-2" as any,
-      organizationId: org.id as any,
-      userId: student2.userId as any,
+      id: "mem-2",
+      organizationId: org.id as OrganizationId,
+      userId: student2.userId as UserId,
       role: "student",
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });
     orgStore.addMembership({
-      id: "mem-3" as any,
-      organizationId: org.id as any,
-      userId: student3.userId as any,
+      id: "mem-3",
+      organizationId: org.id as OrganizationId,
+      userId: student3.userId as UserId,
       role: "student",
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -153,16 +153,16 @@ describe("Popular Avana Courses (محبوب‌ترین دوره‌های آوا�
     const courseC = await createCourse(app, student1.token, org.id, "Course C (Lowest)");
 
     // Course B added by 3 users
-    await courseStore.addUserCourse(student1.userId as any, courseB.id as any);
-    await courseStore.addUserCourse(student2.userId as any, courseB.id as any);
-    await courseStore.addUserCourse(student3.userId as any, courseB.id as any);
+    await courseStore.addUserCourse(student1.userId as UserId, courseB.id as CourseId);
+    await courseStore.addUserCourse(student2.userId as UserId, courseB.id as CourseId);
+    await courseStore.addUserCourse(student3.userId as UserId, courseB.id as CourseId);
 
     // Course A added by 2 users
-    await courseStore.addUserCourse(student1.userId as any, courseA.id as any);
-    await courseStore.addUserCourse(student2.userId as any, courseA.id as any);
+    await courseStore.addUserCourse(student1.userId as UserId, courseA.id as CourseId);
+    await courseStore.addUserCourse(student2.userId as UserId, courseA.id as CourseId);
 
     // Course C added by 1 user
-    await courseStore.addUserCourse(student1.userId as any, courseC.id as any);
+    await courseStore.addUserCourse(student1.userId as UserId, courseC.id as CourseId);
 
     const popularRes = await app.inject({
       method: "GET",
@@ -190,17 +190,17 @@ describe("Popular Avana Courses (محبوب‌ترین دوره‌های آوا�
     const org = await createOrg(app, userA.token, "Shared Medical Org");
 
     orgStore.addMembership({
-      id: "mem-b" as any,
-      organizationId: org.id as any,
-      userId: userB.userId as any,
+      id: "mem-b",
+      organizationId: org.id as OrganizationId,
+      userId: userB.userId as UserId,
       role: "student",
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });
     orgStore.addMembership({
-      id: "mem-c" as any,
-      organizationId: org.id as any,
-      userId: userC.userId as any,
+      id: "mem-c",
+      organizationId: org.id as OrganizationId,
+      userId: userC.userId as UserId,
       role: "student",
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -210,11 +210,11 @@ describe("Popular Avana Courses (محبوب‌ترین دوره‌های آوا�
     const courseB = await createCourse(app, userA.token, org.id, "Course B (UserB + UserC)");
 
     // User A has Course A only
-    await courseStore.addUserCourse(userA.userId as any, courseA.id as any);
+    await courseStore.addUserCourse(userA.userId as UserId, courseA.id as CourseId);
 
     // User B and C have Course B
-    await courseStore.addUserCourse(userB.userId as any, courseB.id as any);
-    await courseStore.addUserCourse(userC.userId as any, courseB.id as any);
+    await courseStore.addUserCourse(userB.userId as UserId, courseB.id as CourseId);
+    await courseStore.addUserCourse(userC.userId as UserId, courseB.id as CourseId);
 
     // User A requests popular courses
     const popularRes = await app.inject({
@@ -283,9 +283,9 @@ describe("Popular Avana Courses (محبوب‌ترین دوره‌های آوا�
     const course2 = await createCourse(app, user.token, org.id, "Archived Course");
 
     // Add many users to Course 2
-    await courseStore.addUserCourse(user.userId as any, course2.id as any);
-    await courseStore.addUserCourse("u2" as any, course2.id as any);
-    await courseStore.addUserCourse("u3" as any, course2.id as any);
+    await courseStore.addUserCourse(user.userId as UserId, course2.id as CourseId);
+    await courseStore.addUserCourse("u2" as UserId, course2.id as CourseId);
+    await courseStore.addUserCourse("u3" as UserId, course2.id as CourseId);
 
     // Archive Course 2
     const foundCourse2 = await courseStore.findById(course2.id as CourseId);
@@ -366,9 +366,9 @@ describe("Popular Avana Courses (محبوب‌ترین دوره‌های آوا�
     const courseB = await createCourse(app, userB.token, orgB.id, "Org B Secret Course");
 
     // Org B course is very popular in Org B
-    await courseStore.addUserCourse(userB.userId as any, courseB.id as any);
-    await courseStore.addUserCourse("other1" as any, courseB.id as any);
-    await courseStore.addUserCourse("other2" as any, courseB.id as any);
+    await courseStore.addUserCourse(userB.userId as UserId, courseB.id as CourseId);
+    await courseStore.addUserCourse("other1" as UserId, courseB.id as CourseId);
+    await courseStore.addUserCourse("other2" as UserId, courseB.id as CourseId);
 
     // User A queries popular courses for Org A
     const resA = await app.inject({
@@ -392,7 +392,7 @@ describe("Popular Avana Courses (محبوب‌ترین دوره‌های آوا�
       const id = randomUUID() as CourseId;
       const record = {
         id,
-        organizationId: orgId as any,
+        organizationId: orgId as OrganizationId,
         name,
         subject,
         examDate: null,
@@ -419,8 +419,8 @@ describe("Popular Avana Courses (محبوب‌ترین دوره‌های آوا�
       );
 
       // User 2 and User 3 add the course to their list
-      await courseStore.addUserCourse(user2.userId as any, systemCourse.id);
-      await courseStore.addUserCourse(user3.userId as any, systemCourse.id);
+      await courseStore.addUserCourse(user2.userId as UserId, systemCourse.id);
+      await courseStore.addUserCourse(user3.userId as UserId, systemCourse.id);
 
       // User 1 queries /courses/popular
       const popRes = await app.inject({
@@ -460,7 +460,7 @@ describe("Popular Avana Courses (محبوب‌ترین دوره‌های آوا�
       );
 
       // Course is popular inside org2
-      await courseStore.addUserCourse(user2.userId as any, privateCourseOrg2.id);
+      await courseStore.addUserCourse(user2.userId as UserId, privateCourseOrg2.id);
 
       // User 1 from Org 1 queries both endpoints
       const popRes = await app.inject({
@@ -494,7 +494,7 @@ describe("Popular Avana Courses (محبوب‌ترین دوره‌های آوا�
         "فیزیولوژی",
       );
 
-      await courseStore.addUserCourse(user1.userId as any, sysCourse.id);
+      await courseStore.addUserCourse(user1.userId as UserId, sysCourse.id);
 
       const popRes = await app.inject({
         method: "GET",
@@ -539,7 +539,7 @@ describe("Popular Avana Courses (محبوب‌ترین دوره‌های آوا�
       );
 
       // User 2 enrolled, User 1 did NOT enroll
-      await courseStore.addUserCourse(user2.userId as any, publicCourse.id);
+      await courseStore.addUserCourse(user2.userId as UserId, publicCourse.id);
 
       // User 1 calls /courses (All Library Courses)
       const allRes = await app.inject({
@@ -581,12 +581,12 @@ describe("Popular Avana Courses (محبوب‌ترین دوره‌های آوا�
       );
 
       // Give c2 a higher popularity score
-      await courseStore.addUserCourse("u1" as any, c2.id);
-      await courseStore.addUserCourse("u2" as any, c2.id);
-      await courseStore.addUserCourse("u3" as any, c2.id);
+      await courseStore.addUserCourse("u1" as UserId, c2.id);
+      await courseStore.addUserCourse("u2" as UserId, c2.id);
+      await courseStore.addUserCourse("u3" as UserId, c2.id);
 
       // Give c1 lower popularity score
-      await courseStore.addUserCourse("u1" as any, c1.id);
+      await courseStore.addUserCourse("u1" as UserId, c1.id);
 
       // /courses/popular ranks c2 first because of higher popularity score
       const popRes = await app.inject({

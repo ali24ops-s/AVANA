@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import type { Actor, CourseId, LessonId, UserId } from "@avana/domain";
+import type { Actor, CourseId, LessonId, QuizId, StudySessionActivityType, UserId } from "@avana/domain";
 import { defaultPolicy, DomainError } from "@avana/domain";
 import { StudyService } from "../modules/study/study-service.js";
 import {
@@ -106,7 +106,7 @@ describe("Study Sessions & Active Study Time Tracking", () => {
     it("rejects invalid activity types", async () => {
       await expect(
         studyService.startStudySession(actor, {
-          activityType: "invalid_activity" as any,
+          activityType: "invalid_activity" as unknown as StudySessionActivityType,
         }),
       ).rejects.toThrow();
     });
@@ -348,7 +348,7 @@ describe("Study Sessions & Active Study Time Tracking", () => {
       // 2. Seed completed exams for actor (3 completed, 1 in_progress, 1 for other user)
       quizAttemptStore.insert({
         id: "qa-1",
-        quizId: "quiz-1" as any,
+        quizId: "quiz-1" as QuizId,
         userId: actor.userId,
         score: 90,
         answers: {},
@@ -358,7 +358,7 @@ describe("Study Sessions & Active Study Time Tracking", () => {
       });
       quizAttemptStore.insert({
         id: "qa-2",
-        quizId: "quiz-2" as any,
+        quizId: "quiz-2" as QuizId,
         userId: actor.userId,
         score: 85,
         answers: {},
@@ -368,7 +368,7 @@ describe("Study Sessions & Active Study Time Tracking", () => {
       });
       quizAttemptStore.insert({
         id: "qa-3",
-        quizId: "quiz-3" as any,
+        quizId: "quiz-3" as QuizId,
         userId: actor.userId,
         score: 100,
         answers: {},
@@ -379,7 +379,7 @@ describe("Study Sessions & Active Study Time Tracking", () => {
       // Incomplete attempt (should not count)
       quizAttemptStore.insert({
         id: "qa-4",
-        quizId: "quiz-4" as any,
+        quizId: "quiz-4" as QuizId,
         userId: actor.userId,
         score: 0,
         answers: {},
@@ -390,7 +390,7 @@ describe("Study Sessions & Active Study Time Tracking", () => {
       // Completed attempt by another user (should not count)
       quizAttemptStore.insert({
         id: "qa-5",
-        quizId: "quiz-5" as any,
+        quizId: "quiz-5" as QuizId,
         userId: "other-user" as UserId,
         score: 100,
         answers: {},

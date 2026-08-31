@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -35,7 +34,7 @@ const mockDocs: DocumentResource[] = [
     original_name: "pharmacology_ch1.pdf",
     mime_type: "application/pdf",
     size_bytes: 1048576, // 1 MB
-    sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    sha256: "0000000000000000000000000000000000000000000000000000000000000001",
     status: "extracted",
     error_code: null,
     retry_count: 0,
@@ -51,7 +50,7 @@ const mockDocs: DocumentResource[] = [
     mime_type:
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     size_bytes: 524288, // 512 KB
-    sha256: "a1b2c3d4e5f67890123456789abcdef0123456789abcdef0123456789abcdef0",
+    sha256: "0000000000000000000000000000000000000000000000000000000000000002",
     status: "uploaded",
     error_code: null,
     retry_count: 0,
@@ -275,7 +274,7 @@ describe("File Management Center (/files)", () => {
     );
 
     expect(
-      screen.getByText("هشدار وابستگی‌های آموزشی:"),
+      screen.getByText("محتوای آموزشی تاییدشده در دوره باقی می‌ماند:"),
     ).toBeInTheDocument();
     expect(screen.getByText("متصل به دوره: داروشناسی پایه")).toBeInTheDocument();
     expect(screen.getByText("تأیید و حذف نهایی")).toBeInTheDocument();
@@ -287,7 +286,17 @@ describe("File Management Center (/files)", () => {
         isOpen={true}
         onClose={vi.fn()}
         onUploadFile={vi.fn().mockResolvedValue({ success: true })}
-        courses={[{ id: "course-1", title: "داروشناسی پایه" } as any]}
+        courses={[
+          {
+            id: "course-1",
+            title: "داروشناسی پایه",
+            subject: "داروشناسی",
+            exam_at: null,
+            created_at: "2026-01-01T00:00:00Z",
+            updated_at: "2026-01-01T00:00:00Z",
+            archived: false,
+          },
+        ]}
       />,
     );
 

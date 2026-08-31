@@ -23,9 +23,9 @@ export function AdminCoursesPage() {
       queryClient.invalidateQueries({ queryKey: ["admin", "courses"] });
       setEditingCourse(null);
     },
-    onError: (err: any) => {
-      console.error(err);
-      alert("خطا در بروزرسانی دوره: " + err.message);
+    onError: (err: unknown) => {
+      const msg = err instanceof Error ? err.message : "خطای ناشناخته";
+      alert("خطا در بروزرسانی دوره: " + msg);
     }
   });
 

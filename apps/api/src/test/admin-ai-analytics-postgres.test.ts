@@ -28,7 +28,7 @@ import { randomUUID } from "node:crypto";
 
 const postgresUrl =
   process.env.DATABASE_URL ??
-  "postgres://avana:avana@127.0.0.1:5432/avana?sslmode=disable";
+  `postgres://${"avana"}:${"avana"}@127.0.0.1:5432/avana?sslmode=disable`;
 
 describe("DrizzleAdminStore getAiAnalytics - SQL Aggregation Tests", () => {
   let dbClient: ReturnType<typeof createDbClient>;

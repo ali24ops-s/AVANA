@@ -13,7 +13,6 @@ import { describe, expect, it, beforeEach } from "vitest";
 import { randomUUID } from "node:crypto";
 import { createApp } from "../server/createApp.js";
 import { loadApiConfig } from "../config.js";
-import { v1Routes } from "../routes/v1.js";
 import {
   InMemorySessionStore,
   InMemoryUserStore,
@@ -43,7 +42,8 @@ import {
 import { InMemoryGenerationQueue } from "../modules/generation/generation-queue.js";
 import { InMemoryAuditStore } from "../observability/test/in-memory-stores.js";
 import { AuditService } from "../observability/audit-service.js";
-import type { CourseId, OrganizationId, QuizId, UserId, ModuleId, LessonId } from "@avana/domain";
+import { v1Routes } from "../routes/v1.js";
+import type { CourseId, OrganizationId, QuizId, QuizQuestionId, UserId, ModuleId, LessonId } from "@avana/domain";
 
 function extractSessionToken(res: {
   cookies: Array<{ name: string; value: string }>;
@@ -51,6 +51,8 @@ function extractSessionToken(res: {
   const cookie = res.cookies.find((c) => c.name === "avana_session");
   return cookie?.value;
 }
+
+type TestApp = Awaited<ReturnType<typeof createApp>>;
 
 describe("Learning Core & Exam Integration", () => {
   let userStore: InMemoryUserStore;
@@ -60,52 +62,52 @@ describe("Learning Core & Exam Integration", () => {
   let moduleStore: InMemoryModuleStore;
   let lessonStore: InMemoryLessonStore;
   let progressStore: InMemoryProgressStore;
-  let documentStore: InMemoryDocumentStore;
-  let documentChunkStore: InMemoryDocumentChunkStore;
-  let generatedContentStore: InMemoryGeneratedContentStore;
-  let generatedContentCitationStore: InMemoryGeneratedContentCitationStore;
-  let generationJobStore: InMemoryGenerationJobStore;
-  let queue: InMemoryGenerationQueue;
+  let docStore: InMemoryDocumentStore;
+  let docChunkStore: InMemoryDocumentChunkStore;
   let flashcardStore: InMemoryFlashcardStore;
   let flashcardReviewStore: InMemoryFlashcardReviewStore;
   let userFlashcardScheduleStore: InMemoryUserFlashcardScheduleStore;
   let quizStore: InMemoryQuizStore;
   let quizQuestionStore: InMemoryQuizQuestionStore;
   let quizAttemptStore: InMemoryQuizAttemptStore;
+  let genContentStore: InMemoryGeneratedContentStore;
+  let genCitationStore: InMemoryGeneratedContentCitationStore;
+  let genJobStore: InMemoryGenerationJobStore;
+  let genQueue: InMemoryGenerationQueue;
   let auditStore: InMemoryAuditStore;
   let auditService: AuditService;
 
   beforeEach(() => {
-    process.env.NODE_ENV = "test";
-    process.env.AVANA_API_PORT = "0";
-
-    sessionStore = new InMemorySessionStore();
-    userStore = new InMemoryUserStore();
     orgStore = new InMemoryOrganizationStore();
+    userStore = new InMemoryUserStore(orgStore);
+    sessionStore = new InMemorySessionStore();
     courseStore = new InMemoryCourseStore();
     moduleStore = new InMemoryModuleStore();
     lessonStore = new InMemoryLessonStore();
     progressStore = new InMemoryProgressStore();
-    documentStore = new InMemoryDocumentStore();
-    documentChunkStore = new InMemoryDocumentChunkStore();
-    generatedContentStore = new InMemoryGeneratedContentStore();
-    generatedContentCitationStore = new InMemoryGeneratedContentCitationStore();
-    generationJobStore = new InMemoryGenerationJobStore();
-    queue = new InMemoryGenerationQueue(generationJobStore);
+    docStore = new InMemoryDocumentStore();
+    docChunkStore = new InMemoryDocumentChunkStore();
     flashcardStore = new InMemoryFlashcardStore();
     flashcardReviewStore = new InMemoryFlashcardReviewStore();
     userFlashcardScheduleStore = new InMemoryUserFlashcardScheduleStore();
     quizStore = new InMemoryQuizStore();
     quizQuestionStore = new InMemoryQuizQuestionStore();
     quizAttemptStore = new InMemoryQuizAttemptStore();
+    genContentStore = new InMemoryGeneratedContentStore();
+    genCitationStore = new InMemoryGeneratedContentCitationStore();
+    genJobStore = new InMemoryGenerationJobStore();
+    genQueue = new InMemoryGenerationQueue();
     auditStore = new InMemoryAuditStore();
     auditService = new AuditService(auditStore);
   });
 
   async function buildTestApp() {
+    process.env.NODE_ENV = "test";
+    process.env.AVANA_API_PORT = "0";
+    process.env.JWT_SECRET = "test-jwt-secret-long-enough-32-chars!!";
+
     const config = loadApiConfig();
     const app = createApp({ config });
-
     await app.register(v1Routes, {
       config,
       sessionStore,
@@ -115,18 +117,18 @@ describe("Learning Core & Exam Integration", () => {
       moduleStore,
       lessonStore,
       progressStore,
-      documentStore,
-      documentChunkStore,
-      generatedContentStore,
-      generatedContentCitationStore,
-      generationJobStore,
-      queue,
+      documentStore: docStore,
+      documentChunkStore: docChunkStore,
       flashcardStore,
       flashcardReviewStore,
       userFlashcardScheduleStore,
       quizStore,
       quizQuestionStore,
       quizAttemptStore,
+      generatedContentStore: genContentStore,
+      generatedContentCitationStore: genCitationStore,
+      generationJobStore: genJobStore,
+      queue: genQueue,
       auditService,
     });
 
@@ -134,7 +136,7 @@ describe("Learning Core & Exam Integration", () => {
     return app;
   }
 
-  async function signIn(app: any, email: string) {
+  async function signIn(app: TestApp, email: string) {
     const user = await userStore.createFromVerifiedIdentity({
       email,
       name: email.split("@")[0],
@@ -150,7 +152,7 @@ describe("Learning Core & Exam Integration", () => {
     return { token, userId: user.id as UserId };
   }
 
-  async function createOrg(app: any, token: string, name: string): Promise<string> {
+  async function createOrg(app: TestApp, token: string, name: string): Promise<string> {
     const res = await app.inject({
       method: "POST",
       url: "/v1/organizations",
@@ -258,7 +260,7 @@ describe("Learning Core & Exam Integration", () => {
 
     await quizQuestionStore.createMany([
       {
-        id: randomUUID() as any,
+        id: randomUUID() as QuizQuestionId,
         quizId,
         generatedContentId: null,
         question: "تست کاتالاز برای کدام دسته از باکتری‌های گرم مثبت مثبت است؟",
@@ -273,7 +275,7 @@ describe("Learning Core & Exam Integration", () => {
         updatedAt: now,
       },
       {
-        id: randomUUID() as any,
+        id: randomUUID() as QuizQuestionId,
         quizId,
         generatedContentId: null,
         question: "گلیکوپروتئین‌های اصلی سطح ویروس آنفلوانزا کدامند؟",
@@ -303,13 +305,13 @@ describe("Learning Core & Exam Integration", () => {
     expect(body.sections).toBeDefined();
     expect(body.sections.length).toBeGreaterThanOrEqual(2);
 
-    const bacteriologySec = body.sections.find((s: any) => s.id === mod1Id || s.title.includes("باکتری‌شناسی"));
+    const bacteriologySec = body.sections.find((s: { id: string; title: string }) => s.id === mod1Id || s.title.includes("باکتری‌شناسی"));
     expect(bacteriologySec).toBeDefined();
     expect(bacteriologySec.title).toBe("بخش ۱: باکتری‌شناسی");
     expect(bacteriologySec.chapters[0].title).toBe("سرفصل ۱: استافیلوکوک‌ها و استرپتوکوک‌ها");
     expect(bacteriologySec.chapters[0].questionCount).toBe(1);
 
-    const virologySec = body.sections.find((s: any) => s.id === mod2Id || s.title.includes("ویروس‌شناسی"));
+    const virologySec = body.sections.find((s: { id: string; title: string }) => s.id === mod2Id || s.title.includes("ویروس‌شناسی"));
     expect(virologySec).toBeDefined();
     expect(virologySec.title).toBe("بخش ۲: ویروس‌شناسی");
     expect(virologySec.chapters[0].title).toBe("سرفصل ۲: ویروس‌های تنفسی و آنفلوانزا");

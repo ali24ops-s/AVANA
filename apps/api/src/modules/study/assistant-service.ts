@@ -12,6 +12,7 @@ import {
   DomainError,
   type Actor,
   type CourseId,
+  type DocumentId,
   type LessonId,
   type OrganizationId,
   type AuthorizationPolicy,
@@ -174,7 +175,7 @@ export class StudyAssistantService {
         temperature: 0.3,
         correlationId,
         organizationId: targetOrgId,
-        documentId: "00000000-0000-0000-0000-000000000000" as any,
+        documentId: "00000000-0000-0000-0000-000000000000" as DocumentId,
       });
     } catch (err: unknown) {
       if (err instanceof DomainError) {

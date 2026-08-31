@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * Analytics P0 & Aggregation Regression Test Suite
  *
@@ -43,40 +42,39 @@ import {
 } from "../modules/learning/test/in-memory-stores.js";
 import { InMemoryOrganizationStore } from "../modules/organizations/test/in-memory-stores.js";
 import { InMemoryCourseStore } from "../modules/courses/test/in-memory-stores.js";
-import { DocumentService } from "../modules/documents/document-service.js";
+import { DocumentService, type StorageService } from "../modules/documents/document-service.js";
+import type { DbClient } from "@avana/database/client";
 
 function createMockCoursesDb(
   courses: Array<{ id: string; name: string; subject: string | null; createdAt: Date }>,
   quizCounts: Array<{ courseId: string; count: number }>,
 ) {
+  const chain = {
+    where: () => ({
+      groupBy: () => Promise.resolve(quizCounts),
+      limit: () => ({
+        offset: () => ({
+          orderBy: () => Promise.resolve(courses),
+        }),
+      }),
+      then: (resolve: (val: unknown) => void) => resolve([{ count: courses.length }]),
+    }),
+    innerJoin: () => ({
+      where: () => ({
+        groupBy: () => Promise.resolve([]),
+      }),
+    }),
+    limit: () => ({
+      offset: () => ({
+        orderBy: () => Promise.resolve(courses),
+      }),
+    }),
+  };
   return {
     select: () => ({
-      from: () => {
-        const chain: any = {
-          where: () => ({
-            groupBy: () => Promise.resolve(quizCounts),
-            limit: () => ({
-              offset: () => ({
-                orderBy: () => Promise.resolve(courses),
-              }),
-            }),
-            then: (resolve: any) => resolve([{ count: courses.length }]),
-          }),
-          innerJoin: () => ({
-            where: () => ({
-              groupBy: () => Promise.resolve([]),
-            }),
-          }),
-          limit: () => ({
-            offset: () => ({
-              orderBy: () => Promise.resolve(courses),
-            }),
-          }),
-        };
-        return chain;
-      },
+      from: () => chain,
     }),
-  } as any;
+  } as unknown as DbClient["db"];
 }
 
 describe("Analytics P0 Regression Test Suite", () => {
@@ -193,7 +191,7 @@ describe("Analytics P0 Regression Test Suite", () => {
           deletedAt: null, qualityScore: null, qualityLevel: null, qualityReport: null, qualityAnalyzedAt: null,
         },
         membership: {
-          id: randomUUID() as any,
+          id: randomUUID(),
           organizationId: orgId,
           userId: userA.userId,
           role: Roles.student,
@@ -203,7 +201,7 @@ describe("Analytics P0 Regression Test Suite", () => {
         auditEvents: [],
       });
       orgStore.addMembership({
-        id: randomUUID() as any,
+        id: randomUUID(),
         organizationId: orgId,
         userId: userB.userId,
         role: Roles.student,
@@ -353,7 +351,7 @@ describe("Analytics P0 Regression Test Suite", () => {
           deletedAt: null, qualityScore: null, qualityLevel: null, qualityReport: null, qualityAnalyzedAt: null,
         },
         membership: {
-          id: randomUUID() as any,
+          id: randomUUID(),
           organizationId: orgId,
           userId: adminActor.userId,
           role: Roles.organization_admin,
@@ -363,10 +361,12 @@ describe("Analytics P0 Regression Test Suite", () => {
         auditEvents: [],
       });
 
-      const mockStorage: any = {
-        save: async () => {},
+      const mockStorage: StorageService = {
+        save: async () => ({ key: "key", sizeBytes: 100 }),
         read: async () => Buffer.from("test"),
         delete: async () => {},
+        exists: async () => true,
+        getPublicUrl: () => "https://storage.test/file",
       };
 
       const docService = new DocumentService(
@@ -449,7 +449,7 @@ describe("Analytics P0 Regression Test Suite", () => {
 
   describe("Admin Analytics Total Payload (P2)", () => {
     it("DrizzleAdminStore.getAnalytics returns totalUsers, totalCourses, totalLessons, totalFlashcards, totalQuizzes", async () => {
-      const mockDb: any = {
+      const mockDb = {
         select: () => ({
           from: () => ({
             where: () => Promise.resolve([
@@ -459,7 +459,7 @@ describe("Analytics P0 Regression Test Suite", () => {
         }),
       };
 
-      const store = new DrizzleAdminStore(mockDb);
+      const store = new DrizzleAdminStore(mockDb as unknown as DbClient["db"]);
       const analytics = await store.getAnalytics();
 
       expect(analytics.total).toHaveProperty("totalUsers");

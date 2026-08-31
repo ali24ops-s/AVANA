@@ -3,7 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { ExamConfigView } from "../components/quiz/ExamConfigView.js";
 import { ExamTakingView } from "../components/quiz/ExamTakingView.js";
-import { ExamResultView } from "../components/quiz/ExamResultView.js";
+import { ExamResultView, type ExamResultViewProps } from "../components/quiz/ExamResultView.js";
 import { createApiClient, getApiBaseUrl } from "../lib/api/client.js";
 import { createOrganizationApi } from "../lib/api/organizations.js";
 import { createStudyApi } from "../lib/api/study.js";
@@ -15,7 +15,7 @@ export function ExamsPage() {
   const navigate = useNavigate();
   const { memberships, isLoading: isAuthLoading } = useAuth();
 
-  const [resultData, setResultData] = useState<any>(null);
+  const [resultData, setResultData] = useState<ExamResultViewProps["result"] | null>(null);
 
   const apiClient = createApiClient({ baseUrl: getApiBaseUrl() });
   const orgApi = createOrganizationApi(apiClient);
@@ -68,7 +68,7 @@ export function ExamsPage() {
   // Handle Start Exam from Config
   const handleStartExam = (data: {
     attemptId: string;
-    questions: any[];
+    questions: Array<Record<string, unknown>>;
     topics: string[];
     difficulty: string;
     requestedCount: number;
@@ -76,8 +76,8 @@ export function ExamsPage() {
     navigate(`/exams/attempt/${data.attemptId}`);
   };
 
-  const handleSubmitSuccess = (result: any) => {
-    setResultData(result);
+  const handleSubmitSuccess = (result: unknown) => {
+    setResultData(result as ExamResultViewProps["result"]);
     attemptQuery.refetch();
   };
 

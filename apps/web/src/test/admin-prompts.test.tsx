@@ -48,7 +48,7 @@ const mockPromptsData = {
       userPrompt: "پیام کاربر به همراه تاریخچه",
       variables: ["courseTitle", "lessonTitle", "userMessage"],
       sourceFile: "apps/api/src/modules/study/assistant-service.ts",
-      sourceLocation: "StudyAssistantService.buildSystemPrompt",
+      sourceLocation: "StudyAssistant.buildPrompt",
       status: "active" as const,
     },
   ],

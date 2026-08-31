@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * PR6-6 ReviewService unit tests.
  *

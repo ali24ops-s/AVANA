@@ -119,8 +119,8 @@ describe("PR6-9E: Authorization & Multi-Tenant Hardening", () => {
   beforeEach(() => {
     config = makeTestConfig();
     sessionStore = new InMemorySessionStore();
-    userStore = new InMemoryUserStore();
     orgStore = new InMemoryOrganizationStore();
+    userStore = new InMemoryUserStore(orgStore);
     courseStore = new InMemoryCourseStore();
     moduleStore = new InMemoryModuleStore();
     lessonStore = new InMemoryLessonStore();
@@ -163,7 +163,7 @@ describe("PR6-9E: Authorization & Multi-Tenant Hardening", () => {
     lessonStore.insert({ id: lessonA, moduleId: moduleA, title: "Lesson A", contentType: "markdown", contentMarkdown: "# Content A", sortOrder: 0, estimatedMinutes: 10, publicationStatus: "published", createdAt: now, updatedAt: now, deletedAt: null });
 
     // Seed Document A, GeneratedContent A
-    documentStore.insert({ id: docA, organizationId: orgA, courseId: courseA, ownerUserId: userStudentA, originalName: "docA.pdf", mimeType: "application/pdf", sizeBytes: 1024, sha256: "hashA", storageKey: "keys/docA.pdf", pageCount: 1, status: "extracted", errorCode: null, retryCount: 0, createdAt: now, updatedAt: now, deletedAt: null });
+    documentStore.insert({ id: docA, organizationId: orgA, courseId: courseA, ownerUserId: userAdminA, originalName: "docA.pdf", mimeType: "application/pdf", sizeBytes: 1024, sha256: "hashA", storageKey: "keys/docA.pdf", pageCount: 1, status: "extracted", errorCode: null, retryCount: 0, createdAt: now, updatedAt: now, deletedAt: null });
     generatedContentStore.insert({
       id: contentA,
       organizationId: orgA,

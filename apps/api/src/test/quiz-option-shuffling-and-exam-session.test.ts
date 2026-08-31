@@ -4,7 +4,10 @@ import {
   type OrganizationId,
   type CourseId,
   type DocumentId,
+  type GeneratedContentId,
+  type GeneratedContentPayload,
   type Actor,
+  type UserId,
   RoleBasedPolicy,
   validateQuestionIntegrity,
   validateQuestionQuality,
@@ -12,9 +15,11 @@ import {
 import type { GeneratedContentRecord } from "../modules/generation/generation-store.js";
 import {
   InMemoryGeneratedContentStore,
+  InMemoryGeneratedContentCitationStore,
 } from "../modules/generation/test/in-memory-stores.js";
 import {
   InMemoryDocumentStore,
+  InMemoryDocumentChunkStore,
   InMemoryModuleStore,
   InMemoryLessonStore,
   InMemoryProgressStore,
@@ -27,8 +32,11 @@ import {
   InMemoryFlashcardReviewStore,
   InMemoryUserFlashcardScheduleStore,
 } from "../modules/study/test/in-memory-stores.js";
+import { InMemoryCourseStore } from "../modules/courses/test/in-memory-stores.js";
 import { ReviewService } from "../modules/generation/review-service.js";
 import { StudyService } from "../modules/study/study-service.js";
+import type { GenerationQueueService } from "../modules/generation/generation-queue.js";
+import type { AuditService } from "../observability/audit-service.js";
 
 describe("Quiz Option Shuffling, Answer Key Sync & Exam Session Determinism", () => {
   let moduleStore: InMemoryModuleStore;
@@ -58,36 +66,44 @@ describe("Quiz Option Shuffling, Answer Key Sync & Exam Session Determinism", ()
     flashcardStore = new InMemoryFlashcardStore();
 
     const policy = new RoleBasedPolicy();
-    const auditServiceMock = { emit: async () => {} } as any;
+    const auditServiceMock = { emit: async () => {} } as unknown as AuditService;
+    const dummyQueue = { enqueueGenerationJob: async () => ({ generationJobId: "job-1" }) } as unknown as GenerationQueueService;
+    const citationStore = new InMemoryGeneratedContentCitationStore();
+    const chunkStore = new InMemoryDocumentChunkStore();
+    const courseStore = new InMemoryCourseStore();
+    const progressStore = new InMemoryProgressStore();
+    const flashcardReviewStore = new InMemoryFlashcardReviewStore();
+    const userFlashcardScheduleStore = new InMemoryUserFlashcardScheduleStore();
 
     reviewService = new ReviewService(
-      generatedContentStore as any,
-      {} as any,
-      documentStore as any,
-      {} as any,
-      moduleStore as any,
-      lessonStore as any,
+      generatedContentStore,
+      citationStore,
+      documentStore,
+      chunkStore,
+      moduleStore,
+      lessonStore,
       policy,
-      {} as any,
+      dummyQueue,
       auditServiceMock,
-      flashcardStore as any,
-      quizStore as any,
-      quizQuestionStore as any,
+      flashcardStore,
+      quizStore,
+      quizQuestionStore,
     );
 
     studyService = new StudyService(
-      flashcardStore as any,
-      new InMemoryFlashcardReviewStore() as any,
-      quizStore as any,
-      quizQuestionStore as any,
-      quizAttemptStore as any,
-      moduleStore as any,
-      lessonStore as any,
-      new InMemoryProgressStore() as any,
+      flashcardStore,
+      flashcardReviewStore,
+      quizStore,
+      quizQuestionStore,
+      quizAttemptStore,
+      moduleStore,
+      lessonStore,
+      progressStore,
       policy,
       auditServiceMock,
       undefined,
-      new InMemoryUserFlashcardScheduleStore() as any,
+      userFlashcardScheduleStore,
+      courseStore,
     );
   });
 
@@ -96,7 +112,7 @@ describe("Quiz Option Shuffling, Answer Key Sync & Exam Session Determinism", ()
       id: docId,
       organizationId: orgId,
       courseId,
-      ownerUserId: "admin-1" as any,
+      ownerUserId: "admin-1" as UserId,
       originalName: name,
       mimeType: "application/pdf",
       sizeBytes: 2048,
@@ -131,7 +147,7 @@ describe("Quiz Option Shuffling, Answer Key Sync & Exam Session Determinism", ()
     }));
 
     const quizRecord: GeneratedContentRecord = {
-      id: randomUUID() as any,
+      id: randomUUID() as GeneratedContentId,
       organizationId: orgId,
       courseId,
       documentId: docId,
@@ -142,13 +158,13 @@ describe("Quiz Option Shuffling, Answer Key Sync & Exam Session Determinism", ()
         title: "آزمون فارماکولوژی جامع",
         moduleTitle: "فصل اول: داروهای قلبی",
         questions: rawQuestions,
-      } as any,
+      } as unknown as GeneratedContentPayload,
       materializedLessonId: null,
       model: "gemini-3.5-flash-lite",
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       deletedAt: null, qualityScore: null, qualityLevel: null, qualityReport: null, qualityAnalyzedAt: null,
-    } as any as GeneratedContentRecord;
+    };
 
     generatedContentStore.insert(quizRecord);
     await reviewService.acceptContent(adminActor, orgId, quizRecord.id);
@@ -204,7 +220,7 @@ describe("Quiz Option Shuffling, Answer Key Sync & Exam Session Determinism", ()
     documentStore.insert(makeDocument(docId, "cardiology.pdf"));
 
     const quizRecord: GeneratedContentRecord = {
-      id: randomUUID() as any,
+      id: randomUUID() as GeneratedContentId,
       organizationId: orgId,
       courseId,
       documentId: docId,
@@ -222,13 +238,13 @@ describe("Quiz Option Shuffling, Answer Key Sync & Exam Session Determinism", ()
             correctAnswer: "متوپرولول (صحیح)",
           },
         ],
-      } as any,
+      } as unknown as GeneratedContentPayload,
       materializedLessonId: null,
       model: "gemini-3.5-flash-lite",
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       deletedAt: null, qualityScore: null, qualityLevel: null, qualityReport: null, qualityAnalyzedAt: null,
-    } as any as GeneratedContentRecord;
+    };
 
     generatedContentStore.insert(quizRecord);
     await reviewService.acceptContent(adminActor, orgId, quizRecord.id);
@@ -274,7 +290,7 @@ describe("Quiz Option Shuffling, Answer Key Sync & Exam Session Determinism", ()
     }));
 
     const quizRecord: GeneratedContentRecord = {
-      id: randomUUID() as any,
+      id: randomUUID() as GeneratedContentId,
       organizationId: orgId,
       courseId,
       documentId: docId,
@@ -285,13 +301,13 @@ describe("Quiz Option Shuffling, Answer Key Sync & Exam Session Determinism", ()
         title: "آزمون آزمایشی جامع",
         moduleTitle: "فصل جامع",
         questions: rawQuestions,
-      } as any,
+      } as unknown as GeneratedContentPayload,
       materializedLessonId: null,
       model: "gemini-3.5-flash-lite",
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       deletedAt: null, qualityScore: null, qualityLevel: null, qualityReport: null, qualityAnalyzedAt: null,
-    } as any as GeneratedContentRecord;
+    };
 
     generatedContentStore.insert(quizRecord);
     await reviewService.acceptContent(adminActor, orgId, quizRecord.id);
@@ -360,7 +376,7 @@ describe("Quiz Option Shuffling, Answer Key Sync & Exam Session Determinism", ()
     ];
 
     const quizRecord1: GeneratedContentRecord = {
-      id: randomUUID() as any,
+      id: randomUUID() as GeneratedContentId,
       organizationId: orgId,
       courseId,
       documentId: docId,
@@ -377,13 +393,13 @@ describe("Quiz Option Shuffling, Answer Key Sync & Exam Session Determinism", ()
             correctAnswer: "A", // Positional reference to choices[0]
           },
         ],
-      } as any,
+      } as unknown as GeneratedContentPayload,
       materializedLessonId: null,
       model: "gemini-3.5-flash-lite",
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       deletedAt: null, qualityScore: null, qualityLevel: null, qualityReport: null, qualityAnalyzedAt: null,
-    } as any as GeneratedContentRecord;
+    };
 
     generatedContentStore.insert(quizRecord1);
     await reviewService.acceptContent(adminActor, orgId, quizRecord1.id);
@@ -404,7 +420,7 @@ describe("Quiz Option Shuffling, Answer Key Sync & Exam Session Determinism", ()
     documentStore.insert(makeDocument(docId, "pharmacotherapy.pdf"));
 
     const quizRecord: GeneratedContentRecord = {
-      id: randomUUID() as any,
+      id: randomUUID() as GeneratedContentId,
       organizationId: orgId,
       courseId,
       documentId: docId,
@@ -436,13 +452,13 @@ describe("Quiz Option Shuffling, Answer Key Sync & Exam Session Determinism", ()
             correctAnswer: "تنظیم دوز ۳",
           },
         ],
-      } as any,
+      } as unknown as GeneratedContentPayload,
       materializedLessonId: null,
       model: "gemini-3.5-flash-lite",
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       deletedAt: null, qualityScore: null, qualityLevel: null, qualityReport: null, qualityAnalyzedAt: null,
-    } as any as GeneratedContentRecord;
+    };
 
     generatedContentStore.insert(quizRecord);
     await reviewService.acceptContent(adminActor, orgId, quizRecord.id);
@@ -512,7 +528,7 @@ describe("Quiz Option Shuffling, Answer Key Sync & Exam Session Determinism", ()
     ];
 
     const quizRecord: GeneratedContentRecord = {
-      id: randomUUID() as any,
+      id: randomUUID() as GeneratedContentId,
       organizationId: orgId,
       courseId,
       documentId: docId,
@@ -522,13 +538,13 @@ describe("Quiz Option Shuffling, Answer Key Sync & Exam Session Determinism", ()
         kind: "quiz",
         title: "آزمون پایداری سشن",
         questions: rawQuestions,
-      } as any,
+      } as unknown as GeneratedContentPayload,
       materializedLessonId: null,
       model: "gemini-3.5-flash-lite",
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       deletedAt: null, qualityScore: null, qualityLevel: null, qualityReport: null, qualityAnalyzedAt: null,
-    } as any as GeneratedContentRecord;
+    };
 
     generatedContentStore.insert(quizRecord);
     await reviewService.acceptContent(adminActor, orgId, quizRecord.id);

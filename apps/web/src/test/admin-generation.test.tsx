@@ -12,7 +12,7 @@ vi.mock("../hooks/useAdmin", () => ({
 }));
 
 vi.mock("../lib/api/admin", async (importOriginal) => {
-  const actual = await importOriginal<any>();
+  const actual = await importOriginal<typeof import("../lib/api/admin.js")>();
   return {
     ...actual,
     api: {
@@ -48,7 +48,7 @@ describe("Admin Generation Center Frontend", () => {
     });
     vi.mocked(useAdminModule.useAdmin).mockReturnValue({
       listGenerationJobs: listSpy,
-    } as any);
+    } as unknown as ReturnType<typeof useAdminModule.useAdmin>);
 
     const { queryClient } = setup();
 
@@ -75,7 +75,7 @@ describe("Admin Generation Center Frontend", () => {
     expect(listSpy).toHaveBeenCalledWith(1, 20, "", ""); // page, pageSize, status, search
 
     // 2. Search functionality
-    const searchInput = screen.getByPlaceholderText(/جستجو بر اساس ایمیل/i);
+    const searchInput = screen.getByPlaceholderText(/جستجو بر اساس ایمیل کاربر یا نام فایل/i);
     fireEvent.change(searchInput, { target: { value: "query" } });
 
     // Debounce wait
@@ -95,7 +95,7 @@ describe("Admin Generation Center Frontend", () => {
   it("shows empty state when no jobs are found", async () => {
     vi.mocked(useAdminModule.useAdmin).mockReturnValue({
       listGenerationJobs: vi.fn().mockResolvedValue({ jobs: [], totalCount: 0 }),
-    } as any);
+    } as unknown as ReturnType<typeof useAdminModule.useAdmin>);
 
     const { queryClient } = setup();
 
@@ -137,7 +137,7 @@ describe("Admin Generation Center Frontend", () => {
     const retrySpy = vi.fn().mockResolvedValue({ success: true });
     vi.mocked(useAdminModule.useAdmin).mockReturnValue({
       retryGenerationJob: retrySpy,
-    } as any);
+    } as unknown as ReturnType<typeof useAdminModule.useAdmin>);
 
     const { queryClient } = setup();
 
@@ -200,7 +200,7 @@ describe("Admin Generation Center Frontend", () => {
     };
 
     vi.mocked(api.get).mockResolvedValue(mockDetail);
-    vi.mocked(useAdminModule.useAdmin).mockReturnValue({} as any);
+    vi.mocked(useAdminModule.useAdmin).mockReturnValue({} as unknown as ReturnType<typeof useAdminModule.useAdmin>);
 
     const { queryClient } = setup();
 

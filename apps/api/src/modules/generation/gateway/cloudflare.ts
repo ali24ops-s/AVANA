@@ -298,4 +298,86 @@ export class CloudflareModelGateway implements ModelGateway {
       );
     }
   }
+
+  async checkHealth(): Promise<{
+    status: "healthy" | "unhealthy" | "degraded";
+    provider: "cloudflare";
+    model: string;
+    latencyMs: number | null;
+    reason?: string;
+  }> {
+    const startTime = Date.now();
+    const url = `${CLOUDFLARE_API_BASE_URL}/${this.accountId}/ai/models/search?search=glm`;
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), Math.min(this.timeoutMs, 5000));
+      const res = await this.fetchFn(url, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${this.apiToken}`,
+        },
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      const latencyMs = Date.now() - startTime;
+      if (res.ok) {
+        return {
+          status: "healthy",
+          provider: "cloudflare",
+          model: this.modelName,
+          latencyMs,
+        };
+      }
+
+      const text = await res.text();
+      let errorMsg = text;
+      try {
+        const json = JSON.parse(text) as { errors?: Array<{ message?: string }> };
+        if (Array.isArray(json?.errors) && json.errors[0]?.message) {
+          errorMsg = json.errors[0].message;
+        }
+      } catch {
+        // ignore
+      }
+
+      if (res.status === 401) {
+        return {
+          status: "unhealthy",
+          provider: "cloudflare",
+          model: this.modelName,
+          latencyMs: null,
+          reason: `Cloudflare authentication failed: ${this.sanitize(errorMsg)}`,
+        };
+      }
+
+      if (res.status === 429) {
+        return {
+          status: "degraded",
+          provider: "cloudflare",
+          model: this.modelName,
+          latencyMs: null,
+          reason: `Cloudflare rate limit exceeded: ${this.sanitize(errorMsg)}`,
+        };
+      }
+
+      return {
+        status: "unhealthy",
+        provider: "cloudflare",
+        model: this.modelName,
+        latencyMs: null,
+        reason: `Cloudflare health check returned status ${res.status}: ${this.sanitize(errorMsg)}`,
+      };
+    } catch (err: unknown) {
+      const isTimeout = err instanceof Error && err.name === "AbortError";
+      return {
+        status: "unhealthy",
+        provider: "cloudflare",
+        model: this.modelName,
+        latencyMs: null,
+        reason: isTimeout ? "Cloudflare request timed out" : `Cloudflare connection failed: ${this.sanitize(err instanceof Error ? err.message : String(err))}`,
+      };
+    }
+  }
 }

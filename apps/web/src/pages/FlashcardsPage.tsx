@@ -92,36 +92,61 @@ export function FlashcardsPage() {
 
   // Build clean taxonomy tree filtering out modules and lessons with 0 flashcards while retaining courses with total_cards > 0
   const validCourses = useMemo(() => {
-    if (!summary?.courses) return [];
-    return (summary.courses || [])
-      .map((c: any) => {
+    type RawFlashcardLesson = {
+      lesson_id?: string;
+      id?: string;
+      title?: string;
+      total_cards?: number;
+      itemCount?: number;
+    };
+    type RawFlashcardModule = {
+      module_id?: string;
+      id?: string;
+      title?: string;
+      total_cards?: number;
+      itemCount?: number;
+      lessons?: RawFlashcardLesson[];
+    };
+    type RawFlashcardCourse = {
+      course_id?: string;
+      id?: string;
+      title?: string;
+      total_cards?: number;
+      itemCount?: number;
+      modules?: RawFlashcardModule[];
+    };
+
+    const rawCourses = summary?.courses as RawFlashcardCourse[] | undefined;
+    if (!rawCourses) return [];
+    return rawCourses
+      .map((c: RawFlashcardCourse) => {
         const rawModules = c.modules;
         const validModules = (rawModules || [])
-          .filter((m: any) => (m.total_cards ?? m.itemCount ?? 0) > 0)
-          .map((m: any) => {
+          .filter((m: RawFlashcardModule) => (m.total_cards ?? m.itemCount ?? 0) > 0)
+          .map((m: RawFlashcardModule) => {
             const rawLessons = m.lessons;
             const validLessons = (rawLessons || [])
-              .filter((l: any) => (l.total_cards ?? l.itemCount ?? 0) > 0)
-              .map((l: any) => ({
-                id: l.lesson_id || l.id,
-                title: l.title,
+              .filter((l: RawFlashcardLesson) => (l.total_cards ?? l.itemCount ?? 0) > 0)
+              .map((l: RawFlashcardLesson) => ({
+                id: l.lesson_id || l.id || "",
+                title: l.title || "",
                 itemCount: l.total_cards ?? l.itemCount,
               }));
             return {
-              id: m.module_id || m.id,
-              title: m.title,
+              id: m.module_id || m.id || "",
+              title: m.title || "",
               itemCount: m.total_cards ?? m.itemCount,
               lessons: validLessons,
             };
           });
         return {
-          id: c.course_id || c.id,
-          title: c.title,
+          id: c.course_id || c.id || "",
+          title: c.title || "",
           itemCount: c.total_cards ?? c.itemCount,
           modules: validModules,
         };
       })
-      .filter((c: any) => (c.itemCount ?? 0) > 0);
+      .filter((c: { itemCount?: number }) => (c.itemCount ?? 0) > 0);
   }, [summary?.courses]);
 
   // Compute total available modules across all courses
@@ -248,8 +273,7 @@ export function FlashcardsPage() {
         }
         navigate(`/flashcards/review?${params.toString()}`);
       }
-    } catch (err) {
-      console.error("Failed to create study session, falling back to query review:", err);
+    } catch {
       const params = buildQueryParams();
       if (mode === "exam") {
         params.set("mode", "exam");

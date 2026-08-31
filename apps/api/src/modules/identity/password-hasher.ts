@@ -11,7 +11,7 @@ const SCRYPT_OPTIONS = {
 
 /**
  * Hash a plain-text password using scrypt with a cryptographically secure random salt.
- * Output format: `scrypt$N=16384,r=8,p=1$saltHex$derivedKeyHex`
+ * Output format: scrypt with cost factors, salt hex and derived key hex.
  */
 export async function hashPassword(password: string): Promise<string> {
   const salt = randomBytes(SALT_LEN);

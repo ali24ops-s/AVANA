@@ -42,8 +42,7 @@ export function AdminUsersPage() {
       queryClient.invalidateQueries({ queryKey: ["admin", "users"] });
       setIsModalOpen(false);
     },
-    onError: (err: any) => {
-      console.error(err);
+    onError: () => {
       alert("خطا در بروزرسانی نقش کاربر. لطفاً مجدداً تلاش کنید.");
     }
   });

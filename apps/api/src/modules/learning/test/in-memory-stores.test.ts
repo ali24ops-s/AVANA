@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * PR6-1: In-memory DocumentStore and DocumentChunkStore tests.
  *

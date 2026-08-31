@@ -668,7 +668,7 @@ describe("HomePage Component", () => {
 
   it("Scenario 6: updating progress dynamically alters course rank in hero carousel", async () => {
     let c1Percentage = 20;
-    let c2Percentage = 80;
+    const c2Percentage = 80;
 
     const c1 = { id: "c-1", title: "درس آلفا", created_at: "2026-08-01T00:00:00Z" };
     const c2 = { id: "c-2", title: "درس بتا", created_at: "2026-08-02T00:00:00Z" };
@@ -1179,7 +1179,7 @@ describe("HomePage Component", () => {
   });
 
   it("Upcoming Exams: allows selecting an existing course and registering/updating its exam date via modal", async () => {
-    let patchedPayload: any = null;
+    let patchedPayload: { exam_at?: string | null } | null = null;
 
     vi.spyOn(globalThis, "fetch").mockImplementation((url, init) => {
       const urlStr = String(url);
@@ -1330,7 +1330,7 @@ describe("HomePage Component", () => {
       } as unknown as Response;
     }
 
-    function setupPopularMocks(popularPacks = sample8Packs, myCourses: any[] = []) {
+    function setupPopularMocks(popularPacks = sample8Packs, myCourses: Array<{ id: string }> = []) {
       vi.spyOn(globalThis, "fetch").mockImplementation((url) => {
         const urlStr = String(url);
         if (urlStr.includes("/v1/me")) {

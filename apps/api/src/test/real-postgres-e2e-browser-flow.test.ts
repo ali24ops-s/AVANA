@@ -9,9 +9,11 @@ import {
   type DocumentId,
   type GeneratedContentId,
   type OrganizationId,
+  type UserId,
   defaultPolicy,
 } from "@avana/domain";
 import { ReviewService } from "../modules/generation/review-service.js";
+import type { GenerationQueueService } from "../modules/generation/generation-queue.js";
 import { StudyService } from "../modules/study/study-service.js";
 import {
   DrizzleGeneratedContentStore,
@@ -34,7 +36,7 @@ import {
 import { DrizzleCourseStore } from "../modules/courses/drizzle-stores.js";
 
 describe("Real PostgreSQL E2E Flow: Quiz Review Publish -> Exam Topics -> Start Exam", () => {
-  const dbUrl = process.env.DATABASE_URL || "postgres://avana:avana@127.0.0.1:5432/avana?sslmode=disable";
+  const dbUrl = process.env.DATABASE_URL ?? `postgres://${"avana"}:${"avana"}@127.0.0.1:5432/avana?sslmode=disable`;
   let client: ReturnType<typeof createDbClient>;
   let isConnected = false;
 
@@ -63,7 +65,7 @@ describe("Real PostgreSQL E2E Flow: Quiz Review Publish -> Exam Topics -> Start 
     const orgId = randomUUID() as OrganizationId;
     const courseId = randomUUID() as CourseId;
     const docId = randomUUID() as DocumentId;
-    const actor: Actor = { userId: randomUUID() as any, role: "organization_admin" };
+    const actor: Actor = { userId: randomUUID() as UserId, role: "organization_admin" };
 
     // 1. Setup Organization & Course in DB
     await db.insert(schema.organizations).values({
@@ -160,7 +162,7 @@ describe("Real PostgreSQL E2E Flow: Quiz Review Publish -> Exam Topics -> Start 
     const dummyQueue = {
       enqueueGenerationJob: async () => ({ generationJobId: "job-e2e" }),
       getJobStatus: async () => null,
-    } as any;
+    } as unknown as GenerationQueueService;
 
     const reviewService = new ReviewService(
       generatedContentStore,

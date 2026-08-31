@@ -52,6 +52,7 @@ import type {
   QuizAttemptId,
   OrganizationId,
   UserId,
+  DocumentId,
 } from "@avana/domain";
 
 function makeTestConfig() {
@@ -241,7 +242,7 @@ describe("IDOR & Authorization Real Security Verification", () => {
       id: flashcardBId,
       organizationId: orgBId,
       courseId: courseBId,
-      documentId: randomUUID() as any,
+      documentId: randomUUID() as DocumentId,
       generatedContentId: null,
       lessonId: null,
       question: "User B Question?",
@@ -262,7 +263,7 @@ describe("IDOR & Authorization Real Security Verification", () => {
       id: quizBId,
       organizationId: orgBId,
       courseId: courseBId,
-      documentId: randomUUID() as any,
+      documentId: randomUUID() as DocumentId,
       title: "Quiz B Secret Exam",
       status: "published",
       createdAt: new Date().toISOString(),

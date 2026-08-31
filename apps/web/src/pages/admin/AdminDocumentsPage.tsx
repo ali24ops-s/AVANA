@@ -38,8 +38,8 @@ export function AdminDocumentsPage() {
           setTotalCount(res.totalCount);
           setError(null);
         }
-      } catch (err: any) {
-        if (active) setError(err.message || "خطا در دریافت فایل‌ها");
+      } catch (err: unknown) {
+        if (active) setError(err instanceof Error ? err.message : "خطا در دریافت فایل‌ها");
       } finally {
         if (active) setLoading(false);
       }

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import { randomUUID } from "node:crypto";
 import { createApp } from "../server/createApp.js";
@@ -29,9 +28,6 @@ import {
   InMemoryQuizStore,
   InMemoryQuizQuestionStore,
   InMemoryQuizAttemptStore,
-  InMemoryAssistantConversationStore,
-  InMemoryStudySessionStore,
-  InMemoryFlashcardStudySessionStore,
 } from "../modules/study/test/in-memory-stores.js";
 import {
   InMemoryContentPackStore,
@@ -661,7 +657,7 @@ describe("Content Pack Concurrency, Lifecycle & Hardening Test Suite", () => {
     const pack = await contentPackStore.findById(packId);
     expect(pack).toBeDefined();
     pack.creatorUserId = null;
-    (contentPackStore as any).packs.set(pack.id, { ...pack });
+    (contentPackStore as unknown as { packs: Map<string, typeof pack> }).packs.set(pack.id, { ...pack });
 
     // Public Library detail endpoint still works cleanly and defaults creator name
     const detailRes = await app.inject({
@@ -695,7 +691,7 @@ describe("Content Pack Concurrency, Lifecycle & Hardening Test Suite", () => {
   it("Scenario 6: Creator deleting source document or regenerating drafts leaves Library snapshot 100% intact", async () => {
     const app = await buildTestApp();
     const creator = await setupUserAndOrg(app, "استاد رضایی", "زیست ۱");
-    const { docId, lesson, flashcard, quiz, reviewSummary } = await seedAcceptedDocumentAndAllContents(creator.userId, creator.orgId, creator.courseId);
+    const { docId, lesson, flashcard } = await seedAcceptedDocumentAndAllContents(creator.userId, creator.orgId, creator.courseId);
 
     const pubRes = await app.inject({
       method: "POST",

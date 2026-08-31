@@ -57,14 +57,20 @@ export function makeAuthMiddleware(deps: AuthMiddlewareDeps) {
       throw new DomainError("unauthorized", "Not signed in");
     }
 
+    const effectiveRole =
+      userRecord.globalRole === "platform_admin" || userRecord.role === "platform_admin"
+        ? "platform_admin"
+        : userRecord.role;
+
     // Attach authenticated user to request for downstream handlers
     const reqAny = request as unknown as {
-      user?: { userId: string; email: string; role: string };
+      user?: { userId: string; email: string; role: string; globalRole?: string | null };
     };
     reqAny.user = {
       userId: userRecord.id,
       email: userRecord.email,
-      role: userRecord.role,
+      role: effectiveRole,
+      globalRole: userRecord.globalRole,
     };
   }
 
@@ -78,14 +84,18 @@ export function makeAuthMiddleware(deps: AuthMiddlewareDeps) {
       _reply: FastifyReply,
     ): Promise<void> {
       const reqAny = request as unknown as {
-        user?: { userId: string; email: string; role: string };
+        user?: { userId: string; email: string; role: string; globalRole?: string | null };
       };
 
       if (!reqAny.user) {
         throw new DomainError("unauthorized", "Not signed in");
       }
 
-      if (reqAny.user.role !== requiredRole) {
+      if (
+        reqAny.user.role !== requiredRole &&
+        reqAny.user.globalRole !== "platform_admin" &&
+        reqAny.user.role !== "platform_admin"
+      ) {
         throw new DomainError("forbidden", "Access denied. Insufficient permissions.");
       }
     };

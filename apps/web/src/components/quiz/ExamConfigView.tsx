@@ -17,12 +17,43 @@ export interface ExamConfigViewProps {
   organizationId: string;
   onStartExam: (data: {
     attemptId: string;
-    questions: any[];
+    questions: Array<Record<string, unknown>>;
     topics: string[];
     difficulty: string;
     requestedCount: number;
   }) => void;
 }
+
+type RawLessonItem = {
+  id?: string;
+  lessonId?: string;
+  title?: string;
+  lessonTitle?: string;
+  questionCount?: number;
+  itemCount?: number;
+};
+
+type RawModuleItem = {
+  id?: string;
+  moduleId?: string;
+  title?: string;
+  moduleTitle?: string;
+  questionCount?: number;
+  itemCount?: number;
+  lessons?: RawLessonItem[];
+  chapters?: RawLessonItem[];
+};
+
+type RawCourseItem = {
+  id?: string;
+  courseId?: string;
+  title?: string;
+  courseTitle?: string;
+  questionCount?: number;
+  itemCount?: number;
+  modules?: RawModuleItem[];
+  chapters?: RawModuleItem[];
+};
 
 export function ExamConfigView({ organizationId, onStartExam }: ExamConfigViewProps) {
   const apiClient = createApiClient({ baseUrl: getApiBaseUrl() });
@@ -45,46 +76,46 @@ export function ExamConfigView({ organizationId, onStartExam }: ExamConfigViewPr
 
   // Map API response to 3-Level TaxonomyCourse format (Course -> Module -> Lesson)
   const taxonomyCourses: TaxonomyCourse[] = useMemo(() => {
-    const rawList = topicsQuery.data?.courses || topicsQuery.data?.sections;
+    const rawList = (topicsQuery.data?.courses || topicsQuery.data?.sections) as RawCourseItem[] | undefined;
     if (!rawList) return [];
     return rawList
-      .map((c: any) => {
+      .map((c: RawCourseItem) => {
         const rawModules = c.modules || c.chapters;
         const validModules = (rawModules || [])
           .filter(
-            (m: any) =>
+            (m: RawModuleItem) =>
               (m.questionCount ?? m.itemCount ?? 0) > 0 &&
               m.moduleId !== "mod-unassigned" &&
               m.id !== "mod-unassigned" &&
               m.moduleTitle !== "سایر سرفصل‌ها" &&
               m.title !== "سایر سرفصل‌ها",
           )
-          .map((m: any) => {
+          .map((m: RawModuleItem) => {
             const rawLessons = m.lessons;
             const validLessons = (rawLessons || [])
-              .filter((l: any) => (l.questionCount ?? l.itemCount ?? 0) > 0)
-              .map((l: any) => ({
-                id: l.lessonId || l.id,
-                title: l.lessonTitle || l.title,
+              .filter((l: RawLessonItem) => (l.questionCount ?? l.itemCount ?? 0) > 0)
+              .map((l: RawLessonItem) => ({
+                id: l.lessonId || l.id || "",
+                title: l.lessonTitle || l.title || "",
                 itemCount: l.questionCount ?? l.itemCount,
               }));
 
             return {
-              id: m.moduleId || m.id,
-              title: m.moduleTitle || m.title,
+              id: m.moduleId || m.id || "",
+              title: m.moduleTitle || m.title || "",
               itemCount: m.questionCount ?? m.itemCount,
               lessons: validLessons.length > 0 ? validLessons : undefined,
             };
           });
         return {
-          id: c.courseId || c.id,
-          title: c.courseTitle || c.title,
+          id: c.courseId || c.id || "",
+          title: c.courseTitle || c.title || "",
           itemCount: c.questionCount ?? c.itemCount,
           modules: validModules,
           hasRawModules: Array.isArray(rawModules) && rawModules.length > 0,
         };
       })
-      .filter((c: any) => {
+      .filter((c: { id: string; title: string; modules: unknown[]; hasRawModules: boolean; itemCount?: number }) => {
         if (c.id === "course-unassigned") return false;
         if (
           c.title === "سایر مباحث آموزشی" ||
@@ -164,9 +195,10 @@ export function ExamConfigView({ organizationId, onStartExam }: ExamConfigViewPr
         difficulty: res.difficulty,
         requestedCount: res.requestedCount,
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : undefined;
       setErrorMsg(
-        err?.message ||
+        msg ||
           `امکان شروع آزمون وجود ندارد. لطفاً تعداد سؤال کمتر یا سرفصل‌های دیگری را انتخاب کنید.`,
       );
     } finally {

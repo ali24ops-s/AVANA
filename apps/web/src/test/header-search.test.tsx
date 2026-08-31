@@ -1,8 +1,7 @@
-// @ts-nocheck
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor, cleanup, act } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter, useNavigate } from "react-router-dom";
+import { MemoryRouter } from "react-router-dom";
 import { HeaderSearch } from "../components/shell/HeaderSearch.js";
 import * as searchApiModule from "../lib/api/search.js";
 

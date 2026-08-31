@@ -160,7 +160,7 @@ export function FlashcardExperience({
       const session = sessionQuery.data.session;
       const initialIdx = Number(
         session.current_index ??
-        (session as any).currentIndex ??
+        (session as { currentIndex?: number }).currentIndex ??
         0,
       );
       
@@ -170,7 +170,7 @@ export function FlashcardExperience({
       if (allSessionCards.length > 0 && sessionCards) {
         let validBefore = 0;
         for (let i = 0; i < Math.min(initialIdx, allSessionCards.length); i++) {
-          if (allSessionCards[i].flashcard_id && sessionCards.some((c: any) => c.id === allSessionCards[i].flashcard_id)) {
+          if (allSessionCards[i].flashcard_id && sessionCards.some((c: FlashcardResource) => c.id === allSessionCards[i].flashcard_id)) {
             validBefore++;
           }
         }
@@ -183,7 +183,7 @@ export function FlashcardExperience({
         .map((sc) => ({
           cardId: sc.flashcard_id!,
           rating: (sc.rating as FlashcardRating) || "good",
-          reactionMs: (sc as any).reaction_ms ?? (sc as any).reactionMs ?? 0,
+          reactionMs: (sc as { reaction_ms?: number; reactionMs?: number }).reaction_ms ?? (sc as { reaction_ms?: number; reactionMs?: number }).reactionMs ?? 0,
         }));
 
       setResults(initialResults);
@@ -215,7 +215,7 @@ export function FlashcardExperience({
         if (allSessionCards && allSessionCards.length > 0 && sessionCards) {
           const nextCard = dueCards[vars.newIndex];
           if (nextCard) {
-            const foundIdx = allSessionCards.findIndex((sc: any) => sc.flashcard_id === nextCard.id);
+            const foundIdx = allSessionCards.findIndex((sc: { flashcard_id?: string | null }) => sc.flashcard_id === nextCard.id);
             if (foundIdx !== -1) {
               dbCurrentIndex = foundIdx;
             }
@@ -564,12 +564,6 @@ export function FlashcardExperience({
 
   // Error state
   if (isDataError) {
-    console.error("[FLASHCARD_RESUME_DEBUG]", {
-      sessionId,
-      organizationId,
-      sessionQueryError: sessionQuery.error,
-      queueQueryError: queueQuery.error,
-    });
     return (
       <div className="max-w-md mx-auto my-16 p-8 glass-panel rounded-3xl border border-[#94a3b8]/20 text-center space-y-5 shadow-2xl">
         <AlertCircle className="w-12 h-12 text-red-400 mx-auto" />

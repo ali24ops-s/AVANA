@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
-import type { IdentityAdapter } from "@avana/domain";
+import type { IdentityAdapter, UserId, Actor } from "@avana/domain";
 import { DomainError, resolveEffectiveRole, type Role } from "@avana/domain";
 import type { SessionService } from "./session-service.js";
 import type { UserStore } from "./user-store.js";
@@ -124,14 +124,14 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
     if (!emailVerificationStore) return;
 
     // Invalidate existing active codes for user
-    await emailVerificationStore.invalidateAllForUser(userId as any);
+    await emailVerificationStore.invalidateAllForUser(userId as UserId);
 
     const code = generateVerificationCode();
     const codeHash = hashVerificationCode(code);
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString(); // 10 minutes
 
     await emailVerificationStore.createCode({
-      userId: userId as any,
+      userId: userId as UserId,
       codeHash,
       expiresAt,
     });
@@ -142,7 +142,7 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
       try {
         await emailService.sendVerificationCode(email, code);
       } catch (err) {
-        await emailVerificationStore.invalidateAllForUser(userId as any);
+        await emailVerificationStore.invalidateAllForUser(userId as UserId);
         app.log.error(
           { err: err instanceof Error ? err.message : String(err) },
           "Failed to send verification email",
@@ -184,9 +184,7 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
     );
 
     const membershipRoles = memberships.map((m) => m.role as Role);
-    const effectiveRole = membershipRoles.length > 0
-      ? resolveEffectiveRole(membershipRoles)
-      : (userRecord.role as Role || "student");
+    const effectiveRole = resolveEffectiveRole(userRecord.role, membershipRoles);
 
     return {
       request_id: request.id,
@@ -276,7 +274,7 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
 
     if (organizationStore) {
       const orgService = new OrganizationService(organizationStore);
-      const actor = { userId: userRecord.id as any, role: userRecord.role as any };
+      const actor: Actor = { userId: userRecord.id, role: resolveEffectiveRole(userRecord.role) };
       const orgName = body.name ? `فضای یادگیری ${body.name}` : "فضای یادگیری آوانا";
       try {
         await orgService.createOrganization(actor, orgName);
@@ -356,17 +354,24 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
 
     if (password) {
       if (!userRecord && opts.identityAdapter) {
-        // First login via adapter / test double with password
-        const identity = await opts.identityAdapter.verifyIdentity({
-          email,
-          name: body.name,
-        });
-        const hashedPassword = await hashPassword(password);
-        userRecord = await userStore.createUserWithPassword({
-          email: identity.email,
-          passwordHash: hashedPassword,
-          name: identity.name,
-        });
+        try {
+          const identity = await opts.identityAdapter.verifyIdentity({
+            email,
+            name: body.name,
+          });
+          const hashedPassword = await hashPassword(password);
+          userRecord = await userStore.createUserWithPassword({
+            email: identity.email,
+            passwordHash: hashedPassword,
+            name: identity.name,
+          });
+        } catch {
+          recordFailedAttempt(request);
+          throw new DomainError(
+            "unauthorized",
+            "ایمیل یا رمز عبور نادرست است.",
+          );
+        }
       } else if (!userRecord) {
         recordFailedAttempt(request);
         throw new DomainError(
@@ -414,9 +419,7 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
     );
 
     const membershipRoles = memberships.map((m) => m.role as Role);
-    const effectiveRole = membershipRoles.length > 0
-      ? resolveEffectiveRole(membershipRoles)
-      : (userRecord.role as Role || "student");
+    const effectiveRole = resolveEffectiveRole(userRecord.role, membershipRoles);
 
     return {
       request_id: request.id,
@@ -510,9 +513,7 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
     const memberships = await resolveMemberships(organizationStore, userId);
 
     const membershipRoles = memberships.map((m) => m.role as Role);
-    const effectiveRole = membershipRoles.length > 0
-      ? resolveEffectiveRole(membershipRoles)
-      : (userRecord!.role as Role || "student");
+    const effectiveRole = resolveEffectiveRole(userRecord!.role, membershipRoles);
 
     return {
       request_id: request.id,
@@ -571,7 +572,7 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
     resendCooldowns.set(rateKey, now + RESEND_COOLDOWN_MS);
 
     if (targetUserId && targetEmail) {
-      const userRec = await userStore.findById(targetUserId as any);
+      const userRec = await userStore.findById(targetUserId as UserId);
       if (userRec && !userRec.emailVerifiedAt && !userRec.emailVerified) {
         await issueVerificationChallenge(targetUserId, targetEmail);
       }

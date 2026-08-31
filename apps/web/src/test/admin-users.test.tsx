@@ -143,9 +143,9 @@ function setupMockFetch(options: {
   });
 }
 
-class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasError: boolean, error: any}> {
-  constructor(props: any) { super(props); this.state = { hasError: false, error: null }; }
-  static getDerivedStateFromError(error: any) { return { hasError: true, error }; }
+class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasError: boolean, error: Error | null}> {
+  constructor(props: {children: React.ReactNode}) { super(props); this.state = { hasError: false, error: null }; }
+  static getDerivedStateFromError(error: Error) { return { hasError: true, error }; }
   render() { if (this.state.hasError) return <div data-testid="error-boundary">{String(this.state.error)}</div>; return this.props.children; }
 }
 
@@ -341,7 +341,7 @@ describe("Admin Users Management — Phase 4", () => {
           id: "student-1",
           email: "student@avana.test",
           name: "Student",
-          role: "student" as any,
+          role: "student",
         },
       })
     );

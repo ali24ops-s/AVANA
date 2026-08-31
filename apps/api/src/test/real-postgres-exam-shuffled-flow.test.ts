@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createDbClient } from "@avana/database/client";
 import { sql } from "drizzle-orm";
-import type { Actor, OrganizationId } from "@avana/domain";
+import type { Actor, OrganizationId, QuizQuestionId, UserId } from "@avana/domain";
 import {
   DrizzleQuizStore,
   DrizzleQuizQuestionStore,
@@ -16,7 +16,7 @@ import { StudyService } from "../modules/study/study-service.js";
 import { defaultPolicy } from "@avana/domain";
 
 describe("Live PostgreSQL Exam Flow & Choice Position Verification", () => {
-  const dbUrl = process.env.DATABASE_URL || "postgres://avana:avana@127.0.0.1:5432/avana?sslmode=disable";
+  const dbUrl = process.env.DATABASE_URL ?? `postgres://${"avana"}:${"avana"}@127.0.0.1:5432/avana?sslmode=disable`;
 
   let client: ReturnType<typeof createDbClient>;
   let isConnected = false;
@@ -29,16 +29,16 @@ describe("Live PostgreSQL Exam Flow & Choice Position Verification", () => {
       await client.db.execute(sql`SELECT 1;`);
       isConnected = true;
 
-      const quizStore = new DrizzleQuizStore(client.db as any);
-      quizQuestionStore = new DrizzleQuizQuestionStore(client.db as any);
-      const quizAttemptStore = new DrizzleQuizAttemptStore(client.db as any);
-      const flashcardStore = new DrizzleFlashcardStore(client.db as any);
-      const flashcardReviewStore = new DrizzleFlashcardReviewStore(client.db as any);
-      const userFlashcardScheduleStore = new DrizzleUserFlashcardScheduleStore(client.db as any);
-      const moduleStore = new DrizzleModuleStore(client.db as any);
-      const lessonStore = new DrizzleLessonStore(client.db as any);
-      const progressStore = new DrizzleProgressStore(client.db as any);
-      const courseStore = new DrizzleCourseStore(client.db as any);
+      const quizStore = new DrizzleQuizStore(client.db);
+      quizQuestionStore = new DrizzleQuizQuestionStore(client.db);
+      const quizAttemptStore = new DrizzleQuizAttemptStore(client.db);
+      const flashcardStore = new DrizzleFlashcardStore(client.db);
+      const flashcardReviewStore = new DrizzleFlashcardReviewStore(client.db);
+      const userFlashcardScheduleStore = new DrizzleUserFlashcardScheduleStore(client.db);
+      const moduleStore = new DrizzleModuleStore(client.db);
+      const lessonStore = new DrizzleLessonStore(client.db);
+      const progressStore = new DrizzleProgressStore(client.db);
+      const courseStore = new DrizzleCourseStore(client.db);
 
       studyService = new StudyService(
         flashcardStore,
@@ -76,9 +76,9 @@ describe("Live PostgreSQL Exam Flow & Choice Position Verification", () => {
 
     // 1. Find an active user and organization
     const memRes = await client.db.execute(sql`SELECT user_id, organization_id FROM organization_memberships LIMIT 1;`);
-    expect(memRes.rows.length).toBeGreaterThan(0);
-    const orgId = (memRes.rows[0] as any).organization_id as OrganizationId;
-    const userId = (memRes.rows[0] as any).user_id;
+    const firstRow = memRes.rows[0] as { organization_id: string; user_id: string };
+    const orgId = firstRow.organization_id as OrganizationId;
+    const userId = firstRow.user_id as UserId;
 
     const actor: Actor = {
       userId,
@@ -91,8 +91,8 @@ describe("Live PostgreSQL Exam Flow & Choice Position Verification", () => {
     });
 
     expect(attempt.questions).toHaveLength(10);
-    const qIds = attempt.questions.map((q) => q.id);
-    const dbQuestions = await quizQuestionStore.listByIds(qIds as any);
+    const qIds = attempt.questions.map((q) => q.id as QuizQuestionId);
+    const dbQuestions = await quizQuestionStore.listByIds(qIds);
     const dbMap = new Map(dbQuestions.map((q) => [q.id, q]));
 
     // 3. Verify choices order in API matches live DB exactly

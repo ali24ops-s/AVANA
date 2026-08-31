@@ -112,15 +112,20 @@ export function createApp({
   app.setErrorHandler(
     (err: Error, request: FastifyRequest, reply: FastifyReply) => {
       // Handle rate limit error objects or DomainErrors
+      type CustomErrorShape = Error & {
+        code?: string;
+        error?: { code?: string; message?: string };
+      };
+      const customErr = err as CustomErrorShape;
       const rawCode =
         typeof err === "object" && err !== null
-          ? (err as any).code || (err as any).error?.code
+          ? customErr.code || customErr.error?.code
           : undefined;
 
       if (rawCode === "too_many_requests" || rawCode === "rate_limit_exceeded") {
         const message =
-          (err as any).message ||
-          (err as any).error?.message ||
+          customErr.message ||
+          customErr.error?.message ||
           "تعداد درخواست‌های بیش از حد مجاز. لطفاً یک دقیقه دیگر دوباره تلاش کنید.";
         writeErrorEnvelope(reply, request, rawCode, message, 429);
         return;

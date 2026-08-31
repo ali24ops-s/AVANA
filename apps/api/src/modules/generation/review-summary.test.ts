@@ -123,7 +123,7 @@ describe("Review Summary Generation («خلاصه مروری»)", () => {
     expect(promptDef?.variables).toContain("chunkContext");
   });
 
-  it("buildReviewSummaryUserPrompt builds structured high-density prompt with Persian instructions", () => {
+  it("builds review summary user prompt with Persian instructions", () => {
     const prompt = buildReviewSummaryUserPrompt({
       docName: "فارماکولوژی قلب.pdf",
       targetReadingMinutes: 12,

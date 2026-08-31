@@ -84,24 +84,26 @@ export class InMemoryUserStore implements UserStore {
     this.organizationStore = orgStore;
   }
 
-  private async resolveRole(userId: UserId, fallbackRole: string): Promise<string> {
+  private async resolveRole(userId: UserId, globalRoleOrFallbackRole: string | null | undefined): Promise<string> {
     if (this.organizationStore) {
       const memberships = await this.organizationStore.listMembershipsByUserId(userId);
       if (memberships.length > 0) {
         const roles = memberships.map((m) => m.role);
-        return resolveEffectiveRole([...roles as any[], fallbackRole]);
+        return resolveEffectiveRole(globalRoleOrFallbackRole, roles);
       }
     }
-    return fallbackRole;
+    return resolveEffectiveRole(globalRoleOrFallbackRole, []);
   }
 
   async findByEmail(email: string): Promise<UserRecord | undefined> {
     const norm = email.trim().toLowerCase();
     for (const user of this.users.values()) {
       if (user.email.trim().toLowerCase() === norm) {
-        const { passwordHash: _, ...rest } = user;
-        const role = await this.resolveRole(user.id, rest.role);
-        return { ...rest, role };
+        const userCopy = { ...user };
+        delete userCopy.passwordHash;
+        const globalRole = user.globalRole === "platform_admin" || user.role === "platform_admin" ? "platform_admin" : (user.globalRole ?? null);
+        const role = await this.resolveRole(user.id, globalRole);
+        return { ...userCopy, role, globalRole };
       }
     }
     return undefined;
@@ -113,8 +115,9 @@ export class InMemoryUserStore implements UserStore {
     const norm = email.trim().toLowerCase();
     for (const user of this.users.values()) {
       if (user.email.trim().toLowerCase() === norm) {
-        const role = await this.resolveRole(user.id, user.role);
-        return { ...user, role };
+        const globalRole = user.globalRole === "platform_admin" || user.role === "platform_admin" ? "platform_admin" : (user.globalRole ?? null);
+        const role = await this.resolveRole(user.id, globalRole);
+        return { ...user, role, globalRole };
       }
     }
     return undefined;
@@ -123,9 +126,11 @@ export class InMemoryUserStore implements UserStore {
   async findById(id: UserId): Promise<UserRecord | undefined> {
     const user = this.users.get(id);
     if (!user) return undefined;
-    const { passwordHash: _, ...rest } = user;
-    const role = await this.resolveRole(user.id, rest.role);
-    return { ...rest, role };
+    const userCopy = { ...user };
+    delete userCopy.passwordHash;
+    const globalRole = user.globalRole === "platform_admin" || user.role === "platform_admin" ? "platform_admin" : (user.globalRole ?? null);
+    const role = await this.resolveRole(user.id, globalRole);
+    return { ...userCopy, role, globalRole };
   }
 
   async createFromVerifiedIdentity(identity: {
@@ -141,6 +146,7 @@ export class InMemoryUserStore implements UserStore {
       email: normEmail,
       name: identity.name,
       role: "student",
+      globalRole: null,
       emailVerifiedAt: new Date().toISOString(),
       emailVerified: true,
     };
@@ -152,14 +158,18 @@ export class InMemoryUserStore implements UserStore {
     email: string;
     passwordHash: string;
     name?: string;
+    globalRole?: string | null;
   }): Promise<UserRecord> {
     const id = randomUUID() as UserId;
     const normEmail = params.email.trim().toLowerCase();
+    const globalRole = params.globalRole ?? null;
+    const role = resolveEffectiveRole(globalRole, []);
     const userWithHash = {
       id,
       email: normEmail,
       name: params.name,
-      role: "student",
+      role,
+      globalRole,
       passwordHash: params.passwordHash,
       emailVerifiedAt: null,
       emailVerified: false,
@@ -169,7 +179,8 @@ export class InMemoryUserStore implements UserStore {
       id,
       email: normEmail,
       name: params.name,
-      role: "student",
+      role,
+      globalRole,
       emailVerifiedAt: null,
       emailVerified: false,
     };
@@ -191,7 +202,8 @@ export class InMemoryUserStore implements UserStore {
   /** Directly insert a user record (used for seeding editor/admin roles in tests). */
   insert(record: UserRecord & { passwordHash?: string | null }): void {
     const emailVerified = record.emailVerified ?? (record.emailVerifiedAt != null);
-    this.users.set(record.id, { ...record, emailVerified });
+    const globalRole = record.globalRole !== undefined ? record.globalRole : (record.role === "platform_admin" ? "platform_admin" : null);
+    this.users.set(record.id, { ...record, globalRole, emailVerified });
   }
 }
 

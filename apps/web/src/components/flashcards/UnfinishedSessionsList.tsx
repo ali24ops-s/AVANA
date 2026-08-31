@@ -53,10 +53,7 @@ export const UnfinishedSessionsList: React.FC<UnfinishedSessionsListProps> = ({
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["flashcard-sessions", organizationId],
-    queryFn: () => {
-      console.log("[UnfinishedSessionsList] FETCH organizationId:", organizationId);
-      return studyApi.getActiveFlashcardStudySessions(organizationId);
-    },
+    queryFn: () => studyApi.getActiveFlashcardStudySessions(organizationId),
     enabled: Boolean(organizationId),
     staleTime: 0,
     refetchOnMount: "always",
@@ -74,13 +71,6 @@ export const UnfinishedSessionsList: React.FC<UnfinishedSessionsListProps> = ({
   });
 
   const sessions = (data?.sessions || []) as FlashcardStudySessionSummary[];
-  
-  console.log("[UnfinishedSessionsList] MOUNT/RENDER", { 
-    organizationId, 
-    isLoading, 
-    sessionsCount: sessions.length,
-    sessions: sessions.map(s => ({ id: s.id, title: s.title, status: s.status, completed: s.completed_cards, total: s.total_cards }))
-  });
 
   return (
     <section
@@ -180,17 +170,24 @@ export const UnfinishedSessionsList: React.FC<UnfinishedSessionsListProps> = ({
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
         {sessions.map((session) => {
+          type SessionCamelCase = {
+            totalCards?: number;
+            completedCards?: number;
+            lastActivityAt?: string;
+            startedAt?: string;
+          };
+          const sAlt = session as unknown as SessionCamelCase;
           const totalCards = Number(
-            session.total_cards ?? (session as any).totalCards ?? 0,
+            session.total_cards ?? sAlt.totalCards ?? 0,
           );
           const completedCards = Number(
-            session.completed_cards ?? (session as any).completedCards ?? 0,
+            session.completed_cards ?? sAlt.completedCards ?? 0,
           );
           const lastActivityAt =
             session.last_activity_at ??
-            (session as any).lastActivityAt ??
+            sAlt.lastActivityAt ??
             session.started_at ??
-            (session as any).startedAt ??
+            sAlt.startedAt ??
             new Date().toISOString();
 
           const progressPercent =

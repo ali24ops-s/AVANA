@@ -15,8 +15,8 @@ export function AdminSystemHealthPage() {
       const res = await api.get<AdminSystemHealth>("/admin/system/health");
       setHealth(res);
       setError(null);
-    } catch (err: any) {
-      setError(err.message || "خطا در بررسی سلامت سیستم");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "خطا در بررسی سلامت سیستم");
     } finally {
       setLoading(false);
       setRefreshing(false);

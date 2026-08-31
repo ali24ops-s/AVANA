@@ -24,7 +24,7 @@ import {
 import { LocalStorageProvider } from "../modules/storage/index.js";
 import { InMemoryAuditStore } from "../observability/test/in-memory-stores.js";
 import { AuditService } from "../observability/audit-service.js";
-import { InMemoryAdminStore } from "../modules/admin/index.js";
+import { InMemoryAdminStore, type AdminDocumentRecord } from "../modules/admin/index.js";
 import { Roles } from "@avana/domain";
 import os from "node:os";
 import path from "node:path";
@@ -79,7 +79,7 @@ describe("Platform Admin Authorization Regression Tests", () => {
           mimeType: doc.mimeType,
           sizeBytes: doc.sizeBytes,
           createdAt: doc.createdAt,
-        } as any;
+        } as unknown as AdminDocumentRecord;
       }
     })();
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "avana-test-reg-"));
@@ -104,7 +104,7 @@ describe("Platform Admin Authorization Regression Tests", () => {
   }
 
   async function createAuthenticatedUser(
-    app: any,
+    app: Awaited<ReturnType<typeof buildApp>>,
     email: string,
     role: "student" | "teacher" | "platform_admin",
   ) {
@@ -114,10 +114,10 @@ describe("Platform Admin Authorization Regression Tests", () => {
       payload: { email, password: "Password123!" },
     });
     const token = extractSessionToken(regRes);
-    const user = (regRes.json() as any).user;
+    const user = (regRes.json() as { user: { id: string } }).user;
 
     // Set role in user store
-    const userRec = (userStore as any).users.get(user.id);
+    const userRec = (userStore as unknown as { users: Map<string, { role: string }> }).users.get(user.id);
     if (userRec) {
       userRec.role = role;
     }
@@ -140,7 +140,7 @@ describe("Platform Admin Authorization Regression Tests", () => {
       payload: { name: "Test Org" },
     });
     expect(orgRes.statusCode).toBe(201);
-    const org = (orgRes.json() as any).organization;
+    const org = (orgRes.json() as { organization: { id: string } }).organization;
 
     // Update org membership to platform_admin
     const membership = await orgStore.findMembership(org.id, adminId);
@@ -156,7 +156,7 @@ describe("Platform Admin Authorization Regression Tests", () => {
       payload: { title: "Pharmacology 101", subject: "Pharma", exam_at: null },
     });
     expect(courseRes.statusCode).toBe(201);
-    const course = (courseRes.json() as any).course;
+    const course = (courseRes.json() as { course: { id: string } }).course;
 
     // --- SCENARIO 1: course:read for platform_admin ---
     const listCoursesRes = await app.inject({
@@ -165,7 +165,7 @@ describe("Platform Admin Authorization Regression Tests", () => {
       cookies: { avana_session: adminToken },
     });
     expect(listCoursesRes.statusCode).toBe(200);
-    const coursesList = (listCoursesRes.json() as any).items;
+    const coursesList = (listCoursesRes.json() as { items: Array<{ id: string }> }).items;
     expect(coursesList).toHaveLength(1);
     expect(coursesList[0].id).toBe(course.id);
 
@@ -175,7 +175,7 @@ describe("Platform Admin Authorization Regression Tests", () => {
       cookies: { avana_session: adminToken },
     });
     expect(getCourseRes.statusCode).toBe(200);
-    expect((getCourseRes.json() as any).course.id).toBe(course.id);
+    expect((getCourseRes.json() as { course: { id: string } }).course.id).toBe(course.id);
 
     // --- SCENARIO 2: document:read for platform_admin ---
     const listDocsRes = await app.inject({
@@ -184,7 +184,7 @@ describe("Platform Admin Authorization Regression Tests", () => {
       cookies: { avana_session: adminToken },
     });
     expect(listDocsRes.statusCode).toBe(200);
-    expect((listDocsRes.json() as any).items).toBeDefined();
+    expect((listDocsRes.json() as { items: unknown[] }).items).toBeDefined();
 
     // --- SCENARIO 3: Admin operations for platform_admin ---
     const adminDashboardRes = await app.inject({
@@ -218,7 +218,7 @@ describe("Platform Admin Authorization Regression Tests", () => {
       payload: { name: "Student Org" },
     });
     expect(orgRes.statusCode).toBe(201);
-    const org = (orgRes.json() as any).organization;
+    const org = (orgRes.json() as { organization: { id: string } }).organization;
 
     // Course:read => ALLOW
     const coursesRes = await app.inject({
@@ -285,7 +285,7 @@ describe("Platform Admin Authorization Regression Tests", () => {
       cookies: { avana_session: studentToken },
       payload: { name: "Student Org" },
     });
-    const org = (orgRes.json() as any).organization;
+    const org = (orgRes.json() as { organization: { id: string } }).organization;
 
     // Student uploads document
     await app.inject({
@@ -312,7 +312,7 @@ describe("Platform Admin Authorization Regression Tests", () => {
       payload: body,
     });
     
-    const doc = createDocRes.json() as any;
+    const doc = createDocRes.json() as { document?: { id: string }; id?: string };
     const docId = doc.document?.id || doc.id;
 
     // 1. Platform Admin Download -> 200

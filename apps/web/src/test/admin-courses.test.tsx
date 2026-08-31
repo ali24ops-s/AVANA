@@ -36,18 +36,18 @@ const mockCourses = [
 ];
 
 describe("AdminCoursesPage", () => {
-  let mockListCourses: any;
-  let mockUpdateCourseMetadata: any;
+  let mockListCourses: ReturnType<typeof vi.fn>;
+  let mockUpdateCourseMetadata: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     queryClient.clear();
     mockListCourses = vi.fn().mockResolvedValue({ courses: mockCourses, totalCount: 2 });
     mockUpdateCourseMetadata = vi.fn().mockResolvedValue({ success: true });
 
-    (useAdmin as any).mockReturnValue({
+    vi.mocked(useAdmin).mockReturnValue({
       listCourses: mockListCourses,
       updateCourseMetadata: mockUpdateCourseMetadata,
-    });
+    } as unknown as ReturnType<typeof useAdmin>);
   });
 
   afterEach(() => {

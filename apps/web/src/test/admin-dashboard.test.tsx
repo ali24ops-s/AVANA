@@ -367,7 +367,7 @@ describe("Admin Dashboard — Phase 3", () => {
           id: "student-1",
           email: "student@avana.test",
           name: "Student",
-          role: "student" as any,
+          role: "student",
         },
       })
     );

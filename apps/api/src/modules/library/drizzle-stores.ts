@@ -29,6 +29,7 @@ import {
   type ContentPackMetadata,
   type ContentPackRecord,
   type ContentPackStatus,
+  type ContentPackUsageId,
   type ContentPackUsageRecord,
   type CourseId,
   type DocumentId,
@@ -166,10 +167,12 @@ export class DrizzleContentPackStore implements ContentPackStore {
 
         return toContentPackRecord(insertedPack);
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
+      type ErrorWithCode = { code?: string; message?: string };
+      const e = err as ErrorWithCode;
       if (
-        err?.code === "23505" ||
-        err?.message?.includes("idx_content_packs_active_source_doc")
+        e?.code === "23505" ||
+        e?.message?.includes("idx_content_packs_active_source_doc")
       ) {
         throw new DomainError(
           "conflict",
@@ -332,11 +335,11 @@ export class DrizzleContentPackStore implements ContentPackStore {
 
     if (!row) return undefined;
     return {
-      id: row.id as any,
+      id: row.id as ContentPackUsageId,
       contentPackId: row.contentPackId as ContentPackId,
       userId: row.userId as UserId,
       targetCourseId: row.targetCourseId as CourseId,
-      targetModuleId: (row.targetModuleId as any) ?? null,
+      targetModuleId: (row.targetModuleId as ModuleId) ?? null,
       addedAt: row.addedAt.toISOString(),
     };
   }
@@ -410,18 +413,19 @@ export class DrizzleContentPackStore implements ContentPackStore {
       const createdLessons: string[] = [];
       if (lessonItem) {
         const lessonPayload = lessonItem.payloadSnapshot as LessonPayload;
+        type SessionOrOutlineItem = { title: string; contentMarkdown?: string; description?: string; estimatedMinutes?: number };
         const sessionList: Array<{ title: string; contentMarkdown: string; estimatedMinutes?: number }> =
           Array.isArray(lessonPayload.sessions) && lessonPayload.sessions.length > 0
             ? lessonPayload.sessions
             : Array.isArray(lessonPayload.outline) && lessonPayload.outline.length > 0
-            ? lessonPayload.outline.map((o) => ({
+            ? (lessonPayload.outline as SessionOrOutlineItem[]).map((o) => ({
                 title: o.title,
-                contentMarkdown: (o as any).description || "",
+                contentMarkdown: o.description || o.contentMarkdown || "",
               }))
             : [
                 {
                   title: lessonPayload.title || pack.title,
-                  contentMarkdown: (lessonPayload as any).contentMarkdown || "",
+                  contentMarkdown: (lessonPayload as { contentMarkdown?: string }).contentMarkdown || "",
                 },
               ];
 
@@ -447,19 +451,35 @@ export class DrizzleContentPackStore implements ContentPackStore {
       // 5. Materialize Flashcards (if present)
       let flashcardsCount = 0;
       if (flashcardItem) {
-        const fcPayload = flashcardItem.payloadSnapshot as FlashcardPayload;
-        const rawCards =
+        type RawFlashcardItem = {
+          front?: string;
+          back?: string;
+          question?: string;
+          answer?: string;
+          explanation?: string;
+          cardType?: string;
+          difficulty?: string;
+          sessionIndex?: number;
+        };
+        type ExtendedFcPayload = FlashcardPayload & {
+          flashcards?: RawFlashcardItem[];
+          cards?: RawFlashcardItem[];
+          question?: string;
+          answer?: string;
+        };
+        const fcPayload = flashcardItem.payloadSnapshot as ExtendedFcPayload;
+        const rawCards: RawFlashcardItem[] =
           Array.isArray(fcPayload.cards) && fcPayload.cards.length > 0
             ? fcPayload.cards
-            : Array.isArray((fcPayload as any).flashcards) && (fcPayload as any).flashcards.length > 0
-            ? (fcPayload as any).flashcards
-            : (fcPayload as any).question && (fcPayload as any).answer
-            ? [fcPayload as any]
+            : Array.isArray(fcPayload.flashcards) && fcPayload.flashcards.length > 0
+            ? fcPayload.flashcards
+            : fcPayload.question && fcPayload.answer
+            ? [fcPayload]
             : [];
 
         if (rawCards.length > 0) {
           await tx.insert(flashcards).values(
-            rawCards.map((c: any) => {
+            rawCards.map((c: RawFlashcardItem) => {
               let cLessonId: string | null = null;
               if (typeof c.sessionIndex === "number" && !isNaN(c.sessionIndex)) {
                 if (c.sessionIndex >= 0 && c.sessionIndex < createdLessons.length) {
@@ -498,7 +518,26 @@ export class DrizzleContentPackStore implements ContentPackStore {
       let quizzesCount = 0;
       let questionsCount = 0;
       if (quizItem) {
-        const quizPayload = quizItem.payloadSnapshot as QuizPayload;
+        type RawQuizQuestionItem = {
+          question?: string;
+          choices?: string[];
+          options?: string[];
+          correctAnswer?: string;
+          correct_answer?: string;
+          answer?: string;
+          explanation?: string;
+          sessionIndex?: number;
+          topic?: string;
+          difficulty?: string;
+          questionType?: string;
+        };
+        type ExtendedQuizPayload = QuizPayload & {
+          topic?: string;
+          difficulty?: string;
+          question?: string;
+          questions?: RawQuizQuestionItem[];
+        };
+        const quizPayload = quizItem.payloadSnapshot as ExtendedQuizPayload;
         const quizId = randomUUID();
         await tx.insert(quizzes).values({
           id: quizId,
@@ -506,23 +545,23 @@ export class DrizzleContentPackStore implements ContentPackStore {
           courseId: targetCourseId,
           documentId: null,
           title: quizPayload.title || `آزمون ${pack.title}`,
-          topic: (quizPayload as any).topic || pack.subject || null,
-          difficulty: (quizPayload as any).difficulty || "medium",
+          topic: quizPayload.topic || pack.subject || null,
+          difficulty: quizPayload.difficulty || "medium",
           status: "published",
           createdAt: now,
           updatedAt: now,
         });
         quizzesCount = 1;
 
-        const rawQuestions =
+        const rawQuestions: RawQuizQuestionItem[] =
           Array.isArray(quizPayload.questions) && quizPayload.questions.length > 0
             ? quizPayload.questions
-            : (quizPayload as any).question
-            ? [quizPayload as any]
+            : quizPayload.question
+            ? [quizPayload]
             : [];
 
         if (rawQuestions.length > 0) {
-          const processedQuestions = rawQuestions.map((q: any, qIdx: number) => {
+          const processedQuestions = rawQuestions.map((q: RawQuizQuestionItem, qIdx: number) => {
             let qLessonId: string | null = null;
             if (typeof q.sessionIndex === "number" && !isNaN(q.sessionIndex)) {
               if (q.sessionIndex >= 0 && q.sessionIndex < createdLessons.length) {
@@ -549,7 +588,7 @@ export class DrizzleContentPackStore implements ContentPackStore {
               generatedContentId: null,
               lessonId: qLessonId,
               question: shuffled.question || q.question || "سوال آزمون",
-              topic: q.topic || (quizPayload as any).topic || null,
+              topic: q.topic || quizPayload.topic || null,
               difficulty: q.difficulty || "medium",
               questionType: q.questionType || "multiple_choice",
               choices:
@@ -602,10 +641,12 @@ export class DrizzleContentPackStore implements ContentPackStore {
           targetModuleId: insertedModule.id,
           addedAt: now,
         });
-      } catch (err: any) {
+      } catch (err: unknown) {
+        type ErrorWithCode = { code?: string; message?: string };
+        const e = err as ErrorWithCode;
         if (
-          err?.code === "23505" ||
-          err?.message?.includes("idx_content_pack_usages_pack_user_course")
+          e?.code === "23505" ||
+          e?.message?.includes("idx_content_pack_usages_pack_user_course")
         ) {
           return {
             alreadyInstalled: true,
@@ -704,11 +745,11 @@ export class DrizzleContentPackUsageStore implements ContentPackUsageStore {
 
     if (!row) return undefined;
     return {
-      id: row.id as any,
+      id: row.id as ContentPackUsageId,
       contentPackId: row.contentPackId as ContentPackId,
       userId: row.userId as UserId,
       targetCourseId: row.targetCourseId as CourseId,
-      targetModuleId: (row.targetModuleId as any) ?? null,
+      targetModuleId: (row.targetModuleId as ModuleId) ?? null,
       addedAt: row.addedAt.toISOString(),
     };
   }

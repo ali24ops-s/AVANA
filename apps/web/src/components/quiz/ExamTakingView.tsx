@@ -20,7 +20,7 @@ export interface ExamTakingViewProps {
   startedAt?: string;
   topicName?: string;
   onExit: () => void;
-  onSubmitSuccess: (result: any) => void;
+  onSubmitSuccess: (result: unknown) => void;
 }
 
 export function ExamTakingView({
@@ -129,8 +129,8 @@ export function ExamTakingView({
       await studyApi.saveExamAnswers(organizationId, attemptId, {
         answers: [{ questionId: currentQuestion.id, answer: choice }],
       });
-    } catch (err: any) {
-      console.error("Failed to persist answer to backend:", err);
+    } catch {
+      // Ignore background save errors gracefully without breaking student flow
     }
   };
 
@@ -149,8 +149,9 @@ export function ExamTakingView({
 
       setShowConfirmModal(false);
       onSubmitSuccess(res);
-    } catch (err: any) {
-      setErrorMsg(err?.message || "خطا در ثبت نتیجه آزمون. لطفاً دوباره تلاش کنید.");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : undefined;
+      setErrorMsg(msg || "خطا در ثبت نتیجه آزمون. لطفاً دوباره تلاش کنید.");
       setIsSubmitting(false);
     }
   };

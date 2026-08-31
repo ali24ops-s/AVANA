@@ -12,7 +12,7 @@ vi.mock("../lib/api/admin", () => ({
 describe("AdminContentPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    (api.get as any).mockImplementation(async (url: string) => {
+    vi.mocked(api.get).mockImplementation(async (url: string) => {
       if (url === "/admin/dashboard") {
         return { totalCourses: 10, totalModules: 50, totalLessons: 100, totalFlashcards: 500, totalQuizzes: 50 };
       }
@@ -70,7 +70,7 @@ describe("AdminContentPage", () => {
   });
 
   it("handles empty state gracefully", async () => {
-    (api.get as any).mockImplementation(async (url: string) => {
+    vi.mocked(api.get).mockImplementation(async (url: string) => {
       if (url.startsWith("/admin/courses")) return { courses: [] };
       return {};
     });
@@ -82,7 +82,7 @@ describe("AdminContentPage", () => {
   });
 
   it("handles API error gracefully", async () => {
-    (api.get as any).mockImplementation(async (url: string) => {
+    vi.mocked(api.get).mockImplementation(async (url: string) => {
       if (url.startsWith("/admin/courses")) throw new Error("API Error");
       return {};
     });

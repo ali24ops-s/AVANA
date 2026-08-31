@@ -91,6 +91,12 @@ export type ReviewQueueResource = {
 export type ReviewQueueResponse = {
   request_id: string;
   pending: ReviewQueueResource[];
+  pagination?: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
 };
 
 export type ContentReviewResource = {
@@ -284,6 +290,7 @@ export class ReviewService {
     organizationId: OrganizationId,
     courseId: CourseId,
     requestId: string,
+    options?: { page?: number; limit?: number; type?: GeneratedContentRecord["type"] },
   ): Promise<ReviewQueueResponse> {
     await this.authorize(actor, organizationId, "content:review");
 
@@ -301,12 +308,43 @@ export class ReviewService {
         .map((d) => d.id),
     );
 
-    const resources = pending
+    let filtered = pending
       .filter((c) => Boolean(c.documentId && activeDocIds.has(c.documentId)))
-      .filter((c) => c.status === "draft" || c.status === "edited")
-      .map((c) => this.toReviewQueueResource(c));
+      .filter((c) => c.status === "draft" || c.status === "edited");
 
-    return { request_id: requestId, pending: resources };
+    if (options?.type) {
+      filtered = filtered.filter((c) => c.type === options.type);
+    }
+
+    filtered.sort((a, b) => {
+      const timeA = new Date(a.createdAt).getTime();
+      const timeB = new Date(b.createdAt).getTime();
+      if (timeA !== timeB) return timeA - timeB;
+      return a.id.localeCompare(b.id);
+    });
+
+    const total = filtered.length;
+    const page = options?.page ? Math.max(1, options.page) : 1;
+    const limit = options?.limit ? Math.max(1, options.limit) : undefined;
+    const effectiveLimit = limit ?? total;
+    const totalPages = Math.ceil(total / (effectiveLimit || 1)) || 1;
+
+    const paginated = limit !== undefined || options?.page !== undefined
+      ? filtered.slice((page - 1) * effectiveLimit, page * effectiveLimit)
+      : filtered;
+
+    const resources = paginated.map((c) => this.toReviewQueueResource(c));
+
+    return {
+      request_id: requestId,
+      pending: resources,
+      pagination: {
+        page,
+        limit: limit ?? total,
+        total,
+        totalPages,
+      },
+    };
   }
 
   private toReviewQueueResource(
@@ -841,11 +879,13 @@ export class ReviewService {
     });
 
     // Determine clean extracted title from AI payload
+    type PayloadWithTitle = { title?: string };
+    const payloadTitle = (record.payload as PayloadWithTitle | undefined)?.title;
     const extractedTitle =
       payloadModuleTitle?.trim() ||
       payloadTopic?.trim() ||
-      ((record.payload as any)?.title
-        ? (record.payload as any).title.replace(/^آزمون (ارزیابی آموخته‌ها: |ارزیابی: |)/, "").trim()
+      (payloadTitle
+        ? payloadTitle.replace(/^آزمون (ارزیابی آموخته‌ها: |ارزیابی: |)/, "").trim()
         : null);
 
     const isFilenameFallback = (t: string) => this.isFilenameFallback(t);
@@ -888,9 +928,11 @@ export class ReviewService {
         deletedAt: null,
       });
       return targetModule;
-    } catch (err: any) {
+    } catch (err: unknown) {
+      type ErrorWithCode = { code?: string; message?: string };
+      const e = err as ErrorWithCode;
       // Race condition catch: if another concurrent process inserted the module milliseconds ago
-      if (err?.code === "23505" || err?.message?.includes("idx_modules_course_document_unique")) {
+      if (e?.code === "23505" || e?.message?.includes("idx_modules_course_document_unique")) {
         const raceModule = record.documentId ? await this.moduleStore.findByDocument(record.documentId) : undefined;
         if (raceModule) return raceModule;
       }
@@ -923,18 +965,28 @@ export class ReviewService {
     }
 
     const now = new Date().toISOString();
-    const payload = record.payload as {
+    type RawFlashcardItem = {
+      front?: string;
+      back?: string;
+      question?: string;
+      answer?: string;
+      explanation?: string;
+      difficulty?: string;
+      cardType?: string;
+      topic?: string;
+      sessionIndex?: number;
+    };
+    type ExtendedFlashcardPayload = {
       title?: string;
       moduleTitle?: string;
       topic?: string;
-      flashcards?: Array<{
-        front: string;
-        back: string;
-        explanation?: string;
-        difficulty?: string;
-        topic?: string;
-      }>;
+      flashcards?: RawFlashcardItem[];
+      cards?: RawFlashcardItem[];
+      question?: string;
+      answer?: string;
     };
+
+    const payload = (record.payload || {}) as ExtendedFlashcardPayload;
 
     const targetModule = await this.resolveOrCreateDocumentModule(
       record,
@@ -946,16 +998,16 @@ export class ReviewService {
       ? await this.lessonStore.listByModule(targetModule.id)
       : [];
 
-    const rawCards =
+    const rawCards: RawFlashcardItem[] =
       Array.isArray(payload.flashcards) && payload.flashcards.length > 0
         ? payload.flashcards
-        : Array.isArray((payload as any).cards) && (payload as any).cards.length > 0
-        ? (payload as any).cards
-        : (payload as any).question && (payload as any).answer
-        ? [payload as any]
+        : Array.isArray(payload.cards) && payload.cards.length > 0
+        ? payload.cards
+        : payload.question && payload.answer
+        ? [payload]
         : [];
 
-    const cards = rawCards.map((c: any) => {
+    const cards = rawCards.map((c: RawFlashcardItem) => {
       let cLessonId: LessonId | null = null;
       if (lessons.length > 0) {
         if (typeof c.sessionIndex === "number" && !isNaN(c.sessionIndex)) {

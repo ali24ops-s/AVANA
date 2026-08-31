@@ -3,6 +3,10 @@
  * Used for local development (composeLocalDev) and testing.
  */
 
+import type { UserId, Role } from "@avana/domain";
+import type { UserStore, UserRecord } from "../identity/user-store.js";
+import type { OrganizationStore } from "../organizations/organization-store.js";
+import { checkRedisHealth } from "./redis-health.js";
 import type {
   AdminStore,
   DashboardStats,
@@ -12,6 +16,7 @@ import type {
   AdminCourseRecord,
   AdminDocumentRecord,
   AdminSystemHealth,
+  AdminStoreOptions,
   AdminLogRecord,
   AdminAuditRecord,
   AdminLessonRecord,
@@ -24,6 +29,11 @@ import type {
 } from "./admin-store.js";
 
 export class InMemoryAdminStore implements AdminStore {
+  constructor(
+    private readonly userStore?: UserStore & { insert?(user: UserRecord): void },
+    private readonly organizationStore?: OrganizationStore & { listMembershipsByUserId?(userId: UserId): Promise<Array<{ role: Role; updatedAt: string }>> },
+    private readonly options?: AdminStoreOptions,
+  ) {}
   async getDashboardStats(): Promise<DashboardStats> {
     return {
       totalUsers: 0,
@@ -69,11 +79,33 @@ export class InMemoryAdminStore implements AdminStore {
   }
 
   async getSystemHealth(): Promise<AdminSystemHealth> {
+    const redisResult = await checkRedisHealth(this.options?.redisUrl, 1000);
+    let aiStatus: string = "healthy";
+    let aiReason: string | null | undefined = null;
+    let aiLatency: number | null | undefined = 0;
+
+    if (this.options?.gateway?.checkHealth) {
+      try {
+        const aiCheck = await this.options.gateway.checkHealth();
+        aiStatus = aiCheck.status;
+        aiReason = aiCheck.reason;
+        aiLatency = aiCheck.latencyMs;
+      } catch (err: unknown) {
+        aiStatus = "unhealthy";
+        aiReason = err instanceof Error ? err.message : "AI health check failed";
+      }
+    }
+
     return {
       database: "healthy",
-      redis: "unknown",
-      ai: "unknown",
+      redis: redisResult.status,
+      ai: aiStatus,
       lastCheck: new Date().toISOString(),
+      services: {
+        database: { status: "healthy", latencyMs: 0 },
+        redis: { status: redisResult.status, reason: redisResult.reason, latencyMs: redisResult.latencyMs },
+        ai: { status: aiStatus, reason: aiReason, latencyMs: aiLatency },
+      },
     };
   }
 
@@ -117,7 +149,7 @@ export class InMemoryAdminStore implements AdminStore {
       aiFailed: 0,
     };
     return {
-      total: { totalUsers: 0, totalLessons: 0 },
+      total: { totalUsers: 0, totalCourses: 0, totalLessons: 0, totalFlashcards: 0, totalQuizzes: 0 },
       today: emptyStats,
       last7Days: emptyStats,
       last30Days: emptyStats,
@@ -144,8 +176,34 @@ export class InMemoryAdminStore implements AdminStore {
     };
   }
 
-  async updateUserRole(_adminId: string, _targetUserId: string, _newRole: string): Promise<void> {
-    return;
+  async updateUserRole(_adminId: string, targetUserId: string, newRole: string): Promise<void> {
+    if (this.userStore) {
+      const user = await this.userStore.findById(targetUserId as UserId);
+      if (user) {
+        if (newRole === "platform_admin") {
+          user.globalRole = "platform_admin";
+          user.role = "platform_admin";
+        } else {
+          user.globalRole = null;
+          user.role = newRole as Role;
+          if (this.organizationStore && typeof this.organizationStore.listMembershipsByUserId === "function") {
+            const memberships = await this.organizationStore.listMembershipsByUserId(targetUserId as UserId);
+            if (memberships.length === 1) {
+              const mem = memberships[0];
+              mem.role = newRole as Role;
+              mem.updatedAt = new Date().toISOString();
+            }
+          }
+        }
+        if (typeof this.userStore.insert === "function") {
+          this.userStore.insert({
+            ...user,
+            role: user.role,
+            globalRole: user.globalRole,
+          });
+        }
+      }
+    }
   }
 
   async updateCourseMetadata(_adminId: string, _courseId: string, _payload: { name?: string; subject?: string }): Promise<void> {

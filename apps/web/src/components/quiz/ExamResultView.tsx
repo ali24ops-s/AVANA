@@ -11,7 +11,7 @@ export interface ExamResultViewProps {
       id: string;
       question: string;
       choices: string[] | null;
-      correctAnswer: unknown;
+      correctAnswer?: unknown;
       explanation?: string | null;
     }>;
   };

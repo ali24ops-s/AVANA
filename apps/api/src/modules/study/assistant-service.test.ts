@@ -3,6 +3,7 @@ import {
   type Actor,
   type CourseId,
   type LessonId,
+  type ModuleId,
   type OrganizationId,
   type UserId,
   DomainError,
@@ -106,7 +107,7 @@ describe("StudyAssistantService Unit Tests", () => {
     });
 
     // Create module
-    const moduleId = "66666666-6666-6666-6666-666666666666" as any;
+    const moduleId = "66666666-6666-6666-6666-666666666666" as ModuleId;
     const moduleRecord = await moduleStore.create({
       id: moduleId,
       courseId,
@@ -308,7 +309,7 @@ describe("StudyAssistantService Unit Tests", () => {
       auditEvents: [],
     });
 
-    const otherModuleId = "88888888-8888-8888-8888-888888888888" as any;
+    const otherModuleId = "88888888-8888-8888-8888-888888888888" as ModuleId;
     const otherModule = await moduleStore.create({
       id: otherModuleId,
       courseId: otherCourse.id,

@@ -76,10 +76,27 @@ export interface AdminDocumentRecord {
 }
 
 export interface AdminSystemHealth {
-  database: "healthy" | "error";
-  redis: "healthy" | "error" | "unknown";
-  ai: "healthy" | "warning" | "error" | "unknown";
+  database: "healthy" | "error" | string;
+  redis: "healthy" | "unhealthy" | "disabled" | "not_configured" | "unknown" | string;
+  ai: "healthy" | "warning" | "error" | "unhealthy" | "degraded" | "unknown" | string;
   lastCheck: string;
+  services?: {
+    database: { status: string; reason?: string | null; latencyMs?: number | null };
+    redis: { status: string; reason?: string | null; latencyMs?: number | null };
+    ai: { status: string; reason?: string | null; latencyMs?: number | null };
+  };
+}
+
+export interface AdminStoreOptions {
+  redisUrl?: string;
+  gateway?: {
+    checkHealth?: () => Promise<{
+      status: string;
+      latencyMs?: number | null;
+      reason?: string | null;
+      provider?: string;
+    }>;
+  };
 }
 
 export interface AdminLogRecord {
@@ -178,7 +195,10 @@ export interface AdminAnalyticsPeriodStats {
 export interface AdminAnalytics {
   total: {
     totalUsers: number;
+    totalCourses?: number;
     totalLessons: number;
+    totalFlashcards?: number;
+    totalQuizzes?: number;
   };
   today: AdminAnalyticsPeriodStats;
   last7Days: AdminAnalyticsPeriodStats;

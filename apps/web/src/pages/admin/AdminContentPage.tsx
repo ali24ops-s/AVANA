@@ -3,9 +3,55 @@ import { api } from "../../lib/api/admin";
 import { AdminSearch, AdminStatusBadge, AdminPagination } from "../../components/admin/AdminUI";
 import { ChevronDown, ChevronLeft, Folder, FileText, Layers, BrainCircuit, HelpCircle, BookOpen } from "lucide-react";
 
+interface DashboardStatsShape {
+  totalCourses?: number;
+  totalModules?: number;
+  totalLessons?: number;
+  totalFlashcards?: number;
+  totalQuizzes?: number;
+  totalDocuments?: number;
+  counts?: {
+    courses?: number;
+    modules?: number;
+    lessons?: number;
+    flashcards?: number;
+    quizzes?: number;
+    documents?: number;
+  };
+}
+
+interface CourseListItem {
+  id: string;
+  name: string;
+  subject?: string;
+  counts?: {
+    modules?: number;
+    lessons?: number;
+  };
+}
+
+interface LessonHierarchyItem {
+  id: string;
+  title: string;
+  hasContent?: boolean;
+  publicationStatus?: string;
+  flashcardCount?: number;
+  quizCount?: number;
+}
+
+interface ModuleHierarchyItem {
+  id: string;
+  title: string;
+  lessons: LessonHierarchyItem[];
+}
+
+interface CourseHierarchy {
+  modules: ModuleHierarchyItem[];
+}
+
 export function AdminContentPage() {
-  const [stats, setStats] = useState<any>(null);
-  const [courses, setCourses] = useState<any[]>([]);
+  const [stats, setStats] = useState<DashboardStatsShape | null>(null);
+  const [courses, setCourses] = useState<CourseListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -18,9 +64,9 @@ export function AdminContentPage() {
     let active = true;
     const fetchStats = async () => {
       try {
-        const res = await api.get<any>("/admin/dashboard");
+        const res = await api.get<DashboardStatsShape>("/admin/dashboard");
         if (active) setStats(res);
-      } catch (err: any) {
+      } catch {
         // ignore stats error
       }
     };
@@ -33,16 +79,16 @@ export function AdminContentPage() {
     const fetchCourses = async () => {
       setLoading(true);
       try {
-        const params: Record<string, any> = { page, pageSize };
+        const params: Record<string, string | number | undefined> = { page, pageSize };
         if (search) params.search = search;
-        const res = await api.get<{ courses: any[]; totalCount?: number }>(`/admin/courses`, { params });
+        const res = await api.get<{ courses: CourseListItem[]; totalCount?: number }>(`/admin/courses`, { params });
         if (active) {
           setCourses(res.courses || []);
           setTotalCount(res.totalCount ?? res.courses?.length ?? 0);
           setError(null);
         }
-      } catch (err: any) {
-        if (active) setError(err.message || "خطا در دریافت دوره‌ها");
+      } catch (err: unknown) {
+        if (active) setError(err instanceof Error ? err.message : "خطا در دریافت دوره‌ها");
       } finally {
         if (active) setLoading(false);
       }
@@ -68,11 +114,11 @@ export function AdminContentPage() {
 
       {stats && (
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-          <StatCard icon={<BookOpen className="w-5 h-5" />} label="دوره‌ها" value={stats.totalCourses} />
-          <StatCard icon={<Layers className="w-5 h-5" />} label="ماژول‌ها" value={stats.totalModules || "-"} />
-          <StatCard icon={<FileText className="w-5 h-5" />} label="درس‌ها" value={stats.totalLessons} />
-          <StatCard icon={<BrainCircuit className="w-5 h-5" />} label="فلش‌کارت‌ها" value={stats.totalFlashcards} />
-          <StatCard icon={<HelpCircle className="w-5 h-5" />} label="آزمون‌ها" value={stats.totalQuizzes} />
+          <StatCard icon={<BookOpen className="w-5 h-5" />} label="دوره‌ها" value={stats.totalCourses ?? "-"} />
+          <StatCard icon={<Layers className="w-5 h-5" />} label="ماژول‌ها" value={stats.totalModules ?? "-"} />
+          <StatCard icon={<FileText className="w-5 h-5" />} label="درس‌ها" value={stats.totalLessons ?? "-"} />
+          <StatCard icon={<BrainCircuit className="w-5 h-5" />} label="فلش‌کارت‌ها" value={stats.totalFlashcards ?? "-"} />
+          <StatCard icon={<HelpCircle className="w-5 h-5" />} label="آزمون‌ها" value={stats.totalQuizzes ?? "-"} />
         </div>
       )}
 
@@ -130,15 +176,15 @@ function StatCard({ icon, label, value }: { icon: React.ReactNode, label: string
   );
 }
 
-function CourseNode({ course, isExpanded, onToggle }: { course: any, isExpanded: boolean, onToggle: () => void }) {
-  const [hierarchy, setHierarchy] = useState<any>(null);
+function CourseNode({ course, isExpanded, onToggle }: { course: CourseListItem, isExpanded: boolean, onToggle: () => void }) {
+  const [hierarchy, setHierarchy] = useState<CourseHierarchy | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (isExpanded && !hierarchy) {
       setLoading(true);
-      api.get<any>(`/admin/content/courses/${course.id}/hierarchy`)
+      api.get<CourseHierarchy>(`/admin/content/courses/${course.id}/hierarchy`)
         .then(res => {
           setHierarchy(res);
           setError(null);
@@ -181,7 +227,7 @@ function CourseNode({ course, isExpanded, onToggle }: { course: any, isExpanded:
             <div className="text-center py-4 text-sm text-slate-500">محتوایی برای این دوره ثبت نشده است.</div>
           ) : (
             <div className="space-y-4 pr-2 border-r-2 border-slate-700/50">
-              {hierarchy.modules.map((mod: any) => (
+              {hierarchy.modules.map((mod: ModuleHierarchyItem) => (
                 <div key={mod.id} className="space-y-2">
                   <div className="flex items-center gap-2 text-slate-300 font-medium text-sm">
                     <Folder className="w-4 h-4 text-teal-500" />
@@ -191,7 +237,7 @@ function CourseNode({ course, isExpanded, onToggle }: { course: any, isExpanded:
                     <div className="pr-6 text-xs text-slate-500">بدون درس</div>
                   ) : (
                     <div className="space-y-1.5 pr-4 border-r border-slate-700/30">
-                      {mod.lessons.map((lesson: any) => (
+                      {mod.lessons.map((lesson: LessonHierarchyItem) => (
                         <div key={lesson.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-2 rounded-lg bg-slate-800/30 hover:bg-slate-800/50 transition-colors gap-2">
                           <div className="flex items-center gap-2">
                             <FileText className={`w-3.5 h-3.5 ${lesson.hasContent ? 'text-blue-400' : 'text-slate-500'}`} />
@@ -199,7 +245,7 @@ function CourseNode({ course, isExpanded, onToggle }: { course: any, isExpanded:
                             {!lesson.hasContent && <span className="text-[10px] bg-slate-700 text-slate-400 px-1.5 py-0.5 rounded">بدون محتوا</span>}
                           </div>
                           <div className="flex items-center gap-3 text-xs pr-6 sm:pr-0">
-                            <AdminStatusBadge status={lesson.publicationStatus} />
+                            <AdminStatusBadge status={lesson.publicationStatus || "published"} />
                             <div className="flex items-center gap-2 text-slate-400 w-32 justify-end">
                               <span title="فلش‌کارت" className="flex items-center gap-1">
                                 <BrainCircuit className={`w-3 h-3 ${lesson.flashcardCount === 0 ? 'opacity-30' : 'text-purple-400'}`} />

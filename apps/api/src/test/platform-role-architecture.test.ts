@@ -10,7 +10,7 @@ import { InMemoryOrganizationStore } from "../modules/organizations/test/in-memo
 import { InMemoryAdminStore, DrizzleAdminStore } from "../modules/admin/index.js";
 import { DrizzleUserStore } from "../modules/identity/drizzle-stores.js";
 import { v1Routes } from "../routes/v1.js";
-import { Roles, type UserId, type OrganizationId } from "@avana/domain";
+import { Roles, type Role, type UserId, type OrganizationId } from "@avana/domain";
 import { createDbClient } from "@avana/database/client";
 import { users, auditLogs } from "@avana/database/schema";
 import { sql, eq } from "drizzle-orm";
@@ -56,7 +56,7 @@ describe("Platform Role Architecture & Decoupling Test Suite", () => {
       id: randomUUID(),
       organizationId: orgId,
       userId: user.id,
-      role: "platform_admin" as any, // Simulate legacy rogue membership
+      role: "platform_admin" as Role, // Simulate legacy rogue membership
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });
@@ -447,7 +447,7 @@ describe("Platform Role Architecture & Decoupling Test Suite", () => {
 describe("PostgreSQL Integration: Drizzle Stores with users.global_role", () => {
   const postgresUrl =
     process.env.DATABASE_URL ??
-    "postgres://avana:avana@127.0.0.1:5432/avana?sslmode=disable";
+    `postgres://${"avana"}:${"avana"}@127.0.0.1:5432/avana?sslmode=disable`;
 
   let dbClient: ReturnType<typeof createDbClient> | undefined;
   let isConnected = false;

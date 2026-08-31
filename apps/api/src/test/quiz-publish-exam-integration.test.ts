@@ -1,17 +1,3 @@
-// @ts-nocheck
-/**
- * Integration Test: Quiz & Educational Content Publish to Learning Core & Exam Engine
- *
- * Verifies end-to-end PDF / Generated Content review approval & publication flow:
- * 1. Creates Organization, Course, Document, Module, Lesson.
- * 2. Creates Generated Quiz Content & Educational Lesson Content for the document.
- * 3. Approves & Publishes Educational Content -> verifies materialized Lesson in Learning Core.
- * 4. Approves & Publishes Quiz Content -> verifies materialized Quiz & QuizQuestions connected to Lesson.
- * 5. Verifies difficulty, options, correctAnswer, topic materialization.
- * 6. Verifies GET /v1/organizations/:organizationId/study/exams/topics returns Lesson with question counts.
- * 7. Verifies POST /v1/organizations/:organizationId/study/exams/start creates valid Exam Attempt & Question Pool.
- */
-
 import { describe, it, expect, beforeEach } from "vitest";
 import type {
   Actor,
@@ -19,10 +5,12 @@ import type {
   DocumentId,
   GeneratedContentId,
   OrganizationId,
+  UserId,
 } from "@avana/domain";
 import { defaultPolicy } from "@avana/domain";
 
 import { ReviewService } from "../modules/generation/review-service.js";
+import type { GenerationQueueService } from "../modules/generation/generation-queue.js";
 import { StudyService } from "../modules/study/study-service.js";
 import {
   InMemoryGeneratedContentStore,
@@ -72,7 +60,7 @@ describe("Quiz & Educational Content Approval/Publish & Exam Integration", () =>
     courseId = "22222222-2222-4222-8222-222222222222" as CourseId;
     docId = "33333333-3333-4333-8333-333333333333" as DocumentId;
     actor = {
-      userId: "user-1" as any,
+      userId: "user-1" as UserId,
       role: "organization_admin",
     };
 
@@ -90,9 +78,9 @@ describe("Quiz & Educational Content Approval/Publish & Exam Integration", () =>
     quizQuestionStore = new InMemoryQuizQuestionStore();
     quizAttemptStore = new InMemoryQuizAttemptStore();
 
-    const dummyQueue: any = {
+    const dummyQueue = {
       enqueueGenerationJob: async () => ({ generationJobId: "job-1" }),
-    };
+    } as unknown as GenerationQueueService;
 
     reviewService = new ReviewService(
       generatedContentStore,
@@ -135,7 +123,7 @@ describe("Quiz & Educational Content Approval/Publish & Exam Integration", () =>
       id: docId,
       organizationId: orgId,
       courseId,
-      ownerUserId: "user-1" as any,
+      ownerUserId: "user-1" as UserId,
       originalName: documentName,
       mimeType: "application/pdf",
       sizeBytes: 1024,

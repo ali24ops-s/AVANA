@@ -5,29 +5,21 @@
  *
  * 1. Machine User API Key:
  *    - Independent Machine User credential.
- *    - Used in the Authorization Header: `Authorization: apikey <MACHINE_USER_API_KEY>`
+ *    - Used in the Authorization Header.
  *
  * 2. Model Gateway Endpoint:
- *    - Dedicated Gateway Base URL from panel (e.g. https://arvancloudai.ir/gateway/models/<MODEL>/<GATEWAY_ID>/v1)
- *    - Final chat completion endpoint: `<BASE_URL>/chat/completions`
+ *    - Dedicated Gateway Base URL from panel.
+ *    - Chat completion endpoint is appended with the standard chat completions path.
  *
  * Request Contract:
- *   POST <BASE_URL>/chat/completions
- *   Authorization: apikey <MACHINE_USER_API_KEY>
- *   Content-Type: application/json
- *
- * Payload:
- *   {
- *     "model": "<MODEL>",
- *     "messages": [{ "role": "user", "content": "..." }],
- *     "max_tokens": 3000,
- *     "temperature": 0.7
- *   }
+ *   HTTP POST to the configured completions endpoint.
+ *   Authorization header set with the machine user key.
+ *   Content-Type set to application/json.
  *
  * Key features:
  * - Decouples Machine User API Key from the Gateway Base URL.
- * - Formats Authorization header as "apikey <KEY>" by default (configurable via ARVANCLOUD_AUTH_SCHEME).
- * - Appends /chat/completions directly to the configured Model Gateway Base URL.
+ * - Formats Authorization header with configured auth scheme.
+ * - Appends chat completions path directly to the configured Model Gateway Base URL.
  * - Redacts all API keys, tokens, and gateway identifiers in logs and errors (zero leakage guarantee).
  * - Native global fetch with no unnecessary heavy SDK dependencies.
  * - Supports structured JSON generation and response parsing with markdown code fence normalization.

@@ -6,6 +6,9 @@ import type {
   ModuleId,
   OrganizationId,
   QuizId,
+  DocumentId,
+  QuizQuestionId,
+  GeneratedContentId,
 } from "@avana/domain";
 import { defaultPolicy } from "@avana/domain";
 
@@ -21,6 +24,7 @@ import {
 import {
   InMemoryModuleStore,
   InMemoryLessonStore,
+  InMemoryProgressStore,
 } from "../modules/learning/test/in-memory-stores.js";
 import { InMemoryCourseStore } from "../modules/courses/test/in-memory-stores.js";
 
@@ -57,6 +61,7 @@ describe("Content Filtering for Flashcards & Exams Backend", () => {
     quizQuestionStore = new InMemoryQuizQuestionStore();
     quizAttemptStore = new InMemoryQuizAttemptStore();
 
+    const progressStore = new InMemoryProgressStore();
     studyService = new StudyService(
       flashcardStore,
       flashcardReviewStore,
@@ -65,7 +70,7 @@ describe("Content Filtering for Flashcards & Exams Backend", () => {
       quizAttemptStore,
       moduleStore,
       lessonStore,
-      undefined as any,
+      progressStore,
       defaultPolicy,
       undefined,
       undefined,
@@ -178,7 +183,7 @@ describe("Content Filtering for Flashcards & Exams Backend", () => {
       id: quiz1Id,
       organizationId: orgId,
       courseId: course1Id,
-      documentId: "doc-1" as any,
+      documentId: "doc-1" as DocumentId,
       title: "آزمون فارماکولوژی",
       status: "published",
       createdAt: now,
@@ -189,9 +194,9 @@ describe("Content Filtering for Flashcards & Exams Backend", () => {
     // Add 2 questions for Lesson A under Module A
     quizQuestionStore.createMany([
       {
-        id: "q1" as any,
+        id: "q1" as QuizQuestionId,
         quizId: quiz1Id,
-        generatedContentId: "g1" as any,
+        generatedContentId: "g1" as GeneratedContentId,
         lessonId: lessonA,
         question: "Q1",
         difficulty: "easy",
@@ -204,9 +209,9 @@ describe("Content Filtering for Flashcards & Exams Backend", () => {
         updatedAt: now,
       },
       {
-        id: "q2" as any,
+        id: "q2" as QuizQuestionId,
         quizId: quiz1Id,
-        generatedContentId: "g1" as any,
+        generatedContentId: "g1" as GeneratedContentId,
         lessonId: lessonA,
         question: "Q2",
         difficulty: "hard",

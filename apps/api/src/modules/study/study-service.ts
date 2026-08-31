@@ -15,6 +15,7 @@ import {
   type CourseId,
   type FlashcardId,
   type LessonId,
+  type ModuleId,
   type OrganizationId,
   type QuizAttemptId,
   type QuizId,
@@ -569,10 +570,10 @@ export class StudyService {
     let cards: FlashcardRecord[] = [];
 
     // Resolve documentIds from moduleIds if provided and documentIds not explicitly given
-    let effectiveDocIds = input.documentIds ? [...input.documentIds] : [];
+    const effectiveDocIds = input.documentIds ? [...input.documentIds] : [];
     if (input.moduleIds && input.moduleIds.length > 0 && this.moduleStore) {
       for (const modId of input.moduleIds) {
-        const mod = await this.moduleStore.findById(modId as any).catch(() => undefined);
+        const mod = await this.moduleStore.findById(modId as ModuleId).catch(() => undefined);
         if (mod && mod.documentId) {
           effectiveDocIds.push(mod.documentId);
         }
@@ -749,27 +750,14 @@ export class StudyService {
 
     // Preserve the snapshotted sortOrder and skip deleted cards safely
     const orderedCards: FlashcardRecord[] = [];
-    let missingCount = 0;
     for (const sc of sessionCards) {
       if (sc.flashcardId) {
         const found = cardMap.get(sc.flashcardId as FlashcardId);
         if (found && !found.deletedAt) {
           orderedCards.push(found);
-        } else {
-          missingCount++;
         }
-      } else {
-        missingCount++;
       }
     }
-
-    console.log("[FLASHCARD_SESSION_DEBUG] SNAPSHOT", {
-      sessionId,
-      requestedCards: sessionCards.length,
-      missingCards: missingCount,
-      orderedCards: orderedCards.length,
-      currentIndex: session.currentIndex,
-    });
 
     return {
       session,
@@ -960,7 +948,7 @@ export class StudyService {
 
     const questions = await this.quizQuestionStore.listByQuiz(quizId);
     // Security: strip correctAnswer from questions response prior to submission
-    const sanitized = questions.map(({ correctAnswer, ...q }) => q);
+    const sanitized = questions.map(({ correctAnswer: _correctAnswer, ...q }) => q);
     return { ...quiz, questions: sanitized };
   }
   /**
@@ -1369,7 +1357,7 @@ export class StudyService {
     for (const item of rawSelection) {
       candidateTopics.add(item);
       if (this.lessonStore) {
-        const les = await this.lessonStore.findById(item as any).catch(() => undefined);
+        const les = await this.lessonStore.findById(item as LessonId).catch(() => undefined);
         if (les) {
           candidateTopics.add(les.title);
           candidateTopics.add(les.id);
@@ -1377,7 +1365,7 @@ export class StudyService {
         }
       }
       if (this.moduleStore) {
-        const mod = await this.moduleStore.findById(item as any).catch(() => undefined);
+        const mod = await this.moduleStore.findById(item as ModuleId).catch(() => undefined);
         if (mod) {
           candidateTopics.add(mod.title);
           candidateTopics.add(mod.id);
@@ -1511,7 +1499,7 @@ export class StudyService {
     await this.quizAttemptStore.create(attempt);
 
     // Security: return questions with correctAnswer hidden
-    const sanitizedQuestions = selectedQuestions.map(({ correctAnswer, ...q }) => q);
+    const sanitizedQuestions = selectedQuestions.map(({ correctAnswer: _correctAnswer, ...q }) => q);
 
     return {
       attemptId,
@@ -1590,7 +1578,7 @@ export class StudyService {
 
     if (!isCompleted) {
       // In-progress: security mask correctAnswer
-      const sanitizedQuestions = questions.map(({ correctAnswer, ...q }) => q);
+      const sanitizedQuestions = questions.map(({ correctAnswer: _correctAnswer, ...q }) => q);
       return {
         attempt,
         questions: sanitizedQuestions,
@@ -1802,7 +1790,9 @@ export class StudyService {
 
     const publishedLessons = lessons.filter((l: LessonRecord) => l.publicationStatus === "published");
     const completedLessonIds = new Set(
-      progressRecords.filter((p: any) => p.completed).map((p: any) => p.lessonId),
+      progressRecords
+        .filter((p: { completed?: boolean; lessonId: string }) => p.completed)
+        .map((p: { lessonId: string }) => p.lessonId),
     );
 
     const totalLessons = publishedLessons.length;
@@ -1820,14 +1810,30 @@ export class StudyService {
     const totalFlashcards = flashcards.length;
     const now = new Date();
     const masteryThresholdMs = 7 * 24 * 60 * 60 * 1000;
+
+    const userSchedules = this.userFlashcardScheduleStore
+      ? await this.userFlashcardScheduleStore.listByUser(actor.userId)
+      : [];
+    const scheduleMap = new Map(userSchedules.map((s) => [s.flashcardId, s]));
+
     const reviewedFlashcards = flashcards.filter((f: FlashcardRecord) => {
-      // A card has been reviewed if its interval > 0.
+      const schedule = scheduleMap.get(f.id);
+      if (schedule) {
+        return schedule.reviewCount > 0 || schedule.intervalDays > 0;
+      }
       return f.intervalDays > 0;
     }).length;
+
     const masteredFlashcards = flashcards.filter((f: FlashcardRecord) => {
+      const schedule = scheduleMap.get(f.id);
+      if (schedule) {
+        const dueAt = new Date(schedule.dueAt);
+        return dueAt.getTime() - now.getTime() > masteryThresholdMs || schedule.intervalDays >= 7;
+      }
       const dueAt = new Date(f.dueAt);
       return dueAt.getTime() - now.getTime() > masteryThresholdMs;
     }).length;
+
     const flashcardMasteryPercent =
       totalFlashcards > 0
         ? Math.round((masteredFlashcards / totalFlashcards) * 100)

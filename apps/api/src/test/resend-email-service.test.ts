@@ -20,7 +20,7 @@ describe("ResendEmailService Unit Tests", () => {
       text: () => Promise.resolve(JSON.stringify({ id: "msg_12345" })),
     });
 
-    const service = new ResendEmailService(apiKey, fromEmail, mockFetch as any);
+    const service = new ResendEmailService(apiKey, fromEmail, mockFetch as unknown as typeof fetch);
     await service.sendVerificationCode(recipient, code);
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -56,7 +56,7 @@ describe("ResendEmailService Unit Tests", () => {
       text: () => Promise.resolve(JSON.stringify({ message: "Domain not verified" })),
     });
 
-    const service = new ResendEmailService(apiKey, "AVANA <onboarding@resend.dev>", mockFetch as any);
+    const service = new ResendEmailService(apiKey, "AVANA <onboarding@resend.dev>", mockFetch as unknown as typeof fetch);
 
     await expect(
       service.sendVerificationCode("test@example.com", "123456"),

@@ -12,6 +12,7 @@ export interface UserRecord {
   email: string;
   name?: string;
   role: string;
+  globalRole?: string | null;
   emailVerifiedAt?: string | null;
   emailVerified?: boolean;
 }
@@ -33,6 +34,7 @@ export interface UserStore {
     email: string;
     passwordHash: string;
     name?: string;
+    globalRole?: string | null;
   }): Promise<UserRecord>;
 
   setEmailVerified(userId: UserId): Promise<void>;

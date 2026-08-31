@@ -667,7 +667,7 @@ export class InMemoryStudySessionStore implements StudySessionStore {
 }
 
 // ---------------------------------------------------------------------------
-// InMemoryFlashcardStudySessionStore
+// In-Memory Flashcard Study Session Store
 // ---------------------------------------------------------------------------
 
 export class InMemoryFlashcardStudySessionStore

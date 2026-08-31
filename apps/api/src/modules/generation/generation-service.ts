@@ -38,12 +38,16 @@ import {
   type DocumentId,
   type GeneratedContentId,
   type OrganizationId,
+  type QuizId,
   DomainError,
   defaultPolicy,
   auditContentGenerated,
   auditGenerationFailed,
   type GeneratedContentType,
   type GeneratedContentPayload,
+  type LessonPayload,
+  type FlashcardPayload,
+  type QuizPayload,
   isGenerationTypeEnabled,
   calculateGenerationBudget,
   type GenerationBudget,
@@ -1519,7 +1523,7 @@ export class GenerationService {
     let draftLessonCount = 0;
     for (const draft of activeDrafts) {
       if (draft.type === "lesson") {
-        const payload = draft.payload as any;
+        const payload = draft.payload as LessonPayload | undefined;
         if (Array.isArray(payload?.sessions) && payload.sessions.length > 0) {
           draftLessonCount += payload.sessions.length;
         } else {
@@ -1542,7 +1546,8 @@ export class GenerationService {
     let draftFlashcardCount = 0;
     for (const draft of activeDrafts) {
       if (draft.type === "flashcard") {
-        const payload = draft.payload as any;
+        type FlashcardShape = FlashcardPayload & { flashcards?: unknown[]; question?: unknown; answer?: unknown };
+        const payload = draft.payload as FlashcardShape | undefined;
         if (Array.isArray(payload?.cards) && payload.cards.length > 0) {
           draftFlashcardCount += payload.cards.length;
         } else if (Array.isArray(payload?.flashcards) && payload.flashcards.length > 0) {
@@ -1557,19 +1562,26 @@ export class GenerationService {
     let quizCount = 0;
     let quizQuestionCount = 0;
     if (this.quizStore) {
-      const allQuizzes = await this.quizStore.listByOrganization(organizationId);
+      type ExtendedQuizRecord = {
+        id: string;
+        deletedAt: string | null;
+        documentId?: DocumentId | null;
+        generatedContentId?: GeneratedContentId | null;
+      };
+      const allQuizzes = (await this.quizStore.listByOrganization(organizationId)) as unknown as ExtendedQuizRecord[];
       const docQuizzes = allQuizzes.filter(
         (q) =>
-          ((q as any).documentId === documentId ||
-            ((q as any).generatedContentId && docContentIds.has((q as any).generatedContentId))) &&
+          (q.documentId === documentId ||
+            (q.generatedContentId && docContentIds.has(q.generatedContentId))) &&
           q.deletedAt === null,
       );
       quizCount = docQuizzes.length;
       if (this.quizQuestionStore) {
         for (const q of docQuizzes) {
-          const questions = await this.quizQuestionStore.listByQuiz(q.id);
+          type ExtendedQuestion = { id: string; deletedAt?: string | null };
+          const questions = (await this.quizQuestionStore.listByQuiz(q.id as QuizId)) as unknown as ExtendedQuestion[];
           quizQuestionCount += questions.filter(
-            (qq) => (qq as any).deletedAt === null || (qq as any).deletedAt === undefined,
+            (qq) => qq.deletedAt === null || qq.deletedAt === undefined,
           ).length;
         }
       }
@@ -1578,7 +1590,8 @@ export class GenerationService {
     let draftQuizQuestionCount = 0;
     for (const draft of activeDrafts) {
       if (draft.type === "quiz") {
-        const payload = draft.payload as any;
+        type QuizDraftShape = QuizPayload & { quiz?: { questions?: unknown[] } };
+        const payload = draft.payload as QuizDraftShape | undefined;
         if (Array.isArray(payload?.questions) && payload.questions.length > 0) {
           draftQuizQuestionCount += payload.questions.length;
         } else if (Array.isArray(payload?.quiz?.questions) && payload.quiz.questions.length > 0) {

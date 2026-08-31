@@ -14,7 +14,7 @@ afterEach(() => {
   cleanup();
 });
 
-function renderWithQuery(ui: React.ReactElement, mockTopicsData: any) {
+function renderWithQuery(ui: React.ReactElement, mockTopicsData: unknown) {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false, staleTime: Infinity },

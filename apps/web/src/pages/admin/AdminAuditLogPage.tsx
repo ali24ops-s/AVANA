@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { api } from "../../lib/api/admin";
+import { api, type AdminAuditRecord, type AdminAuditList } from "../../lib/api/admin";
 import { AdminTable, AdminPagination, AdminLoadingState, AdminEmptyState, AdminErrorState } from "../../components/admin/AdminUI";
 
 export function AdminAuditLogPage() {
-  const [logs, setLogs] = useState<any[]>([]);
+  const [logs, setLogs] = useState<AdminAuditRecord[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
@@ -17,18 +17,18 @@ export function AdminAuditLogPage() {
   const fetchLogs = async () => {
     setLoading(true);
     try {
-      const params: any = { page, pageSize: 20 };
+      const params: Record<string, string | number | undefined> = { page, pageSize: 20 };
       if (search) params.search = search;
       if (actionFilter) params.action = actionFilter;
       if (entityFilter) params.entityType = entityFilter;
       if (adminEmail) params.adminEmail = adminEmail;
       
-      const res = await api.get<{ logs: any[]; totalCount: number }>(`/admin/system/audit`, { params });
+      const res = await api.get<AdminAuditList>(`/admin/system/audit`, { params });
       setLogs(res.logs);
       setTotalCount(res.totalCount);
       setError(null);
-    } catch (err: any) {
-      setError(err.message || "خطا");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "خطا");
     } finally {
       setLoading(false);
     }

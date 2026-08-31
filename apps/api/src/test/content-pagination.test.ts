@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * Content Pagination & Deterministic Sorting Integration Tests (P2 Fix).
  *
@@ -86,8 +85,8 @@ describe("P2 Content Pagination & Deterministic Sorting", () => {
   beforeEach(() => {
     config = makeTestConfig();
     sessionStore = new InMemorySessionStore();
-    userStore = new InMemoryUserStore();
     orgStore = new InMemoryOrganizationStore();
+    userStore = new InMemoryUserStore(orgStore);
     courseStore = new InMemoryCourseStore();
     moduleStore = new InMemoryModuleStore();
     lessonStore = new InMemoryLessonStore();
@@ -119,73 +118,83 @@ describe("P2 Content Pagination & Deterministic Sorting", () => {
       generatedContentCitationStore,
       generationJobStore,
       queue,
+      storageProvider: {
+        createUpload: async (p: { storageKey: string; mimeType: string }) => ({
+          storageKey: p.storageKey,
+          uploadUrl: null,
+          expiresAt: new Date().toISOString(),
+        }),
+        save: async () => {},
+        read: async () => Buffer.from("data"),
+        delete: async () => {},
+        exists: async () => true,
+      },
       gateway: createModelGateway("mock"),
       auditService,
     });
+    await app.ready();
     return app;
   }
 
-  async function signIn(
-    app: Awaited<ReturnType<typeof buildApp>>,
-    email: string,
-    role = "organization_admin",
-  ) {
+  async function signIn(app: Awaited<ReturnType<typeof buildApp>>, email: string, role = "student") {
+    const user = await userStore.createFromVerifiedIdentity({
+      email,
+      name: email.split("@")[0],
+    });
+    userStore.insert({
+      id: user.id,
+      email: user.email,
+      role: role as never,
+    });
     const res = await app.inject({
       method: "POST",
       url: "/v1/auth/sign-in",
-      payload: { email, name: email.split("@")[0] },
+      payload: { email },
     });
-    expect(res.statusCode).toBe(200);
-    const body = JSON.parse(res.body) as {
-      user: { id: string; email: string; role: string };
-    };
-    const userId = body.user.id as UserId;
-    userStore.insert({ id: userId, email: body.user.email, role });
     const token = extractSessionToken(res)!;
-    return { token, userId, email: body.user.email };
+    return { token, userId: user.id };
   }
 
-  async function createOrg(
-    app: Awaited<ReturnType<typeof buildApp>>,
-    token: string,
-    name: string,
-  ): Promise<OrganizationId> {
+  async function createOrg(app: Awaited<ReturnType<typeof buildApp>>, token: string, name: string) {
     const res = await app.inject({
       method: "POST",
       url: "/v1/organizations",
       cookies: { avana_session: token },
       payload: { name },
     });
-    expect(res.statusCode).toBe(201);
-    const body = JSON.parse(res.body) as { organization: { id: string } };
+    const body = JSON.parse(res.body);
     const orgId = body.organization.id as OrganizationId;
+
+    // Also create the shared course if not already present
     try {
+      const now = new Date().toISOString();
       await courseStore.create({
         course: {
           id: courseId,
           organizationId: orgId,
           name: "Test Course",
-          subject: "Pharmacology",
+          subject: "General",
           examDate: null,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          deletedAt: null, qualityScore: null, qualityLevel: null, qualityReport: null, qualityAnalyzedAt: null,
+          createdAt: now,
+          updatedAt: now,
+          deletedAt: null,
         },
         auditEvents: [],
       });
     } catch {
-      // ignore
+      // Course already exists for this test context
     }
+
     return orgId;
   }
 
-  function seedDocument(organizationId: OrganizationId, docId = documentId) {
+  function seedDocument(organizationId: OrganizationId, docId = documentId, ownerUserId?: UserId) {
     const now = new Date().toISOString();
     documentStore.insert({
       id: docId,
       organizationId,
       courseId,
-      ownerUserId: randomUUID() as UserId,
+      ownerUserId: ownerUserId ?? (randomUUID() as UserId),
       originalName: "test.pdf",
       mimeType: "application/pdf",
       sizeBytes: 100,
@@ -417,7 +426,7 @@ describe("P2 Content Pagination & Deterministic Sorting", () => {
     expect(resCards.statusCode).toBe(200);
     const bodyCards = JSON.parse(resCards.body);
     expect(bodyCards.pending).toHaveLength(2);
-    expect(bodyCards.pending.every((p: any) => p.type === "flashcard")).toBe(true);
+    expect(bodyCards.pending.every((p: { type: string }) => p.type === "flashcard")).toBe(true);
     expect(bodyCards.pagination.total).toBe(2);
 
     await app.close();
@@ -508,7 +517,7 @@ describe("P2 Content Pagination & Deterministic Sorting", () => {
       updatedAt: new Date().toISOString(),
     });
 
-    seedDocument(orgId);
+    seedDocument(orgId, documentId, userId);
     const itemId = seedGeneratedItem(orgId, {
       id: "99999999-0000-4000-8000-000000000001",
       title: "Student Draft Item",

@@ -57,6 +57,7 @@ function toUserRecord(
     id: string;
     email: string;
     name: string;
+    globalRole?: string | null;
     emailVerifiedAt?: Date | null;
   },
   effectiveRole: Role = "student",
@@ -66,6 +67,7 @@ function toUserRecord(
     email: row.email,
     name: row.name,
     role: effectiveRole,
+    globalRole: row.globalRole ?? null,
     emailVerifiedAt: row.emailVerifiedAt?.toISOString() ?? null,
     emailVerified: row.emailVerifiedAt != null,
   };
@@ -180,7 +182,7 @@ export class DrizzleUserStore implements UserStore {
     const roles = rows
       .map((r) => r.role)
       .filter((r): r is Role => r != null);
-    const effectiveRole = resolveEffectiveRole(roles);
+    const effectiveRole = resolveEffectiveRole(userRow.globalRole, roles);
     return {
       ...toUserRecord(userRow, effectiveRole),
       passwordHash: userRow.passwordHash ?? null,
@@ -205,7 +207,7 @@ export class DrizzleUserStore implements UserStore {
     const roles = rows
       .map((r) => r.role)
       .filter((r): r is Role => r != null);
-    const effectiveRole = resolveEffectiveRole(roles);
+    const effectiveRole = resolveEffectiveRole(userRow.globalRole, roles);
     return toUserRecord(userRow, effectiveRole);
   }
 
@@ -224,6 +226,7 @@ export class DrizzleUserStore implements UserStore {
         id: users.id,
         email: users.email,
         name: users.name,
+        globalRole: users.globalRole,
         emailVerifiedAt: users.emailVerifiedAt,
       });
 
@@ -234,6 +237,7 @@ export class DrizzleUserStore implements UserStore {
     email: string;
     passwordHash: string;
     name?: string;
+    globalRole?: string | null;
   }): Promise<UserRecord> {
     const normalizedEmail = params.email.trim().toLowerCase();
     const [row] = await this.db
@@ -243,15 +247,18 @@ export class DrizzleUserStore implements UserStore {
         email: normalizedEmail,
         passwordHash: params.passwordHash,
         name: params.name ?? normalizedEmail.split("@")[0],
+        globalRole: params.globalRole ?? null,
       })
       .returning({
         id: users.id,
         email: users.email,
         name: users.name,
+        globalRole: users.globalRole,
         emailVerifiedAt: users.emailVerifiedAt,
       });
 
-    return toUserRecord(row);
+    const effectiveRole = resolveEffectiveRole(row.globalRole, []);
+    return toUserRecord(row, effectiveRole);
   }
 
   async setEmailVerified(userId: UserId): Promise<void> {

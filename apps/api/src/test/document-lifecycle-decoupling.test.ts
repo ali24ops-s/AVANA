@@ -18,7 +18,7 @@ import {
   type Actor,
   type OrganizationId,
   type CourseId,
-  type DocumentId,
+  type DocumentChunkId,
   type FlashcardId,
   type QuizId,
   type GeneratedContentId,
@@ -27,6 +27,8 @@ import {
 import { DocumentService } from "../modules/documents/document-service.js";
 import { GenerationService } from "../modules/generation/generation-service.js";
 import { ReviewService } from "../modules/generation/review-service.js";
+import type { GenerationQueueService } from "../modules/generation/generation-queue.js";
+import type { ModelGateway } from "../modules/generation/gateway/index.js";
 import { StudyService } from "../modules/study/study-service.js";
 import {
   InMemoryDocumentStore,
@@ -199,7 +201,7 @@ describe("Document Lifecycle Decoupling (P0 Core Invariant)", () => {
       moduleStore,
       lessonStore,
       defaultPolicy,
-      { enqueueGenerationJob: async () => ({ generationJobId: "job-1" }) } as any,
+      { enqueueGenerationJob: async () => ({ generationJobId: "job-1" }) } as unknown as GenerationQueueService,
       undefined,
       flashcardStore,
       quizStore,
@@ -216,7 +218,7 @@ describe("Document Lifecycle Decoupling (P0 Core Invariant)", () => {
           model: "mock",
           usage: { inputTokens: 10, outputTokens: 10 },
         }),
-      } as any,
+      } as unknown as ModelGateway,
       docStore,
       chunkStore,
       defaultPolicy,
@@ -270,7 +272,7 @@ describe("Document Lifecycle Decoupling (P0 Core Invariant)", () => {
 
     // 2. Insert Extracted Chunks
     chunkStore.insert({
-      id: randomUUID() as any,
+      id: randomUUID() as DocumentChunkId,
       documentId: docId,
       organizationId: orgId,
       sequence: 1,

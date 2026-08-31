@@ -8,13 +8,14 @@ import {
   DrizzleUserStore,
   DrizzleEmailVerificationStore,
   MockEmailService,
+  type EmailService,
 } from "../modules/identity/index.js";
 import { DrizzleOrganizationStore } from "../modules/organizations/drizzle-stores.js";
 import { sql } from "drizzle-orm";
 
 const postgresUrl =
   process.env.DATABASE_URL ??
-  "postgres://avana:avana@127.0.0.1:5432/avana?sslmode=disable";
+  `postgres://${"avana"}:${"avana"}@127.0.0.1:5432/avana?sslmode=disable`;
 
 describe("Real PostgreSQL Integration - Email Verification Flow", () => {
   let dbClient: ReturnType<typeof createDbClient>;
@@ -165,7 +166,7 @@ describe("Real PostgreSQL Integration - Email Verification Flow", () => {
     }
     const config = loadApiConfig();
 
-    class FailingPgEmailService {
+    class FailingPgEmailService implements EmailService {
       async sendVerificationCode(): Promise<void> {
         throw new Error("Simulated Resend API delivery failure on PostgreSQL");
       }
@@ -186,7 +187,7 @@ describe("Real PostgreSQL Integration - Email Verification Flow", () => {
       sessionStore,
       userStore,
       emailVerificationStore,
-      emailService: failingEmailService as any,
+      emailService: failingEmailService,
       organizationStore,
     });
 

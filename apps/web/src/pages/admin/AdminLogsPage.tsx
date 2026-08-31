@@ -2,8 +2,16 @@ import { useEffect, useState } from "react";
 import { api } from "../../lib/api/admin";
 import { AdminTable, AdminPagination, AdminFilter, AdminLoadingState, AdminEmptyState, AdminErrorState } from "../../components/admin/AdminUI";
 
+interface SystemLogRecord {
+  id: string;
+  timestamp: string;
+  level: string;
+  service?: string;
+  message: string;
+}
+
 export function AdminLogsPage() {
-  const [logs, setLogs] = useState<any[]>([]);
+  const [logs, setLogs] = useState<SystemLogRecord[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [page, setPage] = useState(1);
   const [level, setLevel] = useState("");
@@ -15,7 +23,7 @@ export function AdminLogsPage() {
     const fetch = async () => {
       setLoading(true);
       try {
-        const res = await api.get<{ logs: any[]; totalCount: number }>(`/admin/system/logs`, {
+        const res = await api.get<{ logs: SystemLogRecord[]; totalCount: number }>(`/admin/system/logs`, {
           params: { page, pageSize: 20, level: level || undefined }
         });
         if (active) {
@@ -23,8 +31,8 @@ export function AdminLogsPage() {
           setTotalCount(res.totalCount);
           setError(null);
         }
-      } catch (err: any) {
-        if (active) setError(err.message || "خطا");
+      } catch (err: unknown) {
+        if (active) setError(err instanceof Error ? err.message : "خطا");
       } finally {
         if (active) setLoading(false);
       }

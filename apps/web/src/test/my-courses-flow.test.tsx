@@ -57,7 +57,7 @@ describe("My Courses (دوره‌های من) Complete Frontend Flow", () => {
 
   it("opens modal automatically for new user without courses and allows selecting courses", async () => {
     const queryClient = createTestQueryClient();
-    let myCoursesList: any[] = [];
+    let myCoursesList: CourseResource[] = [];
 
     vi.spyOn(globalThis, "fetch").mockImplementation((url, init) => {
       const urlStr = url.toString();
@@ -93,11 +93,11 @@ describe("My Courses (دوره‌های من) Complete Frontend Flow", () => {
 
       if (urlStr.includes(`/v1/organizations/${orgId}/courses/my`)) {
         if (method === "PUT") {
-          let bodyObj: any = {};
+          let bodyObj: { course_ids?: string[] } = {};
           if (typeof init?.body === "string") {
-            bodyObj = JSON.parse(init.body);
-          } else if (init?.body) {
-            bodyObj = init.body;
+            bodyObj = JSON.parse(init.body) as { course_ids?: string[] };
+          } else if (init?.body && typeof init.body === "object") {
+            bodyObj = init.body as { course_ids?: string[] };
           }
           const ids = bodyObj.course_ids || [];
           myCoursesList = [course1, course2].filter((c) => ids.includes(c.id));

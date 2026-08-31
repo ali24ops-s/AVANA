@@ -44,7 +44,7 @@ import {
 import { InMemoryGenerationQueue } from "../modules/generation/generation-queue.js";
 import { InMemoryAuditStore } from "../observability/test/in-memory-stores.js";
 import { AuditService } from "../observability/audit-service.js";
-import type { CourseId, OrganizationId, QuizId, UserId } from "@avana/domain";
+import type { CourseId, OrganizationId, QuizId, QuizQuestionId, UserId } from "@avana/domain";
 
 function extractSessionToken(res: {
   cookies: Array<{ name: string; value: string }>;
@@ -52,6 +52,8 @@ function extractSessionToken(res: {
   const cookie = res.cookies.find((c) => c.name === "avana_session");
   return cookie?.value;
 }
+
+type TestApp = Awaited<ReturnType<typeof createApp>>;
 
 describe("Exams API Integration", () => {
   let userStore: InMemoryUserStore;
@@ -135,7 +137,7 @@ describe("Exams API Integration", () => {
     return app;
   }
 
-  async function signIn(app: any, email: string, _role = "student") {
+  async function signIn(app: TestApp, email: string) {
     const user = await userStore.createFromVerifiedIdentity({
       email,
       name: email.split("@")[0],
@@ -152,7 +154,7 @@ describe("Exams API Integration", () => {
   }
 
   async function createOrg(
-    app: any,
+    app: TestApp,
     token: string,
     name: string,
   ): Promise<OrganizationId> {
@@ -169,11 +171,11 @@ describe("Exams API Integration", () => {
 
   it("should fetch dynamic topic question counts from DB and start exam attempt with locked snapshot", async () => {
     const app = await buildTestApp();
-    const { token, userId: _userId } = await signIn(app, "student1@example.com");
+    const { token } = await signIn(app, "student1@example.com");
     const orgId = await createOrg(app, token, "Med School Org 1");
 
-    const q1Id = randomUUID() as any;
-    const q2Id = randomUUID() as any;
+    const q1Id = randomUUID() as QuizQuestionId;
+    const q2Id = randomUUID() as QuizQuestionId;
 
     quizStore.insert({
       id: "quiz-1" as QuizId,
@@ -230,7 +232,7 @@ describe("Exams API Integration", () => {
     expect(topicsRes.statusCode).toBe(200);
     const topicsBody = JSON.parse(topicsRes.body);
     expect(topicsBody.topics).toBeDefined();
-    const pharmTopic = topicsBody.topics.find((t: any) => t.topic === "Pharmacology");
+    const pharmTopic = topicsBody.topics.find((t: { topic: string }) => t.topic === "Pharmacology");
     expect(pharmTopic).toBeDefined();
     expect(pharmTopic.questionCount).toBe(2);
 
@@ -271,7 +273,7 @@ describe("Exams API Integration", () => {
     expect(submitBody.score).toBe(100);
     expect(submitBody.correct).toBe(2);
     expect(submitBody.passed).toBe(true);
-    const q1Result = submitBody.questions.find((q: any) => q.id === q1Id);
+    const q1Result = submitBody.questions.find((q: { id: string }) => q.id === q1Id);
     expect(q1Result?.explanation).toBe("Enalapril inhibits ACE.");
 
     await app.close();
@@ -297,7 +299,7 @@ describe("Exams API Integration", () => {
     });
 
     quizQuestionStore.insert({
-      id: randomUUID() as any,
+      id: randomUUID() as QuizQuestionId,
       quizId: "quiz-hierarchy" as QuizId,
       generatedContentId: null,
       question: "Q Pharmaco: Dose response curve shift?",
@@ -322,14 +324,14 @@ describe("Exams API Integration", () => {
     expect(body.sections).toBeDefined();
     expect(Array.isArray(body.sections)).toBe(true);
 
-    const pharmSection = body.sections.find((s: any) =>
-      s.chapters?.some((c: any) => c.topic?.toLowerCase().includes("pharm") || c.title?.toLowerCase().includes("pharm")),
+    const pharmSection = body.sections.find((s: { chapters?: Array<{ topic?: string; title?: string }> }) =>
+      s.chapters?.some((c: { topic?: string; title?: string }) => c.topic?.toLowerCase().includes("pharm") || c.title?.toLowerCase().includes("pharm")),
     ) || body.sections[0];
     expect(pharmSection).toBeDefined();
     expect(pharmSection.chapters).toBeDefined();
     expect(pharmSection.chapters.length).toBeGreaterThan(0);
 
-    const pdChapter = pharmSection.chapters.find((c: any) => c.topic?.toLowerCase().includes("pharm") || c.title?.toLowerCase().includes("pharm")) || pharmSection.chapters[0];
+    const pdChapter = pharmSection.chapters.find((c: { topic?: string; title?: string }) => c.topic?.toLowerCase().includes("pharm") || c.title?.toLowerCase().includes("pharm")) || pharmSection.chapters[0];
     expect(pdChapter).toBeDefined();
     expect(pdChapter.questionCount).toBe(1);
 
@@ -341,12 +343,12 @@ describe("Exams API Integration", () => {
     const { token } = await signIn(app, "student4@example.com");
     const orgId = await createOrg(app, token, "Med School Org 4");
 
-    const q1 = randomUUID() as any;
-    const q2 = randomUUID() as any;
+    const q1 = randomUUID() as QuizQuestionId;
+    const q2 = randomUUID() as QuizQuestionId;
 
     quizQuestionStore.insert({
       id: q1,
-      quizId: "quiz-h" as any,
+      quizId: "quiz-h" as QuizId,
       generatedContentId: null,
       question: "Q1 PD: Affinity definition?",
       topic: "Pharmacodynamics",
@@ -362,7 +364,7 @@ describe("Exams API Integration", () => {
 
     quizQuestionStore.insert({
       id: q2,
-      quizId: "quiz-h" as any,
+      quizId: "quiz-h" as QuizId,
       generatedContentId: null,
       question: "Q2 IHD: Angina treatment?",
       topic: "Ischemic Heart Disease",
@@ -403,8 +405,8 @@ describe("Exams API Integration", () => {
     const getAttemptBody = JSON.parse(getAttemptRes.body);
     expect(getAttemptBody.questions.length).toBe(2);
     // Locked snapshot order must match exactly
-    expect(getAttemptBody.questions.map((q: any) => q.id)).toEqual(
-      startBody.questions.map((q: any) => q.id),
+    expect(getAttemptBody.questions.map((q: { id: string }) => q.id)).toEqual(
+      startBody.questions.map((q: { id: string }) => q.id),
     );
 
     await app.close();
@@ -415,12 +417,12 @@ describe("Exams API Integration", () => {
     const { token } = await signIn(app, "student5@example.com");
     const orgId = await createOrg(app, token, "Med School Org 5");
 
-    const q1Id = randomUUID() as any;
-    const q2Id = randomUUID() as any;
+    const q1Id = randomUUID() as QuizQuestionId;
+    const q2Id = randomUUID() as QuizQuestionId;
 
     quizQuestionStore.insert({
       id: q1Id,
-      quizId: "quiz-save" as any,
+      quizId: "quiz-save" as QuizId,
       generatedContentId: null,
       question: "Q1 Save: ACE Inhibitor side effect?",
       topic: "Pharmacology",
@@ -436,7 +438,7 @@ describe("Exams API Integration", () => {
 
     quizQuestionStore.insert({
       id: q2Id,
-      quizId: "quiz-save" as any,
+      quizId: "quiz-save" as QuizId,
       generatedContentId: null,
       question: "Q2 Save: Losartan class?",
       topic: "Pharmacology",
@@ -540,8 +542,8 @@ describe("Exams API Integration", () => {
 
     // Seed 1 question in valid org
     quizQuestionStore.insert({
-      id: randomUUID() as any,
-      quizId: "quiz-valid" as any,
+      id: randomUUID() as QuizQuestionId,
+      quizId: "quiz-valid" as QuizId,
       generatedContentId: null,
       question: "Q Valid Org?",
       topic: "Pharmacology",

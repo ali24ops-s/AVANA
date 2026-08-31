@@ -269,18 +269,19 @@ export class InMemoryContentPackStore implements ContentPackStore {
     const createdLessons: LessonId[] = [];
     if (lessonItem) {
       const lessonPayload = lessonItem.payloadSnapshot as LessonPayload;
+      type SessionOrOutlineItem = { title: string; contentMarkdown?: string; description?: string; estimatedMinutes?: number };
       const sessionList: Array<{ title: string; contentMarkdown: string; estimatedMinutes?: number }> =
         Array.isArray(lessonPayload.sessions) && lessonPayload.sessions.length > 0
           ? lessonPayload.sessions
           : Array.isArray(lessonPayload.outline) && lessonPayload.outline.length > 0
-          ? lessonPayload.outline.map((o) => ({
+          ? (lessonPayload.outline as SessionOrOutlineItem[]).map((o) => ({
               title: o.title,
-              contentMarkdown: (o as any).description || "",
+              contentMarkdown: o.description || o.contentMarkdown || "",
             }))
           : [
               {
                 title: lessonPayload.title || pack.title,
-                contentMarkdown: (lessonPayload as any).contentMarkdown || "",
+                contentMarkdown: (lessonPayload as { contentMarkdown?: string }).contentMarkdown || "",
               },
             ];
 
@@ -309,18 +310,34 @@ export class InMemoryContentPackStore implements ContentPackStore {
     // 5. Create Flashcards (if present)
     let flashcardsCount = 0;
     if (flashcardItem) {
-      const fcPayload = flashcardItem.payloadSnapshot as FlashcardPayload;
-      const rawCards =
+      type RawFlashcardItem = {
+        front?: string;
+        back?: string;
+        question?: string;
+        answer?: string;
+        explanation?: string;
+        cardType?: string;
+        difficulty?: string;
+        sessionIndex?: number;
+      };
+      type ExtendedFcPayload = FlashcardPayload & {
+        flashcards?: RawFlashcardItem[];
+        cards?: RawFlashcardItem[];
+        question?: string;
+        answer?: string;
+      };
+      const fcPayload = flashcardItem.payloadSnapshot as ExtendedFcPayload;
+      const rawCards: RawFlashcardItem[] =
         Array.isArray(fcPayload.cards) && fcPayload.cards.length > 0
           ? fcPayload.cards
-          : Array.isArray((fcPayload as any).flashcards) && (fcPayload as any).flashcards.length > 0
-          ? (fcPayload as any).flashcards
-          : (fcPayload as any).question && (fcPayload as any).answer
-          ? [fcPayload as any]
+          : Array.isArray(fcPayload.flashcards) && fcPayload.flashcards.length > 0
+          ? fcPayload.flashcards
+          : fcPayload.question && fcPayload.answer
+          ? [fcPayload]
           : [];
 
       if (this.flashcardStore && rawCards.length > 0) {
-        const cardsToCreate = rawCards.map((c: any) => {
+        const cardsToCreate = rawCards.map((c: RawFlashcardItem) => {
           let cLessonId: LessonId | null = null;
           if (typeof c.sessionIndex === "number" && !isNaN(c.sessionIndex)) {
             if (c.sessionIndex >= 0 && c.sessionIndex < createdLessons.length) {
@@ -361,7 +378,26 @@ export class InMemoryContentPackStore implements ContentPackStore {
     let quizzesCount = 0;
     let questionsCount = 0;
     if (quizItem) {
-      const quizPayload = quizItem.payloadSnapshot as QuizPayload;
+      type RawQuizQuestionItem = {
+        question?: string;
+        choices?: string[];
+        options?: string[];
+        correctAnswer?: string;
+        correct_answer?: string;
+        answer?: string;
+        explanation?: string;
+        sessionIndex?: number;
+        topic?: string;
+        difficulty?: string;
+        questionType?: "multiple_choice" | "true_false" | "fill_blank";
+      };
+      type ExtendedQuizPayload = QuizPayload & {
+        topic?: string;
+        difficulty?: string;
+        question?: string;
+        questions?: RawQuizQuestionItem[];
+      };
+      const quizPayload = quizItem.payloadSnapshot as ExtendedQuizPayload;
       const quizId = randomUUID() as QuizId;
       if (this.quizStore) {
         await this.quizStore.create({
@@ -370,8 +406,8 @@ export class InMemoryContentPackStore implements ContentPackStore {
           courseId: targetCourseId,
           documentId: null,
           title: quizPayload.title || `آزمون ${pack.title}`,
-          topic: (quizPayload as any).topic || pack.subject || null,
-          difficulty: (quizPayload as any).difficulty || "medium",
+          topic: quizPayload.topic || pack.subject || null,
+          difficulty: quizPayload.difficulty || "medium",
           status: "published",
           createdAt: now,
           updatedAt: now,
@@ -380,15 +416,15 @@ export class InMemoryContentPackStore implements ContentPackStore {
         quizzesCount = 1;
       }
 
-      const rawQuestions =
+      const rawQuestions: RawQuizQuestionItem[] =
         Array.isArray(quizPayload.questions) && quizPayload.questions.length > 0
           ? quizPayload.questions
-          : (quizPayload as any).question
-          ? [quizPayload as any]
+          : quizPayload.question
+          ? [quizPayload]
           : [];
 
       if (this.quizQuestionStore && rawQuestions.length > 0) {
-        const questionsToCreate = rawQuestions.map((q: any, qIdx: number) => {
+        const questionsToCreate = rawQuestions.map((q: RawQuizQuestionItem, qIdx: number) => {
           let qLessonId: LessonId | null = null;
           if (typeof q.sessionIndex === "number" && !isNaN(q.sessionIndex)) {
             if (q.sessionIndex >= 0 && q.sessionIndex < createdLessons.length) {
@@ -415,9 +451,9 @@ export class InMemoryContentPackStore implements ContentPackStore {
             generatedContentId: null,
             lessonId: qLessonId,
             question: shuffled.question || q.question || "سوال آزمون",
-            topic: q.topic || (quizPayload as any).topic || null,
+            topic: q.topic || quizPayload.topic || null,
             difficulty: q.difficulty || "medium",
-            questionType: (q.questionType as any) || "multiple_choice",
+            questionType: q.questionType || "multiple_choice",
             choices:
               shuffled.choices && shuffled.choices.length > 0
                 ? shuffled.choices

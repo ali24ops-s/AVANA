@@ -180,6 +180,32 @@ export type PublicContentPackDetailResource = {
 // Helper Utilities for Metadata and Preview Calculation
 // ---------------------------------------------------------------------------
 
+type ExtendedFlashcardCard = {
+  question?: string;
+  front?: string;
+  answer?: string;
+  back?: string;
+};
+
+type ExtendedFlashcardShape = FlashcardPayload & {
+  flashcards?: ExtendedFlashcardCard[];
+  cards?: ExtendedFlashcardCard[];
+  question?: string;
+  front?: string;
+};
+
+type ExtendedQuizQuestion = {
+  question?: string;
+  topic?: string;
+  category?: string;
+};
+
+type ExtendedQuizShape = QuizPayload & {
+  question?: string;
+  topic?: string;
+  questions?: ExtendedQuizQuestion[];
+};
+
 /**
  * Computes high-level metadata statistics from the payload items at publish time.
  */
@@ -202,20 +228,22 @@ export function computeContentPackMetadata(items: {
 
   let flashcardCount = 0;
   if (items.flashcard) {
-    if (Array.isArray(items.flashcard.cards)) {
-      flashcardCount = items.flashcard.cards.length;
-    } else if ((items.flashcard as any).flashcards && Array.isArray((items.flashcard as any).flashcards)) {
-      flashcardCount = (items.flashcard as any).flashcards.length;
-    } else if (items.flashcard.question) {
+    const fc = items.flashcard as ExtendedFlashcardShape;
+    if (Array.isArray(fc.cards)) {
+      flashcardCount = fc.cards.length;
+    } else if (Array.isArray(fc.flashcards)) {
+      flashcardCount = fc.flashcards.length;
+    } else if (fc.question) {
       flashcardCount = 1;
     }
   }
 
   let quizQuestionCount = 0;
   if (items.quiz) {
-    if (Array.isArray(items.quiz.questions)) {
-      quizQuestionCount = items.quiz.questions.length;
-    } else if ((items.quiz as any).question) {
+    const qz = items.quiz as ExtendedQuizShape;
+    if (Array.isArray(qz.questions)) {
+      quizQuestionCount = qz.questions.length;
+    } else if (qz.question) {
       quizQuestionCount = 1;
     }
   }
@@ -277,22 +305,22 @@ export function buildContentPackPreview(
         sessionCount: sessionTitles.length > 0 ? sessionTitles.length : 1,
       };
     } else if (item.contentType === "flashcard" && payload.kind === "flashcard") {
-      const fc = payload as FlashcardPayload;
+      const fc = payload as ExtendedFlashcardShape;
       const sampleQuestions: string[] = [];
-      let totalCards = 0;
 
-      const rawCards =
+      const rawCards: ExtendedFlashcardCard[] =
         Array.isArray(fc.cards) && fc.cards.length > 0
           ? fc.cards
-          : Array.isArray((fc as any).flashcards) && (fc as any).flashcards.length > 0
-          ? (fc as any).flashcards
-          : (fc as any).question
-          ? [fc]
+          : Array.isArray(fc.flashcards) && fc.flashcards.length > 0
+          ? fc.flashcards
+          : fc.question || fc.front
+          ? [{ question: fc.question, front: fc.front }]
           : [];
 
-      totalCards = rawCards.length;
+      const totalCards = rawCards.length;
       for (let i = 0; i < Math.min(3, rawCards.length); i++) {
-        const q = rawCards[i].question || rawCards[i].front;
+        const itemCard = rawCards[i];
+        const q = itemCard ? (itemCard.question || itemCard.front) : undefined;
         if (q) sampleQuestions.push(q);
       }
 
@@ -301,17 +329,17 @@ export function buildContentPackPreview(
         sampleQuestions,
       };
     } else if (item.contentType === "quiz" && payload.kind === "quiz") {
-      const qz = payload as QuizPayload;
-      const rawQuestions = Array.isArray(qz.questions)
+      const qz = payload as ExtendedQuizShape;
+      const rawQuestions: ExtendedQuizQuestion[] = Array.isArray(qz.questions)
         ? qz.questions
-        : (qz as any).question
-        ? [qz as any]
+        : qz.question
+        ? [{ question: qz.question, topic: qz.topic, category: undefined }]
         : [];
       const topicsSet = new Set<string>();
-      if ((qz as any).topic) topicsSet.add((qz as any).topic);
+      if (qz.topic) topicsSet.add(qz.topic);
 
       for (const q of rawQuestions) {
-        if ((q as any).topic) topicsSet.add((q as any).topic);
+        if (q.topic) topicsSet.add(q.topic);
         if (q.category) topicsSet.add(q.category);
       }
 

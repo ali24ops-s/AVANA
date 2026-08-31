@@ -20,6 +20,7 @@ import { GroqModelGateway } from "../modules/generation/gateway/groq.js";
 import { MockModelGateway } from "../modules/generation/gateway/mock.js";
 import { DrizzleAdminStore } from "../modules/admin/drizzle-stores.js";
 import { InMemoryAdminStore } from "../modules/admin/in-memory-stores.js";
+import type { DbClient } from "@avana/database/client";
 
 describe("System Health — Production-Grade Verification", () => {
   beforeEach(() => {
@@ -114,9 +115,9 @@ describe("System Health — Production-Grade Verification", () => {
       );
 
       const gateway = new GeminiModelGateway({
-        apiKey: "AIzaSyFakeGeminiKey12345",
+        apiKey: "fake-gemini-key",
         modelName: "gemini-3.6-flash",
-        fetchFn: mockFetch as any,
+        fetchFn: mockFetch as unknown as typeof fetch,
       });
 
       const health = await gateway.checkHealth();
@@ -133,7 +134,7 @@ describe("System Health — Production-Grade Verification", () => {
         expect.objectContaining({
           method: "GET",
           headers: expect.objectContaining({
-            "x-goog-api-key": "AIzaSyFakeGeminiKey12345",
+            "x-goog-api-key": "fake-gemini-key",
           }),
         })
       );
@@ -150,15 +151,15 @@ describe("System Health — Production-Grade Verification", () => {
       );
 
       const gateway = new GeminiModelGateway({
-        apiKey: "AIzaSyFakeGeminiKey12345",
-        fetchFn: mockFetch as any,
+        apiKey: "fake-gemini-key",
+        fetchFn: mockFetch as unknown as typeof fetch,
       });
 
       const health = await gateway.checkHealth();
 
       expect(health.status).toBe("unhealthy");
       expect(health.reason).toContain("authentication failed");
-      expect(JSON.stringify(health)).not.toContain("AIzaSyFakeGeminiKey12345");
+      expect(JSON.stringify(health)).not.toContain("fake-gemini-key");
     });
 
     it("Case 9: Gemini 429 Rate Limit returns degraded status", async () => {
@@ -172,8 +173,8 @@ describe("System Health — Production-Grade Verification", () => {
       );
 
       const gateway = new GeminiModelGateway({
-        apiKey: "AIzaSyFakeGeminiKey12345",
-        fetchFn: mockFetch as any,
+        apiKey: "fake-gemini-key",
+        fetchFn: mockFetch as unknown as typeof fetch,
       });
 
       const health = await gateway.checkHealth();
@@ -193,8 +194,8 @@ describe("System Health — Production-Grade Verification", () => {
       );
 
       const gateway = new GeminiModelGateway({
-        apiKey: "AIzaSyFakeGeminiKey12345",
-        fetchFn: mockFetch as any,
+        apiKey: "fake-gemini-key",
+        fetchFn: mockFetch as unknown as typeof fetch,
       });
 
       const health = await gateway.checkHealth();
@@ -213,9 +214,9 @@ describe("System Health — Production-Grade Verification", () => {
       });
 
       const gateway = new GeminiModelGateway({
-        apiKey: "AIzaSyFakeGeminiKey12345",
+        apiKey: "fake-gemini-key",
         timeoutMs: 200,
-        fetchFn: mockFetch as any,
+        fetchFn: mockFetch as unknown as typeof fetch,
       });
 
       const health = await gateway.checkHealth();
@@ -240,7 +241,7 @@ describe("System Health — Production-Grade Verification", () => {
       const gateway = new CloudflareModelGateway({
         accountId: "cf-account-abc-123",
         apiToken: "cf-token-secret-xyz-789",
-        fetchFn: mockFetch as any,
+        fetchFn: mockFetch as unknown as typeof fetch,
       });
 
       const health = await gateway.checkHealth();
@@ -272,7 +273,7 @@ describe("System Health — Production-Grade Verification", () => {
       const gateway = new CloudflareModelGateway({
         accountId: "cf-account-abc-123",
         apiToken: "cf-token-secret-xyz-789",
-        fetchFn: mockFetch as any,
+        fetchFn: mockFetch as unknown as typeof fetch,
       });
 
       const health = await gateway.checkHealth();
@@ -291,7 +292,7 @@ describe("System Health — Production-Grade Verification", () => {
       const gateway = new CloudflareModelGateway({
         accountId: "cf-account-abc-123",
         apiToken: "cf-token-secret-xyz-789",
-        fetchFn: mockFetch as any,
+        fetchFn: mockFetch as unknown as typeof fetch,
       });
 
       const health = await gateway.checkHealth();
@@ -315,8 +316,8 @@ describe("System Health — Production-Grade Verification", () => {
       );
 
       const gateway = new GroqModelGateway({
-        apiKey: "gsk_secret_groq_api_key_12345",
-        fetchFn: mockFetch as any,
+        apiKey: "fake-groq-key",
+        fetchFn: mockFetch as unknown as typeof fetch,
       });
 
       const health = await gateway.checkHealth();
@@ -331,7 +332,7 @@ describe("System Health — Production-Grade Verification", () => {
         expect.objectContaining({
           method: "GET",
           headers: expect.objectContaining({
-            "Authorization": "Bearer gsk_secret_groq_api_key_12345",
+            "Authorization": "Bearer fake-groq-key",
           }),
         })
       );
@@ -348,15 +349,15 @@ describe("System Health — Production-Grade Verification", () => {
       );
 
       const gateway = new GroqModelGateway({
-        apiKey: "gsk_secret_groq_api_key_12345",
-        fetchFn: mockFetch as any,
+        apiKey: "fake-groq-key",
+        fetchFn: mockFetch as unknown as typeof fetch,
       });
 
       const health = await gateway.checkHealth();
 
       expect(health.status).toBe("unhealthy");
       expect(health.reason).toContain("authentication failed");
-      expect(JSON.stringify(health)).not.toContain("gsk_secret_groq_api_key_12345");
+      expect(JSON.stringify(health)).not.toContain("fake-groq-key");
     });
 
     it("Case 17: Groq 429 Rate Limit returns degraded", async () => {
@@ -365,8 +366,8 @@ describe("System Health — Production-Grade Verification", () => {
       );
 
       const gateway = new GroqModelGateway({
-        apiKey: "gsk_secret_groq_api_key_12345",
-        fetchFn: mockFetch as any,
+        apiKey: "fake-groq-key",
+        fetchFn: mockFetch as unknown as typeof fetch,
       });
 
       const health = await gateway.checkHealth();
@@ -413,7 +414,7 @@ describe("System Health — Production-Grade Verification", () => {
     it("Case 20: DrizzleAdminStore isolates errors — AI down does not crash DB/Redis", async () => {
       const fakeDb = {
         select: vi.fn().mockResolvedValue([{ val: 1 }]),
-      } as any;
+      } as unknown as DbClient["db"];
 
       const failingGateway = {
         provider: "gemini" as const,
@@ -443,7 +444,7 @@ describe("System Health — Production-Grade Verification", () => {
     it("Case 21: DrizzleAdminStore isolates errors — Database down does not crash Redis/AI", async () => {
       const failingDb = {
         select: vi.fn().mockRejectedValue(new Error("Postgres connection timeout")),
-      } as any;
+      } as unknown as DbClient["db"];
 
       const healthyGateway = new MockModelGateway();
 

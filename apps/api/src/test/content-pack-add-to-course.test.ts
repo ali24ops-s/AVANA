@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 import { createApp } from "../server/createApp.js";
@@ -29,9 +28,6 @@ import {
   InMemoryQuizStore,
   InMemoryQuizQuestionStore,
   InMemoryQuizAttemptStore,
-  InMemoryAssistantConversationStore,
-  InMemoryStudySessionStore,
-  InMemoryFlashcardStudySessionStore,
 } from "../modules/study/test/in-memory-stores.js";
 import {
   InMemoryContentPackStore,
@@ -508,7 +504,7 @@ describe("Content Pack Add to Course (Materialization) Integration Test Suite", 
     expect(summary).toBeDefined();
     expect(summary?.status).toBe("accepted");
     expect(summary?.courseId).toBe(student.courseId);
-    expect((summary?.payload as any).summaryText).toBe(
+    expect((summary?.payload as { summaryText?: string } | undefined)?.summaryText).toBe(
       "نکات کلیدی پیرامون داروهای ضد فشار خون و اینوتروپیک مثبت.",
     );
   });

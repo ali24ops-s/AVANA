@@ -442,4 +442,96 @@ export class GeminiModelGateway implements ModelGateway {
       "All Gemini API keys are currently rate-limited or exhausted.",
     );
   }
+
+  async checkHealth(): Promise<{
+    status: "healthy" | "unhealthy" | "degraded";
+    provider: "gemini";
+    model: string;
+    latencyMs: number | null;
+    reason?: string;
+  }> {
+    const slot = this.keyPool.acquireKey();
+    const key = slot?.apiKey;
+    const startTime = Date.now();
+    const url = `${GEMINI_API_BASE_URL}/${this.modelName}`;
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), Math.min(this.timeoutMs, 5000));
+      const res = await this.fetchFn(url, {
+        method: "GET",
+        headers: {
+          "x-goog-api-key": key || "",
+        },
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      const latencyMs = Date.now() - startTime;
+      if (res.ok) {
+        return {
+          status: "healthy",
+          provider: "gemini",
+          model: this.modelName,
+          latencyMs,
+        };
+      }
+
+      const text = await res.text();
+      let errorMsg = text;
+      try {
+        const json = JSON.parse(text) as { error?: { message?: string } };
+        if (json?.error?.message) errorMsg = json.error.message;
+      } catch {
+        // ignore
+      }
+
+      if (res.status === 401) {
+        return {
+          status: "unhealthy",
+          provider: "gemini",
+          model: this.modelName,
+          latencyMs: null,
+          reason: `Gemini authentication failed: ${this.sanitize(errorMsg)}`,
+        };
+      }
+
+      if (res.status === 429) {
+        return {
+          status: "degraded",
+          provider: "gemini",
+          model: this.modelName,
+          latencyMs: null,
+          reason: `Gemini rate limit exceeded: ${this.sanitize(errorMsg)}`,
+        };
+      }
+
+      if (res.status === 403) {
+        return {
+          status: "degraded",
+          provider: "gemini",
+          model: this.modelName,
+          latencyMs: null,
+          reason: `Gemini quota exhausted: ${this.sanitize(errorMsg)}`,
+        };
+      }
+
+      return {
+        status: "unhealthy",
+        provider: "gemini",
+        model: this.modelName,
+        latencyMs: null,
+        reason: `Gemini health check returned status ${res.status}: ${this.sanitize(errorMsg)}`,
+      };
+    } catch (err: unknown) {
+      const isTimeout = err instanceof Error && err.name === "AbortError";
+      return {
+        status: "unhealthy",
+        provider: "gemini",
+        model: this.modelName,
+        latencyMs: null,
+        reason: isTimeout ? "Gemini request timed out" : `Gemini connection failed: ${this.sanitize(err instanceof Error ? err.message : String(err))}`,
+      };
+    }
+  }
 }

@@ -26,10 +26,12 @@ import type { FastifyPluginAsync } from "fastify";
 import {
   type Actor,
   type CourseId,
+  type DocumentId,
   type FlashcardRating,
   type OrganizationId,
   type FlashcardStudySessionRecord,
   type FlashcardStudySessionCardRecord,
+  type StudyActivityType,
   DomainError,
   defaultPolicy,
   isFlashcardRating,
@@ -293,7 +295,7 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
           // 2. Explicit documentId -> module.documentId
           // 3. Sole course module (courseModules.length === 1)
           let targetModuleId: string | null = null;
-          let matchedLessonId: string | null = f.lessonId ?? null;
+          const matchedLessonId: string | null = f.lessonId ?? null;
           if (matchedLessonId && lessonToModuleMap.has(matchedLessonId)) {
             targetModuleId = lessonToModuleMap.get(matchedLessonId)!;
           } else if (f.documentId && docToModuleMap.has(f.documentId)) {
@@ -668,14 +670,6 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
       },
     );
 
-    console.log("[FLASHCARD_SESSION_DEBUG] CREATE", {
-      userId: actor.userId,
-      organizationId,
-      sessionId: session.id,
-      totalCards: session.totalCards,
-      status: session.status,
-    });
-
     reply.code(201);
     return {
       request_id: req.id,
@@ -695,14 +689,6 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
     const organizationId = await resolveOrganizationId(actor, req.params as { organizationId: string });
 
     const sessions = await service.listActiveFlashcardStudySessions(actor, organizationId);
-    
-    console.log("[FLASHCARD_SESSION_DEBUG] LIST_ACTIVE", {
-      userId: actor.userId,
-      organizationId,
-      activeSessionsCount: sessions.length,
-      sessionIds: sessions.map((s) => s.id),
-      statuses: sessions.map((s) => s.status),
-    });
 
     const formatted = sessions.map(formatFlashcardStudySession);
     return {
@@ -726,39 +712,14 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
     const actor = getActor(req);
     const organizationId = await resolveOrganizationId(actor, req.params as { organizationId: string });
 
-    console.log("[FLASHCARD_SESSION_DEBUG] GET_SESSION start", {
-      sessionId: req.params.sessionId,
-      userId: actor.userId,
-      organizationId,
-    });
+    const res = await service.getFlashcardStudySession(actor, organizationId, req.params.sessionId);
 
-    try {
-      const res = await service.getFlashcardStudySession(actor, organizationId, req.params.sessionId);
-      
-      console.log("[FLASHCARD_SESSION_DEBUG] GET_SESSION success", {
-        sessionId: req.params.sessionId,
-        status: res.session.status,
-        totalCards: res.session.totalCards,
-        completedCards: res.session.completedCards,
-        currentIndex: res.session.currentIndex,
-        currentCardId: res.session.currentCardId,
-        snapshotCardsCount: res.sessionCards.length,
-        returnedFlashcardsCount: res.cards.length
-      });
-
-      return {
-        request_id: req.id,
-        session: formatFlashcardStudySession(res.session),
-        cards: res.cards.map(formatFlashcardResource),
-        session_cards: res.sessionCards.map(formatFlashcardStudySessionCard),
-      };
-    } catch (error) {
-      console.error("[FLASHCARD_SESSION_DEBUG] GET_SESSION error", {
-        sessionId: req.params.sessionId,
-        error: error instanceof Error ? error.message : String(error)
-      });
-      throw error;
-    }
+    return {
+      request_id: req.id,
+      session: formatFlashcardStudySession(res.session),
+      cards: res.cards.map(formatFlashcardResource),
+      session_cards: res.sessionCards.map(formatFlashcardStudySessionCard),
+    };
   };
 
   app.get(
@@ -797,15 +758,6 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
       },
     );
 
-    console.log("[FLASHCARD_SESSION_DEBUG] PROGRESS", {
-      sessionId: session.id,
-      userId: actor.userId,
-      currentIndex: session.currentIndex,
-      currentCardId: session.currentCardId,
-      completedCards: session.completedCards,
-      status: session.status,
-    });
-
     return {
       request_id: req.id,
       session: formatFlashcardStudySession(session),
@@ -831,11 +783,6 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
       organizationId,
       req.params.sessionId,
     );
-
-    console.log("[FLASHCARD_SESSION_DEBUG] CLOSE/COMPLETE", {
-      sessionId: session.id,
-      status: session.status,
-    });
 
     return {
       request_id: req.id,
@@ -1419,7 +1366,7 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
     const documentId = req.params.documentId;
 
     await service.authorize(actor, organizationId, "study:read");
-    await flashcardStore.deleteByDocument(documentId as any, organizationId);
+    await flashcardStore.deleteByDocument(documentId as DocumentId, organizationId);
 
     reply.code(204);
     return;
@@ -1452,7 +1399,7 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
     const documentId = req.params.documentId;
 
     await service.authorize(actor, organizationId, "study:read");
-    await quizStore.deleteByDocument(documentId as any, organizationId);
+    await quizStore.deleteByDocument(documentId as DocumentId, organizationId);
 
     reply.code(204);
     return;
@@ -1497,7 +1444,7 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
       }
 
       const session = await service.startStudySession(actor, {
-        activityType: req.body.activityType as any,
+        activityType: req.body.activityType as StudyActivityType,
         courseId: req.body.courseId,
         moduleId: req.body.moduleId,
         lessonId: req.body.lessonId,

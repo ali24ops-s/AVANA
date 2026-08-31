@@ -21,6 +21,7 @@ import type {
   GenerationJobPayload,
 } from "../generation/generation-queue.js";
 import type { GenerationJobStore } from "../generation/generation-jobs-store.js";
+import { getPromptRegistry } from "../generation/prompt-registry.js";
 
 export interface AdminRouteOptions extends AuthMiddlewareDeps {
   adminStore: AdminStore;
@@ -338,17 +339,19 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
     return reply.send({ providers });
   });
 
-  app.get("/generation/prompts", async (_request, reply) => {
-    // Read-only prompt inspector, hard-coded as prompts are in source code
-    const prompts = [
-      { id: "p1", name: "Lesson Generation", type: "lesson", source: "Hard-coded", version: "v1", active: true },
-      { id: "p2", name: "Flashcard Generation", type: "flashcard", source: "Hard-coded", version: "v1", active: true },
-      { id: "p3", name: "Exam Generation", type: "quiz", source: "Hard-coded", version: "v1", active: true },
-      { id: "p4", name: "Content Planning", type: "course_plan", source: "Hard-coded", version: "v1", active: true },
-      { id: "p5", name: "Study Assistant", type: "assistant", source: "Hard-coded", version: "v1", active: true },
-    ];
+  const handlePrompts = async (_request: import("fastify").FastifyRequest, reply: import("fastify").FastifyReply) => {
+    const activeProvider = (
+      process.env.AI_PRIMARY_PROVIDER ||
+      process.env.AI_CONTENT_PROVIDER ||
+      process.env.AI_PROVIDER ||
+      "gemini"
+    ).toLowerCase();
+    const prompts = getPromptRegistry({ provider: activeProvider });
     return reply.send({ prompts });
-  });
+  };
+
+  app.get("/prompts", handlePrompts);
+  app.get("/generation/prompts", handlePrompts);
 
   app.get("/settings/features", async (_request, reply) => {
     const features = [

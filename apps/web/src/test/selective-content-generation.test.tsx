@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -43,7 +42,7 @@ describe("Selective Smart AI Content Generation & Lifecycle (12 Scenarios)", () 
   // Scenario 1: New file -> All 3 selected -> All 3 generated
   // -------------------------------------------------------------------------
   it("Scenario 1: New file -> All 3 selected -> Triggers generation with ['lesson', 'flashcard', 'quiz']", async () => {
-    let capturedBody: any = null;
+    let capturedBody: { types?: string[] } | null = null;
 
     global.fetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
       const urlStr = String(url);
@@ -129,7 +128,7 @@ describe("Selective Smart AI Content Generation & Lifecycle (12 Scenarios)", () 
   // Scenario 2: New file -> Only Lesson selected -> Only Lesson generated
   // -------------------------------------------------------------------------
   it("Scenario 2: New file -> Only Lesson selected -> Generates only ['lesson']", async () => {
-    let capturedBody: any = null;
+    let capturedBody: { types?: string[] } | null = null;
 
     global.fetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
       const urlStr = String(url);
@@ -218,7 +217,7 @@ describe("Selective Smart AI Content Generation & Lifecycle (12 Scenarios)", () 
   // Scenario 3: Lesson exists in DB -> Lesson disabled and labeled "تولید شده", Flashcards & Exam selectable
   // -------------------------------------------------------------------------
   it("Scenario 3: Lesson already in DB -> Lesson is disabled and labeled «تولید شده», Flashcards & Exam are selectable", async () => {
-    let capturedBody: any = null;
+    let capturedBody: { types?: string[] } | null = null;
 
     global.fetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
       const urlStr = String(url);
@@ -313,7 +312,7 @@ describe("Selective Smart AI Content Generation & Lifecycle (12 Scenarios)", () 
   // Scenario 4: Lesson + Flashcards exist in DB -> Only Exam is selectable
   // -------------------------------------------------------------------------
   it("Scenario 4: Lesson + Flashcards exist in DB -> Only Exam is selectable and generated", async () => {
-    let capturedBody: any = null;
+    let capturedBody: { types?: string[] } | null = null;
 
     global.fetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
       const urlStr = String(url);

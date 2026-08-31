@@ -3,10 +3,12 @@ import type {
   Actor,
   CourseId,
   DocumentId,
+  GeneratedContentId,
   LessonId,
   ModuleId,
   OrganizationId,
   QuizId,
+  QuizQuestionId,
 } from "@avana/domain";
 import { defaultPolicy } from "@avana/domain";
 
@@ -22,6 +24,7 @@ import {
 import {
   InMemoryModuleStore,
   InMemoryLessonStore,
+  InMemoryProgressStore,
 } from "../modules/learning/test/in-memory-stores.js";
 import { InMemoryCourseStore } from "../modules/courses/test/in-memory-stores.js";
 
@@ -64,6 +67,7 @@ describe("Standardized Taxonomy (Course -> Module -> Lesson)", () => {
     quizQuestionStore = new InMemoryQuizQuestionStore();
     quizAttemptStore = new InMemoryQuizAttemptStore();
 
+    const progressStore = new InMemoryProgressStore();
     studyService = new StudyService(
       flashcardStore,
       flashcardReviewStore,
@@ -72,7 +76,7 @@ describe("Standardized Taxonomy (Course -> Module -> Lesson)", () => {
       quizAttemptStore,
       moduleStore,
       lessonStore,
-      undefined as any,
+      progressStore,
       defaultPolicy,
       undefined,
       undefined,
@@ -141,9 +145,9 @@ describe("Standardized Taxonomy (Course -> Module -> Lesson)", () => {
 
     quizQuestionStore.createMany([
       {
-        id: "qq-1" as any,
+        id: "qq-1" as QuizQuestionId,
         quizId,
-        generatedContentId: "gen-1" as any,
+        generatedContentId: "gen-1" as GeneratedContentId,
         lessonId,
         question: "سوال ۱: کدام داروی کلینرژیک اثر طولانی‌تر دارد؟",
         topic: "داروهای آگونیست کلینرژیک",
@@ -157,9 +161,9 @@ describe("Standardized Taxonomy (Course -> Module -> Lesson)", () => {
         updatedAt: now,
       },
       {
-        id: "qq-2" as any,
+        id: "qq-2" as QuizQuestionId,
         quizId,
-        generatedContentId: "gen-1" as any,
+        generatedContentId: "gen-1" as GeneratedContentId,
         lessonId,
         question: "سوال ۲: مکانیسم کارباکول چیست؟",
         topic: "داروهای آگونیست کلینرژیک",
@@ -234,9 +238,9 @@ describe("Standardized Taxonomy (Course -> Module -> Lesson)", () => {
     // Question with lessonId = null
     quizQuestionStore.createMany([
       {
-        id: "qq-unmapped-1" as any,
+        id: "qq-unmapped-1" as QuizQuestionId,
         quizId,
-        generatedContentId: "gen-unmapped" as any,
+        generatedContentId: "gen-unmapped" as GeneratedContentId,
         lessonId: null,
         question: "سوال ۱ غدد: هورمون آلدوسترون چه اثری دارد؟",
         topic: "سندروم کوشینگ",
@@ -296,9 +300,9 @@ describe("Standardized Taxonomy (Course -> Module -> Lesson)", () => {
 
     quizQuestionStore.createMany([
       {
-        id: "qq-select-1" as any,
+        id: "qq-select-1" as QuizQuestionId,
         quizId,
-        generatedContentId: "gen-select" as any,
+        generatedContentId: "gen-select" as GeneratedContentId,
         lessonId: null,
         question: "سوال کلیه: دیورتیک فورزماید در کدام بخش لوله ادراری اثر می‌کند؟",
         topic: "دیورتیک‌های قوس",

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import { randomUUID } from "node:crypto";
 import { createApp } from "../server/createApp.js";
@@ -38,6 +37,7 @@ import type {
   OrganizationId,
   UserId,
 } from "@avana/domain";
+import type { GeneratedContentRecord } from "../modules/generation/generation-store.js";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -214,7 +214,7 @@ describe("Content Packs & Library Backend Test Suite", () => {
     });
 
     // Seed 4 generated contents
-    const contentsMap: Record<string, any> = {};
+    const contentsMap: Record<string, GeneratedContentRecord> = {};
 
     if (statuses.lesson) {
       const lessonId = randomUUID() as GeneratedContentId;
@@ -702,7 +702,7 @@ describe("Content Packs & Library Backend Test Suite", () => {
 
     // Must be completely unaltered!
     expect(snapshotLesson.payloadSnapshot.title).toBe("فارماکولوژی اعصاب خودکار و CNS");
-    expect((snapshotLesson.payloadSnapshot as any).sessions).toHaveLength(2);
+    expect((snapshotLesson.payloadSnapshot as { sessions?: unknown[] }).sessions).toHaveLength(2);
     expect(snapshotLesson.payloadSnapshot.title).not.toBe(mutatedPayload.title);
   });
 
@@ -838,10 +838,10 @@ describe("Content Packs & Library Backend Test Suite", () => {
     const p1 = await contentPackStore.findById(pack1Id);
     p1.usageCount = 50;
     p1.publishedAt = new Date(Date.now() - 100000).toISOString();
-    (contentPackStore as any).packs.set(p1.id, { ...p1 });
+    (contentPackStore as unknown as { packs: Map<string, typeof p1> }).packs.set(p1.id, { ...p1 });
 
     const { docId: doc2 } = await createReadyDocumentWithContents(orgId, courseId, userId);
-    const pub2 = await app.inject({
+    await app.inject({
       method: "POST",
       url: `/v1/organizations/${orgId}/documents/${doc2}/content-pack/publish`,
       cookies: { avana_session: token },
@@ -894,7 +894,7 @@ describe("Content Packs & Library Backend Test Suite", () => {
 
   it("15. Usage uniqueness: Schema and Store ensure unique usage installation per course", async () => {
     const app = await buildTestApp();
-    const { orgId, courseId, userId } = await setupUserAndOrg(app);
+    const { courseId, userId } = await setupUserAndOrg(app);
     const packId = randomUUID();
 
     // User adds pack to course 1
@@ -1333,8 +1333,9 @@ describe("Content Packs & Library Backend Test Suite", () => {
       const adminId = JSON.parse(aRes.body).user.id as UserId;
 
       // Set global role to platform_admin in userStore
-      const user = (userStore as any).users.get(adminId);
+      const user = (userStore as unknown as { users: Map<string, { role: string; globalRole?: string | null }> }).users.get(adminId);
       if (user) {
+        user.globalRole = "platform_admin";
         user.role = "platform_admin";
       }
 

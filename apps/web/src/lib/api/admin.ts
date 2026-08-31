@@ -112,7 +112,7 @@ export interface AdminAuditRecord {
   entity: string;
   entityId: string;
   timestamp: string;
-  metadata: any;
+  metadata?: Record<string, unknown> | null;
 }
 
 export interface AdminAuditList {
@@ -120,11 +120,17 @@ export interface AdminAuditList {
   totalCount: number;
 }
 
+export type ApiRequestOptions = {
+  headers?: Record<string, string>;
+  params?: Record<string, string | number | boolean | undefined>;
+  signal?: AbortSignal;
+};
+
 export function createAdminApi(client: {
-  get: <T>(path: string, options?: any) => Promise<T>;
-  post: <T>(path: string, data?: any, options?: any) => Promise<T>;
-  patch: <T>(path: string, data?: any, options?: any) => Promise<T>;
-  delete: <T>(path: string, options?: any) => Promise<T>;
+  get: <T>(path: string, options?: ApiRequestOptions) => Promise<T>;
+  post: <T>(path: string, data?: unknown, options?: ApiRequestOptions) => Promise<T>;
+  patch: <T>(path: string, data?: unknown, options?: ApiRequestOptions) => Promise<T>;
+  delete: <T>(path: string, options?: ApiRequestOptions) => Promise<T>;
 }) {
   return {
     async getDashboardStats(): Promise<DashboardStats> {
@@ -205,7 +211,7 @@ import { createApiClient, getApiBaseUrl } from "./client.js";
 const rawClient = createApiClient({ baseUrl: getApiBaseUrl() });
 
 export const api = {
-  get: <T>(path: string, options?: any) => rawClient.get<T>(`/v1${path}`, options),
-  post: <T>(path: string, data?: any, options?: any) => rawClient.post<T>(`/v1${path}`, data, options),
-  delete: <T>(path: string, options?: any) => rawClient.delete<T>(`/v1${path}`, options),
+  get: <T>(path: string, options?: ApiRequestOptions) => rawClient.get<T>(`/v1${path}`, options),
+  post: <T>(path: string, data?: unknown, options?: ApiRequestOptions) => rawClient.post<T>(`/v1${path}`, data, options),
+  delete: <T>(path: string, options?: ApiRequestOptions) => rawClient.delete<T>(`/v1${path}`, options),
 };

@@ -20,6 +20,7 @@ import {
   organizationMemberships,
 } from "@avana/database/schema";
 import { resolveEffectiveRole, type Role } from "@avana/domain";
+import { checkRedisHealth } from "./redis-health.js";
 import type {
   AdminStore,
   DashboardStats,
@@ -29,6 +30,7 @@ import type {
   AdminCourseRecord,
   AdminDocumentRecord,
   AdminSystemHealth,
+  AdminStoreOptions,
   AdminLogRecord,
   AdminAuditRecord,
   AdminLessonRecord,
@@ -41,7 +43,10 @@ import type {
 } from "./admin-store.js";
 
 export class DrizzleAdminStore implements AdminStore {
-  constructor(private readonly db: DbClient) {}
+  constructor(
+    private readonly db: DbClient,
+    private readonly options?: AdminStoreOptions,
+  ) {}
 
   async getDashboardStats(): Promise<DashboardStats> {
     const today = new Date();
@@ -266,14 +271,8 @@ export class DrizzleAdminStore implements AdminStore {
       const [modulesCounts, lessonsCounts, flashcardsCounts, quizzesCounts] = await Promise.all([
         this.db.select({ courseId: modules.courseId, count: count() }).from(modules).where(inArray(modules.courseId, courseIds)).groupBy(modules.courseId),
         this.db.select({ courseId: modules.courseId, count: count() }).from(lessons).innerJoin(modules, eq(lessons.moduleId, modules.id)).where(and(inArray(modules.courseId, courseIds), isNull(lessons.deletedAt))).groupBy(modules.courseId),
-        this.db.select({ courseId: modules.courseId, count: count() }).from(flashcards).innerJoin(lessons, eq(flashcards.lessonId, lessons.id)).innerJoin(modules, eq(lessons.moduleId, modules.id)).where(and(inArray(modules.courseId, courseIds), isNull(flashcards.deletedAt))).groupBy(modules.courseId),
-        this.db.select({ courseId: modules.courseId, count: count() })
-          .from(quizzes)
-          .innerJoin(quizQuestions, eq(quizzes.id, quizQuestions.quizId))
-          .innerJoin(lessons, eq(quizQuestions.lessonId, lessons.id))
-          .innerJoin(modules, eq(lessons.moduleId, modules.id))
-          .where(and(inArray(modules.courseId, courseIds), isNull(quizzes.deletedAt)))
-          .groupBy(modules.courseId),
+        this.db.select({ courseId: flashcards.courseId, count: count() }).from(flashcards).where(and(inArray(flashcards.courseId, courseIds), isNull(flashcards.deletedAt))).groupBy(flashcards.courseId),
+        this.db.select({ courseId: quizzes.courseId, count: count() }).from(quizzes).where(and(inArray(quizzes.courseId, courseIds), isNull(quizzes.deletedAt))).groupBy(quizzes.courseId),
       ]);
 
       for (const id of courseIds) {
@@ -383,20 +382,43 @@ export class DrizzleAdminStore implements AdminStore {
   }
 
   async getSystemHealth(): Promise<AdminSystemHealth> {
-    // Basic DB check
-    let dbStatus: "healthy" | "error" = "error";
+    let dbStatus: "healthy" | "error" = "healthy";
+    let dbReason: string | null = null;
     try {
       await this.db.select({ val: sql`1` });
-      dbStatus = "healthy";
-    } catch {
-      // Ignore
+    } catch (err: unknown) {
+      dbStatus = "error";
+      dbReason = err instanceof Error ? err.message : "Database connection failed";
+    }
+
+    const redisResult = await checkRedisHealth(this.options?.redisUrl, 1000);
+
+    let aiStatus: string = "healthy";
+    let aiReason: string | null | undefined = null;
+    let aiLatency: number | null | undefined = 0;
+
+    if (this.options?.gateway?.checkHealth) {
+      try {
+        const aiCheck = await this.options.gateway.checkHealth();
+        aiStatus = aiCheck.status;
+        aiReason = aiCheck.reason;
+        aiLatency = aiCheck.latencyMs;
+      } catch (err: unknown) {
+        aiStatus = "unhealthy";
+        aiReason = err instanceof Error ? err.message : "AI health check failed";
+      }
     }
 
     return {
       database: dbStatus,
-      redis: "unknown",
-      ai: "unknown",
+      redis: redisResult.status,
+      ai: aiStatus,
       lastCheck: new Date().toISOString(),
+      services: {
+        database: { status: dbStatus, reason: dbReason, latencyMs: 0 },
+        redis: { status: redisResult.status, reason: redisResult.reason, latencyMs: redisResult.latencyMs },
+        ai: { status: aiStatus, reason: aiReason, latencyMs: aiLatency },
+      },
     };
   }
 
@@ -714,9 +736,20 @@ export class DrizzleAdminStore implements AdminStore {
 
     const [total, tToday, t7, t30] = await Promise.all([
       (async () => {
-        const u = await this.db.select({ count: count() }).from(users).where(isNull(users.deletedAt)).then(r => r[0].count);
-        const l = await this.db.select({ count: count() }).from(lessons).where(isNull(lessons.deletedAt)).then(r => r[0].count);
-        return { totalUsers: u, totalLessons: l };
+        const [u, cu, l, f, q] = await Promise.all([
+          this.db.select({ count: count() }).from(users).where(isNull(users.deletedAt)).then(r => r[0].count),
+          this.db.select({ count: count() }).from(courses).where(isNull(courses.deletedAt)).then(r => r[0].count),
+          this.db.select({ count: count() }).from(lessons).where(isNull(lessons.deletedAt)).then(r => r[0].count),
+          this.db.select({ count: count() }).from(flashcards).where(isNull(flashcards.deletedAt)).then(r => r[0].count),
+          this.db.select({ count: count() }).from(quizzes).where(isNull(quizzes.deletedAt)).then(r => r[0].count),
+        ]);
+        return {
+          totalUsers: u,
+          totalCourses: cu,
+          totalLessons: l,
+          totalFlashcards: f,
+          totalQuizzes: q,
+        };
       })(),
       getStats(today),
       getStats(d7),
@@ -727,55 +760,70 @@ export class DrizzleAdminStore implements AdminStore {
   }
 
   async getAiAnalytics(): Promise<AdminAiAnalytics> {
-    const jobs = await this.db.select({
-      type: generationJobs.type,
-      status: generationJobs.status,
-      startedAt: generationJobs.startedAt,
-      completedAt: generationJobs.completedAt,
-    })
-    .from(generationJobs)
-    .where(isNull(generationJobs.deletedAt));
+    const [overviewRows, byTypeRows, tokenRows] = await Promise.all([
+      this.db
+        .select({
+          totalJobs: count(),
+          successful: sql<number>`count(case when ${generationJobs.status} = 'completed' then 1 end)`,
+          failed: sql<number>`count(case when ${generationJobs.status} = 'failed' then 1 end)`,
+          processing: sql<number>`count(case when ${generationJobs.status} = 'processing' then 1 end)`,
+          averageDurationMs: sql<number>`coalesce(avg(extract(epoch from (${generationJobs.completedAt} - ${generationJobs.startedAt})) * 1000), 0)`,
+        })
+        .from(generationJobs)
+        .where(isNull(generationJobs.deletedAt)),
 
-    const totalJobs = jobs.length;
-    const successful = jobs.filter(j => j.status === 'completed').length;
-    const failed = jobs.filter(j => j.status === 'failed').length;
-    const processing = jobs.filter(j => j.status === 'processing').length;
-    
-    let totalLatency = 0;
-    let latencyCount = 0;
-    const typeStats: Record<string, { total: number; success: number }> = {};
+      this.db
+        .select({
+          type: generationJobs.type,
+          total: count(),
+          success: sql<number>`count(case when ${generationJobs.status} = 'completed' then 1 end)`,
+        })
+        .from(generationJobs)
+        .where(isNull(generationJobs.deletedAt))
+        .groupBy(generationJobs.type),
 
-    for (const job of jobs) {
-      if (!typeStats[job.type]) typeStats[job.type] = { total: 0, success: 0 };
-      typeStats[job.type].total++;
-      if (job.status === 'completed') typeStats[job.type].success++;
+      this.db
+        .select({
+          tokenRecordsCount: sql<number>`count(case when ${generatedContents.tokenUsage} is not null then 1 end)`,
+          totalInput: sql<number>`coalesce(sum(case when (${generatedContents.tokenUsage}->>'inputTokens') ~ '^[0-9]+$' then (${generatedContents.tokenUsage}->>'inputTokens')::numeric when (${generatedContents.tokenUsage}->>'prompt_tokens') ~ '^[0-9]+$' then (${generatedContents.tokenUsage}->>'prompt_tokens')::numeric else 0 end), 0)`,
+          totalOutput: sql<number>`coalesce(sum(case when (${generatedContents.tokenUsage}->>'outputTokens') ~ '^[0-9]+$' then (${generatedContents.tokenUsage}->>'outputTokens')::numeric when (${generatedContents.tokenUsage}->>'completion_tokens') ~ '^[0-9]+$' then (${generatedContents.tokenUsage}->>'completion_tokens')::numeric else 0 end), 0)`,
+        })
+        .from(generatedContents)
+        .where(isNull(generatedContents.deletedAt)),
+    ]);
 
-      if (job.startedAt && job.completedAt) {
-        totalLatency += (job.completedAt.getTime() - job.startedAt.getTime());
-        latencyCount++;
-      }
-    }
+    const overview = overviewRows?.[0] ?? {
+      totalJobs: 0,
+      successful: 0,
+      failed: 0,
+      processing: 0,
+      averageDurationMs: 0,
+    };
 
-    const contents = await this.db.select({
-      tokenUsage: generatedContents.tokenUsage
-    }).from(generatedContents);
+    const totalJobs = Number(overview.totalJobs) || 0;
+    const successful = Number(overview.successful) || 0;
+    const failed = Number(overview.failed) || 0;
+    const processing = Number(overview.processing) || 0;
+    const averageDurationMs = Number(overview.averageDurationMs) || 0;
+    const successRate = totalJobs > 0 ? (successful / totalJobs) * 100 : 0;
 
-    let input = 0;
-    let output = 0;
-    let hasTokenData = false;
-
-    for (const row of contents) {
-      if (row.tokenUsage && typeof row.tokenUsage === "object") {
-        const usage = row.tokenUsage as Record<string, unknown>;
-        const inputTokens = typeof usage.inputTokens === 'number' ? usage.inputTokens : (typeof usage.prompt_tokens === 'number' ? usage.prompt_tokens : 0);
-        const outputTokens = typeof usage.outputTokens === 'number' ? usage.outputTokens : (typeof usage.completion_tokens === 'number' ? usage.completion_tokens : 0);
-        if (inputTokens > 0 || outputTokens > 0) {
-          hasTokenData = true;
-          input += inputTokens;
-          output += outputTokens;
+    const byType: Record<string, { total: number; success: number }> = {};
+    if (Array.isArray(byTypeRows)) {
+      for (const row of byTypeRows) {
+        if (row?.type) {
+          byType[row.type] = {
+            total: Number(row.total) || 0,
+            success: Number(row.success) || 0,
+          };
         }
       }
     }
+
+    const tokenData = tokenRows?.[0];
+    const tokenCount = Number(tokenData?.tokenRecordsCount) || 0;
+    const input = Number(tokenData?.totalInput) || 0;
+    const output = Number(tokenData?.totalOutput) || 0;
+    const hasTokenData = tokenCount > 0 || input > 0 || output > 0;
 
     return {
       overview: {
@@ -783,21 +831,16 @@ export class DrizzleAdminStore implements AdminStore {
         successful,
         failed,
         processing,
-        successRate: totalJobs ? (successful / totalJobs) * 100 : 0,
-        averageDurationMs: latencyCount ? totalLatency / latencyCount : 0,
+        successRate,
+        averageDurationMs,
       },
-      byType: typeStats,
-      tokens: hasTokenData ? {
-        available: true,
-        input,
-        output,
-        total: input + output
-      } : {
-        available: false,
-        input: 0,
-        output: 0,
-        total: 0
-      }
+      byType,
+      tokens: {
+        available: hasTokenData,
+        input: hasTokenData ? input : 0,
+        output: hasTokenData ? output : 0,
+        total: hasTokenData ? input + output : 0,
+      },
     };
   }
 

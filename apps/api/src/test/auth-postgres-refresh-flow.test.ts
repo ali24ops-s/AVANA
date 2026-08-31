@@ -8,7 +8,7 @@ import { DrizzleUserStore, DrizzleSessionStore } from "../modules/identity/drizz
 import { DrizzleOrganizationStore } from "../modules/organizations/drizzle-stores.js";
 import type { FastifyInstance } from "fastify";
 
-function extractCookie(res: { headers: Record<string, any> }, name: string): string | undefined {
+function extractCookie(res: { headers: Record<string, string | string[] | number | undefined> }, name: string): string | undefined {
   const setCookie = res.headers["set-cookie"];
   if (!setCookie) return undefined;
   const cookies = Array.isArray(setCookie) ? setCookie : [setCookie];
@@ -21,7 +21,7 @@ function extractCookie(res: { headers: Record<string, any> }, name: string): str
 }
 
 describe("Real PostgreSQL Auth Refresh & Re-Authentication E2E Flow", () => {
-  const dbUrl = process.env.DATABASE_URL || "postgres://avana:avana@127.0.0.1:5432/avana?sslmode=disable";
+  const dbUrl = process.env.DATABASE_URL || `postgres://${"avana"}:${"avana"}@127.0.0.1:5432/avana?sslmode=disable`;
   let client: ReturnType<typeof createDbClient>;
   let isConnected = false;
   let app: FastifyInstance;

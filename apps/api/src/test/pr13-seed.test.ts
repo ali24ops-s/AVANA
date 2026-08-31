@@ -162,11 +162,11 @@ describe("PR-13: Development seed data", () => {
       const coursesBody = JSON.parse(coursesRes.body) as {
         items: Array<{ id: string; title: string }>;
       };
-      expect(coursesBody.items.length).toBe(16);
+      expect(coursesBody.items.length).toBe(11);
 
       const titles = coursesBody.items.map((c) => c.title);
-      expect(titles).toContain("فارماکولوژی ۱");
-      expect(titles).toContain("Medicinal Chemistry Introduction");
+      expect(titles).toContain("شیمی دارویی ۱");
+      expect(titles).toContain("سم شناسی");
 
       await app.close();
     });
@@ -181,8 +181,8 @@ describe("PR-13: Development seed data", () => {
       // First seed should have created everything
       expect(result1.seeded.user).toBe(true);
       expect(result1.seeded.organization).toBe(true);
-      expect(result1.seeded.courses.length).toBe(16);
-      expect(result1.seeded.courses).toContain("فارماکولوژی ۱");
+      expect(result1.seeded.courses.length).toBe(11);
+      expect(result1.seeded.courses).toContain("شیمی دارویی ۱");
 
       // Second seed should have created nothing (all skipped)
       expect(result2.seeded.user).toBe(false);
@@ -221,7 +221,7 @@ describe("PR-13: Development seed data", () => {
       const coursesBody = JSON.parse(coursesRes.body) as {
         items: Array<{ id: string }>;
       };
-      expect(coursesBody.items.length).toBe(16);
+      expect(coursesBody.items.length).toBe(11);
 
       await app.close();
     });
