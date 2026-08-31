@@ -18,6 +18,7 @@ import type { ApiConfig } from "../../config.js";
 
 import type { EmailVerificationStore } from "./email-verification-store.js";
 import type { EmailService } from "./email-service.js";
+import type { DemoUserResolver } from "./demo-user-resolver.js";
 
 export interface IdentityPluginOptions {
   config: ApiConfig;
@@ -26,6 +27,7 @@ export interface IdentityPluginOptions {
   emailVerificationStore?: EmailVerificationStore;
   emailService?: EmailService;
   organizationStore?: OrganizationStore;
+  demoUserResolver?: DemoUserResolver;
 }
 
 export async function registerIdentityModule(
@@ -39,6 +41,7 @@ export async function registerIdentityModule(
     emailVerificationStore,
     emailService,
     organizationStore,
+    demoUserResolver,
   } = options;
 
   // Register cookie parsing plugin
@@ -60,6 +63,8 @@ export async function registerIdentityModule(
     emailVerificationStore,
     emailService,
     organizationStore,
+    demoUserResolver,
+    authEnabled: config.auth?.enabled,
   };
   await app.register(authRoutes, authOpts);
 }

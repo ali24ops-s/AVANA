@@ -72,6 +72,8 @@ export interface GenerationRouteOptions {
   quizStore?: QuizStore;
   quizQuestionStore?: QuizQuestionStore;
   systemOrganizationId?: OrganizationId;
+  demoUserResolver?: AuthMiddlewareDeps["demoUserResolver"];
+  authEnabled?: boolean;
 }
 
 const UUID_RE =
@@ -91,9 +93,16 @@ export const generationRoutes: FastifyPluginAsync<
     queue,
     gateway,
     auditService,
+    demoUserResolver,
+    authEnabled,
   } = opts;
 
-  const { requireAuth } = makeAuthMiddleware({ sessionService, userStore });
+  const { requireAuth } = makeAuthMiddleware({
+    sessionService,
+    userStore,
+    demoUserResolver,
+    authEnabled,
+  });
   const service = new GenerationService(
     generatedContentStore,
     generatedContentCitationStore,

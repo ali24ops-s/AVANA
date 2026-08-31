@@ -33,5 +33,6 @@ export {
   DrizzleUserStore,
   DrizzleEmailVerificationStore,
 } from "./drizzle-stores.js";
+export { DemoUserResolver } from "./demo-user-resolver.js";
 
 

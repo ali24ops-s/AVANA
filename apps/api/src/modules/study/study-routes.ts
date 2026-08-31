@@ -80,6 +80,8 @@ export interface StudyRouteOptions {
   systemOrganizationId?: OrganizationId;
   studySessionStore?: StudySessionStore;
   flashcardStudySessionStore?: FlashcardStudySessionStore;
+  demoUserResolver?: AuthMiddlewareDeps["demoUserResolver"];
+  authEnabled?: boolean;
 }
 
 const UUID_RE =
@@ -107,9 +109,16 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
     systemOrganizationId,
     studySessionStore,
     flashcardStudySessionStore,
+    demoUserResolver,
+    authEnabled,
   } = opts;
 
-  const { requireAuth } = makeAuthMiddleware({ sessionService, userStore });
+  const { requireAuth } = makeAuthMiddleware({
+    sessionService,
+    userStore,
+    demoUserResolver,
+    authEnabled,
+  });
   const service = new StudyService(
     flashcardStore,
     flashcardReviewStore,

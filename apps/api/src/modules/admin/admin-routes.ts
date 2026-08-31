@@ -35,9 +35,14 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
   app,
   opts,
 ) => {
-  const { sessionService, userStore, adminStore } = opts;
+  const { sessionService, userStore, adminStore, demoUserResolver, authEnabled } = opts;
   const adminService = new AdminService(adminStore);
-  const { requireAuth, requireRole } = makeAuthMiddleware({ sessionService, userStore });
+  const { requireAuth, requireRole } = makeAuthMiddleware({
+    sessionService,
+    userStore,
+    demoUserResolver,
+    authEnabled,
+  });
 
   // All routes here require platform_admin
   app.addHook("preHandler", requireAuth);

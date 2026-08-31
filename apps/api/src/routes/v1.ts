@@ -64,6 +64,7 @@ import type { AdminStore } from "../modules/admin/admin-store.js";
 import { adminRoutes } from "../modules/admin/index.js";
 import { DocumentProcessingService } from "../modules/documents/document-processing-service.js";
 import { DocumentService } from "../modules/documents/document-service.js";
+import { DemoUserResolver } from "../modules/identity/demo-user-resolver.js";
 
 export interface V1RouteOptions {
   config: IdentityPluginOptions["config"];
@@ -99,6 +100,7 @@ export interface V1RouteOptions {
   contentPackStore?: ContentPackStore;
   contentPackUsageStore?: ContentPackUsageStore;
   searchStore?: SearchStore;
+  demoUserResolver?: DemoUserResolver;
 }
 
 export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
@@ -107,6 +109,17 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
 ) => {
   void app.register(healthRoutes);
   void app.register(readinessRoutes);
+
+  const authEnabled = opts.config?.auth?.enabled ?? true;
+  const demoUserResolver =
+    opts.demoUserResolver ??
+    (opts.userStore && opts.config
+      ? new DemoUserResolver(
+          opts.userStore,
+          opts.organizationStore,
+          opts.config.auth?.demoUserEmail || "ali1383mohammadlo@gmail.com",
+        )
+      : undefined);
 
   // Register identity (auth) module if stores are provided
   if (opts.config && opts.sessionStore && opts.userStore) {
@@ -117,6 +130,7 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       emailVerificationStore: opts.emailVerificationStore,
       emailService: opts.emailService,
       organizationStore: opts.organizationStore,
+      demoUserResolver,
     });
   }
 
@@ -135,6 +149,8 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       userStore: opts.userStore,
       organizationStore: opts.organizationStore,
       auditService: opts.auditService,
+      demoUserResolver,
+      authEnabled,
     });
   }
 
@@ -156,6 +172,8 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       courseStore: opts.courseStore,
       auditService: opts.auditService,
       systemOrganizationId: opts.config.systemOrganizationId as OrganizationId,
+      demoUserResolver,
+      authEnabled,
     });
   }
 
@@ -180,6 +198,8 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       moduleStore: opts.moduleStore,
       lessonStore: opts.lessonStore,
       auditService: opts.auditService,
+      demoUserResolver,
+      authEnabled,
     });
   }
 
@@ -207,6 +227,8 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       progressStore: opts.progressStore,
       auditService: opts.auditService,
       systemOrganizationId: opts.config.systemOrganizationId as OrganizationId,
+      demoUserResolver,
+      authEnabled,
     });
   }
 
@@ -238,6 +260,8 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       moduleStore: opts.moduleStore,
       lessonStore: opts.lessonStore,
       auditService: opts.auditService,
+      demoUserResolver,
+      authEnabled,
     });
   }
 
@@ -277,6 +301,8 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       quizStore: opts.quizStore,
       quizQuestionStore: opts.quizQuestionStore,
       systemOrganizationId: opts.config.systemOrganizationId as OrganizationId,
+      demoUserResolver,
+      authEnabled,
     });
   }
 
@@ -313,6 +339,8 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       quizQuestionStore: opts.quizQuestionStore,
       organizationStore: opts.organizationStore,
       auditService: opts.auditService,
+      demoUserResolver,
+      authEnabled,
     });
   }
 
@@ -351,6 +379,8 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       systemOrganizationId: opts.config.systemOrganizationId as OrganizationId,
       studySessionStore: opts.studySessionStore,
       flashcardStudySessionStore: opts.flashcardStudySessionStore,
+      demoUserResolver,
+      authEnabled,
     });
   }
 
@@ -380,6 +410,8 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       organizationStore: opts.organizationStore,
       auditService: opts.auditService,
       systemOrganizationId: opts.config.systemOrganizationId as OrganizationId,
+      demoUserResolver,
+      authEnabled,
     });
   }
 
@@ -402,6 +434,8 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       documentService: opts.documentStore && opts.storageProvider && opts.organizationStore ? new DocumentService(opts.documentStore, opts.storageProvider, opts.organizationStore, defaultPolicy, opts.auditService, opts.documentChunkStore, opts.generatedContentStore, opts.generationJobStore, opts.flashcardStore, opts.quizStore, opts.courseStore, opts.moduleStore, opts.lessonStore) : undefined,
       generationQueue: opts.queue,
       generationJobStore: opts.generationJobStore,
+      demoUserResolver,
+      authEnabled,
     });
   }
 
@@ -428,6 +462,8 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       organizationStore: opts.organizationStore,
       courseStore: opts.courseStore,
       auditService: opts.auditService,
+      demoUserResolver,
+      authEnabled,
     });
   }
 
@@ -446,6 +482,8 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       userStore: opts.userStore,
       searchStore: opts.searchStore,
       systemOrganizationId: opts.config.systemOrganizationId as OrganizationId,
+      demoUserResolver,
+      authEnabled,
     });
   }
 };

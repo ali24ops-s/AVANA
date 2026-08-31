@@ -36,6 +36,8 @@ export interface AssistantRouteOptions {
   organizationStore: OrganizationStore;
   auditService?: AuditService;
   systemOrganizationId?: OrganizationId;
+  demoUserResolver?: AuthMiddlewareDeps["demoUserResolver"];
+  authEnabled?: boolean;
 }
 
 const UUID_RE =
@@ -55,9 +57,16 @@ export const assistantRoutes: FastifyPluginAsync<
     organizationStore,
     auditService,
     systemOrganizationId,
+    demoUserResolver,
+    authEnabled,
   } = opts;
 
-  const { requireAuth } = makeAuthMiddleware({ sessionService, userStore });
+  const { requireAuth } = makeAuthMiddleware({
+    sessionService,
+    userStore,
+    demoUserResolver,
+    authEnabled,
+  });
 
   const service = new StudyAssistantService(
     assistantGateway,

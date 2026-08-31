@@ -9,6 +9,7 @@ import type { OrganizationStore } from "../organizations/organization-store.js";
 import { OrganizationService } from "../organizations/organization-service.js";
 import { hashPassword, verifyPassword } from "./password-hasher.js";
 import { randomInt, createHash } from "node:crypto";
+import type { DemoUserResolver } from "./demo-user-resolver.js";
 
 export interface AuthRouteOptions {
   identityAdapter?: IdentityAdapter;
@@ -17,6 +18,8 @@ export interface AuthRouteOptions {
   emailVerificationStore?: EmailVerificationStore;
   emailService?: EmailService;
   organizationStore?: OrganizationStore;
+  demoUserResolver?: DemoUserResolver;
+  authEnabled?: boolean;
 }
 
 /**
@@ -160,39 +163,60 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
    */
   app.get("/v1/me", async (request, _reply) => {
     const sessionCookie = request.cookies?.["avana_session"];
-    if (!sessionCookie) {
+    if (sessionCookie) {
+      const user = await sessionService.validateSession(sessionCookie);
+      if (user) {
+        const userRecord = await userStore.findById(user.userId);
+        if (userRecord) {
+          const memberships = await resolveMemberships(
+            organizationStore,
+            userRecord.id,
+          );
+
+          const isVerified = Boolean(
+            userRecord.emailVerifiedAt ?? userRecord.emailVerified,
+          );
+
+          const membershipRoles = memberships.map((m) => m.role as Role);
+          const effectiveRole = resolveEffectiveRole(userRecord.globalRole, membershipRoles);
+
+          return {
+            request_id: request.id,
+            user: {
+              id: userRecord.id,
+              email: userRecord.email,
+              name: userRecord.name,
+              role: effectiveRole,
+              emailVerified: isVerified,
+            },
+            memberships,
+          };
+        }
+      }
+    }
+
+    // If no valid session cookie and Auth is enabled -> Reject with 401
+    if (opts.authEnabled !== false) {
       throw new DomainError("unauthorized", "Not signed in");
     }
 
-    const user = await sessionService.validateSession(sessionCookie);
-    if (!user) {
-      throw new DomainError("unauthorized", "Not signed in");
+    // Demo Mode (authEnabled === false): resolve current user to real demo user
+    if (!opts.demoUserResolver) {
+      throw new DomainError("unauthorized", "Demo user resolver not configured");
     }
 
-    const userRecord = await userStore.findById(user.userId);
-    if (!userRecord) {
-      throw new DomainError("unauthorized", "Not signed in");
-    }
-
-    const memberships = await resolveMemberships(
-      organizationStore,
-      userRecord.id,
-    );
-
+    const { user: demoUser, memberships } = await opts.demoUserResolver.resolveDemoUser();
     const isVerified = Boolean(
-      userRecord.emailVerifiedAt ?? userRecord.emailVerified,
+      demoUser.emailVerifiedAt ?? demoUser.emailVerified,
     );
-
-    const membershipRoles = memberships.map((m) => m.role as Role);
-    const effectiveRole = resolveEffectiveRole(userRecord.role, membershipRoles);
 
     return {
       request_id: request.id,
       user: {
-        id: userRecord.id,
-        email: userRecord.email,
-        name: userRecord.name,
-        role: effectiveRole,
+        id: demoUser.id,
+        email: demoUser.email,
+        name: demoUser.name,
+        role: demoUser.role,
         emailVerified: isVerified,
       },
       memberships,

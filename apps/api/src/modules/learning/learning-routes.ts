@@ -43,6 +43,8 @@ export interface LearningRouteOptions {
   progressStore: ProgressStore;
   auditService?: AuditService;
   systemOrganizationId?: OrganizationId;
+  demoUserResolver?: AuthMiddlewareDeps["demoUserResolver"];
+  authEnabled?: boolean;
 }
 
 export const learningRoutes: FastifyPluginAsync<LearningRouteOptions> = async (
@@ -59,9 +61,16 @@ export const learningRoutes: FastifyPluginAsync<LearningRouteOptions> = async (
     progressStore,
     auditService,
     systemOrganizationId,
+    demoUserResolver,
+    authEnabled,
   } = opts;
 
-  const { requireAuth } = makeAuthMiddleware({ sessionService, userStore });
+  const { requireAuth } = makeAuthMiddleware({
+    sessionService,
+    userStore,
+    demoUserResolver,
+    authEnabled,
+  });
   const learningService = new LearningService(
     courseStore,
     organizationStore,

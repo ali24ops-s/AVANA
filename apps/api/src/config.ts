@@ -91,6 +91,10 @@ export type ApiConfig = {
     arvancloudModel: string;
     arvancloudAuthScheme?: string;
   };
+  auth: {
+    enabled: boolean;
+    demoUserEmail: string;
+  };
 };
 
 function parseGeminiApiKeys(env: NodeJS.ProcessEnv): string[] {
@@ -317,6 +321,18 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
         "DeepSeek-R1-qwen-7b-awq",
       ),
       arvancloudAuthScheme: env.ARVANCLOUD_AUTH_SCHEME,
+    },
+    auth: {
+      enabled:
+        env.AUTH_ENABLED !== undefined
+          ? env.AUTH_ENABLED.trim().toLowerCase() === "true" ||
+            env.AUTH_ENABLED.trim() === "1"
+          : true,
+      demoUserEmail: getOptionalString(
+        env,
+        "DEMO_USER_EMAIL",
+        "ali1383mohammadlo@gmail.com",
+      ),
     },
   };
 }

@@ -24,15 +24,22 @@ export interface OrganizationRouteOptions {
   userStore: AuthMiddlewareDeps["userStore"];
   organizationStore: OrganizationStore;
   auditService?: AuditService;
+  demoUserResolver?: AuthMiddlewareDeps["demoUserResolver"];
+  authEnabled?: boolean;
 }
 
 export const organizationRoutes: FastifyPluginAsync<
   OrganizationRouteOptions
 > = async (app, opts) => {
-  const { sessionService, userStore, organizationStore, auditService } = opts;
+  const { sessionService, userStore, organizationStore, auditService, demoUserResolver, authEnabled } = opts;
 
   // Build auth middleware and service
-  const { requireAuth } = makeAuthMiddleware({ sessionService, userStore });
+  const { requireAuth } = makeAuthMiddleware({
+    sessionService,
+    userStore,
+    demoUserResolver,
+    authEnabled,
+  });
   const orgService = new OrganizationService(
     organizationStore,
     undefined,

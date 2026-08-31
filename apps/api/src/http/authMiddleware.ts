@@ -11,11 +11,14 @@
 import type { FastifyRequest, FastifyReply } from "fastify";
 import type { SessionService } from "../modules/identity/session-service.js";
 import type { UserStore } from "../modules/identity/user-store.js";
+import type { DemoUserResolver } from "../modules/identity/demo-user-resolver.js";
 import { DomainError, type Role } from "@avana/domain";
 
 export type AuthMiddlewareDeps = {
   sessionService: SessionService;
   userStore: UserStore;
+  demoUserResolver?: DemoUserResolver;
+  authEnabled?: boolean;
 };
 
 /**
@@ -29,12 +32,12 @@ export type AuthMiddlewareDeps = {
  * ```
  */
 export function makeAuthMiddleware(deps: AuthMiddlewareDeps) {
-  const { sessionService, userStore } = deps;
+  const { sessionService, userStore, demoUserResolver, authEnabled = true } = deps;
 
   /**
    * Fastify preHandler hook.
    *
-   * On success, attaches `request.user` with `{ userId, email, role }`.
+   * On success, attaches `request.user` with `{ userId, email, role, globalRole }`.
    * On failure, throws DomainError("unauthorized").
    */
   async function requireAuth(
@@ -42,35 +45,56 @@ export function makeAuthMiddleware(deps: AuthMiddlewareDeps) {
     _reply: FastifyReply,
   ): Promise<void> {
     const sessionCookie = request.cookies?.["avana_session"];
-    if (!sessionCookie) {
+
+    // 1. If valid session cookie is present, always authenticate via session
+    if (sessionCookie) {
+      const user = await sessionService.validateSession(sessionCookie);
+      if (user) {
+        const userRecord = await userStore.findById(user.userId);
+        if (userRecord) {
+          const effectiveRole =
+            userRecord.globalRole === "platform_admin" || userRecord.role === "platform_admin"
+              ? "platform_admin"
+              : userRecord.role;
+
+          const reqAny = request as unknown as {
+            user?: { userId: string; email: string; role: string; globalRole?: string | null };
+          };
+          reqAny.user = {
+            userId: userRecord.id,
+            email: userRecord.email,
+            role: effectiveRole,
+            globalRole: userRecord.globalRole,
+          };
+          return;
+        }
+      }
+    }
+
+    // 2. If no valid session cookie and Auth is enabled -> Reject with unauthorized
+    if (authEnabled) {
       throw new DomainError("unauthorized", "Not signed in");
     }
 
-    const user = await sessionService.validateSession(sessionCookie);
-    if (!user) {
-      throw new DomainError("unauthorized", "Not signed in");
+    // 3. Demo Mode (authEnabled === false): resolve current user to real demo user
+    if (!demoUserResolver) {
+      throw new DomainError("unauthorized", "Demo user resolver not configured");
     }
 
-    // Resolve full user record to get role
-    const userRecord = await userStore.findById(user.userId);
-    if (!userRecord) {
-      throw new DomainError("unauthorized", "Not signed in");
-    }
-
+    const { user: demoUser } = await demoUserResolver.resolveDemoUser();
     const effectiveRole =
-      userRecord.globalRole === "platform_admin" || userRecord.role === "platform_admin"
+      demoUser.globalRole === "platform_admin" || demoUser.role === "platform_admin"
         ? "platform_admin"
-        : userRecord.role;
+        : demoUser.role;
 
-    // Attach authenticated user to request for downstream handlers
     const reqAny = request as unknown as {
       user?: { userId: string; email: string; role: string; globalRole?: string | null };
     };
     reqAny.user = {
-      userId: userRecord.id,
-      email: userRecord.email,
+      userId: demoUser.id,
+      email: demoUser.email,
       role: effectiveRole,
-      globalRole: userRecord.globalRole,
+      globalRole: demoUser.globalRole,
     };
   }
 

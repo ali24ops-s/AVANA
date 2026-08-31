@@ -161,6 +161,23 @@ export class DrizzleUserStore implements UserStore {
     return toUserRecord(userRow, effectiveRole);
   }
 
+  async findAllByEmail(email: string): Promise<UserRecord[]> {
+    const normalizedEmail = email.trim().toLowerCase();
+    const distinctUsers = await this.db
+      .select()
+      .from(users)
+      .where(eq(users.email, normalizedEmail));
+
+    const results: UserRecord[] = [];
+    for (const userRow of distinctUsers) {
+      const userWithRoles = await this.findById(userRow.id as UserId);
+      if (userWithRoles) {
+        results.push(userWithRoles);
+      }
+    }
+    return results;
+  }
+
   async findWithPasswordByEmail(
     email: string,
   ): Promise<(UserRecord & { passwordHash?: string | null }) | undefined> {

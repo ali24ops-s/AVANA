@@ -70,6 +70,8 @@ export interface ReviewRouteOptions {
   quizQuestionStore?: QuizQuestionStore;
   organizationStore?: OrganizationStore;
   auditService?: AuditService;
+  demoUserResolver?: AuthMiddlewareDeps["demoUserResolver"];
+  authEnabled?: boolean;
 }
 
 const UUID_RE =
@@ -93,9 +95,16 @@ export const reviewRoutes: FastifyPluginAsync<ReviewRouteOptions> = async (
     quizStore,
     quizQuestionStore,
     auditService,
+    demoUserResolver,
+    authEnabled,
   } = opts;
 
-  const { requireAuth } = makeAuthMiddleware({ sessionService, userStore });
+  const { requireAuth } = makeAuthMiddleware({
+    sessionService,
+    userStore,
+    demoUserResolver,
+    authEnabled,
+  });
   const service = new ReviewService(
     generatedContentStore,
     generatedContentCitationStore,

@@ -66,6 +66,8 @@ export interface DocumentRouteOptions {
   moduleStore?: ModuleStore;
   lessonStore?: LessonStore;
   auditService?: AuditService;
+  demoUserResolver?: AuthMiddlewareDeps["demoUserResolver"];
+  authEnabled?: boolean;
 }
 
 const UUID_RE =
@@ -90,9 +92,16 @@ export const documentRoutes: FastifyPluginAsync<DocumentRouteOptions> = async (
     moduleStore,
     lessonStore,
     auditService,
+    demoUserResolver,
+    authEnabled,
   } = opts;
 
-  const { requireAuth } = makeAuthMiddleware({ sessionService, userStore });
+  const { requireAuth } = makeAuthMiddleware({
+    sessionService,
+    userStore,
+    demoUserResolver,
+    authEnabled,
+  });
   const documentService = new DocumentService(
     documentStore,
     storageProvider,

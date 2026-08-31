@@ -109,6 +109,24 @@ export class InMemoryUserStore implements UserStore {
     return undefined;
   }
 
+  async findAllByEmail(email: string): Promise<UserRecord[]> {
+    const norm = email.trim().toLowerCase();
+    const results: UserRecord[] = [];
+    for (const user of this.users.values()) {
+      if (user.email.trim().toLowerCase() === norm) {
+        const userCopy = { ...user };
+        delete userCopy.passwordHash;
+        const globalRole =
+          user.globalRole === "platform_admin" || user.role === "platform_admin"
+            ? "platform_admin"
+            : (user.globalRole ?? null);
+        const role = await this.resolveRole(user.id, globalRole);
+        results.push({ ...userCopy, role, globalRole });
+      }
+    }
+    return results;
+  }
+
   async findWithPasswordByEmail(
     email: string,
   ): Promise<(UserRecord & { passwordHash?: string | null }) | undefined> {

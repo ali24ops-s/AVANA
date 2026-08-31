@@ -60,7 +60,6 @@ describe("Route protection", () => {
     });
 
     expect(screen.queryByTestId("sign-in-page")).toBeNull();
-    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it("redirects unauthenticated user to /sign-in when auth is enabled", async () => {

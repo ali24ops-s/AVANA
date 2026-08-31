@@ -75,15 +75,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   /**
    * Fetch current user. Called on mount and after sign-in.
+   * In Demo Mode, fetches the resolved demo user from /v1/me if backend is available.
    * A 401 response simply means no session — not an error state.
    */
   const fetchMe = useCallback(async () => {
-    if (!isAuthEnabled()) {
-      if (isMountedRef.current) {
-        setIsLoading(false);
-      }
-      return;
-    }
     try {
       const response = await authApi.getMe();
       if (!isMountedRef.current) return;
@@ -100,8 +95,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(null);
         setMemberships([]);
         setError(null);
+      } else if (!isAuthEnabled()) {
+        // In Demo Mode on static host without backend, gracefully fallback
+        setUser(null);
+        setMemberships([]);
+        setError(null);
       } else {
-        // Real error
+        // Real error in Auth Enabled mode
         setUser(null);
         setMemberships([]);
         setError(err instanceof ApiError ? err.message : "Failed to load user");
@@ -113,12 +113,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [authApi]);
 
-  // Check auth state on mount
+  // Check auth state on mount (resolves demo user in Demo Mode or session in Full Auth Mode)
   useEffect(() => {
-    if (!isAuthEnabled()) {
-      setIsLoading(false);
-      return;
-    }
     void fetchMe();
   }, [fetchMe]);
 

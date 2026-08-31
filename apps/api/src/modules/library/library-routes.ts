@@ -43,6 +43,8 @@ export interface LibraryRouteOptions {
   organizationStore?: OrganizationStore;
   courseStore?: CourseStore;
   auditService?: AuditService;
+  demoUserResolver?: AuthMiddlewareDeps["demoUserResolver"];
+  authEnabled?: boolean;
 }
 
 const UUID_RE =
@@ -62,9 +64,16 @@ export const libraryRoutes: FastifyPluginAsync<LibraryRouteOptions> = async (
     organizationStore,
     courseStore,
     auditService,
+    demoUserResolver,
+    authEnabled,
   } = opts;
 
-  const { requireAuth } = makeAuthMiddleware({ sessionService, userStore });
+  const { requireAuth } = makeAuthMiddleware({
+    sessionService,
+    userStore,
+    demoUserResolver,
+    authEnabled,
+  });
 
   const service = new LibraryService(
     contentPackStore,
