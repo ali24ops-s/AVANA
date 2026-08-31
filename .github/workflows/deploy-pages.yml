@@ -55,6 +55,8 @@ jobs:
         env:
           # Automatically derive base path from Pages setup (e.g., /AVANA/)
           BASE_PATH: ${{ steps.pages.outputs.base_path || '/AVANA/' }}
+          # Run frontend in Demo / Public mode without backend auth dependency
+          VITE_AUTH_ENABLED: "false"
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

@@ -30,6 +30,7 @@ import { ExamsPage } from "../pages/ExamsPage.js";
 import { FilesPage } from "../pages/FilesPage.js";
 import { LibraryPage } from "../pages/LibraryPage.js";
 import { EmailVerificationPage } from "../components/shell/EmailVerificationPage.js";
+import { isAuthEnabled } from "../config/authConfig.js";
 
 // Admin Imports
 import { AdminLayout } from "../components/shell/AdminLayout.js";
@@ -73,19 +74,19 @@ export const router = createBrowserRouter(
     },
     {
       path: "/sign-in",
-      element: <SignInPage />,
+      element: isAuthEnabled() ? <SignInPage /> : <Navigate to="/home" replace />,
     },
     {
       path: "/login",
-      element: <SignInPage />,
+      element: isAuthEnabled() ? <SignInPage /> : <Navigate to="/home" replace />,
     },
     {
       path: "/register",
-      element: <RegisterPage />,
+      element: isAuthEnabled() ? <RegisterPage /> : <Navigate to="/home" replace />,
     },
     {
       path: "/sign-up",
-      element: <RegisterPage />,
+      element: isAuthEnabled() ? <RegisterPage /> : <Navigate to="/home" replace />,
     },
 
     // Protected routes (require authentication)
@@ -95,7 +96,7 @@ export const router = createBrowserRouter(
       children: [
         {
           path: "verify-email",
-          element: <EmailVerificationPage />,
+          element: isAuthEnabled() ? <EmailVerificationPage /> : <Navigate to="/home" replace />,
         },
         {
           element: <AuthenticatedShell />,

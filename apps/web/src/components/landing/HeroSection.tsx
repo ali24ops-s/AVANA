@@ -10,10 +10,11 @@ import { motion } from "framer-motion";
 import { ArrowLeft } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../../providers/AuthProvider.js";
+import { isAuthEnabled } from "../../config/authConfig.js";
 
 export function HeroSection() {
   const { isAuthenticated } = useAuth();
-  const ctaHref = isAuthenticated ? "/courses" : "/sign-in";
+  const ctaHref = !isAuthEnabled() || isAuthenticated ? "/courses" : "/sign-in";
 
   return (
     <section className="relative pt-12 pb-24 px-6 max-w-[1280px] mx-auto overflow-hidden">

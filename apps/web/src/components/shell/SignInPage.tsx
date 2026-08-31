@@ -11,6 +11,7 @@ import { motion } from "framer-motion";
 import { Sparkles, Mail, Lock, Eye, EyeOff, ArrowLeft } from "lucide-react";
 import { useAuth } from "../../providers/AuthProvider.js";
 import { ApiError } from "../../lib/api/errors.js";
+import { isAuthEnabled } from "../../config/authConfig.js";
 
 export function SignInPage() {
   const [email, setEmail] = useState("");
@@ -21,8 +22,8 @@ export function SignInPage() {
   const { signIn, isAuthenticated } = useAuth();
   const navigate = useNavigate();
 
-  // If already authenticated, redirect to home
-  if (isAuthenticated) {
+  // If already authenticated or auth is disabled in public/demo mode, redirect to home
+  if (!isAuthEnabled() || isAuthenticated) {
     navigate("/home", { replace: true });
     return null;
   }

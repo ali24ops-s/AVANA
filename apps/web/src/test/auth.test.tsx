@@ -45,23 +45,70 @@ function lastElement(testId: string): HTMLElement {
 describe("AuthProvider", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    import.meta.env.VITE_AUTH_ENABLED = "true";
   });
 
-  it("starts in loading state", () => {
-    // Mock fetch to never resolve (keep loading)
-    vi.spyOn(globalThis, "fetch").mockImplementation(
-      () => new Promise(() => {}),
-    );
+  describe("when VITE_AUTH_ENABLED=false (Public / Demo Mode)", () => {
+    it("does not call fetch for /v1/me and immediately sets isLoading to false", async () => {
+      import.meta.env.VITE_AUTH_ENABLED = "false";
+      const fetchSpy = vi.spyOn(globalThis, "fetch");
 
-    renderWithProviders(
-      <AuthProvider>
-        <TestConsumer />
-      </AuthProvider>,
-    );
+      renderWithProviders(
+        <AuthProvider>
+          <TestConsumer />
+        </AuthProvider>,
+      );
 
-    expect(lastElement("loading").textContent).toBe("true");
-    expect(lastElement("authenticated").textContent).toBe("false");
+      await waitFor(() => {
+        expect(lastElement("loading").textContent).toBe("false");
+      });
+
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(lastElement("authenticated").textContent).toBe("false");
+      expect(lastElement("user-email").textContent).toBe("null");
+      expect(lastElement("error").textContent).toBe("null");
+    });
+
+    it("does not dispatch network requests on signIn or signOut in demo mode", async () => {
+      import.meta.env.VITE_AUTH_ENABLED = "false";
+      const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+      let authContext: ReturnType<typeof useAuth>;
+      function ConsumerWithActions() {
+        authContext = useAuth();
+        return <div data-testid="error">{authContext.error ?? "null"}</div>;
+      }
+
+      renderWithProviders(
+        <AuthProvider>
+          <ConsumerWithActions />
+        </AuthProvider>,
+      );
+
+      await authContext!.signIn("any@example.com", "pass");
+      expect(fetchSpy).not.toHaveBeenCalled();
+
+      await authContext!.signOut();
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
   });
+
+  describe("when VITE_AUTH_ENABLED=true (Full Authentication Mode)", () => {
+    it("starts in loading state", () => {
+      // Mock fetch to never resolve (keep loading)
+      vi.spyOn(globalThis, "fetch").mockImplementation(
+        () => new Promise(() => {}),
+      );
+
+      renderWithProviders(
+        <AuthProvider>
+          <TestConsumer />
+        </AuthProvider>,
+      );
+
+      expect(lastElement("loading").textContent).toBe("true");
+      expect(lastElement("authenticated").textContent).toBe("false");
+    });
 
   it("handles /v1/me success — sets authenticated user", async () => {
     const mockMeResponse = {
@@ -251,3 +298,6 @@ describe("AuthProvider", () => {
     });
   });
 });
+});
+
+

@@ -8,10 +8,16 @@
 
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../../providers/AuthProvider.js";
+import { isAuthEnabled } from "../../config/authConfig.js";
 
 export function ProtectedRoute() {
   const { isAuthenticated, isEmailVerified, isLoading } = useAuth();
   const location = useLocation();
+
+  // In Demo/Public mode, bypass authentication guards entirely
+  if (!isAuthEnabled()) {
+    return <Outlet />;
+  }
 
   // Show loading state while checking auth on mount
   if (isLoading) {

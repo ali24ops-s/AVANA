@@ -26,9 +26,44 @@ function renderWithProviders(ui: ReactNode) {
 describe("Route protection", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    import.meta.env.VITE_AUTH_ENABLED = "true";
   });
 
-  it("redirects unauthenticated user to /sign-in", async () => {
+  it("bypasses route protection and renders directly when VITE_AUTH_ENABLED=false", async () => {
+    import.meta.env.VITE_AUTH_ENABLED = "false";
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    renderWithProviders(
+      <AuthProvider>
+        <MemoryRouter initialEntries={["/"]}>
+          <Routes>
+            <Route
+              path="/sign-in"
+              element={<div data-testid="sign-in-page">Sign In Page</div>}
+            />
+            <Route element={<ProtectedRoute />}>
+              <Route
+                index
+                element={
+                  <div data-testid="protected-page">Protected Content</div>
+                }
+              />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </AuthProvider>,
+    );
+
+    await waitFor(() => {
+      const elements = screen.getAllByTestId("protected-page");
+      expect(elements.length).toBeGreaterThanOrEqual(1);
+    });
+
+    expect(screen.queryByTestId("sign-in-page")).toBeNull();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("redirects unauthenticated user to /sign-in when auth is enabled", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue({
       ok: false,
       status: 401,

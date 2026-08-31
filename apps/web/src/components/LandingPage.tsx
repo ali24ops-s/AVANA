@@ -14,13 +14,14 @@ import { HowItWorksSection } from "./landing/HowItWorksSection";
 import { FinalCTASection } from "./landing/FinalCTASection";
 import { Footer } from "./landing/Footer";
 import { useAuth } from "../providers/AuthProvider.js";
+import { isAuthEnabled } from "../config/authConfig.js";
 
 export function LandingPage() {
   const { isAuthenticated } = useAuth();
   const [isScrolled, setIsScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  const ctaHref = isAuthenticated ? "/courses" : "/sign-in";
+  const ctaHref = !isAuthEnabled() || isAuthenticated ? "/courses" : "/sign-in";
 
   // Handle scroll effect for navbar
   useEffect(() => {

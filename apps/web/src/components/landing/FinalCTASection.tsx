@@ -7,10 +7,11 @@
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
 import { useAuth } from "../../providers/AuthProvider.js";
+import { isAuthEnabled } from "../../config/authConfig.js";
 
 export function FinalCTASection() {
   const { isAuthenticated } = useAuth();
-  const ctaHref = isAuthenticated ? "/courses" : "/sign-in";
+  const ctaHref = !isAuthEnabled() || isAuthenticated ? "/courses" : "/sign-in";
 
   return (
     <section

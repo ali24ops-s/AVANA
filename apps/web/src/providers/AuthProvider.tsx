@@ -19,6 +19,7 @@ import {
 import { createApiClient, getApiBaseUrl } from "../lib/api/client.js";
 import { createAuthApi } from "../lib/api/auth.js";
 import { ApiError } from "../lib/api/errors.js";
+import { isAuthEnabled } from "../config/authConfig.js";
 import type { UserMembership, UserResource } from "@avana/contracts";
 
 export type AuthState = {
@@ -53,7 +54,7 @@ const AuthContext = createContext<AuthState | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserResource | null>(null);
   const [memberships, setMemberships] = useState<UserMembership[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(() => isAuthEnabled());
   const [error, setError] = useState<string | null>(null);
 
   const isMountedRef = useRef(true);
@@ -77,6 +78,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    * A 401 response simply means no session — not an error state.
    */
   const fetchMe = useCallback(async () => {
+    if (!isAuthEnabled()) {
+      if (isMountedRef.current) {
+        setIsLoading(false);
+      }
+      return;
+    }
     try {
       const response = await authApi.getMe();
       if (!isMountedRef.current) return;
@@ -108,11 +115,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Check auth state on mount
   useEffect(() => {
+    if (!isAuthEnabled()) {
+      setIsLoading(false);
+      return;
+    }
     void fetchMe();
   }, [fetchMe]);
 
   const signIn = useCallback(
     async (email: string, password: string) => {
+      if (!isAuthEnabled()) {
+        setIsLoading(false);
+        setError(null);
+        return;
+      }
       setIsLoading(true);
       setError(null);
       try {
@@ -137,6 +153,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signUp = useCallback(
     async (email: string, password: string, name?: string) => {
+      if (!isAuthEnabled()) {
+        setIsLoading(false);
+        setError(null);
+        return;
+      }
       setIsLoading(true);
       setError(null);
       try {
@@ -157,6 +178,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const verifyEmail = useCallback(
     async (code: string) => {
+      if (!isAuthEnabled()) {
+        setIsLoading(false);
+        setError(null);
+        return;
+      }
       setIsLoading(true);
       setError(null);
       try {
@@ -177,6 +203,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const resendVerification = useCallback(
     async (email?: string) => {
+      if (!isAuthEnabled()) {
+        setError(null);
+        return;
+      }
       setError(null);
       try {
         await authApi.resendVerification(email);
@@ -191,6 +221,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const signOut = useCallback(async () => {
+    if (!isAuthEnabled()) {
+      setUser(null);
+      setMemberships([]);
+      setError(null);
+      return;
+    }
     try {
       await authApi.signOut();
     } catch {

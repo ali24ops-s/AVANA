@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "../../providers/AuthProvider.js";
 import { HeaderSearch } from "./HeaderSearch.js";
+import { isAuthEnabled } from "../../config/authConfig.js";
 
 export function AuthenticatedShell() {
   const { user, isLoading, error, signOut } = useAuth();
@@ -141,16 +142,18 @@ export function AuthenticatedShell() {
               </span>
             </div>
 
-            {/* Sign Out Button */}
-            <button
-              type="button"
-              onClick={() => void signOut()}
-              aria-label="خروج از حساب"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold text-slate-300 hover:text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/30 transition-colors"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">خروج</span>
-            </button>
+            {/* Sign Out Button (Only when Auth is enabled) */}
+            {isAuthEnabled() && (
+              <button
+                type="button"
+                onClick={() => void signOut()}
+                aria-label="خروج از حساب"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold text-slate-300 hover:text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/30 transition-colors"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">خروج</span>
+              </button>
+            )}
 
             {/* Mobile Menu Button */}
             <button
@@ -271,14 +274,26 @@ export function AuthenticatedShell() {
           <span className="text-[10px]">لیست دوره‌ها</span>
         </Link>
 
-        <button
-          type="button"
-          onClick={() => void signOut()}
-          className="flex flex-col items-center justify-center w-full h-full text-slate-400 hover:text-red-400 transition-colors"
-        >
-          <User className="w-5 h-5 mb-0.5" />
-          <span className="text-[10px]">خروج</span>
-        </button>
+        {isAuthEnabled() ? (
+          <button
+            type="button"
+            onClick={() => void signOut()}
+            className="flex flex-col items-center justify-center w-full h-full text-slate-400 hover:text-red-400 transition-colors"
+          >
+            <User className="w-5 h-5 mb-0.5" />
+            <span className="text-[10px]">خروج</span>
+          </button>
+        ) : (
+          <Link
+            to="/library"
+            className={`flex flex-col items-center justify-center w-full h-full text-xs font-medium ${
+              isLibraryActive ? "text-[#008080] text-teal-400 font-bold" : "text-slate-400 hover:text-teal-300"
+            }`}
+          >
+            <LibraryIcon className="w-5 h-5 mb-0.5" />
+            <span className="text-[10px]">کتابخانه</span>
+          </Link>
+        )}
       </nav>
     </div>
   );
