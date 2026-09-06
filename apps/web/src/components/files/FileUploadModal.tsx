@@ -10,6 +10,7 @@ import {
   FolderOpen,
 } from "lucide-react";
 import { getFileIcon, formatBytes } from "./FileTable.js";
+import { generateUUID } from "../../lib/api/client.js";
 import type { CourseResource, ContentModuleResource } from "@avana/contracts";
 
 export interface FileUploadModalProps {
@@ -72,7 +73,7 @@ export function FileUploadModal({
   const handleFilesAdded = (files: FileList | null) => {
     if (!files || files.length === 0) return;
     const newItems: QueuedFile[] = Array.from(files).map((file) => ({
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       file,
       status: "pending",
       progress: 0,

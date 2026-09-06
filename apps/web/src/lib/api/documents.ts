@@ -18,7 +18,7 @@ import type {
   ErrorEnvelope,
   DocumentStatus,
 } from "@avana/contracts";
-import type { ApiClient } from "./client.js";
+import { type ApiClient, generateUUID } from "./client.js";
 import { ApiError } from "./errors.js";
 
 export type DocumentListFilters = {
@@ -63,7 +63,7 @@ export function createDocumentsApi(client: ApiClient) {
       }
 
       const headers: Record<string, string> = {
-        "x-request-id": crypto.randomUUID(),
+        "x-request-id": generateUUID(),
       };
 
       const url = `/v1/organizations/${organizationId}/documents${
@@ -101,7 +101,7 @@ export function createDocumentsApi(client: ApiClient) {
         }
 
         const requestId =
-          response.headers.get("x-request-id") || crypto.randomUUID();
+          response.headers.get("x-request-id") || generateUUID();
         const code = response.status === 413 ? "bad_request" : "internal_error";
         const message =
           response.status === 413

@@ -29,6 +29,47 @@ export type RequestOptions = {
 };
 
 /**
+ * Generate a UUID v4 string safely across all environments:
+ * - HTTPS secure contexts (crypto.randomUUID)
+ * - HTTP insecure contexts (window.crypto.randomUUID is undefined on Safari / Chrome)
+ * - Environments without crypto.randomUUID
+ */
+export function generateUUID(): string {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
+    try {
+      return crypto.randomUUID();
+    } catch {
+      // Fallback if blocked
+    }
+  }
+
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.getRandomValues === "function"
+  ) {
+    try {
+      const bytes = new Uint8Array(16);
+      crypto.getRandomValues(bytes);
+      bytes[6] = (bytes[6] & 0x0f) | 0x40; // Version 4
+      bytes[8] = (bytes[8] & 0x3f) | 0x80; // Variant 10xx
+      const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+      return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+    } catch {
+      // Fallback to Math.random
+    }
+  }
+
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+/**
  * Get the API base URL for the current environment.
  *
  * Returns configurable VITE_API_BASE_URL / VITE_API_URL if set.
@@ -55,7 +96,7 @@ export function createApiClient(options: ApiClientOptions) {
     const { method = "GET", body, headers: extraHeaders } = opts;
 
     const headers: Record<string, string> = {
-      "x-request-id": crypto.randomUUID(),
+      "x-request-id": generateUUID(),
       ...extraHeaders,
     };
 
@@ -106,7 +147,7 @@ export function createApiClient(options: ApiClientOptions) {
 
       // Map raw HTTP status codes to typed ApiError
       const requestId =
-        response.headers.get("x-request-id") || crypto.randomUUID();
+        response.headers.get("x-request-id") || generateUUID();
       const codeByStatus: Record<number, ErrorEnvelope["error"]["code"]> = {
         400: "bad_request",
         401: "unauthorized",

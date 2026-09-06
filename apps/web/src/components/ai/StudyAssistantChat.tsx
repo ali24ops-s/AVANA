@@ -10,7 +10,7 @@ import {
   X,
 } from "lucide-react";
 import { MarkdownRenderer } from "../markdown/MarkdownRenderer.js";
-import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
+import { createApiClient, getApiBaseUrl, generateUUID } from "../../lib/api/client.js";
 import { createAiAssistantApi } from "../../lib/api/ai.js";
 import { useStudySessionTracker } from "../../hooks/useStudySessionTracker.js";
 
@@ -121,7 +121,7 @@ export function StudyAssistantChat({
     setInputMessage("");
 
     const userMsg: ChatMessage = {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       role: "user",
       content: message,
       createdAt: new Date(),
@@ -147,7 +147,7 @@ export function StudyAssistantChat({
       setConversationId(response.conversationId);
 
       const aiMsg: ChatMessage = {
-        id: crypto.randomUUID(),
+        id: generateUUID(),
         role: "assistant",
         content: response.answer,
         sources: response.sources,

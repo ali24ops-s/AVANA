@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { createApiClient } from "../lib/api/client.js";
+import { createApiClient, generateUUID } from "../lib/api/client.js";
 import { ApiError } from "../lib/api/errors.js";
 
 describe("API Client", () => {
@@ -195,6 +195,59 @@ describe("API Client", () => {
         request_id: "test-request-id",
         user: { id: "user-1", email: "test@example.com", role: "student" },
       });
+    });
+  });
+
+  describe("insecure HTTP context (crypto.randomUUID is undefined)", () => {
+    it("generates valid UUID when crypto.randomUUID is undefined", () => {
+      const originalRandomUUID = globalThis.crypto.randomUUID;
+      // Simulate insecure context (Safari / Chrome over HTTP IP)
+      // @ts-expect-error simulating insecure context
+      delete globalThis.crypto.randomUUID;
+
+      try {
+        const id = generateUUID();
+        expect(typeof id).toBe("string");
+        expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+      } finally {
+        globalThis.crypto.randomUUID = originalRandomUUID;
+      }
+    });
+
+    it("makes API requests successfully in insecure HTTP context without throwing TypeError", async () => {
+      const originalRandomUUID = globalThis.crypto.randomUUID;
+      // @ts-expect-error simulating insecure context
+      delete globalThis.crypto.randomUUID;
+
+      let capturedInit: RequestInit | undefined;
+      vi.spyOn(globalThis, "fetch").mockImplementation((_, init) => {
+        capturedInit = init;
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              request_id: "insecure-test",
+            }),
+        } as Response);
+      });
+
+      try {
+        const client = createApiClient({ baseUrl: "" });
+        const result = await client.post("/v1/auth/sign-in", {
+          email: "test@example.com",
+          password: "password123",
+        });
+
+        expect(result).toEqual({ request_id: "insecure-test" });
+        expect(capturedInit?.headers).toBeDefined();
+        const headers = capturedInit?.headers as Record<string, string>;
+        expect(headers["x-request-id"]).toMatch(
+          /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+        );
+      } finally {
+        globalThis.crypto.randomUUID = originalRandomUUID;
+      }
     });
   });
 });
