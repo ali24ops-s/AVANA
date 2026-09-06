@@ -143,6 +143,14 @@ function getOptionalString(
   return v !== undefined && v !== "" ? v : fallback;
 }
 
+function parseCookieSecure(env: NodeJS.ProcessEnv, fallback: boolean): boolean {
+  const v = env.AVANA_COOKIE_SECURE;
+  if (v !== undefined && v.trim() !== "") {
+    return v.trim().toLowerCase() === "true";
+  }
+  return fallback;
+}
+
 function parsePort(raw: string): number {
   const n = Number(raw);
 
@@ -199,6 +207,7 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   const jsonBodyLimit = String(jsonBodyLimitBytes);
 
   const isProd = nodeEnv === "production";
+  const cookieSecure = parseCookieSecure(env, isProd);
   const corsOrigins = getOptionalString(
     env,
     "AVANA_CORS_ORIGIN",
@@ -254,7 +263,7 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     },
     session: {
       cookieName: getOptionalString(env, "AVANA_SESSION_COOKIE", "avana_session"),
-      secure: isProd,
+      secure: cookieSecure,
       sameSite: "lax",
       maxAgeMs: 7 * 24 * 60 * 60 * 1000, // 7 days
       path: "/",
@@ -263,7 +272,7 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
       cookieName: getOptionalString(env, "AVANA_CSRF_COOKIE", "avana_csrf"),
       headerName: "x-csrf-token",
       tokenExpiryMs: 24 * 60 * 60 * 1000, // 24 hours
-      secure: isProd,
+      secure: cookieSecure,
       sameSite: isProd ? "strict" : "lax",
       path: "/",
     },
