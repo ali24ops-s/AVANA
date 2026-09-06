@@ -2007,6 +2007,7 @@ components:
               student,
               teacher,
               course_editor,
+              content_worker,
               organization_admin,
               support_agent,
               platform_admin,
@@ -2762,12 +2763,11 @@ components:
 
     GeneratedContentType:
       type: string
-      description: Extensible union of AI-generated content types. Only "lesson" is enabled in PR6-4; flashcard/quiz/recommendation are added in later PRs.
+      description: Union of AI-generated content types in the AVANA 5-stage pipeline.
       enum:
         - lesson
         - flashcard
         - quiz
-        - recommendation
         - review_summary
 
     GeneratedContentStatus:
@@ -2933,6 +2933,56 @@ components:
           type: string
           description: UTC ISO datetime
 
+    ReviewDocumentResource:
+      type: object
+      additionalProperties: false
+      required: ["id", "filename", "title"]
+      properties:
+        id:
+          type: string
+          format: uuid
+        filename:
+          type: string
+          nullable: true
+        title:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          nullable: true
+          description: UTC ISO datetime
+
+    ReviewDocumentStats:
+      type: object
+      additionalProperties: false
+      required: ["total", "pending", "approved", "rejected", "needsRevision"]
+      properties:
+        total:
+          type: integer
+        pending:
+          type: integer
+        approved:
+          type: integer
+        rejected:
+          type: integer
+        needsRevision:
+          type: integer
+
+    ReviewDocumentGroupResource:
+      type: object
+      additionalProperties: false
+      required: ["document", "stats", "items"]
+      properties:
+        document:
+          $ref: "#/components/schemas/ReviewDocumentResource"
+          nullable: true
+        stats:
+          $ref: "#/components/schemas/ReviewDocumentStats"
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReviewQueueResource"
+
     ReviewQueueResponse:
       type: object
       additionalProperties: false
@@ -2940,6 +2990,10 @@ components:
       properties:
         request_id:
           type: string
+        groups:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReviewDocumentGroupResource"
         pending:
           type: array
           items:

@@ -22,7 +22,7 @@ describe.skipIf(!shouldRunLive)("GeminiModelGateway Live API Integration", () =>
     "successfully calls Google Gemini API and receives valid structured JSON",
     async () => {
     const apiKey = process.env.GEMINI_API_KEY!;
-    const model = process.env.GEMINI_MODEL || "gemini-3.6-flash";
+    const model = process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
 
     const gateway = new GeminiModelGateway({
       apiKey,

@@ -18,6 +18,7 @@ import {
   Star,
   Clock,
 } from "lucide-react";
+import { BrandLogo } from "../brand/BrandLogo.js";
 
 interface ProcessingPageProps {
   isDark: boolean;
@@ -109,10 +110,7 @@ export function ProcessingPage({
         className="px-6 py-5 flex items-center justify-between border-b border-[var(--color-border)] bg-[var(--color-surface)]"
       >
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
-            <Sparkles className="w-4 h-4 text-white" />
-          </div>
-          <span className="font-semibold">AVANA</span>
+          <BrandLogo variant="logo-only" size="sm" />
 
           {/* Progress badge */}
           <div

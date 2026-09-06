@@ -40,6 +40,11 @@ export type QuizAttemptId = Brand<UUID, "quizAttemptId">;
 export type ContentPackId = Brand<UUID, "contentPackId">;
 export type ContentPackItemId = Brand<UUID, "contentPackItemId">;
 export type ContentPackUsageId = Brand<UUID, "contentPackUsageId">;
+export type ProductId = Brand<UUID, "productId">;
+export type OrderId = Brand<UUID, "orderId">;
+export type PaymentId = Brand<UUID, "paymentId">;
+export type UserSubscriptionId = Brand<UUID, "userSubscriptionId">;
+export type UserEntitlementId = Brand<UUID, "userEntitlementId">;
 
 export function asUserId(id: UUID): UserId {
   return id as UserId;
@@ -313,4 +318,92 @@ export function parseContentPackUsageId(
   }
   return value as ContentPackUsageId;
 }
+
+export function asProductId(id: UUID): ProductId {
+  return id as ProductId;
+}
+
+export function asOrderId(id: UUID): OrderId {
+  return id as OrderId;
+}
+
+export function asPaymentId(id: UUID): PaymentId {
+  return id as PaymentId;
+}
+
+export function asUserSubscriptionId(id: UUID): UserSubscriptionId {
+  return id as UserSubscriptionId;
+}
+
+export function asUserEntitlementId(id: UUID): UserEntitlementId {
+  return id as UserEntitlementId;
+}
+
+export function isProductId(value: string): value is ProductId {
+  return isUUID(value);
+}
+
+export function isOrderId(value: string): value is OrderId {
+  return isUUID(value);
+}
+
+export function isPaymentId(value: string): value is PaymentId {
+  return isUUID(value);
+}
+
+export function isUserSubscriptionId(value: string): value is UserSubscriptionId {
+  return isUUID(value);
+}
+
+export function isUserEntitlementId(value: string): value is UserEntitlementId {
+  return isUUID(value);
+}
+
+export function parseProductId(
+  value: string,
+  fieldName = "productId",
+): ProductId {
+  if (!isProductId(value)) {
+    throw new Error(`Invalid UUID for ${fieldName}`);
+  }
+  return value as ProductId;
+}
+
+export function parseOrderId(value: string, fieldName = "orderId"): OrderId {
+  if (!isOrderId(value)) {
+    throw new Error(`Invalid UUID for ${fieldName}`);
+  }
+  return value as OrderId;
+}
+
+export function parsePaymentId(
+  value: string,
+  fieldName = "paymentId",
+): PaymentId {
+  if (!isPaymentId(value)) {
+    throw new Error(`Invalid UUID for ${fieldName}`);
+  }
+  return value as PaymentId;
+}
+
+export function parseUserSubscriptionId(
+  value: string,
+  fieldName = "userSubscriptionId",
+): UserSubscriptionId {
+  if (!isUserSubscriptionId(value)) {
+    throw new Error(`Invalid UUID for ${fieldName}`);
+  }
+  return value as UserSubscriptionId;
+}
+
+export function parseUserEntitlementId(
+  value: string,
+  fieldName = "userEntitlementId",
+): UserEntitlementId {
+  if (!isUserEntitlementId(value)) {
+    throw new Error(`Invalid UUID for ${fieldName}`);
+  }
+  return value as UserEntitlementId;
+}
+
 

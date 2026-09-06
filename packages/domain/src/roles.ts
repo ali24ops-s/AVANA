@@ -6,6 +6,7 @@ export type Role =
   | "student"
   | "teacher"
   | "course_editor"
+  | "content_worker"
   | "organization_admin"
   | "support_agent"
   | "platform_admin";
@@ -14,6 +15,7 @@ export const Roles = {
   student: "student" as const,
   teacher: "teacher" as const,
   course_editor: "course_editor" as const,
+  content_worker: "content_worker" as const,
   organization_admin: "organization_admin" as const,
   support_agent: "support_agent" as const,
   platform_admin: "platform_admin" as const,
@@ -24,6 +26,7 @@ export function isRole(value: string): value is Role {
     value === Roles.student ||
     value === Roles.teacher ||
     value === Roles.course_editor ||
+    value === Roles.content_worker ||
     value === Roles.organization_admin ||
     value === Roles.support_agent ||
     value === Roles.platform_admin
@@ -45,6 +48,7 @@ export const ORGANIZATION_ROLE_PRECEDENCE: readonly Role[] = [
   Roles.support_agent,
   Roles.organization_admin,
   Roles.course_editor,
+  Roles.content_worker,
   Roles.teacher,
   Roles.student,
 ];
@@ -55,8 +59,9 @@ export const ORGANIZATION_ROLE_PRECEDENCE: readonly Role[] = [
  *
  * Enforcement Rules:
  * 1. Global Role: If globalRole === "platform_admin", the effective role is ALWAYS "platform_admin".
- * 2. Organization Roles: When globalRole is NULL (or not platform_admin), only valid
- *    organization-scoped roles (organization_admin, course_editor, teacher, student)
+ *    If globalRole === "content_worker", the effective role is "content_worker".
+ * 2. Organization Roles: When globalRole is NULL (or not platform_admin/content_worker), only valid
+ *    organization-scoped roles (organization_admin, course_editor, content_worker, teacher, student)
  *    are considered according to ORGANIZATION_ROLE_PRECEDENCE.
  *    Any "platform_admin" value in membership roles is strictly IGNORED and cannot grant
  *    platform admin privileges.
@@ -87,6 +92,11 @@ export function resolveEffectiveRole(
   // 1. If globalRole === platform_admin, effective role is platform_admin
   if (globalRole === Roles.platform_admin) {
     return Roles.platform_admin;
+  }
+
+  // If globalRole === content_worker, effective role is content_worker
+  if (globalRole === Roles.content_worker) {
+    return Roles.content_worker;
   }
 
   // 2. Resolve organization-scoped roles (strictly excluding platform_admin)

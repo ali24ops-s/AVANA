@@ -19,7 +19,6 @@ import {
 import { createApiClient, getApiBaseUrl } from "../lib/api/client.js";
 import { createAuthApi } from "../lib/api/auth.js";
 import { ApiError } from "../lib/api/errors.js";
-import { isAuthEnabled } from "../config/authConfig.js";
 import type { UserMembership, UserResource } from "@avana/contracts";
 
 export type AuthState = {
@@ -54,7 +53,7 @@ const AuthContext = createContext<AuthState | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserResource | null>(null);
   const [memberships, setMemberships] = useState<UserMembership[]>([]);
-  const [isLoading, setIsLoading] = useState(() => isAuthEnabled());
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const isMountedRef = useRef(true);
@@ -75,7 +74,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   /**
    * Fetch current user. Called on mount and after sign-in.
-   * In Demo Mode, fetches the resolved demo user from /v1/me if backend is available.
    * A 401 response simply means no session — not an error state.
    */
   const fetchMe = useCallback(async () => {
@@ -95,13 +93,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(null);
         setMemberships([]);
         setError(null);
-      } else if (!isAuthEnabled()) {
-        // In Demo Mode on static host without backend, gracefully fallback
-        setUser(null);
-        setMemberships([]);
-        setError(null);
       } else {
-        // Real error in Auth Enabled mode
+        // Real error
         setUser(null);
         setMemberships([]);
         setError(err instanceof ApiError ? err.message : "Failed to load user");
@@ -113,18 +106,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [authApi]);
 
-  // Check auth state on mount (resolves demo user in Demo Mode or session in Full Auth Mode)
+  // Check auth state on mount
   useEffect(() => {
     void fetchMe();
   }, [fetchMe]);
 
   const signIn = useCallback(
     async (email: string, password: string) => {
-      if (!isAuthEnabled()) {
-        setIsLoading(false);
-        setError(null);
-        return;
-      }
       setIsLoading(true);
       setError(null);
       try {
@@ -149,11 +137,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signUp = useCallback(
     async (email: string, password: string, name?: string) => {
-      if (!isAuthEnabled()) {
-        setIsLoading(false);
-        setError(null);
-        return;
-      }
       setIsLoading(true);
       setError(null);
       try {
@@ -174,11 +157,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const verifyEmail = useCallback(
     async (code: string) => {
-      if (!isAuthEnabled()) {
-        setIsLoading(false);
-        setError(null);
-        return;
-      }
       setIsLoading(true);
       setError(null);
       try {
@@ -199,10 +177,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const resendVerification = useCallback(
     async (email?: string) => {
-      if (!isAuthEnabled()) {
-        setError(null);
-        return;
-      }
       setError(null);
       try {
         await authApi.resendVerification(email);
@@ -217,12 +191,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const signOut = useCallback(async () => {
-    if (!isAuthEnabled()) {
-      setUser(null);
-      setMemberships([]);
-      setError(null);
-      return;
-    }
     try {
       await authApi.signOut();
     } catch {
@@ -257,7 +225,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 export function useAuth(): AuthState {
   const context = useContext(AuthContext);
   if (!context) {
-    throw new Error("useAuth must be used within an AuthProvider");
+    return {
+      user: null,
+      memberships: [],
+      isLoading: false,
+      error: null,
+      isAuthenticated: false,
+      isEmailVerified: false,
+      signIn: async () => {},
+      signUp: async () => {},
+      verifyEmail: async () => {},
+      resendVerification: async () => {},
+      signOut: async () => {},
+      clearError: () => {},
+    };
   }
   return context;
 }

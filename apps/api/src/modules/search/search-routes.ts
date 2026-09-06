@@ -17,22 +17,15 @@ export interface SearchRouteOptions {
   userStore: AuthMiddlewareDeps["userStore"];
   searchStore: SearchStore;
   systemOrganizationId?: OrganizationId;
-  demoUserResolver?: AuthMiddlewareDeps["demoUserResolver"];
-  authEnabled?: boolean;
 }
 
 export const searchRoutes: FastifyPluginAsync<SearchRouteOptions> = async (
   app,
   opts,
 ) => {
-  const { sessionService, userStore, searchStore, systemOrganizationId, demoUserResolver, authEnabled } = opts;
+  const { sessionService, userStore, searchStore, systemOrganizationId } = opts;
 
-  const { requireAuth } = makeAuthMiddleware({
-    sessionService,
-    userStore,
-    demoUserResolver,
-    authEnabled,
-  });
+  const { requireAuth } = makeAuthMiddleware({ sessionService, userStore });
   const searchService = new SearchService(searchStore, systemOrganizationId);
 
   /**

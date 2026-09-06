@@ -61,11 +61,24 @@ export type AuditAction =
   | "content.edited"
   | "generation.failed"
   | "flashcard.reviewed"
-  | "quiz.attempted";
+  | "quiz.attempted"
+  | "order.created"
+  | "payment.initiated"
+  | "payment.completed"
+  | "payment.c2c_submitted"
+  | "payment.approved"
+  | "payment.rejected"
+  | "entitlement.granted"
+  | "content_pack.approved"
+  | "content_pack.rejected"
+  | "admin.reset_user_devices"
+  | "user_device.revoked";
 
 export type AuditEntityType =
   | "organization"
   | "organization_membership"
+  | "user"
+  | "user_device"
   | "course"
   | "module"
   | "lesson"
@@ -73,10 +86,18 @@ export type AuditEntityType =
   | "document"
   | "document_chunk"
   | "generated_content"
+  | "generation_job"
   | "flashcard"
   | "flashcard_review"
   | "quiz"
-  | "quiz_attempt";
+  | "quiz_question"
+  | "quiz_attempt"
+  | "product"
+  | "order"
+  | "payment"
+  | "user_subscription"
+  | "user_entitlement"
+  | "content_pack";
 
 /**
  * Structured audit event payload.

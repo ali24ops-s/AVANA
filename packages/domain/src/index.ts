@@ -13,8 +13,13 @@ export * from "./study-session.js";
 export * from "./question-shuffling.js";
 
 export * from "./content-pack.js";
+export * from "./commerce.js";
+export * from "./payment-extraction.js";
 
 export * from "./auth/index.js";
 
 export * from "./authorization/index.js";
+
+export * from "./callout.js";
+export * from "./content-normalization.js";
 

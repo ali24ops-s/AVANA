@@ -42,6 +42,7 @@ export type Role =
   | "student"
   | "teacher"
   | "course_editor"
+  | "content_worker"
   | "organization_admin"
   | "support_agent"
   | "platform_admin";
@@ -375,6 +376,39 @@ export type QualityReport = {
   warnings?: string[];
 };
 
+export type GenerationProgressStatus =
+  | "idle"
+  | "queued"
+  | "planning"
+  | "generating"
+  | "reviewing"
+  | "completed"
+  | "failed";
+
+export type GenerationPipelineStage =
+  | "analysis"
+  | "planning"
+  | "quiz"
+  | "flashcard"
+  | "summary"
+  | "lesson"
+  | "review"
+  | "publishing";
+
+export type DocumentGenerationProgressResource = {
+  status: GenerationProgressStatus;
+  stage: GenerationPipelineStage | null;
+  stageLabel: string | null;
+  progress: {
+    current: number;
+    total: number;
+    percentage: number;
+  } | null;
+  stageStartedAt: string | null;
+  lastActivityAt: string | null;
+  error: string | null;
+};
+
 export type DocumentQualityLevel = "excellent" | "medium" | "poor";
 
 export type UploadIntentRequest = {
@@ -510,14 +544,12 @@ export type DocumentStatusResponse = {
 // ---------------------------------------------------------------------------
 
 /**
- * Extensible union of AI-generated content types. Only "lesson" is enabled in
- * PR6-4; flashcard/quiz/recommendation are activated in later PRs.
+ * Union of AI-generated content types in the AVANA 5-stage pipeline.
  */
 export type GeneratedContentType =
   | "lesson"
   | "flashcard"
   | "quiz"
-  | "recommendation"
   | "review_summary";
 
 /**
@@ -586,8 +618,30 @@ export type ReviewQueueResource = {
   updated_at: string;
 };
 
+export type ReviewDocumentResource = {
+  id: string;
+  filename: string | null;
+  title: string | null;
+  created_at?: string | null;
+};
+
+export type ReviewDocumentStats = {
+  total: number;
+  pending: number;
+  approved: number;
+  rejected: number;
+  needsRevision: number;
+};
+
+export type ReviewDocumentGroupResource = {
+  document: ReviewDocumentResource | null;
+  stats: ReviewDocumentStats;
+  items: ReviewQueueResource[];
+};
+
 export type ReviewQueueResponse = {
   request_id: string;
+  groups?: ReviewDocumentGroupResource[];
   pending: ReviewQueueResource[];
   pagination?: Pagination;
 };

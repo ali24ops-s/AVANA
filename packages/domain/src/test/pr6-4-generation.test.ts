@@ -52,15 +52,17 @@ const defaultContext: AuthContext = {
 };
 
 describe("PR6-4 generation content types", () => {
-  it("defines the extensible GeneratedContentType union", () => {
+  it("defines the GeneratedContentType union for the 5-stage pipeline", () => {
     const types: readonly GeneratedContentType[] = [
       "lesson",
       "flashcard",
       "quiz",
-      "recommendation",
+      "review_summary",
     ];
     expect(types).toContain("lesson");
     expect(types).toContain("flashcard");
+    expect(types).toContain("quiz");
+    expect(types).toContain("review_summary");
   });
 
   it("defines the generated content status lifecycle", () => {
@@ -100,7 +102,6 @@ describe("PR6-4 generation content types", () => {
     expect(isGenerationTypeEnabled("flashcard")).toBe(true);
     expect(isGenerationTypeEnabled("quiz")).toBe(true);
     expect(isGenerationTypeEnabled("review_summary")).toBe(true);
-    expect(isGenerationTypeEnabled("recommendation")).toBe(false);
   });
 });
 

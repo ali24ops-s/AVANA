@@ -15,8 +15,16 @@ import {
   Eye,
   PlusCircle,
   Sparkles,
+  ShoppingBag,
 } from "lucide-react";
 import type { PublicContentPackItemSummary } from "@avana/domain";
+import {
+  useCommerceProducts,
+  useMyEntitlements,
+  useMySubscription,
+  useCheckout,
+} from "../../hooks/useCommerce.js";
+import { formatToman } from "../commerce/userCommerceUtils.js";
 
 export interface ContentPackCardProps {
   pack: PublicContentPackItemSummary;
@@ -35,6 +43,35 @@ export function ContentPackCard({
   const estimatedReadingMinutes = pack.stats?.estimated_reading_minutes ?? 10;
   const usageCount = pack.usage_count ?? 0;
 
+  const { data: productsData } = useCommerceProducts();
+  const { data: entitlementsData } = useMyEntitlements();
+  const { data: subData } = useMySubscription();
+  const checkoutMutation = useCheckout();
+
+  // Find product for this pack
+  const packProduct = (productsData?.items ?? []).find(
+    (p) => p.target_type === "content_pack" && p.target_id === pack.id,
+  );
+
+  // Check if user purchased this pack permanently
+  const isPurchased = (entitlementsData?.items ?? []).some(
+    (e) => e.resource_type === "content_pack" && e.resource_id === pack.id,
+  );
+
+  // Check if user has active subscription
+  const hasSubscription = subData?.subscription?.status === "active";
+
+  const handleBuyPack = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (packProduct) {
+      checkoutMutation.mutate({
+        product_id: packProduct.id,
+        callback_url: `${window.location.origin}/checkout/callback`,
+      });
+    }
+  };
+
   return (
     <div
       className="group relative flex flex-col justify-between rounded-2xl glass-panel border border-white/10 p-5 shadow-ambient hover:border-teal-500/40 hover:shadow-teal-500/5 transition-all duration-300 bg-slate-900/60"
@@ -43,17 +80,33 @@ export function ContentPackCard({
       {/* Top Header: Subject Badge & Usage Count */}
       <div>
         <div className="flex items-center justify-between gap-2 mb-3">
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-teal-500/10 text-teal-400 border border-teal-500/20">
-            <Sparkles className="w-3 h-3" />
-            <span>{pack.subject || "عمومی / پزشکی"}</span>
-          </span>
+          <div className="flex items-center gap-2 flex-wrap min-w-0">
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-teal-500/10 text-teal-400 border border-teal-500/20">
+              <Sparkles className="w-3 h-3" />
+              <span>{pack.subject || "عمومی / پزشکی"}</span>
+            </span>
+
+            {isPurchased ? (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                خریداری شده
+              </span>
+            ) : hasSubscription ? (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-teal-500/10 text-teal-300 border border-teal-500/30">
+                در دسترس با اشتراک
+              </span>
+            ) : packProduct ? (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-purple-500/10 text-purple-300 border border-purple-500/30">
+                {formatToman(packProduct.price)}
+              </span>
+            ) : null}
+          </div>
 
           <span
-            className="inline-flex items-center gap-1 text-[11px] text-slate-400 font-medium bg-white/5 px-2 py-0.5 rounded-full border border-white/5"
-            title="تعداد دفعات اضافه‌شده به دوره‌ها"
+            className="inline-flex items-center gap-1.5 text-[11px] text-slate-400 font-medium bg-white/5 px-2.5 py-1 rounded-full border border-white/5 whitespace-nowrap shrink-0"
+            title="تعداد دفعات افزوده‌شده به دوره‌ها"
           >
-            <Users className="w-3 h-3 text-teal-400" />
-            <span>{usageCount} نصب</span>
+            <Users className="w-3.5 h-3.5 text-teal-400 shrink-0" />
+            <span>{usageCount} افزوده‌شده</span>
           </span>
         </div>
 
@@ -112,14 +165,26 @@ export function ContentPackCard({
           <span>مشاهده محتوا</span>
         </button>
 
-        <button
-          type="button"
-          onClick={() => onAddToCourse(pack)}
-          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-white bg-teal-600 hover:bg-teal-500 shadow-md shadow-teal-900/30 transition-all"
-        >
-          <PlusCircle className="w-3.5 h-3.5" />
-          <span>افزودن به دوره</span>
-        </button>
+        {!isPurchased && !hasSubscription && packProduct ? (
+          <button
+            type="button"
+            onClick={handleBuyPack}
+            disabled={checkoutMutation.isPending}
+            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-white bg-purple-600 hover:bg-purple-500 shadow-md shadow-purple-900/30 transition-all cursor-pointer"
+          >
+            <ShoppingBag className="w-3.5 h-3.5" />
+            <span>خرید بسته</span>
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => onAddToCourse(pack)}
+            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-white bg-teal-600 hover:bg-teal-500 shadow-md shadow-teal-900/30 transition-all"
+          >
+            <PlusCircle className="w-3.5 h-3.5" />
+            <span>افزودن به دوره</span>
+          </button>
+        )}
       </div>
     </div>
   );

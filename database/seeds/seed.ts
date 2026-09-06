@@ -121,6 +121,10 @@ async function main() {
       }
     }
 
+    // Seed Educational Blog
+    const { seedBlogData } = await import("./seed-blog.js");
+    await seedBlogData(db);
+
     console.log("Seed complete \u2014 synthetic data inserted.");
   } catch (error) {
     console.error("Seed failed:", error);

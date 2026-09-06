@@ -43,6 +43,12 @@ export class InMemoryOrganizationStore implements OrganizationStore {
     return membership ? this.organizations.get(id) : undefined;
   }
 
+  async findById(id: OrganizationId): Promise<OrganizationRecord | undefined> {
+    const org = this.organizations.get(id);
+    if (!org || org.deletedAt) return undefined;
+    return org;
+  }
+
   async findBySlug(slug: string): Promise<OrganizationRecord | undefined> {
     for (const org of this.organizations.values()) {
       if (org.slug === slug) return org;
@@ -104,4 +110,13 @@ export class InMemoryOrganizationStore implements OrganizationStore {
       }
     }
   }
+
+  clearMembershipsForUser(userId: UserId): void {
+    for (const [id, m] of this.memberships.entries()) {
+      if (m.userId === userId) {
+        this.memberships.delete(id);
+      }
+    }
+  }
 }
+

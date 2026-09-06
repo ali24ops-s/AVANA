@@ -12,6 +12,7 @@
 import type {
   AuditEvent,
   CourseId,
+  CourseStatus,
   OrganizationId,
   UserId,
 } from "@avana/domain";
@@ -20,7 +21,10 @@ export type CourseRecord = {
   id: CourseId;
   organizationId: OrganizationId;
   name: string;
+  description?: string | null;
   subject: string | null;
+  status?: CourseStatus;
+  isOfficial?: boolean;
   examDate: string | null;
   createdAt: string;
   updatedAt: string;
@@ -91,5 +95,8 @@ export interface CourseStore {
     systemOrganizationId?: OrganizationId,
     limit?: number,
   ): Promise<CourseRecord[]>;
+
+  /** Permanently delete a course record by ID. */
+  delete?(courseId: CourseId): Promise<void>;
 }
 

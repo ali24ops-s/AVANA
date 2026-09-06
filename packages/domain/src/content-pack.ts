@@ -33,15 +33,34 @@ import type {
 // Content Pack Types & Constants
 // ---------------------------------------------------------------------------
 
-export type ContentPackStatus = "published" | "archived";
+export type ContentPackStatus =
+  | "pending_review"
+  | "approved"
+  | "published"
+  | "rejected"
+  | "archived";
 
 export const CONTENT_PACK_STATUSES: readonly ContentPackStatus[] = [
+  "pending_review",
+  "approved",
   "published",
+  "rejected",
   "archived",
 ];
 
 export function isContentPackStatus(v: string): v is ContentPackStatus {
   return (CONTENT_PACK_STATUSES as readonly string[]).includes(v);
+}
+
+export type ContentPackAccessType = "free" | "paid";
+
+export const CONTENT_PACK_ACCESS_TYPES: readonly ContentPackAccessType[] = [
+  "free",
+  "paid",
+];
+
+export function isContentPackAccessType(v: string): v is ContentPackAccessType {
+  return (CONTENT_PACK_ACCESS_TYPES as readonly string[]).includes(v);
 }
 
 export type ContentPackContentType =
@@ -64,14 +83,25 @@ export function isContentPackContentType(
 }
 
 // ---------------------------------------------------------------------------
-// Content Pack Metadata & Snapshot Items
+// Content Pack Pricing & Metadata
 // ---------------------------------------------------------------------------
+
+export type ContentPackPricing = {
+  is_free: boolean;
+  price: number;
+  currency: string;
+  product_id: string | null;
+};
 
 export type ContentPackMetadata = {
   sessionCount?: number;
   flashcardCount?: number;
   quizQuestionCount?: number;
   estimatedReadingMinutes?: number;
+  accessType?: ContentPackAccessType;
+  rejectionReason?: string | null;
+  reviewedAt?: string | null;
+  reviewedByUserId?: string | null;
   [key: string]: unknown;
 };
 
@@ -154,6 +184,8 @@ export type PublicContentPackItemSummary = {
     estimated_reading_minutes: number;
   };
   published_at: string;
+  pricing?: ContentPackPricing;
+  access_type?: ContentPackAccessType;
 };
 
 export type PublicContentPackDetailResource = {
@@ -174,75 +206,215 @@ export type PublicContentPackDetailResource = {
   };
   published_at: string;
   preview: ContentPackPreview;
+  pricing?: ContentPackPricing;
+  access_type?: ContentPackAccessType;
+};
+
+// ---------------------------------------------------------------------------
+// Course Chapter Packages Domain Types
+// ---------------------------------------------------------------------------
+
+export type ChapterPackageCompleteness = "complete" | "partial" | "empty";
+
+export type ChapterPackageContentsSummary = {
+  lesson: {
+    exists: boolean;
+    count: number;
+    estimatedMinutes: number;
+    title?: string;
+    lessonId?: string;
+  };
+  summary: {
+    exists: boolean;
+    title?: string;
+    overview?: string;
+    estimatedMinutes?: number;
+  };
+  flashcards: {
+    exists: boolean;
+    count: number;
+  };
+  quiz: {
+    exists: boolean;
+    quizId?: string;
+    title?: string;
+    questionCount: number;
+  };
+};
+
+export type ChapterPackageItem = {
+  id: string;
+  moduleId: string;
+  courseId: string;
+  courseTitle: string;
+  title: string;
+  description: string | null;
+  subject: string | null;
+  sortOrder: number;
+  documentId: string | null;
+  contentPackId: string | null;
+  contents: ChapterPackageContentsSummary;
+  stats: {
+    totalItems: number;
+    lessonCount: number;
+    flashcardCount: number;
+    quizQuestionCount: number;
+    estimatedReadingMinutes: number;
+  };
+  completeness: ChapterPackageCompleteness;
+  access: import("./commerce.js").ResourceAccessSummary;
+  purchase: import("./commerce.js").ResourcePurchaseSummary;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CourseWithChapterPackages = {
+  id: string;
+  title: string;
+  description: string | null;
+  subject: string | null;
+  isOfficial: boolean;
+  totalPackages: number;
+  packages: ChapterPackageItem[];
+  access?: import("./commerce.js").ResourceAccessSummary;
+  purchase?: import("./commerce.js").ResourcePurchaseSummary;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CoursePackagesResponse = {
+  request_id: string;
+  courses: CourseWithChapterPackages[];
+  pagination: {
+    page: number;
+    limit: number;
+    total_courses: number;
+    total_packages: number;
+  };
 };
 
 // ---------------------------------------------------------------------------
 // Helper Utilities for Metadata and Preview Calculation
 // ---------------------------------------------------------------------------
 
-type ExtendedFlashcardCard = {
-  question?: string;
-  front?: string;
-  answer?: string;
-  back?: string;
-};
 
-type ExtendedFlashcardShape = FlashcardPayload & {
-  flashcards?: ExtendedFlashcardCard[];
-  cards?: ExtendedFlashcardCard[];
-  question?: string;
-  front?: string;
-};
 
-type ExtendedQuizQuestion = {
-  question?: string;
-  topic?: string;
-  category?: string;
-};
 
-type ExtendedQuizShape = QuizPayload & {
-  question?: string;
-  topic?: string;
-  questions?: ExtendedQuizQuestion[];
+
+export type AdminContentPackPreview = {
+  lesson?: {
+    title: string;
+    sessionCount: number;
+    estimatedMinutes: number;
+    sessions: Array<{
+      title: string;
+      contentMarkdown?: string;
+      estimatedMinutes: number;
+    }>;
+    contentMarkdown?: string;
+    outline?: Array<{
+      title: string;
+      description?: string;
+    }>;
+    hasCanonicalSessions?: boolean;
+  };
+  flashcard?: {
+    title: string;
+    totalCards: number;
+    cards: Array<{
+      front: string;
+      back: string;
+      explanation?: string | null;
+      difficulty?: string;
+      cardType?: string;
+    }>;
+  };
+  quiz?: {
+    title: string;
+    totalQuestions: number;
+    questions: Array<{
+      question: string;
+      choices: string[];
+      correctAnswer: string;
+      explanation?: string | null;
+      difficulty?: string;
+      category?: string;
+    }>;
+  };
+  review_summary?: {
+    title: string;
+    summary: string;
+    overview: string;
+    estimatedReadingMinutes?: number;
+    sections?: Array<{
+      title: string;
+      keyPoints?: string[];
+    }>;
+  };
 };
 
 /**
  * Computes high-level metadata statistics from the payload items at publish time.
+ * Canonical data takes priority; fallbacks ensure resilience across historical schemas.
  */
 export function computeContentPackMetadata(items: {
-  lesson?: LessonPayload;
-  flashcard?: FlashcardPayload;
-  quiz?: QuizPayload;
-  review_summary?: ReviewSummaryPayload;
+  lesson?: LessonPayload | Record<string, unknown>;
+  flashcard?: FlashcardPayload | Record<string, unknown>;
+  quiz?: QuizPayload | Record<string, unknown>;
+  review_summary?: ReviewSummaryPayload | Record<string, unknown>;
 }): ContentPackMetadata {
   let sessionCount = 0;
   if (items.lesson) {
-    if (Array.isArray(items.lesson.sessions) && items.lesson.sessions.length > 0) {
-      sessionCount = items.lesson.sessions.length;
-    } else if (Array.isArray(items.lesson.outline) && items.lesson.outline.length > 0) {
-      sessionCount = items.lesson.outline.length;
-    } else {
+    const rawLesson = items.lesson as Record<string, unknown>;
+    const sessions = Array.isArray(rawLesson.sessions) ? rawLesson.sessions : undefined;
+    const outline = Array.isArray(rawLesson.outline) ? rawLesson.outline : undefined;
+
+    if (sessions && sessions.length > 0) {
+      sessionCount = sessions.length;
+    } else if (outline && outline.length > 0) {
+      sessionCount = outline.length;
+    } else if (
+      rawLesson.contentMarkdown ||
+      rawLesson.content_markdown ||
+      rawLesson.markdown ||
+      rawLesson.text ||
+      rawLesson.body
+    ) {
       sessionCount = 1;
     }
   }
 
   let flashcardCount = 0;
   if (items.flashcard) {
-    const fc = items.flashcard as ExtendedFlashcardShape;
-    if (Array.isArray(fc.cards)) {
-      flashcardCount = fc.cards.length;
-    } else if (Array.isArray(fc.flashcards)) {
-      flashcardCount = fc.flashcards.length;
-    } else if (fc.question) {
+    const fc = items.flashcard as Record<string, unknown>;
+    const cards = Array.isArray(fc.cards)
+      ? fc.cards
+      : Array.isArray(fc.flashcards)
+      ? fc.flashcards
+      : Array.isArray(fc.items)
+      ? fc.items
+      : undefined;
+
+    if (cards) {
+      flashcardCount = cards.length;
+    } else if (fc.question || fc.front) {
       flashcardCount = 1;
     }
   }
 
   let quizQuestionCount = 0;
   if (items.quiz) {
-    const qz = items.quiz as ExtendedQuizShape;
-    if (Array.isArray(qz.questions)) {
-      quizQuestionCount = qz.questions.length;
+    const qz = items.quiz as Record<string, unknown>;
+    const questions = Array.isArray(qz.questions)
+      ? qz.questions
+      : Array.isArray(qz.quizQuestions)
+      ? qz.quizQuestions
+      : Array.isArray(qz.items)
+      ? qz.items
+      : undefined;
+
+    if (questions) {
+      quizQuestionCount = questions.length;
     } else if (qz.question) {
       quizQuestionCount = 1;
     }
@@ -250,15 +422,20 @@ export function computeContentPackMetadata(items: {
 
   let estimatedReadingMinutes = 0;
   if (items.review_summary) {
-    if (typeof items.review_summary.estimatedReadingMinutes === "number") {
-      estimatedReadingMinutes = items.review_summary.estimatedReadingMinutes;
+    const rs = items.review_summary as Record<string, unknown>;
+    if (typeof rs.estimatedReadingMinutes === "number") {
+      estimatedReadingMinutes = rs.estimatedReadingMinutes;
+    } else if (typeof rs.estimated_reading_minutes === "number") {
+      estimatedReadingMinutes = rs.estimated_reading_minutes;
     } else {
       estimatedReadingMinutes = 12;
     }
   } else if (items.lesson) {
-    if (Array.isArray(items.lesson.sessions) && items.lesson.sessions.length > 0) {
-      estimatedReadingMinutes = items.lesson.sessions.reduce(
-        (sum, s) => sum + (s.estimatedMinutes ?? 10),
+    const rawLesson = items.lesson as Record<string, unknown>;
+    const sessions = Array.isArray(rawLesson.sessions) ? rawLesson.sessions : undefined;
+    if (sessions && sessions.length > 0) {
+      estimatedReadingMinutes = sessions.reduce(
+        (sum: number, s: any) => sum + (s?.estimatedMinutes ?? s?.estimated_minutes ?? 10),
         0,
       );
     } else {
@@ -275,7 +452,7 @@ export function computeContentPackMetadata(items: {
 }
 
 /**
- * Generates structured public preview safely from the 4 payload snapshots.
+ * Generates structured public preview safely from the payload snapshots.
  */
 export function buildContentPackPreview(
   items: ContentPackItemRecord[],
@@ -283,44 +460,49 @@ export function buildContentPackPreview(
   const preview: ContentPackPreview = {};
 
   for (const item of items) {
-    const payload = item.payloadSnapshot;
+    const payload = item.payloadSnapshot as Record<string, any>;
     if (!payload) continue;
 
-    if (item.contentType === "lesson" && payload.kind === "lesson") {
-      const lesson = payload as LessonPayload;
+    if (item.contentType === "lesson") {
       const sessionTitles: string[] = [];
-      if (Array.isArray(lesson.sessions) && lesson.sessions.length > 0) {
-        for (const s of lesson.sessions) {
-          if (s.title) sessionTitles.push(s.title);
+      const rawSessions = Array.isArray(payload.sessions) ? payload.sessions : undefined;
+      const rawOutline = Array.isArray(payload.outline) ? payload.outline : undefined;
+
+      if (rawSessions && rawSessions.length > 0) {
+        for (let i = 0; i < rawSessions.length; i++) {
+          const s = rawSessions[i];
+          const title = s?.title || s?.name || s?.sessionTitle || `جلسه ${i + 1}`;
+          sessionTitles.push(title);
         }
-      } else if (Array.isArray(lesson.outline) && lesson.outline.length > 0) {
-        for (const o of lesson.outline) {
-          if (o.title) sessionTitles.push(o.title);
+      } else if (rawOutline && rawOutline.length > 0) {
+        for (let i = 0; i < rawOutline.length; i++) {
+          const o = rawOutline[i];
+          const title = o?.title || o?.name || `فصل ${i + 1}`;
+          sessionTitles.push(title);
         }
       }
 
       preview.lesson = {
-        title: lesson.title || lesson.moduleTitle || "درسنامه آموزشی",
+        title: payload.title || payload.moduleTitle || payload.module_title || "درسنامه آموزشی",
         sessionTitles,
         sessionCount: sessionTitles.length > 0 ? sessionTitles.length : 1,
       };
-    } else if (item.contentType === "flashcard" && payload.kind === "flashcard") {
-      const fc = payload as ExtendedFlashcardShape;
+    } else if (item.contentType === "flashcard") {
       const sampleQuestions: string[] = [];
-
-      const rawCards: ExtendedFlashcardCard[] =
-        Array.isArray(fc.cards) && fc.cards.length > 0
-          ? fc.cards
-          : Array.isArray(fc.flashcards) && fc.flashcards.length > 0
-          ? fc.flashcards
-          : fc.question || fc.front
-          ? [{ question: fc.question, front: fc.front }]
-          : [];
+      const rawCards = Array.isArray(payload.cards)
+        ? payload.cards
+        : Array.isArray(payload.flashcards)
+        ? payload.flashcards
+        : Array.isArray(payload.items)
+        ? payload.items
+        : payload.question || payload.front
+        ? [{ question: payload.question, front: payload.front }]
+        : [];
 
       const totalCards = rawCards.length;
       for (let i = 0; i < Math.min(3, rawCards.length); i++) {
         const itemCard = rawCards[i];
-        const q = itemCard ? (itemCard.question || itemCard.front) : undefined;
+        const q = itemCard ? (itemCard.question || itemCard.front || itemCard.prompt) : undefined;
         if (q) sampleQuestions.push(q);
       }
 
@@ -328,15 +510,19 @@ export function buildContentPackPreview(
         totalCards,
         sampleQuestions,
       };
-    } else if (item.contentType === "quiz" && payload.kind === "quiz") {
-      const qz = payload as ExtendedQuizShape;
-      const rawQuestions: ExtendedQuizQuestion[] = Array.isArray(qz.questions)
-        ? qz.questions
-        : qz.question
-        ? [{ question: qz.question, topic: qz.topic, category: undefined }]
+    } else if (item.contentType === "quiz") {
+      const rawQuestions = Array.isArray(payload.questions)
+        ? payload.questions
+        : Array.isArray(payload.quizQuestions)
+        ? payload.quizQuestions
+        : Array.isArray(payload.items)
+        ? payload.items
+        : payload.question
+        ? [{ question: payload.question, topic: payload.topic, category: payload.category }]
         : [];
+
       const topicsSet = new Set<string>();
-      if (qz.topic) topicsSet.add(qz.topic);
+      if (payload.topic) topicsSet.add(payload.topic);
 
       for (const q of rawQuestions) {
         if (q.topic) topicsSet.add(q.topic);
@@ -344,19 +530,250 @@ export function buildContentPackPreview(
       }
 
       preview.quiz = {
-        title: qz.title || "آزمون ارزیابی",
+        title: payload.title || "آزمون ارزیابی",
         totalQuestions: rawQuestions.length,
         topics: Array.from(topicsSet).slice(0, 5),
       };
-    } else if (
-      item.contentType === "review_summary" &&
-      payload.kind === "review_summary"
-    ) {
-      const rs = payload as ReviewSummaryPayload;
+    } else if (item.contentType === "review_summary") {
       preview.review_summary = {
-        title: rs.title || "خلاصه مروری",
-        overview: rs.overview || "",
-        estimatedReadingMinutes: rs.estimatedReadingMinutes || 12,
+        title: payload.title || "خلاصه مروری",
+        overview: payload.overview || payload.summary || "",
+        estimatedReadingMinutes:
+          payload.estimatedReadingMinutes || payload.estimated_reading_minutes || 12,
+      };
+    }
+  }
+
+  return preview;
+}
+
+/**
+ * Generates full structured review preview with all sessions, cards, and questions
+ * for the authenticated Admin moderation review workspace.
+ *
+ * Canonical Principle:
+ * 1. Canonical data fields (e.g. sessions array) always take top priority.
+ * 2. Fallbacks (e.g. outline, single master markdown) ensure full reviewability without creating fake DB records.
+ * 3. Never produces empty states when real educational content exists in the payload.
+ */
+export function buildAdminContentPackPreview(
+  items: ContentPackItemRecord[],
+): AdminContentPackPreview {
+  const preview: AdminContentPackPreview = {};
+
+  for (const item of items) {
+    const payload = item.payloadSnapshot as Record<string, any>;
+    if (!payload) continue;
+
+    if (item.contentType === "lesson") {
+      const rawTitle =
+        payload.title ||
+        payload.moduleTitle ||
+        payload.module_title ||
+        payload.name ||
+        "درسنامه آموزشی";
+
+      const masterMarkdown =
+        typeof payload.contentMarkdown === "string"
+          ? payload.contentMarkdown
+          : typeof payload.content_markdown === "string"
+          ? payload.content_markdown
+          : typeof payload.markdown === "string"
+          ? payload.markdown
+          : typeof payload.content === "string"
+          ? payload.content
+          : typeof payload.text === "string"
+          ? payload.text
+          : typeof payload.body === "string"
+          ? payload.body
+          : "";
+
+      const rawOutline = Array.isArray(payload.outline) ? payload.outline : undefined;
+      const outline = rawOutline
+        ? rawOutline.map((o: any, idx: number) => ({
+            title: o?.title || o?.name || `بخش ${idx + 1}`,
+            description: o?.description || o?.desc || undefined,
+          }))
+        : undefined;
+
+      const sessions: Array<{
+        title: string;
+        contentMarkdown?: string;
+        estimatedMinutes: number;
+      }> = [];
+
+      let hasCanonicalSessions = false;
+
+      if (Array.isArray(payload.sessions) && payload.sessions.length > 0) {
+        hasCanonicalSessions = true;
+        for (let i = 0; i < payload.sessions.length; i++) {
+          const s = payload.sessions[i];
+          const sTitle = s?.title || s?.name || s?.sessionTitle || s?.heading || `جلسه ${i + 1}`;
+          const sContent =
+            s?.contentMarkdown ||
+            s?.content_markdown ||
+            s?.markdown ||
+            s?.content ||
+            s?.text ||
+            s?.body ||
+            s?.description ||
+            (payload.sessions.length === 1 && masterMarkdown ? masterMarkdown : "");
+          const sMinutes =
+            typeof s?.estimatedMinutes === "number"
+              ? s.estimatedMinutes
+              : typeof s?.estimated_minutes === "number"
+              ? s.estimated_minutes
+              : 10;
+
+          sessions.push({
+            title: sTitle,
+            contentMarkdown: sContent,
+            estimatedMinutes: sMinutes,
+          });
+        }
+      } else if (rawOutline && rawOutline.length > 0) {
+        hasCanonicalSessions = false;
+        for (let i = 0; i < rawOutline.length; i++) {
+          const o = rawOutline[i];
+          const oTitle = o?.title || o?.name || `فصل ${i + 1}`;
+          const oContent = o?.description || masterMarkdown || "";
+          sessions.push({
+            title: oTitle,
+            contentMarkdown: oContent,
+            estimatedMinutes: 10,
+          });
+        }
+      } else if (masterMarkdown.trim().length > 0) {
+        hasCanonicalSessions = false;
+        sessions.push({
+          title: rawTitle,
+          contentMarkdown: masterMarkdown,
+          estimatedMinutes: 10,
+        });
+      }
+
+      const estimatedMinutes = sessions.reduce(
+        (sum, s) => sum + (s.estimatedMinutes || 10),
+        0,
+      );
+
+      preview.lesson = {
+        title: rawTitle,
+        sessionCount: sessions.length,
+        estimatedMinutes: estimatedMinutes || 10,
+        sessions,
+        contentMarkdown: masterMarkdown || undefined,
+        outline,
+        hasCanonicalSessions,
+      };
+    } else if (item.contentType === "flashcard") {
+      const cards: Array<{
+        front: string;
+        back: string;
+        explanation?: string | null;
+        difficulty?: string;
+        cardType?: string;
+      }> = [];
+
+      const rawCards = Array.isArray(payload.cards)
+        ? payload.cards
+        : Array.isArray(payload.flashcards)
+        ? payload.flashcards
+        : Array.isArray(payload.items)
+        ? payload.items
+        : payload.question || payload.front
+        ? [payload]
+        : [];
+
+      for (const c of rawCards) {
+        cards.push({
+          front: c.front || c.question || c.prompt || c.term || "",
+          back: c.back || c.answer || c.response || c.definition || "",
+          explanation: c.explanation || c.expl || null,
+          difficulty: c.difficulty || undefined,
+          cardType: c.cardType || c.card_type || c.type || undefined,
+        });
+      }
+
+      preview.flashcard = {
+        title: payload.title || payload.name || "فلش‌کارت‌های آموزشی",
+        totalCards: cards.length,
+        cards,
+      };
+    } else if (item.contentType === "quiz") {
+      const questions: Array<{
+        question: string;
+        choices: string[];
+        correctAnswer: string;
+        explanation?: string | null;
+        difficulty?: string;
+        category?: string;
+      }> = [];
+
+      const rawQuestions = Array.isArray(payload.questions)
+        ? payload.questions
+        : Array.isArray(payload.quizQuestions)
+        ? payload.quizQuestions
+        : Array.isArray(payload.items)
+        ? payload.items
+        : payload.question
+        ? [payload]
+        : [];
+
+      for (const q of rawQuestions) {
+        const rawChoices = Array.isArray(q.choices)
+          ? q.choices
+          : Array.isArray(q.options)
+          ? q.options
+          : [];
+        const rawAns = q.correctAnswer ?? q.correct_answer ?? q.answer ?? q.correctOption ?? "";
+        questions.push({
+          question: q.question || q.prompt || q.title || "سوال تستی",
+          choices: rawChoices,
+          correctAnswer: typeof rawAns === "string" ? rawAns : String(rawAns ?? ""),
+          explanation: q.explanation || q.expl || null,
+          difficulty: q.difficulty || undefined,
+          category: q.category || q.topic || undefined,
+        });
+      }
+
+      preview.quiz = {
+        title: payload.title || payload.name || "آزمون ارزیابی",
+        totalQuestions: questions.length,
+        questions,
+      };
+    } else if (item.contentType === "review_summary") {
+      const summaryText =
+        payload.summary ||
+        payload.overview ||
+        payload.content ||
+        payload.contentMarkdown ||
+        payload.content_markdown ||
+        (Array.isArray(payload.sections)
+          ? payload.sections
+              .map((s: any) => `${s.title}:\n${(s.keyPoints || s.key_points || []).join("\n")}`)
+              .join("\n\n")
+          : "");
+
+      const rawSections = Array.isArray(payload.sections) ? payload.sections : undefined;
+      const sections = rawSections
+        ? rawSections.map((s: any) => ({
+            title: s.title || "بخش",
+            keyPoints: Array.isArray(s.keyPoints)
+              ? s.keyPoints
+              : Array.isArray(s.key_points)
+              ? s.key_points
+              : [],
+          }))
+        : undefined;
+
+      preview.review_summary = {
+        title: payload.title || payload.name || "خلاصه مروری",
+        summary: summaryText,
+        overview: payload.overview || summaryText,
+        estimatedReadingMinutes:
+          payload.estimatedReadingMinutes || payload.estimated_reading_minutes || 12,
+        sections,
       };
     }
   }

@@ -30,7 +30,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // Try PostgreSQL composition; fallback to composeLocalDev if PostgreSQL is not available
+  // Try PostgreSQL composition; only use in-memory stores if explicitly requested via USE_IN_MEMORY_DEV
   let v1Options: V1RouteOptions;
   let close: () => Promise<void>;
 
@@ -40,12 +40,20 @@ async function main(): Promise<void> {
     close = prod.close;
     process.stdout.write("[dev] Connected to PostgreSQL stores.\n");
   } catch (err) {
-    process.stdout.write(
-      `[dev] PostgreSQL not running (${String(err)}). Starting with in-memory stores (composeLocalDev)...\n`,
-    );
-    const local = await composeLocalDev(config);
-    v1Options = local.v1Options;
-    close = async () => {};
+    if (process.env.USE_IN_MEMORY_DEV === "true") {
+      process.stdout.write(
+        `[dev] PostgreSQL not running (${String(err)}). Starting with in-memory stores (composeLocalDev)...\n`,
+      );
+      const local = await composeLocalDev(config);
+      v1Options = local.v1Options;
+      close = async () => {};
+    } else {
+      process.stderr.write(
+        `[dev] FATAL: Failed to connect to PostgreSQL stores: ${String(err)}\n` +
+          `PostgreSQL is the mandatory primary store. Set USE_IN_MEMORY_DEV=true only if in-memory test mode is explicitly intended.\n`,
+      );
+      throw err;
+    }
   }
 
   const app = createApp({ config });

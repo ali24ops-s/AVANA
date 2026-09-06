@@ -70,8 +70,6 @@ export interface ReviewRouteOptions {
   quizQuestionStore?: QuizQuestionStore;
   organizationStore?: OrganizationStore;
   auditService?: AuditService;
-  demoUserResolver?: AuthMiddlewareDeps["demoUserResolver"];
-  authEnabled?: boolean;
 }
 
 const UUID_RE =
@@ -95,16 +93,9 @@ export const reviewRoutes: FastifyPluginAsync<ReviewRouteOptions> = async (
     quizStore,
     quizQuestionStore,
     auditService,
-    demoUserResolver,
-    authEnabled,
   } = opts;
 
-  const { requireAuth } = makeAuthMiddleware({
-    sessionService,
-    userStore,
-    demoUserResolver,
-    authEnabled,
-  });
+  const { requireAuth } = makeAuthMiddleware({ sessionService, userStore });
   const service = new ReviewService(
     generatedContentStore,
     generatedContentCitationStore,
@@ -177,6 +168,8 @@ export const reviewRoutes: FastifyPluginAsync<ReviewRouteOptions> = async (
         page?: string;
         limit?: string;
         type?: import("@avana/domain").GeneratedContentType;
+        status?: string;
+        search?: string;
       }) || {};
       const page = query.page ? Math.max(1, parseInt(query.page, 10)) : undefined;
       const limit = query.limit ? Math.max(1, parseInt(query.limit, 10)) : undefined;
@@ -185,6 +178,8 @@ export const reviewRoutes: FastifyPluginAsync<ReviewRouteOptions> = async (
         page,
         limit,
         type: query.type,
+        status: query.status,
+        search: query.search,
       });
     },
   );

@@ -1,11 +1,12 @@
 /**
  * Problem section — "چرا روش‌های سنتی پاسخگو نیستند؟"
  *
- * Stitch design: text block on right, 2×2 grid of error-themed problem
- * cards on left. Each card highlights a pain point of traditional study.
+ * Full-width 100% edge-to-edge ambient background with centered responsive content.
+ * Highlights the 4 core challenges in traditional medical studies with glassmorphic cards.
  */
 
 import { motion } from "framer-motion";
+import { AlertTriangle } from "lucide-react";
 
 interface ProblemCard {
   icon: string;
@@ -36,87 +37,65 @@ const problems: ProblemCard[] = [
   },
 ];
 
-const cardVariants = {
-  hidden: { opacity: 0, y: 20 },
-  visible: (i: number) => ({
-    opacity: 1,
-    y: 0,
-    transition: { duration: 0.5, delay: i * 0.1, ease: "easeOut" as const },
-  }),
-};
-
 export function FeaturesSection() {
   return (
     <section
       id="features"
-      className="py-24"
-      style={{ backgroundColor: "var(--lp-surface, #f8f9ff)" }}
+      className="relative w-full py-20 md:py-28 overflow-hidden text-right border-y border-white/5 bg-[#0d1527]/60 backdrop-blur-md"
+      aria-label="بخش بررسی چالش‌های روش‌های سنتی مطالعه"
     >
+      {/* 100% Full-Width Atmospheric Ambient Glows */}
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(244,63,94,0.08),_transparent_70%)] pointer-events-none -z-10" />
+      <div className="absolute top-1/3 left-0 w-[500px] h-[500px] bg-rose-900/15 rounded-full blur-3xl pointer-events-none -translate-x-1/2 -z-10" />
+      <div className="absolute bottom-10 right-0 w-[500px] h-[500px] bg-teal-900/15 rounded-full blur-3xl pointer-events-none translate-x-1/2 -z-10" />
+
+      {/* Centered Content Container */}
       <div className="max-w-[1280px] mx-auto px-6">
-        <div className="flex flex-col lg:flex-row items-center gap-16">
+        {/* Section Header & 4 Cards Grid */}
+        <div className="flex flex-col lg:flex-row items-start gap-12 lg:gap-16">
           {/* Text Block */}
           <motion.div
-            initial={{ opacity: 0, x: 20 }}
-            whileInView={{ opacity: 1, x: 0 }}
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
             transition={{ duration: 0.6 }}
-            className="lg:w-1/3 text-right"
+            className="lg:w-1/3"
           >
-            <h2
-              className="font-headline text-3xl md:text-4xl font-bold mb-4"
-              style={{ color: "var(--lp-on-surface, #0b1c30)" }}
-            >
-              چرا روش‌های سنتی پاسخگو نیستند؟
+            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold tracking-wide border mb-4 bg-rose-950/50 text-rose-300 border-rose-500/30 shadow-sm">
+              <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />
+              <span>چالش واقعی دانشجو</span>
+            </div>
+
+            <h2 className="font-headline text-3xl sm:text-4xl font-black mb-4 text-white leading-tight">
+              چرا روش‌های سنتی <br />
+              <span className="text-transparent bg-clip-text bg-gradient-to-l from-rose-400 via-amber-300 to-rose-300">
+                پاسخگو نیستند؟
+              </span>
             </h2>
-            <p
-              className="text-base md:text-lg mb-8"
-              style={{ color: "var(--lp-on-surface-variant, #3e4947)" }}
-            >
-              حجم بالای مطالب پزشکی نیازمند رویکردی سیستماتیک است که روش‌های
-              سنتی فاقد آن هستند.
+
+            <p className="text-sm sm:text-base leading-relaxed text-slate-300">
+              حجم بالای مطالب پزشکی نیازمند رویکردی سیستماتیک است که روش‌های سنتی فاقد آن هستند.
             </p>
           </motion.div>
 
-          {/* Problem Cards Grid */}
-          <div className="lg:w-2/3 grid grid-cols-1 sm:grid-cols-2 gap-6 w-full">
+          {/* 4 Problem Cards Grid */}
+          <div className="lg:w-2/3 grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 w-full">
             {problems.map((problem, i) => (
               <motion.div
                 key={problem.title}
-                custom={i}
-                variants={cardVariants}
-                initial="hidden"
-                whileInView="visible"
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }}
-                whileHover={{ y: -4, boxShadow: "0 8px 24px rgba(0,0,0,0.06)" }}
-                className="flex items-start gap-4 p-6 rounded-xl transition-all duration-300 cursor-default"
-                style={{
-                  backgroundColor: "rgba(255, 218, 214, 0.2)",
-                  border: "1px solid rgba(186, 26, 26, 0.1)",
-                }}
+                transition={{ duration: 0.5, delay: i * 0.1 }}
+                whileHover={{ y: -4, borderColor: "rgba(244, 63, 94, 0.4)" }}
+                className="flex items-start gap-4 p-5 sm:p-6 rounded-2xl bg-gradient-to-br from-slate-900/90 via-slate-900/70 to-rose-950/30 border border-rose-500/20 backdrop-blur-md shadow-lg transition-all duration-300 cursor-default hover:shadow-rose-950/20"
               >
-                <div
-                  className="mt-1 shrink-0"
-                  style={{ color: "var(--lp-error, #ba1a1a)" }}
-                >
-                  <span className="material-symbols-outlined">
-                    {problem.icon}
-                  </span>
+                <div className="w-12 h-12 rounded-xl bg-rose-500/15 border border-rose-500/30 flex items-center justify-center shrink-0 text-rose-400 shadow-inner">
+                  <span className="material-symbols-outlined text-2xl">{problem.icon}</span>
                 </div>
                 <div>
-                  <h4
-                    className="font-semibold mb-1"
-                    style={{ color: "var(--lp-on-surface, #0b1c30)" }}
-                  >
-                    {problem.title}
-                  </h4>
-                  <p
-                    className="text-sm"
-                    style={{
-                      color: "var(--lp-on-surface-variant, #3e4947)",
-                    }}
-                  >
-                    {problem.description}
-                  </p>
+                  <h3 className="font-bold text-base sm:text-lg mb-1.5 text-white">{problem.title}</h3>
+                  <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">{problem.description}</p>
                 </div>
               </motion.div>
             ))}

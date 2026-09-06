@@ -28,11 +28,22 @@ export type {
 } from "./email-verification-store.js";
 export type { EmailService } from "./email-service.js";
 export { MockEmailService, ResendEmailService } from "./email-service.js";
+export type {
+  DeviceStore,
+  RegisterDeviceInput,
+  RecordAttemptInput,
+} from "./device-store.js";
+export {
+  DeviceService,
+  generateDeviceId,
+  detectDeviceType,
+  parseDeviceName,
+} from "./device-service.js";
 export {
   DrizzleSessionStore,
   DrizzleUserStore,
   DrizzleEmailVerificationStore,
+  DrizzleDeviceStore,
 } from "./drizzle-stores.js";
-export { DemoUserResolver } from "./demo-user-resolver.js";
 
 

@@ -8,6 +8,7 @@ export default defineConfig({
       "packages/config/vitest.config.ts",
       "packages/domain/vitest.config.ts",
       "tools/eslint-boundaries/vitest.config.ts",
+      "tools/worker/vitest.config.ts",
       "database/vitest.config.ts",
     ],
     coverage: {

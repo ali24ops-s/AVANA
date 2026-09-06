@@ -251,6 +251,23 @@ describe("PR6-7: Study Consumption & Analytics API", () => {
     const quizId: QuizId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc" as QuizId;
     const now = new Date().toISOString();
 
+    courseStore.create({
+      course: {
+        id: cId,
+        organizationId: orgId,
+        name: "Cardiovascular Pharmacology",
+        description: "Course for study test",
+        subject: "Medical",
+        status: "published",
+        isOfficial: false,
+        examDate: null,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      },
+      auditEvents: [],
+    }).catch(() => {});
+
     quizStore.insert({
       id: quizId,
       organizationId: orgId,

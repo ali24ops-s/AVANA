@@ -46,6 +46,8 @@ export type GenerationJobRecord = {
   createdAt: string;
   updatedAt: string;
   startedAt: string | null;
+  heartbeatAt?: string | null;
+  leaseExpiresAt?: string | null;
   completedAt: string | null;
   deletedAt: string | null;
 };
@@ -92,6 +94,32 @@ export interface GenerationJobStore {
    * Update a generation job record (status transitions, attempts, errors).
    */
   update(record: GenerationJobRecord): Promise<GenerationJobRecord>;
+
+  /**
+   * Update heartbeat timestamp and lease expiration for an active job.
+   */
+  updateHeartbeat?(
+    id: GenerationJobId,
+    organizationId: OrganizationId,
+    heartbeatAt?: string,
+    leaseExpiresAt?: string,
+  ): Promise<void>;
+
+  /**
+   * Find and mark stale jobs ('queued' or 'running' exceeding maxAgeMs with no fresh heartbeat) as 'failed'.
+   */
+  reconcileStaleJobs?(params: {
+    maxAgeMs?: number;
+    organizationId?: OrganizationId;
+  }): Promise<{ reconciledCount: number; jobIds: string[] }>;
+
+  /**
+   * Soft delete a generation job for an organization.
+   */
+  delete(
+    id: GenerationJobId,
+    organizationId: OrganizationId,
+  ): Promise<void>;
 
   /**
    * Soft delete all generation jobs for a document in an organization.

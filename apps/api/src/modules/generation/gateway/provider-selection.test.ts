@@ -97,7 +97,7 @@ describe("Provider Selection & Safety Architecture", () => {
       const gateway = createModelGateway();
       expect(gateway).toBeInstanceOf(GeminiModelGateway);
       expect(gateway.provider).toBe("gemini");
-      expect(gateway.model).toBe("gemini-3.6-flash");
+      expect(gateway.model).toBe("gemini-3.5-flash-lite");
     });
 
     it("selects Gemini when createModelGateway is called with options and undefined provider", () => {
@@ -248,7 +248,7 @@ describe("Provider Selection & Safety Architecture", () => {
       expect(caughtError).toBeDefined();
       expect(caughtError).toBeInstanceOf(DomainError);
       const err = caughtError as DomainError;
-      expect(err.message).toContain("Gemini API request failed");
+      expect(err.message).toMatch(/Gemini API (request failed|rate limit exceeded)/i);
       expect(geminiCalls).toBeGreaterThanOrEqual(1);
       expect(gapgptCalls).toBe(0);
       expect(groqCalls).toBe(0);
@@ -649,7 +649,7 @@ describe("Provider Selection & Safety Architecture", () => {
       const gateway = createModelGateway();
       expect(gateway).toBeInstanceOf(GeminiModelGateway);
       expect(gateway.provider).toBe("gemini");
-      expect(gateway.model).toBe("gemini-3.6-flash");
+      expect(gateway.model).toBe("gemini-3.5-flash-lite");
     });
 
     it("selects GapGPT when AI_PRIMARY_PROVIDER is gapgpt", () => {

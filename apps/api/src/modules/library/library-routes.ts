@@ -32,6 +32,8 @@ import type { CourseStore } from "../courses/course-store.js";
 import type { AuthMiddlewareDeps } from "../../http/authMiddleware.js";
 import { makeAuthMiddleware } from "../../http/authMiddleware.js";
 import type { AuditService } from "../../observability/audit-service.js";
+import type { EntitlementService } from "../commerce/entitlement-service.js";
+import type { CommerceStore } from "../commerce/commerce-store.js";
 
 export interface LibraryRouteOptions {
   sessionService: AuthMiddlewareDeps["sessionService"];
@@ -43,8 +45,9 @@ export interface LibraryRouteOptions {
   organizationStore?: OrganizationStore;
   courseStore?: CourseStore;
   auditService?: AuditService;
-  demoUserResolver?: AuthMiddlewareDeps["demoUserResolver"];
-  authEnabled?: boolean;
+  entitlementService?: EntitlementService;
+  commerceStore?: CommerceStore;
+  systemOrganizationId?: OrganizationId;
 }
 
 const UUID_RE =
@@ -64,15 +67,14 @@ export const libraryRoutes: FastifyPluginAsync<LibraryRouteOptions> = async (
     organizationStore,
     courseStore,
     auditService,
-    demoUserResolver,
-    authEnabled,
+    entitlementService,
+    commerceStore,
+    systemOrganizationId,
   } = opts;
 
-  const { requireAuth } = makeAuthMiddleware({
+  const { requireAuth, optionalAuth } = makeAuthMiddleware({
     sessionService,
     userStore,
-    demoUserResolver,
-    authEnabled,
   });
 
   const service = new LibraryService(
@@ -85,6 +87,9 @@ export const libraryRoutes: FastifyPluginAsync<LibraryRouteOptions> = async (
     courseStore,
     defaultPolicy,
     auditService,
+    entitlementService,
+    commerceStore,
+    systemOrganizationId,
   );
 
   /** Helper to extract actor from authenticated request. */
@@ -94,6 +99,20 @@ export const libraryRoutes: FastifyPluginAsync<LibraryRouteOptions> = async (
     };
     if (!reqAny.user) {
       throw new DomainError("unauthorized", "Not signed in");
+    }
+    return {
+      userId: reqAny.user.userId as Actor["userId"],
+      role: reqAny.user.role as Actor["role"],
+    };
+  }
+
+  /** Helper to extract actor if signed in, or null if anonymous. */
+  function getOptionalActor(request: unknown): Actor | null {
+    const reqAny = request as {
+      user?: { userId: string; email: string; role: string };
+    };
+    if (!reqAny.user) {
+      return null;
     }
     return {
       userId: reqAny.user.userId as Actor["userId"],
@@ -156,6 +175,90 @@ export const libraryRoutes: FastifyPluginAsync<LibraryRouteOptions> = async (
 
       reply.code(201);
       return result;
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // GET /v1/library/resources — List accessible courses and standalone contents
+  // -------------------------------------------------------------------------
+  app.get(
+    "/v1/library/resources",
+    { preHandler: [optionalAuth] },
+    async (request, _reply) => {
+      const actor = getOptionalActor(request);
+      const query = (request.query ?? {}) as {
+        q?: string;
+        type?: string;
+        subject?: string;
+        sort?: string;
+        page?: string;
+        limit?: string;
+      };
+
+      const type =
+        query.type === "courses" || query.type === "contents" || query.type === "all"
+          ? query.type
+          : "all";
+      const sort =
+        query.sort === "newest" || query.sort === "popular"
+          ? query.sort
+          : "popular";
+      const page = query.page ? parseInt(query.page, 10) : 1;
+      const limit = query.limit ? parseInt(query.limit, 10) : 20;
+
+      return service.listResources(
+        actor,
+        {
+          q: query.q,
+          type,
+          subject: query.subject,
+          sort,
+          page: isNaN(page) ? 1 : page,
+          limit: isNaN(limit) ? 20 : limit,
+        },
+        request.id,
+      );
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // GET /v1/library/course-packages — List courses with chapter educational packages
+  // -------------------------------------------------------------------------
+  app.get(
+    "/v1/library/course-packages",
+    { preHandler: [optionalAuth] },
+    async (request, _reply) => {
+      const actor = getOptionalActor(request);
+      const query = (request.query ?? {}) as {
+        course_id?: string;
+        courseId?: string;
+        q?: string;
+        subject?: string;
+        sort?: string;
+        page?: string;
+        limit?: string;
+      };
+
+      const courseId = query.course_id || query.courseId;
+      const sort =
+        query.sort === "newest" || query.sort === "popular"
+          ? query.sort
+          : "popular";
+      const page = query.page ? parseInt(query.page, 10) : 1;
+      const limit = query.limit ? parseInt(query.limit, 10) : 20;
+
+      return service.listCoursePackages(
+        actor,
+        {
+          courseId,
+          q: query.q,
+          subject: query.subject,
+          sort,
+          page: isNaN(page) ? 1 : page,
+          limit: isNaN(limit) ? 20 : limit,
+        },
+        request.id,
+      );
     },
   );
 

@@ -38,6 +38,7 @@ export type GenerationJobPayload = {
   types: GeneratedContentType[];
   promptVersion?: string;
   generationKey?: string;
+  force?: boolean;
 };
 
 /**
@@ -112,6 +113,20 @@ export class InMemoryGenerationQueue implements GenerationQueue {
       const service = this.generationService;
       setTimeout(async () => {
         try {
+          const currentJob = await this.jobStore.findByIdForOrganization(
+            record.id,
+            payload.organizationId,
+          );
+          if (
+            !currentJob ||
+            currentJob.status === "stopped" ||
+            currentJob.status === "stopping" ||
+            currentJob.status === "deleted" ||
+            currentJob.status === "deleting"
+          ) {
+            return;
+          }
+
           const startedAt = new Date().toISOString();
           await this.jobStore.update({
             ...record,
@@ -133,8 +148,24 @@ export class InMemoryGenerationQueue implements GenerationQueue {
               types: payload.types,
               promptVersion: payload.promptVersion,
               generationKey: payload.generationKey,
+              force: payload.force,
+              jobId: record.id,
             },
           );
+
+          const finalJob = await this.jobStore.findByIdForOrganization(
+            record.id,
+            payload.organizationId,
+          );
+          if (
+            !finalJob ||
+            finalJob.status === "stopped" ||
+            finalJob.status === "stopping" ||
+            finalJob.status === "deleted" ||
+            finalJob.status === "deleting"
+          ) {
+            return;
+          }
 
           const completedAt = new Date().toISOString();
           await this.jobStore.update({
@@ -146,6 +177,20 @@ export class InMemoryGenerationQueue implements GenerationQueue {
             updatedAt: completedAt,
           });
         } catch (err: unknown) {
+          const finalJob = await this.jobStore.findByIdForOrganization(
+            record.id,
+            payload.organizationId,
+          );
+          if (
+            !finalJob ||
+            finalJob.status === "stopped" ||
+            finalJob.status === "stopping" ||
+            finalJob.status === "deleted" ||
+            finalJob.status === "deleting"
+          ) {
+            return;
+          }
+
           const failedAt = new Date().toISOString();
           const errorCode =
             err && typeof err === "object" && "code" in err && typeof (err as { code: unknown }).code === "string"

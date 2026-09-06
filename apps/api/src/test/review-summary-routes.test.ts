@@ -124,7 +124,10 @@ describe("Review Summary HTTP Routes", () => {
     const orgRes = await app.inject({
       method: "POST",
       url: "/v1/organizations",
-      cookies: { avana_session: token },
+      headers: {
+        "content-type": "application/json",
+        cookie: `avana_session=${token}`,
+      },
       payload: { name: "Medical Faculty" },
     });
     expect(orgRes.statusCode).toBe(201);
@@ -206,7 +209,126 @@ describe("Review Summary HTTP Routes", () => {
     const getBeforeBody = JSON.parse(getBeforeRes.body);
     expect(getBeforeBody.content).toBeNull();
 
-    // 2. POST to generate review summary
+    // 2. POST before lessons exist fails explicitly with STAGE5_MISSING_LESSONS
+    const postBeforeLessonRes = await app.inject({
+      method: "POST",
+      url: `/v1/organizations/${organizationId}/courses/${courseId}/documents/${docId}/review-summary`,
+      headers: {
+        "content-type": "application/json",
+        cookie: `avana_session=${token}`,
+      },
+      payload: {},
+    });
+    expect(postBeforeLessonRes.statusCode).toBe(400);
+    const postBeforeLessonBody = JSON.parse(postBeforeLessonRes.body);
+    expect(postBeforeLessonBody.error.message).toContain("STAGE5_MISSING_LESSONS");
+
+    // Seed prerequisite lesson with Stage 1 planning artifacts
+    await generatedContentStore.create({
+      id: randomUUID() as any,
+      organizationId,
+      documentId: docId,
+      courseId,
+      type: "lesson",
+      status: "draft",
+      payload: {
+        kind: "lesson",
+        title: "درس فارماکولوژی",
+        moduleTitle: "فارماکولوژی قلب و عروق",
+        outline: [{ title: "مقدمه", description: "معرفی داروها" }],
+        sessions: [
+          {
+            title: "جلسه ۱: داروهای ضد فشار خون",
+            contentMarkdown: "محتوای تخصصی داروشناسی",
+            citationChunkIds: [chunkId],
+          },
+        ],
+        contentMarkdown: "محتوای تخصصی داروشناسی",
+        citationChunkIds: [chunkId],
+        coverageReport: {
+          sourceTopicsIdentified: [
+            {
+              title: "داروهای ضد فشار خون",
+              description: "مهارکننده‌ها",
+              relevantChunkIds: [chunkId],
+            },
+          ],
+          topicsAssignedToSessions: [
+            {
+              sessionIndex: 0,
+              sessionTitle: "جلسه ۱",
+              assignedTopics: ["داروهای ضد فشار خون"],
+            },
+          ],
+          majorConceptsCovered: [
+            {
+              id: "c1",
+              name: "ACE Inhibitor",
+              category: "pharmacology_mechanism",
+              description: "مهار آنزیم",
+            },
+          ],
+          uncoveredConcepts: [],
+          flashcardCoverage: {
+            totalCards: 5,
+            coveragePct: 100,
+            cardsPerSession: [],
+          },
+          quizCoverage: {
+            totalQuestions: 3,
+            coveragePct: 100,
+            questionsPerSession: [],
+          },
+          totalIdentifiedFacts: 3,
+          coveredByLessons: 1,
+          coveredByFlashcards: 5,
+          coveredByQuiz: 3,
+          lessonCoveragePct: 100,
+          flashcardCoveragePct: 100,
+          quizCoveragePct: 100,
+          sessionsAudit: [
+            {
+              topicIndex: 0,
+              topicTitle: "جلسه ۱",
+              keyConcepts: [
+                {
+                  id: "c1",
+                  name: "ACE Inhibitor",
+                  category: "pharmacology_mechanism",
+                  description: "مهار آنزیم",
+                },
+              ],
+              flashcardCount: 5,
+              quizQuestionCount: 3,
+              coveredByLesson: true,
+              coveredByFlashcards: true,
+              coveredByQuiz: true,
+              uncoveredConcepts: [],
+              supplementalNeeded: false,
+            },
+          ],
+          supplementalPassTriggered: false,
+        },
+      },
+      promptVersion: "v1",
+      model: "mock",
+      tokenUsage: { inputTokens: 100, outputTokens: 100 },
+      generationKey: null,
+      acceptedAt: null,
+      acceptedBy: null,
+      reviewedBy: null,
+      reviewedAt: null,
+      reviewReason: null,
+      editedBy: null,
+      editedAt: null,
+      previousPayload: null,
+      materializedLessonId: null,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    });
+
+    // 3. POST to generate review summary now succeeds
     const postRes = await app.inject({
       method: "POST",
       url: `/v1/organizations/${organizationId}/courses/${courseId}/documents/${docId}/review-summary`,

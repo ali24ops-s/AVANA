@@ -49,6 +49,11 @@ import type {
 } from "../study/study-store.js";
 import type { GenerationJobStore } from "./generation-jobs-store.js";
 import type { GenerationQueue } from "./generation-queue.js";
+import type { GenerationChunkStore } from "./generation-chunk-store.js";
+import type {
+  GenerationProgressStore,
+} from "./generation-progress-store.js";
+import type { GenerationProgressService } from "./generation-progress-service.js";
 import type { ModelGateway } from "./gateway/index.js";
 import type { AuditService } from "../../observability/audit-service.js";
 import type { OrganizationStore } from "../organizations/organization-store.js";
@@ -72,8 +77,9 @@ export interface GenerationRouteOptions {
   quizStore?: QuizStore;
   quizQuestionStore?: QuizQuestionStore;
   systemOrganizationId?: OrganizationId;
-  demoUserResolver?: AuthMiddlewareDeps["demoUserResolver"];
-  authEnabled?: boolean;
+  generationChunkStore?: GenerationChunkStore;
+  generationProgressStore?: GenerationProgressStore;
+  generationProgressService?: GenerationProgressService;
 }
 
 const UUID_RE =
@@ -93,16 +99,9 @@ export const generationRoutes: FastifyPluginAsync<
     queue,
     gateway,
     auditService,
-    demoUserResolver,
-    authEnabled,
   } = opts;
 
-  const { requireAuth } = makeAuthMiddleware({
-    sessionService,
-    userStore,
-    demoUserResolver,
-    authEnabled,
-  });
+  const { requireAuth } = makeAuthMiddleware({ sessionService, userStore });
   const service = new GenerationService(
     generatedContentStore,
     generatedContentCitationStore,
@@ -117,6 +116,11 @@ export const generationRoutes: FastifyPluginAsync<
     opts.flashcardStore,
     opts.quizStore,
     opts.quizQuestionStore,
+    opts.courseStore,
+    opts.systemOrganizationId,
+    opts.generationChunkStore,
+    generationJobStore,
+    opts.generationProgressService,
   );
 
   /**
@@ -308,6 +312,17 @@ export const generationRoutes: FastifyPluginAsync<
 
       const generationKey = `doc:${documentId}:async:${randomUUID()}`;
 
+      // Synchronously mark generation progress as queued so immediate GET /generation/active
+      // or frontend invalidations instantly see the queued item before worker starts.
+      await service.progressService.queue(documentId, organizationId);
+      if (doc.status !== "generating" && doc.status !== "pending_generation") {
+        await documentStore.update({
+          ...doc,
+          status: "pending_generation",
+          updatedAt: new Date().toISOString(),
+        });
+      }
+
       const result = await queue.enqueueGenerationJob({
         actorUserId: actor.userId,
         actorRole: actor.role,
@@ -367,6 +382,11 @@ export const generationRoutes: FastifyPluginAsync<
         throw new DomainError("not_found", "Generation job not found");
       }
 
+      const progress = await service.getGenerationProgress(
+        documentId,
+        organizationId,
+      );
+
       return {
         request_id: request.id,
         job: {
@@ -383,6 +403,7 @@ export const generationRoutes: FastifyPluginAsync<
           updated_at: job.updatedAt,
           started_at: job.startedAt,
           completed_at: job.completedAt,
+          progress,
         },
       };
     },
@@ -565,4 +586,257 @@ export const generationRoutes: FastifyPluginAsync<
     { preHandler: [requireAuth] },
     handlePostReviewSummary,
   );
+
+  // -----------------------------------------------------------------------
+  // GET /v1/organizations/:organizationId/generation/active
+  // GET /v1/organizations/:organizationId/courses/:courseId/generation/active
+  // Returns all active generation progress items for the authenticated user/org.
+  // -----------------------------------------------------------------------
+  const handleGetActiveGenerations = async (request: unknown) => {
+    const req = request as {
+      params: {
+        organizationId: string;
+        courseId?: string;
+      };
+      id: string;
+    };
+    const actor = getActor(req);
+    const organizationId = getOrganizationId(req.params);
+    const courseId = req.params.courseId ? getCourseId(req.params) : undefined;
+
+    const items = await service.getActiveGenerations(
+      actor,
+      organizationId,
+      courseId,
+    );
+
+    return {
+      request_id: req.id,
+      items,
+    };
+  };
+
+  app.get(
+    "/v1/organizations/:organizationId/generation/active",
+    { preHandler: [requireAuth] },
+    handleGetActiveGenerations,
+  );
+
+  app.get(
+    "/v1/organizations/:organizationId/courses/:courseId/generation/active",
+    { preHandler: [requireAuth] },
+    handleGetActiveGenerations,
+  );
+
+  // -----------------------------------------------------------------------
+  // GET /v1/organizations/:organizationId/documents/:documentId/progress
+  // GET /v1/organizations/:organizationId/courses/:courseId/documents/:documentId/progress
+  // Returns canonical generation progress for a single document.
+  // -----------------------------------------------------------------------
+  const handleGetDocumentProgress = async (request: unknown) => {
+    const req = request as {
+      params: {
+        organizationId: string;
+        documentId: string;
+        courseId?: string;
+      };
+      id: string;
+    };
+    const actor = getActor(req);
+    const organizationId = getOrganizationId(req.params);
+    const documentId = getDocumentId(req.params);
+    const courseId = req.params.courseId ? getCourseId(req.params) : undefined;
+
+    const result = await service.getDocumentGenerationProgress(
+      actor,
+      organizationId,
+      documentId,
+      courseId,
+    );
+
+    return {
+      request_id: req.id,
+      document_id: result.documentId,
+      document_name: result.documentName,
+      course_id: result.courseId,
+      generationProgress: result.generationProgress,
+    };
+  };
+
+  app.get(
+    "/v1/organizations/:organizationId/documents/:documentId/progress",
+    { preHandler: [requireAuth] },
+    handleGetDocumentProgress,
+  );
+
+  app.get(
+    "/v1/organizations/:organizationId/courses/:courseId/documents/:documentId/progress",
+    { preHandler: [requireAuth] },
+    handleGetDocumentProgress,
+  );
+
+  // -----------------------------------------------------------------------
+  // POST /v1/organizations/:organizationId/courses/:courseId/documents/:documentId/generation/stop
+  // POST /v1/organizations/:organizationId/documents/:documentId/generation/stop
+  // Stop active or queued generation for a document.
+  // -----------------------------------------------------------------------
+  const handleStopDocumentGeneration = async (request: unknown) => {
+    const req = request as {
+      params: {
+        organizationId: string;
+        documentId: string;
+        courseId?: string;
+      };
+      id: string;
+    };
+    const actor = getActor(req);
+    const organizationId = getOrganizationId(req.params);
+    const documentId = getDocumentId(req.params);
+
+    const doc = await documentStore.findByIdForOrganization(
+      documentId,
+      organizationId,
+    );
+    if (!doc) {
+      throw new DomainError("not_found", "Document not found");
+    }
+
+    const result = await service.stopGenerationForDocument(
+      actor,
+      organizationId,
+      documentId,
+    );
+
+    return {
+      request_id: req.id,
+      status: result.status,
+      previous_status: result.previousStatus,
+      job_id: result.jobId,
+    };
+  };
+
+  app.post(
+    "/v1/organizations/:organizationId/courses/:courseId/documents/:documentId/generation/stop",
+    { preHandler: [requireAuth] },
+    handleStopDocumentGeneration,
+  );
+
+  app.post(
+    "/v1/organizations/:organizationId/documents/:documentId/generation/stop",
+    { preHandler: [requireAuth] },
+    handleStopDocumentGeneration,
+  );
+
+  // -----------------------------------------------------------------------
+  // POST /v1/organizations/:organizationId/generation/:jobId/stop
+  // Stop a specific active or queued generation job.
+  // -----------------------------------------------------------------------
+  app.post(
+    "/v1/organizations/:organizationId/generation/:jobId/stop",
+    { preHandler: [requireAuth] },
+    async (request, _reply) => {
+      const actor = getActor(request);
+      const params = request.params as {
+        organizationId: string;
+        jobId: string;
+      };
+      const organizationId = getOrganizationId(params);
+      const jobId = parseGenerationJobId(params.jobId, "jobId");
+
+      const result = await service.stopGenerationJob(
+        actor,
+        organizationId,
+        jobId,
+      );
+
+      return {
+        request_id: request.id,
+        status: result.status,
+        previous_status: result.previousStatus,
+        job_id: result.jobId,
+      };
+    },
+  );
+
+  // -----------------------------------------------------------------------
+  // DELETE /v1/organizations/:organizationId/courses/:courseId/documents/:documentId/generation
+  // DELETE /v1/organizations/:organizationId/documents/:documentId/generation
+  // Safely delete generation processes and unaccepted drafts for a document.
+  // -----------------------------------------------------------------------
+  const handleDeleteDocumentGeneration = async (request: unknown) => {
+    const req = request as {
+      params: {
+        organizationId: string;
+        documentId: string;
+        courseId?: string;
+      };
+      id: string;
+    };
+    const actor = getActor(req);
+    const organizationId = getOrganizationId(req.params);
+    const documentId = getDocumentId(req.params);
+
+    const doc = await documentStore.findByIdForOrganization(
+      documentId,
+      organizationId,
+    );
+    if (!doc) {
+      throw new DomainError("not_found", "Document not found");
+    }
+
+    const result = await service.deleteGenerationForDocument(
+      actor,
+      organizationId,
+      documentId,
+    );
+
+    return {
+      request_id: req.id,
+      status: result.status,
+    };
+  };
+
+  app.delete(
+    "/v1/organizations/:organizationId/courses/:courseId/documents/:documentId/generation",
+    { preHandler: [requireAuth] },
+    handleDeleteDocumentGeneration,
+  );
+
+  app.delete(
+    "/v1/organizations/:organizationId/documents/:documentId/generation",
+    { preHandler: [requireAuth] },
+    handleDeleteDocumentGeneration,
+  );
+
+  // -----------------------------------------------------------------------
+  // DELETE /v1/organizations/:organizationId/generation/:jobId
+  // Safely delete a specific generation job and clean up transient chunks.
+  // -----------------------------------------------------------------------
+  app.delete(
+    "/v1/organizations/:organizationId/generation/:jobId",
+    { preHandler: [requireAuth] },
+    async (request, _reply) => {
+      const actor = getActor(request);
+      const params = request.params as {
+        organizationId: string;
+        jobId: string;
+      };
+      const organizationId = getOrganizationId(params);
+      const jobId = parseGenerationJobId(params.jobId, "jobId");
+
+      const result = await service.deleteGenerationJob(
+        actor,
+        organizationId,
+        jobId,
+      );
+
+      return {
+        request_id: request.id,
+        status: result.status,
+        previous_status: result.previousStatus,
+        job_id: result.jobId,
+      };
+    },
+  );
 };
+

@@ -364,35 +364,53 @@ describe("P2 Content Pagination & Deterministic Sorting", () => {
     const app = await buildApp();
     const { token } = await signIn(app, "rq-pag@example.com");
     const organizationId = await createOrg(app, token, "RQ Pag Org");
-    seedDocument(organizationId);
+
+    const doc1 = "22222222-0000-4000-8000-000000000001" as DocumentId;
+    const doc2 = "22222222-0000-4000-8000-000000000002" as DocumentId;
+    const doc3 = "22222222-0000-4000-8000-000000000003" as DocumentId;
+    const doc4 = "22222222-0000-4000-8000-000000000004" as DocumentId;
+    const doc5 = "22222222-0000-4000-8000-000000000005" as DocumentId;
+    const doc6 = "22222222-0000-4000-8000-000000000006" as DocumentId;
+
+    seedDocument(organizationId, doc1);
+    seedDocument(organizationId, doc2);
+    seedDocument(organizationId, doc3);
+    seedDocument(organizationId, doc4);
+    seedDocument(organizationId, doc5);
+    seedDocument(organizationId, doc6);
 
     // Seed 3 lesson drafts, 2 flashcard drafts, and 1 accepted item
     seedGeneratedItem(organizationId, {
       id: "11111111-0000-4000-8000-000000000001",
+      documentId: doc1,
       type: "lesson",
       status: "draft",
       createdAt: "2026-01-01T00:00:00.000Z",
     });
     seedGeneratedItem(organizationId, {
       id: "11111111-0000-4000-8000-000000000002",
+      documentId: doc2,
       type: "lesson",
       status: "draft",
       createdAt: "2026-01-02T00:00:00.000Z",
     });
     seedGeneratedItem(organizationId, {
       id: "11111111-0000-4000-8000-000000000003",
+      documentId: doc3,
       type: "lesson",
       status: "draft",
       createdAt: "2026-01-03T00:00:00.000Z",
     });
     seedGeneratedItem(organizationId, {
       id: "22222222-0000-4000-8000-000000000001",
+      documentId: doc4,
       type: "flashcard",
       status: "draft",
       createdAt: "2026-01-04T00:00:00.000Z",
     });
     seedGeneratedItem(organizationId, {
       id: "22222222-0000-4000-8000-000000000002",
+      documentId: doc5,
       type: "flashcard",
       status: "edited",
       createdAt: "2026-01-05T00:00:00.000Z",
@@ -400,12 +418,13 @@ describe("P2 Content Pagination & Deterministic Sorting", () => {
     // Accepted content should NOT appear in review queue
     seedGeneratedItem(organizationId, {
       id: "33333333-0000-4000-8000-000000000001",
+      documentId: doc6,
       type: "lesson",
       status: "accepted",
       createdAt: "2026-01-06T00:00:00.000Z",
     });
 
-    // 1. All pending items paginated (total 5)
+    // 1. All pending items paginated (total 5 document groups)
     const resAll = await app.inject({
       method: "GET",
       url: `/v1/organizations/${organizationId}/courses/${courseId}/generated/review-queue?page=1&limit=3`,
@@ -413,11 +432,12 @@ describe("P2 Content Pagination & Deterministic Sorting", () => {
     });
     expect(resAll.statusCode).toBe(200);
     const bodyAll = JSON.parse(resAll.body);
+    expect(bodyAll.groups).toHaveLength(3);
     expect(bodyAll.pending).toHaveLength(3);
     expect(bodyAll.pagination.total).toBe(5);
     expect(bodyAll.pagination.totalPages).toBe(2);
 
-    // 2. Filter by type=flashcard
+    // 2. Filter by type=flashcard (total 2 document groups)
     const resCards = await app.inject({
       method: "GET",
       url: `/v1/organizations/${organizationId}/courses/${courseId}/generated/review-queue?type=flashcard&page=1&limit=10`,
@@ -425,6 +445,7 @@ describe("P2 Content Pagination & Deterministic Sorting", () => {
     });
     expect(resCards.statusCode).toBe(200);
     const bodyCards = JSON.parse(resCards.body);
+    expect(bodyCards.groups).toHaveLength(2);
     expect(bodyCards.pending).toHaveLength(2);
     expect(bodyCards.pending.every((p: { type: string }) => p.type === "flashcard")).toBe(true);
     expect(bodyCards.pagination.total).toBe(2);

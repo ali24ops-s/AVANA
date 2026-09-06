@@ -201,12 +201,13 @@ export interface UserFlashcardScheduleStore {
 export interface QuizStore {
   findByIdForOrganization(
     id: QuizId,
-    organizationId: OrganizationId,
+    organizationId?: OrganizationId,
+    systemOrganizationId?: OrganizationId,
   ): Promise<QuizRecord | undefined>;
 
   listByCourse(
     courseId: CourseId,
-    organizationId: OrganizationId,
+    organizationId?: OrganizationId,
   ): Promise<QuizRecord[]>;
 
   listByOrganization(

@@ -17,6 +17,15 @@ export class InMemoryCourseStore implements CourseStore {
   private userCourses: Map<string, Set<string>> = new Map(); // userId -> Set of courseIds
   private auditEvents: AuditEvent[] = [];
 
+  constructor(
+    private readonly orgStore?: {
+      findMembership(
+        organizationId: OrganizationId,
+        userId: UserId,
+      ): Promise<unknown>;
+    },
+  ) {}
+
   async create(records: {
     course: CourseRecord;
     auditEvents: readonly AuditEvent[];
@@ -38,7 +47,7 @@ export class InMemoryCourseStore implements CourseStore {
 
   async findByIdForUser(
     courseId: CourseId,
-    _userId: UserId,
+    userId: UserId,
     systemOrganizationId?: OrganizationId,
   ): Promise<CourseRecord | undefined> {
     const course = this.courses.get(courseId);
@@ -48,6 +57,18 @@ export class InMemoryCourseStore implements CourseStore {
       course.organizationId === systemOrganizationId
     ) {
       return { ...course };
+    }
+    const userCourses = this.userCourses.get(userId);
+    if (userCourses && userCourses.has(courseId)) {
+      return { ...course };
+    }
+    if (this.orgStore) {
+      const membership = await this.orgStore.findMembership(
+        course.organizationId,
+        userId,
+      );
+      if (membership) return { ...course };
+      return undefined;
     }
     return { ...course };
   }
@@ -197,6 +218,15 @@ export class InMemoryCourseStore implements CourseStore {
 
     return scoredCourses.slice(0, limit).map((sc) => sc.course);
   }
+
+  async delete(courseId: CourseId): Promise<void> {
+    this.courses.delete(courseId);
+  }
+
+  getAll(): CourseRecord[] {
+    return Array.from(this.courses.values()).map((c) => ({ ...c }));
+  }
 }
+
 
 

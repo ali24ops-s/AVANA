@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
+import { randomUUID } from "node:crypto";
 import {
   type Actor,
   type CourseId,
@@ -19,6 +20,10 @@ import { InMemoryCourseStore } from "../courses/test/in-memory-stores.js";
 import { InMemoryOrganizationStore } from "../organizations/test/in-memory-stores.js";
 import { MockModelGateway } from "../generation/gateway/mock.js";
 import type { CompletionRequest, CompletionResult } from "../generation/gateway/types.js";
+import {
+  InMemoryCommerceStore,
+  EntitlementService,
+} from "../commerce/index.js";
 
 // Custom Mock Gateway to inspect received messages and system prompts
 class InspectableMockGateway extends MockModelGateway {
@@ -59,6 +64,7 @@ describe("StudyAssistantService Unit Tests", () => {
   const actor: Actor = { userId: studentUser, role: "student" };
 
   let courseId: CourseId;
+  let moduleId: ModuleId;
   let lessonId: LessonId;
 
   beforeEach(async () => {
@@ -107,8 +113,8 @@ describe("StudyAssistantService Unit Tests", () => {
     });
 
     // Create module
-    const moduleId = "66666666-6666-6666-6666-666666666666" as ModuleId;
-    const moduleRecord = await moduleStore.create({
+    moduleId = "66666666-6666-6666-6666-666666666666" as ModuleId;
+    await moduleStore.create({
       id: moduleId,
       courseId,
       title: "داروهای بتابلاکر",
@@ -123,7 +129,7 @@ describe("StudyAssistantService Unit Tests", () => {
     lessonId = "77777777-7777-7777-7777-777777777777" as LessonId;
     await lessonStore.create({
       id: lessonId,
-      moduleId: moduleRecord.id,
+      moduleId,
       title: "پروپرانولول و متوپرولول",
       contentType: "markdown",
       contentMarkdown: "# بتابلاکرها\n\nپروپرانولول داروی بتابلاکر غیرانتخابی (بتا ۱ و بتا ۲) است.",
@@ -381,5 +387,222 @@ describe("StudyAssistantService Unit Tests", () => {
     await expect(
       service.getConversation(actor, turn.conversationId),
     ).rejects.toThrow(/Conversation not found/i);
+  });
+
+  describe("AI Study Assistant Entitlement & Paywall Integration", () => {
+    let commerceStore: InMemoryCommerceStore;
+    let entitlementService: EntitlementService;
+    let gatedService: StudyAssistantService;
+    let freeLessonId: LessonId;
+    let premiumLessonId: LessonId;
+
+    beforeEach(async () => {
+      commerceStore = new InMemoryCommerceStore();
+      entitlementService = new EntitlementService({
+        commerceStore,
+        courseStore,
+        moduleStore,
+        lessonStore,
+      });
+
+      gatedService = new StudyAssistantService(
+        gateway,
+        conversationStore,
+        lessonStore,
+        moduleStore,
+        courseStore,
+        organizationStore,
+        defaultPolicy,
+        undefined,
+        undefined,
+        entitlementService,
+      );
+
+      // Create intro module with sortOrder 0
+      const introModuleId = "00000000-0000-4000-8000-000000000001" as ModuleId;
+      await moduleStore.create({
+        id: introModuleId,
+        courseId,
+        title: "پودمان اول مقدماتی",
+        sortOrder: 0,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+
+      // Create free intro lesson (sortOrder 0 in module sortOrder 0)
+      freeLessonId = "11111111-0000-4000-8000-000000000001" as LessonId;
+      await lessonStore.create({
+        id: freeLessonId,
+        moduleId: introModuleId,
+        title: "درس معرفی رایگان",
+        contentType: "markdown",
+        contentMarkdown: "# مقدمه رایگان",
+        sortOrder: 0,
+        estimatedMinutes: 5,
+        publicationStatus: "published",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+
+      await commerceStore.createProduct({
+        id: randomUUID() as any,
+        code: `content_${freeLessonId}`,
+        type: "content",
+        title: "درس معرفی رایگان",
+        description: "",
+        price: 0,
+        currency: "toman",
+        targetType: "content",
+        targetId: freeLessonId,
+        durationDays: null,
+        active: true,
+        metadata: { adminPriced: true, explicitlyFree: true },
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+
+      // Create premium lesson (sortOrder 1 in module sortOrder 0)
+      premiumLessonId = "22222222-0000-4000-8000-000000000002" as LessonId;
+      await lessonStore.create({
+        id: premiumLessonId,
+        moduleId,
+        title: "درس پرمیوم و اختصاصی",
+        contentType: "markdown",
+        contentMarkdown: "# محتوای فوق‌العاده محرمانه پرمیوم",
+        sortOrder: 1,
+        estimatedMinutes: 20,
+        publicationStatus: "published",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+    });
+
+    it("Free Lesson + AI Ask is allowed without subscription", async () => {
+      const res = await gatedService.ask(actor, {
+        message: "در مورد مقدمه توضیح بده",
+        context: {
+          type: "lesson",
+          lessonId: freeLessonId,
+        },
+      });
+
+      expect(res.answer).toBeTruthy();
+      expect(gateway.lastRequest?.messages.some((m) => m.content.includes("مقدمه رایگان"))).toBe(true);
+    });
+
+    it("Dashboard mode AI Ask without lesson context is allowed without subscription", async () => {
+      const res = await gatedService.ask(actor, {
+        message: "آوانا چه امکاناتی دارد؟",
+        context: {
+          type: "dashboard",
+        },
+      });
+
+      expect(res.answer).toBeTruthy();
+    });
+
+    it("Locked Lesson + AI Ask throws 403 Forbidden and NEVER leaks content to AI provider", async () => {
+      gateway.lastRequest = undefined;
+
+      await expect(
+        gatedService.ask(actor, {
+          message: "محتوای پرمیوم چیه؟",
+          context: {
+            type: "lesson",
+            lessonId: premiumLessonId,
+          },
+        }),
+      ).rejects.toThrow(/فعال‌سازی اشتراک آوانا پلاس یا خرید دوره الزامی است/i);
+
+      // Verify ZERO requests reached the AI provider
+      expect(gateway.lastRequest).toBeUndefined();
+    });
+
+    it("Subscribed User + AI Ask is allowed on premium lesson", async () => {
+      // Grant active subscription
+      await commerceStore.grantEntitlement({
+        id: "sub-ent-1" as any,
+        userId: actor.userId,
+        resourceType: "subscription",
+        resourceId: null,
+        sourceType: "purchase",
+        orderId: null,
+        startsAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 30 * 86400000).toISOString(),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+
+      const res = await gatedService.ask(actor, {
+        message: "توضیح درس پرمیوم",
+        context: {
+          type: "lesson",
+          lessonId: premiumLessonId,
+        },
+      });
+
+      expect(res.answer).toBeTruthy();
+      expect(gateway.lastRequest?.messages.some((m) => m.content.includes("محتوای فوق‌العاده محرمانه پرمیوم"))).toBe(true);
+    });
+
+    it("Purchased Course + AI Ask is allowed permanently on premium lesson", async () => {
+      // Grant permanent course purchase
+      await commerceStore.grantEntitlement({
+        id: "course-ent-1" as any,
+        userId: actor.userId,
+        resourceType: "course",
+        resourceId: courseId,
+        sourceType: "purchase",
+        orderId: null,
+        startsAt: new Date().toISOString(),
+        expiresAt: null, // Lifetime
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+
+      const res = await gatedService.ask(actor, {
+        message: "سوال درس پرمیوم با خرید دوره",
+        context: {
+          type: "lesson",
+          lessonId: premiumLessonId,
+        },
+      });
+
+      expect(res.answer).toBeTruthy();
+    });
+
+    it("Expired Subscription + no ownership throws 403 Forbidden and blocks AI provider", async () => {
+      gateway.lastRequest = undefined;
+
+      // Grant expired subscription
+      await commerceStore.grantEntitlement({
+        id: "sub-expired-1" as any,
+        userId: actor.userId,
+        resourceType: "subscription",
+        resourceId: null,
+        sourceType: "purchase",
+        orderId: null,
+        startsAt: new Date(Date.now() - 60 * 86400000).toISOString(),
+        expiresAt: new Date(Date.now() - 30 * 86400000).toISOString(), // Expired 30 days ago
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+
+      await expect(
+        gatedService.ask(actor, {
+          message: "تلاش با اشتراک منقضی",
+          context: {
+            type: "lesson",
+            lessonId: premiumLessonId,
+          },
+        }),
+      ).rejects.toThrow(/فعال‌سازی اشتراک آوانا پلاس یا خرید دوره الزامی است/i);
+
+      expect(gateway.lastRequest).toBeUndefined();
+    });
   });
 });

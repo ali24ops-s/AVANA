@@ -77,6 +77,34 @@ async function main(): Promise<void> {
 
   const deps = await composeWorker(config);
 
+  // Startup stale reconciliation: clean up any orphaned jobs/chunks/courses from previous crashed runs
+  try {
+    const reconSummary = await deps.recoveryService.reconcileAllStale();
+    if (
+      reconSummary.recoveredJobsCount > 0 ||
+      reconSummary.recoveredChunksCount > 0 ||
+      reconSummary.reconciledCoursesCount > 0 ||
+      reconSummary.reconciledDocumentsCount > 0
+    ) {
+      process.stdout.write(
+        `[worker] Startup recovery reconciled: ${reconSummary.recoveredJobsCount} jobs, ${reconSummary.recoveredChunksCount} chunks, ${reconSummary.reconciledCoursesCount} courses, ${reconSummary.reconciledDocumentsCount} documents\n`,
+      );
+    }
+  } catch (err) {
+    process.stderr.write(
+      `[worker] Startup recovery warning: ${err instanceof Error ? err.message : String(err)}\n`,
+    );
+  }
+
+  // Periodic background reconciliation (every 5 minutes)
+  const reconcileInterval = setInterval(async () => {
+    try {
+      await deps.recoveryService.reconcileAllStale();
+    } catch {
+      // background reconciliation error suppressed
+    }
+  }, 300_000);
+
   if (config.generation.enableFallback) {
     if (deps.gateway instanceof FallbackModelGateway && deps.gateway.gateways.length > 1) {
       const fallbackList = deps.gateway.gateways
@@ -111,6 +139,7 @@ async function main(): Promise<void> {
 
   const shutdown = async () => {
     process.stdout.write("[worker] Shutting down...\n");
+    clearInterval(reconcileInterval);
     await worker.close();
     await deps.close();
     process.exit(0);

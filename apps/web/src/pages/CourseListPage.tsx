@@ -26,6 +26,13 @@ import { createCourseApi } from "../lib/api/courses.js";
 import { createLearningApi } from "../lib/api/learning.js";
 import { CourseSelectionModal } from "../components/courses/CourseSelectionModal.js";
 import { CourseDeleteConfirmModal } from "../components/courses/CourseDeleteConfirmModal.js";
+import {
+  useCommerceProducts,
+  useMyEntitlements,
+  useMySubscription,
+  useCheckout,
+} from "../hooks/useCommerce.js";
+import { formatToman } from "../components/commerce/userCommerceUtils.js";
 import type { OrganizationResource, CourseResource, CourseListResponse } from "@avana/contracts";
 
 /**
@@ -355,6 +362,11 @@ function CourseCard({
   onDelete?: () => void;
 }) {
   const progressQuery = useCourseProgress(course.id);
+  const { data: productsData } = useCommerceProducts();
+  const { data: entitlementsData } = useMyEntitlements();
+  const { data: subData } = useMySubscription();
+  const checkoutMutation = useCheckout();
+
   const progress = progressQuery.data;
   const isProgressLoading = progressQuery.isLoading;
 
@@ -362,6 +374,30 @@ function CourseCard({
     typeof progress?.percentage === "number" ? progress.percentage : 0;
   const totalLessons =
     typeof progress?.total_lessons === "number" ? progress.total_lessons : 0;
+
+  // Resolve product for this course
+  const courseProduct = (productsData?.items ?? []).find(
+    (p) => p.target_type === "course" && p.target_id === course.id,
+  );
+
+  // Check if purchased directly
+  const isPurchased = (entitlementsData?.items ?? []).some(
+    (e) => e.resource_type === "course" && e.resource_id === course.id,
+  );
+
+  // Check if user has active subscription
+  const hasSubscription = subData?.subscription?.status === "active";
+
+  const handleBuyCourse = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (courseProduct) {
+      checkoutMutation.mutate({
+        product_id: courseProduct.id,
+        callback_url: `${window.location.origin}/checkout/callback`,
+      });
+    }
+  };
 
   return (
     <div className="glass-panel rounded-xl card-inner-border p-5 hover:bg-white/10 hover:border-teal-500/50 shadow-ambient transition-all group relative flex flex-col justify-between">
@@ -371,7 +407,21 @@ function CourseCard({
             <GraduationCap className="w-5 h-5" />
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap justify-end">
+            {isPurchased ? (
+              <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 font-bold border border-emerald-500/30">
+                خریداری شده
+              </span>
+            ) : hasSubscription ? (
+              <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-teal-500/10 text-teal-400 font-bold border border-teal-500/30">
+                در دسترس با اشتراک
+              </span>
+            ) : courseProduct ? (
+              <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-amber-500/10 text-amber-300 font-bold border border-amber-500/30">
+                {formatToman(courseProduct.price)}
+              </span>
+            ) : null}
+
             {course.archived && (
               <span className="text-xs px-2.5 py-0.5 rounded-full bg-amber-950/40 text-amber-300 font-medium border border-amber-500/30">
                 بایگانی شده
@@ -429,13 +479,27 @@ function CourseCard({
       {/* Footer Section */}
       <div className="mt-4 pt-3 border-t border-white/10 flex items-center justify-between text-xs text-slate-400">
         <span>{isProgressLoading ? "... درس" : `${totalLessons} درس`}</span>
-        <Link
-          to={`/courses/${course.id}`}
-          className="text-teal-400 font-semibold flex items-center gap-1 group-hover:underline"
-        >
-          <span>ورود</span>
-          <ChevronLeft className="w-3.5 h-3.5" />
-        </Link>
+
+        <div className="flex items-center gap-2">
+          {!isPurchased && !hasSubscription && courseProduct && (
+            <button
+              type="button"
+              onClick={handleBuyCourse}
+              disabled={checkoutMutation.isPending}
+              className="px-2.5 py-1 rounded-lg bg-teal-600 hover:bg-teal-500 text-white text-[11px] font-bold transition-all flex items-center gap-1 shadow-sm cursor-pointer"
+            >
+              <span>خرید دوره</span>
+            </button>
+          )}
+
+          <Link
+            to={`/courses/${course.id}`}
+            className="text-teal-400 font-semibold flex items-center gap-1 group-hover:underline"
+          >
+            <span>{isPurchased || hasSubscription || !courseProduct ? "ورود" : "پیش‌نمایش"}</span>
+            <ChevronLeft className="w-3.5 h-3.5" />
+          </Link>
+        </div>
       </div>
     </div>
   );

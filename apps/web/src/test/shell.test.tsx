@@ -162,4 +162,301 @@ describe("AuthenticatedShell", () => {
       expect(outlets.length).toBeGreaterThanOrEqual(1);
     });
   });
+
+  it("renders user name/email as a clickable trigger linking to /account/subscription", async () => {
+    const mockMeResponse = {
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          request_id: "test-req",
+          user: {
+            id: "user-1",
+            email: "sara@example.com",
+            name: "سارا احمدی",
+            role: "student" as const,
+          },
+        }),
+    } as Response;
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(mockMeResponse);
+
+    renderWithProviders(
+      <AuthProvider>
+        <AuthenticatedShell />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => {
+      const userLink = screen.getByRole("link", { name: /سارا احمدی/i });
+      expect(userLink).toBeInTheDocument();
+      expect(userLink).toHaveAttribute("href", "/account/subscription");
+    });
+  });
+
+  it("does not render separate 'پلن‌های اشتراک' pill in the header navigation", async () => {
+    const mockMeResponse = {
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          request_id: "test-req",
+          user: {
+            id: "user-1",
+            email: "user@example.com",
+            role: "student" as const,
+          },
+        }),
+    } as Response;
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(mockMeResponse);
+
+    renderWithProviders(
+      <AuthProvider>
+        <AuthenticatedShell />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("user@example.com")).toBeInTheDocument();
+    });
+
+    // The standalone "پلن‌های اشتراک" header pill should not exist in the document
+    expect(screen.queryByText("پلن‌های اشتراک")).not.toBeInTheDocument();
+  });
+
+  it("renders 'فعال' badge on User Chip when subscription is active with > 5 days remaining", async () => {
+    const futureExpiry = new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString(); // +15 days
+
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = String(input);
+      if (url.includes("/v1/me")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              request_id: "req-1",
+              user: { id: "u-1", email: "active@avana.test", name: "دکتر رضا", role: "student" as const },
+            }),
+        } as Response);
+      }
+      if (url.includes("/subscriptions/my")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              subscription: {
+                id: "sub-1",
+                product_id: "prod-1",
+                status: "active",
+                started_at: new Date().toISOString(),
+                expires_at: futureExpiry,
+              },
+            }),
+        } as Response);
+      }
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({}) } as Response);
+    });
+
+    renderWithProviders(
+      <AuthProvider>
+        <AuthenticatedShell />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("دکتر رضا")).toBeInTheDocument();
+      expect(screen.getByText("فعال")).toBeInTheDocument();
+    });
+  });
+
+  it("renders '۳ روز باقیمانده' warning badge when subscription has 3 days remaining", async () => {
+    // 3 days and 2 hours in the future
+    const futureExpiry = new Date(Date.now() + (3 * 24 + 2) * 60 * 60 * 1000).toISOString();
+
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = String(input);
+      if (url.includes("/v1/me")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              request_id: "req-2",
+              user: { id: "u-2", email: "warn@avana.test", name: "مریم احمدی", role: "student" as const },
+            }),
+        } as Response);
+      }
+      if (url.includes("/subscriptions/my")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              subscription: {
+                id: "sub-2",
+                product_id: "prod-1",
+                status: "active",
+                started_at: new Date().toISOString(),
+                expires_at: futureExpiry,
+              },
+            }),
+        } as Response);
+      }
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({}) } as Response);
+    });
+
+    renderWithProviders(
+      <AuthProvider>
+        <AuthenticatedShell />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("مریم احمدی")).toBeInTheDocument();
+      expect(screen.getByText("۳ روز باقیمانده")).toBeInTheDocument();
+    });
+  });
+
+  it("renders 'کمتر از ۱ روز' warning badge when subscription has < 24 hours remaining", async () => {
+    // 10 hours in the future
+    const futureExpiry = new Date(Date.now() + 10 * 60 * 60 * 1000).toISOString();
+
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = String(input);
+      if (url.includes("/v1/me")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              request_id: "req-3",
+              user: { id: "u-3", email: "urgent@avana.test", name: "علی کریمی", role: "student" as const },
+            }),
+        } as Response);
+      }
+      if (url.includes("/subscriptions/my")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              subscription: {
+                id: "sub-3",
+                product_id: "prod-1",
+                status: "active",
+                started_at: new Date().toISOString(),
+                expires_at: futureExpiry,
+              },
+            }),
+        } as Response);
+      }
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({}) } as Response);
+    });
+
+    renderWithProviders(
+      <AuthProvider>
+        <AuthenticatedShell />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("علی کریمی")).toBeInTheDocument();
+      expect(screen.getByText("کمتر از ۱ روز")).toBeInTheDocument();
+    });
+  });
+
+  it("renders 'منقضی شده' badge when subscription is expired", async () => {
+    // 2 days in the past
+    const pastExpiry = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = String(input);
+      if (url.includes("/v1/me")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              request_id: "req-4",
+              user: { id: "u-4", email: "expired@avana.test", name: "حسین صادقی", role: "student" as const },
+            }),
+        } as Response);
+      }
+      if (url.includes("/subscriptions/my")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              subscription: {
+                id: "sub-4",
+                product_id: "prod-1",
+                status: "expired",
+                started_at: new Date().toISOString(),
+                expires_at: pastExpiry,
+              },
+            }),
+        } as Response);
+      }
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({}) } as Response);
+    });
+
+    renderWithProviders(
+      <AuthProvider>
+        <AuthenticatedShell />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("حسین صادقی")).toBeInTheDocument();
+      expect(screen.getByText("منقضی شده")).toBeInTheDocument();
+    });
+  });
+
+  it("renders clean User Chip without subscription badge when user has no subscription", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = String(input);
+      if (url.includes("/v1/me")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              request_id: "req-5",
+              user: { id: "u-5", email: "nosub@avana.test", name: "کاربر جدید", role: "student" as const },
+            }),
+        } as Response);
+      }
+      if (url.includes("/subscriptions/my")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              subscription: null,
+            }),
+        } as Response);
+      }
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({}) } as Response);
+    });
+
+    renderWithProviders(
+      <AuthProvider>
+        <AuthenticatedShell />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("کاربر جدید")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByText("فعال")).not.toBeInTheDocument();
+    expect(screen.queryByText("منقضی شده")).not.toBeInTheDocument();
+    expect(screen.queryByText(/روز باقی‌مانده/i)).not.toBeInTheDocument();
+    expect(screen.queryByText("کمتر از ۱ روز")).not.toBeInTheDocument();
+  });
 });
+

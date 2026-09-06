@@ -29,8 +29,6 @@ export interface CourseRouteOptions {
   organizationStore: OrganizationStore;
   auditService?: AuditService;
   systemOrganizationId?: OrganizationId;
-  demoUserResolver?: AuthMiddlewareDeps["demoUserResolver"];
-  authEnabled?: boolean;
 }
 
 export const courseRoutes: FastifyPluginAsync<CourseRouteOptions> = async (
@@ -44,19 +42,19 @@ export const courseRoutes: FastifyPluginAsync<CourseRouteOptions> = async (
     organizationStore,
     auditService,
     systemOrganizationId,
-    demoUserResolver,
-    authEnabled,
   } = opts;
 
-  const { requireAuth } = makeAuthMiddleware({
-    sessionService,
-    userStore,
-    demoUserResolver,
-    authEnabled,
-  });
+  const { requireAuth } = makeAuthMiddleware({ sessionService, userStore });
   const courseService = new CourseService(
     courseStore,
     async (actor, organizationId) => {
+      if (actor.role === "platform_admin") {
+        const org = await organizationStore.findById(organizationId);
+        if (!org) {
+          throw new DomainError("not_found", "Organization not found");
+        }
+        return { role: "platform_admin" };
+      }
       const membership = await organizationStore.findMembership(
         organizationId,
         actor.userId,

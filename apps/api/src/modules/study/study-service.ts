@@ -45,6 +45,7 @@ import type {
   StudyRecommendation,
   FlashcardStudySessionRecord,
   FlashcardStudySessionCardRecord,
+  ExamCoverageCourse,
 } from "@avana/domain";
 import type {
   FlashcardStore,
@@ -59,10 +60,66 @@ import type {
   QuizRecord,
   QuizQuestionRecord,
 } from "./study-store.js";
-import type { CourseStore } from "../courses/course-store.js";
+import type { CourseStore, CourseRecord } from "../courses/course-store.js";
 import type { ModuleStore, LessonStore, ProgressStore, LessonRecord, ModuleRecord } from "../learning/learning-store.js";
 import type { OrganizationStore } from "../organizations/organization-store.js";
 import type { AuditService } from "../../observability/audit-service.js";
+import type { EntitlementService } from "../commerce/entitlement-service.js";
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+const EXAM_UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const EXAM_INTERNAL_ID_REGEX = /^(course|mod|les|quiz|q|doc|chk|user|org|att|attempt)-[0-9a-z_-]+$/i;
+
+function isInternalIdentifier(val: unknown): boolean {
+  if (typeof val !== "string") return false;
+  const s = val.trim();
+  if (s.length === 0) return false;
+  if (EXAM_UUID_REGEX.test(s)) return true;
+  if (EXAM_INTERNAL_ID_REGEX.test(s)) return true;
+  if (s === "course-unassigned" || s === "mod-unassigned") return true;
+  return false;
+}
+
+/**
+ * Truncate/compose attempt topic string so it fits safely within database column limits (max 250 chars)
+ * without cutting words abruptly or overflowing PostgreSQL varchar limits.
+ */
+function buildSafeAttemptTopic(titles: string[], maxLength: number = 250): string {
+  if (titles.length === 0) return "آزمون جامع";
+
+  const fittingTitles: string[] = [];
+  let currentLen = 0;
+
+  for (const title of titles) {
+    const clean = title.trim();
+    if (!clean) continue;
+
+    const additionalLen = (fittingTitles.length > 0 ? 2 : 0) + clean.length;
+    if (currentLen + additionalLen <= maxLength) {
+      fittingTitles.push(clean);
+      currentLen += additionalLen;
+    } else {
+      break;
+    }
+  }
+
+  if (fittingTitles.length === 0) {
+    return titles[0].slice(0, maxLength).trim();
+  }
+
+  const remaining = titles.length - fittingTitles.length;
+  if (remaining > 0) {
+    const suffix = ` (و ${remaining} مبحث دیگر)`;
+    if (fittingTitles.join("، ").length + suffix.length <= maxLength) {
+      return fittingTitles.join("، ") + suffix;
+    }
+  }
+
+  return fittingTitles.join("، ");
+}
 
 // ---------------------------------------------------------------------------
 // Service
@@ -86,6 +143,7 @@ export class StudyService {
     private readonly systemOrganizationId?: OrganizationId,
     private readonly studySessionStore?: StudySessionStore,
     private readonly flashcardStudySessionStore?: FlashcardStudySessionStore,
+    private readonly entitlementService?: EntitlementService,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -139,6 +197,20 @@ export class StudyService {
   ): Promise<FlashcardRecord[]> {
     await this.authorizeRead(actor, organizationId);
 
+    if (this.entitlementService) {
+      const access = await this.entitlementService.checkAccess(actor, {
+        userId: actor.userId,
+        resourceType: "course",
+        resourceId: courseId,
+      });
+      if (!access.granted) {
+        throw new DomainError(
+          "forbidden",
+          "برای دسترسی به سیستم مرور فلش‌کارت‌ها، فعال‌سازی اشتراک آوانا پلاس یا خرید دوره الزامی است.",
+        );
+      }
+    }
+
     const [allFlashcards, userSchedules] = await Promise.all([
       this.flashcardStore.listByCourse(courseId, organizationId),
       this.userFlashcardScheduleStore
@@ -179,6 +251,20 @@ export class StudyService {
     input: { flashcardId: FlashcardId; rating: FlashcardRating; reactionMs?: number; isExamMode?: boolean },
   ): Promise<void> {
     await this.authorizeFlashcardReview(actor, organizationId);
+
+    if (this.entitlementService) {
+      const access = await this.entitlementService.checkAccess(actor, {
+        userId: actor.userId,
+        resourceType: "flashcard",
+        resourceId: input.flashcardId,
+      });
+      if (!access.granted) {
+        throw new DomainError(
+          "forbidden",
+          "برای ثبت مرور فلش‌کارت، فعال‌سازی اشتراک یا خرید دوره الزامی است.",
+        );
+      }
+    }
 
     const flashcard = await this.flashcardStore.findByIdForOrganization(
       input.flashcardId,
@@ -931,7 +1017,19 @@ export class StudyService {
     courseId: CourseId,
   ): Promise<QuizRecord[]> {
     await this.authorizeRead(actor, organizationId);
-    const quizzes = await this.quizStore.listByCourse(courseId, organizationId);
+    let targetOrgId = organizationId;
+    if (this.courseStore) {
+      const course = await this.courseStore.findByIdForUser(
+        courseId,
+        actor.userId,
+        this.systemOrganizationId,
+      );
+      if (!course) {
+        throw new DomainError("not_found", "Course not found");
+      }
+      targetOrgId = (course.organizationId || (course as any).organization_id) as OrganizationId;
+    }
+    const quizzes = await this.quizStore.listByCourse(courseId, targetOrgId);
     return quizzes.filter((q) => q.status === "published");
   }
 
@@ -942,9 +1040,39 @@ export class StudyService {
     quizId: QuizId,
   ): Promise<QuizRecord & { questions: Array<Omit<QuizQuestionRecord, "correctAnswer">> }> {
     await this.authorizeRead(actor, organizationId);
-    const quiz = await this.quizStore.findByIdForOrganization(quizId, organizationId);
+    const quiz = await this.quizStore.findByIdForOrganization(
+      quizId,
+      organizationId,
+      this.systemOrganizationId,
+    );
     if (!quiz) throw new DomainError("not_found", "Quiz not found");
     if (quiz.status !== "published") throw new DomainError("not_found", "Quiz not found");
+
+    if (this.entitlementService) {
+      const access = await this.entitlementService.checkAccess(actor, {
+        userId: actor.userId,
+        resourceType: "quiz",
+        resourceId: quizId,
+        courseId: quiz.courseId ?? undefined,
+      });
+      if (!access.granted) {
+        throw new DomainError(
+          "forbidden",
+          "برای دسترسی به این آزمون، ابتدا باید دوره یا اشتراک را خریداری کنید.",
+        );
+      }
+    }
+
+    if (this.courseStore && quiz.courseId) {
+      const course = await this.courseStore.findByIdForUser(
+        quiz.courseId,
+        actor.userId,
+        this.systemOrganizationId,
+      );
+      if (!course) {
+        throw new DomainError("not_found", "Quiz not found");
+      }
+    }
 
     const questions = await this.quizQuestionStore.listByQuiz(quizId);
     // Security: strip correctAnswer from questions response prior to submission
@@ -1293,7 +1421,6 @@ export class StudyService {
       }
     }
 
-
     const topicsFlatList: Array<{
       topic: string;
       title: string;
@@ -1324,6 +1451,203 @@ export class StudyService {
   }
 
   /**
+   * Resolve hierarchical Course -> Module coverage from selected exam questions.
+   * Derives exact courses and modules from question provenance (lessonId, quizId, documentId).
+   * Ensures only courses and modules with questionCount >= 1 are included.
+   * Strictly suppresses any Lesson IDs, Lesson titles, or internal UUIDs from display titles.
+   */
+  async resolveExamCoverage(
+    questions: QuizQuestionRecord[],
+    organizationId?: OrganizationId,
+  ): Promise<ExamCoverageCourse[]> {
+    if (!questions || questions.length === 0) {
+      return [];
+    }
+
+    const quizIds = Array.from(new Set(questions.map((q) => q.quizId).filter(Boolean)));
+    const lessonIds = Array.from(
+      new Set(questions.map((q) => q.lessonId).filter(Boolean)),
+    ) as LessonId[];
+
+    const allQuizzes =
+      this.quizStore && organizationId
+        ? await this.quizStore.listByOrganization(organizationId, this.systemOrganizationId).catch(() => [])
+        : [];
+    const quizMap = new Map(allQuizzes.map((q) => [q.id, q]));
+
+    for (const qzId of quizIds) {
+      if (!quizMap.has(qzId) && this.quizStore) {
+        const qz = await this.quizStore
+          .findByIdForOrganization(qzId, organizationId, this.systemOrganizationId)
+          .catch(() => undefined);
+        if (qz) quizMap.set(qz.id, qz);
+      }
+    }
+
+    const lessonMap = new Map<string, LessonRecord>();
+    const moduleIds = new Set<ModuleId>();
+
+    for (const lesId of lessonIds) {
+      if (this.lessonStore) {
+        const les = await this.lessonStore.findById(lesId).catch(() => undefined);
+        if (les) {
+          lessonMap.set(les.id, les);
+          if (les.moduleId) moduleIds.add(les.moduleId as ModuleId);
+        }
+      }
+    }
+
+    for (const qz of quizMap.values()) {
+      if (qz.documentId && this.moduleStore) {
+        const mod = await this.moduleStore.findByDocument(qz.documentId).catch(() => undefined);
+        if (mod) moduleIds.add(mod.id);
+      }
+    }
+
+    const moduleMap = new Map<string, ModuleRecord>();
+    const courseIds = new Set<CourseId>();
+
+    for (const modId of moduleIds) {
+      if (this.moduleStore) {
+        const mod = await this.moduleStore.findById(modId).catch(() => undefined);
+        if (mod) {
+          moduleMap.set(mod.id, mod);
+          if (mod.courseId) courseIds.add(mod.courseId as CourseId);
+        }
+      }
+    }
+
+    for (const qz of quizMap.values()) {
+      if (qz.courseId) {
+        courseIds.add(qz.courseId as CourseId);
+      }
+    }
+
+    const courseMap = new Map<string, CourseRecord>();
+    for (const cId of courseIds) {
+      if (this.courseStore) {
+        const course = await this.courseStore.findById(cId).catch(() => undefined);
+        if (course) {
+          courseMap.set(course.id, course);
+        }
+      }
+    }
+
+    type ResolvedModuleEntry = {
+      id: string;
+      title: string;
+      sortOrder: number;
+      questionCount: number;
+    };
+    type ResolvedCourseEntry = {
+      id: string;
+      title: string;
+      sortOrder: number;
+      questionCount: number;
+      modules: Map<string, ResolvedModuleEntry>;
+    };
+
+    const courseEntries = new Map<string, ResolvedCourseEntry>();
+
+    for (const q of questions) {
+      let resolvedModule: ModuleRecord | undefined;
+      let resolvedCourse: CourseRecord | undefined;
+
+      if (q.lessonId && lessonMap.has(q.lessonId)) {
+        const les = lessonMap.get(q.lessonId)!;
+        if (les.moduleId && moduleMap.has(les.moduleId)) {
+          resolvedModule = moduleMap.get(les.moduleId);
+        }
+      }
+
+      const parentQuiz = quizMap.get(q.quizId);
+
+      if (!resolvedModule && parentQuiz?.documentId) {
+        for (const m of moduleMap.values()) {
+          if (m.documentId === parentQuiz.documentId) {
+            resolvedModule = m;
+            break;
+          }
+        }
+      }
+
+      if (resolvedModule?.courseId && courseMap.has(resolvedModule.courseId)) {
+        resolvedCourse = courseMap.get(resolvedModule.courseId);
+      } else if (parentQuiz?.courseId && courseMap.has(parentQuiz.courseId)) {
+        resolvedCourse = courseMap.get(parentQuiz.courseId);
+      }
+
+      if (resolvedCourse && !resolvedModule && this.moduleStore) {
+        const cModules = await this.moduleStore.listByCourse(resolvedCourse.id as CourseId).catch(() => []);
+        if (q.topic) {
+          resolvedModule = cModules.find((m) => m.title === q.topic);
+        }
+        if (!resolvedModule && cModules.length > 0) {
+          resolvedModule = cModules[0];
+        }
+      }
+
+      const rawCourseTitle = (resolvedCourse as { title?: string })?.title || resolvedCourse?.name || parentQuiz?.topic || "آزمون جامع";
+      const courseTitle = isInternalIdentifier(rawCourseTitle) ? "آزمون جامع" : rawCourseTitle;
+      const courseId = resolvedCourse?.id || "course-default";
+
+      let rawModuleTitle = resolvedModule?.title;
+      if (!rawModuleTitle && q.topic && !isInternalIdentifier(q.topic) && !q.topic.includes("جلسه")) {
+        rawModuleTitle = q.topic;
+      }
+      if (!rawModuleTitle) {
+        rawModuleTitle = "مباحث آزمون";
+      }
+      const moduleTitle = isInternalIdentifier(rawModuleTitle) ? "مباحث آزمون" : rawModuleTitle;
+      const moduleId = resolvedModule?.id || `mod-${moduleTitle}`;
+
+      if (!courseEntries.has(courseId)) {
+        courseEntries.set(courseId, {
+          id: courseId,
+          title: courseTitle,
+          sortOrder: courseEntries.size,
+          questionCount: 0,
+          modules: new Map(),
+        });
+      }
+
+      const cEntry = courseEntries.get(courseId)!;
+      cEntry.questionCount += 1;
+
+      if (!cEntry.modules.has(moduleId)) {
+        cEntry.modules.set(moduleId, {
+          id: moduleId,
+          title: moduleTitle,
+          sortOrder: resolvedModule?.sortOrder ?? cEntry.modules.size,
+          questionCount: 0,
+        });
+      }
+
+      const mEntry = cEntry.modules.get(moduleId)!;
+      mEntry.questionCount += 1;
+    }
+
+    const result: ExamCoverageCourse[] = Array.from(courseEntries.values())
+      .filter((c) => c.questionCount > 0)
+      .sort((a, b) => a.sortOrder - b.sortOrder || a.title.localeCompare(b.title))
+      .map((c) => ({
+        id: c.id,
+        title: c.title,
+        questionCount: c.questionCount,
+        modules: Array.from(c.modules.values())
+          .filter((m) => m.questionCount > 0)
+          .sort((a, b) => a.sortOrder - b.sortOrder || a.title.localeCompare(b.title))
+          .map((m) => ({
+            id: m.id,
+            title: m.title,
+            questionCount: m.questionCount,
+          })),
+      }));
+
+    return result;
+  }
+
+  /**
    * Start a custom-configured exam attempt.
    * Resolves selected Module/Lesson IDs and topics, filters Questions by difficulty,
    * validates available count, and persists the snapshot to DB.
@@ -1350,41 +1674,104 @@ export class StudyService {
       ...(input.topics ?? []),
     ].filter(Boolean);
 
-    const candidateTopics = new Set<string>();
-    const selectedDocumentIds = new Set<string>();
+    // 1. Internal selection primitives for query, filtering, and database lookup
     const selectedLessonIds = new Set<string>();
+    const selectedDocumentIds = new Set<string>();
+    const selectedModuleIds = new Set<string>();
+    const selectedCourseIds = new Set<string>();
 
-    for (const item of rawSelection) {
-      candidateTopics.add(item);
+    // 2. Candidate keywords/topics for question matching
+    const freeTextTopics = new Set<string>();
+    const matchTopics = new Set<string>();
+
+    // 3. Clean, human-readable display titles for UI/attempt presentation (preserving order)
+    const displayTitles = new Set<string>();
+
+    for (const rawItem of rawSelection) {
+      const item = typeof rawItem === "string" ? rawItem.trim() : String(rawItem).trim();
+      if (!item) continue;
+      const isId = isInternalIdentifier(item);
+
+      // A. Try resolving as Lesson
       if (this.lessonStore) {
-        const les = await this.lessonStore.findById(item as LessonId).catch(() => undefined);
-        if (les) {
-          candidateTopics.add(les.title);
-          candidateTopics.add(les.id);
-          selectedLessonIds.add(les.id);
+        const lesson = await this.lessonStore.findById(item as LessonId).catch(() => undefined);
+        if (lesson) {
+          selectedLessonIds.add(lesson.id);
+          matchTopics.add(lesson.title);
+          if (lesson.title && !isInternalIdentifier(lesson.title)) {
+            displayTitles.add(lesson.title);
+          }
+          continue;
         }
       }
+
+      // B. Try resolving as Module
       if (this.moduleStore) {
         const mod = await this.moduleStore.findById(item as ModuleId).catch(() => undefined);
         if (mod) {
-          candidateTopics.add(mod.title);
-          candidateTopics.add(mod.id);
+          selectedModuleIds.add(mod.id);
           if (mod.documentId) {
             selectedDocumentIds.add(mod.documentId);
+          }
+          matchTopics.add(mod.title);
+          if (mod.title && !isInternalIdentifier(mod.title)) {
+            displayTitles.add(mod.title);
           }
           if (this.lessonStore) {
             const lessons = await this.lessonStore.listByModule(mod.id).catch(() => []);
             for (const l of lessons) {
-              candidateTopics.add(l.title);
-              candidateTopics.add(l.id);
               selectedLessonIds.add(l.id);
+              matchTopics.add(l.title);
             }
           }
+          continue;
         }
       }
-    }
 
-    const topicsArray = Array.from(candidateTopics);
+      // C. Try resolving as Course
+      if (this.courseStore) {
+        const course =
+          (await this.courseStore.findById(item as CourseId).catch(() => undefined)) ||
+          (await this.courseStore.findByIdForUser(item as CourseId, actor.userId, this.systemOrganizationId).catch(() => undefined));
+        if (course) {
+          selectedCourseIds.add(course.id);
+          const courseTitle = (course as { title?: string }).title || course.name;
+          if (courseTitle) {
+            matchTopics.add(courseTitle);
+            if (!isInternalIdentifier(courseTitle)) {
+              displayTitles.add(courseTitle);
+            }
+          }
+          // Expand course modules and lessons for question selection
+          if (this.moduleStore) {
+            const courseModules = await this.moduleStore.listByCourse(course.id).catch(() => []);
+            for (const mod of courseModules) {
+              selectedModuleIds.add(mod.id);
+              if (mod.documentId) {
+                selectedDocumentIds.add(mod.documentId);
+              }
+              matchTopics.add(mod.title);
+              if (this.lessonStore) {
+                const lessons = await this.lessonStore.listByModule(mod.id).catch(() => []);
+                for (const l of lessons) {
+                  selectedLessonIds.add(l.id);
+                  matchTopics.add(l.title);
+                }
+              }
+            }
+          }
+          continue;
+        }
+      }
+
+      // D. If not resolved as an entity in database:
+      // If it is NOT an internal ID/UUID, it is a human-readable topic name passed directly (e.g. "Pharmacology")
+      if (!isId) {
+        freeTextTopics.add(item);
+        matchTopics.add(item);
+        displayTitles.add(item);
+      }
+    }
 
     // Fetch candidate questions from DB
     const allQuestions = await this.quizQuestionStore.listByFilter({
@@ -1398,70 +1785,98 @@ export class StudyService {
       : [];
     const quizMap = new Map(allQuizzes.map((q) => [q.id, q]));
 
-    // Filter questions matching selected Module (via lessonId OR quiz.documentId OR topic match)
-    const matchingQuestions = allQuestions.filter((q) => {
-      // 1. Difficulty check
-      if (difficulty !== "all") {
-        const qDiff = (q.difficulty || "medium").toLowerCase();
-        const reqDiff = difficulty.toLowerCase();
-        if (qDiff !== reqDiff && qDiff !== (reqDiff === "easy" ? "آسان" : reqDiff === "hard" ? "سخت" : "متوسط")) {
-          return false;
-        }
-      }
+    const hasHierarchySelection =
+      selectedLessonIds.size > 0 ||
+      selectedModuleIds.size > 0 ||
+      selectedCourseIds.size > 0 ||
+      selectedDocumentIds.size > 0;
 
-      // 2. Selection criteria check
+    const matchesSelection = (q: QuizQuestionRecord): boolean => {
+      // If no selection criteria were specified at all, all questions are candidates
       if (rawSelection.length === 0) return true;
 
-      // Check if question's lessonId is selected
-      if (q.lessonId && selectedLessonIds.has(q.lessonId)) {
-        return true;
-      }
-
-      // Check topic match (exact or substring)
-      if (q.topic) {
-        if (candidateTopics.has(q.topic)) return true;
-        for (const t of candidateTopics) {
-          if (t.length >= 3 && (q.topic.includes(t) || t.includes(q.topic))) return true;
-        }
-      }
-
-      // Check if question's parent quiz belongs to selected documentId/module or matches topic/title
       const parentQuiz = quizMap.get(q.quizId);
-      if (parentQuiz) {
-        if (parentQuiz.documentId && selectedDocumentIds.has(parentQuiz.documentId)) {
-          return true;
+
+      // 1. If explicit hierarchy entities (Lessons, Modules, Courses, Documents) were selected:
+      if (hasHierarchySelection) {
+        // If question is explicitly assigned to a lesson:
+        if (q.lessonId) {
+          if (selectedLessonIds.has(q.lessonId)) return true;
+          // If the question's lesson is NOT in selectedLessonIds, check if free-text topic matches
+          if (freeTextTopics.size > 0 && q.topic) {
+            if (freeTextTopics.has(q.topic)) return true;
+            for (const ft of freeTextTopics) {
+              if (ft.length >= 3 && (q.topic.includes(ft) || ft.includes(q.topic))) return true;
+            }
+          }
+          return false;
         }
-        if (parentQuiz.topic) {
-          if (candidateTopics.has(parentQuiz.topic)) return true;
-          for (const t of candidateTopics) {
-            if (t.length >= 3 && (parentQuiz.topic.includes(t) || t.includes(parentQuiz.topic))) return true;
+
+        // If question is NOT assigned to a lesson (e.g. quiz-level question without lessonId):
+        if (parentQuiz) {
+          if (parentQuiz.courseId && selectedCourseIds.has(parentQuiz.courseId)) return true;
+          if (parentQuiz.documentId && selectedDocumentIds.has(parentQuiz.documentId)) return true;
+        }
+
+        if (q.topic) {
+          if (matchTopics.has(q.topic)) return true;
+          for (const t of matchTopics) {
+            if (t.length >= 3 && (q.topic.includes(t) || t.includes(q.topic))) return true;
           }
         }
-        if (parentQuiz.title) {
-          if (candidateTopics.has(parentQuiz.title)) return true;
-          for (const t of candidateTopics) {
-            if (t.length >= 3 && (parentQuiz.title.includes(t) || t.includes(parentQuiz.title))) return true;
+
+        if (freeTextTopics.size > 0 && parentQuiz) {
+          if (parentQuiz.topic && freeTextTopics.has(parentQuiz.topic)) return true;
+          if (parentQuiz.title && freeTextTopics.has(parentQuiz.title)) return true;
+          for (const ft of freeTextTopics) {
+            if (ft.length >= 3) {
+              if (parentQuiz.topic && (parentQuiz.topic.includes(ft) || ft.includes(parentQuiz.topic))) return true;
+              if (parentQuiz.title && (parentQuiz.title.includes(ft) || ft.includes(parentQuiz.title))) return true;
+            }
           }
         }
+
+        return false;
+      }
+
+      // 2. If ONLY free-text topics were selected (no hierarchy entity IDs):
+      if (freeTextTopics.size > 0) {
+        if (q.topic) {
+          if (freeTextTopics.has(q.topic)) return true;
+          for (const ft of freeTextTopics) {
+            if (ft.length >= 3 && (q.topic.includes(ft) || ft.includes(q.topic))) return true;
+          }
+        }
+        if (parentQuiz) {
+          if (parentQuiz.topic && freeTextTopics.has(parentQuiz.topic)) return true;
+          if (parentQuiz.title && freeTextTopics.has(parentQuiz.title)) return true;
+          for (const ft of freeTextTopics) {
+            if (ft.length >= 3) {
+              if (parentQuiz.topic && (parentQuiz.topic.includes(ft) || ft.includes(parentQuiz.topic))) return true;
+              if (parentQuiz.title && (parentQuiz.title.includes(ft) || ft.includes(parentQuiz.title))) return true;
+            }
+          }
+        }
+        return false;
       }
 
       return false;
-    });
+    };
+
+    const matchesDifficulty = (q: QuizQuestionRecord): boolean => {
+      if (difficulty === "all") return true;
+      const qDiff = (q.difficulty || "medium").toLowerCase();
+      const reqDiff = difficulty.toLowerCase();
+      return qDiff === reqDiff || qDiff === (reqDiff === "easy" ? "آسان" : reqDiff === "hard" ? "سخت" : "متوسط");
+    };
+
+    const matchingQuestions = allQuestions.filter(
+      (q) => matchesDifficulty(q) && matchesSelection(q),
+    );
 
     let candidateQuestions = matchingQuestions;
     if (candidateQuestions.length < requestedCount && difficulty !== "all") {
-      // Relax difficulty filter if needed
-      const relaxedQuestions = allQuestions.filter((q) => {
-        if (rawSelection.length === 0) return true;
-        if (q.lessonId && selectedLessonIds.has(q.lessonId)) return true;
-        if (q.topic && candidateTopics.has(q.topic)) return true;
-        const parentQuiz = quizMap.get(q.quizId);
-        if (parentQuiz) {
-          if (parentQuiz.documentId && selectedDocumentIds.has(parentQuiz.documentId)) return true;
-          if (parentQuiz.topic && candidateTopics.has(parentQuiz.topic)) return true;
-        }
-        return false;
-      });
+      const relaxedQuestions = allQuestions.filter((q) => matchesSelection(q));
       if (relaxedQuestions.length >= candidateQuestions.length) {
         candidateQuestions = relaxedQuestions;
       }
@@ -1482,6 +1897,11 @@ export class StudyService {
     const attemptId = randomUUID() as QuizAttemptId;
     const now = new Date().toISOString();
 
+    // Derive structured Course -> Module coverage strictly from selected questions
+    const coverage = await this.resolveExamCoverage(selectedQuestions, organizationId);
+    const courseTitles = coverage.map((c) => c.title).filter((t) => t && !isInternalIdentifier(t));
+    const safeTopic = courseTitles.length > 0 ? buildSafeAttemptTopic(courseTitles, 250) : "آزمون جامع";
+
     const attempt: QuizAttemptRecord = {
       id: attemptId,
       quizId: null,
@@ -1489,7 +1909,7 @@ export class StudyService {
       score: 0,
       answers: {},
       questionIds,
-      topic: topicsArray.slice(0, 5).join(", ") || "آزمون جامع",
+      topic: safeTopic,
       difficulty,
       status: "in_progress",
       startedAt: now,
@@ -1503,10 +1923,12 @@ export class StudyService {
 
     return {
       attemptId,
-      topics: topicsArray,
+      topic: safeTopic,
+      topics: courseTitles.length > 0 ? courseTitles : ["آزمون جامع"],
       difficulty,
       requestedCount,
       questions: sanitizedQuestions,
+      coverage,
       startedAt: now,
     };
   }
@@ -1554,6 +1976,7 @@ export class StudyService {
   /**
    * Retrieve an attempt and its locked question snapshot.
    * If in_progress, strips correctAnswer. If completed, returns full answers & explanations.
+   * Resolves Course -> Module coverage hierarchy for active or completed attempt.
    */
   async getExamAttempt(
     actor: Actor,
@@ -1575,6 +1998,7 @@ export class StudyService {
     }
 
     const isCompleted = attempt.status === "completed" || attempt.completedAt != null;
+    const coverage = await this.resolveExamCoverage(questions, organizationId);
 
     if (!isCompleted) {
       // In-progress: security mask correctAnswer
@@ -1582,6 +2006,7 @@ export class StudyService {
       return {
         attempt,
         questions: sanitizedQuestions,
+        coverage,
         isCompleted: false,
       };
     }
@@ -1590,6 +2015,7 @@ export class StudyService {
     return {
       attempt,
       questions,
+      coverage,
       isCompleted: true,
     };
   }
@@ -1687,8 +2113,37 @@ export class StudyService {
   ): Promise<QuizAttemptResult> {
     await this.authorizeQuizAttempt(actor, organizationId);
 
-    const quiz = await this.quizStore.findByIdForOrganization(input.quizId as QuizId, organizationId);
+    if (this.entitlementService) {
+      const access = await this.entitlementService.checkAccess(actor, {
+        userId: actor.userId,
+        resourceType: "quiz",
+        resourceId: input.quizId,
+      });
+      if (!access.granted) {
+        throw new DomainError(
+          "forbidden",
+          "برای شرکت در این آزمون، فعال‌سازی اشتراک یا خرید دوره الزامی است.",
+        );
+      }
+    }
+
+    const quiz = await this.quizStore.findByIdForOrganization(
+      input.quizId as QuizId,
+      organizationId,
+      this.systemOrganizationId,
+    );
     if (!quiz) throw new DomainError("not_found", "Quiz not found");
+
+    if (this.courseStore && quiz.courseId) {
+      const course = await this.courseStore.findByIdForUser(
+        quiz.courseId,
+        actor.userId,
+        this.systemOrganizationId,
+      );
+      if (!course) {
+        throw new DomainError("not_found", "Quiz not found");
+      }
+    }
 
     const questions = await this.quizQuestionStore.listByQuiz(input.quizId as QuizId);
     if (questions.length === 0) {

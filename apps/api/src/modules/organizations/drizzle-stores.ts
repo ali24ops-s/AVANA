@@ -149,6 +149,25 @@ export class DrizzleOrganizationStore implements OrganizationStore {
     return toOrganizationRecord(row);
   }
 
+  async findById(id: OrganizationId): Promise<OrganizationRecord | undefined> {
+    const row = await this.db
+      .select({
+        id: organizations.id,
+        name: organizations.name,
+        slug: organizations.slug,
+        createdAt: organizations.createdAt,
+        updatedAt: organizations.updatedAt,
+        deletedAt: organizations.deletedAt,
+      })
+      .from(organizations)
+      .where(and(eq(organizations.id, id), isNull(organizations.deletedAt)))
+      .limit(1)
+      .then((rows) => rows[0]);
+
+    if (!row) return undefined;
+    return toOrganizationRecord(row);
+  }
+
   async findBySlug(slug: string): Promise<OrganizationRecord | undefined> {
     const row = await this.db
       .select()

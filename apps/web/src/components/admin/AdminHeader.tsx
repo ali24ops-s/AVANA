@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { getAdminPageInfo } from "./adminNavigation.js";
 import { useAuth } from "../../providers/AuthProvider.js";
+import { GlobalGenerationIndicator } from "../generation/GlobalGenerationIndicator.js";
 
 export interface AdminHeaderProps {
   onOpenMobileMenu?: () => void;
@@ -74,6 +75,9 @@ export function AdminHeader({ onOpenMobileMenu }: AdminHeaderProps) {
 
       {/* Left Side (RTL): Admin Role Badge, User Pill & Quick Actions */}
       <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+        {/* Global Generation Status Indicator */}
+        <GlobalGenerationIndicator />
+
         {/* Role Badge */}
         <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-teal-500/10 border border-teal-500/30 text-teal-300 text-[11px] font-semibold">
           <ShieldCheck className="w-3.5 h-3.5 text-teal-400" />

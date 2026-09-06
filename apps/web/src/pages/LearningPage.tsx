@@ -35,6 +35,8 @@ import {
   PanelRightOpen,
   ListOrdered,
   X,
+  Lock,
+  ShoppingBag,
 } from "lucide-react";
 import { MarkdownRenderer } from "../components/markdown/MarkdownRenderer.js";
 import { FlashcardExperience } from "../components/flashcards/FlashcardExperience.js";
@@ -43,7 +45,9 @@ import { StudyAnalyticsView } from "../components/analytics/StudyAnalyticsView.j
 import { CourseDocumentsView } from "../components/documents/CourseDocumentsView.js";
 import { CourseReviewSummaryView } from "../components/documents/CourseReviewSummaryView.js";
 import { ReviewQueueList } from "../components/review/ReviewQueueList.js";
+import { SubscriptionBanner, PaywallModal } from "../components/commerce/index.js";
 import { useAuth } from "../providers/AuthProvider.js";
+import { useCheckout } from "../hooks/useCommerce.js";
 import { createApiClient, getApiBaseUrl } from "../lib/api/client.js";
 import { createLearningApi } from "../lib/api/learning.js";
 import { createOrganizationApi } from "../lib/api/organizations.js";
@@ -147,18 +151,34 @@ export function LearningPage() {
   // Track mobile drawer open state
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
 
+  const rawLessonId = searchParams.get("lessonId");
+
   useEffect(() => {
-    const firstModule = data?.modules.find(
+    if (!data) return;
+
+    // Direct lesson navigation from Library or deep links
+    if (rawLessonId) {
+      const targetModule = data.modules.find((module) =>
+        module.lessons.some((lesson) => lesson.id === rawLessonId),
+      );
+      if (targetModule) {
+        setSelectedLessonId(rawLessonId);
+        setExpandedModules((prev) => new Set([...prev, targetModule.id]));
+        return;
+      }
+    }
+
+    const firstModule = data.modules.find(
       (module) => module.lessons.length > 0,
     );
-    const selectionExists = data?.modules.some((module) =>
+    const selectionExists = data.modules.some((module) =>
       module.lessons.some((lesson) => lesson.id === selectedLessonId),
     );
     if (!selectionExists && firstModule) {
       setSelectedLessonId(firstModule.lessons[0].id);
       setExpandedModules(new Set([firstModule.id]));
     }
-  }, [data, selectedLessonId]);
+  }, [data, rawLessonId, selectedLessonId]);
 
   // --- Mutation: mark lesson as completed (optimistic UI) ---
   const completeMutation = useMutation({
@@ -337,6 +357,8 @@ export function LearningPage() {
       <CourseHeader
         course={course}
         progress={progress}
+        access={(data as any).access}
+        availablePurchaseOptions={(data as any).access?.availablePurchaseOptions}
         manageLink={
           courseId ? (
             <Link
@@ -407,8 +429,9 @@ export function LearningPage() {
       {/* Tab Content */}
       {activeTab === "review_summary" && (
         <CourseReviewSummaryView
-          organizationId={organization.id}
+          organizationId={((data?.course as any)?.organization_id) || organization.id}
           courseId={courseId!}
+          modules={data?.modules}
           onNavigateToFlashcards={() => setTab("flashcards")}
           onNavigateToQuiz={() => setTab("quizzes")}
         />
@@ -430,7 +453,7 @@ export function LearningPage() {
           </div>
 
           <FlashcardExperience
-            organizationId={organization.id}
+            organizationId={((data?.course as any)?.organization_id) || organization.id}
             courseId={courseId!}
             onBack={() => setTab("lessons")}
           />
@@ -439,7 +462,7 @@ export function LearningPage() {
 
       {activeTab === "quizzes" && (
         <QuizListView
-          organizationId={organization.id}
+          organizationId={((data?.course as any)?.organization_id) || organization.id}
           courseId={courseId!}
         />
       )}
@@ -493,6 +516,7 @@ export function LearningPage() {
 
       {activeTab === "lessons" && (
         <div>
+          <SubscriptionBanner className="mb-6" />
           {totalLessonsCount === 0 ? (
             <div className="w-full">
               <div className="bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] p-10 text-center space-y-4 shadow-sm">
@@ -658,6 +682,7 @@ export function LearningPage() {
                     moduleTitle={selectedModuleTitle}
                     courseTitle={course.title}
                     courseId={courseId}
+                    coursePurchaseOptions={(data as any).access?.availablePurchaseOptions}
                     onComplete={() => completeMutation.mutate(selectedLesson.id)}
                     isCompleting={completeMutation.isPending}
                     isError={completeMutation.isError}
@@ -729,12 +754,22 @@ function TabButton({
 function CourseHeader({
   course,
   progress,
+  access,
+  availablePurchaseOptions,
   manageLink,
 }: {
   course: CourseData;
   progress: CourseLearnResponse["progress"];
+  access?: any;
+  availablePurchaseOptions?: any[];
   manageLink?: React.ReactNode;
 }) {
+  const checkoutMutation = useCheckout();
+  const courseOption = availablePurchaseOptions?.find(
+    (opt) => opt.type === "course",
+  );
+  const isCourseLocked = (course as any).locked === true || (access && access.granted === false);
+
   const examDate = course.exam_at
     ? new Date(course.exam_at).toLocaleDateString("fa-IR", {
         month: "long",
@@ -761,6 +796,30 @@ function CourseHeader({
         </div>
 
         <div className="flex items-center gap-2.5 flex-wrap sm:flex-nowrap flex-shrink-0">
+          {/* Course Purchase CTA for paid unpurchased courses */}
+          {isCourseLocked && courseOption && courseOption.price > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                checkoutMutation.mutate({
+                  product_id: courseOption.productId,
+                  callback_url: `${window.location.origin}/checkout/callback`,
+                });
+              }}
+              disabled={checkoutMutation.isPending}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-teal-600 to-indigo-600 hover:from-teal-500 hover:to-indigo-500 shadow-md shadow-teal-950/20 transition-all cursor-pointer disabled:opacity-60 flex-shrink-0"
+            >
+              {checkoutMutation.isPending ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <ShoppingBag className="w-3.5 h-3.5" />
+              )}
+              <span>
+                خرید کل دوره — {courseOption.price.toLocaleString("fa-IR")} تومان
+              </span>
+            </button>
+          )}
+
           {examDate && (
             <div className="flex items-center gap-1.5 text-xs text-[var(--color-text-muted)] bg-[var(--color-surface-warm)] px-3 py-1.5 rounded-xl border border-[var(--color-border)]">
               <FileText className="w-3.5 h-3.5 text-teal-400" />
@@ -926,7 +985,12 @@ function LessonNavItem({
           }`}
         />
       )}
-      <span className="truncate flex-1 text-[13px]">{lesson.title}</span>
+      <span className="truncate flex-1 text-[13px] flex items-center gap-1.5">
+        <span>{lesson.title}</span>
+        {(lesson as any).locked && (
+          <Lock className="w-3 h-3 text-amber-400 shrink-0" />
+        )}
+      </span>
       {lesson.estimated_minutes && (
         <span
           className={`text-[10px] flex-shrink-0 flex items-center gap-1 ${
@@ -950,6 +1014,7 @@ function LessonViewer({
   moduleTitle,
   courseTitle,
   courseId,
+  coursePurchaseOptions,
   onComplete,
   isCompleting,
   isError,
@@ -965,6 +1030,7 @@ function LessonViewer({
   moduleTitle: string;
   courseTitle?: string;
   courseId?: string;
+  coursePurchaseOptions?: any[];
   onComplete: () => void;
   isCompleting: boolean;
   isError: boolean;
@@ -977,9 +1043,28 @@ function LessonViewer({
   onOpenMobileDrawer?: () => void;
 }) {
   const [isAssistantOpen, setIsAssistantOpen] = useState(false);
+  const [isPaywallOpen, setIsPaywallOpen] = useState(false);
+
+  const isLocked = (lesson as any).locked === true;
+
+  const rawOptions: any[] =
+    (lesson as any).purchase_options && (lesson as any).purchase_options.length > 0
+      ? (lesson as any).purchase_options
+      : (coursePurchaseOptions ?? []);
+
+  const contentOption = rawOptions.find((opt: any) => opt.type === "content");
 
   return (
     <article className="bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] overflow-hidden shadow-ambient">
+      {/* Paywall Modal */}
+      <PaywallModal
+        isOpen={isPaywallOpen}
+        onClose={() => setIsPaywallOpen(false)}
+        resourceTitle={lesson.title}
+        resourceType="lesson"
+        availablePurchaseOptions={rawOptions}
+      />
+
       {/* Minimal Context & Actions Header Bar */}
       <div className="px-5 py-3 sm:px-6 sm:py-3.5 border-b border-[var(--color-border)] bg-[var(--color-surface-warm)]">
         <div className="flex items-center justify-between gap-3">
@@ -1073,11 +1158,14 @@ function LessonViewer({
       {/* Lesson content rendered as markdown with optimal Persian reading measure */}
       <div className="p-6 sm:p-8 lg:p-10">
         <div className="max-w-4xl mx-auto prose prose-sm sm:prose-base">
-          <MarkdownRenderer content={lesson.content_markdown} />
+          <MarkdownRenderer
+            content={lesson.content_markdown}
+            enableLessonCallouts
+          />
         </div>
       </div>
 
-      {/* Completion button */}
+      {/* Completion button or Paywall CTA */}
       <div className="px-6 pb-6 pt-2 max-w-4xl mx-auto w-full space-y-3">
         {isError && (
           <div className="p-3.5 bg-red-950/40 rounded-xl border border-red-500/30 text-xs text-red-300 flex items-center gap-2 justify-center">
@@ -1085,7 +1173,37 @@ function LessonViewer({
             <span>خطا در ثبت وضعیت تکمیل: {errorMessage || "لطفاً دوباره تلاش کنید."}</span>
           </div>
         )}
-        {lesson.completed ? (
+        {isLocked ? (
+          <div className="p-5 sm:p-6 rounded-2xl bg-gradient-to-r from-amber-500/10 via-indigo-500/10 to-purple-500/10 border border-amber-400/30 text-center space-y-3.5">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-400/20 text-amber-300 text-xs font-bold">
+              <Lock className="w-3.5 h-3.5" />
+              <span>محتوای ویژه آوانا پلاس</span>
+            </div>
+            <h4 className="font-bold text-sm sm:text-base text-[var(--color-text)]">
+              برای دسترسی به متن کامل این درسنامه، اشتراک تهیه کرده یا این محتوا را مستقلاً خریداری کنید
+            </h4>
+            <div className="flex items-center justify-center gap-2.5 flex-wrap pt-1">
+              <button
+                type="button"
+                onClick={() => setIsPaywallOpen(true)}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-bold shadow-md transition-all cursor-pointer"
+              >
+                <Zap className="w-4 h-4 fill-current text-amber-300" />
+                <span>مشاهده گزینه‌های خرید و دسترسی</span>
+              </button>
+              {contentOption && (
+                <button
+                  type="button"
+                  onClick={() => setIsPaywallOpen(true)}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold shadow-md transition-all cursor-pointer"
+                >
+                  <FileText className="w-4 h-4" />
+                  <span>خرید تکی درسنامه ({contentOption.price.toLocaleString("fa-IR")} تومان)</span>
+                </button>
+              )}
+            </div>
+          </div>
+        ) : lesson.completed ? (
           <div className="flex items-center justify-center gap-2.5 w-full py-3.5 rounded-2xl bg-teal-950/30 border border-teal-500/30 text-teal-300 text-sm font-bold shadow-xs">
             <CheckCircle2 className="w-5 h-5 text-teal-400" />
             <span>تکمیل شده</span>

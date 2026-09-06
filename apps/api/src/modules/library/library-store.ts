@@ -9,10 +9,13 @@
 import type {
   ContentPackId,
   ContentPackItemRecord,
+  ContentPackMetadata,
   ContentPackRecord,
+  ContentPackStatus,
   ContentPackUsageRecord,
   CourseId,
   DocumentId,
+  LessonId,
   ModuleId,
   OrganizationId,
   UserId,
@@ -50,7 +53,90 @@ export type MaterializationResult = {
   reviewSummaryCreated: boolean;
 };
 
+export type LibraryCourseResource = {
+  id: CourseId;
+  title: string;
+  description: string | null;
+  subject: string | null;
+  moduleCount: number;
+  contentCount: number;
+  progress?: {
+    completedLessons: number;
+    totalLessons: number;
+    percent: number;
+  };
+  href: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type LibraryContentResource = {
+  id: string;
+  title: string;
+  type: "lesson" | "document" | "quiz" | "flashcard" | "review_summary";
+  courseId: CourseId;
+  courseTitle: string;
+  moduleId?: ModuleId | null;
+  moduleTitle?: string | null;
+  lessonId?: LessonId | null;
+  estimatedMinutes?: number | null;
+  completed?: boolean;
+  completedAt?: string | null;
+  href: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ListLibraryResourcesOptions = {
+  userId?: UserId;
+  systemOrganizationId?: OrganizationId;
+  q?: string;
+  type?: "all" | "courses" | "contents";
+  subject?: string;
+  sort?: "popular" | "newest";
+  page?: number;
+  limit?: number;
+};
+
+export type ListLibraryResourcesResult = {
+  courses: LibraryCourseResource[];
+  contents: LibraryContentResource[];
+  totalCourses: number;
+  totalContents: number;
+};
+
+export type ListCoursePackagesOptions = {
+  userId?: UserId;
+  systemOrganizationId?: OrganizationId;
+  courseId?: CourseId;
+  q?: string;
+  subject?: string;
+  sort?: "popular" | "newest";
+  page?: number;
+  limit?: number;
+};
+
+export type ListCoursePackagesResult = {
+  courses: import("@avana/domain").CourseWithChapterPackages[];
+  totalCourses: number;
+  totalPackages: number;
+};
+
 export interface ContentPackStore {
+  /**
+   * List accessible courses with chapter packages for library discovery.
+   */
+  listCoursePackages?(
+    options: ListCoursePackagesOptions,
+  ): Promise<ListCoursePackagesResult>;
+
+  /**
+   * List accessible courses and contents for library resource discovery.
+   */
+  listLibraryResources?(
+    options: ListLibraryResourcesOptions,
+  ): Promise<ListLibraryResourcesResult>;
+
   /**
    * Atomically creates a content pack and its 4 snapshot items in a single transaction.
    */
@@ -107,6 +193,26 @@ export interface ContentPackStore {
   materializeToCourse(
     input: MaterializeToCourseInput,
   ): Promise<MaterializationResult>;
+
+  /**
+   * Update content pack status and optional metadata / publishedAt.
+   */
+  updateStatus(
+    id: ContentPackId,
+    status: ContentPackStatus,
+    metadata?: ContentPackMetadata,
+    publishedAt?: string,
+  ): Promise<ContentPackRecord>;
+
+  /**
+   * List content packs for admin review / catalog management.
+   */
+  listAll(options: {
+    status?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<{ items: ContentPackRecord[]; totalCount: number }>;
 }
 
 export interface ContentPackUsageStore {

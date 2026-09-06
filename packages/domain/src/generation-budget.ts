@@ -397,7 +397,7 @@ export function calculateGenerationBudget(
   };
 
   // 5. Strategy & Estimated Steps
-  // Outline (1) + Sessions (N) + Flashcards (N) + Quizzes (N) + Recommendation (1)
+  // Stage 1 Outline (1) + Stage 2 Lessons (N) + Stage 3 Flashcards (N) + Stage 4 Quizzes (N) + Stage 5 Review Summary (1)
   const estimatedTotalSteps = 1 + targetTopicCount * 3 + 1;
 
   return {

@@ -6,6 +6,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createApiClient, getApiBaseUrl } from "../lib/api/client.js";
 import {
   createLibraryApi,
+  type ListCoursePackagesParams,
+  type ListLibraryResourcesParams,
   type ListPacksParams,
   type PublishContentPackRequest,
 } from "../lib/api/library.js";
@@ -13,6 +15,27 @@ import {
 function getLibraryApi() {
   const client = createApiClient({ baseUrl: getApiBaseUrl() });
   return createLibraryApi(client);
+}
+
+/**
+ * Fetch list of accessible library resources (courses and standalone contents) with search, filters, sort, and pagination.
+ */
+export function useLibraryResources(params: ListLibraryResourcesParams = {}) {
+  const api = getLibraryApi();
+  return useQuery({
+    queryKey: [
+      "library-resources",
+      params.q ?? "",
+      params.type ?? "all",
+      params.subject ?? "all",
+      params.sort ?? "popular",
+      params.page ?? 1,
+      params.limit ?? 20,
+    ],
+    queryFn: () => api.listResources(params),
+    placeholderData: (previousData) => previousData,
+    staleTime: 15_000,
+  });
 }
 
 /**
@@ -24,12 +47,31 @@ export function useLibraryPacks(params: ListPacksParams = {}) {
     queryKey: [
       "library-packs",
       params.q ?? "",
-      params.subject ?? "all",
-      params.sort ?? "popular",
       params.page ?? 1,
       params.limit ?? 12,
     ],
     queryFn: () => api.listPacks(params),
+    placeholderData: (previousData) => previousData,
+    staleTime: 15_000,
+  });
+}
+
+/**
+ * Fetch list of courses with chapter educational packages with search, subject filter, course filter, sort, and pagination.
+ */
+export function useCoursePackages(params: ListCoursePackagesParams = {}) {
+  const api = getLibraryApi();
+  return useQuery({
+    queryKey: [
+      "library-course-packages",
+      params.course_id ?? "",
+      params.q ?? "",
+      params.subject ?? "all",
+      params.sort ?? "popular",
+      params.page ?? 1,
+      params.limit ?? 20,
+    ],
+    queryFn: () => api.listCoursePackages(params),
     placeholderData: (previousData) => previousData,
     staleTime: 15_000,
   });

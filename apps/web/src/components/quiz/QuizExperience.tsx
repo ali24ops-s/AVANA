@@ -19,6 +19,7 @@ import type {
   QuizQuestionResource,
   QuizAttemptResult,
 } from "@avana/contracts";
+import { RichContent } from "../markdown/MarkdownRenderer.js";
 
 export interface QuizExperienceProps {
   organizationId: string;
@@ -204,9 +205,9 @@ export function QuizExperience({
                     سوال {idx + 1}
                   </span>
                 </div>
-                <p className="text-sm font-bold text-[var(--color-text)] leading-relaxed">
-                  {q.question}
-                </p>
+                <div className="text-sm font-bold text-[var(--color-text)] leading-relaxed">
+                  <RichContent content={q.question} />
+                </div>
 
                 {q.choices && (
                   <div className="space-y-2 pt-1">
@@ -225,7 +226,7 @@ export function QuizExperience({
                           <span className="font-bold ml-2">
                             {cIdx + 1}.
                           </span>
-                          {choice}
+                          <RichContent content={choice} inline />
                         </div>
                       );
                     })}
@@ -238,7 +239,9 @@ export function QuizExperience({
                       <Lightbulb className="w-3.5 h-3.5" />
                       <span>توضیح پاسخ:</span>
                     </p>
-                    <p className="text-[var(--color-text)] leading-relaxed">{q.explanation}</p>
+                    <div className="text-[var(--color-text)] leading-relaxed">
+                      <RichContent content={q.explanation} />
+                    </div>
                   </div>
                 )}
               </div>
@@ -320,9 +323,9 @@ export function QuizExperience({
             <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-md bg-[#008080]/10 text-[#008080]">
               {currentQuestion.question_type === "multiple_choice" ? "چهارگزینه‌ای" : "پرسش آزمون"}
             </span>
-            <h3 className="text-base sm:text-lg font-bold text-[var(--color-text)] mt-3 leading-relaxed">
-              {currentQuestion.question}
-            </h3>
+            <div className="text-base sm:text-lg font-bold text-[var(--color-text)] mt-3 leading-relaxed">
+              <RichContent content={currentQuestion.question} />
+            </div>
           </div>
 
           {submitMutation.isError && (
@@ -359,7 +362,9 @@ export function QuizExperience({
                     >
                       {idx + 1}
                     </span>
-                    <span className="text-xs sm:text-sm font-medium">{choice}</span>
+                    <span className="text-xs sm:text-sm font-medium">
+                      <RichContent content={choice} inline />
+                    </span>
                   </button>
                 );
               })}

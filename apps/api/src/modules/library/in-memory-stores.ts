@@ -2,7 +2,9 @@ import { randomUUID } from "node:crypto";
 import {
   type ContentPackId,
   type ContentPackItemRecord,
+  type ContentPackMetadata,
   type ContentPackRecord,
+  type ContentPackStatus,
   type ContentPackUsageId,
   type ContentPackUsageRecord,
   type CourseId,
@@ -19,11 +21,18 @@ import {
   type QuizQuestionId,
   type UserId,
   DomainError,
+  normalizeQuestionOptions,
   canonicalizeAndShuffleQuestion,
 } from "@avana/domain";
 import type {
   ContentPackStore,
   ContentPackUsageStore,
+  LibraryContentResource,
+  LibraryCourseResource,
+  ListCoursePackagesOptions,
+  ListCoursePackagesResult,
+  ListLibraryResourcesOptions,
+  ListLibraryResourcesResult,
   ListPublishedPacksOptions,
   ListPublishedPacksResult,
   MaterializationResult,
@@ -33,7 +42,10 @@ import type { UserStore } from "../identity/user-store.js";
 import type {
   ModuleStore,
   LessonStore,
+  ProgressStore,
 } from "../learning/learning-store.js";
+import type { CourseStore, CourseRecord } from "../courses/course-store.js";
+import type { OrganizationStore } from "../organizations/organization-store.js";
 import type {
   FlashcardStore,
   QuizStore,
@@ -54,6 +66,9 @@ export class InMemoryContentPackStore implements ContentPackStore {
     private readonly quizQuestionStore?: QuizQuestionStore,
     private readonly generatedContentStore?: GeneratedContentStore,
     private usageStore?: ContentPackUsageStore,
+    private readonly courseStore?: CourseStore,
+    private readonly progressStore?: ProgressStore,
+    _organizationStore?: OrganizationStore,
   ) {}
 
   setUsageStore(usageStore: ContentPackUsageStore) {
@@ -64,7 +79,12 @@ export class InMemoryContentPackStore implements ContentPackStore {
     pack: ContentPackRecord,
     items: ContentPackItemRecord[],
   ): Promise<ContentPackRecord> {
-    if (pack.sourceDocumentId && pack.status === "published") {
+    if (
+      pack.sourceDocumentId &&
+      (pack.status === "published" ||
+        pack.status === "pending_review" ||
+        pack.status === "approved")
+    ) {
       const active = await this.findActiveByDocument(
         pack.sourceDocumentId,
         pack.organizationId ?? undefined,
@@ -101,7 +121,9 @@ export class InMemoryContentPackStore implements ContentPackStore {
     for (const pack of this.packs.values()) {
       if (
         pack.sourceDocumentId === documentId &&
-        pack.status === "published" &&
+        (pack.status === "published" ||
+          pack.status === "pending_review" ||
+          pack.status === "approved") &&
         pack.deletedAt === null
       ) {
         if (!organizationId || pack.organizationId === organizationId) {
@@ -116,7 +138,10 @@ export class InMemoryContentPackStore implements ContentPackStore {
     options: ListPublishedPacksOptions,
   ): Promise<ListPublishedPacksResult> {
     let list = Array.from(this.packs.values()).filter(
-      (p) => p.status === "published" && p.deletedAt === null,
+      (p) =>
+        p.status === "published" &&
+        p.deletedAt === null &&
+        (!p.metadata?.accessType || p.metadata?.accessType === "free" || p.metadata?.accessType === "paid"),
     );
 
     if (options.subject && options.subject.trim().length > 0) {
@@ -438,12 +463,14 @@ export class InMemoryContentPackStore implements ContentPackStore {
           const rawChoices = q.choices || q.options || [];
           const rawAns = q.correctAnswer ?? q.correct_answer ?? q.answer;
 
-          const shuffled = canonicalizeAndShuffleQuestion({
+          const normalized = normalizeQuestionOptions({
             question: q.question || "سوال آزمون",
             choices: rawChoices,
             correctAnswer: rawAns,
             explanation: q.explanation || null,
           });
+
+          const shuffled = canonicalizeAndShuffleQuestion(normalized.normalized);
 
           return {
             id: randomUUID() as QuizQuestionId,
@@ -529,6 +556,457 @@ export class InMemoryContentPackStore implements ContentPackStore {
       quizzesCreated: quizzesCount,
       quizQuestionsCreated: questionsCount,
       reviewSummaryCreated,
+    };
+  }
+
+  async updateStatus(
+    id: ContentPackId,
+    status: ContentPackStatus,
+    metadata?: ContentPackMetadata,
+    publishedAt?: string,
+  ): Promise<ContentPackRecord> {
+    const pack = this.packs.get(id);
+    if (!pack || pack.deletedAt !== null) {
+      throw new DomainError("not_found", "بسته آموزشی یافت نشد.");
+    }
+    const now = new Date().toISOString();
+    pack.status = status;
+    pack.updatedAt = now;
+    if (metadata !== undefined) {
+      pack.metadata = { ...pack.metadata, ...metadata };
+    }
+    if (publishedAt !== undefined) {
+      pack.publishedAt = publishedAt;
+    }
+    this.packs.set(id, { ...pack });
+    return { ...pack };
+  }
+
+  async listAll(options: {
+    status?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+  } = {}): Promise<{ items: ContentPackRecord[]; totalCount: number }> {
+    let list = Array.from(this.packs.values()).filter(
+      (p) => p.deletedAt === null,
+    );
+
+    if (options.status && options.status !== "all") {
+      list = list.filter((p) => p.status === options.status);
+    }
+
+    if (options.search && options.search.trim().length > 0) {
+      const query = options.search.trim().toLowerCase();
+      list = list.filter(
+        (p) =>
+          p.title.toLowerCase().includes(query) ||
+          (p.description && p.description.toLowerCase().includes(query)) ||
+          (p.subject && p.subject.toLowerCase().includes(query)),
+      );
+    }
+
+    const totalCount = list.length;
+    list.sort(
+      (a, b) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    );
+
+    const page = Math.max(1, options.page ?? 1);
+    const limit = Math.max(1, Math.min(100, options.limit ?? 20));
+    const start = (page - 1) * limit;
+    const items = list.slice(start, start + limit).map((p) => ({ ...p }));
+
+    return {
+      items,
+      totalCount,
+    };
+  }
+
+  async listLibraryResources(
+    options: ListLibraryResourcesOptions,
+  ): Promise<ListLibraryResourcesResult> {
+    const page = Math.max(1, options.page ?? 1);
+    const limit = Math.max(1, Math.min(100, options.limit ?? 20));
+    const offset = (page - 1) * limit;
+    const fetchCourses = options.type !== "contents";
+    const fetchContents = options.type !== "courses";
+    const trimmedQ = options.q?.trim().toLowerCase();
+    const subject = options.subject?.trim();
+    const userId = options.userId;
+
+    let accessibleCourses: CourseRecord[] = [];
+    if (this.courseStore) {
+      if (userId) {
+        const userCourses = await this.courseStore.listUserCourses(
+          userId,
+          undefined,
+          options.systemOrganizationId,
+        );
+        accessibleCourses = userCourses.filter((c) => !c.deletedAt);
+      }
+    }
+
+    if (subject && subject !== "all") {
+      accessibleCourses = accessibleCourses.filter((c) => c.subject === subject);
+    }
+
+    const courseResults: LibraryCourseResource[] = [];
+    const contentResults: LibraryContentResource[] = [];
+
+    for (const course of accessibleCourses) {
+      const courseModules = this.moduleStore
+        ? (await this.moduleStore.listByCourse(course.id)).filter((m) => !m.deletedAt)
+        : [];
+
+      let totalLessons = 0;
+      let completedLessons = 0;
+
+      for (const mod of courseModules) {
+        const modLessons = this.lessonStore
+          ? (await this.lessonStore.listByModule(mod.id)).filter(
+              (l) => !l.deletedAt && l.publicationStatus === "published",
+            )
+          : [];
+
+        totalLessons += modLessons.length;
+
+        for (const les of modLessons) {
+          let completed = false;
+          let completedAt: string | null = null;
+          if (this.progressStore && userId) {
+            const prog = await this.progressStore.findByUserAndLesson(
+              userId,
+              les.id,
+            );
+            if (prog && prog.completed) {
+              completed = true;
+              completedAt = prog.completedAt;
+              completedLessons += 1;
+            }
+          }
+
+          if (fetchContents) {
+            const matchesQuery =
+              !trimmedQ ||
+              les.title.toLowerCase().includes(trimmedQ) ||
+              mod.title.toLowerCase().includes(trimmedQ) ||
+              course.name.toLowerCase().includes(trimmedQ);
+
+            if (matchesQuery) {
+              contentResults.push({
+                id: les.id,
+                title: les.title,
+                type: "lesson",
+                courseId: course.id,
+                courseTitle: course.name,
+                moduleId: mod.id,
+                moduleTitle: mod.title,
+                lessonId: les.id,
+                estimatedMinutes: les.estimatedMinutes ?? null,
+                completed,
+                completedAt,
+                href: `/courses/${course.id}?lessonId=${les.id}`,
+                createdAt: les.createdAt,
+                updatedAt: les.updatedAt,
+              });
+            }
+          }
+        }
+      }
+
+      if (fetchCourses) {
+        const matchesCourseQuery =
+          !trimmedQ ||
+          course.name.toLowerCase().includes(trimmedQ) ||
+          (course.description && course.description.toLowerCase().includes(trimmedQ)) ||
+          (course.subject && course.subject.toLowerCase().includes(trimmedQ));
+
+        if (matchesCourseQuery) {
+          const percent =
+            totalLessons > 0 ? Math.round((completedLessons / totalLessons) * 100) : 0;
+          courseResults.push({
+            id: course.id,
+            title: course.name,
+            description: course.description ?? null,
+            subject: course.subject ?? null,
+            moduleCount: courseModules.length,
+            contentCount: totalLessons,
+            progress: {
+              completedLessons,
+              totalLessons,
+              percent,
+            },
+            href: `/courses/${course.id}`,
+            createdAt: course.createdAt,
+            updatedAt: course.updatedAt,
+          });
+        }
+      }
+    }
+
+    const totalCourses = courseResults.length;
+    const totalContents = contentResults.length;
+
+    return {
+      courses: courseResults.slice(offset, offset + limit),
+      contents: contentResults.slice(offset, offset + limit),
+      totalCourses,
+      totalContents,
+    };
+  }
+
+  async listCoursePackages(
+    options: ListCoursePackagesOptions,
+  ): Promise<ListCoursePackagesResult> {
+    const page = Math.max(1, options.page ?? 1);
+    const limit = Math.max(1, Math.min(100, options.limit ?? 20));
+    const offset = (page - 1) * limit;
+    const trimmedQ = options.q?.trim().toLowerCase();
+    const subject = options.subject?.trim();
+    const filterCourseId = options.courseId || (options as any).course_id;
+
+    if (!this.courseStore || !this.moduleStore) {
+      return {
+        courses: [],
+        totalCourses: 0,
+        totalPackages: 0,
+      };
+    }
+
+    let allCourses: CourseRecord[] = [];
+    if (typeof (this.courseStore as any).getAll === "function") {
+      allCourses = (this.courseStore as any).getAll();
+    }
+
+    // Filter courses: active, published, official or accessible
+    const matchingCourses = allCourses.filter((c) => {
+      if (c.deletedAt !== null) return false;
+      if (filterCourseId && c.id !== filterCourseId) return false;
+      if (subject && subject !== "all" && c.subject !== subject) return false;
+      return true;
+    });
+
+    const coursesResult: import("@avana/domain").CourseWithChapterPackages[] = [];
+    let grandTotalPackages = 0;
+
+    for (const course of matchingCourses) {
+      const allModules = typeof (this.moduleStore as any).getAll === "function"
+        ? (this.moduleStore as any).getAll().filter((m: any) => m.courseId === course.id && m.deletedAt === null)
+        : [];
+      
+      allModules.sort((a: any, b: any) => a.sortOrder - b.sortOrder);
+
+      const chapterPackages: import("@avana/domain").ChapterPackageItem[] = [];
+
+      for (const mod of allModules) {
+        // Lessons
+        const modLessons = this.lessonStore && typeof (this.lessonStore as any).getAll === "function"
+          ? (this.lessonStore as any).getAll().filter((l: any) => l.moduleId === mod.id && l.deletedAt === null && l.publicationStatus === "published")
+          : [];
+        modLessons.sort((a: any, b: any) => a.sortOrder - b.sortOrder);
+
+        // Content pack attached
+        let attachedPack: ContentPackRecord | undefined;
+        if (mod.documentId) {
+          for (const p of this.packs.values()) {
+            if (p.sourceDocumentId === mod.documentId && p.status === "published" && p.deletedAt === null) {
+              attachedPack = p;
+              break;
+            }
+          }
+        }
+
+        // Flashcards
+        let fcCount = 0;
+        if (this.flashcardStore && typeof (this.flashcardStore as any).getAll === "function") {
+          const allFc = (this.flashcardStore as any).getAll().filter((f: any) => f.deletedAt === null);
+          for (const f of allFc) {
+            if (f.courseId === course.id && (f.documentId === mod.documentId || modLessons.some((l: any) => l.id === f.lessonId))) {
+              fcCount++;
+            }
+          }
+        }
+        if (fcCount === 0 && attachedPack?.metadata?.flashcardCount) {
+          fcCount = attachedPack.metadata.flashcardCount;
+        }
+
+        // Quiz
+        let quizInfo: { id?: string; title?: string; questionCount: number } | undefined;
+        if (this.quizStore && typeof (this.quizStore as any).getAll === "function") {
+          const allQuizzes = (this.quizStore as any).getAll().filter((q: any) => q.deletedAt === null && q.courseId === course.id);
+          const modQuiz = allQuizzes.find((q: any) => (mod.documentId && q.documentId === mod.documentId) || modLessons.some((l: any) => l.id === q.lessonId));
+          if (modQuiz) {
+            let qCount = 0;
+            if (this.quizQuestionStore && typeof (this.quizQuestionStore as any).getAll === "function") {
+              qCount = (this.quizQuestionStore as any).getAll().filter((qq: any) => qq.quizId === modQuiz.id).length;
+            }
+            quizInfo = { id: modQuiz.id, title: modQuiz.title, questionCount: qCount };
+          }
+        }
+        if (!quizInfo && attachedPack?.metadata?.quizQuestionCount) {
+          quizInfo = { title: `آزمون ${mod.title}`, questionCount: attachedPack.metadata.quizQuestionCount };
+        }
+
+        // Summary
+        let summaryInfo: { title?: string; overview?: string; estimatedReadingMinutes?: number } | undefined;
+        if (this.generatedContentStore && typeof (this.generatedContentStore as any).getAll === "function") {
+          const allGc = (this.generatedContentStore as any).getAll();
+          const gcSummary = allGc.find((gc: any) => 
+            ((mod.documentId && gc.documentId === mod.documentId) || modLessons.some((l: any) => l.id === gc.materializedLessonId) || (gc.courseId === course.id && mod.documentId && gc.documentId === mod.documentId)) &&
+            gc.type === "review_summary" && 
+            (gc.status === "accepted" || gc.status === "published") && 
+            gc.deletedAt === null
+          );
+          if (gcSummary?.payload) {
+            summaryInfo = {
+              title: gcSummary.payload.title || "خلاصه نکات کلیدی",
+              overview: gcSummary.payload.overview || gcSummary.payload.summary || "",
+              estimatedReadingMinutes: gcSummary.payload.estimatedReadingMinutes ?? gcSummary.payload.estimated_reading_minutes ?? 5,
+            };
+          }
+        }
+
+        const lessonCount = modLessons.length;
+        const totalLessonMinutes = modLessons.reduce((acc: number, cur: any) => acc + (cur.estimatedMinutes ?? 10), 0);
+
+        const hasLesson = lessonCount > 0;
+        const hasSummary = Boolean(summaryInfo);
+        const hasFlashcards = fcCount > 0;
+        const hasQuiz = Boolean(quizInfo && quizInfo.questionCount > 0);
+
+        const totalItems =
+          (hasLesson ? 1 : 0) +
+          (hasSummary ? 1 : 0) +
+          (hasFlashcards ? 1 : 0) +
+          (hasQuiz ? 1 : 0);
+
+        if (totalItems === 0) {
+          continue;
+        }
+
+        const completeness: import("@avana/domain").ChapterPackageCompleteness =
+          totalItems === 4 ? "complete" : "partial";
+
+        const totalReadingMinutes = totalLessonMinutes + (summaryInfo?.estimatedReadingMinutes ?? 0);
+
+        const pkgItem: import("@avana/domain").ChapterPackageItem = {
+          id: attachedPack?.id ?? mod.id,
+          moduleId: mod.id,
+          courseId: course.id,
+          courseTitle: course.name,
+          title: mod.title,
+          description: mod.description ?? attachedPack?.description ?? null,
+          subject: course.subject ?? attachedPack?.subject ?? null,
+          sortOrder: mod.sortOrder,
+          documentId: mod.documentId ?? null,
+          contentPackId: attachedPack?.id ?? null,
+          contents: {
+            lesson: {
+              exists: hasLesson,
+              count: lessonCount,
+              estimatedMinutes: totalLessonMinutes,
+              title: modLessons[0]?.title,
+              lessonId: modLessons[0]?.id,
+            },
+            summary: {
+              exists: hasSummary,
+              title: summaryInfo?.title,
+              overview: summaryInfo?.overview,
+              estimatedMinutes: summaryInfo?.estimatedReadingMinutes,
+            },
+            flashcards: {
+              exists: hasFlashcards,
+              count: fcCount,
+            },
+            quiz: {
+              exists: hasQuiz,
+              quizId: quizInfo?.id,
+              title: quizInfo?.title,
+              questionCount: quizInfo?.questionCount ?? 0,
+            },
+          },
+          stats: {
+            totalItems,
+            lessonCount,
+            flashcardCount: fcCount,
+            quizQuestionCount: quizInfo?.questionCount ?? 0,
+            estimatedReadingMinutes: totalReadingMinutes,
+          },
+          completeness,
+          access: {
+            isFree: false,
+            isPurchased: false,
+            hasAccess: false,
+            accessSource: null,
+          },
+          purchase: {
+            price: 0,
+            currency: "toman",
+            canPurchase: true,
+            productId: null,
+          },
+          createdAt: mod.createdAt,
+          updatedAt: mod.updatedAt,
+        };
+
+        chapterPackages.push(pkgItem);
+      }
+
+      // Check query filter against course and its chapter packages
+      let finalChapterPackages = chapterPackages;
+      if (trimmedQ) {
+        const matchesCourse =
+          course.name.toLowerCase().includes(trimmedQ) ||
+          (course.description && course.description.toLowerCase().includes(trimmedQ)) ||
+          (course.subject && course.subject.toLowerCase().includes(trimmedQ));
+        if (!matchesCourse) {
+          finalChapterPackages = chapterPackages.filter(
+            (p) =>
+              p.title.toLowerCase().includes(trimmedQ) ||
+              (p.description && p.description.toLowerCase().includes(trimmedQ)),
+          );
+        }
+        if (finalChapterPackages.length === 0) {
+          continue;
+        }
+      }
+
+      if (finalChapterPackages.length === 0) {
+        continue;
+      }
+
+      grandTotalPackages += finalChapterPackages.length;
+
+      coursesResult.push({
+        id: course.id,
+        title: course.name,
+        description: course.description ?? null,
+        subject: course.subject ?? null,
+        isOfficial: course.isOfficial ?? false,
+        totalPackages: finalChapterPackages.length,
+        packages: finalChapterPackages,
+        createdAt: course.createdAt,
+        updatedAt: course.updatedAt,
+      });
+    }
+
+    if (options.sort === "newest") {
+      coursesResult.sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      );
+    } else {
+      coursesResult.sort(
+        (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+      );
+    }
+
+    const totalCourses = coursesResult.length;
+
+    return {
+      courses: coursesResult.slice(offset, offset + limit),
+      totalCourses,
+      totalPackages: grandTotalPackages,
     };
   }
 }

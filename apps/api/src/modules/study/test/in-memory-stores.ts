@@ -269,28 +269,33 @@ export class InMemoryQuizStore implements QuizStore {
 
   async findByIdForOrganization(
     id: QuizId,
-    organizationId: OrganizationId,
+    organizationId?: OrganizationId,
+    systemOrganizationId?: OrganizationId,
   ): Promise<QuizRecord | undefined> {
     const record = this.quizzes.get(id);
-    if (
-      !record ||
-      record.organizationId !== organizationId ||
-      record.deletedAt !== null
-    ) {
+    if (!record || record.deletedAt !== null) {
       return undefined;
+    }
+    if (organizationId) {
+      if (
+        record.organizationId !== organizationId &&
+        (!systemOrganizationId || record.organizationId !== systemOrganizationId)
+      ) {
+        return undefined;
+      }
     }
     return { ...record };
   }
 
   async listByCourse(
     courseId: CourseId,
-    organizationId: OrganizationId,
+    organizationId?: OrganizationId,
   ): Promise<QuizRecord[]> {
     return Array.from(this.quizzes.values())
       .filter(
         (q) =>
           q.courseId === courseId &&
-          q.organizationId === organizationId &&
+          (!organizationId || q.organizationId === organizationId) &&
           q.deletedAt === null,
       )
       .map((q) => ({ ...q }));

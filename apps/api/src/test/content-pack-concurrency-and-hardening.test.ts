@@ -419,6 +419,10 @@ describe("Content Pack Concurrency, Lifecycle & Hardening Test Suite", () => {
     const statusCodes = [resA.statusCode, resB.statusCode].sort();
     expect(statusCodes).toEqual([201, 409]);
 
+    const successfulRes = resA.statusCode === 201 ? resA : resB;
+    const packId = JSON.parse(successfulRes.body).pack.id;
+    await contentPackStore.updateStatus(packId, "published", { accessType: "free" });
+
     // Check that exactly one published pack exists
     const listRes = await app.inject({
       method: "GET",
@@ -447,6 +451,7 @@ describe("Content Pack Concurrency, Lifecycle & Hardening Test Suite", () => {
       payload: { title: "بسته جامع زیست‌شناسی" },
     });
     const packId = JSON.parse(pubRes.body).pack.id;
+    await contentPackStore.updateStatus(packId, "published", { accessType: "free" });
 
     // Student setup
     const student = await setupUserAndOrg(app, "علی حسینی", "کنکور تجربی");
@@ -504,6 +509,7 @@ describe("Content Pack Concurrency, Lifecycle & Hardening Test Suite", () => {
       payload: { title: "بسته جامع زیست‌شناسی" },
     });
     const packId = JSON.parse(pubRes.body).pack.id;
+    await contentPackStore.updateStatus(packId, "published", { accessType: "free" });
 
     // Create 5 students concurrently
     const students = await Promise.all(
@@ -562,6 +568,7 @@ describe("Content Pack Concurrency, Lifecycle & Hardening Test Suite", () => {
       payload: { title: "بسته جامع زیست‌شناسی" },
     });
     const packId = JSON.parse(pubRes.body).pack.id;
+    await contentPackStore.updateStatus(packId, "published", { accessType: "free" });
 
     // Single student with 3 separate courses in their org
     const student = await setupUserAndOrg(app, "سارا راد", "کلاس الف");
@@ -652,6 +659,7 @@ describe("Content Pack Concurrency, Lifecycle & Hardening Test Suite", () => {
       payload: { title: "بسته ریاضیات ۱" },
     });
     const packId = JSON.parse(pubRes.body).pack.id;
+    await contentPackStore.updateStatus(packId, "published", { accessType: "free" });
 
     // Simulate creator account deletion / decoupling (creatorUserId set to null)
     const pack = await contentPackStore.findById(packId);
@@ -703,6 +711,7 @@ describe("Content Pack Concurrency, Lifecycle & Hardening Test Suite", () => {
       payload: { title: "بسته زیست‌شناسی ماندگار" },
     });
     const packId = JSON.parse(pubRes.body).pack.id;
+    await contentPackStore.updateStatus(packId, "published", { accessType: "free" });
 
     // 1. Creator regenerates drafts / changes status to draft / edits payloads
     await generatedContentStore.update({
@@ -770,6 +779,7 @@ describe("Content Pack Concurrency, Lifecycle & Hardening Test Suite", () => {
       payload: { title: "بسته ارزیابی آزمون" },
     });
     const packId = JSON.parse(pubRes.body).pack.id;
+    await contentPackStore.updateStatus(packId, "published", { accessType: "free" });
 
     const student = await setupUserAndOrg(app, "نیما افشار", "آزمون آزمایشی");
 
@@ -820,6 +830,7 @@ describe("Content Pack Concurrency, Lifecycle & Hardening Test Suite", () => {
       payload: { title: "بسته محتوای عمومی" },
     });
     const packId = JSON.parse(pubRes.body).pack.id;
+    await contentPackStore.updateStatus(packId, "published", { accessType: "free" });
 
     // Student A creates Course in Org A
     const studentA = await setupUserAndOrg(app, "دانشجو الف", "دوره هوش مصنوعی");
@@ -857,6 +868,7 @@ describe("Content Pack Concurrency, Lifecycle & Hardening Test Suite", () => {
       payload: { title: "بسته محتوای بدون پیشرفت قبلی" },
     });
     const packId = JSON.parse(pubRes.body).pack.id;
+    await contentPackStore.updateStatus(packId, "published", { accessType: "free" });
 
     const student = await setupUserAndOrg(app, "دانشجو پاک", "دوره تمیز");
 
@@ -899,6 +911,7 @@ describe("Content Pack Concurrency, Lifecycle & Hardening Test Suite", () => {
       payload: { title: "بسته ایزولاسیون کامل" },
     });
     const packId = JSON.parse(pubRes.body).pack.id;
+    await contentPackStore.updateStatus(packId, "published", { accessType: "free" });
 
     const student = await setupUserAndOrg(app, "دانشجو ایزوله", "دوره ایزوله");
 

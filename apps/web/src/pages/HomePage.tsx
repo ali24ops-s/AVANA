@@ -1036,11 +1036,11 @@ function PopularContentPackCard({
           </span>
 
           <span
-            className="inline-flex items-center gap-1 text-[10px] text-slate-400 font-medium bg-white/5 px-2 py-0.5 rounded-full border border-white/5 shrink-0"
-            title="تعداد کاربران استفاده‌کننده"
+            className="inline-flex items-center gap-1 text-[10px] text-slate-400 font-medium bg-white/5 px-2.5 py-0.5 rounded-full border border-white/5 shrink-0 whitespace-nowrap"
+            title="تعداد دفعات افزوده‌شده به دوره‌ها"
           >
-            <Users className="w-3 h-3 text-teal-400" />
-            <span>{toPersianDigits(usageCount)} نصب</span>
+            <Users className="w-3 h-3 text-teal-400 shrink-0" />
+            <span>{toPersianDigits(usageCount)} افزوده‌شده</span>
           </span>
         </div>
 

@@ -63,6 +63,8 @@ export interface AdminCourseRecord {
   };
 }
 
+import type { DocumentGenerationProgressResource } from "@avana/domain";
+
 export interface AdminDocumentRecord {
   id: string;
   organizationId: string;
@@ -73,6 +75,7 @@ export interface AdminDocumentRecord {
   createdAt: string;
   courseName?: string;
   ownerEmail?: string;
+  generationProgress?: DocumentGenerationProgressResource | null;
 }
 
 export interface AdminSystemHealth {
@@ -227,6 +230,151 @@ export interface AdminAiAnalytics {
   tokens: AdminAiAnalyticsTokens;
 }
 
+export interface AdminCommerceStats {
+  totalRevenue: number;
+  todayRevenue: number;
+  currentMonthRevenue: number;
+  successfulOrders: number;
+  activeSubscriptions: number;
+  lifetimePurchases: number;
+  subscriptionRevenue: number;
+  courseRevenue: number;
+  contentPackRevenue: number;
+  pendingOrders: number;
+  failedPayments: number;
+}
+
+export interface AdminOrderRecord {
+  id: string;
+  orderNumber: string;
+  userId: string;
+  userName?: string;
+  userEmail: string;
+  productId: string;
+  productTitle: string;
+  productType: string;
+  amount: number;
+  currency: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  paymentStatus?: string;
+  paymentGateway?: string;
+  paymentTransactionId?: string;
+}
+
+export interface AdminOrdersList {
+  orders: AdminOrderRecord[];
+  totalCount: number;
+}
+
+export interface AdminPaymentRecord {
+  id: string;
+  orderId: string;
+  orderNumber: string;
+  userId: string;
+  userName?: string;
+  userEmail: string;
+  productTitle?: string;
+  amount: number;
+  currency: string;
+  gateway: string;
+  authority: string | null;
+  transactionId: string | null;
+  status: string;
+  trackingNumber?: string | null;
+  sourceCardLast4?: string | null;
+  payerName?: string | null;
+  receiptUrl?: string | null;
+  initialValidationResult?: Record<string, unknown> | null;
+  rejectionReason?: string | null;
+  reviewedAt?: string | null;
+  reviewedBy?: string | null;
+  reviewerEmail?: string | null;
+  paidAt: string | null;
+  createdAt: string;
+}
+
+export interface AdminPaymentsList {
+  payments: AdminPaymentRecord[];
+  totalCount: number;
+}
+
+export interface AdminSubscriptionRecord {
+  id: string;
+  userId: string;
+  userName?: string;
+  userEmail: string;
+  productId: string;
+  productTitle: string;
+  plan: string;
+  status: "active" | "expired" | "cancelled" | string;
+  startedAt: string;
+  expiresAt: string;
+  orderId: string | null;
+  createdAt: string;
+}
+
+export interface AdminSubscriptionsList {
+  subscriptions: AdminSubscriptionRecord[];
+  totalCount: number;
+}
+
+export interface AdminEntitlementRecord {
+  id: string;
+  userId: string;
+  userName?: string;
+  userEmail: string;
+  resourceType: "subscription" | "content_pack" | "course" | string;
+  resourceId: string | null;
+  resourceTitle?: string;
+  sourceType: "purchase" | "admin_grant" | "promotion" | "gift" | string;
+  orderId: string | null;
+  startsAt: string;
+  expiresAt: string | null;
+  lifetime: boolean;
+  active: boolean;
+  createdAt: string;
+}
+
+export interface AdminEntitlementsList {
+  entitlements: AdminEntitlementRecord[];
+  totalCount: number;
+}
+
+export interface AdminProductRecord {
+  id: string;
+  code: string;
+  type: string;
+  title: string;
+  description: string | null;
+  price: number;
+  currency: string;
+  targetType: string | null;
+  targetId: string | null;
+  durationDays: number | null;
+  active: boolean;
+  createdAt: string;
+  targetTitle?: string;
+}
+
+export interface AdminUserCommerceProfile {
+  user: { id: string; email: string; name?: string };
+  activeSubscription: AdminSubscriptionRecord | null;
+  subscriptionHistory: AdminSubscriptionRecord[];
+  lifetimePurchases: AdminEntitlementRecord[];
+  entitlements: AdminEntitlementRecord[];
+  orders: AdminOrderRecord[];
+  payments: AdminPaymentRecord[];
+}
+
+export interface AdminGrantInput {
+  userId: string;
+  resourceType: "subscription" | "course" | "content_pack" | "content";
+  resourceId?: string | null;
+  durationDays?: number;
+}
+
 export interface AdminStore {
   // Phase 1
   getDashboardStats(): Promise<DashboardStats>;
@@ -258,4 +406,29 @@ export interface AdminStore {
   updateCourseMetadata(adminId: string, courseId: string, payload: { name?: string; subject?: string }): Promise<void>;
   retryDocumentProcessing(adminId: string, documentId: string): Promise<void>;
   retryGenerationJob(adminId: string, jobId: string): Promise<void>;
+
+  // Monetization & Commerce
+  getCommerceStats(): Promise<AdminCommerceStats>;
+  listCommerceOrders(params: { page: number; pageSize: number; search?: string; status?: string; from?: string; to?: string }): Promise<AdminOrdersList>;
+  listCommercePayments(params: { page: number; pageSize: number; search?: string; gateway?: string; status?: string; from?: string; to?: string }): Promise<AdminPaymentsList>;
+  listCommerceSubscriptions(params: { page: number; pageSize: number; search?: string; status?: string }): Promise<AdminSubscriptionsList>;
+  listCommerceEntitlements(params: { page: number; pageSize: number; search?: string; resourceType?: string; sourceType?: string; status?: string }): Promise<AdminEntitlementsList>;
+  listCommerceProducts(): Promise<AdminProductRecord[]>;
+  updateCommerceProduct(adminId: string, productId: string, payload: { active?: boolean; price?: number }): Promise<AdminProductRecord>;
+  grantCommerceEntitlement(adminId: string, input: AdminGrantInput): Promise<AdminEntitlementRecord>;
+  cancelCommerceSubscription(
+    adminId: string,
+    subscriptionId: string,
+    reason?: string,
+  ): Promise<{ success: boolean; subscription: AdminSubscriptionRecord; message?: string }>;
+  approveCommercePayment(
+    adminId: string,
+    paymentId: string,
+  ): Promise<{ success: boolean; payment: AdminPaymentRecord; message?: string }>;
+  rejectCommercePayment(
+    adminId: string,
+    paymentId: string,
+    reason: string,
+  ): Promise<{ success: boolean; payment: AdminPaymentRecord; message?: string }>;
+  getUserCommerceProfile(userId: string): Promise<AdminUserCommerceProfile>;
 }

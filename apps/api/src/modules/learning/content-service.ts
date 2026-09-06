@@ -18,6 +18,7 @@ import {
   auditLessonUpdated,
   auditLessonPublished,
   auditLessonDeleted,
+  normalizeEducationalContent,
 } from "@avana/domain";
 import type { CourseStore } from "../courses/course-store.js";
 import type { OrganizationStore } from "../organizations/organization-store.js";
@@ -379,7 +380,7 @@ export class ContentService {
       moduleId,
       title: title.trim(),
       contentType: "markdown",
-      contentMarkdown: contentMarkdown ?? "",
+      contentMarkdown: contentMarkdown ? normalizeEducationalContent(contentMarkdown) : "",
       sortOrder: nextSortOrder,
       estimatedMinutes: estimatedMinutes ?? null,
       publicationStatus: "draft",
@@ -438,9 +439,10 @@ export class ContentService {
       changedFields.push("title");
     }
     if (updates.contentMarkdown !== undefined) {
-      const newMd = computeContentMetadata(updates.contentMarkdown);
+      const normalized = normalizeEducationalContent(updates.contentMarkdown);
+      const newMd = computeContentMetadata(normalized);
       const oldMd = computeContentMetadata(lesson.contentMarkdown);
-      lesson.contentMarkdown = updates.contentMarkdown;
+      lesson.contentMarkdown = normalized;
       changedFields.push("content_markdown");
       if (!metadataEquals(newMd, oldMd)) contentMetadata = newMd;
     }

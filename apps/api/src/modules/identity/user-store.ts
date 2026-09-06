@@ -24,8 +24,6 @@ export interface UserWithPasswordRecord extends UserRecord {
 export interface UserStore {
   findByEmail(email: string): Promise<UserRecord | undefined>;
 
-  findAllByEmail?(email: string): Promise<UserRecord[]>;
-
   findWithPasswordByEmail(email: string): Promise<UserWithPasswordRecord | undefined>;
 
   findById(id: UserId): Promise<UserRecord | undefined>;

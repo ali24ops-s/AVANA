@@ -141,8 +141,17 @@ export class CourseService {
       this.systemOrganizationId,
     );
 
+    // Official courses are only visible in public catalog when 'published'.
+    // Non-official / user courses are governed by standard membership.
+    const visibleCourses = courses.filter((c) => {
+      if (c.isOfficial === true) {
+        return c.status === "published";
+      }
+      return true;
+    });
+
     const canonicalOrder: readonly string[] = CANONICAL_COURSES;
-    return courses.slice().sort((a, b) => {
+    return visibleCourses.slice().sort((a, b) => {
       const idxA = canonicalOrder.indexOf(a.name);
       const idxB = canonicalOrder.indexOf(b.name);
       if (idxA !== -1 && idxB !== -1) return idxA - idxB;
@@ -291,6 +300,16 @@ export class CourseService {
       course.organizationId !== organizationId &&
       (!this.systemOrganizationId ||
         course.organizationId !== this.systemOrganizationId)
+    ) {
+      throw new DomainError("not_found", "Course not found");
+    }
+
+    // Unpublished official courses must not be accessible to students
+    if (
+      course.isOfficial === true &&
+      course.status !== "published" &&
+      scopedActor.role !== "platform_admin" &&
+      scopedActor.role !== "organization_admin"
     ) {
       throw new DomainError("not_found", "Course not found");
     }

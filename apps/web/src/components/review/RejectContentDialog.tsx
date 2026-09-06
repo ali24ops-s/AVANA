@@ -44,6 +44,9 @@ export function RejectContentDialog({
       void queryClient.invalidateQueries({
         queryKey: ["review-detail", organizationId, courseId, contentId],
       });
+      void queryClient.invalidateQueries({
+        queryKey: ["official-review-workspace", courseId],
+      });
       onRejected?.();
       onClose();
     },

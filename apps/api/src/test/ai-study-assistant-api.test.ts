@@ -23,6 +23,7 @@ import {
 } from "../modules/study/test/in-memory-stores.js";
 import { InMemoryAssistantConversationStore } from "../modules/study/index.js";
 import { MockModelGateway } from "../modules/generation/gateway/mock.js";
+import { InMemoryCommerceStore } from "../modules/commerce/index.js";
 import type {
   CourseId,
   LessonId,
@@ -55,12 +56,14 @@ describe("AI Study Assistant API Integration Tests (POST /v1/ai/ask)", () => {
   let progressStore: InMemoryProgressStore;
   let conversationStore: InMemoryAssistantConversationStore;
   let assistantGateway: MockModelGateway;
+  let commerceStore: InMemoryCommerceStore;
 
   let sessionCookie: string;
   let userId: UserId;
   let orgId: OrganizationId;
   let otherOrgId: OrganizationId;
   let courseId: CourseId;
+  let moduleId: ModuleId;
   let lessonId: LessonId;
 
   async function buildTestApp() {
@@ -81,6 +84,7 @@ describe("AI Study Assistant API Integration Tests (POST /v1/ai/ask)", () => {
       quizAttemptStore: new InMemoryQuizAttemptStore(new InMemoryQuizStore()),
       conversationStore,
       assistantGateway,
+      commerceStore,
     });
     return app;
   }
@@ -88,6 +92,7 @@ describe("AI Study Assistant API Integration Tests (POST /v1/ai/ask)", () => {
   beforeEach(async () => {
     config = makeTestConfig();
     sessionStore = new InMemorySessionStore();
+    commerceStore = new InMemoryCommerceStore();
     userStore = new InMemoryUserStore();
     organizationStore = new InMemoryOrganizationStore();
     courseStore = new InMemoryCourseStore();
@@ -153,13 +158,13 @@ describe("AI Study Assistant API Integration Tests (POST /v1/ai/ask)", () => {
       auditEvents: [],
     });
 
-    const moduleId = randomUUID() as ModuleId;
+    moduleId = randomUUID() as ModuleId;
     const moduleRecord = await moduleStore.create({
       id: moduleId,
       courseId,
       title: "فصل ۱",
       description: null,
-      sortOrder: 1,
+      sortOrder: 0,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       deletedAt: null,
@@ -172,9 +177,27 @@ describe("AI Study Assistant API Integration Tests (POST /v1/ai/ask)", () => {
       title: "مقدمات فارماکوکینتیک",
       contentType: "markdown",
       contentMarkdown: "# فارماکوکینتیک\n\nجذب، توزیع، متابولیسم و دفع داروها را بررسی می‌کند.",
-      sortOrder: 1,
+      sortOrder: 0,
       estimatedMinutes: 10,
       publicationStatus: "published",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      deletedAt: null,
+    });
+
+    await commerceStore.createProduct({
+      id: randomUUID() as any,
+      code: `content_${lessonId}`,
+      type: "content",
+      title: "مقدمات فارماکوکینتیک",
+      description: "",
+      price: 0,
+      currency: "toman",
+      targetType: "content",
+      targetId: lessonId,
+      durationDays: null,
+      active: true,
+      metadata: { adminPriced: true, explicitlyFree: true },
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       deletedAt: null,
@@ -434,5 +457,94 @@ describe("AI Study Assistant API Integration Tests (POST /v1/ai/ask)", () => {
     });
 
     expect(getRes.statusCode).toBe(404);
+  });
+
+  it("POST /v1/ai/ask on locked premium lesson returns 403 when user is unsubscribed", async () => {
+    // Create locked premium lesson
+    const lockedLessonId = randomUUID() as LessonId;
+    await lessonStore.create({
+      id: lockedLessonId,
+      moduleId,
+      title: "درس قفل شده",
+      contentType: "markdown",
+      contentMarkdown: "# محتوای قفل",
+      sortOrder: 1,
+      estimatedMinutes: 15,
+      publicationStatus: "published",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      deletedAt: null,
+    });
+
+    const app = await buildTestApp();
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/ai/ask",
+      headers: {
+        "content-type": "application/json",
+        cookie: sessionCookie,
+      },
+      body: JSON.stringify({
+        message: "سوال از درس قفل شده",
+        context: {
+          type: "lesson",
+          lessonId: lockedLessonId,
+        },
+      }),
+    });
+
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error.message).toContain("فعال‌سازی اشتراک آوانا پلاس یا خرید دوره الزامی است");
+  });
+
+  it("POST /v1/ai/ask on locked premium lesson succeeds after subscription activation", async () => {
+    const lockedLessonId = randomUUID() as LessonId;
+    await lessonStore.create({
+      id: lockedLessonId,
+      moduleId,
+      title: "درس قفل شده",
+      contentType: "markdown",
+      contentMarkdown: "# محتوای قفل",
+      sortOrder: 1,
+      estimatedMinutes: 15,
+      publicationStatus: "published",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      deletedAt: null,
+    });
+
+    // Grant active subscription
+    await commerceStore.grantEntitlement({
+      id: "sub-ent-user" as any,
+      userId,
+      resourceType: "subscription",
+      resourceId: null,
+      sourceType: "purchase",
+      orderId: null,
+      startsAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 30 * 86400000).toISOString(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    const app = await buildTestApp();
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/ai/ask",
+      headers: {
+        "content-type": "application/json",
+        cookie: sessionCookie,
+      },
+      body: JSON.stringify({
+        message: "سوال با اشتراک فعال",
+        context: {
+          type: "lesson",
+          lessonId: lockedLessonId,
+        },
+      }),
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().answer).toBeTruthy();
   });
 });

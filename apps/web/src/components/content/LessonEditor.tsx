@@ -15,9 +15,12 @@ import {
   Save,
   Send,
   Trash2,
+  ShoppingBag,
 } from "lucide-react";
 import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
 import { createContentApi, type ContentApi } from "../../lib/api/content.js";
+import { useAdmin } from "../../hooks/useAdmin.js";
+import { useCommerceProducts } from "../../hooks/useCommerce.js";
 import { MarkdownRenderer } from "../markdown/MarkdownRenderer.js";
 import type { ContentLessonResource } from "@avana/contracts";
 
@@ -36,11 +39,13 @@ interface FormState {
   title: string;
   contentMarkdown: string;
   estimatedMinutes: string;
+  price: string;
 }
 
 interface FormErrors {
   title?: string;
   estimatedMinutes?: string;
+  price?: string;
 }
 
 function parseEstimatedMinutes(value: string): number | null {
@@ -51,21 +56,33 @@ function parseEstimatedMinutes(value: string): number | null {
   return num;
 }
 
-function getInitialFormState(lesson: LessonData): FormState {
+function parsePrice(value: string): number {
+  const trimmed = value.trim();
+  if (trimmed === "") return 0;
+  const num = Number(trimmed);
+  if (!Number.isFinite(num) || num < 0 || !Number.isInteger(num)) return NaN;
+  return num;
+}
+
+function getInitialFormState(lesson: LessonData, initialPrice = "0"): FormState {
   return {
     title: lesson.title,
     contentMarkdown: lesson.content_markdown ?? "",
     estimatedMinutes:
       lesson.estimated_minutes !== null ? String(lesson.estimated_minutes) : "",
+    price: initialPrice,
   };
 }
 
-function isDirty(form: FormState, lesson: LessonData): boolean {
+function isDirty(form: FormState, lesson: LessonData, savedPrice: string): boolean {
   if (form.title !== lesson.title) return true;
   if (form.contentMarkdown !== (lesson.content_markdown ?? "")) return true;
   const formMinutes = parseEstimatedMinutes(form.estimatedMinutes);
   if (Number.isNaN(formMinutes)) return true;
   if (formMinutes !== lesson.estimated_minutes) return true;
+  const formPrice = parsePrice(form.price);
+  if (Number.isNaN(formPrice)) return true;
+  if (form.price.trim() !== savedPrice.trim()) return true;
   return false;
 }
 
@@ -82,6 +99,12 @@ function validate(form: FormState): FormErrors {
       errors.estimatedMinutes = "مدت زمان باید یک عدد صحیح مثبت باشد.";
     }
   }
+  if (form.price.trim() !== "") {
+    const parsedPrice = parsePrice(form.price);
+    if (Number.isNaN(parsedPrice) || parsedPrice < 0) {
+      errors.price = "قیمت باید یک عدد صحیح نامنفی (تومان) باشد.";
+    }
+  }
   return errors;
 }
 
@@ -96,20 +119,33 @@ export function LessonEditor({
   const queryClient = useQueryClient();
   const apiClient = createApiClient({ baseUrl: getApiBaseUrl() });
   const contentApi: ContentApi = createContentApi(apiClient);
+  const adminApi = useAdmin();
 
+  // Load existing commerce product for this lesson to populate pricing
+  const { data: commerceProducts } = useCommerceProducts();
+  const lessonProduct = commerceProducts?.items?.find(
+    (p) => p.target_type === "content" && p.target_id === lesson.id,
+  );
+  const currentProductPrice =
+    lessonProduct && lessonProduct.price > 0 ? String(lessonProduct.price) : "0";
+
+  const [savedPrice, setSavedPrice] = useState<string>(currentProductPrice);
   const [savedSnapshot, setSavedSnapshot] = useState<LessonData>(lesson);
   const [form, setForm] = useState<FormState>(() =>
-    getInitialFormState(lesson),
+    getInitialFormState(lesson, currentProductPrice),
   );
   const [errors, setErrors] = useState<FormErrors>({});
   const [showPreview, setShowPreview] = useState(true);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Reset form when a different lesson is selected
+  // Reset form when a different lesson is selected or pricing loads
   useEffect(() => {
-    setForm(getInitialFormState(lesson));
+    const priceToSet =
+      lessonProduct && lessonProduct.price > 0 ? String(lessonProduct.price) : "0";
+    setForm(getInitialFormState(lesson, priceToSet));
     setSavedSnapshot(lesson);
+    setSavedPrice(priceToSet);
     setErrors({});
     setConfirmingDelete(false);
   }, [
@@ -117,9 +153,10 @@ export function LessonEditor({
     lesson.title,
     lesson.content_markdown,
     lesson.estimated_minutes,
+    lessonProduct?.price,
   ]);
 
-  const dirty = isDirty(form, savedSnapshot);
+  const dirty = isDirty(form, savedSnapshot, savedPrice);
   const validationErrors = validate(form);
 
   // Delete mutation
@@ -143,11 +180,14 @@ export function LessonEditor({
     },
   });
 
-  // Save mutation
+  // Save mutation (saves markdown content & lesson pricing)
   const saveMutation = useMutation({
-    mutationFn: () => {
-      const parsed = parseEstimatedMinutes(form.estimatedMinutes);
-      return contentApi.updateLesson(
+    mutationFn: async () => {
+      const parsedMinutes = parseEstimatedMinutes(form.estimatedMinutes);
+      const parsedPrice = parsePrice(form.price);
+
+      // 1. Update lesson content and metadata
+      const updateResult = await contentApi.updateLesson(
         organizationId,
         courseId,
         moduleId,
@@ -155,25 +195,51 @@ export function LessonEditor({
         {
           title: form.title.trim(),
           content_markdown: form.contentMarkdown,
-          estimated_minutes: Number.isNaN(parsed) ? null : parsed,
+          estimated_minutes: Number.isNaN(parsedMinutes) ? null : parsedMinutes,
         },
       );
+
+      // 2. Update lesson independent pricing via POST /v1/content-studio/lessons/:lessonId/pricing
+      try {
+        await adminApi.setLessonPricing(lesson.id, {
+          price: Number.isNaN(parsedPrice) ? 0 : parsedPrice,
+          title: form.title.trim(),
+        });
+      } catch (err) {
+        console.warn("Failed to update lesson pricing in studio API:", err);
+      }
+
+      return updateResult;
     },
     onSuccess: (response) => {
+      const finalPrice =
+        form.price.trim() === "" ? "0" : String(parsePrice(form.price));
       setSavedSnapshot(response.lesson);
-      setForm({
+      setSavedPrice(finalPrice);
+      setForm((prev) => ({
+        ...prev,
         title: response.lesson.title,
-        contentMarkdown: response.lesson.content_markdown,
+        contentMarkdown: response.lesson.content_markdown ?? "",
         estimatedMinutes:
           response.lesson.estimated_minutes !== null
             ? String(response.lesson.estimated_minutes)
             : "",
-      });
+        price: finalPrice,
+      }));
       void queryClient.invalidateQueries({
         queryKey: ["course-content", organizationId, courseId],
       });
       void queryClient.invalidateQueries({
         queryKey: ["course-learning", courseId],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["commerce-products"],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["library-resources"],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["access-check"],
       });
     },
   });
@@ -275,32 +341,70 @@ export function LessonEditor({
             </div>
           </div>
 
-          {/* Estimated minutes input */}
-          <div className="flex-shrink-0">
-            <div className="flex items-center gap-1.5 text-xs font-bold text-[var(--color-text-muted)] bg-[var(--color-surface-warm)] px-3 py-1.5 rounded-xl border border-[var(--color-border)]">
-              <Clock className="w-3.5 h-3.5 text-[#008080]" />
-              <input
-                type="text"
-                inputMode="numeric"
-                value={form.estimatedMinutes}
-                onChange={(e) =>
-                  handleFieldChange("estimatedMinutes", e.target.value)
-                }
-                placeholder="۱۵"
-                disabled={isPending}
-                className={`w-10 text-xs text-[var(--color-text)] bg-transparent border-b text-center focus:outline-none disabled:opacity-60 ${
-                  errors.estimatedMinutes
-                    ? "border-red-400 focus:border-red-500"
-                    : "border-transparent focus:border-[#008080]"
-                }`}
-              />
-              <span>دقیقه</span>
+          <div className="flex items-center gap-2.5 flex-wrap sm:flex-nowrap">
+            {/* Price & Free/Paid Badge Input */}
+            <div className="flex-shrink-0">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-[var(--color-text-muted)] bg-[var(--color-surface-warm)] px-3 py-1.5 rounded-xl border border-[var(--color-border)]">
+                <ShoppingBag className="w-3.5 h-3.5 text-[#008080]" />
+                <span>قیمت:</span>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={form.price}
+                  onChange={(e) => handleFieldChange("price", e.target.value)}
+                  placeholder="0"
+                  disabled={isPending}
+                  className={`w-16 text-xs text-[var(--color-text)] bg-transparent border-b text-center font-bold focus:outline-none disabled:opacity-60 ${
+                    errors.price
+                      ? "border-red-400 focus:border-red-500"
+                      : "border-transparent focus:border-[#008080]"
+                  }`}
+                />
+                <span>تومان</span>
+                <span
+                  className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full mr-0.5 ${
+                    parsePrice(form.price) > 0
+                      ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+                      : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                  }`}
+                >
+                  {parsePrice(form.price) > 0 ? "پولی" : "رایگان"}
+                </span>
+              </div>
+              {errors.price && (
+                <p className="text-xs text-red-500 mt-1 text-right">
+                  {errors.price}
+                </p>
+              )}
             </div>
-            {errors.estimatedMinutes && (
-              <p className="text-xs text-red-500 mt-1 text-right">
-                {errors.estimatedMinutes}
-              </p>
-            )}
+
+            {/* Estimated minutes input */}
+            <div className="flex-shrink-0">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-[var(--color-text-muted)] bg-[var(--color-surface-warm)] px-3 py-1.5 rounded-xl border border-[var(--color-border)]">
+                <Clock className="w-3.5 h-3.5 text-[#008080]" />
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={form.estimatedMinutes}
+                  onChange={(e) =>
+                    handleFieldChange("estimatedMinutes", e.target.value)
+                  }
+                  placeholder="۱۵"
+                  disabled={isPending}
+                  className={`w-10 text-xs text-[var(--color-text)] bg-transparent border-b text-center focus:outline-none disabled:opacity-60 ${
+                    errors.estimatedMinutes
+                      ? "border-red-400 focus:border-red-500"
+                      : "border-transparent focus:border-[#008080]"
+                  }`}
+                />
+                <span>دقیقه</span>
+              </div>
+              {errors.estimatedMinutes && (
+                <p className="text-xs text-red-500 mt-1 text-right">
+                  {errors.estimatedMinutes}
+                </p>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -467,7 +571,10 @@ export function LessonEditor({
           <div className="flex-1 min-w-0 bg-[var(--color-surface)]">
             <div className="p-6 prose prose-sm max-w-none">
               {form.contentMarkdown.trim() ? (
-                <MarkdownRenderer content={form.contentMarkdown} />
+                <MarkdownRenderer
+                  content={form.contentMarkdown}
+                  enableLessonCallouts
+                />
               ) : (
                 <p className="text-[var(--color-text-muted)] italic text-xs">
                   پیش‌نمایش محتوا هنگام تایپ در اینجا نمایش داده خواهد شد...

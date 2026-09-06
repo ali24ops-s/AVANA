@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAdmin } from "../../hooks/useAdmin.js";
-import { Search, ChevronRight, ChevronLeft, ShieldAlert, UserX, AlertCircle, Loader2 } from "lucide-react";
+import { Search, ChevronRight, ChevronLeft, ShieldAlert, UserX, AlertCircle, Loader2, CreditCard, Laptop } from "lucide-react";
 import type { AdminUserRecord } from "../../lib/api/admin.js";
+import { UserCommerceDrawer } from "../../components/admin/commerce/UserCommerceDrawer.js";
+import { UserDevicesDrawer } from "../../components/admin/devices/UserDevicesDrawer.js";
 
 const ROLES = [
   { value: "all", label: "همه نقش‌ها" },
@@ -33,6 +35,8 @@ export function AdminUsersPage() {
   const [selectedUser, setSelectedUser] = useState<AdminUserRecord | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newRole, setNewRole] = useState("student");
+  const [selectedCommerceUserId, setSelectedCommerceUserId] = useState<string | null>(null);
+  const [selectedDeviceUserId, setSelectedDeviceUserId] = useState<string | null>(null);
   
   const roleMutation = useMutation({
     mutationFn: async (vars: { userId: string, role: string }) => {
@@ -149,7 +153,7 @@ export function AdminUsersPage() {
                 <th className="px-6 py-4 font-medium">نقش</th>
                 <th className="px-6 py-4 font-medium">وضعیت</th>
                 <th className="px-6 py-4 font-medium hidden sm:table-cell">تاریخ عضویت</th>
-                <th className="px-6 py-4 font-medium w-24 text-center">عملیات</th>
+                <th className="px-6 py-4 font-medium w-40 text-center">عملیات</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5">
@@ -174,8 +178,8 @@ export function AdminUsersPage() {
                 </tr>
               ) : data?.users.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-16 text-center">
-                    <div className="flex flex-col items-center justify-center gap-3 text-slate-400">
+                  <td colSpan={5} className="px-6 py-16 text-center text-slate-400">
+                    <div className="flex flex-col items-center justify-center gap-3">
                       <UserX className="w-10 h-10 opacity-30" />
                       <p className="text-base font-medium">کاربری یافت نشد</p>
                       {hasActiveFilters && (
@@ -186,7 +190,7 @@ export function AdminUsersPage() {
                 </tr>
               ) : (
                 data?.users.map((user: AdminUserRecord) => (
-                  <tr key={user.id} className="hover:bg-white/[0.02] transition-colors group">
+                  <tr key={user.id} className="hover:bg-slate-800/40 transition-colors group">
                     <td className="px-6 py-4">
                       <div className="flex flex-col">
                         <span className="text-slate-200 font-medium" dir="ltr">{user.email}</span>
@@ -215,14 +219,34 @@ export function AdminUsersPage() {
                       {new Date(user.createdAt).toLocaleDateString("fa-IR")}
                     </td>
                     <td className="px-6 py-4 text-center">
-                      <button 
-                        onClick={() => handleRoleChangeClick(user)}
-                        className="text-xs font-medium text-teal-400 hover:text-teal-300 bg-teal-400/10 hover:bg-teal-400/20 px-3 py-1.5 rounded-md transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100 disabled:opacity-50"
-                        title="تغییر نقش"
-                        aria-label={`تغییر نقش کاربر ${user.email}`}
-                      >
-                        ویرایش نقش
-                      </button>
+                      <div className="flex items-center justify-center gap-2">
+                        <button
+                          onClick={() => setSelectedCommerceUserId(user.id)}
+                          className="text-xs font-medium text-purple-400 hover:text-purple-300 bg-purple-400/10 hover:bg-purple-400/20 px-2.5 py-1.5 rounded-lg transition-colors flex items-center gap-1"
+                          title="سوابق مالی و دسترسی"
+                          aria-label={`سوابق مالی کاربر ${user.email}`}
+                        >
+                          <CreditCard className="w-3.5 h-3.5" />
+                          <span>مالی</span>
+                        </button>
+                        <button
+                          onClick={() => setSelectedDeviceUserId(user.id)}
+                          className="text-xs font-medium text-indigo-400 hover:text-indigo-300 bg-indigo-400/10 hover:bg-indigo-400/20 px-2.5 py-1.5 rounded-lg transition-colors flex items-center gap-1"
+                          title="مدیریت دستگاه‌ها و سشن‌ها"
+                          aria-label={`دستگاه‌های کاربر ${user.email}`}
+                        >
+                          <Laptop className="w-3.5 h-3.5" />
+                          <span>دستگاه‌ها</span>
+                        </button>
+                        <button 
+                          onClick={() => handleRoleChangeClick(user)}
+                          className="text-xs font-medium text-teal-400 hover:text-teal-300 bg-teal-400/10 hover:bg-teal-400/20 px-2.5 py-1.5 rounded-lg transition-colors"
+                          title="تغییر نقش"
+                          aria-label={`تغییر نقش کاربر ${user.email}`}
+                        >
+                          ویرایش نقش
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -264,6 +288,20 @@ export function AdminUsersPage() {
           )}
         </div>
       </div>
+
+      {/* User Commerce Drawer */}
+      <UserCommerceDrawer
+        isOpen={Boolean(selectedCommerceUserId)}
+        userId={selectedCommerceUserId}
+        onClose={() => setSelectedCommerceUserId(null)}
+      />
+
+      {/* User Devices Drawer */}
+      <UserDevicesDrawer
+        isOpen={Boolean(selectedDeviceUserId)}
+        userId={selectedDeviceUserId}
+        onClose={() => setSelectedDeviceUserId(null)}
+      />
 
       {/* Role Change Modal */}
       {selectedUser && isModalOpen && (

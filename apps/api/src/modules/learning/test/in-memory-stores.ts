@@ -87,6 +87,10 @@ export class InMemoryModuleStore implements ModuleStore {
       this.modules.set(moduleId, { ...existing });
     }
   }
+
+  getAll(): ModuleRecord[] {
+    return Array.from(this.modules.values()).map((m) => ({ ...m }));
+  }
 }
 
 export class InMemoryLessonStore implements LessonStore {
@@ -94,14 +98,14 @@ export class InMemoryLessonStore implements LessonStore {
 
   async listByModule(moduleId: ModuleId): Promise<LessonRecord[]> {
     return Array.from(this.lessons.values())
-      .filter((l) => l.moduleId === moduleId)
+      .filter((l) => l.moduleId === moduleId && l.deletedAt === null)
       .map((l) => ({ ...l }));
   }
 
   async listByModules(moduleIds: ModuleId[]): Promise<LessonRecord[]> {
     const moduleIdSet = new Set(moduleIds);
     return Array.from(this.lessons.values())
-      .filter((l) => moduleIdSet.has(l.moduleId))
+      .filter((l) => moduleIdSet.has(l.moduleId) && l.deletedAt === null)
       .map((l) => ({ ...l }));
   }
 
@@ -209,6 +213,14 @@ export class InMemoryProgressStore implements ProgressStore {
 
 export class InMemoryDocumentStore implements DocumentStore {
   private documents: Map<string, DocumentRecord> = new Map();
+
+  async findById(id: DocumentId): Promise<DocumentRecord | undefined> {
+    const record = this.documents.get(id);
+    if (!record || record.deletedAt) {
+      return undefined;
+    }
+    return { ...record };
+  }
 
   async findByIdForOrganization(
     id: DocumentId,

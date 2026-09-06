@@ -54,7 +54,7 @@ describe("ReviewSummaryViewer Component", () => {
     vi.clearAllMocks();
   });
 
-  it("renders review summary with header badges and estimated reading time", async () => {
+  it("renders review summary with document-level categories and estimated reading time", async () => {
     global.fetch = vi.fn().mockImplementation(async (url: string) => {
       if (String(url).includes("/review-summary")) {
         return {
@@ -99,7 +99,17 @@ describe("ReviewSummaryViewer Component", () => {
     expect(screen.getByText(/زمان مطالعه تقریبی: ۱۲ دقیقه/)).toBeDefined();
     expect(screen.getByText(/مناسب برای: مرور سریع قبل از آزمون/)).toBeDefined();
     expect(screen.getByText(/خلاصه یک‌دقیقه‌ای/)).toBeDefined();
-    expect(screen.getByText(/مهارکننده‌های سیستم رنین-آنژیوتانسین/)).toBeDefined();
+
+    // Verify 6 document-level category containers are rendered
+    expect(screen.getByText(/نکات کلیدی و مفاهیم اصلی/)).toBeDefined();
+    expect(screen.getByText(/مکانیسم‌های سلولی \/ مولکولی/)).toBeDefined();
+    expect(screen.getByText(/دسته‌بندی و طبقه‌بندی ساختاری/)).toBeDefined();
+    expect(screen.getByText(/مقایسه‌ها و تفاوت‌های کلیدی \(Key Distinctions\)/)).toBeDefined();
+    expect(screen.getByText(/نکات حفظی و اعداد مهم/)).toBeDefined();
+    expect(screen.getByText(/نکات مهم و پرتکرار آزمونی/)).toBeDefined();
+
+    // Verify content items
+    expect(screen.getByText(/کاپتوپریل و انالاپریل/)).toBeDefined();
     expect(screen.getByText(/مهارکننده‌های ACE باعث تجمع برادی‌کینین/)).toBeDefined();
     expect(screen.getByText(/بارداری \(تراتوژنیسیتی قطعی\)/)).toBeDefined();
     expect(screen.getByText(/خطر هیپرکالمی شدید/)).toBeDefined();
@@ -146,5 +156,173 @@ describe("ReviewSummaryViewer Component", () => {
     expect(
       screen.getByText(/تولید خلاصه مروری با هوش مصنوعی/),
     ).toBeDefined();
+  });
+
+  it("flattens 3 sections with comparisons into ONE single Key Distinctions container and does not render micro-section headings", async () => {
+    const multiSectionPayload: ReviewSummaryPayload = {
+      kind: "review_summary",
+      title: "فارماکولوژی جامع",
+      estimatedReadingMinutes: 15,
+      overview: "مرور جامع ۳ بخش دارویی",
+      sections: [
+        {
+          title: "بخش ۱: مسدودکننده‌های بتا",
+          keyPoints: ["پروپرانولول غیرانتخابی"],
+          comparisons: [
+            {
+              conceptA: "Propranolol",
+              conceptB: "Metoprolol",
+              keyDifferences: "پروپرانولول غیراختصاصی است ولی متوپرولول بتا-۱ اختصاصی است.",
+            },
+          ],
+        },
+        {
+          title: "بخش ۲: دیورتیک‌ها",
+          keyPoints: ["فورزماید دیورتیک لوپ"],
+          comparisons: [
+            {
+              conceptA: "Furosemide",
+              conceptB: "Hydrochlorothiazide",
+              keyDifferences: "فورزماید اثر مهاری قوی‌تری بر بازجذب سدیم در قوس هنله دارد.",
+            },
+          ],
+        },
+        {
+          title: "بخش ۳: مهارکننده‌های کانال کلسیم",
+          keyPoints: ["وراپامیل و آملودیپین"],
+          comparisons: [
+            {
+              conceptA: "Verapamil",
+              conceptB: "Amlodipine",
+              keyDifferences: "وراپامیل بر میوکارد اثر غالب دارد ولی آملودیپین بر عروق محیطی انتخابی‌تر است.",
+            },
+          ],
+        },
+      ],
+      finalTakeaways: ["جمع‌بندی نهایی ۳ بخش"],
+      citationChunkIds: ["chunk-1"],
+    };
+
+    global.fetch = vi.fn().mockImplementation(async (url: string) => {
+      if (String(url).includes("/review-summary")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            request_id: "req-1",
+            content: {
+              id: "content-2",
+              type: "review_summary",
+              payload: multiSectionPayload,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            },
+          }),
+        };
+      }
+      return { ok: true, status: 200, json: async () => ({}) };
+    });
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <ReviewSummaryViewer
+          organizationId={mockOrgId}
+          documentId={mockDocId}
+          courseId={mockCourseId}
+          documentTitle="cardio_all.pdf"
+        />
+      </QueryClientProvider>,
+    );
+
+    // Wait for render
+    await waitFor(() => {
+      expect(screen.getByText(/فارماکولوژی جامع/)).toBeDefined();
+    });
+
+    // 1. Key Distinctions heading appears EXACTLY ONCE
+    const distinctionHeadings = screen.getAllByText(/مقایسه‌ها و تفاوت‌های کلیدی \(Key Distinctions\)/);
+    expect(distinctionHeadings.length).toBe(1);
+
+    // 2. All 3 comparisons from the 3 sections are rendered within that single container
+    expect(screen.getByText(/Propranolol/)).toBeDefined();
+    expect(screen.getByText(/Metoprolol/)).toBeDefined();
+    expect(screen.getByText(/Furosemide/)).toBeDefined();
+    expect(screen.getByText(/Hydrochlorothiazide/)).toBeDefined();
+    expect(screen.getByText(/Verapamil/)).toBeDefined();
+    expect(screen.getByText(/Amlodipine/)).toBeDefined();
+
+    // 3. Section titles are NOT rendered as headings
+    expect(screen.queryByText(/بخش ۱: مسدودکننده‌های بتا/)).toBeNull();
+    expect(screen.queryByText(/بخش ۲: دیورتیک‌ها/)).toBeNull();
+    expect(screen.queryByText(/بخش ۳: مهارکننده‌های کانال کلسیم/)).toBeNull();
+
+    // 4. Key points from all 3 sections are merged in the Key Points category
+    const keyPointsHeadings = screen.getAllByText(/نکات کلیدی و مفاهیم اصلی/);
+    expect(keyPointsHeadings.length).toBe(1);
+    expect(screen.getByText(/پروپرانولول غیرانتخابی/)).toBeDefined();
+    expect(screen.getByText(/فورزماید دیورتیک لوپ/)).toBeDefined();
+    expect(screen.getByText(/وراپامیل و آملودیپین/)).toBeDefined();
+  });
+
+  it("omits empty categories when sections contain no items for them", async () => {
+    const sparsePayload: ReviewSummaryPayload = {
+      kind: "review_summary",
+      title: "نکات خلاصه کوتاه",
+      estimatedReadingMinutes: 5,
+      sections: [
+        {
+          title: "بخش تست",
+          keyPoints: ["تنها یک نکته کلیدی"],
+          examPoints: ["یک نکته امتحانی مهم"],
+        },
+      ],
+      citationChunkIds: ["chunk-1"],
+    };
+
+    global.fetch = vi.fn().mockImplementation(async (url: string) => {
+      if (String(url).includes("/review-summary")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            request_id: "req-1",
+            content: {
+              id: "content-3",
+              type: "review_summary",
+              payload: sparsePayload,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            },
+          }),
+        };
+      }
+      return { ok: true, status: 200, json: async () => ({}) };
+    });
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <ReviewSummaryViewer
+          organizationId={mockOrgId}
+          documentId={mockDocId}
+          courseId={mockCourseId}
+        />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/نکات خلاصه کوتاه/)).toBeDefined();
+    });
+
+    // Populated categories MUST exist
+    expect(screen.getByText(/نکات کلیدی و مفاهیم اصلی/)).toBeDefined();
+    expect(screen.getByText(/تنها یک نکته کلیدی/)).toBeDefined();
+    expect(screen.getByText(/نکات مهم و پرتکرار آزمونی/)).toBeDefined();
+    expect(screen.getByText(/یک نکته امتحانی مهم/)).toBeDefined();
+
+    // Empty categories MUST NOT exist
+    expect(screen.queryByText(/مکانیسم‌های سلولی \/ مولکولی/)).toBeNull();
+    expect(screen.queryByText(/دسته‌بندی و طبقه‌بندی ساختاری/)).toBeNull();
+    expect(screen.queryByText(/مقایسه‌ها و تفاوت‌های کلیدی \(Key Distinctions\)/)).toBeNull();
+    expect(screen.queryByText(/نکات حفظی و اعداد مهم/)).toBeNull();
   });
 });

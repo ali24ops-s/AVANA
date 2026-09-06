@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Clock,
@@ -11,8 +11,6 @@ import {
   RefreshCw,
   Loader2,
   Bookmark,
-  ChevronDown,
-  ChevronUp,
   Hash,
   Scale,
   BrainCircuit,
@@ -20,7 +18,10 @@ import {
 } from "lucide-react";
 import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
 import { createGenerationApi } from "../../lib/api/generation.js";
-import type { ReviewSummaryPayload, ReviewSummarySection } from "@avana/domain";
+import {
+  type ReviewSummaryPayload,
+  flattenReviewSummarySections,
+} from "@avana/domain";
 
 export interface ReviewSummaryViewerProps {
   organizationId: string;
@@ -68,6 +69,11 @@ export function ReviewSummaryViewer({
 
   const content = reviewSummaryQuery.data?.content;
   const payload = content?.payload as unknown as ReviewSummaryPayload | undefined;
+
+  const categories = useMemo(
+    () => flattenReviewSummarySections(payload?.sections),
+    [payload?.sections],
+  );
 
   const isGenerating = generateMutation.isPending;
   const isLoading = reviewSummaryQuery.isLoading;
@@ -173,6 +179,13 @@ export function ReviewSummaryViewer({
   // 5. Completed / Render state
   const estimatedMins = payload.estimatedReadingMinutes || 12;
 
+  const hasKeyPoints = categories.keyPoints.length > 0;
+  const hasMechanisms = categories.mechanisms.length > 0;
+  const hasClassifications = categories.classifications.length > 0;
+  const hasComparisons = categories.comparisons.length > 0;
+  const hasMemorization = categories.memorizationPoints.length > 0;
+  const hasExamPoints = categories.examPoints.length > 0;
+
   return (
     <div className="space-y-6 font-sans text-slate-200" dir="rtl">
       {/* Top Header Card */}
@@ -215,7 +228,7 @@ export function ReviewSummaryViewer({
               {payload.title || documentTitle || "خلاصه جامع و مروری مبحث"}
             </h1>
             <p className="text-xs text-slate-400 mt-1">
-              طراحی‌شده برای فعال‌سازی حداکثر اطلاعات مهم در کمترین زمان ممکن بدون حاشیه‌پردازی
+              برگه مرور یکپارچه (Review Sheet) جهت یادآوری سریع و فعال‌سازی اطلاعات کلیدی
             </p>
           </div>
         </div>
@@ -236,11 +249,190 @@ export function ReviewSummaryViewer({
         </div>
       )}
 
-      {/* Sections List */}
-      <div className="space-y-5">
-        {payload.sections.map((section, sIdx) => (
-          <SectionCard key={sIdx} section={section} index={sIdx} />
-        ))}
+      {/* ========================================================================= */}
+      {/* Category-First Review Sheet Boxes                                         */}
+      {/* Each category rendered at most ONCE, omitted if empty                     */}
+      {/* ========================================================================= */}
+      <div className="space-y-6">
+        {/* Category 1: Key Points & Core Concepts */}
+        {hasKeyPoints && (
+          <div className="p-6 sm:p-7 rounded-3xl bg-slate-900/85 border border-slate-800/90 shadow-xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800/80">
+              <h3 className="text-base sm:text-lg font-black text-white flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-teal-500/10 border border-teal-500/30 text-teal-400 flex items-center justify-center">
+                  <CheckCircle2 className="w-4 h-4" />
+                </div>
+                <span>نکات کلیدی و مفاهیم اصلی</span>
+              </h3>
+              <span className="text-xs text-slate-400 bg-white/5 px-2.5 py-1 rounded-lg font-medium">
+                {categories.keyPoints.length.toLocaleString("fa-IR")} نکته
+              </span>
+            </div>
+            <ul className="space-y-3 pr-1">
+              {categories.keyPoints.map((pt, pIdx) => (
+                <li key={pIdx} className="flex items-start gap-3 text-xs sm:text-sm text-slate-200">
+                  <span className="w-2 h-2 rounded-full bg-teal-400 shrink-0 mt-2 shadow-sm shadow-teal-400/50" />
+                  <span className="leading-relaxed font-medium">{pt}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Category 2 & 3: Mechanisms & Classifications Grid */}
+        {(hasMechanisms || hasClassifications) && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Category 2: Mechanisms */}
+            {hasMechanisms && (
+              <div className="p-6 rounded-3xl bg-cyan-950/20 border border-cyan-500/25 shadow-xl space-y-4">
+                <div className="flex items-center justify-between pb-3 border-b border-cyan-500/20">
+                  <h3 className="text-sm sm:text-base font-black text-cyan-300 flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-lg bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 flex items-center justify-center">
+                      <BrainCircuit className="w-3.5 h-3.5" />
+                    </div>
+                    <span>مکانیسم‌های سلولی / مولکولی</span>
+                  </h3>
+                  <span className="text-xs text-cyan-300/80 bg-cyan-500/10 px-2 py-0.5 rounded-lg font-medium">
+                    {categories.mechanisms.length.toLocaleString("fa-IR")} مکانیسم
+                  </span>
+                </div>
+                <ul className="space-y-2.5 text-xs sm:text-sm text-slate-300 pr-1">
+                  {categories.mechanisms.map((m, mIdx) => (
+                    <li key={mIdx} className="flex items-start gap-2.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 shrink-0 mt-1.5" />
+                      <span className="leading-relaxed">{m}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Category 3: Classifications */}
+            {hasClassifications && (
+              <div className="p-6 rounded-3xl bg-blue-950/20 border border-blue-500/25 shadow-xl space-y-4">
+                <div className="flex items-center justify-between pb-3 border-b border-blue-500/20">
+                  <h3 className="text-sm sm:text-base font-black text-blue-300 flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-lg bg-blue-500/10 border border-blue-500/30 text-blue-400 flex items-center justify-center">
+                      <Hash className="w-3.5 h-3.5" />
+                    </div>
+                    <span>دسته‌بندی و طبقه‌بندی ساختاری</span>
+                  </h3>
+                  <span className="text-xs text-blue-300/80 bg-blue-500/10 px-2 py-0.5 rounded-lg font-medium">
+                    {categories.classifications.length.toLocaleString("fa-IR")} دسته
+                  </span>
+                </div>
+                <ul className="space-y-2.5 text-xs sm:text-sm text-slate-300 pr-1">
+                  {categories.classifications.map((c, cIdx) => (
+                    <li key={cIdx} className="flex items-start gap-2.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-blue-400 shrink-0 mt-1.5" />
+                      <span className="leading-relaxed">{c}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Category 4: Comparisons / Key Distinctions (Single Unified Box for ALL Comparisons) */}
+        {hasComparisons && (
+          <div className="p-6 sm:p-7 rounded-3xl bg-purple-950/20 border border-purple-500/25 shadow-xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-purple-500/20">
+              <h3 className="text-base sm:text-lg font-black text-purple-200 flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-purple-500/10 border border-purple-500/30 text-purple-400 flex items-center justify-center">
+                  <Scale className="w-4 h-4" />
+                </div>
+                <span>مقایسه‌ها و تفاوت‌های کلیدی (Key Distinctions)</span>
+              </h3>
+              <span className="text-xs text-purple-300 bg-purple-500/10 px-2.5 py-1 rounded-lg font-medium">
+                {categories.comparisons.length.toLocaleString("fa-IR")} مورد مقایسه
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+              {categories.comparisons.map((comp, compIdx) => {
+                if (typeof comp === "string") {
+                  return (
+                    <div
+                      key={compIdx}
+                      className="p-3.5 rounded-2xl bg-white/5 text-xs text-slate-200 leading-relaxed font-medium border border-white/5"
+                    >
+                      {comp}
+                    </div>
+                  );
+                }
+                return (
+                  <div
+                    key={compIdx}
+                    className="p-4 rounded-2xl bg-purple-950/40 border border-purple-500/30 text-xs space-y-1.5"
+                  >
+                    <div className="flex items-center gap-2 font-bold text-purple-200 text-xs sm:text-sm">
+                      <span>{comp.conceptA}</span>
+                      <span className="text-purple-400 font-black px-1.5 py-0.5 rounded bg-purple-500/20 text-[11px]">
+                        vs
+                      </span>
+                      <span>{comp.conceptB}</span>
+                    </div>
+                    <p className="text-slate-300 leading-relaxed font-medium">
+                      <span className="font-bold text-purple-300">وجه تمایز: </span>
+                      {comp.keyDifferences}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Category 5: Numbers, Dosages & Memorization Highlights */}
+        {hasMemorization && (
+          <div className="p-6 sm:p-7 rounded-3xl bg-amber-950/20 border border-amber-500/25 shadow-xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-amber-500/20">
+              <h3 className="text-base sm:text-lg font-black text-amber-300 flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400 flex items-center justify-center">
+                  <Zap className="w-4 h-4" />
+                </div>
+                <span>نکات حفظی و اعداد مهم</span>
+              </h3>
+              <span className="text-xs text-amber-300 bg-amber-500/10 px-2.5 py-1 rounded-lg font-medium">
+                {categories.memorizationPoints.length.toLocaleString("fa-IR")} نکته حفظی
+              </span>
+            </div>
+            <ul className="space-y-2.5 text-xs sm:text-sm text-amber-100/90 pr-1">
+              {categories.memorizationPoints.map((mem, memIdx) => (
+                <li key={memIdx} className="flex items-start gap-2.5">
+                  <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0 mt-1.5" />
+                  <span className="leading-relaxed font-semibold">{mem}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Category 6: High-Yield Exam Points */}
+        {hasExamPoints && (
+          <div className="p-6 sm:p-7 rounded-3xl bg-rose-950/20 border border-rose-500/25 shadow-xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-rose-500/20">
+              <h3 className="text-base sm:text-lg font-black text-rose-300 flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 flex items-center justify-center">
+                  <GraduationCap className="w-4 h-4" />
+                </div>
+                <span>نکات مهم و پرتکرار آزمونی</span>
+              </h3>
+              <span className="text-xs text-rose-300 bg-rose-500/10 px-2.5 py-1 rounded-lg font-medium">
+                {categories.examPoints.length.toLocaleString("fa-IR")} نکته تست‌خیز
+              </span>
+            </div>
+            <ul className="space-y-2.5 text-xs sm:text-sm text-rose-100/90 pr-1">
+              {categories.examPoints.map((ex, exIdx) => (
+                <li key={exIdx} className="flex items-start gap-2.5">
+                  <span className="w-2 h-2 rounded-full bg-rose-400 shrink-0 mt-1.5 shadow-sm shadow-rose-500/50" />
+                  <span className="leading-relaxed font-bold">{ex}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
 
       {/* Final Takeaways Box */}
@@ -301,200 +493,6 @@ export function ReviewSummaryViewer({
           )}
         </div>
       </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Section Card Component
-// ---------------------------------------------------------------------------
-
-function SectionCard({
-  section,
-  index,
-}: {
-  section: ReviewSummarySection;
-  index: number;
-}) {
-  const [isOpen, setIsOpen] = useState(true);
-
-  const hasComparisons =
-    Array.isArray(section.comparisons) && section.comparisons.length > 0;
-  const hasMechanisms =
-    Array.isArray(section.mechanisms) && section.mechanisms.length > 0;
-  const hasClassifications =
-    Array.isArray(section.classifications) && section.classifications.length > 0;
-  const hasMemorization =
-    Array.isArray(section.memorizationPoints) &&
-    section.memorizationPoints.length > 0;
-  const hasExamPoints =
-    Array.isArray(section.examPoints) && section.examPoints.length > 0;
-
-  return (
-    <div className="rounded-2xl bg-slate-900/80 border border-slate-800 overflow-hidden shadow-md transition-all">
-      {/* Section Header */}
-      <div
-        onClick={() => setIsOpen(!isOpen)}
-        className="p-4 sm:p-5 flex items-center justify-between gap-3 cursor-pointer bg-white/[0.02] hover:bg-white/[0.04] transition select-none"
-      >
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="w-8 h-8 rounded-xl bg-teal-500/10 border border-teal-500/30 text-teal-400 flex items-center justify-center font-bold text-xs shrink-0">
-            {(index + 1).toLocaleString("fa-IR")}
-          </div>
-          <h3 className="text-sm sm:text-base font-bold text-white truncate">
-            {section.title}
-          </h3>
-        </div>
-
-        <div className="flex items-center gap-2 shrink-0 text-slate-400">
-          <span className="text-[11px] text-slate-500 hidden sm:inline">
-            {section.keyPoints?.length ?? 0} نکته کلیدی
-          </span>
-          {isOpen ? (
-            <ChevronUp className="w-4 h-4 text-slate-400" />
-          ) : (
-            <ChevronDown className="w-4 h-4 text-slate-400" />
-          )}
-        </div>
-      </div>
-
-      {/* Section Body */}
-      {isOpen && (
-        <div className="p-5 sm:p-6 space-y-5 border-t border-slate-800/80 text-xs sm:text-sm">
-          {/* Key Points */}
-          {section.keyPoints && section.keyPoints.length > 0 && (
-            <div className="space-y-2">
-              <h4 className="text-[11px] font-bold text-teal-400 uppercase tracking-wider flex items-center gap-1.5">
-                <CheckCircle2 className="w-3.5 h-3.5 text-teal-400" />
-                <span>نکات کلیدی و مفاهیم اصلی:</span>
-              </h4>
-              <ul className="space-y-2 pr-2">
-                {section.keyPoints.map((pt, pIdx) => (
-                  <li key={pIdx} className="flex items-start gap-2.5 text-slate-200">
-                    <span className="w-1.5 h-1.5 rounded-full bg-teal-400 shrink-0 mt-2" />
-                    <span className="leading-relaxed">{pt}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {/* Mechanisms & Classifications Grid */}
-          {(hasMechanisms || hasClassifications) && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
-              {hasMechanisms && (
-                <div className="p-4 rounded-xl bg-cyan-950/30 border border-cyan-500/20 space-y-2">
-                  <h5 className="text-xs font-bold text-cyan-300 flex items-center gap-1.5">
-                    <BrainCircuit className="w-3.5 h-3.5 text-cyan-400" />
-                    <span>مکانیسم‌های سلولی / مولکولی:</span>
-                  </h5>
-                  <ul className="space-y-1.5 text-xs text-slate-300 pr-1">
-                    {section.mechanisms!.map((m, mIdx) => (
-                      <li key={mIdx} className="flex items-start gap-2">
-                        <span className="w-1 h-1 rounded-full bg-cyan-400 shrink-0 mt-1.5" />
-                        <span className="leading-relaxed">{m}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {hasClassifications && (
-                <div className="p-4 rounded-xl bg-blue-950/30 border border-blue-500/20 space-y-2">
-                  <h5 className="text-xs font-bold text-blue-300 flex items-center gap-1.5">
-                    <Hash className="w-3.5 h-3.5 text-blue-400" />
-                    <span>دسته‌بندی و طبقه‌بندی ساختاری:</span>
-                  </h5>
-                  <ul className="space-y-1.5 text-xs text-slate-300 pr-1">
-                    {section.classifications!.map((c, cIdx) => (
-                      <li key={cIdx} className="flex items-start gap-2">
-                        <span className="w-1 h-1 rounded-full bg-blue-400 shrink-0 mt-1.5" />
-                        <span className="leading-relaxed">{c}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Comparisons / Distinctions Table & Cards */}
-          {hasComparisons && (
-            <div className="p-4 rounded-xl bg-purple-950/20 border border-purple-500/20 space-y-2.5">
-              <h5 className="text-xs font-bold text-purple-300 flex items-center gap-1.5">
-                <Scale className="w-3.5 h-3.5 text-purple-400" />
-                <span>مقایسه‌ها و تفاوت‌های کلیدی (Comparisons):</span>
-              </h5>
-              <div className="space-y-2">
-                {section.comparisons!.map((comp, compIdx) => {
-                  if (typeof comp === "string") {
-                    return (
-                      <div
-                        key={compIdx}
-                        className="p-2.5 rounded-lg bg-white/5 text-xs text-slate-200 leading-relaxed"
-                      >
-                        {comp}
-                      </div>
-                    );
-                  }
-                  return (
-                    <div
-                      key={compIdx}
-                      className="p-3 rounded-lg bg-purple-950/40 border border-purple-500/20 text-xs space-y-1"
-                    >
-                      <div className="flex items-center gap-2 font-bold text-purple-200">
-                        <span>{comp.conceptA}</span>
-                        <span className="text-purple-400">vs</span>
-                        <span>{comp.conceptB}</span>
-                      </div>
-                      <p className="text-slate-300 leading-relaxed">
-                        <span className="font-semibold text-purple-300">وجه تمایز: </span>
-                        {comp.keyDifferences}
-                      </p>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* Numbers, Dosages & Memorization Highlights */}
-          {hasMemorization && (
-            <div className="p-4 rounded-xl bg-amber-950/25 border border-amber-500/25 space-y-2">
-              <h5 className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
-                <Zap className="w-3.5 h-3.5 text-amber-400" />
-                <span>اعداد، مقادیر و نکات حفظی مهم:</span>
-              </h5>
-              <ul className="space-y-1.5 text-xs text-amber-100/90 pr-1">
-                {section.memorizationPoints!.map((mem, memIdx) => (
-                  <li key={memIdx} className="flex items-start gap-2">
-                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0 mt-1.5" />
-                    <span className="leading-relaxed font-medium">{mem}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {/* High-Yield Exam Points */}
-          {hasExamPoints && (
-            <div className="p-4 rounded-xl bg-rose-950/25 border border-rose-500/25 space-y-2">
-              <h5 className="text-xs font-bold text-rose-300 flex items-center gap-1.5">
-                <GraduationCap className="w-3.5 h-3.5 text-rose-400" />
-                <span>نکات طلایی و پرتکرار امتحانی (High-Yield Exam Traps):</span>
-              </h5>
-              <ul className="space-y-1.5 text-xs text-rose-100/90 pr-1">
-                {section.examPoints!.map((ex, exIdx) => (
-                  <li key={exIdx} className="flex items-start gap-2">
-                    <span className="w-1.5 h-1.5 rounded-full bg-rose-400 shrink-0 mt-1.5" />
-                    <span className="leading-relaxed font-semibold">{ex}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }

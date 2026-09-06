@@ -10,7 +10,14 @@ export type {
   IdentityAdapter,
 } from "./identity-adapter.js";
 
-export type { Session, SessionToken, SessionConfig } from "./session.js";
+export type {
+  Session,
+  SessionToken,
+  SessionConfig,
+  DeviceType,
+  UserDevice,
+  AuthenticationAttempt,
+} from "./session.js";
 
 export {
   DEFAULT_SESSION_CONFIG,

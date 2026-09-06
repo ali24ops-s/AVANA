@@ -180,6 +180,19 @@ export type QuizAttemptRecord = {
   completedAt?: string | null;
 };
 
+export interface ExamCoverageModule {
+  id: string;
+  title: string;
+  questionCount: number;
+}
+
+export interface ExamCoverageCourse {
+  id: string;
+  title: string;
+  questionCount: number;
+  modules: ExamCoverageModule[];
+}
+
 // ---------------------------------------------------------------------------
 // Study analytics / recommendations
 // ---------------------------------------------------------------------------

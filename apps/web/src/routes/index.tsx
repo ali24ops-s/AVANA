@@ -20,6 +20,7 @@ import { AuthenticatedShell } from "../components/shell/AuthenticatedShell.js";
 import { SignInPage } from "../components/shell/SignInPage.js";
 import { RegisterPage } from "../components/shell/RegisterPage.js";
 import { LandingPage } from "../components/LandingPage.js";
+import { AboutPage } from "../pages/AboutPage.js";
 import { HomePage } from "../pages/HomePage.js";
 import { CourseListPage } from "../pages/CourseListPage.js";
 import { LearningPage } from "../pages/LearningPage.js";
@@ -29,8 +30,13 @@ import { ReviewPage } from "../pages/ReviewPage.js";
 import { ExamsPage } from "../pages/ExamsPage.js";
 import { FilesPage } from "../pages/FilesPage.js";
 import { LibraryPage } from "../pages/LibraryPage.js";
+import { CheckoutCallbackPage } from "../pages/CheckoutCallbackPage.js";
 import { EmailVerificationPage } from "../components/shell/EmailVerificationPage.js";
-import { isAuthEnabled } from "../config/authConfig.js";
+import { PricingPage } from "../pages/PricingPage.js";
+import { TermsPage } from "../pages/TermsPage.js";
+import { UserSubscriptionPage } from "../pages/account/UserSubscriptionPage.js";
+import { UserPurchasesPage } from "../pages/account/UserPurchasesPage.js";
+import { CardToCardPaymentPage } from "../pages/CardToCardPaymentPage.js";
 
 // Admin Imports
 import { AdminLayout } from "../components/shell/AdminLayout.js";
@@ -51,6 +57,23 @@ import { AdminAiAnalyticsPage } from "../pages/admin/AdminAiAnalyticsPage.js";
 import { AdminProvidersPage } from "../pages/admin/AdminProvidersPage.js";
 import { AdminPromptsPage } from "../pages/admin/AdminPromptsPage.js";
 import { AdminSettingsPage } from "../pages/admin/AdminSettingsPage.js";
+import { AdminCommerceDashboardPage } from "../pages/admin/commerce/AdminCommerceDashboardPage.js";
+import { AdminOrdersPage } from "../pages/admin/commerce/AdminOrdersPage.js";
+import { AdminPaymentsPage } from "../pages/admin/commerce/AdminPaymentsPage.js";
+import { AdminSubscriptionsPage } from "../pages/admin/commerce/AdminSubscriptionsPage.js";
+import { AdminEntitlementsPage } from "../pages/admin/commerce/AdminEntitlementsPage.js";
+import { AdminProductsPage } from "../pages/admin/commerce/AdminProductsPage.js";
+import { AdminContentStudioPage } from "../pages/admin/AdminContentStudioPage.js";
+import { AdminCourseHubPage } from "../pages/admin/AdminCourseHubPage.js";
+import { AdminCommunityContentPage } from "../pages/admin/AdminCommunityContentPage.js";
+
+// Blog Imports
+import { BlogListPage } from "../pages/blog/BlogListPage.js";
+import { BlogDetailPage } from "../pages/blog/BlogDetailPage.js";
+import { BlogCategoryPage } from "../pages/blog/BlogCategoryPage.js";
+import { AdminBlogListPage } from "../pages/admin/blog/AdminBlogListPage.js";
+import { AdminBlogEditPage } from "../pages/admin/blog/AdminBlogEditPage.js";
+import { AdminBlogPreviewPage } from "../pages/admin/blog/AdminBlogPreviewPage.js";
 
 const getRouterBasename = () => {
   if (typeof window !== "undefined") {
@@ -73,20 +96,48 @@ export const router = createBrowserRouter(
       element: <LandingPage />,
     },
     {
+      path: "/about",
+      element: <AboutPage />,
+    },
+    {
+      path: "/about-us",
+      element: <Navigate to="/about" replace />,
+    },
+    {
       path: "/sign-in",
-      element: isAuthEnabled() ? <SignInPage /> : <Navigate to="/home" replace />,
+      element: <SignInPage />,
     },
     {
       path: "/login",
-      element: isAuthEnabled() ? <SignInPage /> : <Navigate to="/home" replace />,
+      element: <SignInPage />,
     },
     {
       path: "/register",
-      element: isAuthEnabled() ? <RegisterPage /> : <Navigate to="/home" replace />,
+      element: <RegisterPage />,
     },
     {
       path: "/sign-up",
-      element: isAuthEnabled() ? <RegisterPage /> : <Navigate to="/home" replace />,
+      element: <RegisterPage />,
+    },
+    {
+      path: "/terms",
+      element: <TermsPage />,
+    },
+    {
+      path: "/terms-of-service",
+      element: <Navigate to="/terms" replace />,
+    },
+    {
+      path: "/blog",
+      element: <BlogListPage />,
+    },
+    {
+      path: "/blog/:slug",
+      element: <BlogDetailPage />,
+    },
+    {
+      path: "/blog/category/:slug",
+      element: <BlogCategoryPage />,
     },
 
     // Protected routes (require authentication)
@@ -96,7 +147,11 @@ export const router = createBrowserRouter(
       children: [
         {
           path: "verify-email",
-          element: isAuthEnabled() ? <EmailVerificationPage /> : <Navigate to="/home" replace />,
+          element: <EmailVerificationPage />,
+        },
+        {
+          path: "exams/attempt/:attemptId",
+          element: <ExamsPage />,
         },
         {
           element: <AuthenticatedShell />,
@@ -136,16 +191,44 @@ export const router = createBrowserRouter(
               element: <ExamsPage />,
             },
             {
-              path: "exams/attempt/:attemptId",
-              element: <ExamsPage />,
-            },
-            {
               path: "files",
               element: <FilesPage />,
             },
             {
               path: "library",
               element: <LibraryPage />,
+            },
+            {
+              path: "pricing",
+              element: <PricingPage />,
+            },
+            {
+              path: "account/subscription",
+              element: <UserSubscriptionPage />,
+            },
+            {
+              path: "settings/subscription",
+              element: <Navigate to="/account/subscription" replace />,
+            },
+            {
+              path: "account/purchases",
+              element: <UserPurchasesPage />,
+            },
+            {
+              path: "settings/purchases",
+              element: <Navigate to="/account/purchases" replace />,
+            },
+            {
+              path: "checkout/callback",
+              element: <CheckoutCallbackPage />,
+            },
+            {
+              path: "checkout/card-to-card",
+              element: <CardToCardPaymentPage />,
+            },
+            {
+              path: "payment/card-to-card",
+              element: <CardToCardPaymentPage />,
             },
             {
               path: "*",
@@ -167,6 +250,30 @@ export const router = createBrowserRouter(
               element: <AdminDashboardPage />,
             },
             {
+              path: "commerce",
+              element: <AdminCommerceDashboardPage />,
+            },
+            {
+              path: "commerce/orders",
+              element: <AdminOrdersPage />,
+            },
+            {
+              path: "commerce/payments",
+              element: <AdminPaymentsPage />,
+            },
+            {
+              path: "commerce/subscriptions",
+              element: <AdminSubscriptionsPage />,
+            },
+            {
+              path: "commerce/entitlements",
+              element: <AdminEntitlementsPage />,
+            },
+            {
+              path: "commerce/products",
+              element: <AdminProductsPage />,
+            },
+            {
               path: "analytics",
               element: <AdminAnalyticsPage />,
             },
@@ -175,8 +282,20 @@ export const router = createBrowserRouter(
               element: <AdminAiAnalyticsPage />,
             },
             {
+              path: "content-studio",
+              element: <AdminContentStudioPage />,
+            },
+            {
+              path: "content-studio/:courseId",
+              element: <AdminContentStudioPage />,
+            },
+            {
               path: "courses",
               element: <AdminCoursesPage />,
+            },
+            {
+              path: "courses/:courseId",
+              element: <AdminCourseHubPage />,
             },
             {
               path: "documents",
@@ -189,6 +308,30 @@ export const router = createBrowserRouter(
             {
               path: "content",
               element: <AdminContentPage />,
+            },
+            {
+              path: "blog",
+              element: <AdminBlogListPage />,
+            },
+            {
+              path: "blog/new",
+              element: <AdminBlogEditPage />,
+            },
+            {
+              path: "blog/:id/edit",
+              element: <AdminBlogEditPage />,
+            },
+            {
+              path: "blog/:id/preview",
+              element: <AdminBlogPreviewPage />,
+            },
+            {
+              path: "community-content",
+              element: <AdminCommunityContentPage />,
+            },
+            {
+              path: "community-content/:id",
+              element: <AdminCommunityContentPage />,
             },
             {
               path: "users",

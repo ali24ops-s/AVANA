@@ -11,6 +11,49 @@ import type {
 } from "@avana/contracts";
 import type { ApiClient } from "./client.js";
 
+export type GenerationProgress = {
+  total: number;
+  completed: number;
+  failed: number;
+  pending: number;
+  status: "queued" | "running" | "partial" | "succeeded" | "failed";
+  currentStage?: "planning" | "lesson" | "flashcard" | "quiz" | "review_summary";
+  currentChunkKey?: string;
+};
+
+export type DocumentGenerationProgressResource = {
+  status: "idle" | "queued" | "planning" | "generating" | "reviewing" | "stopping" | "stopped" | "deleting" | "completed" | "failed";
+  stage: "analysis" | "planning" | "lesson" | "flashcard" | "quiz" | "summary" | "review" | "publishing" | null;
+  stageLabel: string | null;
+  progress: {
+    current: number;
+    total: number;
+    percentage: number;
+  } | null;
+  stageStartedAt: string | null;
+  lastActivityAt: string | null;
+  error: string | null;
+};
+
+export type ActiveGenerationItem = {
+  documentId: string;
+  documentName: string;
+  courseId: string | null;
+  organizationId?: string;
+  status: "idle" | "queued" | "planning" | "generating" | "reviewing" | "stopping" | "stopped" | "deleting" | "completed" | "failed";
+  stage: "analysis" | "planning" | "lesson" | "flashcard" | "quiz" | "summary" | "review" | "publishing" | null;
+  stageLabel: string | null;
+  progress: {
+    current: number;
+    total: number;
+    percentage: number;
+  } | null;
+  stageStartedAt: string | null;
+  lastActivityAt: string | null;
+  error: string | null;
+  updatedAt: string;
+};
+
 export type DocumentContentStatus = {
   generated: boolean;
   count: number;
@@ -25,6 +68,8 @@ export type DocumentContentStatusResponse = {
   flashcards: DocumentContentStatus;
   exam: DocumentContentStatus;
   review_summary?: DocumentContentStatus;
+  progress?: GenerationProgress;
+  generationProgress?: DocumentGenerationProgressResource;
   can_generate: boolean;
   all_generated: boolean;
   has_publishable_content?: boolean;
@@ -51,6 +96,7 @@ export type GenerationJobResource = {
   updated_at: string;
   started_at: string | null;
   completed_at: string | null;
+  progress?: GenerationProgress;
 };
 
 export type GenerationJobResponse = {
@@ -180,7 +226,121 @@ export function createGenerationApi(client: ApiClient) {
         options ?? {},
       );
     },
+
+    /**
+     * GET /v1/organizations/:organizationId/generation/active
+     * Returns all active generation progress items for the authenticated user/org.
+     */
+    getActiveGenerations(
+      organizationId: string,
+      courseId?: string | null,
+    ): Promise<{ request_id: string; items: ActiveGenerationItem[] }> {
+      const url = courseId
+        ? `/v1/organizations/${organizationId}/courses/${courseId}/generation/active`
+        : `/v1/organizations/${organizationId}/generation/active`;
+      return client.get<{ request_id: string; items: ActiveGenerationItem[] }>(url);
+    },
+
+    /**
+     * GET /v1/organizations/:organizationId/documents/:documentId/progress
+     * Returns canonical generation progress for a single document.
+     */
+    getDocumentGenerationProgress(
+      organizationId: string,
+      documentId: string,
+      courseId?: string | null,
+    ): Promise<{
+      request_id: string;
+      document_id: string;
+      document_name: string;
+      course_id: string | null;
+      generationProgress: DocumentGenerationProgressResource;
+    }> {
+      const url = courseId
+        ? `/v1/organizations/${organizationId}/courses/${courseId}/documents/${documentId}/progress`
+        : `/v1/organizations/${organizationId}/documents/${documentId}/progress`;
+      return client.get<{
+        request_id: string;
+        document_id: string;
+        document_name: string;
+        course_id: string | null;
+        generationProgress: DocumentGenerationProgressResource;
+      }>(url);
+    },
+
+    /**
+     * POST /v1/organizations/:organizationId/courses/:courseId/documents/:documentId/generation/stop
+     * POST /v1/organizations/:organizationId/documents/:documentId/generation/stop
+     * Stops running or queued generation for a document.
+     */
+    stopGeneration(
+      organizationId: string,
+      documentId: string,
+      courseId?: string | null,
+    ): Promise<{
+      request_id: string;
+      status: "stopped" | "stopping";
+      previous_status?: string;
+      job_id?: string;
+    }> {
+      const url = courseId
+        ? `/v1/organizations/${organizationId}/courses/${courseId}/documents/${documentId}/generation/stop`
+        : `/v1/organizations/${organizationId}/documents/${documentId}/generation/stop`;
+      return client.post(url, {});
+    },
+
+    /**
+     * POST /v1/organizations/:organizationId/generation/:jobId/stop
+     * Stops a specific generation job.
+     */
+    stopGenerationJob(
+      organizationId: string,
+      jobId: string,
+    ): Promise<{
+      request_id: string;
+      status: "stopped" | "stopping";
+      previous_status?: string;
+      job_id?: string;
+    }> {
+      return client.post(`/v1/organizations/${organizationId}/generation/${jobId}/stop`, {});
+    },
+
+    /**
+     * DELETE /v1/organizations/:organizationId/courses/:courseId/documents/:documentId/generation
+     * DELETE /v1/organizations/:organizationId/documents/:documentId/generation
+     * Safely deletes generation process and unaccepted drafts for a document.
+     */
+    deleteGeneration(
+      organizationId: string,
+      documentId: string,
+      courseId?: string | null,
+    ): Promise<{
+      request_id: string;
+      status: "deleted";
+    }> {
+      const url = courseId
+        ? `/v1/organizations/${organizationId}/courses/${courseId}/documents/${documentId}/generation`
+        : `/v1/organizations/${organizationId}/documents/${documentId}/generation`;
+      return client.delete(url);
+    },
+
+    /**
+     * DELETE /v1/organizations/:organizationId/generation/:jobId
+     * Safely deletes a specific generation job and cleans up transient chunks.
+     */
+    deleteGenerationJob(
+      organizationId: string,
+      jobId: string,
+    ): Promise<{
+      request_id: string;
+      status: "deleted";
+      previous_status?: string;
+      job_id?: string;
+    }> {
+      return client.delete(`/v1/organizations/${organizationId}/generation/${jobId}`);
+    },
   };
 }
 
 export type GenerationApi = ReturnType<typeof createGenerationApi>;
+

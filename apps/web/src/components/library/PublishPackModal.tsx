@@ -202,10 +202,10 @@ export function PublishPackModal({
               className="text-lg font-bold text-white flex items-center gap-2"
             >
               <BookOpen className="w-5 h-5 text-teal-400" />
-              <span>انتشار در کتابخانه آوانا</span>
+              <span>ارسال برای بررسی و انتشار در کتابخانه</span>
             </h2>
             <p className="text-xs text-slate-400 mt-1">
-              محتوای تأییدشده شما به‌صورت یک بسته آموزشی مستقل در کتابخانه عمومی آوانا منتشر می‌شود.
+              محتوای تاییدشده شما پس از بررسی و تعیین مدل دسترسی/قیمت توسط ادمین آوانا در کتابخانه عمومی منتشر خواهد شد.
             </p>
           </div>
 
@@ -228,10 +228,10 @@ export function PublishPackModal({
                 <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
                 <div className="space-y-1 min-w-0">
                   <h4 className="font-bold text-sm text-white">
-                    بسته آموزشی شما با موفقیت در کتابخانه آوانا منتشر شد.
+                    بسته آموزشی شما با موفقیت برای بررسی ارسال شد.
                   </h4>
                   <p className="text-slate-300 leading-relaxed">
-                    بسته آموزشی «{publishedResult.title}» اکنون در کتابخانه عمومی در دسترس تمام کاربران قرار گرفته است.
+                    بسته آموزشی «{publishedResult.title}» در صف بررسی ادمین قرار گرفت. پس از تأیید و تعیین قیمت، در کتابخانه عمومی در دسترس تمام کاربران قرار خواهد گرفت.
                   </p>
                 </div>
               </div>
@@ -385,12 +385,12 @@ export function PublishPackModal({
                   {publishMutation.isPending ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>در حال انتشار در کتابخانه...</span>
+                      <span>در حال ارسال برای بررسی...</span>
                     </>
                   ) : (
                     <>
                       <Sparkles className="w-4 h-4" />
-                      <span>تایید و انتشار در کتابخانه</span>
+                      <span>ارسال برای بررسی ادمین</span>
                     </>
                   )}
                 </button>

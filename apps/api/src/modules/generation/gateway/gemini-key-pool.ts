@@ -122,7 +122,7 @@ export class GeminiKeyPool {
    */
   reportFailure(
     slotId: string,
-    reason: "invalid" | "quota_exhausted" | "rate_limited",
+    reason: "invalid" | "quota_exhausted" | "rate_limited" | "server_error",
     cooldownMs?: number,
   ): void {
     const slot = this.slots.find((s) => s.id === slotId);
@@ -142,6 +142,9 @@ export class GeminiKeyPool {
       slot.state = "rate_limited";
       // Default transient rate-limit cooldown: 30 seconds
       slot.cooldownUntil = now + (cooldownMs ?? 30_000);
+    } else if (reason === "server_error") {
+      // Server-side / backend unavailability (500/502/503) is not a client key rate-limit.
+      // The key remains healthy for subsequent requests and does not enter cooldown.
     }
   }
 

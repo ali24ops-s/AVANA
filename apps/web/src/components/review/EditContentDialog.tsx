@@ -65,6 +65,9 @@ export function EditContentDialog({
       void queryClient.invalidateQueries({
         queryKey: ["review-queue", organizationId, courseId],
       });
+      void queryClient.invalidateQueries({
+        queryKey: ["official-review-workspace", courseId],
+      });
       onSaved?.();
       onClose();
     },

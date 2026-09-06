@@ -44,10 +44,14 @@ export type CompletionRequest = {
   jsonSchema?: unknown;
   /** Correlation id tied to request_id / job_id for observability. */
   correlationId: string;
+  /** Optional job id tied to queue / processor. */
+  jobId?: string;
   /** Organization scope. */
   organizationId: OrganizationId;
   /** Source document. */
   documentId: DocumentId;
+  /** Stage of generation lifecycle (e.g. "planning", "lesson", "flashcard", "quiz", "review_summary"). */
+  stage?: string;
 };
 
 /**

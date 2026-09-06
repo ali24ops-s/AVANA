@@ -9,7 +9,6 @@
 import { useState } from "react";
 import { Outlet, Link, useLocation } from "react-router-dom";
 import {
-  Sparkles,
   BookOpen,
   LogOut,
   User,
@@ -22,15 +21,34 @@ import {
   Menu,
   X,
   Library as LibraryIcon,
+  Crown,
+  Receipt,
+  Newspaper,
 } from "lucide-react";
+import { BrandLogo } from "../brand/BrandLogo.js";
 import { useAuth } from "../../providers/AuthProvider.js";
 import { HeaderSearch } from "./HeaderSearch.js";
-import { isAuthEnabled } from "../../config/authConfig.js";
+import { useMySubscription } from "../../hooks/useCommerce.js";
+import {
+  calculateRemainingTime,
+  getUserChipSubscriptionInfo,
+} from "../commerce/userCommerceUtils.js";
+import { GlobalGenerationIndicator } from "../generation/GlobalGenerationIndicator.js";
 
 export function AuthenticatedShell() {
   const { user, isLoading, error, signOut } = useAuth();
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  const { data: subData, isLoading: isSubLoading } = useMySubscription();
+  const subscription = subData?.subscription;
+  const remainingInfo = calculateRemainingTime(subscription?.expires_at);
+  const hasActiveSub = subscription?.status === "active" && !remainingInfo.isExpired;
+  const chipInfo = getUserChipSubscriptionInfo(subscription);
+  const userName =
+    user?.name && user.name.trim().length > 0
+      ? user.name.trim()
+      : (user?.email ?? "کاربر");
 
   if (isLoading) {
     return (
@@ -46,6 +64,11 @@ export function AuthenticatedShell() {
         </div>
       </div>
     );
+  }
+
+  // Dedicated full-screen experiences (e.g. exam taking attempt) bypass shell chrome
+  if (location.pathname.startsWith("/exams/attempt")) {
+    return <Outlet />;
   }
 
   const isHomeActive =
@@ -66,23 +89,11 @@ export function AuthenticatedShell() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between gap-4">
           {/* Brand & Desktop Horizontal Menu (RTL Right side) */}
           <div className="flex items-center gap-6 lg:gap-8">
-            <Link
-              to="/home"
-              className="flex items-center gap-3 group shrink-0"
-              aria-label="صفحه اصلی آوانا"
-            >
-              <div className="w-10 h-10 rounded-xl bg-teal-600/30 border border-teal-500/30 flex items-center justify-center text-teal-400 shadow-sm group-hover:bg-teal-600/40 transition-colors">
-                <Sparkles className="w-5 h-5 text-teal-400" />
-              </div>
-              <div>
-                <h1 className="text-lg font-bold text-teal-400 leading-tight">
-                  آوانا
-                </h1>
-                <p className="text-[10px] sm:text-xs text-slate-400">
-                  آموزش هوشمند پزشکی
-                </p>
-              </div>
-            </Link>
+            <BrandLogo
+              linkTo="/home"
+              variant="logo-only"
+              size="md"
+            />
 
             {/* Desktop Navigation Links */}
             <nav className="hidden md:flex items-center gap-1" aria-label="منوی اصلی">
@@ -115,11 +126,19 @@ export function AuthenticatedShell() {
                 <LibraryIcon className="w-4 h-4" />
                 <span>کتابخانه</span>
               </HeaderNavLink>
+
+              <HeaderNavLink to="/blog" active={location.pathname.startsWith("/blog")}>
+                <Newspaper className="w-4 h-4" />
+                <span>وبلاگ</span>
+              </HeaderNavLink>
             </nav>
           </div>
 
           {/* Controls & User Profile (RTL Left side) */}
           <div className="flex items-center gap-3 shrink-0">
+            {/* Global Generation Status Indicator */}
+            <GlobalGenerationIndicator />
+
             {/* Real Search Bar (Desktop) */}
             <HeaderSearch />
 
@@ -132,28 +151,53 @@ export function AuthenticatedShell() {
               <Bell className="w-5 h-5" />
             </button>
 
-            {/* User Profile Pill */}
-            <div className="flex items-center gap-2 text-xs font-medium text-slate-300 glass-panel px-3 py-1.5 rounded-full card-inner-border">
-              <User className="w-3.5 h-3.5 text-teal-400" />
-              <span className="hidden sm:inline text-xs">
-                {user?.name && user.name.trim().length > 0
-                  ? user.name.trim()
-                  : (user?.email ?? "کاربر")}
+            {/* User Profile / Subscription Trigger Chip */}
+            <Link
+              to="/account/subscription"
+              title={chipInfo.tooltip}
+              aria-label={`حساب کاربری ${userName}${chipInfo.badgeLabel ? ` - وضعیت اشتراک: ${chipInfo.badgeLabel}` : ""}`}
+              className={`group flex items-center gap-2 text-xs font-medium glass-panel px-3 py-1.5 rounded-full card-inner-border transition-all cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-400 ${
+                location.pathname === "/account/subscription"
+                  ? "text-teal-300 border-teal-500/50 bg-teal-500/10 shadow-sm"
+                  : chipInfo.chipClassName
+              }`}
+            >
+              <div className="w-5 h-5 rounded-full bg-teal-500/10 border border-teal-500/20 flex items-center justify-center shrink-0 text-teal-400 group-hover:border-teal-400/40 transition-colors">
+                <User className="w-3 h-3" />
+              </div>
+              <span className="hidden sm:inline text-xs font-semibold truncate max-w-[130px]">
+                {userName}
               </span>
-            </div>
+              {isSubLoading ? (
+                <span className="hidden sm:inline-block w-8 h-3.5 bg-white/10 animate-pulse rounded-full" />
+              ) : chipInfo.badgeLabel ? (
+                <span
+                  className={`hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium leading-none transition-colors ${chipInfo.badgeClassName}`}
+                >
+                  {chipInfo.status === "active" && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-teal-400 shrink-0" />
+                  )}
+                  {chipInfo.status === "expiring_soon" && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+                  )}
+                  {chipInfo.status === "expired" && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-rose-400 shrink-0" />
+                  )}
+                  <span>{chipInfo.badgeLabel}</span>
+                </span>
+              ) : null}
+            </Link>
 
-            {/* Sign Out Button (Only when Auth is enabled) */}
-            {isAuthEnabled() && (
-              <button
-                type="button"
-                onClick={() => void signOut()}
-                aria-label="خروج از حساب"
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold text-slate-300 hover:text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/30 transition-colors"
-              >
-                <LogOut className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">خروج</span>
-              </button>
-            )}
+            {/* Sign Out Button */}
+            <button
+              type="button"
+              onClick={() => void signOut()}
+              aria-label="خروج از حساب"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold text-slate-300 hover:text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/30 transition-colors"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">خروج</span>
+            </button>
 
             {/* Mobile Menu Button */}
             <button
@@ -225,6 +269,33 @@ export function AuthenticatedShell() {
             <span>کتابخانه عمومی</span>
           </MobileDrawerLink>
 
+          <MobileDrawerLink
+            to="/blog"
+            active={location.pathname.startsWith("/blog")}
+            onClick={() => setMobileMenuOpen(false)}
+          >
+            <Newspaper className="w-5 h-5 text-teal-400" />
+            <span>وبلاگ آموزشی</span>
+          </MobileDrawerLink>
+
+          <MobileDrawerLink
+            to="/account/subscription"
+            active={location.pathname === "/account/subscription"}
+            onClick={() => setMobileMenuOpen(false)}
+          >
+            <Crown className="w-5 h-5 text-amber-400" />
+            <span>اشتراک من ({hasActiveSub ? remainingInfo.shortText : "ارتقا"})</span>
+          </MobileDrawerLink>
+
+          <MobileDrawerLink
+            to="/account/purchases"
+            active={location.pathname === "/account/purchases"}
+            onClick={() => setMobileMenuOpen(false)}
+          >
+            <Receipt className="w-5 h-5 text-teal-400" />
+            <span>خریدهای من و فاکتورها</span>
+          </MobileDrawerLink>
+
           <div className="mt-auto pt-4 border-t border-white/10">
             <Link
               to="/home"
@@ -274,26 +345,14 @@ export function AuthenticatedShell() {
           <span className="text-[10px]">لیست دوره‌ها</span>
         </Link>
 
-        {isAuthEnabled() ? (
-          <button
-            type="button"
-            onClick={() => void signOut()}
-            className="flex flex-col items-center justify-center w-full h-full text-slate-400 hover:text-red-400 transition-colors"
-          >
-            <User className="w-5 h-5 mb-0.5" />
-            <span className="text-[10px]">خروج</span>
-          </button>
-        ) : (
-          <Link
-            to="/library"
-            className={`flex flex-col items-center justify-center w-full h-full text-xs font-medium ${
-              isLibraryActive ? "text-[#008080] text-teal-400 font-bold" : "text-slate-400 hover:text-teal-300"
-            }`}
-          >
-            <LibraryIcon className="w-5 h-5 mb-0.5" />
-            <span className="text-[10px]">کتابخانه</span>
-          </Link>
-        )}
+        <button
+          type="button"
+          onClick={() => void signOut()}
+          className="flex flex-col items-center justify-center w-full h-full text-slate-400 hover:text-red-400 transition-colors"
+        >
+          <User className="w-5 h-5 mb-0.5" />
+          <span className="text-[10px]">خروج</span>
+        </button>
       </nav>
     </div>
   );

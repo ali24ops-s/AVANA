@@ -20,7 +20,10 @@ import {
   DrizzleGeneratedContentStore,
   DrizzleGeneratedContentCitationStore,
   DrizzleGenerationJobStore,
+  DrizzleGenerationChunkStore,
 } from "@avana/api/generation/drizzle-stores";
+import { DrizzleCourseStore } from "@avana/api/courses/drizzle-stores";
+import { GenerationRecoveryService } from "@avana/api/generation/generation-recovery-service";
 import {
   createModelGateway,
   type ModelGateway,
@@ -33,6 +36,8 @@ import type { WorkerConfig } from "./config.js";
 export interface WorkerDependencies {
   generationService: GenerationService;
   generationJobStore: DrizzleGenerationJobStore;
+  generationChunkStore: DrizzleGenerationChunkStore;
+  recoveryService: GenerationRecoveryService;
   gateway: ModelGateway;
   close: () => Promise<void>;
 }
@@ -46,12 +51,14 @@ export async function composeWorker(
   const { db, close } = createDbClient(config.database.url);
 
   // Stores (Drizzle-backed, matching production API).
+  const courseStore = new DrizzleCourseStore(db);
   const documentStore = new DrizzleDocumentStore(db);
   const documentChunkStore = new DrizzleDocumentChunkStore(db);
   const generatedContentStore = new DrizzleGeneratedContentStore(db);
   const generatedContentCitationStore =
     new DrizzleGeneratedContentCitationStore(db);
   const generationJobStore = new DrizzleGenerationJobStore(db);
+  const generationChunkStore = new DrizzleGenerationChunkStore(db);
 
   // Model gateway (mock provider unless a real provider is configured).
   const gateway = createModelGateway({
@@ -78,6 +85,18 @@ export async function composeWorker(
   const auditStore = new DrizzleAuditStore(db);
   const auditService = new AuditService(auditStore);
 
+  // Recovery service for automatic startup and background stale reconciliation.
+  const recoveryService = new GenerationRecoveryService(
+    db,
+    courseStore,
+    documentStore,
+    generatedContentStore,
+    documentChunkStore,
+    generationJobStore,
+    generationChunkStore,
+    auditService,
+  );
+
   // Reuse the existing worker-ready GenerationService unchanged.
   const generationService = new GenerationService(
     generatedContentStore,
@@ -87,11 +106,23 @@ export async function composeWorker(
     documentChunkStore,
     defaultPolicy,
     auditService,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    generationChunkStore,
+    generationJobStore,
   );
 
   return {
     generationService,
     generationJobStore,
+    generationChunkStore,
+    recoveryService,
     gateway,
     close,
   };

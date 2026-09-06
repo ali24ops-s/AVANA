@@ -437,7 +437,7 @@ describe("Content Packs & Library Backend Test Suite", () => {
     expect(body.pack).toBeDefined();
     expect(body.pack.id).toBeDefined();
     expect(body.pack.title).toBe("بسته طلایی فارماکولوژی CNS");
-    expect(body.pack.status).toBe("published");
+    expect(body.pack.status).toBe("pending_review");
     expect(body.pack.usage_count).toBe(0);
     expect(body.pack.items_count).toBe(4);
     expect(body.pack.stats.session_count).toBe(2);
@@ -718,6 +718,7 @@ describe("Content Packs & Library Backend Test Suite", () => {
       payload: { title: "پک مقاوم در برابر حذف سند" },
     });
     const packId = JSON.parse(pubRes.body).pack.id;
+    await contentPackStore.updateStatus(packId, "published", { accessType: "free" });
 
     // Simulate creator deleting their document
     await documentStore.delete(docId);
@@ -742,7 +743,7 @@ describe("Content Packs & Library Backend Test Suite", () => {
     const { orgId, courseId, userId, token } = await setupUserAndOrg(app);
     const { docId } = await createReadyDocumentWithContents(orgId, courseId, userId);
 
-    await app.inject({
+    const pubRes = await app.inject({
       method: "POST",
       url: `/v1/organizations/${orgId}/documents/${docId}/content-pack/publish`,
       cookies: { avana_session: token },
@@ -752,6 +753,8 @@ describe("Content Packs & Library Backend Test Suite", () => {
         subject: "فارماکولوژی",
       },
     });
+    const packId = JSON.parse(pubRes.body).pack.id;
+    await contentPackStore.updateStatus(packId, "published", { accessType: "free" });
 
     const res = await app.inject({
       method: "GET",
@@ -786,21 +789,23 @@ describe("Content Packs & Library Backend Test Suite", () => {
 
     // Create Doc 1
     const { docId: doc1 } = await createReadyDocumentWithContents(orgId, courseId, userId);
-    await app.inject({
+    const pub1 = await app.inject({
       method: "POST",
       url: `/v1/organizations/${orgId}/documents/${doc1}/content-pack/publish`,
       cookies: { avana_session: token },
       payload: { title: "فارماکولوژی قلب و عروق", subject: "فارماکولوژی ۱" },
     });
+    await contentPackStore.updateStatus(JSON.parse(pub1.body).pack.id, "published", { accessType: "free" });
 
     // Create Doc 2
     const { docId: doc2 } = await createReadyDocumentWithContents(orgId, courseId, userId);
-    await app.inject({
+    const pub2 = await app.inject({
       method: "POST",
       url: `/v1/organizations/${orgId}/documents/${doc2}/content-pack/publish`,
       cookies: { avana_session: token },
       payload: { title: "میکروب‌شناسی عمومی", subject: "میکروب‌شناسی" },
     });
+    await contentPackStore.updateStatus(JSON.parse(pub2.body).pack.id, "published", { accessType: "free" });
 
     // Filter by subject "فارماکولوژی ۱"
     const subRes = await app.inject({
@@ -833,20 +838,22 @@ describe("Content Packs & Library Backend Test Suite", () => {
       payload: { title: "پک قدیمی اما با استفاده بالا" },
     });
     const pack1Id = JSON.parse(pub1.body).pack.id;
+    await contentPackStore.updateStatus(pack1Id, "published", { accessType: "free" });
 
     // Simulate high usage on pack1
     const p1 = await contentPackStore.findById(pack1Id);
-    p1.usageCount = 50;
-    p1.publishedAt = new Date(Date.now() - 100000).toISOString();
-    (contentPackStore as unknown as { packs: Map<string, typeof p1> }).packs.set(p1.id, { ...p1 });
+    p1!.usageCount = 50;
+    p1!.publishedAt = new Date(Date.now() - 100000).toISOString();
+    (contentPackStore as unknown as { packs: Map<string, typeof p1> }).packs.set(p1!.id, { ...p1! });
 
     const { docId: doc2 } = await createReadyDocumentWithContents(orgId, courseId, userId);
-    await app.inject({
+    const pub2 = await app.inject({
       method: "POST",
       url: `/v1/organizations/${orgId}/documents/${doc2}/content-pack/publish`,
       cookies: { avana_session: token },
       payload: { title: "پک تازه منتشر شده" },
     });
+    await contentPackStore.updateStatus(JSON.parse(pub2.body).pack.id, "published", { accessType: "free" });
 
     // Test sort=popular (default) -> pack1 first
     const popRes = await app.inject({
@@ -872,12 +879,13 @@ describe("Content Packs & Library Backend Test Suite", () => {
     // Create 5 packs
     for (let i = 1; i <= 5; i++) {
       const { docId } = await createReadyDocumentWithContents(orgId, courseId, userId);
-      await app.inject({
+      const pubRes = await app.inject({
         method: "POST",
         url: `/v1/organizations/${orgId}/documents/${docId}/content-pack/publish`,
         cookies: { avana_session: token },
         payload: { title: `پک شماره ${i}` },
       });
+      await contentPackStore.updateStatus(JSON.parse(pubRes.body).pack.id, "published", { accessType: "free" });
     }
 
     const pageRes = await app.inject({

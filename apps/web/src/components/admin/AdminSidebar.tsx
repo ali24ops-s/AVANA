@@ -1,17 +1,16 @@
 import { useEffect } from "react";
 import { Link, useLocation } from "react-router-dom";
 import {
-  Sparkles,
   Home,
   LogOut,
   X,
   ChevronRight,
   ChevronLeft,
 } from "lucide-react";
+import { BrandLogo } from "../brand/BrandLogo.js";
 import {
-  ADMIN_NAV_GROUPS,
+  getVisibleNavItems,
   isNavItemActive,
-  type AdminNavItem,
 } from "./adminNavigation.js";
 import { useAuth } from "../../providers/AuthProvider.js";
 
@@ -29,7 +28,9 @@ export function AdminSidebar({
   onCloseMobile,
 }: AdminSidebarProps) {
   const location = useLocation();
-  const { signOut } = useAuth();
+  const { user, signOut } = useAuth();
+
+  const navItems = getVisibleNavItems(user?.role);
 
   // Close mobile drawer on Escape key press
   useEffect(() => {
@@ -45,21 +46,21 @@ export function AdminSidebar({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [mobileOpen, onCloseMobile]);
 
-  const renderNavGroup = (
-    groupTitle: string,
-    items: AdminNavItem[],
-    isMobile = false,
-  ) => {
+  const renderNavList = (isMobile = false) => {
     return (
-      <div key={groupTitle} className="space-y-1">
+      <div className="space-y-1.5">
         {(!isCollapsed || isMobile) && (
-          <h3 className="px-3 text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5 select-none">
-            {groupTitle}
-          </h3>
+          <div className="px-3 pb-1 text-[11px] font-semibold tracking-wider text-slate-400 select-none">
+            فضاهای کاری مدیریت
+          </div>
         )}
         <div className="space-y-1">
-          {items.map((item) => {
-            const isActive = isNavItemActive(item.href, location.pathname);
+          {navItems.map((item) => {
+            const isActive = isNavItemActive(
+              item.href,
+              location.pathname,
+              navItems,
+            );
             const Icon = item.icon;
 
             return (
@@ -70,7 +71,7 @@ export function AdminSidebar({
                 aria-current={isActive ? "page" : undefined}
                 title={isCollapsed && !isMobile ? item.name : undefined}
                 aria-label={item.name}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
                   isActive
                     ? "bg-teal-500/15 text-teal-300 border border-teal-500/30 shadow-sm"
                     : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
@@ -110,9 +111,7 @@ export function AdminSidebar({
         {/* Mobile Header */}
         <div className="h-16 flex items-center justify-between px-5 border-b border-white/10 shrink-0 bg-white/5">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-teal-600/30 border border-teal-500/30 flex items-center justify-center text-teal-400">
-              <Sparkles className="w-4 h-4" />
-            </div>
+            <BrandLogo variant="logo-only" size="sm" />
             <div>
               <span className="font-bold text-sm text-teal-400">آوانا ادمین</span>
               <span className="text-[10px] text-slate-400 block -mt-0.5">
@@ -132,12 +131,10 @@ export function AdminSidebar({
 
         {/* Mobile Navigation List */}
         <nav
-          className="flex-1 overflow-y-auto p-4 space-y-5"
+          className="flex-1 overflow-y-auto p-4"
           aria-label="منوی اصلی مدیریت"
         >
-          {ADMIN_NAV_GROUPS.map((group) =>
-            renderNavGroup(group.title, group.items, true),
-          )}
+          {renderNavList(true)}
         </nav>
 
         {/* Mobile Footer */}
@@ -172,9 +169,7 @@ export function AdminSidebar({
         {/* Brand & Collapse Header */}
         <div className="h-16 flex items-center justify-between px-4 border-b border-white/10 shrink-0">
           <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-9 h-9 rounded-xl bg-teal-600/30 border border-teal-500/30 flex items-center justify-center text-teal-400 shrink-0">
-              <Sparkles className="w-4 h-4" />
-            </div>
+            <BrandLogo variant="logo-only" size="sm" />
             {!isCollapsed && (
               <div className="min-w-0">
                 <span className="font-bold text-sm text-teal-400 block truncate">
@@ -207,12 +202,10 @@ export function AdminSidebar({
 
         {/* Desktop Navigation */}
         <nav
-          className="flex-1 overflow-y-auto p-3 space-y-4"
+          className="flex-1 overflow-y-auto p-3"
           aria-label="منوی اصلی مدیریت"
         >
-          {ADMIN_NAV_GROUPS.map((group) =>
-            renderNavGroup(group.title, group.items, false),
-          )}
+          {renderNavList(false)}
         </nav>
 
         {/* Desktop Footer */}

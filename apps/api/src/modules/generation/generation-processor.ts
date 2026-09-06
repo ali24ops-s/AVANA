@@ -30,7 +30,11 @@ import type {
   OrganizationId,
 } from "@avana/domain";
 import type { GeneratedContentType } from "@avana/domain";
-import type { GenerationService } from "./generation-service.js";
+import {
+  GenerationService,
+  GenerationStoppedError,
+  GenerationDeletedError,
+} from "./generation-service.js";
 import type { GenerationJobStore } from "./generation-jobs-store.js";
 import type { GenerationJobPayload } from "./generation-queue.js";
 
@@ -55,6 +59,7 @@ function toPayload(job: Job): GenerationJobPayload {
       typeof data.promptVersion === "string" ? data.promptVersion : undefined,
     generationKey:
       typeof data.generationKey === "string" ? data.generationKey : undefined,
+    force: typeof data.force === "boolean" ? data.force : undefined,
   };
 }
 
@@ -71,31 +76,45 @@ function toActor(payload: GenerationJobPayload): Actor {
 }
 
 /**
- * Mark a job row as running (started_at set, status running).
+ * Mark a job row as running (started_at set, status running, lease acquired).
  */
 async function markRunning(
   jobStore: GenerationJobStore,
   jobId: GenerationJobId,
   payload: GenerationJobPayload,
-): Promise<void> {
+): Promise<{ leaseExpiresAt: string }> {
   const existing = await jobStore.findByIdForOrganization(
     jobId,
     payload.organizationId,
   );
-  if (!existing) return;
-
   const now = new Date().toISOString();
-  await jobStore.update({
-    ...existing,
-    status: "running",
-    attempts: existing.attempts + 1,
-    startedAt: existing.startedAt ?? now,
-    updatedAt: now,
-  });
+  const leaseExpiresAt = new Date(Date.now() + 600_000).toISOString();
+
+  if (existing) {
+    if (
+      existing.status === "stopped" ||
+      existing.status === "stopping" ||
+      existing.status === "deleting" ||
+      existing.status === "deleted"
+    ) {
+      return { leaseExpiresAt: existing.leaseExpiresAt ?? now };
+    }
+    await jobStore.update({
+      ...existing,
+      status: "running",
+      attempts: existing.attempts + 1,
+      startedAt: existing.startedAt ?? now,
+      heartbeatAt: now,
+      leaseExpiresAt,
+      updatedAt: now,
+    });
+  }
+
+  return { leaseExpiresAt };
 }
 
 /**
- * Mark a job row as succeeded (completed_at set, status succeeded).
+ * Mark a job row as succeeded (completed_at set, status succeeded, lease cleared).
  */
 async function markSucceeded(
   jobStore: GenerationJobStore,
@@ -106,7 +125,15 @@ async function markSucceeded(
     jobId,
     payload.organizationId,
   );
-  if (!existing) return;
+  if (
+    !existing ||
+    existing.status === "stopped" ||
+    existing.status === "stopping" ||
+    existing.status === "deleting" ||
+    existing.status === "deleted"
+  ) {
+    return;
+  }
 
   const now = new Date().toISOString();
   await jobStore.update({
@@ -114,37 +141,48 @@ async function markSucceeded(
     status: "succeeded",
     errorCode: null,
     errorMessage: null,
+    leaseExpiresAt: null,
     completedAt: now,
     updatedAt: now,
   });
 }
 
 /**
- * Mark a job row as failed (completed_at set, status failed, error captured).
+ * Mark a job row as failed (completed_at set, status failed, error captured, lease cleared).
  */
 async function markFailed(
   jobStore: GenerationJobStore,
   jobId: GenerationJobId,
   payload: GenerationJobPayload,
   err: unknown,
-): Promise<void> {
+): Promise<{ errorCode: string; errorMessage: string }> {
   const existing = await jobStore.findByIdForOrganization(
     jobId,
     payload.organizationId,
   );
-  if (!existing) return;
-
   const now = new Date().toISOString();
   const errorCode = resolveErrorCode(err);
   const errorMessage = err instanceof Error ? err.message : String(err);
-  await jobStore.update({
-    ...existing,
-    status: "failed",
-    errorCode,
-    errorMessage,
-    completedAt: now,
-    updatedAt: now,
-  });
+
+  if (
+    existing &&
+    existing.status !== "stopped" &&
+    existing.status !== "stopping" &&
+    existing.status !== "deleting" &&
+    existing.status !== "deleted"
+  ) {
+    await jobStore.update({
+      ...existing,
+      status: "failed",
+      errorCode,
+      errorMessage,
+      leaseExpiresAt: null,
+      completedAt: now,
+      updatedAt: now,
+    });
+  }
+
+  return { errorCode, errorMessage };
 }
 
 /**
@@ -170,13 +208,39 @@ function resolveErrorCode(err: unknown): string {
 export async function processGenerationJob(
   job: Job,
   deps: GenerationProcessorDeps,
-): Promise<{ job_id: GenerationJobId; status: "succeeded" }> {
+): Promise<{ job_id: GenerationJobId; status: "succeeded" | "stopped" | "deleted" }> {
   const { generationService, generationJobStore } = deps;
   const payload = toPayload(job);
   const jobId = job.id as unknown as GenerationJobId;
 
-  // Mark running (idempotent — reuses existing started_at).
-  await markRunning(generationJobStore, jobId, payload);
+  process.stdout.write(`[GENERATION] job claimed: ${jobId} (doc: ${payload.documentId})\n`);
+
+  // 1. Pre-execution check: is job already stopping, stopped, deleting, or deleted?
+  const existingJob = await generationJobStore.findByIdForOrganization(
+    jobId,
+    payload.organizationId,
+  );
+  if (!existingJob || existingJob.status === "deleted" || existingJob.status === "deleting") {
+    process.stdout.write(`[GENERATION] job ${jobId} is already deleted/deleting. Skipping execution.\n`);
+    return { job_id: jobId, status: "deleted" };
+  }
+  if (existingJob.status === "stopped" || existingJob.status === "stopping") {
+    process.stdout.write(`[GENERATION] job ${jobId} is in status '${existingJob.status}'. Finalizing stop.\n`);
+    const now = new Date().toISOString();
+    await generationJobStore.update({
+      ...existingJob,
+      status: "stopped",
+      leaseExpiresAt: null,
+      completedAt: now,
+      updatedAt: now,
+    });
+    return { job_id: jobId, status: "stopped" };
+  }
+
+  // Mark running (idempotent — reuses existing started_at) and acquire 10-minute lease.
+  const { leaseExpiresAt } = await markRunning(generationJobStore, jobId, payload);
+  process.stdout.write(`[GENERATION] lease acquired: ${jobId} (expires: ${leaseExpiresAt})\n`);
+  process.stdout.write(`[GENERATION] generation started: ${jobId} (types: ${payload.types.join(",")})\n`);
 
   try {
     await generationService.generateForDocument(
@@ -188,13 +252,46 @@ export async function processGenerationJob(
         promptVersion: payload.promptVersion,
         generationKey: payload.generationKey,
         courseId: payload.courseId,
+        force: payload.force,
+        jobId,
       },
     );
 
+    // Re-check job status after pipeline finishes
+    const finalJob = await generationJobStore.findByIdForOrganization(
+      jobId,
+      payload.organizationId,
+    );
+    if (finalJob?.status === "stopped") {
+      process.stdout.write(`[GENERATION] job finished in stopped state: ${jobId}\n`);
+      return { job_id: jobId, status: "stopped" };
+    }
+    if (finalJob?.status === "deleted" || !finalJob) {
+      process.stdout.write(`[GENERATION] job finished in deleted state: ${jobId}\n`);
+      return { job_id: jobId, status: "deleted" };
+    }
+
     await markSucceeded(generationJobStore, jobId, payload);
+    process.stdout.write(`[GENERATION] job completed: ${jobId}\n`);
     return { job_id: jobId, status: "succeeded" };
   } catch (err) {
-    await markFailed(generationJobStore, jobId, payload, err);
+    if (
+      err instanceof GenerationStoppedError ||
+      (err instanceof Error && err.name === "GenerationStoppedError")
+    ) {
+      process.stdout.write(`[GENERATION] job caught stopped error: ${jobId}\n`);
+      return { job_id: jobId, status: "stopped" };
+    }
+    if (
+      err instanceof GenerationDeletedError ||
+      (err instanceof Error && err.name === "GenerationDeletedError")
+    ) {
+      process.stdout.write(`[GENERATION] job caught deleted error: ${jobId}\n`);
+      return { job_id: jobId, status: "deleted" };
+    }
+
+    const { errorCode, errorMessage } = await markFailed(generationJobStore, jobId, payload, err);
+    process.stderr.write(`[GENERATION] job failed: ${jobId} (error: ${errorMessage}, code: ${errorCode})\n`);
     throw err;
   }
 }

@@ -444,4 +444,162 @@ describe("ReviewService", () => {
       ).rejects.toMatchObject({ code: "conflict" });
     });
   });
+
+  describe("reviewQueue grouping by source document", () => {
+    it("Test 1: single document with lesson, MCQ, and flashcards produces exactly one group", async () => {
+      // Create 1 document
+      const doc = makeDocument({ id: randomUUID() as DocumentId, originalName: "pharmacology-ch12.pdf" }, organizationId, courseId);
+      await documentStore.create(doc);
+
+      // Create 3 generated contents with different types for this document
+      await contentStore.create(makeContent({ id: randomUUID() as GeneratedContentId, type: "lesson", status: "draft" }, organizationId, doc.id, courseId));
+      await contentStore.create(makeContent({ id: randomUUID() as GeneratedContentId, type: "quiz", status: "draft" }, organizationId, doc.id, courseId));
+      await contentStore.create(makeContent({ id: randomUUID() as GeneratedContentId, type: "flashcard", status: "draft" }, organizationId, doc.id, courseId));
+
+      const res = await service.reviewQueue(editor, organizationId, courseId, "req-test-1");
+
+      expect(res.groups).toBeDefined();
+      expect(res.groups).toHaveLength(1);
+      expect(res.groups![0].document?.id).toBe(doc.id);
+      expect(res.groups![0].document?.filename).toBe("pharmacology-ch12.pdf");
+      expect(res.groups![0].items).toHaveLength(3);
+      expect(res.groups![0].stats).toEqual({
+        total: 3,
+        pending: 3,
+        approved: 0,
+        rejected: 0,
+        needsRevision: 0,
+      });
+    });
+
+    it("Test 2: two documents with multiple review items produce exactly two groups", async () => {
+      const docA = makeDocument({ id: randomUUID() as DocumentId, originalName: "docA.pdf" }, organizationId, courseId);
+      const docB = makeDocument({ id: randomUUID() as DocumentId, originalName: "docB.pdf" }, organizationId, courseId);
+      await documentStore.create(docA);
+      await documentStore.create(docB);
+
+      await contentStore.create(makeContent({ id: randomUUID() as GeneratedContentId, type: "lesson", status: "draft" }, organizationId, docA.id, courseId));
+      await contentStore.create(makeContent({ id: randomUUID() as GeneratedContentId, type: "flashcard", status: "draft" }, organizationId, docA.id, courseId));
+      await contentStore.create(makeContent({ id: randomUUID() as GeneratedContentId, type: "quiz", status: "draft" }, organizationId, docB.id, courseId));
+
+      const res = await service.reviewQueue(editor, organizationId, courseId, "req-test-2");
+
+      expect(res.groups).toHaveLength(2);
+      const groupDocIds = res.groups!.map((g) => g.document?.id);
+      expect(groupDocIds).toContain(docA.id);
+      expect(groupDocIds).toContain(docB.id);
+    });
+
+    it("Test 3: review item without document_id belongs to Unknown Source group without wrong attribution", async () => {
+      // Content with null documentId
+      await contentStore.create({
+        ...makeContent({ id: randomUUID() as GeneratedContentId, status: "draft" }, organizationId, "" as DocumentId, courseId),
+        documentId: null,
+      });
+
+      const res = await service.reviewQueue(editor, organizationId, courseId, "req-test-3");
+
+      expect(res.groups).toHaveLength(1);
+      expect(res.groups![0].document).toBeNull();
+      expect(res.groups![0].items).toHaveLength(1);
+    });
+
+    it("Test 4: status aggregation correctly tallies total, pending, approved, and rejected", async () => {
+      const doc = makeDocument({ id: randomUUID() as DocumentId, originalName: "stats-test.pdf" }, organizationId, courseId);
+      await documentStore.create(doc);
+
+      // pending x 2 (1 draft, 1 edited), approved x 1 (accepted), rejected x 1 (rejected)
+      await contentStore.create(makeContent({ id: randomUUID() as GeneratedContentId, status: "draft" }, organizationId, doc.id, courseId));
+      await contentStore.create(makeContent({ id: randomUUID() as GeneratedContentId, status: "edited" }, organizationId, doc.id, courseId));
+      await contentStore.create(makeContent({ id: randomUUID() as GeneratedContentId, status: "accepted" }, organizationId, doc.id, courseId));
+      await contentStore.create(makeContent({ id: randomUUID() as GeneratedContentId, status: "rejected" }, organizationId, doc.id, courseId));
+
+      const res = await service.reviewQueue(editor, organizationId, courseId, "req-test-4");
+
+      expect(res.groups).toHaveLength(1);
+      expect(res.groups![0].stats).toEqual({
+        total: 4,
+        pending: 2,
+        approved: 1,
+        rejected: 1,
+        needsRevision: 1,
+      });
+      // items array only contains the pending items
+      expect(res.groups![0].items).toHaveLength(2);
+    });
+
+    it("Test 5: pending filter excludes documents with 0 pending review items", async () => {
+      const docA = makeDocument({ id: randomUUID() as DocumentId, originalName: "docA-has-pending.pdf" }, organizationId, courseId);
+      const docB = makeDocument({ id: randomUUID() as DocumentId, originalName: "docB-all-done.pdf" }, organizationId, courseId);
+      await documentStore.create(docA);
+      await documentStore.create(docB);
+
+      // Doc A: 1 accepted, 1 pending
+      await contentStore.create(makeContent({ id: randomUUID() as GeneratedContentId, status: "accepted" }, organizationId, docA.id, courseId));
+      await contentStore.create(makeContent({ id: randomUUID() as GeneratedContentId, status: "draft" }, organizationId, docA.id, courseId));
+
+      // Doc B: 1 accepted, 1 rejected (0 pending)
+      await contentStore.create(makeContent({ id: randomUUID() as GeneratedContentId, status: "accepted" }, organizationId, docB.id, courseId));
+      await contentStore.create(makeContent({ id: randomUUID() as GeneratedContentId, status: "rejected" }, organizationId, docB.id, courseId));
+
+      const res = await service.reviewQueue(editor, organizationId, courseId, "req-test-5");
+
+      expect(res.groups).toHaveLength(1);
+      expect(res.groups![0].document?.id).toBe(docA.id);
+    });
+
+    it("Test 6: pagination is performed at the Group/Document level", async () => {
+      const doc1 = makeDocument({ id: randomUUID() as DocumentId, originalName: "doc1.pdf" }, organizationId, courseId);
+      const doc2 = makeDocument({ id: randomUUID() as DocumentId, originalName: "doc2.pdf" }, organizationId, courseId);
+      const doc3 = makeDocument({ id: randomUUID() as DocumentId, originalName: "doc3.pdf" }, organizationId, courseId);
+      await documentStore.create(doc1);
+      await documentStore.create(doc2);
+      await documentStore.create(doc3);
+
+      await contentStore.create(makeContent({ id: randomUUID() as GeneratedContentId, status: "draft" }, organizationId, doc1.id, courseId));
+      await contentStore.create(makeContent({ id: randomUUID() as GeneratedContentId, status: "draft" }, organizationId, doc2.id, courseId));
+      await contentStore.create(makeContent({ id: randomUUID() as GeneratedContentId, status: "draft" }, organizationId, doc3.id, courseId));
+
+      // Page 1, limit 2 groups
+      const page1 = await service.reviewQueue(editor, organizationId, courseId, "req-pag-1", { page: 1, limit: 2 });
+      expect(page1.groups).toHaveLength(2);
+      expect(page1.pagination?.total).toBe(3);
+      expect(page1.pagination?.totalPages).toBe(2);
+      expect(page1.pagination?.page).toBe(1);
+
+      // Page 2, limit 2 groups
+      const page2 = await service.reviewQueue(editor, organizationId, courseId, "req-pag-2", { page: 2, limit: 2 });
+      expect(page2.groups).toHaveLength(1);
+      expect(page2.pagination?.page).toBe(2);
+    });
+
+    it("Test 7: text search matches document filename and content title", async () => {
+      const docCardio = makeDocument({ id: randomUUID() as DocumentId, originalName: "cardiology-basics.pdf" }, organizationId, courseId);
+      const docNeuro = makeDocument({ id: randomUUID() as DocumentId, originalName: "neurology-basics.pdf" }, organizationId, courseId);
+      await documentStore.create(docCardio);
+      await documentStore.create(docNeuro);
+
+      await contentStore.create(makeContent({
+        id: randomUUID() as GeneratedContentId,
+        status: "draft",
+        payload: { kind: "lesson", title: "Heart Rate Regulation", contentMarkdown: "# Heart", citationChunkIds: [] },
+      }, organizationId, docCardio.id, courseId));
+
+      await contentStore.create(makeContent({
+        id: randomUUID() as GeneratedContentId,
+        status: "draft",
+        payload: { kind: "lesson", title: "Synaptic Transmission", contentMarkdown: "# Synapse", citationChunkIds: [] },
+      }, organizationId, docNeuro.id, courseId));
+
+      // Search by document name "cardio"
+      const resDocSearch = await service.reviewQueue(editor, organizationId, courseId, "req-s-1", { search: "cardio" });
+      expect(resDocSearch.groups).toHaveLength(1);
+      expect(resDocSearch.groups![0].document?.id).toBe(docCardio.id);
+
+      // Search by item title "synaptic"
+      const resItemSearch = await service.reviewQueue(editor, organizationId, courseId, "req-s-2", { search: "synaptic" });
+      expect(resItemSearch.groups).toHaveLength(1);
+      expect(resItemSearch.groups![0].document?.id).toBe(docNeuro.id);
+    });
+  });
 });

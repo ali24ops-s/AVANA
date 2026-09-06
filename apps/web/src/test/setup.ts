@@ -1,13 +1,6 @@
 import "@testing-library/jest-dom/vitest";
-import { afterEach, beforeEach } from "vitest";
+import { afterEach } from "vitest";
 import { cleanup } from "@testing-library/react";
-
-// Default test environment to full authentication mode
-import.meta.env.VITE_AUTH_ENABLED = "true";
-
-beforeEach(() => {
-  import.meta.env.VITE_AUTH_ENABLED = "true";
-});
 
 afterEach(() => {
   cleanup();

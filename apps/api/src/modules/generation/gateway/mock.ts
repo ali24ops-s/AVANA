@@ -32,14 +32,15 @@ function detectType(req: CompletionRequest): string {
         "sessions_batch",
         "session",
         "flashcards_batch",
+        "flashcards",
         "flashcard",
         "flashcard_topic",
         "flashcard_supplemental",
+        "quizzes",
         "quizzes_batch",
         "quiz",
         "quiz_topic",
         "quiz_supplemental",
-        "recommendation",
         "review_summary",
         "lesson",
       ].includes(normalized)
@@ -103,17 +104,14 @@ function detectType(req: CompletionRequest): string {
     return "flashcard";
   }
   if (
-    haystack.includes("BATCHED MULTIPLE-CHOICE QUIZZES") ||
+    haystack.includes("quizzes") ||
     haystack.includes("quizzes_batch") ||
-    haystack.includes("BATCH OF QUIZZES")
+    haystack.includes("BATCHED MULTIPLE-CHOICE QUIZZES") ||
+    haystack.includes("MULTIPLE-CHOICE QUESTIONS") ||
+    haystack.includes("BATCH OF QUIZZES") ||
+    haystack.includes("quiz")
   ) {
-    return "quizzes_batch";
-  }
-  if (haystack.includes("quiz")) {
-    return "quiz";
-  }
-  if (haystack.includes("recommendation")) {
-    return "recommendation";
+    return "quizzes";
   }
   if (
     haystack.includes("REVIEW SUMMARY") ||
@@ -153,10 +151,10 @@ function buildPayload(type: string, promptText = ""): unknown {
 
       const targetCardsMatch =
         promptText.match(/target:\s*(\d+)\s*cards/i) ||
-        promptText.match(/targetFlashcardCount.*?:\s*(\d+)/i);
+        promptText.match(/Flashcards:\s*at least\s*(\d+)/i);
       const targetQuizMatch =
         promptText.match(/target:\s*(\d+)\s*questions/i) ||
-        promptText.match(/targetQuizCount.*?:\s*(\d+)/i);
+        promptText.match(/Questions:\s*at least\s*(\d+)/i);
 
       const targetFlashcards = targetCardsMatch
         ? parseInt(targetCardsMatch[1], 10)
@@ -278,10 +276,12 @@ function buildPayload(type: string, promptText = ""): unknown {
       };
     }
     case "session": {
-      const titleMatch = promptText.match(/DEEP TOPIC TEACHING.*?:\s*"([^"]+)"/i);
+      const titleMatch =
+        promptText.match(/"title"\s*:\s*"([^"]+)"/i) ||
+        promptText.match(/DEEP TOPIC TEACHING.*?:\s*"([^"]+)"/i);
       const sessionTitle = titleMatch ? titleMatch[1] : "جلسه آموزشی استخراج‌شده";
       const chunkIdsMatch = promptText.match(
-        /AVAILABLE CHUNK IDs:\s*(\[[^\]]*\])/i,
+        /AVAILABLE CHUNK IDs.*?:\s*(\[[^\]]*\])/is,
       );
       let availableChunkIds: string[] = [];
       if (chunkIdsMatch && chunkIdsMatch[1]) {
@@ -393,9 +393,12 @@ function buildPayload(type: string, promptText = ""): unknown {
         citationChunkIds: availableChunkIds,
       };
     }
+    case "flashcards":
     case "flashcard_topic":
     case "flashcard": {
       const targetCardsMatch =
+        promptText.match(/SESSION TARGET FLASHCARD COUNT:\s*(\d+)/i) ||
+        promptText.match(/TARGET FLASHCARD COUNT:\s*(\d+)/i) ||
         promptText.match(/Target cards for this topic:\s*(\d+)/i) ||
         promptText.match(/at least\s*(\d+)\s*atomic flashcards/i);
       const targetCount = targetCardsMatch
@@ -425,10 +428,11 @@ function buildPayload(type: string, promptText = ""): unknown {
         explanation: "مستند به بخش‌های تشخیصی و درمانی منبع آموزشی.",
         cardType: "mechanism" as const,
         difficulty: "medium" as const,
+        citationChunkIds: availableChunkIds.length > 0 ? [availableChunkIds[i % availableChunkIds.length]] : [],
       }));
 
       return {
-        kind: "flashcard",
+        kind: "flashcards",
         question: cards[0].question,
         answer: cards[0].answer,
         explanation: cards[0].explanation,
@@ -438,7 +442,21 @@ function buildPayload(type: string, promptText = ""): unknown {
         citationChunkIds: availableChunkIds,
       };
     }
-    case "quizzes_batch": {
+    case "quizzes":
+    case "quizzes_batch":
+    case "quiz_topic":
+    case "quiz": {
+      const targetQuizMatch =
+        promptText.match(/SESSION TARGET COUNT:\s*Generate at least\s*(\d+)/i) ||
+        promptText.match(/Generate at least\s*(\d+)\s*high-discrimination/i) ||
+        promptText.match(/Target Quiz Questions:\s*AT LEAST\s*(\d+)/i) ||
+        promptText.match(/Target questions for this topic:\s*(\d+)/i) ||
+        promptText.match(/AT LEAST\s*(\d+)\s*multiple-choice/i) ||
+        promptText.match(/target:\s*(\d+)/i);
+      const count = targetQuizMatch
+        ? Math.max(1, parseInt(targetQuizMatch[1], 10))
+        : 10;
+
       const chunkIdsMatch = promptText.match(
         /AVAILABLE CHUNK IDs:\s*(\[[^\]]*\])/i,
       );
@@ -451,56 +469,220 @@ function buildPayload(type: string, promptText = ""): unknown {
         }
       }
 
-      const sessionIndicesMatch = [
-        ...new Set([
-          ...[...promptText.matchAll(/\[SESSION INDEX\s+(\d+)\]/g)].map((m) =>
-            parseInt(m[1], 10),
-          ),
-          ...[...promptText.matchAll(/"sessionIndex"\s*:\s*(\d+)/g)].map((m) =>
-            parseInt(m[1], 10),
-          ),
-        ]),
+      const sessionIdxMatch =
+        promptText.match(/"index":\s*(\d+)/) ||
+        promptText.match(/\[SESSION INDEX\s+(\d+)\]/i) ||
+        promptText.match(/"sessionIndex"\s*:\s*(\d+)/i);
+      const sessionIndex = sessionIdxMatch ? parseInt(sessionIdxMatch[1], 10) : 0;
+
+      const questionBank = [
+        {
+          q: (i: number) => `در بیمار مبتلا به پرفشاری خون همراه با برونکواسپاسم (سوال ${i + 1})، کدام داروی خط اول اولویت دارد؟`,
+          choices: [
+            "بیزوپرولول (Bisoprolol)",
+            "پروپرانولول (Propranolol)",
+            "کارودیلول (Carvedilol)",
+            "تیمولول (Timolol)",
+          ],
+          correctAnswer: "بیزوپرولول (Bisoprolol)",
+          explanation: "بیزوپرولول بتابلاکر اختصاصی گیرنده بتا ۱ است و کمترین تحریک برونکواسپاسم را ایجاد می‌کند.",
+          category: "clinical_reasoning",
+          difficulty: "hard" as const,
+        },
+        {
+          q: (i: number) => `مکانیسم اصلی اثر درمانی مهارکننده‌های آنزیم مبدل آنژیوتانسین در کنترل نارسایی قلبی (سوال ${i + 1}) چیست؟`,
+          choices: [
+            "مهار تبدیل آنژیوتانسین یک به دو و کاهش ترشح آلدوسترون",
+            "بلوک انتخابی کانال‌های کلسیمی نوع L در بافت میوکارد",
+            "تحریک مستقیم گیرنده‌های آلفا دو پیش‌سیناپسی عروق",
+            "افزایش بازجذب سدیم و کلر در لوله پیچیده پروگزیمال",
+          ],
+          correctAnswer: "مهار تبدیل آنژیوتانسین یک به دو و کاهش ترشح آلدوسترون",
+          explanation: "داروهای رده ACEI با مهار آنزیم مبدل سبب کاهش مقاومت عروقی و پیشگیری از ریمودلینگ قلبی می‌شوند.",
+          category: "mechanism_discrimination",
+          difficulty: "medium" as const,
+        },
+        {
+          q: (i: number) => `شایع‌ترین دلیل بروز سرفه خشک به عنوان عارضه ناخواسته در مصرف کاپتوپریل (سوال ${i + 1}) کدام است؟`,
+          choices: [
+            "تجمع برادی‌کینین ناشی از مهار آنزیم کینیناز دو در ریه",
+            "برونکواسپاسم شدید ناشی از تحریک گیرنده‌های موسکارینی",
+            "افزایش ترشح اسید اوریک در مجاری تنفسی فوقانی بیمار",
+            "کاهش جریان خون مویرگی در مخاط مجاری تنفسی محیطی",
+          ],
+          correctAnswer: "تجمع برادی‌کینین ناشی از مهار آنزیم کینیناز دو در ریه",
+          explanation: "آنزیم ACE همان کینیناز II است و مهار آن باعث تجمع برادی‌کینین و ماده P در ریه‌ها می‌شود.",
+          category: "adverse_effect_differential",
+          difficulty: "easy" as const,
+        },
+        {
+          q: (i: number) => `کدام مورد نشان‌دهنده مهم‌ترین منع مصرف مطلق دیورتیک‌های تیازیدی مانند هیدروکلروتیازید (سوال ${i + 1}) است؟`,
+          choices: [
+            "آنوری شدید و نارسایی حاد عملکرد تصفیه کلیوی",
+            "پرفشاری خون خفیف اولیه بدون اختلال ارگان هدف",
+            "هیپروولمی خفیف در بیماران با نارسایی مزمن قلبی",
+            "افزایش ایزوله فشار خون سیستولیک در افراد مسن",
+          ],
+          correctAnswer: "آنوری شدید و نارسایی حاد عملکرد تصفیه کلیوی",
+          explanation: "تیازیدها در بیماران با نارسایی شدید کلیوی (GFR کمتر از ۳۰) بی‌اثر بوده و منع مصرف دارند.",
+          category: "contraindication_nuance",
+          difficulty: "hard" as const,
+        },
+        {
+          q: (i: number) => `تفاوت فارماکوکینتیکی بارز میان انالاپریل و کاپتوپریل (سوال ${i + 1}) در کدام ویژگی خلاصه می‌شود؟`,
+          choices: [
+            "انالاپریل پیش‌داروی استری بوده و نیازمند هیدرولیز فعال‌کننده کبدی است",
+            "کاپتوپریل نیمه‌عمر پلاسمایی بسیار طولانی‌تری نسبت به انالاپریل دارد",
+            "انالاپریل منحصراً از راه ترشح صفراوی بدون دفع کلیوی حذف می‌شود",
+            "کاپتوپریل برای اثر نیازمند فعال‌سازی توسط آنزیم‌های گوارشی است",
+          ],
+          correctAnswer: "انالاپریل پیش‌داروی استری بوده و نیازمند هیدرولیز فعال‌کننده کبدی است",
+          explanation: "انالاپریل یک پیش‌دارو است که در کبد توسط استرازها به شکل فعال یعنی انالاپریلات تبدیل می‌گردد.",
+          category: "pharmacokinetic_comparison",
+          difficulty: "medium" as const,
+        },
+        {
+          q: (i: number) => `مکانیسم اختصاصی داروی آملودیپین در کنترل پرفشاری خون عروقی (سوال ${i + 1}) چیست؟`,
+          choices: [
+            "مهار اختصاصی کانال‌های کلسیمی نوع ال در عضلات صاف جدار عروق",
+            "مسدودسازی کانال‌های سدیمی وابسته به ولتاژ در بافت گرهی قلب",
+            "باز کردن کانال‌های پتاسیمی وابسته به ATP در جدار مویرگ‌ها",
+            "تحریک مستقیم ترشح نیتریک اکساید از سلول‌های اندوتلیال",
+          ],
+          correctAnswer: "مهار اختصاصی کانال‌های کلسیمی نوع ال در عضلات صاف جدار عروق",
+          explanation: "آملودیپین یک مسدودکننده دی‌هیدروپیریدینی کانال کلسیم با تمایل بالا به عضلات صاف عروقی است.",
+          category: "mechanism_discrimination",
+          difficulty: "easy" as const,
+        },
+        {
+          q: (i: number) => `مهم‌ترین خطر الکترولیتی ناشی از تجویز اسپیرونولاکتون (سوال ${i + 1}) در کدام گزینه بیان شده است؟`,
+          choices: [
+            "هایپرکالمی شدید به دلیل مهار بازجذب سدیم و دفع پتاسیم در مجاری جمع‌کننده",
+            "هایپوناترمی شدید ناشی از دفع آب خالص در قوس نزولی هنله",
+            "هایپومنیزیمی حاد ناشی از مهار پمپ‌های وابسته به انرژی",
+            "افزایش شدید ترشح بی‌کربنات و آلکالوز متابولیک کلیوی",
+          ],
+          correctAnswer: "هایپرکالمی شدید به دلیل مهار بازجذب سدیم و دفع پتاسیم در مجاری جمع‌کننده",
+          explanation: "اسپیرونولاکتون با آنتاگونیسم آلدوسترون از ترشح پتاسیم ممانعت کرده و خطر هایپرکالمی ایجاد می‌کند.",
+          category: "adverse_effect_differential",
+          difficulty: "medium" as const,
+        },
+        {
+          q: (i: number) => `علت وقوع بحران پرفشاری خون واکنشی (Rebound) پس از قطع ناگهانی کلونیدین (سوال ${i + 1}) چیست؟`,
+          choices: [
+            "افزایش ناگهانی و جبرانی آزادسازی کاتکول‌آمین‌های سمپاتیک",
+            "تخریب گیرنده‌های دوپامینی در هسته مجرای منفرد بصل‌النخاع",
+            "فعال‌سازی شدید سیستم رنین آنژیوتانسین در گردش خون عمومی",
+            "مهار حاد ترشح برادی‌کینین در بستر عروق کلیوی",
+          ],
+          correctAnswer: "افزایش ناگهانی و جبرانی آزادسازی کاتکول‌آمین‌های سمپاتیک",
+          explanation: "قطع ناگهانی آگونیست آلفا دو مرکزی سبب تخلیه شدید و کنترل‌نشده نوراپی‌نفرین از پایانه‌های عصبی می‌شود.",
+          category: "clinical_reasoning",
+          difficulty: "hard" as const,
+        },
+        {
+          q: (i: number) => `کدام بخش از نفرون هدف اصلی اثر فارماکولوژیک داروی فوروزماید (سوال ${i + 1}) است؟`,
+          choices: [
+            "هم‌انتقال‌دهنده سدیم-پتاسیم-دو کلر در بخش بالارونده ضخیم لوله هنله",
+            "هم‌انتقال‌دهنده سدیم-کلر در لوله پیچیده دور کلیه",
+            "کانال‌های اپیتلیومی سدیم در لوله‌های جمع‌کننده قشری",
+            "کوترانسپورتر سدیم-گلوکز در ابتدای لوله پیچیده نزدیک",
+          ],
+          correctAnswer: "هم‌انتقال‌دهنده سدیم-پتاسیم-دو کلر در بخش بالارونده ضخیم لوله هنله",
+          explanation: "دیورتیک‌های لوپ مانند فوروزماید پمپ Na+/K+/2Cl- را در بخش ضخیم صاعد هنله مسدود می‌کنند.",
+          category: "mechanism_discrimination",
+          difficulty: "easy" as const,
+        },
+        {
+          q: (i: number) => `مزیت داروی لوزارتان نسبت به مهارکننده‌های آنزیم ACE (سوال ${i + 1}) در چه مزیتی است؟`,
+          choices: [
+            "عدم افزایش غلظت برادی‌کینین و کاهش چشمگیر شیوع سرفه خشک",
+            "کاهش کامل ترشح آلدوسترون بدون هیچ‌گونه خطر هایپرکالمی",
+            "افزایش سرعت فیلتراسیون گلومرولی در بیماران تنگی دوطرفه شریان کلیه",
+            "عدم نیاز به متابولیسم کبدی برای تبدیل به متابولیت فعال",
+          ],
+          correctAnswer: "عدم افزایش غلظت برادی‌کینین و کاهش چشمگیر شیوع سرفه خشک",
+          explanation: "مسدودکننده‌های AT1 اثری بر متابولیسم برادی‌کینین نداشته و سرفه پایدار ایجاد نمی‌کنند.",
+          category: "clinical_reasoning",
+          difficulty: "medium" as const,
+        },
+        {
+          q: (i: number) => `کدام عارضه نامطلوب نادر ولی مشخص با مصرف هیدرالازین در دوزهای بالا (سوال ${i + 1}) ارتباط دارد؟`,
+          choices: [
+            "سندرم شبه لوپوس اریتماتوز ناشی از استیلاسیون آهسته دارویی",
+            "فیبروز بینابینی ریوی ناشی از سمیت مستقیم سلولی",
+            "نوروپاتی محیطی غیرقابل برگشت به علت تخریب میلین",
+            "استئوپروز شدید ناشی از افزایش بازجذب کلسیم استخوانی",
+          ],
+          correctAnswer: "سندرم شبه لوپوس اریتماتوز ناشی از استیلاسیون آهسته دارویی",
+          explanation: "هیدرالازین به ویژه در افراد با استیلاسیون کبدی آهسته می‌تواند لوپوس دارویی برگشت‌پذیر ایجاد کند.",
+          category: "adverse_effect_differential",
+          difficulty: "hard" as const,
+        },
+        {
+          q: (i: number) => `تداخل دارویی همزمان وراپامیل با کدام دسته دارویی به دلیل خطر بلوک قلبی منع شده است (سوال ${i + 1})؟`,
+          choices: [
+            "بتابلاکرهای آدرنرژیک به دلیل تشدید اثر اینوتروپ و دروموتروپ منفی",
+            "دیورتیک‌های تیازیدی به دلیل افزایش خطر آلکالوز متابولیک",
+            "مهارکننده‌های رنین به علت مهار ترشح اسید اوریک کلیوی",
+            "آنتاگونیست‌های آلفا یک به دلیل کاهش ترشح کاتکول‌آمین‌ها",
+          ],
+          correctAnswer: "بتابلاکرهای آدرنرژیک به دلیل تشدید اثر اینوتروپ و دروموتروپ منفی",
+          explanation: "ترکیب وراپامیل و بتابلاکر ریسک برادی‌کاردی شدید و بلوک کامل گره دهلیزی بطنی را به شدت می‌افزاید.",
+          category: "contraindication_nuance",
+          difficulty: "hard" as const,
+        },
+        {
+          q: (i: number) => `راهکار استاندارد دارویی برای جلوگیری از ایجاد تحمل (تولرانس) به نیترات‌ها (سوال ${i + 1}) چیست؟`,
+          choices: [
+            "ایجاد فاصله زمانی ۱۰ تا ۱۲ ساعته عاری از نیترات در شبانه‌روز",
+            "افزایش پیوسته دوز مصرفی در فواصل منظم سه روزه",
+            "تجویز همزمان با دیورتیک‌های قوس هنله جهت شستشوی کلیوی",
+            "استفاده انحصاری از فرمولاسیون‌های وریدی با انفوزیون مدام",
+          ],
+          correctAnswer: "ایجاد فاصله زمانی ۱۰ تا ۱۲ ساعته عاری از نیترات در شبانه‌روز",
+          explanation: "تخلیه گروه‌های سولفیدریل بافتی سبب بروز تحمل نیتراتی می‌شود که نیازمند یک دوره عاری از دارو است.",
+          category: "clinical_reasoning",
+          difficulty: "medium" as const,
+        },
+        {
+          q: (i: number) => `هدف اولیه و بیوشیمیایی استاتین‌ها در مهار سنتز درون‌زای کلسترول (سوال ${i + 1}) کدام آنزیم است؟`,
+          choices: [
+            "آنزیم هیدروکسی متیل گلوتاریل کوآنزیم آ ردوکتاز (HMG-CoA Reductase)",
+            "آنزیم استیل کوآنزیم آ کربوکسیلاز در بافت آدیپوز",
+            "آنزیم لستین کلسترول آسیل ترانسفراز پلاسما",
+            "آنزیم لیپوپروتئین لیپاز در سلول‌های اندوتلیال عروق",
+          ],
+          correctAnswer: "آنزیم هیدروکسی متیل گلوتاریل کوآنزیم آ ردوکتاز (HMG-CoA Reductase)",
+          explanation: "استاتین‌ها با مهار رقابتی آنزیم محدودکننده سرعت سنتز کلسترول، گیرنده‌های LDL را در کبد افزایش می‌دهند.",
+          category: "mechanism_discrimination",
+          difficulty: "easy" as const,
+        },
       ];
-      const indices = sessionIndicesMatch.length > 0 ? sessionIndicesMatch : [0];
 
-      const countMatch =
-        promptText.match(/Target Quiz Questions:\s*AT LEAST\s*(\d+)/i) ||
-        promptText.match(/AT LEAST\s*(\d+)\s*multiple-choice/i) ||
-        promptText.match(/target:\s*(\d+)/i);
-      const questionsPerTopic = countMatch ? Math.max(1, parseInt(countMatch[1], 10)) : 10;
+      const questions = Array.from({ length: count }, (_, i) => {
+        const tmpl = questionBank[i % questionBank.length];
+        const citation =
+          availableChunkIds.length > 0
+            ? [availableChunkIds[i % availableChunkIds.length]]
+            : [];
 
-      const questions: Array<{
-        sessionIndex: number;
-        question: string;
-        questionType: "multiple_choice";
-        choices: string[];
-        correctAnswer: string;
-        explanation: string;
-      }> = [];
-
-      indices.forEach((sIdx) => {
-        for (let i = 0; i < questionsPerTopic; i++) {
-          questions.push({
-            sessionIndex: sIdx,
-            question:
-              i === 0
-                ? `کدام گزینه بیانگر یافته کلیدی در پاتوفیزیولوژی مبحث جلسه ${sIdx + 1} است؟`
-                : `کدام گزینه رویکرد درمانی صحیح برای سوال شماره ${i + 1} در جلسه ${sIdx + 1} است؟`,
-            questionType: "multiple_choice",
-            choices: [
-              `گزینه صحیح بر اساس شواهد منبع (جلسه ${sIdx + 1})`,
-              "گزینه انحرافی ۱",
-              "گزینه انحرافی ۲",
-              "گزینه انحرافی ۳",
-            ],
-            correctAnswer: `گزینه صحیح بر اساس شواهد منبع (جلسه ${sIdx + 1})`,
-            explanation: `توضیح کامل چرایی درستی گزینه بر اساس مستندات جلسه ${sIdx + 1}.`,
-          });
-        }
+        return {
+          sessionIndex,
+          question: tmpl.q(i),
+          questionType: "multiple_choice" as const,
+          difficulty: tmpl.difficulty,
+          category: tmpl.category,
+          choices: [...tmpl.choices],
+          correctAnswer: tmpl.correctAnswer,
+          explanation: tmpl.explanation,
+          citationChunkIds: citation,
+        };
       });
 
       return {
-        kind: "quizzes_batch",
+        kind: "quizzes",
+        title: "آزمون ارزیابی آموخته‌ها",
         questions,
         citationChunkIds: availableChunkIds,
       };
@@ -521,74 +703,25 @@ function buildPayload(type: string, promptText = ""): unknown {
       }
 
       const questions = Array.from({ length: count }, (_, i) => ({
-        question: `سناریوی بالینی تکمیلی شماره ${i + 1}: انتخاب داروی ارجح کدام است؟`,
+        question: `سناریوی بالینی تکمیلی شماره ${i + 1}: انتخاب داروی ارجح بر اساس گایدلاین کدام است؟`,
         questionType: "multiple_choice" as const,
+        difficulty: "hard" as const,
+        category: "clinical_reasoning",
         choices: [
-          "گزینه صحیح بالینی بر اساس گایدلاین",
-          "گزینه انحرافی تکمیلی الف",
-          "گزینه انحرافی تکمیلی ب",
-          "گزینه انحرافی تکمیلی ج",
+          "بیزوپرولول به دلیل کاردیوسلکتیویتی بر گیرنده بتا یک",
+          "پروپرانولول با مهار غیراختصاصی بتا یک و بتا دو",
+          "آتنولول با دفع غالب کبدی و نیمه‌عمر کوتاه",
+          "لبتالول با اثر آنتاگونیستی خالص بر گیرنده آلفا",
         ],
-        correctAnswer: "گزینه صحیح بالینی بر اساس گایدلاین",
-        explanation: "توضیح تفصیلی برای سناریوی بالینی تکمیلی.",
+        correctAnswer: "بیزوپرولول به دلیل کاردیوسلکتیویتی بر گیرنده بتا یک",
+        explanation: "توضیح تفصیلی مستند به داده‌های بالینی منبع آموزشی.",
+        citationChunkIds: availableChunkIds.slice(0, 1),
       }));
 
       return {
         kind: "quiz",
         questions,
         citationChunkIds: availableChunkIds,
-      };
-    }
-    case "quiz_topic":
-    case "quiz": {
-      const targetQuizMatch =
-        promptText.match(/Target questions for this topic:\s*(\d+)/i) ||
-        promptText.match(/AT LEAST\s*(\d+)\s*MULTIPLE-CHOICE QUESTIONS/i);
-      const targetCount = targetQuizMatch
-        ? Math.max(1, parseInt(targetQuizMatch[1], 10))
-        : 1;
-      const chunkIdsMatch = promptText.match(
-        /AVAILABLE CHUNK IDs:\s*(\[[^\]]*\])/i,
-      );
-      let availableChunkIds: string[] = [];
-      if (chunkIdsMatch && chunkIdsMatch[1]) {
-        try {
-          availableChunkIds = JSON.parse(chunkIdsMatch[1]);
-        } catch {
-          // ignore
-        }
-      }
-
-      const questions = Array.from({ length: targetCount }, (_, i) => ({
-        question:
-          i === 0
-            ? "کدام گزینه بیانگر یافته کلیدی در پاتوفیزیولوژی بیماری است؟"
-            : `کدام گزینه بیانگر یافته کلیدی در مبحث شماره ${i + 1} است؟`,
-        questionType: "multiple_choice" as const,
-        choices: [
-          "افزایش فعالیت سیستم تنظیمی و انقباض عروق محیطی",
-          "کاهش ترشح هورمون‌های تنظیم‌کننده کلیوی",
-          "اتساع خودبه‌خودی بدون تغییر در مقاومت عروق",
-          "عدم دخالت فاکتورهای ژنتیکی و محیطی",
-        ],
-        correctAnswer: "افزایش فعالیت سیستم تنظیمی و انقباض عروق محیطی",
-        explanation:
-          "بر اساس فصول اولیه منبع، افزایش مقاومت عروق فاکتور اصلی است.",
-      }));
-
-      return {
-        kind: "quiz",
-        title: "آزمون ارزیابی آموخته‌ها",
-        questions,
-        citationChunkIds: availableChunkIds,
-      };
-    }
-    case "recommendation": {
-      return {
-        kind: "recommendation",
-        summary: "Prioritized study guidance synthesized from the source.",
-        topics: ["Topic 1", "Topic 2"],
-        citationChunkIds: [],
       };
     }
     case "review_summary": {

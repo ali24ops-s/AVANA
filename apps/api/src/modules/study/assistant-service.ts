@@ -30,6 +30,7 @@ import type {
 import type { CourseStore } from "../courses/course-store.js";
 import type { OrganizationStore } from "../organizations/organization-store.js";
 import type { AuditService } from "../../observability/audit-service.js";
+import type { EntitlementService } from "../commerce/entitlement-service.js";
 
 // Maximum character limit for lesson context markdown to prevent token overflow
 const MAX_LESSON_CONTENT_CHARS = 6000;
@@ -83,6 +84,7 @@ export class StudyAssistantService {
     private readonly policy: AuthorizationPolicy = defaultPolicy,
     private readonly auditService?: AuditService,
     private readonly systemOrganizationId?: OrganizationId,
+    private readonly entitlementService?: EntitlementService,
   ) {}
 
   /**
@@ -338,6 +340,23 @@ export class StudyAssistantService {
 
     // Verify user authorization for this course / org (IDOR protection)
     await this.verifyCourseAccess(actor, course.organizationId, course.id);
+
+    // Explicit Entitlement Access Check BEFORE loading content or sending to AI provider
+    if (this.entitlementService) {
+      const access = await this.entitlementService.checkAccess(actor, {
+        userId: actor.userId,
+        resourceType: "lesson",
+        resourceId: lessonId,
+        courseId: moduleRecord.courseId,
+      });
+
+      if (!access.granted) {
+        throw new DomainError(
+          "forbidden",
+          "برای گفتگو با دستیار هوشمند پیرامون این درس، فعال‌سازی اشتراک آوانا پلاس یا خرید دوره الزامی است.",
+        );
+      }
+    }
 
     // Truncate lesson content to fit within token budgets safely
     let contentMarkdown = lesson.contentMarkdown || "";

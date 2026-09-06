@@ -1,7 +1,21 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { api } from "../../lib/api/admin";
 import { AdminSearch, AdminStatusBadge, AdminPagination } from "../../components/admin/AdminUI";
-import { ChevronDown, ChevronLeft, Folder, FileText, Layers, BrainCircuit, HelpCircle, BookOpen } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronLeft,
+  Folder,
+  FileText,
+  Layers,
+  BrainCircuit,
+  HelpCircle,
+  BookOpen,
+  Download,
+  Upload,
+} from "lucide-react";
+import { ContentExportModal } from "../../components/admin/content/ContentExportModal";
+import { ContentImportModal } from "../../components/admin/content/ContentImportModal";
+import { useAuth } from "../../providers/AuthProvider.js";
 
 interface DashboardStatsShape {
   totalCourses?: number;
@@ -50,6 +64,7 @@ interface CourseHierarchy {
 }
 
 export function AdminContentPage() {
+  const { user } = useAuth();
   const [stats, setStats] = useState<DashboardStatsShape | null>(null);
   const [courses, setCourses] = useState<CourseListItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -60,56 +75,81 @@ export function AdminContentPage() {
   const pageSize = 10;
   const [expandedCourse, setExpandedCourse] = useState<string | null>(null);
 
-  useEffect(() => {
-    let active = true;
-    const fetchStats = async () => {
-      try {
-        const res = await api.get<DashboardStatsShape>("/admin/dashboard");
-        if (active) setStats(res);
-      } catch {
-        // ignore stats error
-      }
-    };
-    fetchStats();
-    return () => { active = false; };
+  const [isExportOpen, setIsExportOpen] = useState(false);
+  const [isImportOpen, setIsImportOpen] = useState(false);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+  const fetchStats = useCallback(async () => {
+    try {
+      const res = await api.get<DashboardStatsShape>("/admin/dashboard");
+      setStats(res);
+    } catch {
+      // ignore stats error
+    }
   }, []);
 
+  const fetchCourses = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params: Record<string, string | number | undefined> = { page, pageSize };
+      if (search) params.search = search;
+      const res = await api.get<{ courses: CourseListItem[]; totalCount?: number }>(`/admin/courses`, { params });
+      setCourses(res.courses || []);
+      setTotalCount(res.totalCount ?? res.courses?.length ?? 0);
+      setError(null);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "خطا در دریافت دوره‌ها");
+    } finally {
+      setLoading(false);
+    }
+  }, [page, search]);
+
   useEffect(() => {
-    let active = true;
-    const fetchCourses = async () => {
-      setLoading(true);
-      try {
-        const params: Record<string, string | number | undefined> = { page, pageSize };
-        if (search) params.search = search;
-        const res = await api.get<{ courses: CourseListItem[]; totalCount?: number }>(`/admin/courses`, { params });
-        if (active) {
-          setCourses(res.courses || []);
-          setTotalCount(res.totalCount ?? res.courses?.length ?? 0);
-          setError(null);
-        }
-      } catch (err: unknown) {
-        if (active) setError(err instanceof Error ? err.message : "خطا در دریافت دوره‌ها");
-      } finally {
-        if (active) setLoading(false);
-      }
-    };
+    fetchStats();
+  }, [fetchStats, refreshTrigger]);
+
+  useEffect(() => {
     const delay = search ? 300 : 0;
     const t = setTimeout(fetchCourses, delay);
-    return () => { active = false; clearTimeout(t); };
-  }, [search, page]);
+    return () => clearTimeout(t);
+  }, [fetchCourses, search, refreshTrigger]);
 
   const handleSearchChange = (value: string) => {
     setSearch(value);
     setPage(1);
   };
 
+  const handleRefresh = () => {
+    setRefreshTrigger((prev) => prev + 1);
+  };
+
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
 
   return (
     <div className="space-y-6 pb-20">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-100">مدیریت محتوا</h1>
-        <p className="text-sm text-slate-400 mt-1">ساختار آموزشی و وضعیت محتوای دوره‌ها</p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-100">مدیریت محتوا</h1>
+          <p className="text-sm text-slate-400 mt-1">ساختار آموزشی، خروجی و ورود محتوای دوره‌ها</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setIsExportOpen(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-700 hover:border-teal-500/40 rounded-xl text-sm font-medium transition-all"
+          >
+            <Download className="w-4 h-4 text-teal-400" />
+            <span>خروجی محتوا (Export)</span>
+          </button>
+          {user?.role !== "content_worker" && (
+            <button
+              onClick={() => setIsImportOpen(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-500 text-white rounded-xl text-sm font-medium transition-all shadow-lg shadow-teal-500/20"
+            >
+              <Upload className="w-4 h-4" />
+              <span>ورود محتوا (Import)</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {stats && (
@@ -160,6 +200,18 @@ export function AdminContentPage() {
           onPageChange={setPage}
         />
       )}
+
+      <ContentExportModal
+        isOpen={isExportOpen}
+        onClose={() => setIsExportOpen(false)}
+        courses={courses}
+      />
+
+      <ContentImportModal
+        isOpen={isImportOpen}
+        onClose={() => setIsImportOpen(false)}
+        onSuccess={handleRefresh}
+      />
     </div>
   );
 }

@@ -223,6 +223,11 @@ describe("Review Summary Generation («خلاصه مروری»)", () => {
       await chunkStore.create(chunk);
     }
 
+    // Generate prerequisite lesson
+    await service.generateForDocument(actor, organizationId, docId, {
+      types: ["lesson"],
+    });
+
     // 1st direct call -> generates
     const first = await service.generateReviewSummaryDirect(
       actor,

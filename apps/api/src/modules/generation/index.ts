@@ -22,6 +22,19 @@ export type {
   GenerationJobRecord,
 } from "./generation-jobs-store.js";
 export type {
+  GenerationChunkStore,
+  GenerationChunkRecord,
+  GenerationChunkStage,
+  GenerationChunkStatus,
+} from "./generation-chunk-store.js";
+export {
+  DrizzleGeneratedContentStore,
+  DrizzleGeneratedContentCitationStore,
+  DrizzleGenerationJobStore,
+  DrizzleGenerationChunkStore,
+} from "./drizzle-stores.js";
+
+export type {
   GenerationQueue,
   GenerationJobPayload,
   EnqueueGenerationResult,

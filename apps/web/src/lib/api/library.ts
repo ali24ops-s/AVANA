@@ -11,8 +11,20 @@
 import type {
   PublicContentPackItemSummary,
   PublicContentPackDetailResource,
+  ResourceAccessSummary,
+  ResourcePurchaseSummary,
+  CoursePackagesResponse,
 } from "@avana/domain";
 import type { ApiClient } from "./client.js";
+
+export interface ListCoursePackagesParams {
+  course_id?: string;
+  q?: string;
+  subject?: string;
+  sort?: "popular" | "newest";
+  page?: number;
+  limit?: number;
+}
 
 export interface ListPacksParams {
   q?: string;
@@ -20,6 +32,65 @@ export interface ListPacksParams {
   sort?: "popular" | "newest";
   page?: number;
   limit?: number;
+}
+
+export interface ListLibraryResourcesParams {
+  q?: string;
+  type?: "all" | "courses" | "contents";
+  subject?: string;
+  sort?: "popular" | "newest";
+  page?: number;
+  limit?: number;
+}
+
+export interface LibraryCourseItem {
+  id: string;
+  title: string;
+  description: string | null;
+  subject: string | null;
+  module_count: number;
+  content_count: number;
+  progress?: {
+    completed_lessons: number;
+    total_lessons: number;
+    percent: number;
+  };
+  access?: ResourceAccessSummary;
+  purchase?: ResourcePurchaseSummary;
+  href: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LibraryContentItem {
+  id: string;
+  title: string;
+  type: "lesson" | "document" | "quiz" | "flashcard" | "review_summary";
+  course_id: string;
+  course_title: string;
+  module_id?: string | null;
+  module_title?: string | null;
+  lesson_id?: string | null;
+  estimated_minutes?: number | null;
+  completed?: boolean;
+  completed_at?: string | null;
+  access?: ResourceAccessSummary;
+  purchase?: ResourcePurchaseSummary;
+  href: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LibraryResourcesResponse {
+  request_id: string;
+  courses: LibraryCourseItem[];
+  contents: LibraryContentItem[];
+  pagination: {
+    page: number;
+    limit: number;
+    total_courses: number;
+    total_contents: number;
+  };
 }
 
 export interface PublicLibraryListResponse {
@@ -84,6 +155,78 @@ export interface PublishContentPackResponse {
 
 export function createLibraryApi(client: ApiClient) {
   return {
+    /**
+     * GET /v1/library/course-packages — List courses with chapter educational packages.
+     */
+    listCoursePackages(
+      params: ListCoursePackagesParams = {},
+    ): Promise<CoursePackagesResponse> {
+      const searchParams = new URLSearchParams();
+      if (params.course_id && params.course_id.trim().length > 0) {
+        searchParams.set("course_id", params.course_id.trim());
+      }
+      if (params.q && params.q.trim().length > 0) {
+        searchParams.set("q", params.q.trim());
+      }
+      if (
+        params.subject &&
+        params.subject.trim().length > 0 &&
+        params.subject !== "all"
+      ) {
+        searchParams.set("subject", params.subject.trim());
+      }
+      if (params.sort) {
+        searchParams.set("sort", params.sort);
+      }
+      if (params.page !== undefined) {
+        searchParams.set("page", String(params.page));
+      }
+      if (params.limit !== undefined) {
+        searchParams.set("limit", String(params.limit));
+      }
+
+      const qs = searchParams.toString();
+      return client.get<CoursePackagesResponse>(
+        `/v1/library/course-packages${qs ? `?${qs}` : ""}`,
+      );
+    },
+
+    /**
+     * GET /v1/library/resources — Search & list accessible courses and standalone contents.
+     */
+    listResources(
+      params: ListLibraryResourcesParams = {},
+    ): Promise<LibraryResourcesResponse> {
+      const searchParams = new URLSearchParams();
+      if (params.q && params.q.trim().length > 0) {
+        searchParams.set("q", params.q.trim());
+      }
+      if (params.type && params.type !== "all") {
+        searchParams.set("type", params.type);
+      }
+      if (
+        params.subject &&
+        params.subject.trim().length > 0 &&
+        params.subject !== "all"
+      ) {
+        searchParams.set("subject", params.subject.trim());
+      }
+      if (params.sort) {
+        searchParams.set("sort", params.sort);
+      }
+      if (params.page !== undefined) {
+        searchParams.set("page", String(params.page));
+      }
+      if (params.limit !== undefined) {
+        searchParams.set("limit", String(params.limit));
+      }
+
+      const qs = searchParams.toString();
+      return client.get<LibraryResourcesResponse>(
+        `/v1/library/resources${qs ? `?${qs}` : ""}`,
+      );
+    },
+
     /**
      * GET /v1/library/packs — Search & list published content packs.
      */

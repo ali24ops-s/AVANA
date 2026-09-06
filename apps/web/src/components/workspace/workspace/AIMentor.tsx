@@ -9,6 +9,7 @@ import {
   Send,
   User,
 } from "lucide-react";
+import { RichContent } from "../../markdown/MarkdownRenderer.js";
 
 interface AIMentorProps {
   lessonTitle: string;
@@ -234,17 +235,13 @@ export function AIMentor({ lessonTitle }: AIMentorProps) {
                 }`}
               >
                 <div
-                  className={`text-sm leading-relaxed whitespace-pre-wrap ${
+                  className={`text-sm leading-relaxed ${
                     message.type === "ai"
                       ? "prose prose-sm prose-slate dark:prose-invert max-w-none"
                       : ""
                   }`}
                 >
-                  {message.content
-                    .split("**")
-                    .map((part, i) =>
-                      i % 2 === 1 ? <strong key={i}>{part}</strong> : part,
-                    )}
+                  <RichContent content={message.content} />
                 </div>
               </div>
             </motion.div>

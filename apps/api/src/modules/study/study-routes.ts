@@ -61,6 +61,7 @@ import type {
 import type { OrganizationStore } from "../organizations/organization-store.js";
 import type { CourseStore } from "../courses/course-store.js";
 import type { AuditService } from "../../observability/audit-service.js";
+import type { EntitlementService } from "../commerce/entitlement-service.js";
 
 export interface StudyRouteOptions {
   sessionService: AuthMiddlewareDeps["sessionService"];
@@ -80,8 +81,7 @@ export interface StudyRouteOptions {
   systemOrganizationId?: OrganizationId;
   studySessionStore?: StudySessionStore;
   flashcardStudySessionStore?: FlashcardStudySessionStore;
-  demoUserResolver?: AuthMiddlewareDeps["demoUserResolver"];
-  authEnabled?: boolean;
+  entitlementService?: EntitlementService;
 }
 
 const UUID_RE =
@@ -109,16 +109,10 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
     systemOrganizationId,
     studySessionStore,
     flashcardStudySessionStore,
-    demoUserResolver,
-    authEnabled,
+    entitlementService,
   } = opts;
 
-  const { requireAuth } = makeAuthMiddleware({
-    sessionService,
-    userStore,
-    demoUserResolver,
-    authEnabled,
-  });
+  const { requireAuth } = makeAuthMiddleware({ sessionService, userStore });
   const service = new StudyService(
     flashcardStore,
     flashcardReviewStore,
@@ -136,6 +130,7 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
     systemOrganizationId,
     studySessionStore,
     flashcardStudySessionStore,
+    entitlementService,
   );
 
   /** Helper to extract actor from authenticated request. */
@@ -983,6 +978,7 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
       request_id: req.id,
       attempt: res.attempt,
       questions: res.questions,
+      coverage: res.coverage,
       isCompleted: res.isCompleted,
     };
   };

@@ -1,26 +1,21 @@
 import type { ComponentType } from "react";
 import {
   LayoutDashboard,
-  Activity,
-  BrainCircuit,
   BookOpen,
-  FolderTree,
-  FileText,
   Users,
-  History,
-  Server,
-  MessageSquare,
-  ShieldAlert,
-  TerminalSquare,
-  FileCheck2,
-  Settings,
+  CircleDollarSign,
+  Newspaper,
+  BrainCircuit,
+  ShieldCheck,
 } from "lucide-react";
 
 export interface AdminNavItem {
+  id?: string;
   name: string;
   href: string;
   icon: ComponentType<{ className?: string }>;
   description?: string;
+  matchPrefixes?: string[];
 }
 
 export interface AdminNavGroup {
@@ -29,75 +24,156 @@ export interface AdminNavGroup {
   items: AdminNavItem[];
 }
 
-export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
+/**
+ * 7 Primary Workspaces for platform_admin
+ */
+export const PLATFORM_ADMIN_NAV_ITEMS: AdminNavItem[] = [
   {
-    id: "overview",
-    title: "اصلی و تحلیل",
-    items: [
-      { name: "داشبورد", href: "/admin/dashboard", icon: LayoutDashboard },
-      { name: "آمار و تحلیل‌ها", href: "/admin/analytics", icon: Activity },
-      { name: "آمار هوش مصنوعی", href: "/admin/analytics/ai", icon: BrainCircuit },
+    id: "dashboard",
+    name: "داشبورد و آمار",
+    href: "/admin/dashboard",
+    icon: LayoutDashboard,
+    description: "نمای کلی سیستم و شاخص‌های کلیدی",
+    matchPrefixes: ["/admin/dashboard", "/admin/analytics"],
+  },
+  {
+    id: "courses",
+    name: "آموزش و دوره‌ها",
+    href: "/admin/courses",
+    icon: BookOpen,
+    description: "مدیریت دوره‌ها، استودیو محتوا، اسناد و بررسی‌ها",
+    matchPrefixes: [
+      "/admin/courses",
+      "/admin/content-studio",
+      "/admin/content",
+      "/admin/documents",
+      "/admin/community-content",
     ],
   },
   {
-    id: "management",
-    title: "آموزش و کاربران",
-    items: [
-      { name: "دوره‌ها", href: "/admin/courses", icon: BookOpen },
-      { name: "مدیریت محتوا", href: "/admin/content", icon: FolderTree },
-      { name: "فایل‌ها و اسناد", href: "/admin/documents", icon: FileText },
-      { name: "کاربران", href: "/admin/users", icon: Users },
-    ],
+    id: "users",
+    name: "کاربران و دسترسی‌ها",
+    href: "/admin/users",
+    icon: Users,
+    description: "مدیریت حساب‌ها، نقش‌ها و فعالیت کاربران",
+    matchPrefixes: ["/admin/users"],
+  },
+  {
+    id: "commerce",
+    name: "امور مالی و فروش",
+    href: "/admin/commerce",
+    icon: CircleDollarSign,
+    description: "درآمد، سفارش‌ها، اشتراک‌ها، محصولات و تراکنش‌ها",
+    matchPrefixes: ["/admin/commerce"],
+  },
+  {
+    id: "blog",
+    name: "مقالات و وبلاگ",
+    href: "/admin/blog",
+    icon: Newspaper,
+    description: "تولید، ویرایش و انتشار مقالات آموزشی",
+    matchPrefixes: ["/admin/blog"],
   },
   {
     id: "generation",
-    title: "هوش مصنوعی",
-    items: [
-      { name: "تاریخچه تولیدات", href: "/admin/generation", icon: History },
-      { name: "ارائه‌دهندگان AI", href: "/admin/generation/providers", icon: Server },
-      { name: "بازرس پرامپت‌ها (Prompt Inspector)", href: "/admin/generation/prompts", icon: MessageSquare },
-    ],
+    name: "مرکز هوش مصنوعی",
+    href: "/admin/generation",
+    icon: BrainCircuit,
+    description: "مدیریت موتورهای AI، بازرس پرامپت و تاریخچه تولیدات",
+    matchPrefixes: ["/admin/generation"],
   },
   {
     id: "system",
-    title: "سیستم و نظارت",
-    items: [
-      { name: "سلامت سیستم", href: "/admin/system/health", icon: Activity },
-      { name: "سلامت داده‌ها", href: "/admin/system/integrity", icon: ShieldAlert },
-      { name: "لاگ‌های سیستم", href: "/admin/system/logs", icon: TerminalSquare },
-      { name: "گزارش حسابرسی", href: "/admin/system/audit", icon: FileCheck2 },
-      { name: "تنظیمات", href: "/admin/settings", icon: Settings },
-    ],
+    name: "سیستم و نظارت",
+    href: "/admin/system/health",
+    icon: ShieldCheck,
+    description: "سلامت سرور، لاگ‌ها، حسابرسی داده‌ها و تنظیمات",
+    matchPrefixes: ["/admin/system", "/admin/settings"],
   },
 ];
 
-export const ALL_ADMIN_NAV_ITEMS: AdminNavItem[] = ADMIN_NAV_GROUPS.flatMap(
-  (group) => group.items,
-);
+/**
+ * 2 Workspaces for content_worker
+ */
+export const CONTENT_WORKER_NAV_ITEMS: AdminNavItem[] = [
+  {
+    id: "courses",
+    name: "آموزش و دوره‌ها",
+    href: "/admin/courses",
+    icon: BookOpen,
+    description: "مدیریت دوره‌ها، استودیو محتوا و اسناد",
+    matchPrefixes: [
+      "/admin/courses",
+      "/admin/content-studio",
+      "/admin/content",
+      "/admin/documents",
+      "/admin/community-content",
+    ],
+  },
+  {
+    id: "blog",
+    name: "مقالات و وبلاگ",
+    href: "/admin/blog",
+    icon: Newspaper,
+    description: "تولید، ویرایش و انتشار مقالات آموزشی",
+    matchPrefixes: ["/admin/blog"],
+  },
+];
 
-const ALL_NAV_HREFS = ALL_ADMIN_NAV_ITEMS.map((item) => item.href);
+/**
+ * Helper to resolve visible navigation items based on user role.
+ */
+export function getVisibleNavItems(role?: string): AdminNavItem[] {
+  if (role === "content_worker") {
+    return CONTENT_WORKER_NAV_ITEMS;
+  }
+  return PLATFORM_ADMIN_NAV_ITEMS;
+}
+
+export const ADMIN_NAV_ITEMS: AdminNavItem[] = PLATFORM_ADMIN_NAV_ITEMS;
+export const ALL_ADMIN_NAV_ITEMS: AdminNavItem[] = PLATFORM_ADMIN_NAV_ITEMS;
+
+export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
+  {
+    id: "workspaces",
+    title: "فضاهای کاری مدیریت",
+    items: PLATFORM_ADMIN_NAV_ITEMS,
+  },
+];
 
 /**
  * Determines if a navigation item is active for a given pathname.
- * Handles exact matches, nested detail paths, and avoids false prefix collisions.
+ * Handles prefix matching, deep sub-routes, and avoids collisions.
  */
 export function isNavItemActive(
   itemHref: string,
   currentPathname: string,
-  allHrefs: string[] = ALL_NAV_HREFS,
+  navItemsOrHrefs?: (AdminNavItem | string)[],
 ): boolean {
-  if (currentPathname === itemHref) return true;
+  let targetItem: AdminNavItem | undefined;
 
-  if (currentPathname.startsWith(itemHref + "/")) {
-    const hasMoreSpecificMatch = allHrefs.some(
-      (otherHref) =>
-        otherHref !== itemHref &&
-        otherHref.length > itemHref.length &&
-        (currentPathname === otherHref ||
-          currentPathname.startsWith(otherHref + "/")),
+  if (
+    navItemsOrHrefs &&
+    navItemsOrHrefs.length > 0 &&
+    typeof navItemsOrHrefs[0] === "object"
+  ) {
+    targetItem = (navItemsOrHrefs as AdminNavItem[]).find(
+      (i) => i.href === itemHref,
     );
-    return !hasMoreSpecificMatch;
+  } else {
+    targetItem = PLATFORM_ADMIN_NAV_ITEMS.find((i) => i.href === itemHref);
   }
+
+  if (targetItem?.matchPrefixes && targetItem.matchPrefixes.length > 0) {
+    return targetItem.matchPrefixes.some(
+      (prefix) =>
+        currentPathname === prefix ||
+        currentPathname.startsWith(prefix + "/"),
+    );
+  }
+
+  if (currentPathname === itemHref) return true;
+  if (currentPathname.startsWith(itemHref + "/")) return true;
 
   return false;
 }
@@ -115,38 +191,372 @@ export function getAdminPageInfo(currentPathname: string): {
   title: string;
   breadcrumbs: BreadcrumbItem[];
 } {
-  const activeItem = ALL_ADMIN_NAV_ITEMS.find((item) =>
-    isNavItemActive(item.href, currentPathname),
-  );
+  const rootCrumb: BreadcrumbItem = {
+    label: "پنل مدیریت",
+    href: "/admin/dashboard",
+  };
 
-  const breadcrumbs: BreadcrumbItem[] = [
-    { label: "پنل مدیریت", href: "/admin/dashboard" },
-  ];
-
-  if (!activeItem) {
-    if (currentPathname.startsWith("/admin/documents/")) {
-      breadcrumbs.push({ label: "فایل‌ها و اسناد", href: "/admin/documents" });
-      breadcrumbs.push({ label: "جزئیات سند", isCurrent: true });
-      return { title: "جزئیات سند", breadcrumbs };
-    }
-    if (currentPathname.startsWith("/admin/generation/")) {
-      breadcrumbs.push({ label: "تاریخچه تولیدات", href: "/admin/generation" });
-      breadcrumbs.push({ label: "جزئیات تولید", isCurrent: true });
-      return { title: "جزئیات تولید", breadcrumbs };
-    }
-    return { title: "پنل مدیریت", breadcrumbs };
+  // 1. Dashboard & Analytics
+  if (currentPathname === "/admin" || currentPathname === "/admin/dashboard") {
+    return {
+      title: "داشبورد و آمار",
+      breadcrumbs: [rootCrumb, { label: "داشبورد و آمار", isCurrent: true }],
+    };
+  }
+  if (currentPathname === "/admin/analytics") {
+    return {
+      title: "آمار و تحلیل‌ها",
+      breadcrumbs: [
+        rootCrumb,
+        { label: "داشبورد و آمار", href: "/admin/dashboard" },
+        { label: "آمار و تحلیل‌ها", isCurrent: true },
+      ],
+    };
+  }
+  if (
+    currentPathname === "/admin/analytics/ai" ||
+    currentPathname.startsWith("/admin/analytics/ai/")
+  ) {
+    return {
+      title: "آمار هوش مصنوعی",
+      breadcrumbs: [
+        rootCrumb,
+        { label: "داشبورد و آمار", href: "/admin/dashboard" },
+        { label: "آمار هوش مصنوعی", isCurrent: true },
+      ],
+    };
   }
 
-  const isDeepDetail =
-    currentPathname.startsWith(activeItem.href + "/") &&
-    currentPathname !== activeItem.href;
-
-  if (isDeepDetail) {
-    breadcrumbs.push({ label: activeItem.name, href: activeItem.href });
-    breadcrumbs.push({ label: "جزئیات", isCurrent: true });
-    return { title: `${activeItem.name} — جزئیات`, breadcrumbs };
+  // 2. Education & Courses
+  if (currentPathname === "/admin/courses") {
+    return {
+      title: "آموزش و دوره‌ها",
+      breadcrumbs: [rootCrumb, { label: "آموزش و دوره‌ها", isCurrent: true }],
+    };
+  }
+  if (currentPathname.startsWith("/admin/courses/")) {
+    return {
+      title: "جزئیات دوره",
+      breadcrumbs: [
+        rootCrumb,
+        { label: "آموزش و دوره‌ها", href: "/admin/courses" },
+        { label: "جزئیات دوره", isCurrent: true },
+      ],
+    };
+  }
+  if (currentPathname === "/admin/content-studio") {
+    return {
+      title: "استودیو محتوای رسمی",
+      breadcrumbs: [
+        rootCrumb,
+        { label: "آموزش و دوره‌ها", href: "/admin/courses" },
+        { label: "استودیو محتوای رسمی", isCurrent: true },
+      ],
+    };
+  }
+  if (currentPathname.startsWith("/admin/content-studio/")) {
+    return {
+      title: "ویرایش دوره در استودیو",
+      breadcrumbs: [
+        rootCrumb,
+        { label: "آموزش و دوره‌ها", href: "/admin/courses" },
+        { label: "استودیو محتوای رسمی", href: "/admin/content-studio" },
+        { label: "ویرایش دوره", isCurrent: true },
+      ],
+    };
+  }
+  if (currentPathname === "/admin/community-content") {
+    return {
+      title: "بررسی محتوای ارسالی (کامیونیتی)",
+      breadcrumbs: [
+        rootCrumb,
+        { label: "آموزش و دوره‌ها", href: "/admin/courses" },
+        { label: "بررسی محتوای ارسالی", isCurrent: true },
+      ],
+    };
+  }
+  if (currentPathname.startsWith("/admin/community-content/")) {
+    return {
+      title: "جزئیات بررسی محتوا",
+      breadcrumbs: [
+        rootCrumb,
+        { label: "آموزش و دوره‌ها", href: "/admin/courses" },
+        { label: "بررسی محتوای ارسالی", href: "/admin/community-content" },
+        { label: "جزئیات محتوا", isCurrent: true },
+      ],
+    };
+  }
+  if (
+    currentPathname === "/admin/content" ||
+    currentPathname.startsWith("/admin/content/")
+  ) {
+    return {
+      title: "مدیریت محتوا",
+      breadcrumbs: [
+        rootCrumb,
+        { label: "آموزش و دوره‌ها", href: "/admin/courses" },
+        { label: "مدیریت محتوا", isCurrent: true },
+      ],
+    };
+  }
+  if (currentPathname === "/admin/documents") {
+    return {
+      title: "فایل‌ها و اسناد",
+      breadcrumbs: [
+        rootCrumb,
+        { label: "آموزش و دوره‌ها", href: "/admin/courses" },
+        { label: "فایل‌ها و اسناد", isCurrent: true },
+      ],
+    };
+  }
+  if (currentPathname.startsWith("/admin/documents/")) {
+    return {
+      title: "جزئیات سند",
+      breadcrumbs: [
+        rootCrumb,
+        { label: "آموزش و دوره‌ها", href: "/admin/courses" },
+        { label: "فایل‌ها و اسناد", href: "/admin/documents" },
+        { label: "جزئیات سند", isCurrent: true },
+      ],
+    };
   }
 
-  breadcrumbs.push({ label: activeItem.name, isCurrent: true });
-  return { title: activeItem.name, breadcrumbs };
+  // 3. Users & Permissions
+  if (currentPathname === "/admin/users") {
+    return {
+      title: "کاربران و دسترسی‌ها",
+      breadcrumbs: [rootCrumb, { label: "کاربران و دسترسی‌ها", isCurrent: true }],
+    };
+  }
+  if (currentPathname.startsWith("/admin/users/")) {
+    return {
+      title: "پروفایل کاربر",
+      breadcrumbs: [
+        rootCrumb,
+        { label: "کاربران و دسترسی‌ها", href: "/admin/users" },
+        { label: "پروفایل کاربر", isCurrent: true },
+      ],
+    };
+  }
+
+  // 4. Commerce & Sales
+  if (currentPathname === "/admin/commerce") {
+    return {
+      title: "امور مالی و فروش",
+      breadcrumbs: [rootCrumb, { label: "امور مالی و فروش", isCurrent: true }],
+    };
+  }
+  if (
+    currentPathname === "/admin/commerce/orders" ||
+    currentPathname.startsWith("/admin/commerce/orders/")
+  ) {
+    return {
+      title: "سفارش‌ها",
+      breadcrumbs: [
+        rootCrumb,
+        { label: "امور مالی و فروش", href: "/admin/commerce" },
+        { label: "سفارش‌ها", isCurrent: true },
+      ],
+    };
+  }
+  if (
+    currentPathname === "/admin/commerce/payments" ||
+    currentPathname.startsWith("/admin/commerce/payments/")
+  ) {
+    return {
+      title: "تراکنش‌ها و پرداخت‌ها",
+      breadcrumbs: [
+        rootCrumb,
+        { label: "امور مالی و فروش", href: "/admin/commerce" },
+        { label: "تراکنش‌ها و پرداخت‌ها", isCurrent: true },
+      ],
+    };
+  }
+  if (
+    currentPathname === "/admin/commerce/subscriptions" ||
+    currentPathname.startsWith("/admin/commerce/subscriptions/")
+  ) {
+    return {
+      title: "اشتراک‌های کاربران",
+      breadcrumbs: [
+        rootCrumb,
+        { label: "امور مالی و فروش", href: "/admin/commerce" },
+        { label: "اشتراک‌های کاربران", isCurrent: true },
+      ],
+    };
+  }
+  if (
+    currentPathname === "/admin/commerce/entitlements" ||
+    currentPathname.startsWith("/admin/commerce/entitlements/")
+  ) {
+    return {
+      title: "حقوق دسترسی (Entitlements)",
+      breadcrumbs: [
+        rootCrumb,
+        { label: "امور مالی و فروش", href: "/admin/commerce" },
+        { label: "حقوق دسترسی", isCurrent: true },
+      ],
+    };
+  }
+  if (
+    currentPathname === "/admin/commerce/products" ||
+    currentPathname.startsWith("/admin/commerce/products/")
+  ) {
+    return {
+      title: "کاتالوگ محصولات",
+      breadcrumbs: [
+        rootCrumb,
+        { label: "امور مالی و فروش", href: "/admin/commerce" },
+        { label: "کاتالوگ محصولات", isCurrent: true },
+      ],
+    };
+  }
+
+  // 5. Articles & Blog
+  if (currentPathname === "/admin/blog") {
+    return {
+      title: "مقالات و وبلاگ",
+      breadcrumbs: [rootCrumb, { label: "مقالات و وبلاگ", isCurrent: true }],
+    };
+  }
+  if (currentPathname === "/admin/blog/new") {
+    return {
+      title: "ایجاد مقاله جدید",
+      breadcrumbs: [
+        rootCrumb,
+        { label: "مقالات و وبلاگ", href: "/admin/blog" },
+        { label: "ایجاد مقاله جدید", isCurrent: true },
+      ],
+    };
+  }
+  if (
+    currentPathname.startsWith("/admin/blog/") &&
+    currentPathname.endsWith("/edit")
+  ) {
+    return {
+      title: "ویرایش مقاله",
+      breadcrumbs: [
+        rootCrumb,
+        { label: "مقالات و وبلاگ", href: "/admin/blog" },
+        { label: "ویرایش مقاله", isCurrent: true },
+      ],
+    };
+  }
+  if (
+    currentPathname.startsWith("/admin/blog/") &&
+    currentPathname.endsWith("/preview")
+  ) {
+    return {
+      title: "پیش‌نمایش مقاله",
+      breadcrumbs: [
+        rootCrumb,
+        { label: "مقالات و وبلاگ", href: "/admin/blog" },
+        { label: "پیش‌نمایش مقاله", isCurrent: true },
+      ],
+    };
+  }
+  if (currentPathname.startsWith("/admin/blog/")) {
+    return {
+      title: "جزئیات مقاله",
+      breadcrumbs: [
+        rootCrumb,
+        { label: "مقالات و وبلاگ", href: "/admin/blog" },
+        { label: "جزئیات مقاله", isCurrent: true },
+      ],
+    };
+  }
+
+  // 6. AI Generation
+  if (currentPathname === "/admin/generation") {
+    return {
+      title: "مرکز هوش مصنوعی",
+      breadcrumbs: [rootCrumb, { label: "مرکز هوش مصنوعی", isCurrent: true }],
+    };
+  }
+  if (currentPathname === "/admin/generation/providers") {
+    return {
+      title: "ارائه‌دهندگان AI",
+      breadcrumbs: [
+        rootCrumb,
+        { label: "مرکز هوش مصنوعی", href: "/admin/generation" },
+        { label: "ارائه‌دهندگان AI", isCurrent: true },
+      ],
+    };
+  }
+  if (currentPathname === "/admin/generation/prompts") {
+    return {
+      title: "بازرس پرامپت‌ها (Prompt Inspector)",
+      breadcrumbs: [
+        rootCrumb,
+        { label: "مرکز هوش مصنوعی", href: "/admin/generation" },
+        { label: "بازرس پرامپت‌ها", isCurrent: true },
+      ],
+    };
+  }
+  if (currentPathname.startsWith("/admin/generation/")) {
+    return {
+      title: "جزئیات تولید",
+      breadcrumbs: [
+        rootCrumb,
+        { label: "مرکز هوش مصنوعی", href: "/admin/generation" },
+        { label: "جزئیات تولید", isCurrent: true },
+      ],
+    };
+  }
+
+  // 7. System & Monitoring
+  if (
+    currentPathname === "/admin/system/health" ||
+    currentPathname === "/admin/system"
+  ) {
+    return {
+      title: "سیستم و نظارت",
+      breadcrumbs: [rootCrumb, { label: "سیستم و نظارت", isCurrent: true }],
+    };
+  }
+  if (currentPathname === "/admin/system/integrity") {
+    return {
+      title: "سلامت داده‌ها",
+      breadcrumbs: [
+        rootCrumb,
+        { label: "سیستم و نظارت", href: "/admin/system/health" },
+        { label: "سلامت داده‌ها", isCurrent: true },
+      ],
+    };
+  }
+  if (currentPathname === "/admin/system/logs") {
+    return {
+      title: "لاگ‌های سیستم",
+      breadcrumbs: [
+        rootCrumb,
+        { label: "سیستم و نظارت", href: "/admin/system/health" },
+        { label: "لاگ‌های سیستم", isCurrent: true },
+      ],
+    };
+  }
+  if (currentPathname === "/admin/system/audit") {
+    return {
+      title: "گزارش حسابرسی",
+      breadcrumbs: [
+        rootCrumb,
+        { label: "سیستم و نظارت", href: "/admin/system/health" },
+        { label: "گزارش حسابرسی", isCurrent: true },
+      ],
+    };
+  }
+  if (currentPathname === "/admin/settings") {
+    return {
+      title: "تنظیمات سیستم",
+      breadcrumbs: [
+        rootCrumb,
+        { label: "سیستم و نظارت", href: "/admin/system/health" },
+        { label: "تنظیمات", isCurrent: true },
+      ],
+    };
+  }
+
+  return {
+    title: "پنل مدیریت",
+    breadcrumbs: [rootCrumb],
+  };
 }

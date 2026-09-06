@@ -14,12 +14,13 @@
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { createDbClient } from "@avana/database/client";
-import { modules, lessons } from "@avana/database/schema";
+import { modules, lessons, courses } from "@avana/database/schema";
 import type { DbClient } from "@avana/database/client";
 import {
   DrizzleSessionStore,
   DrizzleUserStore,
   DrizzleEmailVerificationStore,
+  DrizzleDeviceStore,
   MockEmailService,
   ResendEmailService,
   type EmailService,
@@ -43,7 +44,10 @@ import {
   DrizzleGeneratedContentStore,
   DrizzleGeneratedContentCitationStore,
   DrizzleGenerationJobStore,
+  DrizzleGenerationChunkStore,
 } from "../modules/generation/drizzle-stores.js";
+import { DrizzleGenerationProgressStore } from "../modules/generation/generation-progress-store.js";
+import { GenerationProgressService } from "../modules/generation/generation-progress-service.js";
 import {
   DrizzleFlashcardStore,
   DrizzleFlashcardReviewStore,
@@ -68,6 +72,12 @@ import {
   DrizzleContentPackUsageStore,
 } from "../modules/library/index.js";
 import { DrizzleSearchStore } from "../modules/search/index.js";
+import {
+  DrizzleCommerceStore,
+  MockPaymentGateway,
+  ZarinpalPaymentGateway,
+} from "../modules/commerce/index.js";
+import { DrizzleBlogStore } from "../modules/blog/index.js";
 import { LocalStorageProvider } from "../modules/storage/index.js";
 import { seedLocalDevData } from "../dev/seed.js";
 import type { V1RouteOptions } from "../routes/v1.js";
@@ -234,6 +244,7 @@ export async function composeProduction(
   // Drizzle-backed stores
   const sessionStore = new DrizzleSessionStore(db);
   const userStore = new DrizzleUserStore(db);
+  const deviceStore = new DrizzleDeviceStore(db);
   const emailVerificationStore = new DrizzleEmailVerificationStore(db);
   let emailService: EmailService;
   if (config.nodeEnv === "production") {
@@ -246,7 +257,7 @@ export async function composeProduction(
       config.email.resendApiKey,
       config.email.from,
     );
-  } else if (config.email.resendApiKey) {
+  } else if (config.email.provider === "resend" && config.email.resendApiKey) {
     emailService = new ResendEmailService(
       config.email.resendApiKey,
       config.email.from,
@@ -267,6 +278,9 @@ export async function composeProduction(
   const generatedContentCitationStore =
     new DrizzleGeneratedContentCitationStore(db);
   const generationJobStore = new DrizzleGenerationJobStore(db);
+  const generationChunkStore = new DrizzleGenerationChunkStore(db);
+  const generationProgressStore = new DrizzleGenerationProgressStore(db);
+  const generationProgressService = new GenerationProgressService(generationProgressStore);
   const gateway = createModelGateway({
     provider: config.generation.aiProvider,
     enableFallback: config.generation.enableFallback,
@@ -336,11 +350,28 @@ export async function composeProduction(
   const auditStore = new DrizzleAuditStore(db);
   const auditService = new AuditService(auditStore);
   const searchStore = new DrizzleSearchStore(db);
+  const blogStore = new DrizzleBlogStore(db);
+
+  // Commerce & Monetization Stores & Payment Gateway
+  const commerceStore = new DrizzleCommerceStore(db);
+  let paymentGateway: MockPaymentGateway | ZarinpalPaymentGateway;
+  if (
+    config.commerce.provider === "zarinpal" &&
+    config.commerce.zarinpalMerchantId
+  ) {
+    paymentGateway = new ZarinpalPaymentGateway({
+      merchantId: config.commerce.zarinpalMerchantId,
+      sandbox: config.commerce.zarinpalSandbox,
+    });
+  } else {
+    paymentGateway = new MockPaymentGateway();
+  }
 
   const v1Options: V1RouteOptions = {
     config,
     sessionStore,
     userStore,
+    deviceStore,
     emailVerificationStore,
     emailService,
     organizationStore,
@@ -354,6 +385,9 @@ export async function composeProduction(
     generatedContentStore,
     generatedContentCitationStore,
     generationJobStore,
+    generationChunkStore,
+    generationProgressStore,
+    generationProgressService,
     queue,
     gateway,
     flashcardStore,
@@ -371,11 +405,14 @@ export async function composeProduction(
     contentPackStore,
     contentPackUsageStore,
     searchStore,
+    commerceStore,
+    paymentGateway,
+    blogStore,
   };
 
-  // Seed demo data for development only — not in production
-  if (config.nodeEnv === "development") {
-    process.stdout.write("[seed] Seed started...\n");
+  // Explicit opt-in dev seed: never seed automatically on regular dev/restart
+  if (config.nodeEnv === "development" && process.env.ENABLE_DEV_AUTO_SEED === "true") {
+    process.stdout.write("[seed] Explicit dev seed started...\n");
     const seedResult = await seedLocalDevData({
       userStore,
       organizationStore,
@@ -384,7 +421,16 @@ export async function composeProduction(
     });
 
     if (seedResult.seeded.courses.length > 0) {
-      await seedModulesAndLessons(db, seedResult.seeded.courses[0] as CourseId);
+      const pharmacologyCourse = await db
+        .select({ id: courses.id })
+        .from(courses)
+        .where(eq(courses.name, "شیمی دارویی ۱"))
+        .limit(1)
+        .then((rows) => rows[0]);
+
+      if (pharmacologyCourse) {
+        await seedModulesAndLessons(db, pharmacologyCourse.id as CourseId);
+      }
     }
 
     process.stdout.write(

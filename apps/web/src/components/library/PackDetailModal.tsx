@@ -19,8 +19,16 @@ import {
   Loader2,
   AlertCircle,
   Sparkles,
+  ShoppingBag,
 } from "lucide-react";
 import { useLibraryPack } from "../../hooks/useLibrary.js";
+import {
+  useCommerceProducts,
+  useMyEntitlements,
+  useMySubscription,
+  useCheckout,
+} from "../../hooks/useCommerce.js";
+import { formatToman } from "../commerce/userCommerceUtils.js";
 import type { PublicContentPackDetailResource } from "@avana/domain";
 
 export interface PackDetailModalProps {
@@ -42,6 +50,33 @@ export function PackDetailModal({
   const { data, isLoading, isError, error, refetch } = useLibraryPack(
     open ? packId : null,
   );
+
+  const { data: productsData } = useCommerceProducts();
+  const { data: entitlementsData } = useMyEntitlements();
+  const { data: subData } = useMySubscription();
+  const checkoutMutation = useCheckout();
+
+  // Resolve product for this pack
+  const packProduct = (productsData?.items ?? []).find(
+    (p) => p.target_type === "content_pack" && p.target_id === packId,
+  );
+
+  // Check if user purchased this pack permanently
+  const isPurchased = (entitlementsData?.items ?? []).some(
+    (e) => e.resource_type === "content_pack" && e.resource_id === packId,
+  );
+
+  // Check if active subscription
+  const hasSubscription = subData?.subscription?.status === "active";
+
+  const handleBuyPack = () => {
+    if (packProduct) {
+      checkoutMutation.mutate({
+        product_id: packProduct.id,
+        callback_url: `${window.location.origin}/checkout/callback`,
+      });
+    }
+  };
 
   useEffect(() => {
     if (open) {
@@ -114,9 +149,9 @@ export function PackDetailModal({
                 <span>{pack?.subject || "آموزش پزشکی و بالینی"}</span>
               </span>
               {pack && (
-                <span className="text-xs text-slate-400 flex items-center gap-1">
-                  <Users className="w-3.5 h-3.5 text-teal-400" />
-                  <span>{pack.usage_count} نصب در دوره‌ها</span>
+                <span className="text-xs text-slate-400 flex items-center gap-1.5 whitespace-nowrap">
+                  <Users className="w-3.5 h-3.5 text-teal-400 shrink-0" />
+                  <span>{pack.usage_count} افزوده‌شده به دوره‌ها</span>
                 </span>
               )}
             </div>
@@ -392,28 +427,50 @@ export function PackDetailModal({
           )}
         </div>
 
-        {/* Modal Footer with Primary Add CTA */}
+        {/* Modal Footer with Primary Add & Purchase CTAs */}
         {pack && (
-          <div className="p-4 sm:p-6 border-t border-white/10 flex items-center justify-between gap-4 bg-slate-900/90 shrink-0">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2.5 rounded-xl text-xs font-bold text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
-            >
-              انصراف
-            </button>
+          <div className="p-4 sm:p-6 border-t border-white/10 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-slate-900/90 shrink-0">
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2.5 rounded-xl text-xs font-bold text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+              >
+                بستن
+              </button>
 
-            <button
-              type="button"
-              onClick={() => {
-                onClose();
-                onAddToCourse(pack);
-              }}
-              className="flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs font-bold text-white bg-teal-600 hover:bg-teal-500 shadow-lg shadow-teal-900/40 transition-all"
-            >
-              <PlusCircle className="w-4 h-4" />
-              <span>افزودن این بسته به دوره من</span>
-            </button>
+              {packProduct && !isPurchased && !hasSubscription && (
+                <span className="text-xs font-bold text-amber-300 bg-amber-500/10 border border-amber-500/20 px-3 py-1.5 rounded-xl">
+                  قیمت: {formatToman(packProduct.price)}
+                </span>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2">
+              {!isPurchased && !hasSubscription && packProduct && (
+                <button
+                  type="button"
+                  onClick={handleBuyPack}
+                  disabled={checkoutMutation.isPending}
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-purple-600 hover:bg-purple-500 shadow-lg shadow-purple-900/40 transition-all cursor-pointer"
+                >
+                  <ShoppingBag className="w-4 h-4" />
+                  <span>خرید دائمی بسته ({formatToman(packProduct.price)})</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onAddToCourse(pack);
+                }}
+                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl text-xs font-bold text-white bg-teal-600 hover:bg-teal-500 shadow-lg shadow-teal-900/40 transition-all cursor-pointer"
+              >
+                <PlusCircle className="w-4 h-4" />
+                <span>افزودن این بسته به دوره من</span>
+              </button>
+            </div>
           </div>
         )}
       </div>

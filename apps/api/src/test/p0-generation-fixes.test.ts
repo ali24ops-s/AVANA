@@ -147,10 +147,10 @@ describe("AVANA Generation Pipeline P0 Fixes", () => {
             };
           }
 
-          if (reqType === "flashcard_topic" || reqType === "flashcards_batch") {
+          if (reqType === "flashcard_topic" || reqType === "flashcards_batch" || reqType === "flashcards") {
             return {
               text: JSON.stringify({
-                kind: "flashcards_batch",
+                kind: "flashcards",
                 cards: [
                   {
                     sessionIndex: 0,
@@ -159,6 +159,7 @@ describe("AVANA Generation Pipeline P0 Fixes", () => {
                     explanation: "بر اساس درس تدوین‌شده.",
                     cardType: "mechanism",
                     difficulty: "medium",
+                    citationChunkIds: ["chunk-1"],
                   },
                 ],
                 citationChunkIds: ["chunk-1", "chunk-2"],
@@ -169,7 +170,7 @@ describe("AVANA Generation Pipeline P0 Fixes", () => {
             };
           }
 
-          if (reqType === "quiz_topic" || reqType === "quizzes_batch") {
+          if (reqType === "quiz_topic" || reqType === "quizzes_batch" || reqType === "quizzes") {
             return {
               text: JSON.stringify({
                 kind: "quizzes_batch",
@@ -192,7 +193,14 @@ describe("AVANA Generation Pipeline P0 Fixes", () => {
           }
 
           return {
-            text: JSON.stringify({ kind: "recommendation", summary: "Test", topics: [] }),
+            text: JSON.stringify({
+              kind: "review_summary",
+              title: "Test",
+              overview: "Test",
+              sections: [],
+              finalTakeaways: [],
+              citationChunkIds: [],
+            }),
             model: "test-model",
             usage: { inputTokens: 10, outputTokens: 10 },
             finishReason: "stop",
@@ -255,20 +263,20 @@ describe("AVANA Generation Pipeline P0 Fixes", () => {
 
       // Verify Flashcard Prompt
       const flashcardPrompt = recordedPrompts.find(
-        (p) => p.type === "flashcard_topic" || p.type === "flashcards_batch",
+        (p) => p.type === "flashcard_topic" || p.type === "flashcards_batch" || p.type === "flashcards",
       );
       expect(flashcardPrompt).toBeDefined();
-      expect(flashcardPrompt!.prompt).toContain("Lesson Excerpt:");
+      expect(flashcardPrompt!.prompt).toContain("COMPLETE GENERATED LESSON:");
       expect(flashcardPrompt!.prompt).toContain("در بیماران آسم و برونکواسپاسم، بتا بلاکرهای غیراختصاصی");
       expect(flashcardPrompt!.prompt).toContain("AVAILABLE CHUNK IDs:");
       expect(flashcardPrompt!.prompt).toContain("chunk-1");
 
       // Verify Quiz Prompt
       const quizPrompt = recordedPrompts.find(
-        (p) => p.type === "quiz_topic" || p.type === "quizzes_batch",
+        (p) => p.type === "quiz_topic" || p.type === "quizzes_batch" || p.type === "quizzes",
       );
       expect(quizPrompt).toBeDefined();
-      expect(quizPrompt!.prompt).toContain("Lesson Excerpt:");
+      expect(quizPrompt!.prompt).toContain("FULL LESSON CONTENT");
       expect(quizPrompt!.prompt).toContain("داروهای بتا بلاکر با مهار رقابتی اثر کاتکول‌آمین‌ها");
       expect(quizPrompt!.prompt).toContain("AVAILABLE CHUNK IDs:");
       expect(quizPrompt!.prompt).toContain("chunk-2");
@@ -331,21 +339,26 @@ describe("AVANA Generation Pipeline P0 Fixes", () => {
             };
           }
 
-          if (reqType === "flashcard_topic" || reqType === "flashcards_batch") {
+          if (reqType === "flashcard_topic" || reqType === "flashcards_batch" || reqType === "flashcards") {
+            const isSession3 = userMsg.includes("جلسه 3");
+            const chunkIds = isSession3
+              ? ["chunk-9", "chunk-10", "chunk-11", "chunk-12"]
+              : ["chunk-1", "chunk-2"];
             return {
               text: JSON.stringify({
-                kind: "flashcards_batch",
+                kind: "flashcards",
                 cards: [
                   {
-                    sessionIndex: 0,
+                    sessionIndex: isSession3 ? 2 : 0,
                     question: "نکته کلیدی در چانک ۱۰ چیست؟",
                     answer: "پاسخ از چانک ۱۰.",
                     explanation: "مستند به چانک ۱۰.",
                     cardType: "key_fact",
                     difficulty: "medium",
+                    citationChunkIds: chunkIds,
                   },
                 ],
-                citationChunkIds: ["chunk-9", "chunk-10", "chunk-11", "chunk-12"],
+                citationChunkIds: chunkIds,
               }),
               model: "test-model",
               usage: { inputTokens: 80, outputTokens: 80 },
@@ -353,7 +366,7 @@ describe("AVANA Generation Pipeline P0 Fixes", () => {
             };
           }
 
-          if (reqType === "quiz_topic" || reqType === "quizzes_batch") {
+          if (reqType === "quiz_topic" || reqType === "quizzes_batch" || reqType === "quizzes") {
             return {
               text: JSON.stringify({
                 kind: "quizzes_batch",
@@ -376,7 +389,14 @@ describe("AVANA Generation Pipeline P0 Fixes", () => {
           }
 
           return {
-            text: JSON.stringify({ kind: "recommendation", summary: "Test", topics: [] }),
+            text: JSON.stringify({
+              kind: "review_summary",
+              title: "Test",
+              overview: "Test",
+              sections: [],
+              finalTakeaways: [],
+              citationChunkIds: [],
+            }),
             model: "test-model",
             usage: { inputTokens: 10, outputTokens: 10 },
             finishReason: "stop",
@@ -429,7 +449,9 @@ describe("AVANA Generation Pipeline P0 Fixes", () => {
 
       // Verify Flashcard Prompt includes Chunk 9-12
       const flashcardPrompt = recordedPrompts.find(
-        (p) => p.type === "flashcard_topic" || p.type === "flashcards_batch",
+        (p) =>
+          (p.type === "flashcard_topic" || p.type === "flashcards_batch" || p.type === "flashcards") &&
+          p.prompt.includes("جلسه 3"),
       );
       expect(flashcardPrompt).toBeDefined();
       expect(flashcardPrompt!.prompt).toContain("جلسه 3: بخش شماره 9، بخش شماره 10");
@@ -438,7 +460,9 @@ describe("AVANA Generation Pipeline P0 Fixes", () => {
 
       // Verify Quiz Prompt includes Chunk 9-12
       const quizPrompt = recordedPrompts.find(
-        (p) => p.type === "quiz_topic" || p.type === "quizzes_batch",
+        (p) =>
+          (p.type === "quiz_topic" || p.type === "quizzes_batch" || p.type === "quizzes") &&
+          p.prompt.includes("جلسه 3"),
       );
       expect(quizPrompt).toBeDefined();
       expect(quizPrompt!.prompt).toContain("جلسه 3: بخش شماره 9، بخش شماره 10");
@@ -453,4 +477,65 @@ describe("AVANA Generation Pipeline P0 Fixes", () => {
       );
     });
   });
+
+  describe("P0-5: LaTeX Ingestion & Escape Preservation in JSON Model Outputs", () => {
+    it("successfully preserves single-backslash LaTeX commands (\\text, \\beta, \\frac, \\rho, \\neq) without corruption into control characters", async () => {
+      const docStore = new InMemoryDocumentStore();
+      const chunkStore = new InMemoryDocumentChunkStore();
+      const genStore = new InMemoryGeneratedContentStore();
+      const citationStore = new InMemoryGeneratedContentCitationStore();
+
+      const rawLlmText = [
+        `{`,
+        `  "kind": "flashcards",`,
+        `  "cards": [`,
+        `    {`,
+        `      "question": "نقش هورمون \\text{ACTH} و گیرنده \\beta_1 چیست؟",`,
+        `      "answer": "فرمول کلیرانس \\frac{U \\times V}{P} و چگالی \\rho و نامساوی \\neq 0 است.",`,
+        `      "explanation": "سطح هورمون \\text{GH} و \\text{TSH} و زاویه \\alpha مهم است.",`,
+        `      "cardType": "mechanism",`,
+        `      "difficulty": "medium",`,
+        `      "citationChunkIds": ["chunk-1"]`,
+        `    }`,
+        `  ]`,
+        `}`,
+      ].join("\n");
+
+      const mockGateway: ModelGateway = {
+        provider: "mock",
+        async complete(): Promise<CompletionResult> {
+          return {
+            text: rawLlmText,
+            model: "test-model",
+            usage: { inputTokens: 50, outputTokens: 50 },
+            finishReason: "stop",
+          };
+        },
+      };
+
+      const genService = new GenerationService(
+        docStore,
+        chunkStore,
+        genStore,
+        citationStore,
+        mockGateway,
+        defaultPolicy,
+      );
+
+      // Access cleanAndParseJson via any for direct unit testing of parser
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const parsed = (genService as any).cleanAndParseJson(rawLlmText, "flashcards");
+      expect(parsed).toBeDefined();
+      expect(parsed.cards[0].question).toContain("\\text{ACTH}");
+      expect(parsed.cards[0].question).toContain("\\beta_1");
+      expect(parsed.cards[0].question).not.toContain("\text{ACTH}");
+      expect(parsed.cards[0].answer).toContain("\\frac{U \\times V}{P}");
+      expect(parsed.cards[0].answer).toContain("\\rho");
+      expect(parsed.cards[0].answer).toContain("\\neq");
+      expect(parsed.cards[0].explanation).toContain("\\text{GH}");
+      expect(parsed.cards[0].explanation).toContain("\\text{TSH}");
+      expect(parsed.cards[0].explanation).toContain("\\alpha");
+    });
+  });
 });
+

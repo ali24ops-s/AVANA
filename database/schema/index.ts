@@ -141,7 +141,10 @@ export const courses = pgTable(
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
     name: varchar("name", { length: 255 }).notNull(),
+    description: text("description"),
     subject: varchar("subject", { length: 255 }),
+    status: varchar("status", { length: 30 }).notNull().default("published"),
+    isOfficial: boolean("is_official").notNull().default(false),
     examDate: timestamp("exam_date", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
@@ -153,6 +156,14 @@ export const courses = pgTable(
   },
   (table) => ({
     orgIdx: index("idx_courses_org").on(table.organizationId),
+    officialStatusIdx: index("idx_courses_official_status").on(
+      table.isOfficial,
+      table.status,
+    ),
+    orgStatusIdx: index("idx_courses_org_status").on(
+      table.organizationId,
+      table.status,
+    ),
   }),
 );
 
@@ -384,10 +395,55 @@ export const authIdentities = pgTable(
 );
 
 /**
+ * Registered User Devices table.
+ *
+ * Tracks up to 1 mobile and 1 desktop device per user.
+ * The device_id is a server-generated random identifier stored in an HttpOnly cookie.
+ */
+export const userDevices = pgTable(
+  "user_devices",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    deviceId: varchar("device_id", { length: 64 }).notNull(),
+    deviceType: varchar("device_type", { length: 20 }).notNull(),
+    deviceName: varchar("device_name", { length: 255 }),
+    userAgent: text("user_agent"),
+    lastIp: varchar("last_ip", { length: 64 }),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    userDeviceTypeUniqueIdx: uniqueIndex("idx_user_devices_user_type_active")
+      .on(table.userId, table.deviceType)
+      .where(sql`${table.revokedAt} IS NULL`),
+    userDeviceIdUniqueIdx: uniqueIndex("idx_user_devices_user_device_active")
+      .on(table.userId, table.deviceId)
+      .where(sql`${table.revokedAt} IS NULL`),
+    deviceIdIdx: index("idx_user_devices_device_id").on(table.deviceId),
+    userIdx: index("idx_user_devices_user").on(table.userId),
+  }),
+);
+
+/**
  * Sessions table.
  *
  * Server-controlled browser sessions. Tokens are stored hashed (SHA-256)
  * so the raw token is never persisted.
+ * Exactly ONE active session is allowed per user.
  */
 export const sessions = pgTable(
   "sessions",
@@ -397,6 +453,9 @@ export const sessions = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     tokenHash: varchar("token_hash", { length: 64 }).notNull().unique(),
+    deviceId: uuid("device_id").references(() => userDevices.id, {
+      onDelete: "set null",
+    }),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     lastUsedAt: timestamp("last_used_at", { withTimezone: true })
       .defaultNow()
@@ -405,11 +464,47 @@ export const sessions = pgTable(
       .defaultNow()
       .notNull(),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    revocationReason: varchar("revocation_reason", { length: 50 }),
   },
   (table) => ({
     tokenHashIdx: uniqueIndex("idx_sessions_token_hash").on(table.tokenHash),
     userIdx: index("idx_sessions_user").on(table.userId),
     expiresAtIdx: index("idx_sessions_expires_at").on(table.expiresAt),
+    singleActiveSessionIdx: uniqueIndex("idx_sessions_single_active_user")
+      .on(table.userId)
+      .where(sql`${table.revokedAt} IS NULL`),
+    deviceIdx: index("idx_sessions_device").on(table.deviceId),
+  }),
+);
+
+/**
+ * Authentication Attempts table.
+ *
+ * Logs authentication attempts from new/blocked devices, especially
+ * when the device limit is reached, for audit and account sharing detection.
+ */
+export const authenticationAttempts = pgTable(
+  "authentication_attempts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id").references(() => users.id, {
+      onDelete: "cascade",
+    }),
+    email: varchar("email", { length: 320 }).notNull(),
+    deviceType: varchar("device_type", { length: 20 }).notNull(),
+    deviceId: varchar("device_id", { length: 64 }),
+    userAgent: text("user_agent"),
+    ip: varchar("ip", { length: 64 }),
+    result: varchar("result", { length: 50 }).notNull(),
+    details: text("details"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    userIdx: index("idx_auth_attempts_user").on(table.userId),
+    emailIdx: index("idx_auth_attempts_email").on(table.email),
+    createdAtIdx: index("idx_auth_attempts_created_at").on(table.createdAt),
   }),
 );
 
@@ -517,7 +612,7 @@ export const documentChunks = pgTable(
  * Generated contents table.
  *
  * Every AI-produced draft item, regardless of type
- * (lesson, flashcard batch, quiz, recommendation).
+ * (lesson, flashcard batch, quiz, review_summary).
  */
 export const generatedContents = pgTable(
   "generated_contents",
@@ -638,6 +733,8 @@ export const generationJobs = pgTable(
       .defaultNow()
       .notNull(),
     startedAt: timestamp("started_at", { withTimezone: true }),
+    heartbeatAt: timestamp("heartbeat_at", { withTimezone: true }),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },
@@ -648,8 +745,109 @@ export const generationJobs = pgTable(
     ),
     documentIdx: index("idx_generation_jobs_document").on(table.documentId),
     jobIdIdx: index("idx_generation_jobs_job_id").on(table.jobId),
+    statusHeartbeatIdx: index("idx_generation_jobs_status_heartbeat").on(
+      table.status,
+      table.heartbeatAt,
+    ),
   }),
 );
+
+/**
+ * Generation chunks table (PR Resumable / Incremental Generation).
+ *
+ * Tracks atomic AI generation chunks (planning, session lessons,
+ * session flashcards, session quizzes, review summary) with immediate
+ * persistence and resumption capabilities.
+ */
+export const generationChunks = pgTable(
+  "generation_chunks",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    documentId: uuid("document_id")
+      .notNull()
+      .references(() => documents.id, { onDelete: "cascade" }),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    courseId: uuid("course_id").references(() => courses.id, {
+      onDelete: "cascade",
+    }),
+    generationJobId: uuid("generation_job_id").references(
+      () => generationJobs.id,
+      { onDelete: "set null" },
+    ),
+    stage: varchar("stage", { length: 50 }).notNull(),
+    chunkIndex: integer("chunk_index").notNull().default(0),
+    chunkKey: varchar("chunk_key", { length: 100 }).notNull(),
+    status: varchar("status", { length: 30 }).notNull().default("pending"),
+    payload: jsonb("payload"),
+    tokenUsage: jsonb("token_usage"),
+    attempts: integer("attempts").notNull().default(0),
+    errorCode: varchar("error_code", { length: 100 }),
+    errorMessage: text("error_message"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    heartbeatAt: timestamp("heartbeat_at", { withTimezone: true }),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (table) => ({
+    docChunkKeyIdx: uniqueIndex("idx_generation_chunks_doc_key")
+      .on(table.documentId, table.chunkKey)
+      .where(sql`${table.deletedAt} IS NULL`),
+    docStageIdx: index("idx_generation_chunks_doc_stage").on(
+      table.documentId,
+      table.stage,
+    ),
+    jobIdx: index("idx_generation_chunks_job").on(table.generationJobId),
+    statusHeartbeatIdx: index("idx_generation_chunks_status_heartbeat").on(
+      table.status,
+      table.heartbeatAt,
+    ),
+  }),
+);
+
+/**
+ * Document Generation Progress table.
+ *
+ * Persists granular AI Generation Pipeline status, stage, and numeric progress
+ * per document for the Admin panel and live monitoring.
+ */
+export const documentGenerationProgress = pgTable(
+  "document_generation_progress",
+  {
+    documentId: uuid("document_id")
+      .primaryKey()
+      .references(() => documents.id, { onDelete: "cascade" }),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    status: varchar("status", { length: 30 }).notNull().default("idle"),
+    stage: varchar("stage", { length: 50 }),
+    progressCurrent: integer("progress_current").notNull().default(0),
+    progressTotal: integer("progress_total").notNull().default(0),
+    stageStartedAt: timestamp("stage_started_at", { withTimezone: true }),
+    lastActivityAt: timestamp("last_activity_at", { withTimezone: true }),
+    errorMessage: text("error_message"),
+    version: integer("version").notNull().default(1),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    orgIdx: index("idx_doc_gen_progress_org").on(table.organizationId),
+    statusIdx: index("idx_doc_gen_progress_status").on(table.status),
+  }),
+);
+
 
 /**
  * Flashcards table.
@@ -672,6 +870,7 @@ export const flashcards = pgTable(
     }),
     generatedContentId: uuid("generated_content_id").references(
       () => generatedContents.id,
+      { onDelete: "set null" },
     ),
     lessonId: uuid("lesson_id").references(() => lessons.id, {
       onDelete: "set null",
@@ -836,6 +1035,7 @@ export const quizQuestions = pgTable(
       .references(() => quizzes.id, { onDelete: "cascade" }),
     generatedContentId: uuid("generated_content_id").references(
       () => generatedContents.id,
+      { onDelete: "set null" },
     ),
     lessonId: uuid("lesson_id").references(() => lessons.id, {
       onDelete: "set null",
@@ -883,7 +1083,7 @@ export const quizAttempts = pgTable(
     score: numeric("score", { precision: 5, scale: 2 }).notNull().default("0"),
     answers: jsonb("answers").notNull().default({}),
     questionIds: jsonb("question_ids"),
-    topic: varchar("topic", { length: 255 }),
+    topic: varchar("topic", { length: 1024 }),
     difficulty: varchar("difficulty", { length: 20 }),
     status: varchar("status", { length: 20 }).notNull().default("in_progress"),
     startedAt: timestamp("started_at", { withTimezone: true })
@@ -1158,7 +1358,9 @@ export const contentPacks = pgTable(
     title: varchar("title", { length: 255 }).notNull(),
     description: text("description"),
     subject: varchar("subject", { length: 255 }),
-    status: varchar("status", { length: 30 }).notNull().default("published"),
+    status: varchar("status", { length: 30 })
+      .notNull()
+      .default("pending_review"),
     publishedAt: timestamp("published_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -1270,5 +1472,447 @@ export const contentPackUsages = pgTable(
     ),
   }),
 );
+
+// ---------------------------------------------------------------------------
+// Monetization, Subscriptions, and Entitlements
+// ---------------------------------------------------------------------------
+
+/**
+ * Products table.
+ *
+ * All sellable catalog items (subscriptions, content packs, courses).
+ * Prices are strictly in integer Tomans.
+ */
+export const products = pgTable(
+  "products",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    code: varchar("code", { length: 100 }).notNull().unique(),
+    type: varchar("type", { length: 50 }).notNull(),
+    title: varchar("title", { length: 255 }).notNull(),
+    description: text("description"),
+    price: integer("price").notNull(),
+    currency: varchar("currency", { length: 10 }).notNull().default("toman"),
+    targetType: varchar("target_type", { length: 50 }),
+    targetId: uuid("target_id"),
+    durationDays: integer("duration_days"),
+    active: boolean("active").notNull().default(true),
+    metadata: jsonb("metadata").notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (table) => ({
+    typeActiveIdx: index("idx_products_type_active").on(
+      table.type,
+      table.active,
+    ),
+    targetIdx: index("idx_products_target").on(
+      table.targetType,
+      table.targetId,
+    ),
+    codeIdx: uniqueIndex("idx_products_code").on(table.code),
+  }),
+);
+
+/**
+ * Orders table.
+ *
+ * Purchase intents created before initiating a payment transaction.
+ */
+export const orders = pgTable(
+  "orders",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    productId: uuid("product_id")
+      .notNull()
+      .references(() => products.id, { onDelete: "restrict" }),
+    orderNumber: varchar("order_number", { length: 50 }).notNull().unique(),
+    amount: integer("amount").notNull(),
+    currency: varchar("currency", { length: 10 }).notNull().default("toman"),
+    status: varchar("status", { length: 30 }).notNull().default("pending"),
+    metadata: jsonb("metadata").notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    userStatusIdx: index("idx_orders_user_status").on(
+      table.userId,
+      table.status,
+    ),
+    orderNumberIdx: uniqueIndex("idx_orders_order_number").on(
+      table.orderNumber,
+    ),
+    productIdx: index("idx_orders_product").on(table.productId),
+  }),
+);
+
+/**
+ * Payments table.
+ *
+ * Payment transactions linked to orders and verified via payment gateways.
+ */
+export const payments = pgTable(
+  "payments",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    amount: integer("amount").notNull(),
+    currency: varchar("currency", { length: 10 }).notNull().default("toman"),
+    gateway: varchar("gateway", { length: 50 }).notNull().default("zarinpal"),
+    authority: varchar("authority", { length: 255 }),
+    transactionId: varchar("transaction_id", { length: 255 }),
+    status: varchar("status", { length: 50 }).notNull().default("pending"),
+    idempotencyKey: varchar("idempotency_key", { length: 255 }).unique(),
+    rawCallbackMetadata: jsonb("raw_callback_metadata"),
+    paidAt: timestamp("paid_at", { withTimezone: true }),
+    trackingNumber: varchar("tracking_number", { length: 100 }),
+    sourceCardLast4: varchar("source_card_last4", { length: 4 }),
+    payerName: varchar("payer_name", { length: 255 }),
+    receiptUrl: varchar("receipt_url", { length: 500 }),
+    initialValidationResult: jsonb("initial_validation_result"),
+    rejectionReason: text("rejection_reason"),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    reviewedBy: uuid("reviewed_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    orderIdx: index("idx_payments_order").on(table.orderId),
+    authorityIdx: index("idx_payments_authority").on(table.authority),
+    userStatusIdx: index("idx_payments_user_status").on(
+      table.userId,
+      table.status,
+    ),
+    transactionIdx: index("idx_payments_transaction").on(table.transactionId),
+    trackingNumberIdx: index("idx_payments_tracking_number").on(
+      table.trackingNumber,
+    ),
+    c2cLookupIdx: index("idx_payments_c2c_lookup").on(
+      table.gateway,
+      table.status,
+    ),
+  }),
+);
+
+/**
+ * User Subscriptions table.
+ *
+ * Business record and subscription history for billing tracking.
+ */
+export const userSubscriptions = pgTable(
+  "user_subscriptions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    productId: uuid("product_id")
+      .notNull()
+      .references(() => products.id, { onDelete: "restrict" }),
+    orderId: uuid("order_id").references(() => orders.id, {
+      onDelete: "set null",
+    }),
+    status: varchar("status", { length: 30 }).notNull().default("active"),
+    startedAt: timestamp("started_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    userStatusIdx: index("idx_user_subs_user_status").on(
+      table.userId,
+      table.status,
+      table.expiresAt,
+    ),
+    productIdx: index("idx_user_subs_product").on(table.productId),
+  }),
+);
+
+/**
+ * User Entitlements table.
+ *
+ * Single runtime access ledger for all resource access:
+ * - subscription (resource_id is null)
+ * - content_pack (resource_id is content_pack_id, expires_at is null for lifetime)
+ * - course (resource_id is course_id, expires_at is null for lifetime)
+ */
+export const userEntitlements = pgTable(
+  "user_entitlements",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    resourceType: varchar("resource_type", { length: 50 }).notNull(),
+    resourceId: uuid("resource_id"),
+    sourceType: varchar("source_type", { length: 50 })
+      .notNull()
+      .default("purchase"),
+    orderId: uuid("order_id").references(() => orders.id, {
+      onDelete: "set null",
+    }),
+    startsAt: timestamp("starts_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    resourceIdCheck: check(
+      "chk_user_entitlements_resource_id",
+      sql`(${table.resourceType} = 'subscription' AND ${table.resourceId} IS NULL) OR (${table.resourceType} IN ('course', 'content_pack', 'content') AND ${table.resourceId} IS NOT NULL)`,
+    ),
+    lifetimeUniqueIdx: uniqueIndex("idx_user_entitlements_lifetime_unique")
+      .on(table.userId, table.resourceType, table.resourceId)
+      .where(sql`${table.expiresAt} IS NULL AND ${table.resourceId} IS NOT NULL`),
+    subscriptionLifetimeUniqueIdx: uniqueIndex(
+      "idx_user_entitlements_subscription_lifetime_unique",
+    )
+      .on(table.userId, table.resourceType)
+      .where(
+        sql`${table.expiresAt} IS NULL AND ${table.resourceType} = 'subscription'`,
+      ),
+    lookupIdx: index("idx_user_entitlements_lookup").on(
+      table.userId,
+      table.resourceType,
+      table.resourceId,
+      table.expiresAt,
+    ),
+    userExpiresIdx: index("idx_user_entitlements_user_expires").on(
+      table.userId,
+      table.expiresAt,
+    ),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// Blog & Content CMS (PR-Blog)
+// ---------------------------------------------------------------------------
+
+export const blogCategories = pgTable(
+  "blog_categories",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    name: varchar("name", { length: 255 }).notNull(),
+    slug: varchar("slug", { length: 100 }).notNull().unique(),
+    description: text("description"),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    slugIdx: uniqueIndex("idx_blog_categories_slug").on(table.slug),
+    sortIdx: index("idx_blog_categories_sort").on(table.sortOrder, table.name),
+  }),
+);
+
+export const blogTags = pgTable(
+  "blog_tags",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    name: varchar("name", { length: 100 }).notNull().unique(),
+    slug: varchar("slug", { length: 100 }).notNull().unique(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    slugIdx: uniqueIndex("idx_blog_tags_slug").on(table.slug),
+    nameIdx: uniqueIndex("idx_blog_tags_name").on(table.name),
+  }),
+);
+
+export const blogPosts = pgTable(
+  "blog_posts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    title: varchar("title", { length: 500 }).notNull(),
+    slug: varchar("slug", { length: 255 }).notNull().unique(),
+    excerpt: text("excerpt"),
+    content: text("content").notNull(),
+    featuredImage: text("featured_image"),
+    status: varchar("status", { length: 30 }).notNull().default("draft"),
+    authorId: uuid("author_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    categoryId: uuid("category_id").references(() => blogCategories.id, {
+      onDelete: "set null",
+    }),
+    viewCount: integer("view_count").notNull().default(0),
+    readingTimeMinutes: integer("reading_time_minutes").notNull().default(5),
+    seoTitle: varchar("seo_title", { length: 255 }),
+    seoDescription: text("seo_description"),
+    canonicalUrl: varchar("canonical_url", { length: 500 }),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    slugIdx: uniqueIndex("idx_blog_posts_slug").on(table.slug),
+    statusPublishedIdx: index("idx_blog_posts_status_published").on(
+      table.status,
+      table.publishedAt,
+    ),
+    categoryStatusIdx: index("idx_blog_posts_category_status").on(
+      table.categoryId,
+      table.status,
+    ),
+    authorIdx: index("idx_blog_posts_author").on(table.authorId),
+    createdIdx: index("idx_blog_posts_created").on(table.createdAt),
+  }),
+);
+
+export const blogPostTags = pgTable(
+  "blog_post_tags",
+  {
+    postId: uuid("post_id")
+      .notNull()
+      .references(() => blogPosts.id, { onDelete: "cascade" }),
+    tagId: uuid("tag_id")
+      .notNull()
+      .references(() => blogTags.id, { onDelete: "cascade" }),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.postId, table.tagId] }),
+    tagIdx: index("idx_blog_post_tags_tag").on(table.tagId),
+    postIdx: index("idx_blog_post_tags_post").on(table.postId),
+  }),
+);
+
+export type BlogCategory = typeof blogCategories.$inferSelect;
+export type NewBlogCategory = typeof blogCategories.$inferInsert;
+export type BlogTag = typeof blogTags.$inferSelect;
+export type NewBlogTag = typeof blogTags.$inferInsert;
+export type BlogPost = typeof blogPosts.$inferSelect;
+export type NewBlogPost = typeof blogPosts.$inferInsert;
+export type BlogPostTag = typeof blogPostTags.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Content Export & Import System (Migration 0030)
+// ---------------------------------------------------------------------------
+
+export const contentImportBatches = pgTable(
+  "content_import_batches",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    source: varchar("source", { length: 100 }).notNull().default("unknown"),
+    formatVersion: integer("format_version").notNull().default(1),
+    packageChecksum: char("package_checksum", { length: 64 }),
+    manifest: jsonb("manifest").notNull().default({}),
+    stats: jsonb("stats").notNull().default({}),
+    status: varchar("status", { length: 30 }).notNull().default("completed"),
+    createdBy: uuid("created_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (table) => ({
+    orgIdx: index("idx_content_import_batches_org").on(
+      table.organizationId,
+      table.createdAt,
+    ),
+  }),
+);
+
+export const importedEntities = pgTable(
+  "imported_entities",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    batchId: uuid("batch_id").references(() => contentImportBatches.id, {
+      onDelete: "set null",
+    }),
+    entityType: varchar("entity_type", { length: 50 }).notNull(),
+    exportId: varchar("export_id", { length: 255 }).notNull(),
+    targetEntityId: uuid("target_entity_id").notNull(),
+    contentHash: char("content_hash", { length: 64 }).notNull(),
+    naturalKey: varchar("natural_key", { length: 500 }),
+    importedAt: timestamp("imported_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    orgTypeExportIdx: uniqueIndex("uq_imported_entities_org_type_export").on(
+      table.organizationId,
+      table.entityType,
+      table.exportId,
+    ),
+    targetIdx: index("idx_imported_entities_target").on(
+      table.entityType,
+      table.targetEntityId,
+    ),
+    hashIdx: index("idx_imported_entities_hash").on(
+      table.organizationId,
+      table.entityType,
+      table.contentHash,
+    ),
+    naturalIdx: index("idx_imported_entities_natural").on(
+      table.organizationId,
+      table.entityType,
+      table.naturalKey,
+    ),
+  }),
+);
+
+export type ContentImportBatch = typeof contentImportBatches.$inferSelect;
+export type NewContentImportBatch = typeof contentImportBatches.$inferInsert;
+export type ImportedEntity = typeof importedEntities.$inferSelect;
+export type NewImportedEntity = typeof importedEntities.$inferInsert;
+
+
+
 
 

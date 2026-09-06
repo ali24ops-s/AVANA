@@ -228,6 +228,9 @@ export function DocumentStatusCard({
       void queryClient.invalidateQueries({
         queryKey: ["review-summary", organizationId, document.id],
       });
+      void queryClient.invalidateQueries({
+        queryKey: ["active-generations"],
+      });
     },
     onError: (err: Error) => {
       setGenerateError(err.message || "خطا در شروع تولید هوشمند محتوا");
@@ -295,6 +298,17 @@ export function DocumentStatusCard({
         return status;
     }
   };
+
+  const currentProgress =
+    jobQuery.data?.job?.progress ?? contentStatus?.progress;
+  const isPartial = Boolean(
+    !isAllGenerated &&
+      currentProgress &&
+      currentProgress.completed > 0 &&
+      (currentProgress.status === "partial" ||
+        currentProgress.status === "failed" ||
+        jobQuery.data?.job?.status === "failed"),
+  );
 
   return (
     <div className="glass-panel rounded-xl card-inner-border p-5 space-y-4 shadow-ambient">
@@ -387,28 +401,58 @@ export function DocumentStatusCard({
         </div>
       )}
 
-      {/* Processing stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-3 border-t border-[var(--color-border)] text-xs text-[var(--color-text-muted)]">
-        <div>
-          <span>وضعیت: </span>
-          <span className="font-bold text-[var(--color-text)]">
-            {getStatusLabel(currentStatus)}
-          </span>
+      {/* Processing stats & Incremental Progress */}
+      <div className="space-y-3 pt-3 border-t border-[var(--color-border)] text-xs text-[var(--color-text-muted)]">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          <div>
+            <span>وضعیت: </span>
+            <span className="font-bold text-[var(--color-text)]">
+              {getStatusLabel(currentStatus)}
+            </span>
+          </div>
+          <div>
+            <span>صفحات: </span>
+            <span className="font-bold text-[var(--color-text)]">
+              {pageCount ?? "—"}
+            </span>
+          </div>
+          <div>
+            <span>بخش‌ها (Chunks): </span>
+            <span className="font-bold text-[var(--color-text)]">
+              {chunkCount ?? "—"}
+            </span>
+          </div>
         </div>
-        <div>
-          <span>صفحات: </span>
-          <span className="font-bold text-[var(--color-text)]">
-            {pageCount ?? "—"}
-          </span>
-        </div>
-        <div>
-          <span>بخش‌ها (Chunks): </span>
-          <span className="font-bold text-[var(--color-text)]">
-            {chunkCount ?? "—"}
-          </span>
-        </div>
+
+        {/* Real-time Incremental Generation Progress Bar */}
+        {currentProgress && currentProgress.total > 0 && (isGenerating || isPartial || (currentProgress.completed > 0 && !isAllGenerated)) && (
+          <div className="p-3 bg-teal-950/30 border border-teal-500/20 rounded-xl space-y-1.5">
+            <div className="flex items-center justify-between text-[11px]">
+              <span className="text-teal-300 font-semibold flex items-center gap-1.5">
+                {isGenerating ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3 text-teal-400" />}
+                {isGenerating
+                  ? "در حال پیشروی مرحله‌به‌مرحله تولید هوشمند..."
+                  : isPartial
+                  ? "تولید مرحله‌ای تا کنون ذخیره شده است (قابل ادامه)"
+                  : "پیشرفت ذخیره‌شده در دیتابیس:"}
+              </span>
+              <span className="text-teal-400 font-mono font-bold">
+                {currentProgress.completed} / {currentProgress.total} مورد ({Math.round((currentProgress.completed / currentProgress.total) * 100)}٪)
+              </span>
+            </div>
+            <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-teal-500 transition-all duration-500 rounded-full"
+                style={{
+                  width: `${Math.min(100, Math.max(5, Math.round((currentProgress.completed / currentProgress.total) * 100)))}%`,
+                }}
+              />
+            </div>
+          </div>
+        )}
+
         {document.quality_score !== undefined && document.quality_score !== null && (
-          <div className="col-span-2 sm:col-span-3 pt-2 mt-2 border-t border-[var(--color-border)] flex flex-col gap-1.5">
+          <div className="pt-2 border-t border-[var(--color-border)] flex flex-col gap-1.5">
             <div className="flex items-center gap-2">
               <span>کیفیت فایل: </span>
               <span className={`font-bold ${
@@ -520,12 +564,19 @@ export function DocumentStatusCard({
               {isGenerating ? (
                 <>
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>در حال تولید هوشمند محتوا...</span>
+                  <span>
+                    در حال تولید هوشمند محتوا... {currentProgress ? `(${currentProgress.completed}/${currentProgress.total})` : ""}
+                  </span>
                 </>
               ) : isAllGenerated ? (
                 <>
                   <CheckCircle2 className="w-3.5 h-3.5 text-teal-400" />
                   <span>تمام محتوای این فایل تولید شده است</span>
+                </>
+              ) : isPartial ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 text-amber-300" />
+                  <span>ادامه تولید هوشمند محتوا ({currentProgress?.completed}/{currentProgress?.total})</span>
                 </>
               ) : (
                 <>

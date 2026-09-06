@@ -32,7 +32,7 @@ function generatePersianEmailHtml(code: string): string {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>کد تأیید ایمیل آوانا</title>
 </head>
-<body style="margin: 0; padding: 0; background-color: #0b1120; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #f1f5f9; direction: rtl; text-align: right;">
+<body style="margin: 0; padding: 0; background-color: #0b1120; font-family: 'Vazirmatn', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #f1f5f9; direction: rtl; text-align: right;">
   <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #0b1120; padding: 40px 16px;">
     <tr>
       <td align="center">

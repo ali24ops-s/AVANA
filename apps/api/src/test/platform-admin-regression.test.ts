@@ -25,7 +25,13 @@ import { LocalStorageProvider } from "../modules/storage/index.js";
 import { InMemoryAuditStore } from "../observability/test/in-memory-stores.js";
 import { AuditService } from "../observability/audit-service.js";
 import { InMemoryAdminStore, type AdminDocumentRecord } from "../modules/admin/index.js";
-import { Roles } from "@avana/domain";
+import { Roles, defaultPolicy, type OrganizationId, type UserId, type Actor, DomainError } from "@avana/domain";
+import { GenerationService } from "../modules/generation/index.js";
+import {
+  InMemoryGeneratedContentStore,
+  InMemoryGeneratedContentCitationStore,
+} from "../modules/generation/test/in-memory-stores.js";
+import { randomUUID } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import fs from "node:fs/promises";
@@ -117,9 +123,13 @@ describe("Platform Admin Authorization Regression Tests", () => {
     const user = (regRes.json() as { user: { id: string } }).user;
 
     // Set role in user store
-    const userRec = (userStore as unknown as { users: Map<string, { role: string }> }).users.get(user.id);
+    const userRec = (userStore as unknown as { users: Map<string, { role: string; globalRole?: string | null }> }).users.get(user.id);
     if (userRec) {
       userRec.role = role;
+      if (role === "platform_admin") {
+        userRec.globalRole = "platform_admin";
+        orgStore.clearMembershipsForUser(user.id as UserId);
+      }
     }
 
     return { token: token!, userId: user.id };
@@ -380,5 +390,378 @@ describe("Platform Admin Authorization Regression Tests", () => {
     expect(missingStorageDownload.statusCode).toBe(404);
 
     await app.close();
+  });
+
+  describe("Admin vs Normal User Upload & Extraction Isolation Matrix", () => {
+    it("Scenario A: platform_admin with ZERO memberships can upload to an existing organization", async () => {
+      const app = await buildApp();
+      const { token: adminToken, userId: adminUserId } =
+        await createAuthenticatedUser(app, "admin-upload@avana.test", "platform_admin");
+
+      // Verify admin has zero memberships
+      const mems = await orgStore.listMembershipsByUserId(adminUserId);
+      expect(mems).toHaveLength(0);
+
+      // Create an organization (without admin membership)
+      const existingOrgId = randomUUID() as OrganizationId;
+      await orgStore.createWithAdminMembership({
+        organization: {
+          id: existingOrgId,
+          name: "Target Tenant Org",
+          slug: "target-tenant-org",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          deletedAt: null,
+        },
+        membership: {
+          id: randomUUID(),
+          organizationId: existingOrgId,
+          userId: randomUUID(),
+          role: "organization_admin",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        auditEvents: [],
+      });
+
+      // Platform admin uploads document via multipart POST /v1/organizations/:orgId/documents
+      const boundary = "------------------------boundary123";
+      const body = Buffer.from(
+        `--${boundary}\r\n` +
+        `Content-Disposition: form-data; name="file"; filename="admin-source.pdf"\r\n` +
+        `Content-Type: application/pdf\r\n\r\n` +
+        `%PDF-1.4 sample content\r\n` +
+        `--${boundary}--\r\n`
+      );
+
+      const uploadRes = await app.inject({
+        method: "POST",
+        url: `/v1/organizations/${existingOrgId}/documents`,
+        cookies: { avana_session: adminToken },
+        headers: { "Content-Type": `multipart/form-data; boundary=${boundary}` },
+        payload: body,
+      });
+
+      expect(uploadRes.statusCode).toBe(201);
+      const json = uploadRes.json() as { document: { id: string; original_name: string; organization_id: string } };
+      expect(json.document).toBeDefined();
+      expect(json.document.original_name).toBe("admin-source.pdf");
+      expect(json.document.organization_id).toBe(existingOrgId);
+
+      await app.close();
+    });
+
+    it("Scenario B: platform_admin can trigger extraction on an uploaded document without membership", async () => {
+      const app = await buildApp();
+      const { token: adminToken } =
+        await createAuthenticatedUser(app, "admin-extract@avana.test", "platform_admin");
+
+      const existingOrgId = randomUUID() as OrganizationId;
+      await orgStore.createWithAdminMembership({
+        organization: {
+          id: existingOrgId,
+          name: "Extract Target Org",
+          slug: "extract-target-org",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          deletedAt: null,
+        },
+        membership: {
+          id: randomUUID(),
+          organizationId: existingOrgId,
+          userId: randomUUID(),
+          role: "organization_admin",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        auditEvents: [],
+      });
+
+      const boundary = "------------------------boundary123";
+      const body = Buffer.from(
+        `--${boundary}\r\n` +
+        `Content-Disposition: form-data; name="file"; filename="extract-test.txt"\r\n` +
+        `Content-Type: text/plain\r\n\r\n` +
+        `plain text extraction content\r\n` +
+        `--${boundary}--\r\n`
+      );
+
+      const uploadRes = await app.inject({
+        method: "POST",
+        url: `/v1/organizations/${existingOrgId}/documents`,
+        cookies: { avana_session: adminToken },
+        headers: { "Content-Type": `multipart/form-data; boundary=${boundary}` },
+        payload: body,
+      });
+      expect(uploadRes.statusCode).toBe(201);
+      const docId = (uploadRes.json() as { document: { id: string } }).document.id;
+
+      // Platform admin triggers extraction
+      const extractRes = await app.inject({
+        method: "POST",
+        url: `/v1/organizations/${existingOrgId}/documents/${docId}/extract`,
+        cookies: { avana_session: adminToken },
+      });
+      expect(extractRes.statusCode).toBe(200);
+      const extractJson = extractRes.json() as { status: { document_id: string; status: string } };
+      expect(extractJson.status.document_id).toBe(docId);
+      expect(extractJson.status.status).toBe("extracted");
+
+      await app.close();
+    });
+
+    it("Scenario C: platform_admin upload to a non-existent organization fails with 404", async () => {
+      const app = await buildApp();
+      const { token: adminToken } =
+        await createAuthenticatedUser(app, "admin-404@avana.test", "platform_admin");
+
+      const nonExistentOrgId = randomUUID();
+      const boundary = "------------------------boundary123";
+      const body = Buffer.from(
+        `--${boundary}\r\n` +
+        `Content-Disposition: form-data; name="file"; filename="should-fail.pdf"\r\n` +
+        `Content-Type: application/pdf\r\n\r\n` +
+        `dummy pdf content\r\n` +
+        `--${boundary}--\r\n`
+      );
+
+      const uploadRes = await app.inject({
+        method: "POST",
+        url: `/v1/organizations/${nonExistentOrgId}/documents`,
+        cookies: { avana_session: adminToken },
+        headers: { "Content-Type": `multipart/form-data; boundary=${boundary}` },
+        payload: body,
+      });
+
+      expect(uploadRes.statusCode).toBe(404);
+      const json = uploadRes.json() as { error: { code: string; message: string } };
+      expect(json.error.message).toBe("Organization not found");
+
+      await app.close();
+    });
+
+    it("Scenario D: normal student uploads to their own organization -> 201 Created", async () => {
+      const app = await buildApp();
+      const { token: studentToken } =
+        await createAuthenticatedUser(app, "student-own@avana.test", "student");
+
+      // Student creates org
+      const orgRes = await app.inject({
+        method: "POST",
+        url: "/v1/organizations",
+        cookies: { avana_session: studentToken },
+        payload: { name: "Student Own Org" },
+      });
+      expect(orgRes.statusCode).toBe(201);
+      const orgId = (orgRes.json() as { organization: { id: string } }).organization.id;
+
+      const boundary = "------------------------boundary123";
+      const body = Buffer.from(
+        `--${boundary}\r\n` +
+        `Content-Disposition: form-data; name="file"; filename="student-doc.pdf"\r\n` +
+        `Content-Type: application/pdf\r\n\r\n` +
+        `student content\r\n` +
+        `--${boundary}--\r\n`
+      );
+
+      const uploadRes = await app.inject({
+        method: "POST",
+        url: `/v1/organizations/${orgId}/documents`,
+        cookies: { avana_session: studentToken },
+        headers: { "Content-Type": `multipart/form-data; boundary=${boundary}` },
+        payload: body,
+      });
+      expect(uploadRes.statusCode).toBe(201);
+
+      await app.close();
+    });
+
+    it("Scenario E: normal student upload to another organization (no membership) -> 404 Organization not found", async () => {
+      const app = await buildApp();
+      const { token: student1Token } =
+        await createAuthenticatedUser(app, "student1@avana.test", "student");
+      const { token: student2Token } =
+        await createAuthenticatedUser(app, "student2@avana.test", "student");
+
+      // Student 1 creates Org 1
+      const orgRes = await app.inject({
+        method: "POST",
+        url: "/v1/organizations",
+        cookies: { avana_session: student1Token },
+        payload: { name: "Student 1 Org" },
+      });
+      const org1Id = (orgRes.json() as { organization: { id: string } }).organization.id;
+
+      // Student 2 tries to upload to Student 1's Org
+      const boundary = "------------------------boundary123";
+      const body = Buffer.from(
+        `--${boundary}\r\n` +
+        `Content-Disposition: form-data; name="file"; filename="intruder-file.pdf"\r\n` +
+        `Content-Type: application/pdf\r\n\r\n` +
+        `intruder content\r\n` +
+        `--${boundary}--\r\n`
+      );
+
+      const uploadRes = await app.inject({
+        method: "POST",
+        url: `/v1/organizations/${org1Id}/documents`,
+        cookies: { avana_session: student2Token },
+        headers: { "Content-Type": `multipart/form-data; boundary=${boundary}` },
+        payload: body,
+      });
+
+      expect(uploadRes.statusCode).toBe(404);
+      const errJson = uploadRes.json() as { error: { code: string; message: string } };
+      expect(errJson.error.message).toBe("Organization not found");
+
+      await app.close();
+    });
+
+    it("Scenario F: normal user with 0 memberships cannot upload -> 404 Organization not found", async () => {
+      const app = await buildApp();
+      const { token: zeroMemStudentToken, userId: zeroUserId } =
+        await createAuthenticatedUser(app, "nomem-student@avana.test", "student");
+
+      // Ensure 0 memberships
+      orgStore.clearMembershipsForUser(zeroUserId as UserId);
+      const mems = await orgStore.listMembershipsByUserId(zeroUserId);
+      expect(mems).toHaveLength(0);
+
+      const someOrgId = randomUUID();
+      const boundary = "------------------------boundary123";
+      const body = Buffer.from(
+        `--${boundary}\r\n` +
+        `Content-Disposition: form-data; name="file"; filename="file.pdf"\r\n` +
+        `Content-Type: application/pdf\r\n\r\n` +
+        `pdf\r\n` +
+        `--${boundary}--\r\n`
+      );
+
+      const uploadRes = await app.inject({
+        method: "POST",
+        url: `/v1/organizations/${someOrgId}/documents`,
+        cookies: { avana_session: zeroMemStudentToken },
+        headers: { "Content-Type": `multipart/form-data; boundary=${boundary}` },
+        payload: body,
+      });
+
+      expect(uploadRes.statusCode).toBe(404);
+
+      await app.close();
+    });
+
+    it("Scenario G (Security Test): Non-admin cannot read, list, or extract documents in another org without membership", async () => {
+      const app = await buildApp();
+      const { token: victimToken } =
+        await createAuthenticatedUser(app, "victim@avana.test", "student");
+      const { token: attackerToken } =
+        await createAuthenticatedUser(app, "attacker@avana.test", "student");
+
+      // Victim creates org & uploads document
+      const orgRes = await app.inject({
+        method: "POST",
+        url: "/v1/organizations",
+        cookies: { avana_session: victimToken },
+        payload: { name: "Victim Org" },
+      });
+      const victimOrgId = (orgRes.json() as { organization: { id: string } }).organization.id;
+
+      const boundary = "------------------------boundary123";
+      const body = Buffer.from(
+        `--${boundary}\r\n` +
+        `Content-Disposition: form-data; name="file"; filename="confidential.pdf"\r\n` +
+        `Content-Type: application/pdf\r\n\r\n` +
+        `confidential material\r\n` +
+        `--${boundary}--\r\n`
+      );
+
+      const uploadRes = await app.inject({
+        method: "POST",
+        url: `/v1/organizations/${victimOrgId}/documents`,
+        cookies: { avana_session: victimToken },
+        headers: { "Content-Type": `multipart/form-data; boundary=${boundary}` },
+        payload: body,
+      });
+      const docId = (uploadRes.json() as { document: { id: string } }).document.id;
+
+      // 1. Attacker tries to list documents in victim org -> 404
+      const listRes = await app.inject({
+        method: "GET",
+        url: `/v1/organizations/${victimOrgId}/documents`,
+        cookies: { avana_session: attackerToken },
+      });
+      expect(listRes.statusCode).toBe(404);
+
+      // 2. Attacker tries to get single document in victim org -> 404
+      const getRes = await app.inject({
+        method: "GET",
+        url: `/v1/organizations/${victimOrgId}/documents/${docId}`,
+        cookies: { avana_session: attackerToken },
+      });
+      expect(getRes.statusCode).toBe(404);
+
+      // 3. Attacker tries to trigger extraction in victim org -> 403 Forbidden
+      const extractRes = await app.inject({
+        method: "POST",
+        url: `/v1/organizations/${victimOrgId}/documents/${docId}/extract`,
+        cookies: { avana_session: attackerToken },
+      });
+      expect(extractRes.statusCode).toBe(403);
+
+      await app.close();
+    });
+
+    it("Scenario H: GenerationService authorizes platform_admin on existing org, fails on non-existent org, and denies student without membership", async () => {
+      const existingOrgId = randomUUID() as OrganizationId;
+      await orgStore.createWithAdminMembership({
+        organization: {
+          id: existingOrgId,
+          name: "Gen Test Org",
+          slug: "gen-test-org",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          deletedAt: null,
+        },
+        membership: {
+          id: randomUUID(),
+          organizationId: existingOrgId,
+          userId: randomUUID(),
+          role: "organization_admin",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        auditEvents: [],
+      });
+
+      const genStore = new InMemoryGeneratedContentStore();
+      const citStore = new InMemoryGeneratedContentCitationStore();
+      const genService = new GenerationService(
+        genStore,
+        citStore,
+        undefined,
+        documentStore,
+        chunkStore,
+        defaultPolicy,
+        auditService,
+        orgStore,
+      );
+
+      const adminActor: Actor = { userId: randomUUID(), role: "platform_admin" };
+      const studentActor: Actor = { userId: randomUUID(), role: "student" };
+      const nonExistentOrgId = randomUUID() as OrganizationId;
+
+      // 1. platform_admin on existing org -> succeeds
+      await expect(genService.authorize(adminActor, existingOrgId, "content:generate")).resolves.toBeUndefined();
+
+      // 2. platform_admin on non-existent org -> fails with 404
+      await expect(genService.authorize(adminActor, nonExistentOrgId, "content:generate")).rejects.toThrow(
+        new DomainError("not_found", "Organization not found"),
+      );
+
+      // 3. student on existing org without membership -> fails with 404
+      await expect(genService.authorize(studentActor, existingOrgId, "content:generate")).rejects.toThrow(
+        new DomainError("not_found", "Organization not found"),
+      );
+    });
   });
 });

@@ -15,6 +15,13 @@ import type {
 } from "../modules/library/index.js";
 import { searchRoutes, type SearchStore } from "../modules/search/index.js";
 import {
+  commerceRoutes,
+  type CommerceStore,
+  type PaymentGateway,
+  EntitlementService,
+  MockPaymentGateway,
+} from "../modules/commerce/index.js";
+import {
   studyRoutes,
   assistantRoutes,
   type AssistantConversationStore,
@@ -33,6 +40,7 @@ import type {
   GeneratedContentStore,
   GeneratedContentCitationStore,
 } from "../modules/generation/generation-store.js";
+import type { GenerationChunkStore } from "../modules/generation/generation-chunk-store.js";
 import type { GenerationJobStore } from "../modules/generation/generation-jobs-store.js";
 import type { GenerationQueue } from "../modules/generation/generation-queue.js";
 import type { ModelGateway } from "../modules/generation/gateway/index.js";
@@ -46,9 +54,11 @@ import type {
   DocumentChunkStore,
 } from "../modules/learning/learning-store.js";
 import type { SessionStore } from "../modules/identity/session-store.js";
+import type { DeviceStore } from "../modules/identity/device-store.js";
 import type { UserStore } from "../modules/identity/user-store.js";
-import { SessionService } from "../modules/identity/session-service.js";
 import {
+  SessionService,
+  DeviceService,
   registerIdentityModule,
   type IdentityPluginOptions,
 } from "../modules/identity/index.js";
@@ -61,15 +71,34 @@ import type {
 } from "../modules/identity/index.js";
 
 import type { AdminStore } from "../modules/admin/admin-store.js";
-import { adminRoutes } from "../modules/admin/index.js";
+import {
+  adminRoutes,
+  OfficialContentService,
+  ContentExportService,
+  ContentImportService,
+} from "../modules/admin/index.js";
+import { GenerationService } from "../modules/generation/generation-service.js";
+import { GenerationRecoveryService } from "../modules/generation/generation-recovery-service.js";
+import { ReviewService } from "../modules/generation/review-service.js";
 import { DocumentProcessingService } from "../modules/documents/document-processing-service.js";
 import { DocumentService } from "../modules/documents/document-service.js";
-import { DemoUserResolver } from "../modules/identity/demo-user-resolver.js";
+import {
+  type GenerationProgressStore,
+  InMemoryGenerationProgressStore,
+  DrizzleGenerationProgressStore,
+} from "../modules/generation/generation-progress-store.js";
+import { GenerationProgressService } from "../modules/generation/generation-progress-service.js";
+import {
+  blogRoutes,
+  adminBlogRoutes,
+  type BlogStore,
+} from "../modules/blog/index.js";
 
 export interface V1RouteOptions {
   config: IdentityPluginOptions["config"];
   sessionStore: SessionStore;
   userStore: UserStore;
+  deviceStore?: DeviceStore;
   emailVerificationStore?: EmailVerificationStore;
   emailService?: EmailService;
   organizationStore: OrganizationStore;
@@ -83,6 +112,9 @@ export interface V1RouteOptions {
   generatedContentStore?: GeneratedContentStore;
   generatedContentCitationStore?: GeneratedContentCitationStore;
   generationJobStore?: GenerationJobStore;
+  generationChunkStore?: GenerationChunkStore;
+  generationProgressStore?: GenerationProgressStore;
+  generationProgressService?: GenerationProgressService;
   queue?: GenerationQueue;
   gateway?: ModelGateway;
   flashcardStore?: FlashcardStore;
@@ -100,7 +132,11 @@ export interface V1RouteOptions {
   contentPackStore?: ContentPackStore;
   contentPackUsageStore?: ContentPackUsageStore;
   searchStore?: SearchStore;
-  demoUserResolver?: DemoUserResolver;
+  commerceStore?: CommerceStore;
+  paymentGateway?: PaymentGateway;
+  entitlementService?: EntitlementService;
+  officialContentService?: OfficialContentService;
+  blogStore?: BlogStore;
 }
 
 export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
@@ -110,27 +146,16 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
   void app.register(healthRoutes);
   void app.register(readinessRoutes);
 
-  const authEnabled = opts.config?.auth?.enabled ?? true;
-  const demoUserResolver =
-    opts.demoUserResolver ??
-    (opts.userStore && opts.config
-      ? new DemoUserResolver(
-          opts.userStore,
-          opts.organizationStore,
-          opts.config.auth?.demoUserEmail || "ali1383mohammadlo@gmail.com",
-        )
-      : undefined);
-
   // Register identity (auth) module if stores are provided
   if (opts.config && opts.sessionStore && opts.userStore) {
     await registerIdentityModule(app, {
       config: opts.config,
       sessionStore: opts.sessionStore,
       userStore: opts.userStore,
+      deviceStore: opts.deviceStore,
       emailVerificationStore: opts.emailVerificationStore,
       emailService: opts.emailService,
       organizationStore: opts.organizationStore,
-      demoUserResolver,
     });
   }
 
@@ -149,8 +174,6 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       userStore: opts.userStore,
       organizationStore: opts.organizationStore,
       auditService: opts.auditService,
-      demoUserResolver,
-      authEnabled,
     });
   }
 
@@ -172,8 +195,6 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       courseStore: opts.courseStore,
       auditService: opts.auditService,
       systemOrganizationId: opts.config.systemOrganizationId as OrganizationId,
-      demoUserResolver,
-      authEnabled,
     });
   }
 
@@ -198,10 +219,25 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       moduleStore: opts.moduleStore,
       lessonStore: opts.lessonStore,
       auditService: opts.auditService,
-      demoUserResolver,
-      authEnabled,
     });
   }
+
+  // Construct entitlementService if commerce store is provided
+  const entitlementService =
+    opts.entitlementService ??
+    (opts.commerceStore
+      ? new EntitlementService({
+          commerceStore: opts.commerceStore,
+          courseStore: opts.courseStore,
+          moduleStore: opts.moduleStore,
+          lessonStore: opts.lessonStore,
+          documentStore: opts.documentStore,
+          flashcardStore: opts.flashcardStore,
+          quizStore: opts.quizStore,
+          contentPackStore: opts.contentPackStore,
+          organizationStore: opts.organizationStore,
+        })
+      : undefined);
 
   // Register learning routes if all stores provided
   if (
@@ -227,8 +263,7 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       progressStore: opts.progressStore,
       auditService: opts.auditService,
       systemOrganizationId: opts.config.systemOrganizationId as OrganizationId,
-      demoUserResolver,
-      authEnabled,
+      entitlementService,
     });
   }
 
@@ -260,8 +295,7 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       moduleStore: opts.moduleStore,
       lessonStore: opts.lessonStore,
       auditService: opts.auditService,
-      demoUserResolver,
-      authEnabled,
+      entitlementService: opts.entitlementService ?? entitlementService,
     });
   }
 
@@ -301,8 +335,9 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       quizStore: opts.quizStore,
       quizQuestionStore: opts.quizQuestionStore,
       systemOrganizationId: opts.config.systemOrganizationId as OrganizationId,
-      demoUserResolver,
-      authEnabled,
+      generationChunkStore: opts.generationChunkStore,
+      generationProgressStore: opts.generationProgressStore,
+      generationProgressService: opts.generationProgressService,
     });
   }
 
@@ -339,8 +374,6 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       quizQuestionStore: opts.quizQuestionStore,
       organizationStore: opts.organizationStore,
       auditService: opts.auditService,
-      demoUserResolver,
-      authEnabled,
     });
   }
 
@@ -379,8 +412,7 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       systemOrganizationId: opts.config.systemOrganizationId as OrganizationId,
       studySessionStore: opts.studySessionStore,
       flashcardStudySessionStore: opts.flashcardStudySessionStore,
-      demoUserResolver,
-      authEnabled,
+      entitlementService,
     });
   }
 
@@ -410,8 +442,7 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       organizationStore: opts.organizationStore,
       auditService: opts.auditService,
       systemOrganizationId: opts.config.systemOrganizationId as OrganizationId,
-      demoUserResolver,
-      authEnabled,
+      entitlementService,
     });
   }
 
@@ -422,6 +453,117 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
     opts.userStore &&
     opts.adminStore
   ) {
+    const progressStore =
+      opts.generationProgressStore ??
+      ((opts.adminStore as any)?.db
+        ? new DrizzleGenerationProgressStore((opts.adminStore as any).db)
+        : new InMemoryGenerationProgressStore());
+
+    const progressService =
+      opts.generationProgressService ??
+      new GenerationProgressService(progressStore);
+
+    const recoveryService =
+      (opts.adminStore as any)?.db &&
+      opts.courseStore &&
+      opts.documentStore &&
+      opts.generatedContentStore &&
+      opts.documentChunkStore
+        ? new GenerationRecoveryService(
+            (opts.adminStore as any).db,
+            opts.courseStore,
+            opts.documentStore,
+            opts.generatedContentStore,
+            opts.documentChunkStore,
+            opts.generationJobStore,
+            opts.generationChunkStore,
+            opts.auditService,
+            progressStore,
+            progressService,
+          )
+        : undefined;
+
+    const officialContentService =
+      opts.officialContentService ??
+      (opts.courseStore &&
+      opts.moduleStore &&
+      opts.lessonStore &&
+      opts.flashcardStore &&
+      opts.quizStore &&
+      opts.quizQuestionStore &&
+      opts.documentStore &&
+      opts.generatedContentStore &&
+      opts.documentChunkStore &&
+      opts.gateway &&
+      opts.queue &&
+      opts.generatedContentCitationStore
+        ? new OfficialContentService(
+            (opts.adminStore as any).db,
+            opts.courseStore,
+            opts.moduleStore,
+            opts.lessonStore,
+            opts.flashcardStore,
+            opts.quizStore,
+            opts.quizQuestionStore,
+            opts.documentStore,
+            opts.generatedContentStore,
+            new GenerationService(
+              opts.generatedContentStore,
+              opts.generatedContentCitationStore,
+              opts.gateway,
+              opts.documentStore,
+              opts.documentChunkStore,
+              defaultPolicy,
+              opts.auditService,
+              opts.organizationStore,
+              opts.moduleStore,
+              opts.lessonStore,
+              opts.flashcardStore,
+              opts.quizStore,
+              opts.quizQuestionStore,
+              opts.courseStore,
+              opts.config.systemOrganizationId as OrganizationId,
+              opts.generationChunkStore,
+              opts.generationJobStore,
+              progressService,
+            ),
+            new ReviewService(
+              opts.generatedContentStore,
+              opts.generatedContentCitationStore,
+              opts.documentStore,
+              opts.documentChunkStore,
+              opts.moduleStore,
+              opts.lessonStore,
+              defaultPolicy,
+              opts.queue,
+              opts.auditService,
+              opts.flashcardStore,
+              opts.quizStore,
+              opts.quizQuestionStore,
+              opts.organizationStore,
+              opts.commerceStore,
+            ),
+            opts.adminStore,
+            opts.config.systemOrganizationId as OrganizationId,
+            recoveryService,
+            progressService,
+          )
+        : undefined);
+
+    const deviceService = opts.deviceStore
+      ? new DeviceService(opts.deviceStore)
+      : undefined;
+
+    const contentExportService =
+      (opts.adminStore as any)?.db && opts.storageProvider
+        ? new ContentExportService((opts.adminStore as any).db, opts.storageProvider)
+        : undefined;
+
+    const contentImportService =
+      (opts.adminStore as any)?.db && opts.storageProvider
+        ? new ContentImportService((opts.adminStore as any).db, opts.storageProvider)
+        : undefined;
+
     await app.register(adminRoutes, {
       prefix: "/v1/admin",
       sessionService: new SessionService(
@@ -430,12 +572,20 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       ),
       userStore: opts.userStore,
       adminStore: opts.adminStore,
-      documentProcessingService: opts.documentStore && opts.documentChunkStore && opts.storageProvider ? new DocumentProcessingService(opts.documentStore, opts.documentChunkStore, opts.storageProvider, defaultPolicy, opts.auditService, opts.organizationStore) : undefined,
+      deviceService,
+      documentProcessingService: opts.documentStore && opts.documentChunkStore && opts.storageProvider ? new DocumentProcessingService(opts.documentStore, opts.documentChunkStore, opts.storageProvider, defaultPolicy, opts.auditService, opts.organizationStore, progressService, opts.generationChunkStore, opts.generatedContentStore) : undefined,
       documentService: opts.documentStore && opts.storageProvider && opts.organizationStore ? new DocumentService(opts.documentStore, opts.storageProvider, opts.organizationStore, defaultPolicy, opts.auditService, opts.documentChunkStore, opts.generatedContentStore, opts.generationJobStore, opts.flashcardStore, opts.quizStore, opts.courseStore, opts.moduleStore, opts.lessonStore) : undefined,
       generationQueue: opts.queue,
       generationJobStore: opts.generationJobStore,
-      demoUserResolver,
-      authEnabled,
+      officialContentService,
+      contentPackStore: opts.contentPackStore,
+      commerceStore: opts.commerceStore,
+      auditService: opts.auditService,
+      contentExportService,
+      contentImportService,
+      systemOrganizationId: opts.config?.systemOrganizationId,
+      organizationStore: opts.organizationStore,
+      courseStore: opts.courseStore,
     });
   }
 
@@ -462,8 +612,40 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       organizationStore: opts.organizationStore,
       courseStore: opts.courseStore,
       auditService: opts.auditService,
-      demoUserResolver,
-      authEnabled,
+      entitlementService,
+      commerceStore: opts.commerceStore,
+      systemOrganizationId: opts.config?.systemOrganizationId
+        ? (opts.config.systemOrganizationId as OrganizationId)
+        : undefined,
+    });
+  }
+
+  // Register Commerce & Monetization routes
+  if (
+    opts.config &&
+    opts.sessionStore &&
+    opts.userStore &&
+    opts.commerceStore
+  ) {
+    const gateway = opts.paymentGateway ?? new MockPaymentGateway();
+    await app.register(commerceRoutes, {
+      sessionService: new SessionService(
+        opts.sessionStore,
+        opts.config.session,
+      ),
+      userStore: opts.userStore,
+      commerceStore: opts.commerceStore,
+      gateway,
+      courseStore: opts.courseStore,
+      moduleStore: opts.moduleStore,
+      lessonStore: opts.lessonStore,
+      documentStore: opts.documentStore,
+      flashcardStore: opts.flashcardStore,
+      quizStore: opts.quizStore,
+      contentPackStore: opts.contentPackStore,
+      auditService: opts.auditService,
+      cardToCardConfig: opts.config?.commerce?.cardToCard,
+      modelGateway: opts.gateway,
     });
   }
 
@@ -482,8 +664,30 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       userStore: opts.userStore,
       searchStore: opts.searchStore,
       systemOrganizationId: opts.config.systemOrganizationId as OrganizationId,
-      demoUserResolver,
-      authEnabled,
+    });
+  }
+
+  // Register Public Blog routes
+  if (opts.blogStore) {
+    await app.register(blogRoutes, {
+      blogStore: opts.blogStore,
+    });
+  }
+
+  // Register Admin Blog routes
+  if (
+    opts.config &&
+    opts.sessionStore &&
+    opts.userStore &&
+    opts.blogStore
+  ) {
+    await app.register(adminBlogRoutes, {
+      sessionService: new SessionService(
+        opts.sessionStore,
+        opts.config.session,
+      ),
+      userStore: opts.userStore,
+      blogStore: opts.blogStore,
     });
   }
 };

@@ -13,8 +13,10 @@ export interface SessionRecord {
   id: string;
   userId: UserId;
   tokenHash: string;
+  deviceId?: string | null;
   expiresAt: string;
   revokedAt: string | null;
+  revocationReason?: string | null;
   lastUsedAt: string | null;
   createdAt: string;
 }
@@ -24,13 +26,26 @@ export interface SessionStore {
     userId: UserId;
     tokenHash: string;
     expiresAt: string;
+    deviceId?: string | null;
   }): Promise<{ id: string }>;
+
+  /**
+   * Atomically revoke all currently active sessions for the user with the specified reason,
+   * and create a new active session. Guarantees single active session per user.
+   */
+  createSessionWithTakeover(values: {
+    userId: UserId;
+    tokenHash: string;
+    expiresAt: string;
+    deviceId?: string | null;
+    revocationReason?: string;
+  }): Promise<{ id: string; revokedCount: number }>;
 
   findByTokenHash(tokenHash: string): Promise<SessionRecord | undefined>;
 
   updateLastUsed(id: string, lastUsedAt: string): Promise<void>;
 
-  revoke(id: string, revokedAt: string): Promise<void>;
+  revoke(id: string, revokedAt: string, reason?: string): Promise<void>;
 
-  revokeAllByUser(userId: UserId, revokedAt: string): Promise<void>;
+  revokeAllByUser(userId: UserId, revokedAt: string, reason?: string): Promise<void>;
 }

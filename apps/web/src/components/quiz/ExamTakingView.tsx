@@ -2,6 +2,14 @@ import { useState, useEffect, useMemo } from "react";
 import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
 import { createStudyApi } from "../../lib/api/study.js";
 import { useStudySessionTracker } from "../../hooks/useStudySessionTracker.js";
+import type { ExamCoverageCourse } from "@avana/domain";
+import { BrandLogo } from "../brand/BrandLogo.js";
+import { ExamHierarchyHeader } from "./ExamHierarchyHeader.js";
+import {
+  formatExamDisplayTitle,
+  isInternalIdentifier,
+} from "../../lib/utils/exam-title-formatter.js";
+import { RichContent } from "../markdown/MarkdownRenderer.js";
 
 export interface ExamTakingViewProps {
   organizationId: string;
@@ -15,10 +23,13 @@ export interface ExamTakingViewProps {
     difficulty?: string | null;
     questionType?: string;
     explanation?: string | null;
+    keyPoint?: string | null;
+    keyPoints?: string[] | null;
   }>;
   initialAnswers?: Record<string, unknown>;
   startedAt?: string;
   topicName?: string;
+  coverage?: ExamCoverageCourse[];
   onExit: () => void;
   onSubmitSuccess: (result: unknown) => void;
 }
@@ -30,6 +41,7 @@ export function ExamTakingView({
   initialAnswers,
   startedAt,
   topicName,
+  coverage,
   onExit,
   onSubmitSuccess,
 }: ExamTakingViewProps) {
@@ -40,6 +52,9 @@ export function ExamTakingView({
   const [answers, setAnswers] = useState<Record<string, unknown>>(initialAnswers || {});
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Controlled disclosure state for lesson source (tracked independently per question ID)
+  const [revealedQuestionIds, setRevealedQuestionIds] = useState<Record<string, boolean>>({});
 
   // Track active educational study time for exam taking
   useStudySessionTracker({
@@ -134,6 +149,13 @@ export function ExamTakingView({
     }
   };
 
+  const handleToggleSource = (questionId: string) => {
+    setRevealedQuestionIds((prev) => ({
+      ...prev,
+      [questionId]: !prev[questionId],
+    }));
+  };
+
   const handleFinalSubmit = async () => {
     setErrorMsg(null);
     setIsSubmitting(true);
@@ -156,148 +178,176 @@ export function ExamTakingView({
     }
   };
 
-  const displayTopic =
-    topicName || currentQuestion.topic || "فارماکولوژی قلب و عروق";
+  // Sanitize topic display to prevent internal UUIDs/IDs from leaking into UI
+  const displayTopic = formatExamDisplayTitle(
+    topicName || currentQuestion?.topic,
+    "فارماکولوژی قلب و عروق",
+  );
+  const currentQuestionTopic =
+    currentQuestion?.topic && !isInternalIdentifier(currentQuestion.topic)
+      ? currentQuestion.topic
+      : undefined;
+
+  const isSourceRevealed = Boolean(currentQuestion && revealedQuestionIds[currentQuestion.id]);
+
+  // Derive key point strictly from actual question data (no generic fallback, no regex guessing)
+  const questionKeyPoint = useMemo(() => {
+    const rawKp = currentQuestion?.keyPoint;
+    if (typeof rawKp === "string" && rawKp.trim()) return rawKp.trim();
+    const rawKps = currentQuestion?.keyPoints;
+    if (Array.isArray(rawKps) && rawKps.length > 0 && typeof rawKps[0] === "string" && rawKps[0].trim()) {
+      return rawKps.join("\n");
+    }
+    return null;
+  }, [currentQuestion]);
 
   return (
-    <div className="bg-[#0b1219] text-gray-200 font-body-md min-h-screen flex flex-col antialiased selection:bg-primary-container selection:text-white" dir="rtl">
-      {/* TopAppBar */}
-      <header className="bg-[#0f1722] text-primary-fixed-dim font-headline-lg-mobile md:font-headline-lg docked full-width top-0 sticky border-b border-[#1e293b] shadow-sm flex justify-between items-center w-full px-margin-mobile md:px-margin-desktop py-4 z-50">
-        <div className="flex items-center gap-4">
-          <span className="font-headline-lg text-primary-fixed-dim font-bold tracking-tight">AVANA</span>
-          <div className="h-6 w-px bg-[#1e293b] mx-2 hidden md:block" />
-          <div className="hidden md:flex items-center gap-2 text-[#94a3b8] font-body-md text-sm">
-            <span className="material-symbols-outlined text-[18px]">menu_book</span>
-            <span>{displayTopic}</span>
+    <div className="bg-[#0b1219] text-gray-200 font-body-md h-screen w-full min-w-0 max-w-full overflow-hidden flex antialiased selection:bg-primary-container selection:text-white" dir="rtl">
+      {/* Sidebar Navigation (Right in RTL) */}
+      <aside className="w-72 shrink-0 h-full hidden md:flex flex-col bg-[#0f1722] border-l border-[#1e293b] z-20 overflow-hidden">
+        {/* Sidebar Header */}
+        <div className="p-4 border-b border-[#1e293b] flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-2">
+            <span className="material-symbols-outlined text-primary-fixed-dim text-[20px]">grid_view</span>
+            <h3 className="text-white font-title-md text-base">نقشه آزمون</h3>
           </div>
-        </div>
-
-        {/* Progress Center Bar */}
-        <div className="flex flex-1 justify-center max-w-md mx-8 hidden md:flex items-center gap-4">
-          <span className="text-sm font-label-sm text-[#94a3b8] whitespace-nowrap">
-            سوال {currentIndex + 1} از {totalQuestions}
+          <span className="text-xs text-[#94a3b8] font-mono bg-[#1e293b] px-2 py-0.5 rounded">
+            {currentIndex + 1} / {totalQuestions}
           </span>
-          <div className="w-full bg-[#1e293b] rounded-full h-2">
-            <div
-              className="bg-gradient-to-r from-[#4ade80] to-primary-container h-2 rounded-full transition-all duration-300"
-              style={{ width: `${progressPercent}%` }}
-            />
+        </div>
+
+        {/* Scrollable Question Numbers Grid */}
+        <div className="flex-1 overflow-y-auto p-4 min-h-0">
+          <div className="grid grid-cols-5 gap-2" dir="ltr">
+            {questions.map((q, idx) => {
+              const isCurrent = idx === currentIndex;
+              const isAns = answers[q.id] !== undefined && answers[q.id] !== null && answers[q.id] !== "";
+
+              if (isCurrent) {
+                return (
+                  <button
+                    key={q.id}
+                    type="button"
+                    onClick={() => setCurrentIndex(idx)}
+                    className="w-10 h-10 rounded-lg bg-primary-container text-white flex items-center justify-center font-mono text-sm shadow-[0_0_15px_rgba(15,118,110,0.5)] ring-2 ring-primary-fixed-dim relative"
+                  >
+                    {idx + 1}
+                    {isAns && (
+                      <div className="absolute bottom-1 right-1 w-1.5 h-1.5 bg-[#4ade80] rounded-full" />
+                    )}
+                  </button>
+                );
+              }
+
+              if (isAns) {
+                return (
+                  <button
+                    key={q.id}
+                    type="button"
+                    onClick={() => setCurrentIndex(idx)}
+                    className="w-10 h-10 rounded-lg bg-[#1e293b] border border-[#334155] text-[#94a3b8] flex items-center justify-center font-mono text-sm hover:bg-[#334155] transition-colors relative"
+                  >
+                    {idx + 1}
+                    <div className="absolute bottom-1 right-1 w-1.5 h-1.5 bg-[#4ade80] rounded-full" />
+                  </button>
+                );
+              }
+
+              return (
+                <button
+                  key={q.id}
+                  type="button"
+                  onClick={() => setCurrentIndex(idx)}
+                  className="w-10 h-10 rounded-lg bg-[#0b1219] border border-[#1e293b] text-[#64748b] flex items-center justify-center font-mono text-sm hover:border-[#334155] transition-colors"
+                >
+                  {idx + 1}
+                </button>
+              );
+            })}
           </div>
         </div>
 
-        {/* Right Header Actions */}
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 bg-[#1e293b] px-3 py-1.5 rounded-lg text-primary-fixed-dim font-label-sm">
-            <span className="material-symbols-outlined text-[18px]">timer</span>
-            <span className="font-mono text-[14px] mt-0.5" dir="ltr">
-              {formatTimer(elapsedSeconds)}
+        {/* Fixed Legend Footer */}
+        <div className="p-4 border-t border-[#1e293b] shrink-0 flex flex-col gap-2 bg-[#0f1722]">
+          <div className="flex items-center gap-2 text-xs text-[#94a3b8]">
+            <div className="w-2.5 h-2.5 bg-[#4ade80] rounded-full shrink-0" />
+            <span>پاسخ داده شده ({answeredCount})</span>
+          </div>
+          <div className="flex items-center gap-2 text-xs text-[#94a3b8]">
+            <div className="w-2.5 h-2.5 bg-[#0b1219] border border-[#334155] rounded-full shrink-0" />
+            <span>پاسخ داده نشده ({unansweredCount})</span>
+          </div>
+          <div className="flex items-center gap-2 text-xs text-[#94a3b8]">
+            <div className="w-2.5 h-2.5 bg-primary-container rounded-full ring-2 ring-primary-fixed-dim shrink-0" />
+            <span>سوال فعلی</span>
+          </div>
+        </div>
+      </aside>
+
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col h-full min-w-0 max-w-full overflow-hidden">
+        {/* TopAppBar inside Main Content Area */}
+        <header className="shrink-0 bg-[#0f1722] text-primary-fixed-dim border-b border-[#1e293b] shadow-sm flex justify-between items-center w-full px-4 md:px-6 py-2.5 z-10">
+          <div className="flex items-center gap-3">
+            <BrandLogo variant="logo-only" size="sm" />
+            <div className="h-5 w-px bg-[#1e293b] mx-1 hidden md:block" />
+            <ExamHierarchyHeader coverage={coverage} fallbackTopic={topicName} />
+          </div>
+
+          {/* Progress Center Bar */}
+          <div className="flex flex-1 justify-center max-w-xs md:max-w-sm mx-4 hidden md:flex items-center gap-3">
+            <span className="text-xs font-label-sm text-[#94a3b8] whitespace-nowrap">
+              سوال {currentIndex + 1} از {totalQuestions}
             </span>
-          </div>
-
-          <button
-            type="button"
-            onClick={onExit}
-            title="خروج از آزمون"
-            className="hidden md:flex text-[#94a3b8] hover:text-white transition-colors p-2 rounded-full hover:bg-surface-container-highest"
-          >
-            <span className="material-symbols-outlined">help_outline</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setShowConfirmModal(true)}
-            className="bg-primary-container text-white px-4 py-2 rounded-lg font-title-md text-sm hover:bg-opacity-90 transition-colors hidden sm:block shadow-[0_4px_15px_rgba(15,118,110,0.3)]"
-          >
-            پایان آزمون
-          </button>
-        </div>
-      </header>
-
-      <div className="flex flex-1 relative overflow-hidden">
-        {/* Sidebar Navigation */}
-        <aside className="bg-[#0f1722] text-primary-fixed-dim font-title-md text-title-md docked right-0 h-full w-72 hidden md:flex flex-col border-l border-[#1e293b] z-40 fixed top-[72px] right-0 bottom-0 overflow-y-auto">
-          <div className="p-6 flex flex-col gap-6 h-full">
-            <div>
-              <h3 className="text-white font-title-md text-lg mb-4">نقشه آزمون</h3>
-              <div className="grid grid-cols-5 gap-2" dir="ltr">
-                {questions.map((q, idx) => {
-                  const isCurrent = idx === currentIndex;
-                  const isAns = answers[q.id] !== undefined && answers[q.id] !== null && answers[q.id] !== "";
-
-                  if (isCurrent) {
-                    return (
-                      <button
-                        key={q.id}
-                        type="button"
-                        onClick={() => setCurrentIndex(idx)}
-                        className="w-10 h-10 rounded-lg bg-primary-container text-white flex items-center justify-center font-mono text-sm shadow-[0_0_15px_rgba(15,118,110,0.5)] ring-2 ring-primary-fixed-dim relative"
-                      >
-                        {idx + 1}
-                        {isAns && (
-                          <div className="absolute bottom-1 right-1 w-1.5 h-1.5 bg-[#4ade80] rounded-full" />
-                        )}
-                      </button>
-                    );
-                  }
-
-                  if (isAns) {
-                    return (
-                      <button
-                        key={q.id}
-                        type="button"
-                        onClick={() => setCurrentIndex(idx)}
-                        className="w-10 h-10 rounded-lg bg-[#1e293b] border border-[#334155] text-[#94a3b8] flex items-center justify-center font-mono text-sm hover:bg-[#334155] transition-colors relative"
-                      >
-                        {idx + 1}
-                        <div className="absolute bottom-1 right-1 w-1.5 h-1.5 bg-[#4ade80] rounded-full" />
-                      </button>
-                    );
-                  }
-
-                  return (
-                    <button
-                      key={q.id}
-                      type="button"
-                      onClick={() => setCurrentIndex(idx)}
-                      className="w-10 h-10 rounded-lg bg-[#0b1219] border border-[#1e293b] text-[#64748b] flex items-center justify-center font-mono text-sm hover:border-[#334155] transition-colors"
-                    >
-                      {idx + 1}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="mt-auto border-t border-[#1e293b] pt-6 flex flex-col gap-3">
-              <div className="flex items-center gap-2 text-sm text-[#94a3b8]">
-                <div className="w-3 h-3 bg-[#4ade80] rounded-full" />
-                <span>پاسخ داده شده ({answeredCount})</span>
-              </div>
-              <div className="flex items-center gap-2 text-sm text-[#94a3b8]">
-                <div className="w-3 h-3 bg-[#0b1219] border border-[#334155] rounded-full" />
-                <span>پاسخ داده نشده ({unansweredCount})</span>
-              </div>
-              <div className="flex items-center gap-2 text-sm text-[#94a3b8]">
-                <div className="w-3 h-3 bg-primary-container rounded-full ring-2 ring-primary-fixed-dim" />
-                <span>سوال فعلی</span>
-              </div>
+            <div className="w-full bg-[#1e293b] rounded-full h-1.5">
+              <div
+                className="bg-gradient-to-r from-[#4ade80] to-primary-container h-1.5 rounded-full transition-all duration-300"
+                style={{ width: `${progressPercent}%` }}
+              />
             </div>
           </div>
-        </aside>
 
-        {/* Main Content */}
-        <main className="flex-1 md:mr-72 p-4 md:p-8 flex flex-col items-center justify-start min-h-[calc(100vh-72px)] overflow-y-auto">
-          <div className="w-full max-w-4xl max-w-[1280px] mx-auto mt-4 md:mt-8 flex flex-col gap-6 relative">
+          {/* Right Header Actions */}
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1.5 bg-[#1e293b] px-2.5 py-1 rounded-lg text-primary-fixed-dim font-label-sm">
+              <span className="material-symbols-outlined text-[16px]">timer</span>
+              <span className="font-mono text-xs mt-0.5" dir="ltr">
+                {formatTimer(elapsedSeconds)}
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={onExit}
+              title="خروج از آزمون"
+              className="hidden md:flex text-[#94a3b8] hover:text-white transition-colors p-1.5 rounded-full hover:bg-surface-container-highest"
+            >
+              <span className="material-symbols-outlined text-[20px]">help_outline</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setShowConfirmModal(true)}
+              className="bg-primary-container text-white px-3.5 py-1.5 rounded-lg font-title-md text-xs md:text-sm hover:bg-opacity-90 transition-colors hidden sm:block shadow-[0_4px_15px_rgba(15,118,110,0.3)]"
+            >
+              پایان آزمون
+            </button>
+          </div>
+        </header>
+
+        {/* Scrollable Main Area */}
+        <main className="flex-1 overflow-y-auto p-3 sm:p-4 md:p-6 flex flex-col items-center justify-start min-h-0 w-full">
+          <div className="w-full max-w-3xl mx-auto flex flex-col gap-3 my-auto relative">
             {/* Ambient Glow Background */}
-            <div className="absolute -top-32 -left-32 w-96 h-96 bg-primary-container rounded-full mix-blend-screen filter blur-[128px] opacity-10 pointer-events-none" />
+            <div className="absolute -top-24 -left-24 w-72 h-72 bg-primary-container rounded-full mix-blend-screen filter blur-[128px] opacity-10 pointer-events-none" />
 
             {errorMsg && (
-              <div className="bg-red-900/30 border border-red-500/50 rounded-2xl p-4 text-red-200 text-sm flex items-center justify-between">
+              <div className="bg-red-900/30 border border-red-500/50 rounded-xl p-3 text-red-200 text-xs flex items-center justify-between">
                 <span>{errorMsg}</span>
                 <button
                   type="button"
                   onClick={() => setErrorMsg(null)}
-                  className="text-xs bg-red-800/50 px-3 py-1 rounded-lg text-red-100 hover:bg-red-800"
+                  className="text-xs bg-red-800/50 px-2.5 py-1 rounded-lg text-red-100 hover:bg-red-800"
                 >
                   متوجه شدم
                 </button>
@@ -305,20 +355,52 @@ export function ExamTakingView({
             )}
 
             {/* Question Card */}
-            <div className="bg-[#0f1722] border border-[#1e293b] rounded-2xl p-6 md:p-10 shadow-[0_12px_32px_rgba(15,118,110,0.03)] relative overflow-hidden">
-              <div className="flex items-center gap-3 mb-6">
-                <span className="bg-[#8B5CF6]/10 text-[#8B5CF6] border border-[#8B5CF6]/20 px-3 py-1 rounded-full text-xs font-label-sm tracking-wider">
-                  {currentQuestion.topic || displayTopic}
+            <div className="bg-[#0f1722] border border-[#1e293b] rounded-xl p-4 md:p-5 shadow-[0_8px_24px_rgba(15,118,110,0.03)] relative w-full min-w-0">
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <span className="bg-primary-container/10 text-primary-fixed-dim border border-primary-container/20 px-2.5 py-0.5 rounded-md text-xs font-medium">
+                  سوال {currentIndex + 1}
                 </span>
+
+                {/* Controlled Source Disclosure Button */}
+                {(currentQuestionTopic || displayTopic) && (
+                  <div>
+                    {!isSourceRevealed ? (
+                      <button
+                        type="button"
+                        onClick={() => handleToggleSource(currentQuestion.id)}
+                        className="flex items-center gap-1 text-xs text-[#94a3b8] hover:text-white transition-colors py-1 px-2.5 rounded-lg bg-[#1e293b]/60 hover:bg-[#1e293b] border border-[#334155]/60"
+                        aria-expanded={false}
+                      >
+                        <span className="material-symbols-outlined text-[15px]">visibility</span>
+                        <span>نمایش منبع سوال</span>
+                      </button>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span className="bg-[#8B5CF6]/10 text-[#c4b5fd] border border-[#8B5CF6]/30 px-2.5 py-0.5 rounded-md text-xs font-medium">
+                          منبع: {currentQuestionTopic || displayTopic}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleToggleSource(currentQuestion.id)}
+                          className="flex items-center gap-1 text-xs text-[#94a3b8] hover:text-white transition-colors py-1 px-2 rounded-lg bg-[#1e293b]/60 hover:bg-[#1e293b] border border-[#334155]/60"
+                          aria-expanded={true}
+                        >
+                          <span className="material-symbols-outlined text-[15px]">visibility_off</span>
+                          <span>مخفی کردن</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-              <h1 className="font-headline-lg-mobile md:font-headline-lg text-white leading-relaxed mb-4 text-2xl md:text-3xl">
-                {currentQuestion.question}
-              </h1>
+              <div className="font-medium text-white leading-relaxed text-base md:text-lg break-words min-w-0">
+                <RichContent content={currentQuestion.question} />
+              </div>
             </div>
 
             {/* Options Grid */}
             {currentQuestion.choices && currentQuestion.choices.length > 0 && (
-              <div className="grid grid-cols-1 gap-4 w-full">
+              <div className="grid grid-cols-1 gap-2.5 w-full min-w-0">
                 {currentQuestion.choices.map((choice, idx) => {
                   const isSelected = selectedAnswer === choice;
                   const optionLetter = String.fromCharCode(65 + idx); // A, B, C, D...
@@ -329,12 +411,12 @@ export function ExamTakingView({
                       onClick={() => handleSelectChoice(choice)}
                       className={`option-card ${
                         isSelected
-                          ? "active bg-[#0f1722] border-[#0f766e] bg-[rgba(15,118,110,0.1)] shadow-[0_0_20px_rgba(15,118,110,0.05)]"
-                          : "bg-[#0f1722] border border-[#1e293b]"
-                      } rounded-xl p-5 cursor-pointer transition-all duration-200 flex items-start gap-4 group relative overflow-hidden`}
+                          ? "active bg-[#0f1722] border-[#0f766e] bg-[rgba(15,118,110,0.1)] shadow-[0_0_15px_rgba(15,118,110,0.05)]"
+                          : "bg-[#0f1722] border border-[#1e293b] hover:border-[#334155]"
+                      } rounded-xl py-2.5 px-3.5 cursor-pointer transition-all duration-150 flex items-center gap-3 group relative w-full min-w-0`}
                     >
                       <div
-                        className={`flex items-center justify-center w-8 h-8 rounded-full border-2 font-mono mt-0.5 shrink-0 transition-colors ${
+                        className={`flex items-center justify-center w-7 h-7 rounded-full border font-mono text-xs shrink-0 transition-colors ${
                           isSelected
                             ? "bg-primary-container border-primary-container text-white"
                             : "border-[#334155] text-[#94a3b8] group-hover:border-primary-container group-hover:text-primary-fixed-dim"
@@ -344,10 +426,10 @@ export function ExamTakingView({
                       </div>
                       <div
                         className={`flex-1 ${
-                          isSelected ? "text-white" : "text-gray-300"
-                        } font-body-lg pt-1`}
+                          isSelected ? "text-white font-medium" : "text-gray-300"
+                        } text-sm md:text-base leading-snug break-words min-w-0`}
                       >
-                        {choice}
+                        <RichContent content={choice} inline />
                       </div>
                       <input
                         type="radio"
@@ -363,14 +445,14 @@ export function ExamTakingView({
             )}
 
             {/* Footer Actions */}
-            <div className="mt-8 flex flex-col sm:flex-row justify-between items-center gap-4 border-t border-[#1e293b] pt-8 pb-12">
+            <div className="mt-3 pt-3 border-t border-[#1e293b] flex justify-between items-center gap-3">
               <button
                 type="button"
                 onClick={() => setCurrentIndex((prev) => Math.max(0, prev - 1))}
                 disabled={currentIndex === 0 || isSubmitting}
-                className="w-full sm:w-auto px-6 py-3 rounded-xl border border-[#334155] text-[#94a3b8] font-title-md hover:bg-[#1e293b] hover:text-white transition-colors flex items-center justify-center gap-2 disabled:opacity-40 disabled:pointer-events-none"
+                className="px-4 py-2 rounded-xl border border-[#334155] text-[#94a3b8] text-xs md:text-sm font-title-md hover:bg-[#1e293b] hover:text-white transition-colors flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:pointer-events-none"
               >
-                <span className="material-symbols-outlined text-[20px]" dir="ltr">
+                <span className="material-symbols-outlined text-[18px]" dir="ltr">
                   arrow_forward
                 </span>
                 سوال قبلی
@@ -379,9 +461,9 @@ export function ExamTakingView({
               <button
                 type="button"
                 onClick={() => setShowAiMentor(true)}
-                className="w-full sm:w-auto px-6 py-3 rounded-xl border border-[#8B5CF6] text-[#8B5CF6] font-title-md bg-[#8B5CF6]/5 hover:bg-[#8B5CF6]/10 transition-colors flex items-center justify-center gap-2 shadow-[0_4px_20px_rgba(139,92,246,0.08)] order-first sm:order-none"
+                className="px-4 py-2 rounded-xl border border-[#8B5CF6]/40 text-[#c4b5fd] text-xs md:text-sm font-title-md bg-[#8B5CF6]/5 hover:bg-[#8B5CF6]/10 transition-colors flex items-center justify-center gap-1.5 shadow-[0_2px_12px_rgba(139,92,246,0.06)]"
               >
-                <span className="material-symbols-outlined text-[20px]">smart_toy</span>
+                <span className="material-symbols-outlined text-[18px]">smart_toy</span>
                 راهنمایی از منتور هوشمند
               </button>
 
@@ -390,10 +472,10 @@ export function ExamTakingView({
                   type="button"
                   onClick={() => setShowConfirmModal(true)}
                   disabled={isSubmitting}
-                  className="w-full sm:w-auto px-8 py-3 rounded-xl bg-primary-container text-white font-title-md hover:bg-opacity-90 transition-colors flex items-center justify-center gap-2 shadow-[0_4px_20px_rgba(15,118,110,0.2)] disabled:opacity-50"
+                  className="px-5 py-2 rounded-xl bg-primary-container text-white text-xs md:text-sm font-title-md hover:bg-opacity-90 transition-colors flex items-center justify-center gap-1.5 shadow-[0_4px_15px_rgba(15,118,110,0.2)] disabled:opacity-50"
                 >
                   ثبت و پایان آزمون
-                  <span className="material-symbols-outlined text-[20px]" dir="ltr">
+                  <span className="material-symbols-outlined text-[18px]" dir="ltr">
                     check
                   </span>
                 </button>
@@ -402,10 +484,10 @@ export function ExamTakingView({
                   type="button"
                   onClick={() => setCurrentIndex((prev) => Math.min(totalQuestions - 1, prev + 1))}
                   disabled={isSubmitting}
-                  className="w-full sm:w-auto px-8 py-3 rounded-xl bg-primary-container text-white font-title-md hover:bg-opacity-90 transition-colors flex items-center justify-center gap-2 shadow-[0_4px_20px_rgba(15,118,110,0.2)]"
+                  className="px-5 py-2 rounded-xl bg-primary-container text-white text-xs md:text-sm font-title-md hover:bg-opacity-90 transition-colors flex items-center justify-center gap-1.5 shadow-[0_4px_15px_rgba(15,118,110,0.2)]"
                 >
                   سوال بعدی
-                  <span className="material-symbols-outlined text-[20px]" dir="ltr">
+                  <span className="material-symbols-outlined text-[18px]" dir="ltr">
                     arrow_back
                   </span>
                 </button>
@@ -424,21 +506,21 @@ export function ExamTakingView({
             onClick={() => !isSubmitting && setShowConfirmModal(false)}
           />
           {/* Modal Card */}
-          <div className="relative bg-[#0f1722] border border-[#1e293b] rounded-2xl p-8 max-w-md w-full shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex flex-col items-center text-center z-10">
-            <div className="w-16 h-16 bg-primary-container/20 rounded-full flex items-center justify-center mb-6">
-              <span className="material-symbols-outlined text-primary-fixed-dim text-4xl">task_alt</span>
+          <div className="relative bg-[#0f1722] border border-[#1e293b] rounded-2xl p-6 max-w-md w-full shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex flex-col items-center text-center z-10">
+            <div className="w-14 h-14 bg-primary-container/20 rounded-full flex items-center justify-center mb-4">
+              <span className="material-symbols-outlined text-primary-fixed-dim text-3xl">task_alt</span>
             </div>
-            <h2 className="text-white font-headline-lg-mobile md:font-headline-lg mb-2">پایان آزمون</h2>
-            <p className="text-[#94a3b8] font-body-md mb-8">
+            <h2 className="text-white font-title-md text-lg mb-2">پایان آزمون</h2>
+            <p className="text-[#94a3b8] text-sm mb-6">
               شما به <span className="text-white font-bold">{answeredCount}</span> سوال از{" "}
               <span className="text-white font-bold">{totalQuestions}</span> سوال پاسخ داده‌اید. آیا از ثبت نهایی اطمینان دارید؟
             </p>
-            <div className="flex flex-col w-full gap-3">
+            <div className="flex flex-col w-full gap-2.5">
               <button
                 type="button"
                 onClick={handleFinalSubmit}
                 disabled={isSubmitting}
-                className="w-full py-3 rounded-xl bg-primary-container text-white font-title-md hover:bg-opacity-90 transition-all shadow-[0_4px_20px_rgba(15,118,110,0.2)] disabled:opacity-50 flex items-center justify-center gap-2"
+                className="w-full py-2.5 rounded-xl bg-primary-container text-white font-title-md text-sm hover:bg-opacity-90 transition-all shadow-[0_4px_20px_rgba(15,118,110,0.2)] disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 {isSubmitting ? (
                   <span>در حال ثبت...</span>
@@ -450,7 +532,7 @@ export function ExamTakingView({
                 type="button"
                 onClick={() => setShowConfirmModal(false)}
                 disabled={isSubmitting}
-                className="w-full py-3 rounded-xl border border-[#334155] text-[#94a3b8] font-title-md hover:bg-[#1e293b] hover:text-white transition-all disabled:opacity-50"
+                className="w-full py-2.5 rounded-xl border border-[#334155] text-[#94a3b8] font-title-md text-sm hover:bg-[#1e293b] hover:text-white transition-all disabled:opacity-50"
               >
                 بازگشت به آزمون
               </button>
@@ -462,51 +544,56 @@ export function ExamTakingView({
       {/* AI Mentor Smart Hint Overlay */}
       {showAiMentor && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 md:p-8 bg-[#0b1219]/80 backdrop-blur-sm" id="ai-mentor-overlay">
-          <div className="glass-panel max-w-2xl w-full rounded-2xl overflow-hidden shadow-2xl border border-primary-container/30 flex flex-col bg-[#0f1722]">
+          <div className="glass-panel max-w-xl w-full rounded-2xl overflow-hidden shadow-2xl border border-primary-container/30 flex flex-col bg-[#0f1722]">
             {/* Header */}
-            <div className="bg-primary-container/20 p-6 flex items-center gap-4 border-b border-primary-container/30">
-              <div className="w-10 h-10 rounded-xl bg-primary-container/30 border border-primary-fixed-dim/40 flex items-center justify-center text-primary-fixed-dim shrink-0 font-bold text-base">
+            <div className="bg-primary-container/20 p-5 flex items-center gap-3 border-b border-primary-container/30">
+              <div className="w-9 h-9 rounded-xl bg-primary-container/30 border border-primary-fixed-dim/40 flex items-center justify-center text-primary-fixed-dim shrink-0 font-bold text-sm">
                 AV
               </div>
               <div>
-                <h2 className="text-white font-headline-lg-mobile md:font-headline-lg text-xl">تحلیل هوشمند آوانا</h2>
-                <p className="text-primary-fixed-dim text-sm font-label-sm">
+                <h2 className="text-white font-title-md text-lg">تحلیل هوشمند آوانا</h2>
+                <p className="text-primary-fixed-dim text-xs font-label-sm">
                   راهنمای آموزشی سوال {currentIndex + 1}
                 </p>
               </div>
               <button
                 type="button"
-                className="mr-auto text-[#94a3b8] hover:text-white transition-colors p-1"
+                className="mr-auto text-[#94a3b8] hover:text-white transition-colors p-1 rounded-lg hover:bg-[#1e293b]"
                 onClick={() => setShowAiMentor(false)}
               >
-                <span className="material-symbols-outlined">close</span>
+                <span className="material-symbols-outlined text-[20px]">close</span>
               </button>
             </div>
             {/* Content */}
-            <div className="p-6 md:p-8 overflow-y-auto max-h-[70vh] flex flex-col gap-6">
-              <div className="flex flex-col gap-4">
-                <h3 className="text-primary-fixed-dim font-title-md flex items-center gap-2">
-                  <span className="material-symbols-outlined">lightbulb</span>
+            <div className="p-5 md:p-6 overflow-y-auto max-h-[70vh] flex flex-col gap-4">
+              <div className="flex flex-col gap-2.5">
+                <h3 className="text-primary-fixed-dim font-title-md text-sm flex items-center gap-1.5">
+                  <span className="material-symbols-outlined text-[18px]" aria-hidden="true">lightbulb</span>
                   راهنمای مفهومی سوال:
                 </h3>
-                <p className="text-gray-300 leading-relaxed font-body-lg">
+                <p className="text-gray-300 leading-relaxed text-sm md:text-base">
                   {currentQuestion.explanation ||
-                    `این سوال مربوط به مبحث ${currentQuestion.topic || displayTopic} است. برای پاسخ صحیح به مکانیسم عمل، طبقه‌بندی داروها و تداخلات اثر دقت فرمایید.`}
+                    `این سوال مربوط به مبحث ${currentQuestionTopic || displayTopic} است. برای پاسخ صحیح به مفاهیم پایه، مکانیسم و نکات اختصاصی دقت فرمایید.`}
                 </p>
               </div>
-              <div className="bg-[#1e293b]/50 p-4 rounded-xl border border-[#334155]">
-                <h4 className="text-white font-bold mb-2 flex items-center gap-2">
-                  <span className="material-symbols-outlined text-sm">info</span>
-                  نکته کلیدی:
-                </h4>
-                <p className="text-sm text-[#94a3b8]">
-                  همواره در تست‌های تخصص فارماکولوژی و پزشکی، تفاوت‌های مکانیسمی داروهای هم‌خانواده مهم‌ترین هدف طراحان سوال است.
-                </p>
-              </div>
-              <div className="flex justify-end mt-4">
+
+              {/* Key Point - rendered ONLY when real keyPoint data exists */}
+              {questionKeyPoint ? (
+                <div className="bg-[#1e293b]/50 p-3.5 rounded-xl border border-[#334155]">
+                  <h4 className="text-white font-bold text-sm mb-1.5 flex items-center gap-1.5">
+                    <span className="material-symbols-outlined text-sm text-primary-fixed-dim" aria-hidden="true">info</span>
+                    <span>نکته کلیدی:</span>
+                  </h4>
+                  <p className="text-xs md:text-sm text-[#94a3b8] leading-relaxed">
+                    {questionKeyPoint}
+                  </p>
+                </div>
+              ) : null}
+
+              <div className="flex justify-end mt-2">
                 <button
                   type="button"
-                  className="bg-primary-container text-white px-6 py-2 rounded-lg font-title-md hover:bg-opacity-90 transition-colors"
+                  className="bg-primary-container text-white px-5 py-2 rounded-lg font-title-md text-xs md:text-sm hover:bg-opacity-90 transition-colors"
                   onClick={() => setShowAiMentor(false)}
                 >
                   متوجه شدم

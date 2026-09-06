@@ -35,6 +35,8 @@ import {
 } from "../modules/library/index.js";
 import { InMemoryGenerationQueue } from "../modules/generation/generation-queue.js";
 import { createModelGateway } from "../modules/generation/index.js";
+import { InMemoryCommerceStore } from "../modules/commerce/commerce-store.js";
+import { MockPaymentGateway } from "../modules/commerce/gateway/mock-gateway.js";
 import { LocalStorageProvider } from "../modules/storage/index.js";
 import { InMemoryAuditStore } from "../observability/test/in-memory-stores.js";
 import { AuditService } from "../observability/audit-service.js";
@@ -84,6 +86,8 @@ describe("Content Pack Add to Course (Materialization) Integration Test Suite", 
   let quizAttemptStore: InMemoryQuizAttemptStore;
   let contentPackStore: InMemoryContentPackStore;
   let contentPackUsageStore: InMemoryContentPackUsageStore;
+  let commerceStore: InMemoryCommerceStore;
+  let paymentGateway: MockPaymentGateway;
   let storageDir: string;
   let storageProvider: LocalStorageProvider;
   let auditService: AuditService;
@@ -121,6 +125,8 @@ describe("Content Pack Add to Course (Materialization) Integration Test Suite", 
       generatedContentStore,
       contentPackUsageStore,
     );
+    commerceStore = new InMemoryCommerceStore();
+    paymentGateway = new MockPaymentGateway();
     storageDir = await fs.mkdtemp(path.join(os.tmpdir(), "avana-mat-test-"));
     storageProvider = new LocalStorageProvider(storageDir);
     const auditStore = new InMemoryAuditStore();
@@ -161,6 +167,8 @@ describe("Content Pack Add to Course (Materialization) Integration Test Suite", 
       auditService,
       contentPackStore,
       contentPackUsageStore,
+      commerceStore,
+      paymentGateway,
     });
     await app.ready();
     return app;
@@ -431,6 +439,7 @@ describe("Content Pack Add to Course (Materialization) Integration Test Suite", 
     });
     expect(pubRes.statusCode).toBe(201);
     const pubData = JSON.parse(pubRes.body);
+    await contentPackStore.updateStatus(pubData.pack.id, "published", { accessType: "free" });
     return { packId: pubData.pack.id as string, docId };
   }
 
@@ -1175,5 +1184,283 @@ describe("Content Pack Add to Course (Materialization) Integration Test Suite", 
     expect(res.statusCode).toBe(400);
     const body = JSON.parse(res.body);
     expect(body.error.message).toContain("فاقد محتوا");
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test 17: Normal Learner + Official/System Course (e.g. Pharmacology 3) + Free Pack
+  // ---------------------------------------------------------------------------
+  it("Scenario 17: learner without membership in SYSTEM_ORGANIZATION_ID successfully adds Free Pack to System Course (فارماکولوژی ۳)", async () => {
+    const app = await buildTestApp();
+    const systemOrgId = config.systemOrganizationId as OrganizationId;
+    const pharm3CourseId = "5b0f6697-5964-44f8-b404-d306ad592ea0" as CourseId;
+
+    // Seed System Course under SYSTEM_ORGANIZATION_ID
+    const now = new Date().toISOString();
+    await courseStore.create({
+      course: {
+        id: pharm3CourseId,
+        organizationId: systemOrgId,
+        name: "فارماکولوژی ۳",
+        subject: "فارماکولوژی",
+        status: "published",
+        isOfficial: true,
+        examDate: null,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      },
+      auditEvents: [],
+    });
+
+    // Create creator who publishes a free pack
+    const creator = await setupUserAndOrg(app, "دکتر مدرس");
+    const { packId } = await createPublishedPack(app, creator);
+
+    // Normal student who is ONLY a member of their own personal organization (NOT systemOrgId)
+    const student = await setupUserAndOrg(app, "دانشجو یادگیرنده فارما");
+
+    // Verify student is NOT a member of systemOrgId
+    const sysMembership = await orgStore.findMembership(systemOrgId, student.userId);
+    expect(sysMembership).toBeUndefined();
+
+    // Student adds pack to System Course "فارماکولوژی ۳"
+    const res = await app.inject({
+      method: "POST",
+      url: `/v1/library/packs/${packId}/add-to-course`,
+      cookies: { avana_session: student.token },
+      payload: { course_id: pharm3CourseId },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.success).toBe(true);
+    expect(body.already_installed).toBe(false);
+    expect(body.materialized.module_title).toBe("بسته جامع فارماکولوژی قلب و عروق");
+    expect(body.materialized.lessons_created).toBe(2);
+    expect(body.materialized.flashcards_created).toBe(3);
+    expect(body.materialized.quizzes_created).toBe(1);
+    expect(body.materialized.quiz_questions_created).toBe(2);
+    expect(body.materialized.review_summary_created).toBe(true);
+
+    // Modules materialized in pharm3CourseId
+    const modules = await moduleStore.listByCourse(pharm3CourseId);
+    expect(modules.length).toBe(1);
+    expect(modules[0].title).toBe("بسته جامع فارماکولوژی قلب و عروق");
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test 18: Normal Learner + System Course + Paid Pack WITHOUT Entitlement
+  // ---------------------------------------------------------------------------
+  it("Scenario 18: paid pack without entitlement returns purchase/entitlement error (NOT course-access 403)", async () => {
+    const app = await buildTestApp();
+    const systemOrgId = config.systemOrganizationId as OrganizationId;
+    const pharm3CourseId = "5b0f6697-5964-44f8-b404-d306ad592ea0" as CourseId;
+
+    const now = new Date().toISOString();
+    await courseStore.create({
+      course: {
+        id: pharm3CourseId,
+        organizationId: systemOrgId,
+        name: "فارماکولوژی ۳",
+        subject: "فارماکولوژی",
+        status: "published",
+        isOfficial: true,
+        examDate: null,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      },
+      auditEvents: [],
+    });
+
+    const creator = await setupUserAndOrg(app, "دکتر سازنده پولی");
+    const paidPackId = randomUUID();
+
+    // Create a paid pack
+    await contentPackStore.create(
+      {
+        id: paidPackId,
+        creatorUserId: creator.userId,
+        organizationId: creator.orgId,
+        sourceDocumentId: null,
+        title: "بسته پولی فارماکولوژی پیشرفته",
+        description: "محتوای تخصصی",
+        subject: "فارماکولوژی",
+        status: "published",
+        publishedAt: now,
+        usageCount: 0,
+        metadata: { accessType: "paid" },
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      },
+      [
+        {
+          id: randomUUID(),
+          contentPackId: paidPackId,
+          contentType: "lesson",
+          sourceGeneratedContentId: null,
+          payloadSnapshot: {
+            kind: "lesson",
+            sessions: [{ title: "جلسه اول پولی", contentMarkdown: "متن درس پولی" }],
+          },
+          sortOrder: 0,
+          createdAt: now,
+        },
+      ],
+    );
+
+    const student = await setupUserAndOrg(app, "دانشجو بدون اشتراک");
+
+    // Attempt to add paid pack without entitlement
+    const res = await app.inject({
+      method: "POST",
+      url: `/v1/library/packs/${paidPackId}/add-to-course`,
+      cookies: { avana_session: student.token },
+      payload: { course_id: pharm3CourseId },
+    });
+
+    expect(res.statusCode).toBe(403);
+    const body = JSON.parse(res.body);
+    // Crucial: Must be entitlement message, NOT "شما به این دوره دسترسی ندارید"
+    expect(body.error.message).toContain("خرید این بسته الزامی است");
+    expect(body.error.message).not.toContain("شما به این دوره دسترسی ندارید");
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test 19: Normal Learner + System Course + Paid Pack WITH Active Entitlement
+  // ---------------------------------------------------------------------------
+  it("Scenario 19: paid pack with active subscription or entitlement succeeds on System Course", async () => {
+    const app = await buildTestApp();
+    const systemOrgId = config.systemOrganizationId as OrganizationId;
+    const pharm3CourseId = "5b0f6697-5964-44f8-b404-d306ad592ea0" as CourseId;
+
+    const now = new Date().toISOString();
+    await courseStore.create({
+      course: {
+        id: pharm3CourseId,
+        organizationId: systemOrgId,
+        name: "فارماکولوژی ۳",
+        subject: "فارماکولوژی",
+        status: "published",
+        isOfficial: true,
+        examDate: null,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      },
+      auditEvents: [],
+    });
+
+    const creator = await setupUserAndOrg(app, "دکتر سازنده پولی ۲");
+    const paidPackId = randomUUID();
+
+    await contentPackStore.create(
+      {
+        id: paidPackId,
+        creatorUserId: creator.userId,
+        organizationId: creator.orgId,
+        sourceDocumentId: null,
+        title: "بسته پولی دارای لایسنس",
+        description: "محتوای تخصصی",
+        subject: "فارماکولوژی",
+        status: "published",
+        publishedAt: now,
+        usageCount: 0,
+        metadata: { accessType: "paid" },
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      },
+      [
+        {
+          id: randomUUID(),
+          contentPackId: paidPackId,
+          contentType: "lesson",
+          sourceGeneratedContentId: null,
+          payloadSnapshot: {
+            kind: "lesson",
+            sessions: [{ title: "درس اول دارای اشتراک", contentMarkdown: "متن درس" }],
+          },
+          sortOrder: 0,
+          createdAt: now,
+        },
+      ],
+    );
+
+    const student = await setupUserAndOrg(app, "دانشجو دارای اشتراک پلاس");
+
+    // Grant active subscription entitlement to student
+    const futureDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    await commerceStore.grantEntitlement({
+      id: randomUUID() as any,
+      userId: student.userId,
+      resourceType: "subscription",
+      resourceId: null,
+      sourceType: "subscription",
+      orderId: null,
+      startsAt: new Date().toISOString(),
+      expiresAt: futureDate.toISOString(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    // Add paid pack with active subscription to System Course
+    const res = await app.inject({
+      method: "POST",
+      url: `/v1/library/packs/${paidPackId}/add-to-course`,
+      cookies: { avana_session: student.token },
+      payload: { course_id: pharm3CourseId },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.success).toBe(true);
+    expect(body.materialized.lessons_created).toBe(1);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test 20: IDOR Protection: Attacker cannot add pack to Victim's private course
+  // ---------------------------------------------------------------------------
+  it("Scenario 20: cross-tenant isolation is preserved (attacker cannot add to victim's private course)", async () => {
+    const app = await buildTestApp();
+    const creator = await setupUserAndOrg(app, "سازنده آزاد");
+    const { packId } = await createPublishedPack(app, creator);
+
+    const victim = await setupUserAndOrg(app, "کاربر قربانی", "دوره محرمانه");
+    const attacker = await setupUserAndOrg(app, "کاربر مهاجم");
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/v1/library/packs/${packId}/add-to-course`,
+      cookies: { avana_session: attacker.token },
+      payload: { course_id: victim.courseId },
+    });
+
+    expect(res.statusCode).toBe(403);
+    const body = JSON.parse(res.body);
+    expect(body.error.message).toContain("شما به این دوره دسترسی ندارید");
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test 21: Non-existent course returns 404
+  // ---------------------------------------------------------------------------
+  it("Scenario 21: non-existent course returns 404 Not Found", async () => {
+    const app = await buildTestApp();
+    const creator = await setupUserAndOrg(app, "سازنده دمو");
+    const { packId } = await createPublishedPack(app, creator);
+    const student = await setupUserAndOrg(app, "دانشجو عادی");
+
+    const fakeCourseId = randomUUID();
+    const res = await app.inject({
+      method: "POST",
+      url: `/v1/library/packs/${packId}/add-to-course`,
+      cookies: { avana_session: student.token },
+      payload: { course_id: fakeCourseId },
+    });
+
+    expect(res.statusCode).toBe(404);
+    const body = JSON.parse(res.body);
+    expect(body.error.message).toContain("دوره آموزشی یافت نشد");
   });
 });

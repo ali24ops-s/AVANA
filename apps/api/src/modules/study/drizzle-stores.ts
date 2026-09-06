@@ -580,18 +580,31 @@ export class DrizzleQuizStore implements QuizStore {
 
   async findByIdForOrganization(
     id: QuizId,
-    organizationId: OrganizationId,
+    organizationId?: OrganizationId,
+    systemOrganizationId?: OrganizationId,
   ): Promise<QuizRecord | undefined> {
+    const conditions = [
+      eq(quizzes.id, id),
+      isNull(quizzes.deletedAt),
+    ];
+
+    if (organizationId) {
+      if (systemOrganizationId && systemOrganizationId !== organizationId) {
+        conditions.push(
+          or(
+            eq(quizzes.organizationId, organizationId),
+            eq(quizzes.organizationId, systemOrganizationId),
+          )!,
+        );
+      } else {
+        conditions.push(eq(quizzes.organizationId, organizationId));
+      }
+    }
+
     const row = await this.db
       .select()
       .from(quizzes)
-      .where(
-        and(
-          eq(quizzes.id, id),
-          eq(quizzes.organizationId, organizationId),
-          isNull(quizzes.deletedAt),
-        ),
-      )
+      .where(and(...conditions))
       .limit(1)
       .then((rows) => rows[0]);
 
@@ -601,18 +614,20 @@ export class DrizzleQuizStore implements QuizStore {
 
   async listByCourse(
     courseId: CourseId,
-    organizationId: OrganizationId,
+    organizationId?: OrganizationId,
   ): Promise<QuizRecord[]> {
+    const conditions = [
+      eq(quizzes.courseId, courseId),
+      isNull(quizzes.deletedAt),
+    ];
+    if (organizationId) {
+      conditions.push(eq(quizzes.organizationId, organizationId));
+    }
+
     const rows = await this.db
       .select()
       .from(quizzes)
-      .where(
-        and(
-          eq(quizzes.courseId, courseId),
-          eq(quizzes.organizationId, organizationId),
-          isNull(quizzes.deletedAt),
-        ),
-      )
+      .where(and(...conditions))
       .orderBy(asc(quizzes.createdAt));
 
     return rows.map(toQuizRecord);

@@ -24,6 +24,7 @@ import type {
   UpdateFlashcardStudySessionProgressRequest,
   UpdateFlashcardStudySessionProgressResponse,
 } from "@avana/contracts";
+import type { ExamCoverageCourse } from "@avana/domain";
 import type { ApiClient } from "./client.js";
 
 export function createStudyApi(client: ApiClient) {
@@ -308,6 +309,7 @@ export function createStudyApi(client: ApiClient) {
         choices: string[] | null;
         explanation?: string | null;
       }>;
+      coverage?: ExamCoverageCourse[];
       startedAt: string;
     }> {
       return client.post(`/v1/organizations/${organizationId}/study/exams/start`, data);
@@ -346,6 +348,7 @@ export function createStudyApi(client: ApiClient) {
         correctAnswer?: unknown;
         explanation?: string | null;
       }>;
+      coverage?: ExamCoverageCourse[];
       isCompleted: boolean;
     }> {
       return client.get(

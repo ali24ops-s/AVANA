@@ -12,11 +12,18 @@ import {
   Clock,
   Zap,
   Bookmark,
+  Scale,
+  BrainCircuit,
+  GraduationCap,
+  Hash,
 } from "lucide-react";
-import type { ReviewSummaryPayload } from "@avana/domain";
+import {
+  type ReviewSummaryPayload,
+  flattenReviewSummarySections,
+} from "@avana/domain";
 import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
 import { createReviewApi } from "../../lib/api/review.js";
-import { MarkdownRenderer } from "../markdown/MarkdownRenderer.js";
+import { MarkdownRenderer, RichContent } from "../markdown/MarkdownRenderer.js";
 import { EditContentDialog } from "./EditContentDialog.js";
 import { RejectContentDialog } from "./RejectContentDialog.js";
 import { EvidenceSummary } from "./EvidenceSummary.js";
@@ -84,6 +91,9 @@ export function ContentReviewDetail({
       void queryClient.invalidateQueries({
         queryKey: ["study-recommendations", organizationId, courseId],
       });
+      void queryClient.invalidateQueries({
+        queryKey: ["official-review-workspace", courseId],
+      });
       onBack();
     },
     onError: (err: Error) => {
@@ -101,6 +111,9 @@ export function ContentReviewDetail({
       });
       void queryClient.invalidateQueries({
         queryKey: ["review-detail", organizationId, courseId, contentId],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["official-review-workspace", courseId],
       });
       onBack();
     },
@@ -357,11 +370,11 @@ export function ContentReviewDetail({
                         ""
                       : (payload.sessions[selectedSessionIndex]?.contentMarkdown as string) || ""
                   }
+                  enableLessonCallouts
                 />
               </div>
             </div>
           )}
-
           {/* Flashcard preview */}
           {content.type === "flashcard" && (
             <div className="space-y-4">
@@ -388,20 +401,20 @@ export function ContentReviewDetail({
                       </div>
                       <div>
                         <span className="text-[10px] text-[var(--color-text-muted)] block">پرسش:</span>
-                        <p className="text-xs font-bold text-[var(--color-text)]">
-                          {String(c.question || "")}
-                        </p>
+                        <div className="text-xs font-bold text-[var(--color-text)]">
+                          <RichContent content={c.question} inline />
+                        </div>
                       </div>
                       <div className="pt-2 border-t border-[var(--color-border)]">
                         <span className="text-[10px] text-green-700 dark:text-green-400 block">پاسخ:</span>
-                        <p className="text-xs text-[var(--color-text)] font-medium">
-                          {String(c.answer || "")}
-                        </p>
+                        <div className="text-xs text-[var(--color-text)] font-medium">
+                          <RichContent content={c.answer} inline />
+                        </div>
                       </div>
                       {Boolean(c.explanation) && (
-                        <p className="text-[11px] text-[var(--color-text-muted)] bg-[var(--color-surface)] p-2 rounded-xl border border-[var(--color-border)]">
-                          <strong>نکته تکمیلی:</strong> {String(c.explanation)}
-                        </p>
+                        <div className="text-[11px] text-[var(--color-text-muted)] bg-[var(--color-surface)] p-2 rounded-xl border border-[var(--color-border)]">
+                          <strong>نکته تکمیلی:</strong> <RichContent content={c.explanation} inline />
+                        </div>
                       )}
                     </div>
                   ))}
@@ -412,22 +425,22 @@ export function ContentReviewDetail({
                     <span className="text-[10px] font-bold text-[#007a7a]">
                       روی کارت / سوال:
                     </span>
-                    <p className="text-sm font-bold text-[var(--color-text)]">
-                      {String(payload.question || "")}
-                    </p>
+                    <div className="text-sm font-bold text-[var(--color-text)]">
+                      <RichContent content={payload.question as string} />
+                    </div>
                   </div>
 
                   <div className="p-4 bg-[var(--color-surface-warm)] rounded-2xl border border-[var(--color-border)] space-y-2">
                     <span className="text-[10px] font-bold text-green-700 dark:text-green-400">
                       پشت کارت / پاسخ:
                     </span>
-                    <p className="text-sm font-bold text-[var(--color-text)]">
-                      {String(payload.answer || "")}
-                    </p>
+                    <div className="text-sm font-bold text-[var(--color-text)]">
+                      <RichContent content={payload.answer as string} />
+                    </div>
                     {Boolean(payload.explanation) && (
-                      <p className="text-xs text-[var(--color-text-muted)] pt-2 border-t border-[var(--color-border)]">
-                        {String(payload.explanation)}
-                      </p>
+                      <div className="text-xs text-[var(--color-text-muted)] pt-2 border-t border-[var(--color-border)]">
+                        <RichContent content={payload.explanation as string} />
+                      </div>
                     )}
                   </div>
                 </div>
@@ -456,9 +469,9 @@ export function ContentReviewDetail({
                           سوال {qIdx + 1}
                         </span>
                       </div>
-                      <p className="text-sm font-bold text-[var(--color-text)] leading-relaxed">
-                        {String(q.question || "")}
-                      </p>
+                      <div className="text-sm font-bold text-[var(--color-text)] leading-relaxed">
+                        <RichContent content={q.question} />
+                      </div>
                       {Array.isArray(q.choices) && (
                         <div className="space-y-2 pt-1">
                           {q.choices.map((opt: unknown, idx: number) => {
@@ -473,7 +486,7 @@ export function ContentReviewDetail({
                                 }`}
                               >
                                 <span>
-                                  <strong>{idx + 1}.</strong> {String(opt)}
+                                  <strong>{idx + 1}.</strong> <RichContent content={String(opt)} inline />
                                 </span>
                                 {isCorrect && (
                                   <span className="text-[10px] font-bold text-green-700 dark:text-green-400 bg-green-100 dark:bg-green-900/40 px-2 py-0.5 rounded-md">
@@ -486,18 +499,18 @@ export function ContentReviewDetail({
                         </div>
                       )}
                       {Boolean(q.explanation) && (
-                        <p className="text-xs text-[var(--color-text-muted)] pt-2 border-t border-[var(--color-border)]">
-                          <strong>توضیح پاسخ:</strong> {String(q.explanation)}
-                        </p>
+                        <div className="text-xs text-[var(--color-text-muted)] pt-2 border-t border-[var(--color-border)]">
+                          <strong>توضیح پاسخ:</strong> <RichContent content={q.explanation} inline />
+                        </div>
                       )}
                     </div>
                   ))}
                 </div>
               ) : (
                 <div className="p-4 bg-[var(--color-surface-warm)] rounded-2xl border border-[var(--color-border)] space-y-3">
-                  <p className="text-sm font-bold text-[var(--color-text)]">
-                    {String(payload.question || "")}
-                  </p>
+                  <div className="text-sm font-bold text-[var(--color-text)]">
+                    <RichContent content={payload.question as string} />
+                  </div>
                   {Array.isArray(payload.options) && (
                     <div className="space-y-2 pt-1">
                       {payload.options.map((opt: unknown, idx: number) => {
@@ -514,7 +527,7 @@ export function ContentReviewDetail({
                             }`}
                           >
                             <span>
-                              <strong>{idx + 1}.</strong> {String(opt)}
+                              <strong>{idx + 1}.</strong> <RichContent content={String(opt)} inline />
                             </span>
                             {isCorrect && (
                               <span className="text-[10px] font-bold text-green-700 dark:text-green-400 bg-green-100 dark:bg-green-900/40 px-2 py-0.5 rounded-md">
@@ -541,6 +554,14 @@ export function ContentReviewDetail({
             const summaryPayload = payload as unknown as Partial<ReviewSummaryPayload>;
             const sections = Array.isArray(summaryPayload.sections) ? summaryPayload.sections : [];
             const finalTakeaways = Array.isArray(summaryPayload.finalTakeaways) ? summaryPayload.finalTakeaways : [];
+            const categories = flattenReviewSummarySections(sections);
+
+            const hasKeyPoints = categories.keyPoints.length > 0;
+            const hasMechanisms = categories.mechanisms.length > 0;
+            const hasClassifications = categories.classifications.length > 0;
+            const hasComparisons = categories.comparisons.length > 0;
+            const hasMemorization = categories.memorizationPoints.length > 0;
+            const hasExamPoints = categories.examPoints.length > 0;
 
             return (
               <div className="space-y-5">
@@ -575,156 +596,164 @@ export function ContentReviewDetail({
                   </div>
                 )}
 
-                {/* Sections */}
-                {sections.length > 0 && (
-                  <div className="space-y-4">
-                    {sections.map((section, sIdx) => {
-                      const hasKeyPoints = Array.isArray(section.keyPoints) && section.keyPoints.length > 0;
-                      const hasMechanisms = Array.isArray(section.mechanisms) && section.mechanisms.length > 0;
-                      const hasClassifications = Array.isArray(section.classifications) && section.classifications.length > 0;
-                      const hasComparisons = Array.isArray(section.comparisons) && section.comparisons.length > 0;
-                      const hasMemorization = Array.isArray(section.memorizationPoints) && section.memorizationPoints.length > 0;
-                      const hasExamPoints = Array.isArray(section.examPoints) && section.examPoints.length > 0;
+                {/* Category-First Review Sheet Boxes */}
+                {/* 1. Key Points */}
+                {hasKeyPoints && (
+                  <div className="p-5 bg-[var(--color-surface-warm)] rounded-2xl border border-[var(--color-border)] space-y-3">
+                    <div className="flex items-center justify-between pb-2 border-b border-[var(--color-border)]">
+                      <div className="flex items-center gap-2 text-[#007a7a]">
+                        <CheckCircle2 className="w-4 h-4" />
+                        <h4 className="text-xs font-bold">نکات کلیدی و مفاهیم اصلی</h4>
+                      </div>
+                      <span className="text-[11px] text-[var(--color-text-muted)]">
+                        {categories.keyPoints.length} نکته
+                      </span>
+                    </div>
+                    <ul className="space-y-1.5 text-xs text-[var(--color-text)] pr-3 list-disc">
+                      {categories.keyPoints.map((point, pIdx) => (
+                        <li key={pIdx} className="leading-relaxed">
+                          {point}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
 
-                      return (
-                        <div
-                          key={sIdx}
-                          className="p-4 bg-[var(--color-surface-warm)] rounded-2xl border border-[var(--color-border)] space-y-3"
-                        >
-                          <div className="flex items-center gap-2 pb-2 border-b border-[var(--color-border)]">
-                            <span className="w-6 h-6 rounded-lg bg-[#008080]/10 text-[#008080] flex items-center justify-center font-bold text-xs flex-shrink-0">
-                              {sIdx + 1}
-                            </span>
-                            <h4 className="text-xs font-bold text-[var(--color-text)]">
-                              {section.title || `بخش ${sIdx + 1}`}
-                            </h4>
+                {/* 2 & 3. Mechanisms & Classifications */}
+                {(hasMechanisms || hasClassifications) && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {hasMechanisms && (
+                      <div className="p-4 bg-[var(--color-surface-warm)] rounded-2xl border border-[var(--color-border)] space-y-2.5">
+                        <div className="flex items-center justify-between pb-1.5 border-b border-[var(--color-border)]">
+                          <div className="flex items-center gap-1.5 text-cyan-700 dark:text-cyan-400">
+                            <BrainCircuit className="w-3.5 h-3.5" />
+                            <h4 className="text-xs font-bold">مکانیسم‌های سلولی / مولکولی</h4>
                           </div>
-
-                          {/* Key Points */}
-                          {hasKeyPoints && (
-                            <div className="space-y-1.5">
-                              <span className="text-[11px] font-bold text-[#007a7a] block">
-                                نکات کلیدی و مفاهیم اصلی:
-                              </span>
-                              <ul className="space-y-1 text-xs text-[var(--color-text)] pr-3 list-disc">
-                                {section.keyPoints.map((point, pIdx) => (
-                                  <li key={pIdx} className="leading-relaxed">
-                                    {point}
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                          )}
-
-                          {/* Mechanisms & Classifications */}
-                          {(hasMechanisms || hasClassifications) && (
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
-                              {hasMechanisms && (
-                                <div className="p-3 bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)] space-y-1.5">
-                                  <span className="text-[11px] font-bold text-cyan-700 dark:text-cyan-400 block">
-                                    مکانیسم‌ها:
-                                  </span>
-                                  <ul className="space-y-1 text-xs text-[var(--color-text)] pr-3 list-disc">
-                                    {section.mechanisms!.map((m, mIdx) => (
-                                      <li key={mIdx} className="leading-relaxed">
-                                        {m}
-                                      </li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              )}
-                              {hasClassifications && (
-                                <div className="p-3 bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)] space-y-1.5">
-                                  <span className="text-[11px] font-bold text-blue-700 dark:text-blue-400 block">
-                                    دسته‌بندی و طبقه‌بندی:
-                                  </span>
-                                  <ul className="space-y-1 text-xs text-[var(--color-text)] pr-3 list-disc">
-                                    {section.classifications!.map((c, cIdx) => (
-                                      <li key={cIdx} className="leading-relaxed">
-                                        {c}
-                                      </li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              )}
-                            </div>
-                          )}
-
-                          {/* Comparisons */}
-                          {hasComparisons && (
-                            <div className="p-3 bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)] space-y-2">
-                              <span className="text-[11px] font-bold text-purple-700 dark:text-purple-400 block">
-                                مقایسه‌ها و تفاوت‌های کلیدی:
-                              </span>
-                              <div className="space-y-1.5">
-                                {section.comparisons!.map((comp, compIdx) => {
-                                  if (typeof comp === "string") {
-                                    return (
-                                      <p key={compIdx} className="text-xs text-[var(--color-text)] leading-relaxed">
-                                        • {comp}
-                                      </p>
-                                    );
-                                  }
-                                  return (
-                                    <div
-                                      key={compIdx}
-                                      className="p-2 bg-[var(--color-surface-warm)] rounded-lg text-xs space-y-1 border border-[var(--color-border)]"
-                                    >
-                                      <div className="flex items-center gap-2 font-bold text-[var(--color-text)]">
-                                        <span>{comp.conceptA}</span>
-                                        <span className="text-purple-600 dark:text-purple-400 font-normal">
-                                          در مقایسه با
-                                        </span>
-                                        <span>{comp.conceptB}</span>
-                                      </div>
-                                      {comp.keyDifferences && (
-                                        <p className="text-[var(--color-text-muted)] text-[11px] leading-relaxed">
-                                          {comp.keyDifferences}
-                                        </p>
-                                      )}
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Memorization & Exam Points */}
-                          {(hasMemorization || hasExamPoints) && (
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
-                              {hasMemorization && (
-                                <div className="p-3 bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)] space-y-1.5">
-                                  <span className="text-[11px] font-bold text-amber-700 dark:text-amber-400 block">
-                                    نکات حفظی و اعداد مهم:
-                                  </span>
-                                  <ul className="space-y-1 text-xs text-[var(--color-text)] pr-3 list-disc">
-                                    {section.memorizationPoints!.map((item, idx) => (
-                                      <li key={idx} className="leading-relaxed">
-                                        {item}
-                                      </li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              )}
-                              {hasExamPoints && (
-                                <div className="p-3 bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)] space-y-1.5">
-                                  <span className="text-[11px] font-bold text-rose-700 dark:text-rose-400 block">
-                                    نکات آزمونی و پرتکرار:
-                                  </span>
-                                  <ul className="space-y-1 text-xs text-[var(--color-text)] pr-3 list-disc">
-                                    {section.examPoints!.map((item, idx) => (
-                                      <li key={idx} className="leading-relaxed">
-                                        {item}
-                                      </li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              )}
-                            </div>
-                          )}
+                          <span className="text-[10px] text-[var(--color-text-muted)]">
+                            {categories.mechanisms.length} مورد
+                          </span>
                         </div>
-                      );
-                    })}
+                        <ul className="space-y-1 text-xs text-[var(--color-text)] pr-3 list-disc">
+                          {categories.mechanisms.map((m, mIdx) => (
+                            <li key={mIdx} className="leading-relaxed">
+                              {m}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {hasClassifications && (
+                      <div className="p-4 bg-[var(--color-surface-warm)] rounded-2xl border border-[var(--color-border)] space-y-2.5">
+                        <div className="flex items-center justify-between pb-1.5 border-b border-[var(--color-border)]">
+                          <div className="flex items-center gap-1.5 text-blue-700 dark:text-blue-400">
+                            <Hash className="w-3.5 h-3.5" />
+                            <h4 className="text-xs font-bold">دسته‌بندی و طبقه‌بندی ساختاری</h4>
+                          </div>
+                          <span className="text-[10px] text-[var(--color-text-muted)]">
+                            {categories.classifications.length} دسته
+                          </span>
+                        </div>
+                        <ul className="space-y-1 text-xs text-[var(--color-text)] pr-3 list-disc">
+                          {categories.classifications.map((c, cIdx) => (
+                            <li key={cIdx} className="leading-relaxed">
+                              {c}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* 4. Comparisons (Key Distinctions) - Single Unified Box */}
+                {hasComparisons && (
+                  <div className="p-5 bg-[var(--color-surface-warm)] rounded-2xl border border-[var(--color-border)] space-y-3">
+                    <div className="flex items-center justify-between pb-2 border-b border-[var(--color-border)]">
+                      <div className="flex items-center gap-2 text-purple-700 dark:text-purple-400">
+                        <Scale className="w-4 h-4" />
+                        <h4 className="text-xs font-bold">مقایسه‌ها و تفاوت‌های کلیدی (Key Distinctions)</h4>
+                      </div>
+                      <span className="text-[11px] text-[var(--color-text-muted)]">
+                        {categories.comparisons.length} مقایسه
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                      {categories.comparisons.map((comp, compIdx) => {
+                        if (typeof comp === "string") {
+                          return (
+                            <p key={compIdx} className="text-xs text-[var(--color-text)] leading-relaxed p-2.5 bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)]">
+                              • {comp}
+                            </p>
+                          );
+                        }
+                        return (
+                          <div
+                            key={compIdx}
+                            className="p-3 bg-[var(--color-surface)] rounded-xl text-xs space-y-1.5 border border-[var(--color-border)]"
+                          >
+                            <div className="flex items-center gap-2 font-bold text-[var(--color-text)]">
+                              <span>{comp.conceptA}</span>
+                              <span className="text-purple-600 dark:text-purple-400 font-normal text-[11px] px-1.5 py-0.5 rounded bg-purple-100 dark:bg-purple-950/50">
+                                در مقایسه با
+                              </span>
+                              <span>{comp.conceptB}</span>
+                            </div>
+                            {comp.keyDifferences && (
+                              <p className="text-[var(--color-text-muted)] text-[11px] leading-relaxed">
+                                <strong className="text-[var(--color-text)]">وجه تمایز: </strong>
+                                {comp.keyDifferences}
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* 5 & 6. Memorization & Exam Points */}
+                {(hasMemorization || hasExamPoints) && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {hasMemorization && (
+                      <div className="p-4 bg-[var(--color-surface-warm)] rounded-2xl border border-[var(--color-border)] space-y-2.5">
+                        <div className="flex items-center justify-between pb-1.5 border-b border-[var(--color-border)]">
+                          <div className="flex items-center gap-1.5 text-amber-700 dark:text-amber-400">
+                            <Zap className="w-3.5 h-3.5" />
+                            <h4 className="text-xs font-bold">نکات حفظی و اعداد مهم</h4>
+                          </div>
+                          <span className="text-[10px] text-[var(--color-text-muted)]">
+                            {categories.memorizationPoints.length} نکته
+                          </span>
+                        </div>
+                        <ul className="space-y-1 text-xs text-[var(--color-text)] pr-3 list-disc">
+                          {categories.memorizationPoints.map((item, idx) => (
+                            <li key={idx} className="leading-relaxed">
+                              {item}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {hasExamPoints && (
+                      <div className="p-4 bg-[var(--color-surface-warm)] rounded-2xl border border-[var(--color-border)] space-y-2.5">
+                        <div className="flex items-center justify-between pb-1.5 border-b border-[var(--color-border)]">
+                          <div className="flex items-center gap-1.5 text-rose-700 dark:text-rose-400">
+                            <GraduationCap className="w-3.5 h-3.5" />
+                            <h4 className="text-xs font-bold">نکات مهم و پرتکرار آزمونی</h4>
+                          </div>
+                          <span className="text-[10px] text-[var(--color-text-muted)]">
+                            {categories.examPoints.length} نکته
+                          </span>
+                        </div>
+                        <ul className="space-y-1 text-xs text-[var(--color-text)] pr-3 list-disc">
+                          {categories.examPoints.map((item, idx) => (
+                            <li key={idx} className="leading-relaxed">
+                              {item}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                   </div>
                 )}
 

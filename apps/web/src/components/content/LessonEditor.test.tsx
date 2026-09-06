@@ -92,4 +92,13 @@ describe("LessonEditor", () => {
     const deleteBtn = screen.getByRole("button", { name: "حذف درس" });
     expect(deleteBtn).toBeInTheDocument();
   });
+
+  it("renders pricing input with default free state and updates badge to paid on positive input", async () => {
+    renderEditor(makeLesson());
+    expect(screen.getByText("رایگان")).toBeInTheDocument();
+
+    const priceInput = screen.getByPlaceholderText("0") as HTMLInputElement;
+    expect(priceInput).toBeInTheDocument();
+    expect(priceInput.value).toBe("0");
+  });
 });

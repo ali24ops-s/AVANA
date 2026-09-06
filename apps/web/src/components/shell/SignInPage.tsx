@@ -8,10 +8,10 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Sparkles, Mail, Lock, Eye, EyeOff, ArrowLeft } from "lucide-react";
+import { Mail, Lock, Eye, EyeOff, ArrowLeft } from "lucide-react";
+import { BrandLogo } from "../brand/BrandLogo.js";
 import { useAuth } from "../../providers/AuthProvider.js";
 import { ApiError } from "../../lib/api/errors.js";
-import { isAuthEnabled } from "../../config/authConfig.js";
 
 export function SignInPage() {
   const [email, setEmail] = useState("");
@@ -22,8 +22,8 @@ export function SignInPage() {
   const { signIn, isAuthenticated } = useAuth();
   const navigate = useNavigate();
 
-  // If already authenticated or auth is disabled in public/demo mode, redirect to home
-  if (!isAuthEnabled() || isAuthenticated) {
+  // If already authenticated, redirect to home
+  if (isAuthenticated) {
     navigate("/home", { replace: true });
     return null;
   }
@@ -66,12 +66,11 @@ export function SignInPage() {
     <div className="min-h-screen bg-[#0b1120] text-slate-200 flex flex-col font-sans" dir="rtl">
       {/* Header */}
       <header className="px-6 py-5 flex items-center justify-between border-b border-white/10 glass-panel">
-        <Link to="/" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
-          <div className="w-9 h-9 rounded-xl bg-teal-600/30 border border-teal-500/30 flex items-center justify-center shadow-sm text-teal-400">
-            <Sparkles className="w-5 h-5 text-teal-400" />
-          </div>
-          <span className="font-extrabold text-xl tracking-tight text-teal-400">آوانا</span>
-        </Link>
+        <BrandLogo
+          linkTo="/"
+          variant="logo-only"
+          size="md"
+        />
         <span className="text-xs font-medium text-slate-400">
           سامانه هوشمند آموزش و یادگیری
         </span>
@@ -87,8 +86,8 @@ export function SignInPage() {
         >
           <div className="glass-panel rounded-xl card-inner-border p-8 sm:p-10 shadow-ambient-lg">
             <div className="text-center mb-8">
-              <div className="w-12 h-12 rounded-2xl bg-teal-900/40 border border-teal-500/30 text-teal-400 flex items-center justify-center mx-auto mb-4">
-                <Sparkles className="w-6 h-6" />
+              <div className="mx-auto mb-4 flex justify-center">
+                <BrandLogo variant="logo-only" size="lg" />
               </div>
               <h1 className="text-2xl font-bold text-white">
                 ورود به آوانا

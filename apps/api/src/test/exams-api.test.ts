@@ -574,4 +574,129 @@ describe("Exams API Integration", () => {
 
     await app.close();
   });
+
+  it("should never leak UUIDs into attempt.topic or topics array when starting exam with lesson UUIDs", async () => {
+    const app = await buildTestApp();
+    const { token } = await signIn(app, "student-uuid-test@example.com");
+    const orgId = await createOrg(app, token, "UUID Test Org");
+
+    const modId = randomUUID() as any;
+    const les1Id = "93b501bf-dc27-4056-9c95-6d6639cc630a" as any;
+    const les2Id = "4326da85-03c2-4ade-bc56-d4da7f304e9a" as any;
+
+    await moduleStore.create({
+      id: modId,
+      courseId,
+      title: "فارماکولوژی غدد",
+      sortOrder: 1,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      deletedAt: null,
+    });
+
+    await lessonStore.create({
+      id: les1Id,
+      moduleId: modId,
+      title: "جلسه ۱: مبانی فیزیولوژیک و محور آدرنال (HPA Axis)",
+      contentType: "markdown",
+      contentMarkdown: "محتوای جلسه اول",
+      sortOrder: 1,
+      estimatedMinutes: 15,
+      publicationStatus: "published",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      deletedAt: null,
+    });
+
+    await lessonStore.create({
+      id: les2Id,
+      moduleId: modId,
+      title: "جلسه ۲: فارماکوکینتیک و مکانیسم سلولی و مولکولی گلوکوکورتیکوئیدها",
+      contentType: "markdown",
+      contentMarkdown: "محتوای جلسه دوم",
+      sortOrder: 2,
+      estimatedMinutes: 20,
+      publicationStatus: "published",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      deletedAt: null,
+    });
+
+    // Seed questions linked to these lessons
+    quizQuestionStore.insert({
+      id: randomUUID() as QuizQuestionId,
+      quizId: "quiz-uuid-test" as QuizId,
+      lessonId: les1Id,
+      generatedContentId: null,
+      question: "سوال تست فیزیولوژی محور آدرنال؟",
+      topic: "جلسه ۱: مبانی فیزیولوژیک و محور آدرنال (HPA Axis)",
+      difficulty: "medium",
+      questionType: "multiple_choice",
+      choices: ["الف", "ب", "ج", "د"],
+      correctAnswer: "الف",
+      explanation: "توضیح سوال اول",
+      sortOrder: 1,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    quizQuestionStore.insert({
+      id: randomUUID() as QuizQuestionId,
+      quizId: "quiz-uuid-test" as QuizId,
+      lessonId: les2Id,
+      generatedContentId: null,
+      question: "سوال تست فارماکوکینتیک گلوکوکورتیکوئیدها؟",
+      topic: "جلسه ۲: فارماکوکینتیک و مکانیسم سلولی و مولکولی گلوکوکورتیکوئیدها",
+      difficulty: "medium",
+      questionType: "multiple_choice",
+      choices: ["گزینه ۱", "گزینه ۲", "گزینه ۳", "گزینه ۴"],
+      correctAnswer: "گزینه ۱",
+      explanation: "توضیح سوال دوم",
+      sortOrder: 2,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    // Start exam passing only raw lesson UUIDs
+    const startRes = await app.inject({
+      method: "POST",
+      url: `/v1/organizations/${orgId}/study/exams/start`,
+      headers: { cookie: `avana_session=${token}` },
+      payload: {
+        chapters: [les1Id, les2Id],
+        questionCount: 2,
+        difficulty: "medium",
+      },
+    });
+
+    expect(startRes.statusCode).toBe(200);
+    const startBody = JSON.parse(startRes.body);
+
+    // Assert that start response topics array contains NO UUIDs and NO lesson titles
+    expect(startBody.topics).not.toContain(les1Id);
+    expect(startBody.topics).not.toContain(les2Id);
+    expect(startBody.topics.some((t: string) => t.includes("93b501bf") || t.includes("4326da85"))).toBe(false);
+    expect(startBody.topics.some((t: string) => t.includes("جلسه ۱") || t.includes("جلسه ۲"))).toBe(false);
+    expect(startBody.coverage).toBeDefined();
+
+    // Fetch attempt details to verify DB stored attempt.topic
+    const getRes = await app.inject({
+      method: "GET",
+      url: `/v1/organizations/${orgId}/study/exams/attempts/${startBody.attemptId}`,
+      headers: { cookie: `avana_session=${token}` },
+    });
+
+    expect(getRes.statusCode).toBe(200);
+    const getBody = JSON.parse(getRes.body);
+
+    // Assert that DB stored attempt.topic contains NO UUIDs and NO lesson titles
+    expect(getBody.attempt.topic).not.toContain(les1Id);
+    expect(getBody.attempt.topic).not.toContain(les2Id);
+    expect(getBody.attempt.topic.includes("93b501bf") || getBody.attempt.topic.includes("4326da85")).toBe(false);
+    expect(getBody.attempt.topic).not.toContain("جلسه ۱");
+    expect(getBody.attempt.topic).not.toContain("جلسه ۲");
+    expect(getBody.coverage).toBeDefined();
+
+    await app.close();
+  });
 });

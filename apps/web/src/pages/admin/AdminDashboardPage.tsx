@@ -19,8 +19,11 @@ import {
   FileCheck2,
   Sparkles,
   CheckCircle,
+  CircleDollarSign,
+  PackageCheck,
 } from "lucide-react";
 import { AdminStatusBadge } from "../../components/admin/AdminUI.js";
+import { formatToman } from "../../components/admin/commerce/commerceUtils.js";
 
 export function AdminDashboardPage() {
   const adminApi = useAdmin();
@@ -59,10 +62,21 @@ export function AdminDashboardPage() {
     queryFn: () => adminApi.listAuditLogs(1, 5),
   });
 
+  // 4. Commerce Stats Summary
+  const {
+    data: commerceStats,
+    isLoading: isCommerceLoading,
+    refetch: refetchCommerce,
+  } = useQuery({
+    queryKey: ["admin", "commerceStats"],
+    queryFn: () => adminApi.getCommerceStats(),
+  });
+
   const handleRefreshAll = () => {
     refetchStats();
     refetchHealth();
     refetchAudit();
+    refetchCommerce();
   };
 
   // Loading State with Skeletons
@@ -171,7 +185,9 @@ export function AdminDashboardPage() {
         <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
           دسترسی سریع
         </h2>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
+          <QuickNavLink to="/admin/commerce" label="فروش و درآمد" icon={CircleDollarSign} />
+          <QuickNavLink to="/admin/community-content" label="بررسی محتوا" icon={PackageCheck} />
           <QuickNavLink to="/admin/users" label="مدیریت کاربران" icon={Users} />
           <QuickNavLink to="/admin/courses" label="دوره‌ها" icon={BookOpen} />
           <QuickNavLink to="/admin/content" label="مدیریت محتوا" icon={FolderTree} />
@@ -206,6 +222,58 @@ export function AdminDashboardPage() {
               </div>
             </Link>
           ))}
+        </div>
+      </section>
+
+      {/* 3.5. Commerce & Revenue Summary Widget */}
+      <section aria-label="خلاصه وضعیت مالی و درآمد" className="glass-panel p-6 rounded-2xl border border-white/5 bg-gradient-to-r from-slate-900 via-slate-900 to-teal-950/20">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-white/5 mb-5 gap-3">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 rounded-lg bg-teal-500/10 text-teal-400">
+              <CircleDollarSign className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-base font-bold text-slate-100">وضعیت فروش و درآمد پلتفرم</h2>
+              <p className="text-xs text-slate-400">شاخص‌های تجاری، تراکنش‌های بانکی و اشتراک‌های فعال</p>
+            </div>
+          </div>
+          <Link
+            to="/admin/commerce"
+            className="text-xs font-medium text-teal-400 hover:text-teal-300 flex items-center gap-1 transition-colors self-start sm:self-auto"
+          >
+            <span>مشاهده داشبورد مالی کامل</span>
+            <ArrowLeft className="w-3.5 h-3.5" />
+          </Link>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-700/40">
+            <span className="text-xs text-slate-400 block mb-1">درآمد کل واریزی:</span>
+            <span className="text-base sm:text-lg font-bold text-white">
+              {isCommerceLoading ? "..." : formatToman(commerceStats?.totalRevenue ?? 0)}
+            </span>
+          </div>
+
+          <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-700/40">
+            <span className="text-xs text-slate-400 block mb-1">فروش ماه جاری:</span>
+            <span className="text-base sm:text-lg font-bold text-emerald-400">
+              {isCommerceLoading ? "..." : formatToman(commerceStats?.currentMonthRevenue ?? 0)}
+            </span>
+          </div>
+
+          <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-700/40">
+            <span className="text-xs text-slate-400 block mb-1">اشتراک‌های فعال:</span>
+            <span className="text-base sm:text-lg font-bold text-teal-300">
+              {isCommerceLoading ? "..." : (commerceStats?.activeSubscriptions ?? 0).toLocaleString("fa-IR")}
+            </span>
+          </div>
+
+          <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-700/40">
+            <span className="text-xs text-slate-400 block mb-1">خریدهای دائمی دوره‌ها:</span>
+            <span className="text-base sm:text-lg font-bold text-purple-300">
+              {isCommerceLoading ? "..." : (commerceStats?.lifetimePurchases ?? 0).toLocaleString("fa-IR")}
+            </span>
+          </div>
         </div>
       </section>
 

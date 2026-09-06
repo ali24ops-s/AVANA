@@ -13,6 +13,7 @@ import {
   Sparkles,
   ChevronRight,
 } from "lucide-react";
+import { RichContent } from "../../markdown/MarkdownRenderer.js";
 
 interface Lesson {
   id: number;
@@ -258,65 +259,8 @@ export function LessonContent({
 
             {/* Section Content */}
             {section.content && (
-              <div className="prose prose-gray dark:prose-invert max-w-none space-y-4">
-                {section.content.split("\n\n").map((paragraph, pIndex) => {
-                  // Check if it's a table-like section
-                  if (paragraph.includes("|")) {
-                    return (
-                      <div key={pIndex} className="my-4 overflow-x-auto rounded-2xl border-2 border-[var(--color-border)] shadow-xs bg-[var(--color-surface)]">
-                        <table className="w-full text-sm border-collapse text-right" dir="rtl">
-                          <thead className="bg-[var(--color-surface-warm)] border-b-2 border-[var(--color-border)]">
-                            <tr>
-                              {paragraph
-                                .split("\n")[0]
-                                .split("|")
-                                .filter(Boolean)
-                                .map((cell, cIndex) => (
-                                  <th
-                                    key={cIndex}
-                                    className="py-3 px-4 text-right font-extrabold text-[var(--color-text)]"
-                                  >
-                                    {cell.trim()}
-                                  </th>
-                                ))}
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-[var(--color-border)]">
-                            {paragraph
-                              .split("\n")
-                              .slice(2)
-                              .filter((row) => row.includes("|"))
-                              .map((row, rIndex) => (
-                                <tr
-                                  key={rIndex}
-                                  className="hover:bg-[var(--color-surface-warm)] transition-colors"
-                                >
-                                  {row
-                                    .split("|")
-                                    .filter(Boolean)
-                                    .map((cell, cIndex) => (
-                                      <td key={cIndex} className="py-3 px-4 text-right text-[var(--color-text)] border-b border-[var(--color-border)]">
-                                        {cell.trim()}
-                                      </td>
-                                    ))}
-                                </tr>
-                              ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    );
-                  }
-
-                  return (
-                    <p key={pIndex} className="leading-relaxed">
-                      {paragraph
-                        .split("**")
-                        .map((part, i) =>
-                          i % 2 === 1 ? <strong key={i}>{part}</strong> : part,
-                        )}
-                    </p>
-                  );
-                })}
+              <div className="prose prose-gray dark:prose-invert max-w-none">
+                <RichContent content={section.content} />
               </div>
             )}
 

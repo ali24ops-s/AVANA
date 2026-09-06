@@ -36,7 +36,7 @@ export type TokenUsageRecord = {
 };
 
 /**
- * A single AI-generated artifact (lesson/flashcard/quiz/recommendation draft).
+ * A single AI-generated artifact (lesson/flashcard/quiz/review_summary draft).
  */
 export type GeneratedContentRecord = {
   id: GeneratedContentId;

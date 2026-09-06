@@ -7,8 +7,13 @@ function mapDomainCodeToStatus(code: DomainError["code"]): number {
     case "bad_request":
       return 400;
     case "unauthorized":
+    case "UNAUTHORIZED":
+    case "SESSION_REVOKED":
       return 401;
     case "forbidden":
+    case "DEVICE_LIMIT_REACHED":
+    case "SUBSCRIPTION_REQUIRED":
+    case "SUBSCRIPTION_NOT_ACTIVE":
       return 403;
     case "not_found":
       return 404;
@@ -16,6 +21,8 @@ function mapDomainCodeToStatus(code: DomainError["code"]): number {
       return 409;
     case "unprocessable":
       return 422;
+    case "service_unavailable":
+      return 503;
     case "internal_error":
     default:
       return 500;

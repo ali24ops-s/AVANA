@@ -19,6 +19,7 @@ import {
   type LessonId,
   type ModuleId,
   type OrganizationId,
+  type ResourceAccessResult,
   defaultPolicy,
   DomainError,
   auditLessonCompleted,
@@ -33,6 +34,7 @@ import type {
   LessonProgressRecord,
 } from "./learning-store.js";
 import type { AuditService } from "../../observability/audit-service.js";
+import type { EntitlementService } from "../commerce/entitlement-service.js";
 
 // ---------------------------------------------------------------------------
 // Response contract types
@@ -51,6 +53,8 @@ export type CourseLearnResponse = {
     title: string;
     subject: string | null;
     exam_at: string | null;
+    locked?: boolean;
+    access_reason?: string;
   };
   modules: Array<{
     id: string;
@@ -67,6 +71,17 @@ export type CourseLearnResponse = {
       estimated_minutes: number | null;
       completed: boolean;
       completed_at: string | null;
+      locked?: boolean;
+      access_reason?: string;
+      purchase_options?: Array<{
+        type: "subscription" | "content_pack" | "course" | "content";
+        productId: string;
+        code: string;
+        title: string;
+        price: number;
+        currency: string;
+        durationDays: number | null;
+      }>;
     }>;
   }>;
   progress: {
@@ -74,6 +89,7 @@ export type CourseLearnResponse = {
     completed_lessons: number;
     progress_percent: number;
   };
+  access?: ResourceAccessResult;
 };
 
 /**
@@ -105,6 +121,7 @@ export class LearningService {
     private readonly policy: AuthorizationPolicy = defaultPolicy,
     private readonly auditService?: AuditService,
     private readonly systemOrganizationId?: OrganizationId,
+    private readonly entitlementService?: EntitlementService,
   ) {}
 
   /**
@@ -130,6 +147,16 @@ export class LearningService {
       this.systemOrganizationId,
     );
     if (!course || course.deletedAt) {
+      throw new DomainError("not_found", "Course not found");
+    }
+
+    // Unpublished official courses must not be accessible to students
+    if (
+      course.isOfficial === true &&
+      course.status !== "published" &&
+      actor.role !== "platform_admin" &&
+      actor.role !== "organization_admin"
+    ) {
       throw new DomainError("not_found", "Course not found");
     }
 
@@ -178,7 +205,19 @@ export class LearningService {
       progressByLessonId.set(pr.lessonId, pr);
     }
 
-    // 7. Build a map of moduleId → ordered lessons
+    // 7. Check entitlement & access
+    let accessResult: ResourceAccessResult | undefined;
+    if (this.entitlementService) {
+      accessResult = await this.entitlementService.checkAccess(actor, {
+        userId: actor.userId,
+        resourceType: "course",
+        resourceId: courseId,
+      });
+    }
+
+    const isCourseLocked = accessResult ? !accessResult.granted : false;
+
+    // 8. Build a map of moduleId → ordered lessons
     const lessonsByModuleId = new Map<string, LessonRecord[]>();
     for (const lesson of activeLessons) {
       const existing = lessonsByModuleId.get(lesson.moduleId) ?? [];
@@ -191,7 +230,7 @@ export class LearningService {
       lessons.sort((a, b) => a.sortOrder - b.sortOrder);
     }
 
-    // 8. Assemble response
+    // 9. Assemble response
     const totalLessons = activeLessons.length;
     const completedLessons = activeLessons.filter((l) => {
       const p = progressByLessonId.get(l.id);
@@ -202,40 +241,79 @@ export class LearningService {
       (a, b) => a.sortOrder - b.sortOrder,
     );
 
-    const moduleResources = orderedModules.map((mod) => {
-      const moduleLessons = lessonsByModuleId.get(mod.id) ?? [];
-      const lessonResources = moduleLessons.map((lesson) => {
-        const progress = progressByLessonId.get(lesson.id);
-        return {
-          id: lesson.id,
-          module_id: lesson.moduleId,
-          title: lesson.title,
-          content_type: lesson.contentType,
-          content_markdown: lesson.contentMarkdown,
-          sort_order: lesson.sortOrder,
-          estimated_minutes: lesson.estimatedMinutes,
-          completed: progress?.completed ?? false,
-          completed_at: progress?.completedAt ?? null,
-        };
-      });
+    const moduleResources = await Promise.all(
+      orderedModules.map(async (mod) => {
+        const moduleLessons = lessonsByModuleId.get(mod.id) ?? [];
+        const lessonResources = await Promise.all(
+          moduleLessons.map(async (lesson) => {
+            const progress = progressByLessonId.get(lesson.id);
 
-      return {
-        id: mod.id,
-        title: mod.title,
-        description: mod.description,
-        sort_order: mod.sortOrder,
-        lessons: lessonResources,
-      };
-    });
+            let isLessonLocked = isCourseLocked;
+            let lessonReason = accessResult?.reason ?? "free";
+            let lessonPurchaseOptions = accessResult?.availablePurchaseOptions ?? [];
+
+            // Evaluate individual lesson access against entitlement engine
+            if (this.entitlementService) {
+              const lessonAccess = await this.entitlementService.checkAccess(actor, {
+                userId: actor.userId,
+                resourceType: "lesson",
+                resourceId: lesson.id,
+                courseId,
+              });
+
+              if (!lessonAccess.granted) {
+                isLessonLocked = true;
+                lessonReason = lessonAccess.reason;
+                lessonPurchaseOptions = lessonAccess.availablePurchaseOptions;
+              } else {
+                isLessonLocked = false;
+                lessonReason = lessonAccess.reason;
+              }
+            }
+
+            const contentMarkdown = isLessonLocked
+              ? "🔒 این محتوا مخصوص اعضای ویژه آوانا است. برای دسترسی به متن کامل درسنامه، این محتوا، دوره مربوطه یا اشتراک آوانا پلاس را تهیه نمایید."
+              : lesson.contentMarkdown;
+
+            return {
+              id: lesson.id,
+              module_id: lesson.moduleId,
+              title: lesson.title,
+              content_type: lesson.contentType,
+              content_markdown: contentMarkdown,
+              sort_order: lesson.sortOrder,
+              estimated_minutes: lesson.estimatedMinutes,
+              completed: progress?.completed ?? false,
+              completed_at: progress?.completedAt ?? null,
+              locked: isLessonLocked,
+              access_reason: lessonReason,
+              purchase_options: isLessonLocked ? lessonPurchaseOptions : undefined,
+            };
+          }),
+        );
+
+        return {
+          id: mod.id,
+          title: mod.title,
+          description: mod.description,
+          document_id: (mod as any).documentId ?? null,
+          sort_order: mod.sortOrder,
+          lessons: lessonResources,
+        };
+      }),
+    );
 
     return {
       request_id: requestId,
       course: {
         id: course.id,
+        organization_id: course.organizationId,
         title: course.name,
         subject: course.subject,
         exam_at: course.examDate,
-      },
+        locked: isCourseLocked,
+        access_reason: isCourseLocked ? "locked" : (accessResult?.reason ?? "free"),
+      } as any,
       modules: moduleResources,
       progress: {
         total_lessons: totalLessons,
@@ -245,6 +323,7 @@ export class LearningService {
             ? Math.round((completedLessons / totalLessons) * 100)
             : 0,
       },
+      access: accessResult,
     };
   }
 
@@ -257,14 +336,29 @@ export class LearningService {
    * 3. Look up the course to determine its organization.
    * 4. Verify the actor has a membership in that organization.
    * 5. Check the policy allows "progress:write".
-   * 6. Upsert the progress record.
-   * 7. Emit audit events.
+   * 6. Check entitlement if configured (locked lessons cannot record progress).
+   * 7. Upsert the progress record.
    */
   async markLessonComplete(
     actor: Actor,
     courseId: CourseId,
     lessonId: LessonId,
   ): Promise<LessonProgressResponse> {
+    if (this.entitlementService) {
+      const access = await this.entitlementService.checkAccess(actor, {
+        userId: actor.userId,
+        resourceType: "lesson",
+        resourceId: lessonId,
+        courseId,
+      });
+      if (!access.granted) {
+        throw new DomainError(
+          "forbidden",
+          "برای ثبت پیشرفت این درس، فعال‌سازی اشتراک، خرید محتوا یا خرید دوره الزامی است.",
+        );
+      }
+    }
+
     // 1. Look up the lesson
     const lesson = await this.lessonStore.findById(lessonId);
     if (!lesson || lesson.deletedAt) {

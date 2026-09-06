@@ -71,7 +71,8 @@ export type AuthAction =
   | "content:edit"
   | "flashcard:review"
   | "quiz:attempt"
-  | "study:read";
+  | "study:read"
+  | "content:export";
 
 // ---------------------------------------------------------------------------
 // Actor
@@ -232,6 +233,35 @@ export class RoleBasedPolicy implements AuthorizationPolicy {
       ]),
     );
 
+    // Content worker permissions (content creation, generation, review, approve & export)
+    this.rolePermissions.set(
+      "content_worker",
+      new Set([
+        "org:read",
+        "course:create",
+        "course:read",
+        "course:update",
+        "org:create",
+        "learning:read",
+        "progress:write",
+        "progress:read",
+        "content:write",
+        "content:publish",
+        "document:upload",
+        "document:read",
+        "content:generate",
+        "content:review",
+        "content:accept",
+        "content:reject",
+        "content:regenerate",
+        "content:edit",
+        "flashcard:review",
+        "quiz:attempt",
+        "study:read",
+        "content:export",
+      ]),
+    );
+
     // Organization admin permissions
     this.rolePermissions.set(
       "organization_admin",
@@ -262,6 +292,7 @@ export class RoleBasedPolicy implements AuthorizationPolicy {
         "flashcard:review",
         "quiz:attempt",
         "study:read",
+        "content:export",
       ]),
     );
 
@@ -297,6 +328,7 @@ export class RoleBasedPolicy implements AuthorizationPolicy {
         "flashcard:review",
         "quiz:attempt",
         "study:read",
+        "content:export",
       ]),
     );
 

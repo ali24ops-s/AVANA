@@ -5,8 +5,9 @@
   "type": "module",
   "exports": {
     "./client": {
-      "import": "./client.ts",
-      "types": "./client.ts"
+      "types": "./client.ts",
+      "import": "./client.js",
+      "default": "./client.ts"
     },
     "./schema": {
       "types": "./schema/index.ts",

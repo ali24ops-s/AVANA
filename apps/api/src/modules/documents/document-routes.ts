@@ -50,6 +50,10 @@ import type { GenerationJobStore } from "../generation/generation-jobs-store.js"
 import type { FlashcardStore, QuizStore } from "../study/study-store.js";
 import type { StorageProvider } from "../storage/storage-provider.js";
 import type { AuditService } from "../../observability/audit-service.js";
+import type { EntitlementService } from "../commerce/entitlement-service.js";
+
+import type { GenerationChunkStore } from "../generation/generation-chunk-store.js";
+import type { GenerationProgressService } from "../generation/generation-progress-service.js";
 
 export interface DocumentRouteOptions {
   sessionService: AuthMiddlewareDeps["sessionService"];
@@ -60,14 +64,15 @@ export interface DocumentRouteOptions {
   storageProvider: StorageProvider;
   generatedContentStore?: GeneratedContentStore;
   generationJobStore?: GenerationJobStore;
+  generationChunkStore?: GenerationChunkStore;
+  progressService?: GenerationProgressService;
   flashcardStore?: FlashcardStore;
   quizStore?: QuizStore;
   courseStore?: CourseStore;
   moduleStore?: ModuleStore;
   lessonStore?: LessonStore;
   auditService?: AuditService;
-  demoUserResolver?: AuthMiddlewareDeps["demoUserResolver"];
-  authEnabled?: boolean;
+  entitlementService?: EntitlementService;
 }
 
 const UUID_RE =
@@ -86,22 +91,18 @@ export const documentRoutes: FastifyPluginAsync<DocumentRouteOptions> = async (
     storageProvider,
     generatedContentStore,
     generationJobStore,
+    generationChunkStore,
+    progressService,
     flashcardStore,
     quizStore,
     courseStore,
     moduleStore,
     lessonStore,
     auditService,
-    demoUserResolver,
-    authEnabled,
+    entitlementService,
   } = opts;
 
-  const { requireAuth } = makeAuthMiddleware({
-    sessionService,
-    userStore,
-    demoUserResolver,
-    authEnabled,
-  });
+  const { requireAuth } = makeAuthMiddleware({ sessionService, userStore });
   const documentService = new DocumentService(
     documentStore,
     storageProvider,
@@ -116,6 +117,7 @@ export const documentRoutes: FastifyPluginAsync<DocumentRouteOptions> = async (
     courseStore,
     moduleStore,
     lessonStore,
+    entitlementService,
   );
   const processingService = new DocumentProcessingService(
     documentStore,
@@ -124,6 +126,9 @@ export const documentRoutes: FastifyPluginAsync<DocumentRouteOptions> = async (
     defaultPolicy,
     auditService,
     organizationStore,
+    progressService,
+    generationChunkStore,
+    generatedContentStore,
   );
 
   /**

@@ -24,6 +24,7 @@ import type { CourseStore } from "../courses/course-store.js";
 import type { OrganizationStore } from "../organizations/organization-store.js";
 import type { ModelGateway } from "../generation/gateway/types.js";
 import type { AuditService } from "../../observability/audit-service.js";
+import type { EntitlementService } from "../commerce/entitlement-service.js";
 
 export interface AssistantRouteOptions {
   sessionService: AuthMiddlewareDeps["sessionService"];
@@ -36,8 +37,7 @@ export interface AssistantRouteOptions {
   organizationStore: OrganizationStore;
   auditService?: AuditService;
   systemOrganizationId?: OrganizationId;
-  demoUserResolver?: AuthMiddlewareDeps["demoUserResolver"];
-  authEnabled?: boolean;
+  entitlementService?: EntitlementService;
 }
 
 const UUID_RE =
@@ -57,16 +57,10 @@ export const assistantRoutes: FastifyPluginAsync<
     organizationStore,
     auditService,
     systemOrganizationId,
-    demoUserResolver,
-    authEnabled,
+    entitlementService,
   } = opts;
 
-  const { requireAuth } = makeAuthMiddleware({
-    sessionService,
-    userStore,
-    demoUserResolver,
-    authEnabled,
-  });
+  const { requireAuth } = makeAuthMiddleware({ sessionService, userStore });
 
   const service = new StudyAssistantService(
     assistantGateway,
@@ -78,6 +72,7 @@ export const assistantRoutes: FastifyPluginAsync<
     undefined,
     auditService,
     systemOrganizationId,
+    entitlementService,
   );
 
   function getActor(request: unknown): Actor {

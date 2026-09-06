@@ -1,4 +1,5 @@
 import { TrophyIcon, RefreshIcon } from "./ExamIcons.js";
+import { RichContent } from "../markdown/MarkdownRenderer.js";
 
 export interface ExamResultViewProps {
   result: {
@@ -107,9 +108,9 @@ export function ExamResultView({
                   </span>
                 </div>
 
-                <p className="text-sm font-bold text-white leading-relaxed">
-                  {q.question}
-                </p>
+                <div className="text-sm font-bold text-white leading-relaxed">
+                  <RichContent content={q.question} />
+                </div>
 
                 {q.choices && (
                   <div className="space-y-2 pt-1">
@@ -131,7 +132,7 @@ export function ExamResultView({
                         >
                           <div>
                             <span className="font-mono font-bold ml-2">{cIdx + 1}.</span>
-                            {choice}
+                            <RichContent content={choice} inline />
                           </div>
                           {isCorrectChoice && (
                             <span className="text-[10px] bg-emerald-600 text-white font-bold px-2 py-0.5 rounded">
@@ -154,7 +155,9 @@ export function ExamResultView({
                     <p className="font-bold text-amber-300 flex items-center gap-1.5">
                       <span>توضیح پاسخ:</span>
                     </p>
-                    <p className="text-slate-300 leading-relaxed">{q.explanation}</p>
+                    <div className="text-slate-300 leading-relaxed">
+                      <RichContent content={q.explanation} />
+                    </div>
                   </div>
                 )}
               </div>

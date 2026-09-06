@@ -269,7 +269,11 @@ describe("Smart Content Multi-Turn Generation (User Bug Scenario)", () => {
     });
 
     // Wait for queue async execution
-    await new Promise((r) => setTimeout(r, 120));
+    for (let i = 0; i < 30; i++) {
+      const rec = await jobStore.findByIdForOrganization(job.generationJobId, orgId);
+      if (rec?.status === "failed" || rec?.status === "succeeded") break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
 
     const jobRecord = await jobStore.findByIdForOrganization(job.generationJobId, orgId);
     expect(jobRecord?.status).toBe("failed");
@@ -290,7 +294,11 @@ describe("Smart Content Multi-Turn Generation (User Bug Scenario)", () => {
       types: ["lesson"],
       generationKey: "key-lesson-ok",
     });
-    await new Promise((r) => setTimeout(r, 120));
+    for (let i = 0; i < 30; i++) {
+      const draftsCheck = await genStore.listByDocument(docId, orgId);
+      if (draftsCheck.some((d) => d.type === "lesson" && d.deletedAt === null)) break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
 
     // Confirm Lesson exists
     let drafts = await genStore.listByDocument(docId, orgId);
@@ -335,7 +343,11 @@ describe("Smart Content Multi-Turn Generation (User Bug Scenario)", () => {
       generationKey: "key-fc-quiz-quota",
     });
 
-    await new Promise((r) => setTimeout(r, 120));
+    for (let i = 0; i < 30; i++) {
+      const rec = await jobStore.findByIdForOrganization(quotaJob.generationJobId, orgId);
+      if (rec?.status === "failed" || rec?.status === "succeeded") break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
 
     // 3. Assertions: Job failed with backend technical error preserved
     const quotaJobRecord = await jobStore.findByIdForOrganization(quotaJob.generationJobId, orgId);

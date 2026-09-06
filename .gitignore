@@ -31,6 +31,8 @@ vitest_output.log
 .env.*
 !.env.example
 !**/.env.example
+!.env*.example
+!**/.env*.example
 
 # Operating system files
 .DS_Store

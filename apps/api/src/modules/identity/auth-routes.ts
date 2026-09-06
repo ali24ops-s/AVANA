@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import type { IdentityAdapter, UserId, Actor } from "@avana/domain";
 import { DomainError, resolveEffectiveRole, type Role } from "@avana/domain";
-import type { SessionService } from "./session-service.js";
+import { type SessionService, generateSessionToken, hashToken } from "./session-service.js";
 import type { UserStore } from "./user-store.js";
 import type { EmailVerificationStore } from "./email-verification-store.js";
 import type { EmailService } from "./email-service.js";
@@ -9,17 +9,17 @@ import type { OrganizationStore } from "../organizations/organization-store.js";
 import { OrganizationService } from "../organizations/organization-service.js";
 import { hashPassword, verifyPassword } from "./password-hasher.js";
 import { randomInt, createHash } from "node:crypto";
-import type { DemoUserResolver } from "./demo-user-resolver.js";
+import type { DeviceService } from "./device-service.js";
+import { detectDeviceType } from "./device-service.js";
 
 export interface AuthRouteOptions {
   identityAdapter?: IdentityAdapter;
   sessionService: SessionService;
   userStore: UserStore;
+  deviceService?: DeviceService;
   emailVerificationStore?: EmailVerificationStore;
   emailService?: EmailService;
   organizationStore?: OrganizationStore;
-  demoUserResolver?: DemoUserResolver;
-  authEnabled?: boolean;
 }
 
 /**
@@ -63,6 +63,7 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
   const {
     sessionService,
     userStore,
+    deviceService,
     emailVerificationStore,
     emailService,
     organizationStore,
@@ -163,60 +164,67 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
    */
   app.get("/v1/me", async (request, _reply) => {
     const sessionCookie = request.cookies?.["avana_session"];
-    if (sessionCookie) {
-      const user = await sessionService.validateSession(sessionCookie);
-      if (user) {
-        const userRecord = await userStore.findById(user.userId);
-        if (userRecord) {
-          const memberships = await resolveMemberships(
-            organizationStore,
-            userRecord.id,
-          );
-
-          const isVerified = Boolean(
-            userRecord.emailVerifiedAt ?? userRecord.emailVerified,
-          );
-
-          const membershipRoles = memberships.map((m) => m.role as Role);
-          const effectiveRole = resolveEffectiveRole(userRecord.globalRole, membershipRoles);
-
-          return {
-            request_id: request.id,
-            user: {
-              id: userRecord.id,
-              email: userRecord.email,
-              name: userRecord.name,
-              role: effectiveRole,
-              emailVerified: isVerified,
-            },
-            memberships,
-          };
-        }
-      }
-    }
-
-    // If no valid session cookie and Auth is enabled -> Reject with 401
-    if (opts.authEnabled !== false) {
+    const authHeader = request.headers.authorization;
+    const bearerToken =
+      typeof authHeader === "string" && authHeader.startsWith("Bearer ")
+        ? authHeader.slice(7).trim()
+        : undefined;
+    const token = sessionCookie || bearerToken;
+    if (!token) {
       throw new DomainError("unauthorized", "Not signed in");
     }
 
-    // Demo Mode (authEnabled === false): resolve current user to real demo user
-    if (!opts.demoUserResolver) {
-      throw new DomainError("unauthorized", "Demo user resolver not configured");
+    const details = await sessionService.validateSessionDetails(token);
+    if (details.revoked) {
+      if (
+        details.revocationReason === "session_takeover" ||
+        details.revocationReason === "admin_reset"
+      ) {
+        throw new DomainError(
+          "SESSION_REVOKED",
+          "نشست شما به دلیل ورود از دستگاه دیگر یا بازنشانی توسط مدیر نامعتبر شده است.",
+          {
+            code: "SESSION_REVOKED",
+            reason: details.revocationReason,
+          },
+        );
+      }
+      throw new DomainError("unauthorized", "Not signed in");
     }
 
-    const { user: demoUser, memberships } = await opts.demoUserResolver.resolveDemoUser();
+    if (!details.valid || !details.user) {
+      throw new DomainError("unauthorized", "Not signed in");
+    }
+
+    const user = details.user;
+
+    const userRecord = await userStore.findById(user.userId);
+    if (!userRecord) {
+      throw new DomainError("unauthorized", "Not signed in");
+    }
+
+    const memberships = await resolveMemberships(
+      organizationStore,
+      userRecord.id,
+    );
+
     const isVerified = Boolean(
-      demoUser.emailVerifiedAt ?? demoUser.emailVerified,
+      userRecord.emailVerifiedAt ?? userRecord.emailVerified,
+    );
+
+    const membershipRoles = memberships.map((m) => m.role as Role);
+    const effectiveRole = resolveEffectiveRole(
+      userRecord.globalRole ?? userRecord.role,
+      membershipRoles,
     );
 
     return {
       request_id: request.id,
       user: {
-        id: demoUser.id,
-        email: demoUser.email,
-        name: demoUser.name,
-        role: demoUser.role,
+        id: userRecord.id,
+        email: userRecord.email,
+        name: userRecord.name,
+        role: effectiveRole,
         emailVerified: isVerified,
       },
       memberships,
@@ -224,20 +232,79 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
   });
 
   /**
-   * Helper to set session and CSRF cookies, preventing session fixation by revoking prior token.
+   * Helper to perform device recognition, single active session takeover, and issue cookies.
    */
   async function issueSessionCookies(
     request: import("fastify").FastifyRequest,
     reply: import("fastify").FastifyReply,
     userId: string,
+    email = "",
+    isPlatformAdmin = false,
   ) {
-    const existingSessionCookie = request.cookies?.["avana_session"];
-    if (existingSessionCookie) {
-      await sessionService.revokeSession(existingSessionCookie);
+    // Only accept incoming device ID from HttpOnly cookie; NEVER from headers or body
+    const incomingDeviceId = request.cookies?.["avana_device_id"];
+
+    const clientHint =
+      (request.headers["x-device-type"] as string | undefined) ||
+      (typeof request.body === "object" && request.body !== null
+        ? (request.body as { device_type?: string }).device_type
+        : undefined);
+
+    const userAgent = (request.headers["user-agent"] as string | undefined) ?? "";
+    const ip = request.ip;
+    const deviceType = detectDeviceType(userAgent, clientHint);
+
+    const config = sessionService.getConfig();
+    let sessionToken: string;
+    let canonicalDeviceId: string | null = null;
+
+    if (deviceService) {
+      sessionToken = generateSessionToken();
+      const tokenHash = hashToken(sessionToken);
+      const expiresAt = new Date(Date.now() + config.maxAgeMs).toISOString();
+
+      const result = await deviceService.authenticateAndTakeover({
+        userId: userId as UserId,
+        email,
+        incomingDeviceId,
+        deviceType,
+        userAgent,
+        ip,
+        tokenHash,
+        expiresAt,
+        isPlatformAdmin,
+      });
+
+      if (result.status === "LIMIT_REACHED") {
+        throw new DomainError(
+          "DEVICE_LIMIT_REACHED",
+          `امکان ثبت دستگاه جدید وجود ندارد. سقف مجاز برای دستگاه‌های ${deviceType === "mobile" ? "موبایل" : "رایانه"} (حداکثر ۱ دستگاه) پر شده است. لطفاً با مدیر تماس بگیرید.`,
+          {
+            code: "DEVICE_LIMIT_REACHED",
+            deviceType,
+          },
+        );
+      }
+
+      canonicalDeviceId = result.canonicalDeviceId;
+    } else {
+      const takeover = await sessionService.createSessionWithTakeover(
+        userId as UserId,
+        null,
+        "session_takeover",
+      );
+      sessionToken = takeover.sessionToken;
     }
 
-    const { sessionToken } = await sessionService.createSession(userId);
-    const config = sessionService.getConfig();
+    if (canonicalDeviceId) {
+      reply.setCookie("avana_device_id", canonicalDeviceId, {
+        path: "/",
+        httpOnly: true,
+        secure: config.secure,
+        sameSite: config.sameSite,
+        maxAge: 400 * 24 * 60 * 60, // 400 days
+      });
+    }
 
     reply.setCookie("avana_session", sessionToken, {
       path: "/",
@@ -322,7 +389,16 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
     }
 
     // Issue session cookies (unverified session)
-    await issueSessionCookies(request, reply, userRecord.id);
+    const isPlatformAdmin =
+      userRecord.globalRole === "platform_admin" ||
+      userRecord.role === "platform_admin";
+    await issueSessionCookies(
+      request,
+      reply,
+      userRecord.id,
+      userRecord.email,
+      isPlatformAdmin,
+    );
 
     const memberships = await resolveMemberships(
       organizationStore,
@@ -330,9 +406,10 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
     );
 
     const membershipRoles = memberships.map((m) => m.role as Role);
-    const effectiveRole = membershipRoles.length > 0
-      ? resolveEffectiveRole(membershipRoles)
-      : (userRecord.role as Role || "student");
+    const effectiveRole = resolveEffectiveRole(
+      userRecord.globalRole ?? userRecord.role,
+      membershipRoles,
+    );
 
     return {
       request_id: request.id,
@@ -411,6 +488,12 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
             "ایمیل یا رمز عبور نادرست است.",
           );
         }
+      } else {
+        recordFailedAttempt(request);
+        throw new DomainError(
+          "unauthorized",
+          "ایمیل یا رمز عبور نادرست است.",
+        );
       }
     } else if (opts.identityAdapter) {
       // Legacy test double fallback without password
@@ -431,7 +514,16 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
 
     clearFailedAttempts(request);
 
-    await issueSessionCookies(request, reply, userRecord.id);
+    const isPlatformAdmin =
+      userRecord.globalRole === "platform_admin" ||
+      userRecord.role === "platform_admin";
+    await issueSessionCookies(
+      request,
+      reply,
+      userRecord.id,
+      userRecord.email,
+      isPlatformAdmin,
+    );
 
     const memberships = await resolveMemberships(
       organizationStore,
@@ -443,7 +535,10 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
     );
 
     const membershipRoles = memberships.map((m) => m.role as Role);
-    const effectiveRole = resolveEffectiveRole(userRecord.role, membershipRoles);
+    const effectiveRole = resolveEffectiveRole(
+      userRecord.globalRole ?? userRecord.role,
+      membershipRoles,
+    );
 
     return {
       request_id: request.id,
@@ -537,7 +632,10 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
     const memberships = await resolveMemberships(organizationStore, userId);
 
     const membershipRoles = memberships.map((m) => m.role as Role);
-    const effectiveRole = resolveEffectiveRole(userRecord!.role, membershipRoles);
+    const effectiveRole = resolveEffectiveRole(
+      userRecord!.globalRole ?? userRecord!.role,
+      membershipRoles,
+    );
 
     return {
       request_id: request.id,
@@ -615,8 +713,15 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
    */
   app.post("/v1/auth/sign-out", async (request, reply) => {
     const sessionCookie = request.cookies?.["avana_session"];
-    if (sessionCookie) {
-      await sessionService.revokeSession(sessionCookie);
+    const authHeader = request.headers.authorization;
+    const bearerToken =
+      typeof authHeader === "string" && authHeader.startsWith("Bearer ")
+        ? authHeader.slice(7).trim()
+        : undefined;
+
+    const token = sessionCookie || bearerToken;
+    if (token) {
+      await sessionService.revokeSession(token, "sign_out");
     }
 
     reply.clearCookie("avana_session", { path: "/" });

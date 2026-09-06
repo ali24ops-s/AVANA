@@ -73,16 +73,16 @@ export function GenerateContentModal({
     };
   }, [isOpen]);
 
-  // Handle escape key
+  // Handle escape key (always allowed, never blocked)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && isOpen && !isGenerating) {
+      if (e.key === "Escape" && isOpen) {
         onClose();
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, isGenerating, onClose]);
+  }, [isOpen, onClose]);
 
   const isLessonGenerated = Boolean(contentStatus?.lesson?.generated);
   const isFlashcardsGenerated = Boolean(contentStatus?.flashcards?.generated);
@@ -137,9 +137,7 @@ export function GenerateContentModal({
       aria-modal="true"
       aria-labelledby="generate-modal-title"
       onClick={() => {
-        if (!isGenerating) {
-          onClose();
-        }
+        onClose();
       }}
     >
       <div
@@ -168,9 +166,9 @@ export function GenerateContentModal({
           <button
             type="button"
             onClick={onClose}
-            disabled={isGenerating}
-            className="p-2 text-slate-400 hover:text-white hover:bg-white/10 rounded-xl transition-colors disabled:opacity-50"
+            className="p-2 text-slate-400 hover:text-white hover:bg-white/10 rounded-xl transition-colors"
             aria-label="بستن"
+            title={isGenerating ? "بستن پنجره (تولید در پس‌زمینه ادامه می‌یابد)" : "بستن"}
           >
             <X className="w-5 h-5" />
           </button>
@@ -443,10 +441,10 @@ export function GenerateContentModal({
               <button
                 type="button"
                 onClick={onClose}
-                disabled={isGenerating}
-                className="px-4 py-2.5 rounded-xl border border-slate-700 bg-slate-800/80 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-colors disabled:opacity-50"
+                className="px-4 py-2.5 rounded-xl border border-slate-700 bg-slate-800/80 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-colors"
+                title={isGenerating ? "بستن پنجره (تولید در پس‌زمینه ادامه می‌یابد)" : "انصراف"}
               >
-                انصراف
+                {isGenerating ? "بستن پنجره" : "انصراف"}
               </button>
 
               {!allAvailableGenerated && (

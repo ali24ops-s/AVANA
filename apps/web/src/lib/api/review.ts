@@ -24,12 +24,20 @@ export function createReviewApi(client: ApiClient) {
     getReviewQueue(
       organizationId: string,
       courseId: string,
-      options?: { page?: number; limit?: number; type?: string },
+      options?: {
+        page?: number;
+        limit?: number;
+        type?: string;
+        search?: string;
+        status?: string;
+      },
     ): Promise<ReviewQueueResponse> {
       const params = new URLSearchParams();
       if (options?.page) params.set("page", String(options.page));
       if (options?.limit) params.set("limit", String(options.limit));
       if (options?.type) params.set("type", options.type);
+      if (options?.search) params.set("search", options.search);
+      if (options?.status) params.set("status", options.status);
       const qs = params.toString();
       return client.get<ReviewQueueResponse>(
         `/v1/organizations/${organizationId}/courses/${courseId}/generated/review-queue${qs ? `?${qs}` : ""}`,

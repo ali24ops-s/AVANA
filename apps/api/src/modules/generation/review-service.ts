@@ -43,6 +43,7 @@ import {
   type ModuleId,
   type OrganizationId,
   DomainError,
+  normalizeQuestionOptions,
   canonicalizeAndShuffleQuestion,
   parseFlashcardId,
   parseQuizId,
@@ -51,7 +52,13 @@ import {
   auditContentEdited,
   auditContentRejected,
   auditContentRegenerated,
+  normalizeEducationalContent,
+  calculateDefaultContentPrice,
+  calculateContentPricingBreakdown,
+  isCompleteReviewSummary,
+  asProductId,
 } from "@avana/domain";
+import type { CommerceStore } from "../commerce/commerce-store.js";
 import type {
   DocumentStore,
   DocumentChunkStore,
@@ -78,6 +85,27 @@ import type { AuditService } from "../../observability/audit-service.js";
 // Response contract types
 // ---------------------------------------------------------------------------
 
+export type ReviewDocumentResource = {
+  id: string;
+  filename: string | null;
+  title: string | null;
+  created_at?: string | null;
+};
+
+export type ReviewDocumentStats = {
+  total: number;
+  pending: number;
+  approved: number;
+  rejected: number;
+  needsRevision: number;
+};
+
+export type ReviewDocumentGroupResource = {
+  document: ReviewDocumentResource | null;
+  stats: ReviewDocumentStats;
+  items: ReviewQueueResource[];
+};
+
 export type ReviewQueueResource = {
   id: GeneratedContentId;
   document_id: DocumentId;
@@ -90,6 +118,7 @@ export type ReviewQueueResource = {
 
 export type ReviewQueueResponse = {
   request_id: string;
+  groups?: ReviewDocumentGroupResource[];
   pending: ReviewQueueResource[];
   pagination?: {
     page: number;
@@ -171,6 +200,7 @@ export class ReviewService {
     private readonly quizStore?: QuizStore,
     private readonly quizQuestionStore?: QuizQuestionStore,
     private readonly organizationStore?: OrganizationStore,
+    private readonly commerceStore?: CommerceStore,
   ) {}
 
   /**
@@ -282,66 +312,172 @@ export class ReviewService {
   }
 
   /**
-   * List the review queue for a course: all generated content requiring
-   * review (draft / edited / rejected). Accepted content is excluded.
+   * List the review queue for a course grouped by source document.
    */
   async reviewQueue(
     actor: Actor,
     organizationId: OrganizationId,
     courseId: CourseId,
     requestId: string,
-    options?: { page?: number; limit?: number; type?: GeneratedContentRecord["type"] },
+    options?: {
+      page?: number;
+      limit?: number;
+      type?: GeneratedContentRecord["type"];
+      status?: string;
+      search?: string;
+    },
   ): Promise<ReviewQueueResponse> {
     await this.authorize(actor, organizationId, "content:review");
 
-    const pending = await this.generatedContentStore.listByCourse(
+    // 1. Fetch all course contents
+    const allCourseContents = await this.generatedContentStore.listByCourse(
       courseId,
       organizationId,
     );
 
+    // 2. Fetch all active documents for the organization
     const activeDocs = await this.documentStore.listByOrganization(
       organizationId,
     );
-    const activeDocIds = new Set(
-      activeDocs
-        .filter((d) => d.courseId === courseId || d.courseId === null)
-        .map((d) => d.id),
-    );
+    const docMap = new Map(activeDocs.map((d) => [d.id, d]));
 
-    let filtered = pending
-      .filter((c) => Boolean(c.documentId && activeDocIds.has(c.documentId)))
-      .filter((c) => c.status === "draft" || c.status === "edited");
-
-    if (options?.type) {
-      filtered = filtered.filter((c) => c.type === options.type);
+    // 3. Group generated contents by documentId (or '__unknown__' for null/unmatched docs)
+    const contentGroups = new Map<string, GeneratedContentRecord[]>();
+    for (const record of allCourseContents) {
+      const groupKey =
+        record.documentId && docMap.has(record.documentId)
+          ? record.documentId
+          : "__unknown__";
+      const existing = contentGroups.get(groupKey);
+      if (existing) {
+        existing.push(record);
+      } else {
+        contentGroups.set(groupKey, [record]);
+      }
     }
 
-    filtered.sort((a, b) => {
-      const timeA = new Date(a.createdAt).getTime();
-      const timeB = new Date(b.createdAt).getTime();
-      if (timeA !== timeB) return timeA - timeB;
-      return a.id.localeCompare(b.id);
+    const searchQuery = options?.search?.trim().toLowerCase();
+    const groups: ReviewDocumentGroupResource[] = [];
+
+    for (const [groupKey, allItems] of contentGroups.entries()) {
+      const doc =
+        groupKey !== "__unknown__"
+          ? docMap.get(groupKey as DocumentId)
+          : undefined;
+
+      // Calculate total breakdown stats for this document
+      const total = allItems.length;
+      const pendingCount = allItems.filter(
+        (c) =>
+          c.status === "draft" ||
+          c.status === "edited" ||
+          c.status === "regenerating",
+      ).length;
+      const approvedCount = allItems.filter(
+        (c) => c.status === "accepted",
+      ).length;
+      const rejectedCount = allItems.filter(
+        (c) => c.status === "rejected",
+      ).length;
+      const needsRevisionCount = allItems.filter(
+        (c) => c.status === "edited",
+      ).length;
+
+      const stats: ReviewDocumentStats = {
+        total,
+        pending: pendingCount,
+        approved: approvedCount,
+        rejected: rejectedCount,
+        needsRevision: needsRevisionCount,
+      };
+
+      // Filter items for the review queue based on status, type, and search
+      let matchedItems = allItems.filter((c) => {
+        if (options?.status === "all") {
+          return true;
+        } else if (options?.status) {
+          return c.status === options.status;
+        }
+        return c.status === "draft" || c.status === "edited";
+      });
+
+      if (options?.type) {
+        matchedItems = matchedItems.filter((c) => c.type === options.type);
+      }
+
+      if (searchQuery) {
+        const docNameMatches = doc?.originalName
+          .toLowerCase()
+          .includes(searchQuery);
+        if (!docNameMatches) {
+          matchedItems = matchedItems.filter((c) => {
+            const res = this.toReviewQueueResource(c);
+            return res.title.toLowerCase().includes(searchQuery);
+          });
+        }
+      }
+
+      // Only include this document group if there are matching review items
+      if (matchedItems.length === 0) {
+        continue;
+      }
+
+      // Sort matched items within group
+      matchedItems.sort((a, b) => {
+        const timeA = new Date(a.createdAt).getTime();
+        const timeB = new Date(b.createdAt).getTime();
+        if (timeA !== timeB) return timeA - timeB;
+        return a.id.localeCompare(b.id);
+      });
+
+      const docResource: ReviewDocumentResource | null = doc
+        ? {
+            id: doc.id,
+            filename: doc.originalName,
+            title: doc.originalName,
+            created_at: doc.createdAt,
+          }
+        : null;
+
+      groups.push({
+        document: docResource,
+        stats,
+        items: matchedItems.map((c) => this.toReviewQueueResource(c)),
+      });
+    }
+
+    // Sort groups deterministically: newest item update first, then document ID
+    groups.sort((a, b) => {
+      const timeA =
+        a.items.length > 0 ? new Date(a.items[0].updated_at).getTime() : 0;
+      const timeB =
+        b.items.length > 0 ? new Date(b.items[0].updated_at).getTime() : 0;
+      if (timeA !== timeB) return timeB - timeA;
+      return (a.document?.id ?? "zzz").localeCompare(b.document?.id ?? "zzz");
     });
 
-    const total = filtered.length;
+    const totalGroups = groups.length;
     const page = options?.page ? Math.max(1, options.page) : 1;
-    const limit = options?.limit ? Math.max(1, options.limit) : undefined;
-    const effectiveLimit = limit ?? total;
-    const totalPages = Math.ceil(total / (effectiveLimit || 1)) || 1;
+    const limit =
+      options?.limit !== undefined ? Math.max(1, options.limit) : undefined;
+    const effectiveLimit = limit ?? (totalGroups || 1);
+    const totalPages = Math.ceil(totalGroups / effectiveLimit) || 1;
 
-    const paginated = limit !== undefined || options?.page !== undefined
-      ? filtered.slice((page - 1) * effectiveLimit, page * effectiveLimit)
-      : filtered;
+    const paginatedGroups =
+      limit !== undefined || options?.page !== undefined
+        ? groups.slice((page - 1) * effectiveLimit, page * effectiveLimit)
+        : groups;
 
-    const resources = paginated.map((c) => this.toReviewQueueResource(c));
+    const allPendingItems = paginatedGroups.flatMap((g) => g.items);
 
     return {
       request_id: requestId,
-      pending: resources,
+      groups: paginatedGroups,
+      pending: allPendingItems,
       pagination: {
         page,
-        limit: limit ?? total,
-        total,
+        limit: limit ?? totalGroups,
+        total: totalGroups,
         totalPages,
       },
     };
@@ -681,6 +817,7 @@ export class ReviewService {
       types: [record.type],
       promptVersion: record.promptVersion ?? undefined,
       generationKey,
+      force: true,
     });
 
     if (this.auditService) {
@@ -747,6 +884,7 @@ export class ReviewService {
           ];
 
     // 3. Clean up / soft-delete prior lessons materialized for this document/module to avoid duplication
+    const priorLessonIds: LessonId[] = [];
     if (record.documentId) {
       const priorDrafts = await this.generatedContentStore.listByDocument(
         record.documentId,
@@ -757,11 +895,24 @@ export class ReviewService {
       );
       for (const prior of priorLessonDrafts) {
         if (prior.materializedLessonId) {
+          priorLessonIds.push(prior.materializedLessonId as LessonId);
           const priorLesson = await this.lessonStore.findById(
             prior.materializedLessonId as LessonId,
           );
           if (priorLesson) {
             await this.lessonStore.delete(priorLesson.id);
+            if (this.flashcardStore && record.documentId) {
+              await this.flashcardStore.deleteByDocument(
+                record.documentId,
+                record.organizationId,
+              );
+            }
+            if (this.quizStore && record.documentId) {
+              await this.quizStore.deleteByDocument(
+                record.documentId,
+                record.organizationId,
+              );
+            }
           }
         }
         await this.generatedContentStore.update({
@@ -781,7 +932,7 @@ export class ReviewService {
         moduleId: targetModule.id,
         title: sess.title,
         contentType: "markdown",
-        contentMarkdown: sess.contentMarkdown,
+        contentMarkdown: normalizeEducationalContent(sess.contentMarkdown),
         sortOrder: idx,
         estimatedMinutes: null,
         publicationStatus: "published",
@@ -792,6 +943,114 @@ export class ReviewService {
       await this.lessonStore.create(lessonRecord);
       if (!firstLessonId) {
         firstLessonId = lessonRecord.id;
+      }
+    }
+
+    // 5. Commerce Product Handling: Volume-based Suggested Pricing & Zero-Overwrite Preservation
+    if (this.commerceStore && firstLessonId) {
+      // Check if a prior materialized lesson had an existing product (e.g. from previous run / admin priced)
+      let existingProduct = null;
+      for (const priorId of priorLessonIds) {
+        const prod = await this.commerceStore.findProductByCode(
+          `content_${priorId}`,
+        );
+        if (prod) {
+          existingProduct = prod;
+          break;
+        }
+      }
+
+      if (!existingProduct) {
+        existingProduct = await this.commerceStore.findProductByCode(
+          `content_${firstLessonId}`,
+        );
+      }
+
+      if (existingProduct) {
+        // PRESERVE EXISTING PRODUCT AND SELLING PRICE (e.g. 10,000 set by Admin)
+        // Update targetId & code to track the new materialized lesson id
+        const existingPrior = Array.isArray((existingProduct.metadata as any)?.priorLessonIds)
+          ? ((existingProduct.metadata as any).priorLessonIds as string[])
+          : [];
+        const combinedPrior = Array.from(
+          new Set([...existingPrior, ...priorLessonIds, existingProduct.targetId].filter(Boolean)),
+        );
+
+        await this.commerceStore.updateProduct(existingProduct.id, {
+          targetId: firstLessonId,
+          code: `content_${firstLessonId}`,
+          title: sessionList[0]?.title ?? existingProduct.title,
+          metadata: {
+            ...((existingProduct.metadata as any) ?? {}),
+            priorLessonIds: combinedPrior,
+          },
+        });
+      } else {
+        // New Content: Compute suggested price based on content volume
+        let flashcardCount = 0;
+        let questionCount = 0;
+        let hasReviewSummary = false;
+
+        if (record.documentId) {
+          const docDrafts = await this.generatedContentStore.listByDocument(
+            record.documentId,
+            record.organizationId,
+          );
+          for (const d of docDrafts) {
+            if (d.deletedAt || d.status === "rejected") continue;
+            if (d.type === "flashcard") {
+              const p = d.payload as { cards?: unknown[]; question?: unknown; answer?: unknown } | undefined;
+              if (Array.isArray(p?.cards) && p.cards.length > 0) {
+                flashcardCount += p.cards.length;
+              } else if (p?.question && p?.answer) {
+                flashcardCount += 1;
+              }
+            } else if (d.type === "quiz") {
+              const p = d.payload as { questions?: unknown[]; quiz?: { questions?: unknown[] } } | undefined;
+              if (Array.isArray(p?.questions) && p.questions.length > 0) {
+                questionCount += p.questions.length;
+              } else if (Array.isArray(p?.quiz?.questions) && p.quiz.questions.length > 0) {
+                questionCount += p.quiz.questions.length;
+              }
+            } else if (d.type === "review_summary") {
+              if (isCompleteReviewSummary(d.payload)) {
+                hasReviewSummary = true;
+              }
+            }
+          }
+        }
+
+        const metrics = {
+          lessonCount: sessionList.length,
+          flashcardCount,
+          questionCount,
+          hasReviewSummary,
+        };
+        const suggestedPrice = calculateDefaultContentPrice(metrics);
+        const breakdown = calculateContentPricingBreakdown(metrics);
+
+        await this.commerceStore.createProduct({
+          id: asProductId(randomUUID()),
+          code: `content_${firstLessonId}`,
+          type: "content",
+          title: sessionList[0]?.title ?? "درس آموزشی",
+          description: sessionList[0]?.title ?? "",
+          price: suggestedPrice,
+          currency: "toman",
+          targetType: "content",
+          targetId: firstLessonId,
+          durationDays: null,
+          active: false, // Inactive/Draft until admin activates
+          metadata: {
+            suggestedPrice,
+            defaultPriced: true,
+            pricingBreakdown: breakdown,
+            explicitlyFree: false,
+          },
+          createdAt: now,
+          updatedAt: now,
+          deletedAt: null,
+        });
       }
     }
 
@@ -1024,6 +1283,10 @@ export class ReviewService {
             : null;
           cLessonId = match ? match.id : null;
         }
+
+        if (!cLessonId && lessons.length === 1) {
+          cLessonId = lessons[0].id;
+        }
       }
 
       const qText = c.front ?? c.question ?? "سوال Flashcard";
@@ -1220,12 +1483,14 @@ export class ReviewService {
         (rawQTopic && !this.isFilenameFallback(rawQTopic) ? rawQTopic : null) ||
         targetModule.title;
 
-      const shuffled = canonicalizeAndShuffleQuestion({
+      const normalized = normalizeQuestionOptions({
         question: q.question,
         choices,
         correctAnswer,
         explanation: q.explanation ?? payload.explanation ?? null,
       });
+
+      const shuffled = canonicalizeAndShuffleQuestion(normalized.normalized);
 
       return {
         id: parseQuizQuestionId(randomUUID()),

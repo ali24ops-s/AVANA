@@ -36,7 +36,10 @@ type CourseRowInput = {
   id: string;
   organizationId: string;
   name: string;
+  description?: string | null;
   subject: string | null;
+  status?: string | null;
+  isOfficial?: boolean | null;
   examDate: Date | string | null;
   createdAt: Date | string;
   updatedAt: Date | string;
@@ -48,7 +51,10 @@ function toCourseRecord(row: CourseRowInput): CourseRecord {
     id: row.id as CourseId,
     organizationId: row.organizationId as OrganizationId,
     name: row.name,
+    description: row.description ?? null,
     subject: row.subject,
+    status: (row.status as any) ?? "published",
+    isOfficial: Boolean(row.isOfficial),
     examDate:
       row.examDate instanceof Date
         ? row.examDate.toISOString()
@@ -83,7 +89,10 @@ export class DrizzleCourseStore implements CourseStore {
           id: records.course.id,
           organizationId: records.course.organizationId,
           name: records.course.name,
+          description: records.course.description ?? null,
           subject: records.course.subject,
+          status: records.course.status ?? "published",
+          isOfficial: records.course.isOfficial ?? false,
           examDate: records.course.examDate
             ? new Date(records.course.examDate)
             : null,
@@ -139,7 +148,10 @@ export class DrizzleCourseStore implements CourseStore {
         id: courses.id,
         organizationId: courses.organizationId,
         name: courses.name,
+        description: courses.description,
         subject: courses.subject,
+        status: courses.status,
+        isOfficial: courses.isOfficial,
         examDate: courses.examDate,
         createdAt: courses.createdAt,
         updatedAt: courses.updatedAt,
@@ -185,7 +197,10 @@ export class DrizzleCourseStore implements CourseStore {
         id: courses.id,
         organizationId: courses.organizationId,
         name: courses.name,
+        description: courses.description,
         subject: courses.subject,
+        status: courses.status,
+        isOfficial: courses.isOfficial,
         examDate: courses.examDate,
         createdAt: courses.createdAt,
         updatedAt: courses.updatedAt,
@@ -202,7 +217,10 @@ export class DrizzleCourseStore implements CourseStore {
       .update(courses)
       .set({
         name: course.name,
+        description: course.description ?? null,
         subject: course.subject,
+        status: course.status ?? "published",
+        isOfficial: course.isOfficial ?? false,
         examDate: course.examDate ? new Date(course.examDate) : null,
         updatedAt: new Date(course.updatedAt),
       })
@@ -256,7 +274,10 @@ export class DrizzleCourseStore implements CourseStore {
         id: courses.id,
         organizationId: courses.organizationId,
         name: courses.name,
+        description: courses.description,
         subject: courses.subject,
+        status: courses.status,
+        isOfficial: courses.isOfficial,
         examDate: courses.examDate,
         createdAt: courses.createdAt,
         updatedAt: courses.updatedAt,
@@ -350,7 +371,10 @@ export class DrizzleCourseStore implements CourseStore {
         c.id,
         c.organization_id AS "organizationId",
         c.name,
+        c.description,
         c.subject,
+        c.status,
+        c.is_official AS "isOfficial",
         c.exam_date AS "examDate",
         c.created_at AS "createdAt",
         c.updated_at AS "updatedAt",
@@ -390,6 +414,10 @@ export class DrizzleCourseStore implements CourseStore {
       : (((queryResult as { rows?: unknown[] })?.rows ?? []) as unknown as CourseRowInput[]);
 
     return resultRows.map(toCourseRecord);
+  }
+
+  async delete(courseId: CourseId): Promise<void> {
+    await this.db.delete(courses).where(eq(courses.id, courseId));
   }
 }
 

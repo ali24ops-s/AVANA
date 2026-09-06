@@ -77,11 +77,14 @@ export class BullMqGenerationQueue implements GenerationQueue {
       deletedAt: null,
     });
 
+    process.stdout.write(`[GENERATION] job created: ${generationJobId} (doc: ${payload.documentId})\n`);
+
     // Enqueue the job with the same id (idempotent redelivery; jobId matches DB).
+    // Gateway is the sole owner of provider-level transient retries (max 3 attempts).
+    // BullMQ attempts is set to 1 to eliminate multi-layer retry multiplication.
     await this.queue.add("generate", this.toBullPayload(payload), {
       jobId: generationJobId,
-      attempts: 3,
-      backoff: { type: "exponential", delay: 2000 },
+      attempts: 1,
       removeOnComplete: false,
       removeOnFail: false,
     });
@@ -101,6 +104,7 @@ export class BullMqGenerationQueue implements GenerationQueue {
       types: payload.types,
       promptVersion: payload.promptVersion,
       generationKey: payload.generationKey,
+      force: payload.force,
     };
   }
 

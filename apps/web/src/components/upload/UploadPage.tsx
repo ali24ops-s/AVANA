@@ -17,6 +17,7 @@ import {
   ArrowRight,
   Image as ImageIcon,
 } from "lucide-react";
+import { BrandLogo } from "../brand/BrandLogo.js";
 
 interface UploadPageProps {
   onBack: () => void;
@@ -141,12 +142,7 @@ export function UploadPage({
             <ArrowLeft className="w-5 h-5" />
           </motion.button>
 
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
-              <Sparkles className="w-4 h-4 text-white" />
-            </div>
-            <span className="font-semibold">AVANA</span>
-          </div>
+          <BrandLogo variant="logo-only" size="sm" />
         </div>
 
         <button

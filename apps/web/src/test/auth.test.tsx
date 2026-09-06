@@ -45,110 +45,23 @@ function lastElement(testId: string): HTMLElement {
 describe("AuthProvider", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-    import.meta.env.VITE_AUTH_ENABLED = "true";
   });
 
-  describe("when VITE_AUTH_ENABLED=false (Public / Demo Mode)", () => {
-    it("calls /v1/me on mount to resolve demo user if backend is available", async () => {
-      import.meta.env.VITE_AUTH_ENABLED = "false";
-      const mockMeResponse = {
-        ok: true,
-        status: 200,
-        json: () =>
-          Promise.resolve({
-            request_id: "test-demo-req",
-            user: {
-              id: "79bda286-08a4-4a16-9340-4106864e0732",
-              email: "ali1383mohammadlo@gmail.com",
-              name: "علی",
-              role: "platform_admin",
-              emailVerified: true,
-            },
-            memberships: [
-              {
-                organization_id: "389575c5-7563-4242-854a-9af1a988eb3a",
-                role: "student",
-              },
-            ],
-          }),
-      } as Response;
+  it("starts in loading state", () => {
+    // Mock fetch to never resolve (keep loading)
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      () => new Promise(() => {}),
+    );
 
-      vi.spyOn(globalThis, "fetch").mockResolvedValue(mockMeResponse);
+    renderWithProviders(
+      <AuthProvider>
+        <TestConsumer />
+      </AuthProvider>,
+    );
 
-      renderWithProviders(
-        <AuthProvider>
-          <TestConsumer />
-        </AuthProvider>,
-      );
-
-      await waitFor(() => {
-        expect(lastElement("loading").textContent).toBe("false");
-      });
-
-      expect(lastElement("authenticated").textContent).toBe("true");
-      expect(lastElement("user-email").textContent).toBe("ali1383mohammadlo@gmail.com");
-      expect(lastElement("error").textContent).toBe("null");
-    });
-
-    it("gracefully falls back without crashing when /v1/me fails on static host in demo mode", async () => {
-      import.meta.env.VITE_AUTH_ENABLED = "false";
-      vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("Failed to fetch"));
-
-      renderWithProviders(
-        <AuthProvider>
-          <TestConsumer />
-        </AuthProvider>,
-      );
-
-      await waitFor(() => {
-        expect(lastElement("loading").textContent).toBe("false");
-      });
-
-      expect(lastElement("authenticated").textContent).toBe("false");
-      expect(lastElement("user-email").textContent).toBe("null");
-      expect(lastElement("error").textContent).toBe("null");
-    });
-
-    it("does not dispatch network requests on signIn or signOut in demo mode", async () => {
-      import.meta.env.VITE_AUTH_ENABLED = "false";
-      const fetchSpy = vi.spyOn(globalThis, "fetch");
-
-      let authContext: ReturnType<typeof useAuth>;
-      function ConsumerWithActions() {
-        authContext = useAuth();
-        return <div data-testid="error">{authContext.error ?? "null"}</div>;
-      }
-
-      renderWithProviders(
-        <AuthProvider>
-          <ConsumerWithActions />
-        </AuthProvider>,
-      );
-
-      await authContext!.signIn("any@example.com", "pass");
-      expect(fetchSpy).toHaveBeenCalledTimes(1); // Only the initial /v1/me on mount
-
-      await authContext!.signOut();
-      expect(fetchSpy).toHaveBeenCalledTimes(1); // Still only initial /v1/me
-    });
+    expect(lastElement("loading").textContent).toBe("true");
+    expect(lastElement("authenticated").textContent).toBe("false");
   });
-
-  describe("when VITE_AUTH_ENABLED=true (Full Authentication Mode)", () => {
-    it("starts in loading state", () => {
-      // Mock fetch to never resolve (keep loading)
-      vi.spyOn(globalThis, "fetch").mockImplementation(
-        () => new Promise(() => {}),
-      );
-
-      renderWithProviders(
-        <AuthProvider>
-          <TestConsumer />
-        </AuthProvider>,
-      );
-
-      expect(lastElement("loading").textContent).toBe("true");
-      expect(lastElement("authenticated").textContent).toBe("false");
-    });
 
   it("handles /v1/me success — sets authenticated user", async () => {
     const mockMeResponse = {
@@ -338,6 +251,3 @@ describe("AuthProvider", () => {
     });
   });
 });
-});
-
-

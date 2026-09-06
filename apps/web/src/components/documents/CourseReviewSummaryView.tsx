@@ -4,11 +4,11 @@ import { Zap, FileText, Loader2, AlertCircle } from "lucide-react";
 import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
 import { createDocumentsApi } from "../../lib/api/documents.js";
 import { ReviewSummaryViewer } from "./ReviewSummaryViewer.js";
-import type { DocumentResource } from "@avana/contracts";
 
 export interface CourseReviewSummaryViewProps {
   organizationId: string;
   courseId: string;
+  modules?: Array<{ id: string; title: string; document_id?: string | null }>;
   onNavigateToFlashcards?: () => void;
   onNavigateToQuiz?: () => void;
 }
@@ -16,6 +16,7 @@ export interface CourseReviewSummaryViewProps {
 export function CourseReviewSummaryView({
   organizationId,
   courseId,
+  modules,
   onNavigateToFlashcards,
   onNavigateToQuiz,
 }: CourseReviewSummaryViewProps) {
@@ -23,19 +24,32 @@ export function CourseReviewSummaryView({
   const apiClient = createApiClient({ baseUrl: getApiBaseUrl() });
   const docsApi = createDocumentsApi(apiClient);
 
+  // Extract unique documents from modules if present
+  const modulesWithDocs = (modules || []).filter(
+    (m): m is typeof m & { document_id: string } => Boolean(m.document_id),
+  );
+
   const docsQuery = useQuery({
     queryKey: ["course-documents", organizationId, courseId],
     queryFn: async () => {
       const res = await docsApi.listDocuments(organizationId);
       return res.items.filter((d) => d.course_id === courseId || d.course_id === null);
     },
+    enabled: modulesWithDocs.length === 0,
   });
 
-  const documents = docsQuery.data ?? [];
+  const documents: Array<{ id: string; original_name: string }> =
+    modulesWithDocs.length > 0
+      ? modulesWithDocs.map((m) => ({
+          id: m.document_id,
+          original_name: m.title,
+        }))
+      : (docsQuery.data ?? []);
+
   const activeDocument =
     documents.find((d) => d.id === selectedDocId) ?? documents[0] ?? null;
 
-  if (docsQuery.isLoading) {
+  if (modulesWithDocs.length === 0 && docsQuery.isLoading) {
     return (
       <div className="flex items-center justify-center p-16">
         <Loader2 className="w-8 h-8 animate-spin text-teal-400" />
@@ -43,7 +57,7 @@ export function CourseReviewSummaryView({
     );
   }
 
-  if (docsQuery.isError) {
+  if (modulesWithDocs.length === 0 && docsQuery.isError) {
     return (
       <div className="p-6 rounded-3xl bg-rose-950/20 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2">
         <AlertCircle className="w-5 h-5 shrink-0" />
@@ -79,7 +93,7 @@ export function CourseReviewSummaryView({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {documents.map((doc: DocumentResource) => {
+            {documents.map((doc: { id: string; original_name: string }) => {
               const isSelected = activeDocument?.id === doc.id;
               return (
                 <button

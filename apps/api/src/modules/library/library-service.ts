@@ -17,7 +17,9 @@ import {
   type ContentPackContentType,
   type ContentPackId,
   type ContentPackItemRecord,
+  type ContentPackPricing,
   type ContentPackRecord,
+  type ContentPackStatus,
   type CourseId,
   type DocumentId,
   type FlashcardPayload,
@@ -27,6 +29,11 @@ import {
   type PublicContentPackItemSummary,
   type QuizPayload,
   type ReviewSummaryPayload,
+  type ResourceAccessSummary,
+  type ResourcePurchaseSummary,
+  type CoursePackagesResponse,
+  type CourseWithChapterPackages,
+  calculateDefaultContentPrice,
   DomainError,
   asContentPackId,
   asContentPackItemId,
@@ -45,6 +52,8 @@ import type { OrganizationStore } from "../organizations/organization-store.js";
 import type { UserStore } from "../identity/user-store.js";
 import type { CourseStore } from "../courses/course-store.js";
 import type { AuditService } from "../../observability/audit-service.js";
+import type { EntitlementService } from "../commerce/entitlement-service.js";
+import type { CommerceStore } from "../commerce/commerce-store.js";
 
 // ---------------------------------------------------------------------------
 // Request/Response contract types
@@ -63,7 +72,7 @@ export type PublishContentPackResponse = {
     title: string;
     description: string | null;
     subject: string | null;
-    status: "published";
+    status: ContentPackStatus;
     usage_count: number;
     stats: {
       session_count: number;
@@ -107,6 +116,52 @@ export type AddPackToCourseResponse = {
   };
 };
 
+export type LibraryResourcesResponse = {
+  request_id: string;
+  courses: Array<{
+    id: string;
+    title: string;
+    description: string | null;
+    subject: string | null;
+    module_count: number;
+    content_count: number;
+    progress?: {
+      completed_lessons: number;
+      total_lessons: number;
+      percent: number;
+    };
+    access: ResourceAccessSummary;
+    purchase: ResourcePurchaseSummary;
+    href: string;
+    created_at: string;
+    updated_at: string;
+  }>;
+  contents: Array<{
+    id: string;
+    title: string;
+    type: "lesson" | "document" | "quiz" | "flashcard" | "review_summary";
+    course_id: string;
+    course_title: string;
+    module_id?: string | null;
+    module_title?: string | null;
+    lesson_id?: string | null;
+    estimated_minutes?: number | null;
+    completed?: boolean;
+    completed_at?: string | null;
+    access: ResourceAccessSummary;
+    purchase: ResourcePurchaseSummary;
+    href: string;
+    created_at: string;
+    updated_at: string;
+  }>;
+  pagination: {
+    page: number;
+    limit: number;
+    total_courses: number;
+    total_contents: number;
+  };
+};
+
 // ---------------------------------------------------------------------------
 // Service
 // ---------------------------------------------------------------------------
@@ -122,6 +177,9 @@ export class LibraryService {
     private readonly courseStore?: CourseStore,
     private readonly policy: AuthorizationPolicy = defaultPolicy,
     _auditService?: AuditService,
+    private readonly entitlementService?: EntitlementService,
+    private readonly commerceStore?: CommerceStore,
+    private readonly systemOrganizationId?: OrganizationId,
   ) {}
 
   /**
@@ -306,7 +364,7 @@ export class LibraryService {
       title,
       description: input.description?.trim() || null,
       subject: input.subject?.trim() || null,
-      status: "published",
+      status: "pending_review",
       publishedAt: now,
       usageCount: 0,
       metadata,
@@ -341,7 +399,7 @@ export class LibraryService {
         title: createdPack.title,
         description: createdPack.description,
         subject: createdPack.subject,
-        status: "published",
+        status: createdPack.status,
         usage_count: createdPack.usageCount,
         stats: {
           session_count: metadata.sessionCount ?? 0,
@@ -352,6 +410,47 @@ export class LibraryService {
         published_at: createdPack.publishedAt,
         items_count: itemsToCreate.length,
       },
+    };
+  }
+
+  /**
+   * Resolves pricing structure for a Content Pack according to metadata.accessType
+   * and Commerce products (Single Source of Truth).
+   */
+  public async resolvePackPricing(pack: ContentPackRecord): Promise<ContentPackPricing> {
+    const accessType = pack.metadata.accessType;
+    if (accessType === "free") {
+      return {
+        is_free: true,
+        price: 0,
+        currency: "toman",
+        product_id: null,
+      };
+    }
+
+    if (accessType === "paid") {
+      if (this.commerceStore) {
+        const product = await this.commerceStore.findActiveProductByTarget(
+          "content_pack",
+          pack.id,
+        );
+        if (product && product.price > 0 && product.active) {
+          return {
+            is_free: false,
+            price: product.price,
+            currency: product.currency || "toman",
+            product_id: product.id,
+          };
+        }
+      }
+    }
+
+    // Fail-closed: If marked paid or unreviewed, do NOT assume free!
+    return {
+      is_free: false,
+      price: 0,
+      currency: "toman",
+      product_id: null,
     };
   }
 
@@ -379,9 +478,10 @@ export class LibraryService {
 
     const summaries: PublicContentPackItemSummary[] = await Promise.all(
       items.map(async (pack) => {
-        const creatorInfo = await this.contentPackStore.getCreatorPublicInfo(
-          pack.creatorUserId,
-        );
+        const [creatorInfo, pricing] = await Promise.all([
+          this.contentPackStore.getCreatorPublicInfo(pack.creatorUserId),
+          this.resolvePackPricing(pack),
+        ]);
 
         return {
           id: pack.id,
@@ -401,6 +501,8 @@ export class LibraryService {
               pack.metadata.estimatedReadingMinutes ?? 12,
           },
           published_at: pack.publishedAt,
+          pricing,
+          access_type: pack.metadata.accessType === "free" ? "free" : "paid",
         };
       }),
     );
@@ -420,6 +522,513 @@ export class LibraryService {
   }
 
   /**
+   * List accessible courses and contents for public/authenticated library discovery.
+   */
+  async listResources(
+    actor: Actor | null,
+    options: {
+      q?: string;
+      type?: "all" | "courses" | "contents";
+      subject?: string;
+      sort?: "popular" | "newest";
+      page?: number;
+      limit?: number;
+    },
+    requestId: string,
+  ): Promise<LibraryResourcesResponse> {
+    const page = Math.max(1, options.page ?? 1);
+    const limit = Math.max(1, Math.min(100, options.limit ?? 20));
+
+    if (typeof this.contentPackStore.listLibraryResources === "function") {
+      const result = await this.contentPackStore.listLibraryResources({
+        userId: actor?.userId,
+        systemOrganizationId: this.systemOrganizationId,
+        q: options.q,
+        type: options.type,
+        subject: options.subject,
+        sort: options.sort,
+        page,
+        limit,
+      });
+
+      const coursesWithAccess = await Promise.all(
+        result.courses.map(async (c: any) => {
+          let isFree = true;
+          let price = 0;
+          let currency = "toman";
+          let canPurchase = false;
+          let productId: string | null = null;
+
+          if (this.commerceStore) {
+            const product = await this.commerceStore.findActiveProductByTarget(
+              "course",
+              c.id,
+            );
+            if (product && product.price > 0 && product.active) {
+              isFree = false;
+              price = product.price;
+              currency = product.currency || "toman";
+              canPurchase = true;
+              productId = product.id;
+            }
+          }
+
+          let hasAccess = isFree;
+          let isPurchased = false;
+          let accessSource: ResourceAccessSummary["accessSource"] = isFree
+            ? "free"
+            : null;
+
+          if (actor && this.entitlementService) {
+            const accessResult = await this.entitlementService.checkAccess(
+              actor,
+              {
+                userId: actor.userId,
+                resourceType: "course",
+                resourceId: c.id,
+              },
+            );
+            hasAccess = accessResult.granted;
+            isPurchased = accessResult.reason === "course_purchase";
+            accessSource = accessResult.granted
+              ? (accessResult.reason as any)
+              : null;
+            if (hasAccess) {
+              canPurchase = false;
+            }
+          }
+
+          return {
+            id: c.id,
+            title: c.title,
+            description: c.description,
+            subject: c.subject,
+            module_count: c.moduleCount,
+            content_count: c.contentCount,
+            progress: c.progress
+              ? {
+                  completed_lessons: c.progress.completedLessons,
+                  total_lessons: c.progress.totalLessons,
+                  percent: c.progress.percent,
+                }
+              : undefined,
+            access: {
+              isFree,
+              isPurchased,
+              hasAccess,
+              accessSource,
+            },
+            purchase: {
+              price,
+              currency,
+              canPurchase,
+              productId,
+            },
+            href: c.href,
+            created_at: c.createdAt,
+            updated_at: c.updatedAt,
+          };
+        }),
+      );
+
+      const contentsWithAccess = await Promise.all(
+        result.contents.map(async (cnt: any) => {
+          const lessonId = cnt.lessonId || cnt.id;
+          let isFree = true;
+          let price = 0;
+          let currency = "toman";
+          let canPurchase = false;
+          let productId: string | null = null;
+
+          if (this.commerceStore) {
+            const product = await this.commerceStore.findActiveProductByTarget(
+              "content",
+              lessonId,
+            );
+            if (product && product.price > 0 && product.active) {
+              isFree = false;
+              price = product.price;
+              currency = product.currency || "toman";
+              canPurchase = true;
+              productId = product.id;
+            } else {
+              // Check if parent course is paid
+              const courseProduct =
+                await this.commerceStore.findActiveProductByTarget(
+                  "course",
+                  cnt.courseId,
+                );
+              if (
+                courseProduct &&
+                courseProduct.price > 0 &&
+                courseProduct.active
+              ) {
+                isFree = false;
+              }
+            }
+          }
+
+          let hasAccess = isFree;
+          let isPurchased = false;
+          let accessSource: ResourceAccessSummary["accessSource"] = isFree
+            ? "free"
+            : null;
+
+          if (actor && this.entitlementService) {
+            const accessResult = await this.entitlementService.checkAccess(
+              actor,
+              {
+                userId: actor.userId,
+                resourceType: "lesson",
+                resourceId: lessonId,
+                courseId: cnt.courseId,
+              },
+            );
+            hasAccess = accessResult.granted;
+            isPurchased =
+              accessResult.reason === "content_purchase" ||
+              accessResult.reason === "course_purchase";
+            accessSource = accessResult.granted
+              ? (accessResult.reason as any)
+              : null;
+            if (hasAccess) {
+              canPurchase = false;
+            }
+          }
+
+          return {
+            id: cnt.id,
+            title: cnt.title,
+            type: cnt.type,
+            course_id: cnt.courseId,
+            course_title: cnt.courseTitle,
+            module_id: cnt.moduleId,
+            module_title: cnt.moduleTitle,
+            lesson_id: cnt.lessonId,
+            estimated_minutes: cnt.estimatedMinutes,
+            completed: cnt.completed,
+            completed_at: cnt.completedAt,
+            access: {
+              isFree,
+              isPurchased,
+              hasAccess,
+              accessSource,
+            },
+            purchase: {
+              price,
+              currency,
+              canPurchase,
+              productId,
+            },
+            href: cnt.href,
+            created_at: cnt.createdAt,
+            updated_at: cnt.updatedAt,
+          };
+        }),
+      );
+
+      return {
+        request_id: requestId,
+        courses: coursesWithAccess,
+        contents: contentsWithAccess,
+        pagination: {
+          page,
+          limit,
+          total_courses: result.totalCourses,
+          total_contents: result.totalContents,
+        },
+      };
+    }
+
+    return {
+      request_id: requestId,
+      courses: [],
+      contents: [],
+      pagination: {
+        page,
+        limit,
+        total_courses: 0,
+        total_contents: 0,
+      },
+    };
+  }
+
+  /**
+   * List accessible courses with chapter packages for library discovery.
+   *
+   * Enforces:
+   * - Strict Course + Chapter/Module package identity (no duplicates).
+   * - Canonical pricing integration (explicit Product || suggested pricing formula).
+   * - Entitlement evaluation per chapter package and course.
+   */
+  async listCoursePackages(
+    actor: Actor | null,
+    options: {
+      courseId?: string;
+      q?: string;
+      subject?: string;
+      sort?: "popular" | "newest";
+      page?: number;
+      limit?: number;
+    },
+    requestId: string,
+  ): Promise<CoursePackagesResponse> {
+    const page = Math.max(1, options.page ?? 1);
+    const limit = Math.max(1, Math.min(100, options.limit ?? 20));
+
+    if (typeof this.contentPackStore.listCoursePackages !== "function") {
+      return {
+        request_id: requestId,
+        courses: [],
+        pagination: {
+          page,
+          limit,
+          total_courses: 0,
+          total_packages: 0,
+        },
+      };
+    }
+
+    const rawResult = await this.contentPackStore.listCoursePackages({
+      userId: actor?.userId,
+      systemOrganizationId: this.systemOrganizationId,
+      courseId: (options.courseId || (options as any).course_id) as any,
+      q: options.q,
+      subject: options.subject,
+      sort: options.sort,
+      page,
+      limit,
+    });
+
+    const coursesWithAccessAndPricing: CourseWithChapterPackages[] = await Promise.all(
+      rawResult.courses.map(async (c) => {
+        // 1. Resolve Course-level pricing and access
+        let isCourseFree = false;
+        let coursePrice = 0;
+        let courseCurrency = "toman";
+        let canPurchaseCourse = false;
+        let courseProductId: string | null = null;
+
+        if (this.commerceStore) {
+          const courseProduct = await this.commerceStore.findActiveProductByTarget(
+            "course",
+            c.id,
+          );
+          if (courseProduct && courseProduct.price > 0 && courseProduct.active) {
+            isCourseFree = false;
+            coursePrice = courseProduct.price;
+            courseCurrency = courseProduct.currency || "toman";
+            canPurchaseCourse = true;
+            courseProductId = courseProduct.id;
+          } else if (courseProduct && courseProduct.price === 0 && (courseProduct.metadata as any)?.explicitlyFree === true) {
+            isCourseFree = true;
+            coursePrice = 0;
+            canPurchaseCourse = false;
+            courseProductId = courseProduct.id;
+          }
+        }
+
+        let hasCourseAccess = isCourseFree;
+        let isCoursePurchased = false;
+        let courseAccessSource: ResourceAccessSummary["accessSource"] = isCourseFree
+          ? "free"
+          : null;
+
+        if (actor && this.entitlementService) {
+          const courseAccessRes = await this.entitlementService.checkAccess(actor, {
+            userId: actor.userId,
+            resourceType: "course",
+            resourceId: c.id,
+          });
+          hasCourseAccess = courseAccessRes.granted;
+          isCoursePurchased = courseAccessRes.reason === "course_purchase";
+          courseAccessSource = courseAccessRes.granted
+            ? (courseAccessRes.reason as any)
+            : null;
+          if (hasCourseAccess) {
+            canPurchaseCourse = false;
+          }
+        }
+
+        // 2. Resolve Chapter-level pricing and access
+        const packagesWithAccess = await Promise.all(
+          c.packages.map(async (pkg) => {
+            let isPkgFree = isCourseFree;
+            let pkgPrice = 0;
+            let pkgCurrency = "toman";
+            let canPurchasePkg = false;
+            let pkgProductId: string | null = null;
+
+            if (this.commerceStore) {
+              let product: import("@avana/domain").ProductRecord | undefined | null;
+              if (pkg.id) {
+                product = await this.commerceStore.findActiveProductByTarget(
+                  "content_pack",
+                  pkg.id,
+                );
+              }
+              if (!product && pkg.contentPackId) {
+                product = await this.commerceStore.findActiveProductByTarget(
+                  "content_pack",
+                  pkg.contentPackId,
+                );
+              }
+              if (!product && pkg.contents.lesson.lessonId) {
+                product = await this.commerceStore.findActiveProductByTarget(
+                  "content",
+                  pkg.contents.lesson.lessonId,
+                );
+              }
+
+              if (product && product.active) {
+                if (product.price > 0) {
+                  isPkgFree = false;
+                  pkgPrice = product.price;
+                  pkgCurrency = product.currency || "toman";
+                  canPurchasePkg = true;
+                  pkgProductId = product.id;
+                } else if (product.price === 0 && (product.metadata as any)?.explicitlyFree === true) {
+                  isPkgFree = true;
+                  pkgPrice = 0;
+                  canPurchasePkg = false;
+                  pkgProductId = product.id;
+                }
+              } else {
+                // Canonical suggested pricing for unpriced educational packages
+                const suggested = calculateDefaultContentPrice({
+                  lessonCount: pkg.stats.lessonCount,
+                  flashcardCount: pkg.stats.flashcardCount,
+                  questionCount: pkg.stats.quizQuestionCount,
+                  hasReviewSummary: pkg.contents.summary.exists,
+                });
+                if (suggested > 0) {
+                  isPkgFree = false;
+                  pkgPrice = suggested;
+                  pkgCurrency = "toman";
+                  canPurchasePkg = true;
+                  pkgProductId = null;
+                }
+              }
+            } else {
+              const suggested = calculateDefaultContentPrice({
+                lessonCount: pkg.stats.lessonCount,
+                flashcardCount: pkg.stats.flashcardCount,
+                questionCount: pkg.stats.quizQuestionCount,
+                hasReviewSummary: pkg.contents.summary.exists,
+              });
+              if (suggested > 0) {
+                isPkgFree = false;
+                pkgPrice = suggested;
+                pkgCurrency = "toman";
+                canPurchasePkg = true;
+                pkgProductId = null;
+              }
+            }
+
+            let hasPkgAccess = isPkgFree;
+            let isPkgPurchased = false;
+            let pkgAccessSource: ResourceAccessSummary["accessSource"] = isPkgFree
+              ? "free"
+              : null;
+
+            if (hasCourseAccess) {
+              hasPkgAccess = true;
+              isPkgPurchased = isCoursePurchased;
+              pkgAccessSource = courseAccessSource;
+              canPurchasePkg = false;
+            } else if (actor && this.entitlementService) {
+              let accessRes: import("@avana/domain").ResourceAccessResult | undefined;
+              if (pkg.contentPackId) {
+                accessRes = await this.entitlementService.checkAccess(actor, {
+                  userId: actor.userId,
+                  resourceType: "content_pack",
+                  resourceId: pkg.contentPackId,
+                  courseId: c.id as any,
+                });
+              } else if (pkg.contents.lesson.lessonId) {
+                accessRes = await this.entitlementService.checkAccess(actor, {
+                  userId: actor.userId,
+                  resourceType: "lesson",
+                  resourceId: pkg.contents.lesson.lessonId,
+                  courseId: c.id as any,
+                });
+              } else {
+                accessRes = await this.entitlementService.checkAccess(actor, {
+                  userId: actor.userId,
+                  resourceType: "module",
+                  resourceId: pkg.moduleId,
+                  courseId: c.id as any,
+                });
+              }
+
+              if (accessRes && accessRes.granted) {
+                hasPkgAccess = true;
+                isPkgPurchased =
+                  accessRes.reason === "content_pack_purchase" ||
+                  accessRes.reason === "course_purchase" ||
+                  accessRes.reason === "content_purchase";
+                pkgAccessSource = accessRes.reason as any;
+                canPurchasePkg = false;
+              }
+            }
+
+            return {
+              ...pkg,
+              access: {
+                isFree: isPkgFree,
+                isPurchased: isPkgPurchased,
+                hasAccess: hasPkgAccess,
+                accessSource: pkgAccessSource,
+              },
+              purchase: {
+                price: pkgPrice,
+                currency: pkgCurrency,
+                canPurchase: canPurchasePkg,
+                productId: pkgProductId,
+              },
+            };
+          }),
+        );
+
+        return {
+          id: c.id,
+          title: c.title,
+          description: c.description,
+          subject: c.subject,
+          isOfficial: c.isOfficial,
+          totalPackages: packagesWithAccess.length,
+          packages: packagesWithAccess,
+          access: {
+            isFree: isCourseFree,
+            isPurchased: isCoursePurchased,
+            hasAccess: hasCourseAccess,
+            accessSource: courseAccessSource,
+          },
+          purchase: {
+            price: coursePrice,
+            currency: courseCurrency,
+            canPurchase: canPurchaseCourse,
+            productId: courseProductId,
+          },
+          createdAt: c.createdAt,
+          updatedAt: c.updatedAt,
+        };
+      }),
+    );
+
+    return {
+      request_id: requestId,
+      courses: coursesWithAccessAndPricing,
+      pagination: {
+        page,
+        limit,
+        total_courses: rawResult.totalCourses,
+        total_packages: rawResult.totalPackages,
+      },
+    };
+  }
+
+  /**
    * Get detailed preview of a single published Content Pack.
    *
    * Preview and stats are derived exclusively from content_pack_items.payload_snapshot.
@@ -430,15 +1039,21 @@ export class LibraryService {
     requestId: string,
   ): Promise<PublicLibraryDetailResponse> {
     const pack = await this.contentPackStore.findById(packId);
-    if (!pack || pack.status !== "published" || pack.deletedAt !== null) {
-      throw new DomainError("not_found", "بسته آموزشی یافت نشد.");
+    if (
+      !pack ||
+      pack.status !== "published" ||
+      pack.deletedAt !== null ||
+      (pack.metadata?.accessType && pack.metadata?.accessType !== "free" && pack.metadata?.accessType !== "paid")
+    ) {
+      throw new DomainError("not_found", "بسته آموزشی یافت نشد یا در انتظار بازبینی است.");
     }
 
-    const items = await this.contentPackStore.findItemsByPackId(packId);
+    const [items, creatorInfo, pricing] = await Promise.all([
+      this.contentPackStore.findItemsByPackId(packId),
+      this.contentPackStore.getCreatorPublicInfo(pack.creatorUserId),
+      this.resolvePackPricing(pack),
+    ]);
     const preview = buildContentPackPreview(items);
-    const creatorInfo = await this.contentPackStore.getCreatorPublicInfo(
-      pack.creatorUserId,
-    );
 
     const detailResource: PublicContentPackDetailResource = {
       id: pack.id,
@@ -459,6 +1074,8 @@ export class LibraryService {
       },
       published_at: pack.publishedAt,
       preview,
+      pricing,
+      access_type: pack.metadata.accessType === "free" ? "free" : "paid",
     };
 
     return {
@@ -491,34 +1108,74 @@ export class LibraryService {
     }
 
     const course = await this.courseStore.findById(courseId);
-    if (!course) {
+    if (!course || course.deletedAt !== null) {
       throw new DomainError("not_found", "دوره آموزشی یافت نشد.");
     }
 
     // 2. Authorize actor access to the course/organization
+    const isSystemCourse =
+      (this.systemOrganizationId &&
+        course.organizationId === this.systemOrganizationId) ||
+      course.isOfficial === true;
+
+    // Unpublished official courses must not be accessible to students
     if (
-      this.organizationStore &&
-      typeof this.organizationStore.findMembership === "function"
+      course.isOfficial === true &&
+      course.status !== undefined &&
+      course.status !== "published" &&
+      actor.role !== "platform_admin"
     ) {
-      const membership = await this.organizationStore.findMembership(
-        course.organizationId,
-        actor.userId,
-      );
-      if (!membership) {
-        throw new DomainError("forbidden", "شما به این دوره دسترسی ندارید.");
+      throw new DomainError("not_found", "دوره آموزشی یافت نشد.");
+    }
+
+    // For private courses (non-system), actor must be a member of the owning organization (preventing cross-tenant IDOR)
+    if (!isSystemCourse) {
+      if (
+        this.organizationStore &&
+        typeof this.organizationStore.findMembership === "function"
+      ) {
+        const membership = await this.organizationStore.findMembership(
+          course.organizationId,
+          actor.userId,
+        );
+        if (!membership) {
+          throw new DomainError("forbidden", "شما به این دوره دسترسی ندارید.");
+        }
       }
     }
 
-    // 3. Find pack and verify published & active
+    // 3. Find pack and verify published & active with explicit accessType
     const pack = await this.contentPackStore.findById(packId);
-    if (!pack || pack.status !== "published" || pack.deletedAt !== null) {
+    if (
+      !pack ||
+      pack.status !== "published" ||
+      pack.deletedAt !== null ||
+      (pack.metadata?.accessType && pack.metadata?.accessType !== "free" && pack.metadata?.accessType !== "paid")
+    ) {
       throw new DomainError(
         "not_found",
         "بسته آموزشی یافت نشد یا منتشر نشده است.",
       );
     }
 
-    // 4. Check idempotency: if already installed in this specific course
+    // 4. Verify user entitlement to add/install this Content Pack
+    if (this.entitlementService) {
+      const access = await this.entitlementService.checkAccess(actor, {
+        userId: actor.userId,
+        resourceType: "content_pack",
+        resourceId: packId,
+        courseId,
+      });
+
+      if (!access.granted) {
+        throw new DomainError(
+          "forbidden",
+          "برای افزودن این بسته به دوره خود، فعال‌سازی اشتراک آوانا پلاس یا خرید این بسته الزامی است.",
+        );
+      }
+    }
+
+    // 5. Check idempotency: if already installed in this specific course
     const existingUsage = await this.contentPackStore.findUsage(
       packId,
       actor.userId,

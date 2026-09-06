@@ -13,7 +13,13 @@ export type DomainErrorCode =
   | "unprocessable"
   | "rate_limit_exceeded"
   | "too_many_requests"
-  | "internal_error";
+  | "service_unavailable"
+  | "internal_error"
+  | "SESSION_REVOKED"
+  | "DEVICE_LIMIT_REACHED"
+  | "UNAUTHORIZED"
+  | "SUBSCRIPTION_REQUIRED"
+  | "SUBSCRIPTION_NOT_ACTIVE";
 
 export interface DomainErrorDetails {
   [key: string]: string | number | boolean | null | undefined;

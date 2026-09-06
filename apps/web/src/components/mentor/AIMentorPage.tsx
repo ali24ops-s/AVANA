@@ -22,6 +22,7 @@ import {
   Zap,
 } from "lucide-react";
 import { useStudySessionTracker } from "../../hooks/useStudySessionTracker.js";
+import { RichContent } from "../markdown/MarkdownRenderer.js";
 
 // ─── Types ───────────────────────────────────────────────
 
@@ -608,22 +609,7 @@ export function AIMentorPage({
                           {msg.content && (
                             <div className="bg-[var(--color-surface)] rounded-2xl rounded-tl-sm border border-[var(--color-border)] p-5">
                               <div className="text-sm leading-relaxed prose-sm">
-                                {msg.content.split("\n").map((line, i) => (
-                                  <p key={i} className="mb-2 last:mb-0">
-                                    {line.split("**").map((part, j) =>
-                                      j % 2 === 1 ? (
-                                        <strong
-                                          key={j}
-                                          className="font-semibold"
-                                        >
-                                          {part}
-                                        </strong>
-                                      ) : (
-                                        part
-                                      ),
-                                    )}
-                                  </p>
-                                ))}
+                                <RichContent content={msg.content} />
                               </div>
                             </div>
                           )}

@@ -5,6 +5,9 @@ import {
   canonicalizeAndShuffleQuestion,
   validateQuestionIntegrity,
   validateQuestionQuality,
+  detectAnswerLeakage,
+  normalizeQuestionOptions,
+  repairQuestionBias,
   isStudentAnswerCorrect,
 } from "../question-shuffling.js";
 
@@ -329,19 +332,19 @@ describe("Question Option Shuffling & Invariant Validation (Domain)", () => {
 
       const res = validateQuestionQuality(extremeAsymmetryQ);
       expect(res.valid).toBe(false);
-      expect(res.errors.some((e) => e.includes("disproportionately longer than distractors"))).toBe(true);
+      expect(res.errors.some((e) => e.includes("longer than distractors") || e.includes("brief stubs"))).toBe(true);
     });
 
-    it("treats moderate natural length variations as warnings rather than hard rejects", () => {
+    it("treats moderate natural length variations with balanced terminology as valid", () => {
       const moderateVariationQ = {
         question: "مکانیسم عمل کدام است؟",
         choices: [
-          "مهار اختصاصی پمپ پروتون (H+/K+-ATPase)",
-          "بلوک گیرنده‌های H2 هیستامینی",
-          "خنثی‌سازی اسید معده",
-          "محافظت از موکوس مخاط",
+          "مهار اختصاصی پمپ پروتون اسید معده",
+          "بلوک گیرنده‌های هیستامینی",
+          "خنثی‌سازی اسید ترشحی معده",
+          "محافظت از سد دفاعی موکوس",
         ],
-        correctAnswer: "مهار اختصاصی پمپ پروتون (H+/K+-ATPase)",
+        correctAnswer: "مهار اختصاصی پمپ پروتون اسید معده",
       };
 
       const res = validateQuestionQuality(moderateVariationQ);
@@ -362,7 +365,323 @@ describe("Question Option Shuffling & Invariant Validation (Domain)", () => {
     });
   });
 
-  describe("7. High-Volume Statistical Distribution & Invariant Guarantees (1,000 Questions)", () => {
+  describe("7. Information & Explanation Leakage Detection (Option-to-Option Parity across 13 dimensions)", () => {
+    it("rejects question when ONLY correct choice has English equivalent (English asymmetry leakage)", () => {
+      const q = {
+        question: "کدام دارو در دسته بتابلاکرها قرار دارد؟",
+        choices: [
+          "پروپرانولول (Propranolol)",
+          "لوزارتان",
+          "آملودیپین",
+          "کاپتوپریل",
+        ],
+        correctAnswer: "پروپرانولول (Propranolol)",
+      };
+
+      const res = validateQuestionQuality(q);
+      expect(res.valid).toBe(false);
+      expect(res.errors.some((e) => e.includes("English terminology") || e.includes("Answer Leakage"))).toBe(true);
+      expect(res.metrics?.leakageReport?.features.englishAsymmetry).toBe(true);
+    });
+
+    it("accepts question when ALL choices consistently include English equivalents (symmetric convention)", () => {
+      const q = {
+        question: "کدام دارو بتابلاکر اختصاصی گیرنده بتا-۱ است؟",
+        choices: [
+          "بیزوپرولول (Bisoprolol)",
+          "پروپرانولول (Propranolol)",
+          "تیمولول (Timolol)",
+          "کارودیلول (Carvedilol)",
+        ],
+        correctAnswer: "بیزوپرولول (Bisoprolol)",
+      };
+
+      const res = validateQuestionQuality(q);
+      expect(res.valid).toBe(true);
+      expect(res.errors).toHaveLength(0);
+      expect(res.metrics?.leakageReport?.features.englishAsymmetry).toBe(false);
+    });
+
+    it("accepts question when ALL choices are in Persian without any English (symmetric baseline)", () => {
+      const q = {
+        question: "کدام رده دارویی در درمان پرفشاری خون خط اول است؟",
+        choices: [
+          "مهارکننده‌های آنزیم مبدل آنژیوتانسین",
+          "مسدودکننده‌های کانال کلسیم",
+          "دیورتیک‌های تیازیدی",
+          "مسدودکننده‌های گیرنده بتا",
+        ],
+        correctAnswer: "مهارکننده‌های آنزیم مبدل آنژیوتانسین",
+      };
+
+      const res = validateQuestionQuality(q);
+      expect(res.valid).toBe(true);
+      expect(res.errors).toHaveLength(0);
+      expect(res.metrics?.leakageReport?.hasLeakage).toBe(false);
+    });
+
+    it("rejects question when ONLY correct choice contains an explanatory marker ('به دلیل...')", () => {
+      const q = {
+        question: "مکانیسم اثر داروی انتخابی چیست؟",
+        choices: [
+          "مهار آنزیم COX-2، به دلیل کاهش سنتز پروستاگلاندین‌های التهابی در بافت آسیب‌دیده",
+          "مهار گیرنده هیستامین",
+          "مهار کانال کلسیمی",
+          "تحریک گیرنده آلفا",
+        ],
+        correctAnswer: "مهار آنزیم COX-2، به دلیل کاهش سنتز پروستاگلاندین‌های التهابی در بافت آسیب‌دیده",
+      };
+
+      const res = validateQuestionQuality(q);
+      expect(res.valid).toBe(false);
+      expect(res.errors.some((e) => e.includes("explanatory/justification clauses") || e.includes("longer than distractors"))).toBe(true);
+      expect(res.metrics?.leakageReport?.features.explanatoryClauseAsymmetry).toBe(true);
+    });
+
+    it("rejects question when ONLY correct choice has parenthetical qualification", () => {
+      const q = {
+        question: "کدام دارو جهت القای بی‌هوشی ترجیح داده می‌شود؟",
+        choices: [
+          "پروپوفول (شروع اثر سریع و ریکاوری کوتاه)",
+          "کتامین",
+          "اتومیدات",
+          "میدازولام",
+        ],
+        correctAnswer: "پروپوفول (شروع اثر سریع و ریکاوری کوتاه)",
+      };
+
+      const res = validateQuestionQuality(q);
+      expect(res.valid).toBe(false);
+      expect(res.errors.some((e) => e.includes("parenthetical annotations") || e.includes("Formatting Leakage"))).toBe(true);
+      expect(res.metrics?.leakageReport?.features.parenthesesAsymmetry).toBe(true);
+    });
+
+    it("rejects question when ONLY correct choice has acronym/abbreviation (e.g. ACEI)", () => {
+      const q = {
+        question: "کدام رده دارویی در درمان نارسایی قلبی خط اول است؟",
+        choices: [
+          "مهارکننده‌های رده ACEI",
+          "بلوک‌کننده‌های آلفا",
+          "وازودیلاتورهای مستقیم",
+          "نیترات‌های وریدی",
+        ],
+        correctAnswer: "مهارکننده‌های رده ACEI",
+      };
+
+      const res = validateQuestionQuality(q);
+      expect(res.valid).toBe(false);
+      expect(res.errors.some((e) => e.includes("English terminology") || e.includes("acronym/abbreviation"))).toBe(true);
+      expect(res.metrics?.leakageReport?.hasLeakage).toBe(true);
+    });
+
+    it("rejects question when ONLY correct choice contains synonym / alias marker ('یا ...')", () => {
+      const q = {
+        question: "کدام دارو دی‌هیدروپیریدینی است؟",
+        choices: [
+          "آملودیپین یا نورواسک",
+          "وراپامیل",
+          "دیلتیازم",
+          "پروپرانولول",
+        ],
+        correctAnswer: "آملودیپین یا نورواسک",
+      };
+
+      const res = validateQuestionQuality(q);
+      expect(res.valid).toBe(false);
+      expect(res.metrics?.leakageReport?.features.synonymAsymmetry).toBe(true);
+    });
+
+    it("rejects question when ONLY correct choice contains Latin / scientific binomial name", () => {
+      const q = {
+        question: "کدام داروی گیاهی برای بهبود حافظه به کار می‌رود؟",
+        choices: [
+          "عصاره گیاه جینکو (Ginkgo biloba)",
+          "عصاره گل گاوزبان",
+          "عصاره سنبل الطیب",
+          "عصاره بابونه",
+        ],
+        correctAnswer: "عصاره گیاه جینکو (Ginkgo biloba)",
+      };
+
+      const res = validateQuestionQuality(q);
+      expect(res.valid).toBe(false);
+      expect(res.metrics?.leakageReport?.features.scientificNameAsymmetry || res.metrics?.leakageReport?.features.englishAsymmetry).toBe(true);
+    });
+
+    it("rejects question when ONLY correct choice contains descriptive qualifier ('با اثر انتخابی ...')", () => {
+      const q = {
+        question: "کدام آگونیست در آسم ارجح است؟",
+        choices: [
+          "سالبوتامول - با اثر اختصاصی بر مجاری تنفسی",
+          "اپی‌نفرین",
+          "ایزوپروترنول",
+          "افدرین",
+        ],
+        correctAnswer: "سالبوتامول - با اثر اختصاصی بر مجاری تنفسی",
+      };
+
+      const res = validateQuestionQuality(q);
+      expect(res.valid).toBe(false);
+      expect(res.metrics?.leakageReport?.features.qualifierAsymmetry || res.metrics?.leakageReport?.features.punctuationAsymmetry).toBe(true);
+    });
+
+    it("rejects question when ONLY correct choice gives concrete examples ('مانند ...')", () => {
+      const q = {
+        question: "کدام دسته دارویی اثر آنابولیک بر استخوان دارد؟",
+        choices: [
+          "آنالوگ‌های هورمون پاراتیروئید مانند ترپاراتید",
+          "بیس‌فسفونات‌های آمین‌دار خوراکی",
+          "آنتی‌بادی‌های مونوکلونال ضد RANKL",
+          "کلسیتونین سینتتیک نوترکیب",
+        ],
+        correctAnswer: "آنالوگ‌های هورمون پاراتیروئید مانند ترپاراتید",
+      };
+
+      const res = validateQuestionQuality(q);
+      expect(res.valid).toBe(false);
+      expect(res.metrics?.leakageReport?.features.exampleAsymmetry).toBe(true);
+    });
+
+    it("does NOT reject question when correct option is only slightly longer without any leakage clues", () => {
+      const q = {
+        question: "کدام داروی بتابلاکر برای نارسایی قلبی تایید شده است؟",
+        choices: [
+          "سوکسینات متوپرولول", // 18 chars, 2 words
+          "تیمولول",           // 7 chars, 1 word
+          "آتنولول",           // 7 chars, 1 word
+          "پیندولول",          // 8 chars, 1 word
+        ],
+        correctAnswer: "سوکسینات متوپرولول",
+      };
+
+      // Gap is 11 chars (below 18 char threshold), no English, no parens, no qualifier -> VALID!
+      const res = validateQuestionQuality(q);
+      expect(res.valid).toBe(true);
+      expect(res.metrics?.leakageReport?.hasLeakage).toBe(false);
+    });
+  });
+
+  describe("8. Safe Option Normalization (normalizeQuestionOptions & repairQuestionBias)", () => {
+    it("safely normalizes redundant English parentheticals when distractors have no English", () => {
+      const biasedQ = {
+        question: "کدام دارو بتابلاکر است؟",
+        choices: [
+          "پروپرانولول (Propranolol)",
+          "لوزارتان",
+          "آملودیپین",
+          "کاپتوپریل",
+        ],
+        correctAnswer: "پروپرانولول (Propranolol)",
+      };
+
+      const norm = normalizeQuestionOptions(biasedQ);
+      expect(norm.repaired).toBe(true);
+      expect(norm.canBeRepaired).toBe(true);
+      expect(norm.normalized.correctAnswer).toBe("پروپرانولول");
+      expect(norm.normalized.choices).toEqual([
+        "پروپرانولول",
+        "لوزارتان",
+        "آملودیپین",
+        "کاپتوپریل",
+      ]);
+
+      const postValidation = validateQuestionQuality(norm.normalized);
+      expect(postValidation.valid).toBe(true);
+    });
+
+    it("safely normalizes trailing explanatory phrases when remaining text is a standard drug entity", () => {
+      const biasedQ = {
+        question: "داروی خط اول در این بیماری کدام است؟",
+        choices: [
+          "پروپرانولول، به دلیل مهار گیرنده‌های قلبی",
+          "متوپرولول",
+          "آتنولول",
+          "بیزوپرولول",
+        ],
+        correctAnswer: "پروپرانولول، به دلیل مهار گیرنده‌های قلبی",
+      };
+
+      const norm = normalizeQuestionOptions(biasedQ);
+      expect(norm.repaired).toBe(true);
+      expect(norm.canBeRepaired).toBe(true);
+      expect(norm.normalized.correctAnswer).toBe("پروپرانولول");
+      expect(norm.normalized.choices).toContain("پروپرانولول");
+      expect(norm.repairedFields).toContain("removed_trailing_explanation");
+
+      const postValidation = validateQuestionQuality(norm.normalized);
+      expect(postValidation.valid).toBe(true);
+    });
+
+    it("does NOT alter questions that cannot be safely normalized without losing scientific meaning", () => {
+      const complexBiasedQ = {
+        question: "مکانیسم دقیق فارماکولوژی کدام است؟",
+        choices: [
+          "مهار انتخابی و رقابتی و برگشت‌پذیر آنزیم در بافت میوکارد بطن چپ",
+          "کاهش درد",
+          "تسکین تب",
+          "اثر محیطی",
+        ],
+        correctAnswer: "مهار انتخابی و رقابتی و برگشت‌پذیر آنزیم در بافت میوکارد بطن چپ",
+      };
+
+      const norm = normalizeQuestionOptions(complexBiasedQ);
+      expect(norm.repaired).toBe(false);
+      expect(norm.canBeRepaired).toBe(false);
+      expect(norm.question).toBeNull();
+    });
+
+    it("preserves correct answer mapping and invariants after normalization and shuffling", () => {
+      const rawQuestion = {
+        question: "کدام دارو مهارکننده ACE است؟",
+        choices: [
+          "کاپتوپریل (Captopril)",
+          "لوزارتان",
+          "آملودیپین",
+          "پروپرانولول",
+        ],
+        correctAnswer: "کاپتوپریل (Captopril)",
+      };
+
+      const directLeakage = detectAnswerLeakage(rawQuestion);
+      expect(directLeakage.hasLeakage).toBe(true);
+      expect(directLeakage.features.englishAsymmetry).toBe(true);
+
+      const legacyRepair = repairQuestionBias(rawQuestion);
+      expect(legacyRepair.repaired).toBe(true);
+      expect(legacyRepair.repairedCorrectAnswer).toBe("کاپتوپریل");
+
+      const normalized = normalizeQuestionOptions(rawQuestion);
+      expect(normalized.repaired).toBe(true);
+
+      const shuffled = canonicalizeAndShuffleQuestion(normalized.normalized);
+      expect(shuffled.choices).toHaveLength(4);
+      expect(shuffled.correctAnswer).toBe("کاپتوپریل");
+      expect(shuffled.choices).toContain("کاپتوپریل");
+      expect(isStudentAnswerCorrect("کاپتوپریل", shuffled)).toBe(true);
+      expect(validateQuestionQuality(shuffled).valid).toBe(true);
+    });
+  });
+
+  describe("9. Persian Language & Text Normalization", () => {
+    it("handles Persian half-space (نیم‌فاصله) and Persian numerals correctly without false positives", () => {
+      const persianQ = {
+        question: "کدام دارو مهارکننده اختصاصی گیرنده بتا-۱ است؟",
+        choices: [
+          "مهارکننده‌های انتخابی بتا-۱",
+          "مهارکننده‌های غیرانتخابی بتا",
+          "آگونیست‌های گیرنده‌های آلفا-۲",
+          "مسدودکننده‌های کانال کلسیمی",
+        ],
+        correctAnswer: "مهارکننده‌های انتخابی بتا-۱",
+      };
+
+      const res = validateQuestionQuality(persianQ, { requireFourChoices: true });
+      expect(res.valid).toBe(true);
+      expect(res.errors).toHaveLength(0);
+    });
+  });
+
+  describe("10. High-Volume Statistical Distribution & Invariant Guarantees (1,000 Questions)", () => {
     it("shuffles 1,000 Option-A biased questions into a statistically balanced distribution across A, B, C, D", () => {
       const N = 1000;
       const positionCounts = { A: 0, B: 0, C: 0, D: 0 };
@@ -419,6 +738,48 @@ describe("Question Option Shuffling & Invariant Validation (Domain)", () => {
       expect(total).toBe(1000);
     });
 
+    it("shuffles 10,000 Option-A biased questions with high-precision uniform distribution across A, B, C, D (~25% each)", () => {
+      const N = 10000;
+      const positionCounts = { A: 0, B: 0, C: 0, D: 0 };
+
+      for (let i = 0; i < N; i++) {
+        const correctText = `گزینه هدف ${i}`;
+        const input = {
+          question: `سوال آزمون شماره ${i}؟`,
+          choices: [
+            correctText, // 100% position 0
+            `گزینه گمراه‌کننده ۱-${i}`,
+            `گزینه گمراه‌کننده ۲-${i}`,
+            `گزینه گمراه‌کننده ۳-${i}`,
+          ],
+          correctAnswer: correctText,
+        };
+
+        const result = canonicalizeAndShuffleQuestion(input);
+        const pos = result.choices?.indexOf(correctText) ?? -1;
+        expect(pos).toBeGreaterThanOrEqual(0);
+        expect(pos).toBeLessThan(4);
+
+        const letter = String.fromCharCode(65 + pos) as "A" | "B" | "C" | "D";
+        positionCounts[letter]++;
+      }
+
+      // Expected ~2500 per slot; verify within ~250 (2.5% tolerance)
+      expect(positionCounts.A).toBeGreaterThan(2250);
+      expect(positionCounts.A).toBeLessThan(2750);
+
+      expect(positionCounts.B).toBeGreaterThan(2250);
+      expect(positionCounts.B).toBeLessThan(2750);
+
+      expect(positionCounts.C).toBeGreaterThan(2250);
+      expect(positionCounts.C).toBeLessThan(2750);
+
+      expect(positionCounts.D).toBeGreaterThan(2250);
+      expect(positionCounts.D).toBeLessThan(2750);
+
+      expect(positionCounts.A + positionCounts.B + positionCounts.C + positionCounts.D).toBe(10000);
+    });
+
     it("maintains strict answer preservation across multiple consecutive shuffles", () => {
       const initial = {
         question: "داروی کاهنده قند خون از دسته بیگوانیدها کدام است؟",
@@ -436,4 +797,71 @@ describe("Question Option Shuffling & Invariant Validation (Domain)", () => {
       }
     });
   });
+
+  describe("11. False Positive Protection & Scientific Integrity Tests", () => {
+    it("accepts naturally longer scientific/pharmacological options when all choices share balanced structure without leakage", () => {
+      const legitimateSciQ = {
+        question: "کدام گروه دارویی برای بیمار دیابتی با پروتئینوری اولویت خط اول است؟",
+        choices: [
+          "مهارکننده‌های آنزیم مبدل آنژیوتانسین",
+          "مسدودکننده‌های کانال کلسیم دی‌هیدروپیریدینی",
+          "آگونیست‌های گیرنده آلفا-۲ آدرنرژیک",
+          "دیورتیک‌های لوپ هنله",
+        ],
+        correctAnswer: "مهارکننده‌های آنزیم مبدل آنژیوتانسین",
+      };
+
+      const res = validateQuestionQuality(legitimateSciQ, {
+        requireFourChoices: true,
+        rejectAnswerLeakage: true,
+      });
+
+      expect(res.valid).toBe(true);
+      expect(res.errors).toHaveLength(0);
+    });
+
+    it("accepts consistent English medical nomenclature when applied symmetrically across all options", () => {
+      const symmetricEnglishQ = {
+        question: "کدام بتابلاکر برای نارسایی قلبی تاییدیه بالینی دارد؟",
+        choices: [
+          "متوپرولول سوکسینات (Metoprolol Succinate)",
+          "پروپرانولول هیدروکلراید (Propranolol HCl)",
+          "آتنولول خوراکی (Atenolol Oral)",
+          "سوتالول وریدی (Sotalol IV)",
+        ],
+        correctAnswer: "متوپرولول سوکسینات (Metoprolol Succinate)",
+      };
+
+      const res = validateQuestionQuality(symmetricEnglishQ, {
+        requireFourChoices: true,
+        rejectAnswerLeakage: true,
+      });
+
+      expect(res.valid).toBe(true);
+      expect(res.errors).toHaveLength(0);
+    });
+
+    it("does not artificially force correct != longest if length difference is minor and choices are balanced", () => {
+      const slightlyLongerCorrectQ = {
+        question: "خط اول درمان دارویی هیپرتانسیون اولیه چیست؟",
+        choices: [
+          "مهارکننده آنزیم مبدل", // 20 chars (correct)
+          "بتابلاکر انتخابی", // 16 chars
+          "وازودیلاتور مستقیم", // 17 chars
+          "آلفابلاکر محیطی", // 15 chars
+        ],
+        correctAnswer: "مهارکننده آنزیم مبدل",
+      };
+
+      const res = validateQuestionQuality(slightlyLongerCorrectQ, {
+        requireFourChoices: true,
+        rejectAnswerLeakage: true,
+      });
+
+      expect(res.valid).toBe(true);
+      expect(res.errors).toHaveLength(0);
+    });
+  });
 });
+
+

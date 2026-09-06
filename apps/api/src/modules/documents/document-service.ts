@@ -42,6 +42,7 @@ import type { FlashcardStore, QuizStore } from "../study/study-store.js";
 import type { StorageProvider } from "../storage/storage-provider.js";
 import type { AuditService } from "../../observability/audit-service.js";
 import type { DocumentProcessingService } from "./document-processing-service.js";
+import type { EntitlementService } from "../commerce/entitlement-service.js";
 import type {
   DocumentDetailResource,
   DocumentQualityLevel,
@@ -240,6 +241,7 @@ export class DocumentService {
     private readonly courseStore?: CourseStore,
     private readonly moduleStore?: ModuleStore,
     private readonly lessonStore?: LessonStore,
+    private readonly entitlementService?: EntitlementService,
   ) {}
 
   /**
@@ -261,12 +263,36 @@ export class DocumentService {
 
   /**
    * Resolve the actor's scoped role and authorize an action within an org.
+   *
+   * For regular tenant users:
+   * - Requires active membership in the organization (non-disclosing 404).
+   * - Scopes actor role to membership.role.
+   * - Enforces domain authorization policy for the scoped actor.
+   *
+   * For platform_admin:
+   * - Platform admins are global superusers and do not require tenant membership rows.
+   * - Explicitly verifies the organization genuinely exists in the store (non-disclosing 404 if not).
+   * - Evaluates policy.require(action, actor, context) to ensure RoleBasedPolicy explicitly
+   *   permits the action for platform_admin.
    */
   private async authorize(
     actor: Actor,
     organizationId: OrganizationId,
     action: "document:upload" | "document:read",
   ): Promise<void> {
+    if (actor.role === "platform_admin") {
+      // 1. Verify that the target organization actually exists (non-disclosing 404)
+      const org = await this.organizationStore.findById(organizationId);
+      if (!org) {
+        throw new DomainError("not_found", "Organization not found");
+      }
+
+      // 2. Explicitly verify that RoleBasedPolicy permits this action for platform_admin
+      const context: AuthContext = { organizationId };
+      this.policy.require(action, actor, context);
+      return;
+    }
+
     const membership = await this.requireMembership(actor, organizationId);
     const scopedActor = { ...actor, role: membership.role };
     const context: AuthContext = { organizationId };
@@ -274,12 +300,18 @@ export class DocumentService {
   }
 
   /**
-   * Resolve the actor's role in an organization (returns null if not a member).
+   * Resolve the actor's effective role in an organization context (returns null if not a member).
+   * Note: Returning "platform_admin" here is purely an in-memory representation for internal
+   * query scoping (e.g. isPrivileged check in listDocuments/getDocumentStats) and does NOT create
+   * any database membership or alter data ownership.
    */
   private async getMembershipRole(
     actor: Actor,
     organizationId: OrganizationId,
   ): Promise<string | null> {
+    if (actor.role === "platform_admin") {
+      return "platform_admin";
+    }
     const membership = await this.organizationStore.findMembership(
       organizationId,
       actor.userId,
@@ -579,6 +611,21 @@ export class DocumentService {
     );
     if (!doc) {
       throw new DomainError("not_found", "Document not found");
+    }
+
+    if (this.entitlementService) {
+      const access = await this.entitlementService.checkAccess(actor, {
+        userId: actor.userId,
+        resourceType: "document",
+        resourceId: documentId,
+        courseId: doc.courseId ?? undefined,
+      });
+      if (!access.granted) {
+        throw new DomainError(
+          "forbidden",
+          "برای دانلود و مشاهده این سند، فعال‌سازی اشتراک آوانا پلاس یا خرید دوره مربوطه الزامی است.",
+        );
+      }
     }
 
     const data = await this.storageProvider.read(doc.storageKey);

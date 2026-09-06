@@ -1,7 +1,8 @@
 import { useState, useEffect, type FormEvent } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Sparkles, MailCheck, ShieldCheck, ArrowLeft, RefreshCw, LogOut } from "lucide-react";
+import { MailCheck, ShieldCheck, ArrowLeft, RefreshCw, LogOut } from "lucide-react";
+import { BrandLogo } from "../brand/BrandLogo.js";
 import { useAuth } from "../../providers/AuthProvider.js";
 import { ApiError } from "../../lib/api/errors.js";
 
@@ -100,12 +101,11 @@ export function EmailVerificationPage() {
     <div className="min-h-screen bg-[#0b1120] text-slate-200 flex flex-col font-sans" dir="rtl">
       {/* Header */}
       <header className="px-6 py-5 flex items-center justify-between border-b border-white/10 glass-panel">
-        <Link to="/" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
-          <div className="w-9 h-9 rounded-xl bg-teal-600/30 border border-teal-500/30 flex items-center justify-center shadow-sm text-teal-400">
-            <Sparkles className="w-5 h-5 text-teal-400" />
-          </div>
-          <span className="font-extrabold text-xl tracking-tight text-teal-400">آوانا</span>
-        </Link>
+        <BrandLogo
+          linkTo="/"
+          variant="logo-only"
+          size="md"
+        />
         <button
           type="button"
           onClick={() => void signOut()}

@@ -91,9 +91,16 @@ export type ApiConfig = {
     arvancloudModel: string;
     arvancloudAuthScheme?: string;
   };
-  auth: {
-    enabled: boolean;
-    demoUserEmail: string;
+  commerce: {
+    provider: string;
+    zarinpalMerchantId?: string;
+    zarinpalSandbox: boolean;
+    cardToCard: {
+      enabled: boolean;
+      destinationCardNumber?: string;
+      cardholderName?: string;
+      instructions?: string;
+    };
   };
 };
 
@@ -213,6 +220,20 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
 
   const databaseUrl = getOptionalString(env, "DATABASE_URL", localDatabaseUrl());
 
+  // Fail-closed Worker safety guard: Worker mode MUST NEVER connect to remote/production database
+  if (env.WORKER_MODE === "true" || Boolean(env.WORKER_ID)) {
+    try {
+      const parsed = new URL(databaseUrl);
+      const allowedHosts = new Set(["localhost", "127.0.0.1", "::1", "[::1]", "0.0.0.0", "postgres", "host.docker.internal"]);
+      if (!allowedHosts.has(parsed.hostname.toLowerCase()) && !/^127\.\d+\.\d+\.\d+$/.test(parsed.hostname)) {
+        throw new Error(`Worker mode cannot connect to non-local database host: ${parsed.hostname}`);
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new Error(`[SECURITY] Worker database safety check failed: ${message}`);
+    }
+  }
+
   return {
     nodeEnv,
     server: { host, port },
@@ -322,17 +343,20 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
       ),
       arvancloudAuthScheme: env.ARVANCLOUD_AUTH_SCHEME,
     },
-    auth: {
-      enabled:
-        env.AUTH_ENABLED !== undefined
-          ? env.AUTH_ENABLED.trim().toLowerCase() === "true" ||
-            env.AUTH_ENABLED.trim() === "1"
-          : true,
-      demoUserEmail: getOptionalString(
-        env,
-        "DEMO_USER_EMAIL",
-        "ali1383mohammadlo@gmail.com",
-      ),
+    commerce: {
+      provider: getOptionalString(env, "PAYMENT_PROVIDER", "mock"),
+      zarinpalMerchantId: env.ZARINPAL_MERCHANT_ID,
+      zarinpalSandbox: env.ZARINPAL_SANDBOX !== "false",
+      cardToCard: {
+        enabled: env.CARD_TO_CARD_ENABLED !== "false",
+        destinationCardNumber:
+          env.CARD_TO_CARD_DESTINATION_NUMBER || "5894631131738239",
+        cardholderName:
+          env.CARD_TO_CARD_CARDHOLDER_NAME || "علی محمدلو",
+        instructions:
+          env.CARD_TO_CARD_INSTRUCTIONS ||
+          "لطفاً مبلغ دقیق اشتراک را به شماره کارت فوق واریز کرده و سپس اطلاعات پرداخت را ثبت نمایید. اشتراک شما بلافاصله فعال خواهد شد.",
+      },
     },
   };
 }

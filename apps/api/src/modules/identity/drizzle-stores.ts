@@ -11,14 +11,37 @@
 
 import { eq, and, desc, sql } from "drizzle-orm";
 import type { DbClient } from "@avana/database/client";
-import { users, sessions, emailVerificationCodes, auditLogs, organizationMemberships } from "@avana/database/schema";
+import {
+  users,
+  sessions,
+  userDevices,
+  authenticationAttempts,
+  emailVerificationCodes,
+  auditLogs,
+  organizationMemberships,
+} from "@avana/database/schema";
 import type { SessionRecord, SessionStore } from "./session-store.js";
+import type {
+  DeviceStore,
+  RegisterDeviceInput,
+  RecordAttemptInput,
+  DeviceSessionTakeoverResult,
+} from "./device-store.js";
+import { generateDeviceId } from "./device-service.js";
 import type { UserRecord, UserStore } from "./user-store.js";
 import type {
   EmailVerificationCodeRecord,
   EmailVerificationStore,
 } from "./email-verification-store.js";
-import { resolveEffectiveRole, type Role, type UserId, type VerifiedIdentity } from "@avana/domain";
+import {
+  resolveEffectiveRole,
+  type Role,
+  type UserId,
+  type VerifiedIdentity,
+  type DeviceType,
+  type UserDevice,
+  type AuthenticationAttempt,
+} from "@avana/domain";
 import { randomUUID } from "node:crypto";
 
 // ---------------------------------------------------------------------------
@@ -33,8 +56,10 @@ function toSessionRecord(row: {
   id: string;
   userId: string;
   tokenHash: string;
+  deviceId?: string | null;
   expiresAt: Date;
   revokedAt: Date | null;
+  revocationReason?: string | null;
   lastUsedAt: Date | null;
   createdAt: Date;
 }): SessionRecord {
@@ -42,10 +67,42 @@ function toSessionRecord(row: {
     id: row.id,
     userId: row.userId as UserId,
     tokenHash: row.tokenHash,
+    deviceId: row.deviceId ?? null,
     expiresAt: row.expiresAt.toISOString(),
     revokedAt: row.revokedAt?.toISOString() ?? null,
+    revocationReason: row.revocationReason ?? null,
     lastUsedAt: row.lastUsedAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
+  };
+}
+
+function toUserDevice(row: {
+  id: string;
+  userId: string;
+  deviceId: string;
+  deviceType: string;
+  deviceName: string | null;
+  userAgent: string | null;
+  lastIp: string | null;
+  firstSeenAt: Date;
+  lastSeenAt: Date;
+  revokedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}): UserDevice {
+  return {
+    id: row.id,
+    userId: row.userId as UserId,
+    deviceId: row.deviceId,
+    deviceType: row.deviceType as DeviceType,
+    deviceName: row.deviceName,
+    userAgent: row.userAgent,
+    lastIp: row.lastIp,
+    firstSeenAt: row.firstSeenAt.toISOString(),
+    lastSeenAt: row.lastSeenAt.toISOString(),
+    revokedAt: row.revokedAt?.toISOString() ?? null,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
   };
 }
 
@@ -84,17 +141,68 @@ export class DrizzleSessionStore implements SessionStore {
     userId: UserId;
     tokenHash: string;
     expiresAt: string;
+    deviceId?: string | null;
   }): Promise<{ id: string }> {
     const [row] = await this.db
       .insert(sessions)
       .values({
         userId: values.userId,
         tokenHash: values.tokenHash,
+        deviceId: values.deviceId ?? null,
         expiresAt: new Date(values.expiresAt),
       })
       .returning({ id: sessions.id });
 
     return { id: row.id };
+  }
+
+  async createSessionWithTakeover(values: {
+    userId: UserId;
+    tokenHash: string;
+    expiresAt: string;
+    deviceId?: string | null;
+    revocationReason?: string;
+  }): Promise<{ id: string; revokedCount: number }> {
+    const now = new Date();
+    const reason = values.revocationReason ?? "session_takeover";
+
+    return await this.db.transaction(async (tx) => {
+      // 1. Lock user row to prevent race conditions on concurrent logins
+      await tx.execute(
+        sql`SELECT id FROM users WHERE id = ${values.userId}::uuid FOR UPDATE`,
+      );
+
+      // 2. Revoke all active sessions for this user
+      const revoked = await tx
+        .update(sessions)
+        .set({
+          revokedAt: now,
+          revocationReason: reason,
+        })
+        .where(
+          and(
+            eq(sessions.userId, values.userId),
+            sql`${sessions.revokedAt} IS NULL`,
+          ),
+        )
+        .returning({ id: sessions.id });
+
+      // 3. Create the new single active session
+      const [newRow] = await tx
+        .insert(sessions)
+        .values({
+          userId: values.userId,
+          tokenHash: values.tokenHash,
+          deviceId: values.deviceId ?? null,
+          expiresAt: new Date(values.expiresAt),
+        })
+        .returning({ id: sessions.id });
+
+      return {
+        id: newRow.id,
+        revokedCount: revoked.length,
+      };
+    });
   }
 
   async findByTokenHash(tokenHash: string): Promise<SessionRecord | undefined> {
@@ -116,18 +224,347 @@ export class DrizzleSessionStore implements SessionStore {
       .where(eq(sessions.id, id));
   }
 
-  async revoke(id: string, revokedAt: string): Promise<void> {
+  async revoke(id: string, revokedAt: string, reason?: string): Promise<void> {
     await this.db
       .update(sessions)
-      .set({ revokedAt: new Date(revokedAt) })
+      .set({
+        revokedAt: new Date(revokedAt),
+        revocationReason: reason ?? "sign_out",
+      })
       .where(eq(sessions.id, id));
   }
 
-  async revokeAllByUser(userId: UserId, revokedAt: string): Promise<void> {
+  async revokeAllByUser(userId: UserId, revokedAt: string, reason?: string): Promise<void> {
     await this.db
       .update(sessions)
-      .set({ revokedAt: new Date(revokedAt) })
-      .where(eq(sessions.userId, userId));
+      .set({
+        revokedAt: new Date(revokedAt),
+        revocationReason: reason ?? "admin_reset",
+      })
+      .where(
+        and(
+          eq(sessions.userId, userId),
+          sql`${sessions.revokedAt} IS NULL`,
+        ),
+      );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// DrizzleDeviceStore
+// ---------------------------------------------------------------------------
+
+export class DrizzleDeviceStore implements DeviceStore {
+  constructor(private readonly db: DbClient) {}
+
+  async findActiveByUserAndDeviceId(
+    userId: UserId,
+    deviceId: string,
+  ): Promise<UserDevice | undefined> {
+    const row = await this.db
+      .select()
+      .from(userDevices)
+      .where(
+        and(
+          eq(userDevices.userId, userId),
+          eq(userDevices.deviceId, deviceId),
+          sql`${userDevices.revokedAt} IS NULL`,
+        ),
+      )
+      .limit(1)
+      .then((rows) => rows[0]);
+
+    if (!row) return undefined;
+    return toUserDevice(row);
+  }
+
+  async findActiveByUser(userId: UserId): Promise<UserDevice[]> {
+    const rows = await this.db
+      .select()
+      .from(userDevices)
+      .where(
+        and(
+          eq(userDevices.userId, userId),
+          sql`${userDevices.revokedAt} IS NULL`,
+        ),
+      );
+
+    return rows.map(toUserDevice);
+  }
+
+  async listAllByUser(userId: UserId): Promise<UserDevice[]> {
+    const rows = await this.db
+      .select()
+      .from(userDevices)
+      .where(eq(userDevices.userId, userId))
+      .orderBy(desc(userDevices.lastSeenAt));
+
+    return rows.map(toUserDevice);
+  }
+
+  async registerDevice(input: RegisterDeviceInput): Promise<UserDevice> {
+    const [row] = await this.db
+      .insert(userDevices)
+      .values({
+        userId: input.userId,
+        deviceId: input.deviceId,
+        deviceType: input.deviceType,
+        deviceName: input.deviceName ?? null,
+        userAgent: input.userAgent ?? null,
+        lastIp: input.lastIp ?? null,
+      })
+      .returning();
+
+    return toUserDevice(row);
+  }
+
+  async updateLastSeen(
+    id: string,
+    lastIp?: string | null,
+    userAgent?: string | null,
+  ): Promise<void> {
+    const updateData: Record<string, unknown> = {
+      lastSeenAt: new Date(),
+      updatedAt: new Date(),
+    };
+    if (lastIp !== undefined) updateData.lastIp = lastIp;
+    if (userAgent !== undefined) updateData.userAgent = userAgent;
+
+    await this.db
+      .update(userDevices)
+      .set(updateData)
+      .where(eq(userDevices.id, id));
+  }
+
+  async revokeAllByUser(userId: UserId, revokedAt: string): Promise<number> {
+    const rows = await this.db
+      .update(userDevices)
+      .set({
+        revokedAt: new Date(revokedAt),
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(userDevices.userId, userId),
+          sql`${userDevices.revokedAt} IS NULL`,
+        ),
+      )
+      .returning({ id: userDevices.id });
+
+    return rows.length;
+  }
+
+  async recordAttempt(input: RecordAttemptInput): Promise<{ id: string }> {
+    const [row] = await this.db
+      .insert(authenticationAttempts)
+      .values({
+        userId: input.userId ?? null,
+        email: input.email,
+        deviceType: input.deviceType,
+        deviceId: input.deviceId ?? null,
+        userAgent: input.userAgent ?? null,
+        ip: input.ip ?? null,
+        result: input.result,
+        details: input.details ?? null,
+      })
+      .returning({ id: authenticationAttempts.id });
+
+    return { id: row.id };
+  }
+
+  async listAttemptsByUser(
+    userId: UserId,
+    limit = 50,
+  ): Promise<AuthenticationAttempt[]> {
+    const rows = await this.db
+      .select()
+      .from(authenticationAttempts)
+      .where(eq(authenticationAttempts.userId, userId))
+      .orderBy(desc(authenticationAttempts.createdAt))
+      .limit(limit);
+
+    return rows.map((r) => ({
+      id: r.id,
+      userId: r.userId as UserId | null,
+      email: r.email,
+      deviceType: r.deviceType as DeviceType,
+      deviceId: r.deviceId,
+      userAgent: r.userAgent,
+      ip: r.ip,
+      result: r.result,
+      details: r.details,
+      createdAt: r.createdAt.toISOString(),
+    }));
+  }
+
+  async authenticateAndTakeoverSession(params: {
+    userId: UserId;
+    incomingDeviceId?: string | null;
+    deviceType: DeviceType;
+    deviceName?: string | null;
+    userAgent?: string | null;
+    ip?: string | null;
+    tokenHash: string;
+    expiresAt: string;
+    isPlatformAdmin?: boolean;
+  }): Promise<DeviceSessionTakeoverResult> {
+    const {
+      userId,
+      incomingDeviceId,
+      deviceType,
+      deviceName,
+      userAgent,
+      ip,
+      tokenHash,
+      expiresAt,
+      isPlatformAdmin,
+    } = params;
+    const now = new Date();
+
+    return await this.db.transaction(async (tx) => {
+      // 1. Lock user row to serialize concurrent logins and eliminate any TOCTOU race condition
+      await tx.execute(
+        sql`SELECT id FROM users WHERE id = ${userId}::uuid FOR UPDATE`,
+      );
+
+      // 2. Check if incomingDeviceId matches an already registered active device for this user
+      let matchedDevice: UserDevice | undefined;
+      if (incomingDeviceId) {
+        const rows = await tx
+          .select()
+          .from(userDevices)
+          .where(
+            and(
+              eq(userDevices.userId, userId),
+              eq(userDevices.deviceId, incomingDeviceId),
+              sql`${userDevices.revokedAt} IS NULL`,
+            ),
+          )
+          .limit(1);
+        if (rows.length > 0) {
+          matchedDevice = toUserDevice(rows[0]);
+        }
+      }
+
+      let finalDevice: UserDevice;
+      let isNewDevice = false;
+
+      if (matchedDevice) {
+        // Case A: Existing registered device recognized!
+        await tx
+          .update(userDevices)
+          .set({
+            lastSeenAt: now,
+            lastIp: ip ?? null,
+            userAgent: userAgent ?? null,
+            updatedAt: now,
+          })
+          .where(eq(userDevices.id, matchedDevice.id));
+        finalDevice = matchedDevice;
+      } else {
+        // Check occupied slots for this deviceType under lock
+        const occupiedRows = await tx
+          .select()
+          .from(userDevices)
+          .where(
+            and(
+              eq(userDevices.userId, userId),
+              eq(userDevices.deviceType, deviceType),
+              sql`${userDevices.revokedAt} IS NULL`,
+            ),
+          )
+          .limit(1);
+
+        if (occupiedRows.length > 0) {
+          if (isPlatformAdmin) {
+            // Controlled recovery/takeover for platform_admin when slot belongs to same user:
+            // Revoke the old active device record for this slot to maintain audit history
+            await tx
+              .update(userDevices)
+              .set({
+                revokedAt: now,
+                updatedAt: now,
+              })
+              .where(eq(userDevices.id, occupiedRows[0].id));
+
+            // Register the new device for the slot
+            const canonicalDeviceId = generateDeviceId();
+            const [newDeviceRow] = await tx
+              .insert(userDevices)
+              .values({
+                userId,
+                deviceId: canonicalDeviceId,
+                deviceType,
+                deviceName: deviceName ?? null,
+                userAgent: userAgent ?? null,
+                lastIp: ip ?? null,
+              })
+              .returning();
+            finalDevice = toUserDevice(newDeviceRow);
+            isNewDevice = true;
+          } else {
+            // Case C: Slot is already occupied for regular user!
+            // DO NOT revoke existing session, DO NOT register device.
+            return {
+              status: "LIMIT_REACHED",
+              deviceType,
+              existingDevice: toUserDevice(occupiedRows[0]),
+            };
+          }
+        } else {
+          // Case B: Slot is free -> register new device under lock
+          const canonicalDeviceId = generateDeviceId();
+          const [newDeviceRow] = await tx
+            .insert(userDevices)
+            .values({
+              userId,
+              deviceId: canonicalDeviceId,
+              deviceType,
+              deviceName: deviceName ?? null,
+              userAgent: userAgent ?? null,
+              lastIp: ip ?? null,
+            })
+            .returning();
+          finalDevice = toUserDevice(newDeviceRow);
+          isNewDevice = true;
+        }
+      }
+
+      // 3. Atomically revoke all active sessions for this user under lock
+      const revoked = await tx
+        .update(sessions)
+        .set({
+          revokedAt: now,
+          revocationReason: "session_takeover",
+        })
+        .where(
+          and(
+            eq(sessions.userId, userId),
+            sql`${sessions.revokedAt} IS NULL`,
+          ),
+        )
+        .returning({ id: sessions.id });
+
+      // 4. Create single active session under lock
+      const [newSession] = await tx
+        .insert(sessions)
+        .values({
+          userId,
+          tokenHash,
+          deviceId: finalDevice.id,
+          expiresAt: new Date(expiresAt),
+        })
+        .returning({ id: sessions.id });
+
+      return {
+        status: "SUCCESS",
+        device: finalDevice,
+        canonicalDeviceId: finalDevice.deviceId,
+        sessionId: newSession.id,
+        isNewDevice,
+        revokedSessionsCount: revoked.length,
+      };
+    });
   }
 }
 
@@ -157,25 +594,8 @@ export class DrizzleUserStore implements UserStore {
     const roles = rows
       .map((r) => r.role)
       .filter((r): r is Role => r != null);
-    const effectiveRole = resolveEffectiveRole(roles);
+    const effectiveRole = resolveEffectiveRole(userRow.globalRole, roles);
     return toUserRecord(userRow, effectiveRole);
-  }
-
-  async findAllByEmail(email: string): Promise<UserRecord[]> {
-    const normalizedEmail = email.trim().toLowerCase();
-    const distinctUsers = await this.db
-      .select()
-      .from(users)
-      .where(eq(users.email, normalizedEmail));
-
-    const results: UserRecord[] = [];
-    for (const userRow of distinctUsers) {
-      const userWithRoles = await this.findById(userRow.id as UserId);
-      if (userWithRoles) {
-        results.push(userWithRoles);
-      }
-    }
-    return results;
   }
 
   async findWithPasswordByEmail(

@@ -125,7 +125,7 @@ export function ExamsPage() {
       );
     }
 
-    const { attempt, questions, isCompleted } = attemptQuery.data;
+    const { attempt, questions, coverage, isCompleted } = attemptQuery.data;
 
     // If completed or submitted, show Result View
     if (isCompleted || resultData) {
@@ -140,7 +140,7 @@ export function ExamsPage() {
       };
 
       return (
-        <div className="min-h-screen bg-[#0b1219] text-[#f8f9ff] selection:bg-teal-700/50 selection:text-white font-sans" dir="rtl">
+        <div className="w-full min-h-screen bg-[#0b1219] text-[#f8f9ff] selection:bg-teal-700/50 selection:text-white font-sans overflow-x-hidden" dir="rtl">
           <ExamResultView
             result={activeResult}
             onRetry={handleRetry}
@@ -152,18 +152,17 @@ export function ExamsPage() {
 
     // Render ExamTakingView for active attempt
     return (
-      <div className="min-h-screen bg-[#0b1219] text-[#f8f9ff] selection:bg-teal-700/50 selection:text-white font-sans" dir="rtl">
-        <ExamTakingView
-          organizationId={organizationId}
-          attemptId={attempt.id}
-          questions={questions}
-          initialAnswers={attempt.answers as Record<string, unknown>}
-          startedAt={attempt.startedAt}
-          topicName={attempt.topic || undefined}
-          onExit={handleReturnToConfig}
-          onSubmitSuccess={handleSubmitSuccess}
-        />
-      </div>
+      <ExamTakingView
+        organizationId={organizationId}
+        attemptId={attempt.id}
+        questions={questions}
+        initialAnswers={attempt.answers as Record<string, unknown>}
+        startedAt={attempt.startedAt}
+        topicName={attempt.topic || undefined}
+        coverage={coverage}
+        onExit={handleReturnToConfig}
+        onSubmitSuccess={handleSubmitSuccess}
+      />
     );
   }
 

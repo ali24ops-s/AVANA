@@ -176,9 +176,9 @@ export function adaptToGroqJsonSchema(jsonSchema: unknown): GroqJsonSchemaStruct
     };
   }
 
-  if (typeKey === "flashcards_batch" || typeKey === "flashcard") {
+  if (typeKey === "flashcards_batch" || typeKey === "flashcard" || typeKey === "flashcards") {
     return {
-      name: "flashcards_batch",
+      name: typeKey === "flashcards_batch" ? "flashcards_batch" : "flashcards",
       strict: true,
       schema: {
         type: "object",
@@ -198,6 +198,10 @@ export function adaptToGroqJsonSchema(jsonSchema: unknown): GroqJsonSchemaStruct
                 explanation: { type: "string" },
                 cardType: { type: "string" },
                 difficulty: { type: "string" },
+                citationChunkIds: {
+                  type: "array",
+                  items: { type: "string" },
+                },
               },
             },
           },
@@ -231,24 +235,6 @@ export function adaptToGroqJsonSchema(jsonSchema: unknown): GroqJsonSchemaStruct
               },
             },
           },
-        },
-      },
-    };
-  }
-
-  if (typeKey === "recommendation") {
-    return {
-      name: "recommendation",
-      strict: true,
-      schema: {
-        type: "object",
-        additionalProperties: false,
-        required: ["kind", "title", "summary", "actions"],
-        properties: {
-          kind: { type: "string" },
-          title: { type: "string" },
-          summary: { type: "string" },
-          actions: { type: "array", items: { type: "string" } },
         },
       },
     };

@@ -44,6 +44,9 @@ import {
   buildChunks,
   type ExtractionResult,
 } from "./extraction/index.js";
+import type { GenerationProgressService } from "../generation/generation-progress-service.js";
+import type { GenerationChunkStore } from "../generation/generation-chunk-store.js";
+import type { GeneratedContentStore } from "../generation/generation-store.js";
 
 // ---------------------------------------------------------------------------
 // Response contract types
@@ -72,6 +75,9 @@ export class DocumentProcessingService {
     private readonly policy: AuthorizationPolicy,
     private readonly auditService?: AuditService,
     private readonly organizationStore?: OrganizationStore,
+    private readonly progressService?: GenerationProgressService,
+    private readonly generationChunkStore?: GenerationChunkStore,
+    private readonly generatedContentStore?: GeneratedContentStore,
   ) {}
 
   /**
@@ -82,6 +88,21 @@ export class DocumentProcessingService {
     organizationId: OrganizationId,
     action: "document:read",
   ): Promise<void> {
+    if (actor.role === "platform_admin") {
+      if (
+        this.organizationStore &&
+        typeof this.organizationStore.findById === "function"
+      ) {
+        const org = await this.organizationStore.findById(organizationId);
+        if (!org) {
+          throw new DomainError("not_found", "Organization not found");
+        }
+      }
+      const context: AuthContext = { organizationId };
+      this.policy.require(action, actor, context);
+      return;
+    }
+
     if (
       this.organizationStore &&
       typeof this.organizationStore.findMembership === "function"
@@ -151,6 +172,7 @@ export class DocumentProcessingService {
 
     // Transition to extracting.
     await this.store.update({ ...doc, status: "extracting", updatedAt: now });
+    await this.progressService?.startStage(documentId, organizationId, "analysis", 1);
 
     try {
       // Load the file bytes.
@@ -173,6 +195,12 @@ export class DocumentProcessingService {
 
       // Replace any prior chunks (idempotent regeneration).
       await this.chunkStore.deleteByDocument(documentId);
+      if (this.generationChunkStore) {
+        await this.generationChunkStore.deleteByDocument(documentId, organizationId);
+      }
+      if (this.generatedContentStore) {
+        await this.generatedContentStore.deleteDraftsByDocument(documentId, organizationId);
+      }
       if (chunks.length > 0) {
         await this.chunkStore.createMany(chunks);
       }
@@ -190,6 +218,7 @@ export class DocumentProcessingService {
         updatedAt: new Date().toISOString(),
       };
       await this.store.update(updated);
+      await this.progressService?.completeStage(documentId, organizationId, "analysis");
 
       if (this.auditService) {
         await this.auditService.emit([
@@ -205,6 +234,11 @@ export class DocumentProcessingService {
       return this.toStatus(updated, chunks.length);
     } catch (err) {
       const errorCode = this.resolveErrorCode(err);
+      await this.progressService?.fail(
+        documentId,
+        organizationId,
+        err instanceof Error ? err.message : String(err),
+      );
       const failed: DocumentRecord = {
         ...doc,
         status: "failed",
@@ -263,6 +297,12 @@ export class DocumentProcessingService {
 
       // Replace prior chunks cleanly.
       await this.chunkStore.deleteByDocument(documentId);
+      if (this.generationChunkStore) {
+        await this.generationChunkStore.deleteByDocument(documentId, organizationId);
+      }
+      if (this.generatedContentStore) {
+        await this.generatedContentStore.deleteDraftsByDocument(documentId, organizationId);
+      }
       if (chunks.length > 0) {
         await this.chunkStore.createMany(chunks);
       }

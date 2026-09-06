@@ -49,6 +49,9 @@ export interface OrganizationStore {
     userId: UserId,
   ): Promise<OrganizationRecord | undefined>;
 
+  /** Find an organization by its ID (unscoped, for system/admin existence validation). */
+  findById(id: OrganizationId): Promise<OrganizationRecord | undefined>;
+
   /** Find an organization by slug. */
   findBySlug(slug: string): Promise<OrganizationRecord | undefined>;
 

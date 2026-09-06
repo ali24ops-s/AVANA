@@ -46,8 +46,8 @@ export function AdminLayout() {
     );
   }
 
-  // Authorization Check (reusing Phase 1 role resolution)
-  if (!user || user.role !== "platform_admin") {
+  // Authorization Check (platform_admin or content_worker)
+  if (!user || (user.role !== "platform_admin" && user.role !== "content_worker")) {
     return <Navigate to="/home" replace />;
   }
 

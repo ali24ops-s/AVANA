@@ -21,6 +21,7 @@ import { createStudyApi } from "../../lib/api/study.js";
 import { useStudySessionTracker } from "../../hooks/useStudySessionTracker.js";
 import type { FlashcardResource, FlashcardRating } from "@avana/contracts";
 import { nextReviewInterval } from "@avana/domain";
+import { RichContent } from "../markdown/MarkdownRenderer.js";
 
 export interface FlashcardExperienceProps {
   organizationId: string;
@@ -917,7 +918,7 @@ export function FlashcardExperience({
                     ) : (
                       <div className="flex-1 flex flex-col justify-center items-center text-center w-full my-auto px-4 py-4">
                         <h3 className="text-xl md:text-2xl lg:text-3xl font-bold text-[#e0e6ed] leading-relaxed max-w-2xl text-center">
-                          {currentCard.question}
+                          <RichContent content={currentCard.question} inline />
                         </h3>
                       </div>
                     )}
@@ -980,16 +981,18 @@ export function FlashcardExperience({
                       </div>
                     ) : (
                       <div className="flex-1 flex flex-col justify-center items-center text-center w-full my-auto px-4 py-4 space-y-3">
-                        <p className="text-base md:text-lg lg:text-xl font-semibold text-[#e0e6ed] leading-relaxed max-w-2xl text-center">
-                          {currentCard.answer}
-                        </p>
+                        <div className="text-base md:text-lg lg:text-xl font-semibold text-[#e0e6ed] leading-relaxed max-w-2xl text-center">
+                          <RichContent content={currentCard.answer} inline />
+                        </div>
                         {currentCard.explanation && (
                           <div className="w-full max-w-2xl p-3.5 bg-[#0f172a]/80 rounded-2xl border border-[#334155]/60 text-xs md:text-sm text-[#94a3b8] space-y-1.5 text-right">
                             <div className="font-bold text-[#14b8a6] flex items-center gap-1.5 justify-start">
                               <Lightbulb className="w-4 h-4 text-[#14b8a6]" />
                               <span>توضیح تکمیلی:</span>
                             </div>
-                            <p className="leading-relaxed text-[#cbd5e1]">{currentCard.explanation}</p>
+                            <div className="leading-relaxed text-[#cbd5e1]">
+                              <RichContent content={currentCard.explanation} />
+                            </div>
                           </div>
                         )}
                       </div>

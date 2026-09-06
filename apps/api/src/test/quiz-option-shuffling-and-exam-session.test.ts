@@ -71,6 +71,22 @@ describe("Quiz Option Shuffling, Answer Key Sync & Exam Session Determinism", ()
     const citationStore = new InMemoryGeneratedContentCitationStore();
     const chunkStore = new InMemoryDocumentChunkStore();
     const courseStore = new InMemoryCourseStore();
+    courseStore.create({
+      course: {
+        id: courseId,
+        organizationId: orgId,
+        name: "فارماکولوژی ۱۰۱",
+        description: "دوره فارماکولوژی",
+        subject: "پزشکی",
+        status: "published",
+        isOfficial: false,
+        examDate: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      },
+      auditEvents: [],
+    });
     const progressStore = new InMemoryProgressStore();
     const flashcardReviewStore = new InMemoryFlashcardReviewStore();
     const userFlashcardScheduleStore = new InMemoryUserFlashcardScheduleStore();
@@ -234,8 +250,8 @@ describe("Quiz Option Shuffling, Answer Key Sync & Exam Session Determinism", ()
           {
             question: "کدام دارو بتابلاکر انتخابی قلبی است؟",
             questionType: "multiple_choice",
-            choices: ["متوپرولول (صحیح)", "پروپرانولول", "لابتالول", "تیمولول"],
-            correctAnswer: "متوپرولول (صحیح)",
+            choices: ["متوپرولول", "پروپرانولول", "لابتالول", "تیمولول"],
+            correctAnswer: "متوپرولول",
           },
         ],
       } as unknown as GeneratedContentPayload,
@@ -259,7 +275,7 @@ describe("Quiz Option Shuffling, Answer Key Sync & Exam Session Determinism", ()
     // 1. Submit correct answer
     const successAttempt = await studyService.submitQuizAttempt(studentActor, orgId, {
       quizId,
-      answers: [{ questionId, answer: "متوپرولول (صحیح)" }],
+      answers: [{ questionId, answer: "متوپرولول" }],
     });
     expect(successAttempt.score).toBe(100);
     expect(successAttempt.correct).toBe(1);
@@ -369,7 +385,7 @@ describe("Quiz Option Shuffling, Answer Key Sync & Exam Session Determinism", ()
     documentStore.insert(makeDocument(docId, "reproducibility.pdf"));
 
     const sampleChoices = [
-      "گزینه آلفا (هدف)",
+      "گزینه آلفا",
       "گزینه بتا",
       "گزینه گاما",
       "گزینه دلتا",
@@ -411,8 +427,8 @@ describe("Quiz Option Shuffling, Answer Key Sync & Exam Session Determinism", ()
 
     expect(questions).toHaveLength(1);
     const q1 = questions[0];
-    expect(q1.correctAnswer).toBe("گزینه آلفا (هدف)");
-    expect(q1.choices).toContain("گزینه آلفا (هدف)");
+    expect(q1.correctAnswer).toBe("گزینه آلفا");
+    expect(q1.choices).toContain("گزینه آلفا");
   });
 
   it("Test 5: Materializing a quiz with varied cognitive difficulties preserves real difficulty tags (easy, medium, hard)", async () => {
@@ -608,5 +624,41 @@ describe("Quiz Option Shuffling, Answer Key Sync & Exam Session Determinism", ()
     expect(completedAttempt.questions[1].choices).toEqual(q2InitialChoices);
     expect(completedAttempt.isCompleted).toBe(true);
     expect(completedAttempt.attempt.status).toBe("completed");
+  });
+
+  it("Test 8: Information Leakage & Trailing Explanation questions are safely detected and graded", async () => {
+    const biasedQ = {
+      question: "داروی انتخابی در کنترل فشار خون چیست؟",
+      choices: [
+        "پروپرانولول (Propranolol)",
+        "لوزارتان",
+        "آملودیپین",
+        "کاپتوپریل",
+      ],
+      correctAnswer: "پروپرانولول (Propranolol)",
+    };
+
+    const res = validateQuestionQuality(biasedQ);
+    expect(res.valid).toBe(false);
+    expect(res.errors.some((e) => e.includes("English terminology"))).toBe(true);
+  });
+
+  it("Test 9: Backward compatibility with legacy DB questions (all choices formats remain gradable)", async () => {
+    const legacyQuestions = [
+      {
+        question: "داروی قدیمی با پاسخ عددی",
+        choices: ["گزینه اول", "گزینه دوم", "گزینه سوم", "گزینه چهارم"],
+        correctAnswer: "گزینه سوم",
+      },
+      {
+        question: "داروی قدیمی با پاسخ انگلیسی",
+        choices: ["Drug A", "Drug B", "Drug C", "Drug D"],
+        correctAnswer: "Drug B",
+      },
+    ];
+
+    for (const lq of legacyQuestions) {
+      expect(validateQuestionIntegrity(lq).valid).toBe(true);
+    }
   });
 });

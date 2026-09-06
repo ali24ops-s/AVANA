@@ -8,8 +8,11 @@
  * Sprint 2: Added learning stores (ModuleStore, LessonStore, ProgressStore).
  */
 
-import { InMemorySessionStore } from "../modules/identity/test/in-memory-stores.js";
-import { InMemoryUserStore } from "../modules/identity/test/in-memory-stores.js";
+import {
+  InMemorySessionStore,
+  InMemoryUserStore,
+  InMemoryDeviceStore,
+} from "../modules/identity/test/in-memory-stores.js";
 import { InMemoryOrganizationStore } from "../modules/organizations/test/in-memory-stores.js";
 import { InMemoryCourseStore } from "../modules/courses/test/in-memory-stores.js";
 import {
@@ -75,6 +78,8 @@ export async function composeLocalDev(
 ): Promise<LocalDevDependencies> {
   // In-memory stores
   const sessionStore = new InMemorySessionStore();
+  const deviceStore = new InMemoryDeviceStore();
+  deviceStore.setSessionStore(sessionStore);
   const organizationStore = new InMemoryOrganizationStore();
   const userStore = new InMemoryUserStore(organizationStore);
   const courseStore = new InMemoryCourseStore();
@@ -113,6 +118,9 @@ export async function composeLocalDev(
     quizQuestionStore,
     generatedContentStore,
     contentPackUsageStore,
+    courseStore,
+    progressStore,
+    organizationStore,
   );
 
   // Model gateway (Gemini default, or mock/cloudflare/groq if configured, or injected gateway).
@@ -172,6 +180,7 @@ export async function composeLocalDev(
     config,
     sessionStore,
     userStore,
+    deviceStore,
     organizationStore,
     courseStore,
     moduleStore,

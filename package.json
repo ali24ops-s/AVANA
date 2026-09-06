@@ -25,8 +25,14 @@
     "db:generate": "drizzle-kit generate --config=database/drizzle.config.ts",
     "db:migrate": "tsx database/migrate.ts",
     "db:seed": "tsx database/seeds/seed.ts",
+    "db:seed:blog": "tsx database/seeds/seed-blog.ts",
     "db:seed:popular": "node scripts/seed-popular-courses.mjs",
-    "db:studio": "drizzle-kit studio --config=database/drizzle.config.ts"
+    "db:studio": "drizzle-kit studio --config=database/drizzle.config.ts",
+    "worker:setup": "tsx tools/worker/worker-setup.ts",
+    "worker:start": "tsx tools/worker/worker-start.ts",
+    "worker:stop": "tsx tools/worker/worker-stop.ts",
+    "worker:status": "tsx tools/worker/worker-status.ts",
+    "worker:reset": "tsx tools/worker/worker-reset.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
@@ -45,6 +51,7 @@
     "jsdom": "^26.1.0",
     "lint-staged": "^17.1.0",
     "pino": "^10.3.1",
+    "playwright": "^1.62.1",
     "prettier": "^3.9.5",
     "secretlint": "^13.0.2",
     "ts-node": "^10.9.2",

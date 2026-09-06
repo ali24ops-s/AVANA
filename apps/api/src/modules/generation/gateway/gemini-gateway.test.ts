@@ -239,6 +239,206 @@ describe("GeminiModelGateway Unit Tests", () => {
     expect(callCount).toBe(1); // Exactly 1 call, no failover to key 2
   });
 
+  it("retries transient 503 and succeeds on subsequent attempt without switching key", async () => {
+    let attempts = 0;
+    const mockFetch = vi.fn(async () => {
+      attempts++;
+      if (attempts === 1) {
+        return new Response(
+          JSON.stringify({
+            error: {
+              code: 503,
+              message: "The model is overloaded. Please try again later.",
+              status: "UNAVAILABLE",
+            },
+          }),
+          { status: 503, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return makeSuccessResponse();
+    });
+
+    const gateway = new GeminiModelGateway({
+      apiKey: FAKE_API_KEY,
+      fetchFn: mockFetch as unknown as typeof fetch,
+      sleepFn: () => Promise.resolve(),
+    });
+
+    const result = await gateway.complete(makeRequest());
+    expect(result.model).toBe("gemini-2.5-flash");
+    expect(attempts).toBe(2);
+  });
+
+  it("throws service_unavailable when all 503 retries fail on single key", async () => {
+    const mockFetch = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          error: {
+            code: 503,
+            message: "The model is overloaded. Please try again later.",
+            status: "UNAVAILABLE",
+          },
+        }),
+        { status: 503, headers: { "Content-Type": "application/json" } },
+      );
+    });
+
+    const gateway = new GeminiModelGateway({
+      apiKey: FAKE_API_KEY,
+      fetchFn: mockFetch as unknown as typeof fetch,
+      sleepFn: () => Promise.resolve(),
+    });
+
+    await expect(gateway.complete(makeRequest())).rejects.toSatisfy((err: unknown) => {
+      expect(err).toBeInstanceOf(DomainError);
+      const domErr = err as DomainError;
+      expect(domErr.code).toBe("service_unavailable");
+      expect(domErr.message).toContain("service unavailable (HTTP 503)");
+      return true;
+    });
+  });
+
+  it("fails over on 503 from key-1 to key-2 and succeeds without marking key-1 as rate_limited", async () => {
+    const usedKeys: string[] = [];
+
+    const mockFetch = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      const headers = (init?.headers as Record<string, string>) || {};
+      const key = headers["x-goog-api-key"];
+      usedKeys.push(key);
+
+      if (key === FAKE_API_KEY) {
+        return new Response(
+          JSON.stringify({
+            error: {
+              code: 503,
+              message: "The model is overloaded. Please try again later.",
+              status: "UNAVAILABLE",
+            },
+          }),
+          { status: 503, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return makeSuccessResponse();
+    });
+
+    const gateway = new GeminiModelGateway({
+      apiKeys: [FAKE_API_KEY, FAKE_API_KEY_2],
+      fetchFn: mockFetch as unknown as typeof fetch,
+      sleepFn: () => Promise.resolve(),
+    });
+
+    const result = await gateway.complete(makeRequest());
+    expect(result.model).toBe("gemini-2.5-flash");
+    expect(usedKeys).toContain(FAKE_API_KEY);
+    expect(usedKeys).toContain(FAKE_API_KEY_2);
+
+    // Verify key-1 is NOT sidelined as rate_limited or quota_exhausted
+    const keyPool = (gateway as unknown as { keyPool: import("./gemini-key-pool.js").GeminiKeyPool }).keyPool;
+    const summary = keyPool.getSlotsSummary();
+    const key1Summary = summary.find((s) => s.id === "key-1");
+    expect(key1Summary?.state).toBe("healthy");
+    expect(key1Summary?.cooldownUntil).toBeNull();
+  });
+
+  it("throws service_unavailable (NOT rate_limit_exceeded) when all keys encounter 503", async () => {
+    const mockFetch = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          error: {
+            code: 503,
+            message: "The model is overloaded. Please try again later.",
+            status: "UNAVAILABLE",
+          },
+        }),
+        { status: 503, headers: { "Content-Type": "application/json" } },
+      );
+    });
+
+    const gateway = new GeminiModelGateway({
+      apiKeys: [FAKE_API_KEY, FAKE_API_KEY_2],
+      fetchFn: mockFetch as unknown as typeof fetch,
+      sleepFn: () => Promise.resolve(),
+    });
+
+    await expect(gateway.complete(makeRequest())).rejects.toSatisfy((err: unknown) => {
+      expect(err).toBeInstanceOf(DomainError);
+      const domErr = err as DomainError;
+      expect(domErr.code).toBe("service_unavailable");
+      expect(domErr.code).not.toBe("rate_limit_exceeded");
+      expect(domErr.message).toContain("service unavailable (HTTP 503)");
+      return true;
+    });
+  });
+
+  it("throws rate_limit_exceeded when keys fail with 429 rate limit", async () => {
+    const mockFetch = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          error: {
+            code: 429,
+            message: "Resource exhausted: rate limit exceeded. Please retry in 20s.",
+            status: "RESOURCE_EXHAUSTED",
+          },
+        }),
+        { status: 429, headers: { "Content-Type": "application/json" } },
+      );
+    });
+
+    const gateway = new GeminiModelGateway({
+      apiKeys: [FAKE_API_KEY, FAKE_API_KEY_2],
+      fetchFn: mockFetch as unknown as typeof fetch,
+      sleepFn: () => Promise.resolve(),
+    });
+
+    await expect(gateway.complete(makeRequest())).rejects.toSatisfy((err: unknown) => {
+      expect(err).toBeInstanceOf(DomainError);
+      const domErr = err as DomainError;
+      expect(domErr.code).toBe("rate_limit_exceeded");
+      return true;
+    });
+  });
+
+  it("throws rate_limit_exceeded when keys fail with RESOURCE_EXHAUSTED / quota exhausted", async () => {
+    const mockFetch = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          error: {
+            code: 403,
+            message: "Quota exceeded: GenerateRequestsPerDay limit reached.",
+            status: "RESOURCE_EXHAUSTED",
+          },
+        }),
+        { status: 403, headers: { "Content-Type": "application/json" } },
+      );
+    });
+
+    const gateway = new GeminiModelGateway({
+      apiKeys: [FAKE_API_KEY, FAKE_API_KEY_2],
+      fetchFn: mockFetch as unknown as typeof fetch,
+      sleepFn: () => Promise.resolve(),
+    });
+
+    await expect(gateway.complete(makeRequest())).rejects.toSatisfy((err: unknown) => {
+      expect(err).toBeInstanceOf(DomainError);
+      const domErr = err as DomainError;
+      expect(domErr.code).toBe("rate_limit_exceeded");
+      return true;
+    });
+  });
+
+  it("does not fallback to Groq when Gemini fails and fallback is disabled", async () => {
+    const gateway = createModelGateway({
+      provider: "gemini",
+      geminiApiKey: FAKE_API_KEY,
+      groqApiKey: "fake-groq-key",
+      enableFallback: false,
+    });
+
+    // Verify it is a direct GeminiModelGateway and NOT FallbackModelGateway
+    expect(gateway).toBeInstanceOf(GeminiModelGateway);
+    expect(gateway.provider).toBe("gemini");
+  });
+
   it("handles concurrent completions across multi-key pool cleanly", async () => {
     const mockFetch = vi.fn(async () => makeSuccessResponse());
 
@@ -280,6 +480,6 @@ describe("createModelGateway with Gemini Multi-Key", () => {
     const gateway = createModelGateway();
     expect(gateway).toBeInstanceOf(GeminiModelGateway);
     expect(gateway.provider).toBe("gemini");
-    expect(gateway.model).toBe("gemini-3.6-flash");
+    expect(gateway.model).toBe("gemini-3.5-flash-lite");
   });
 });

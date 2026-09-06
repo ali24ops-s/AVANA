@@ -1,8 +1,4 @@
-/**
- * Drizzle-backed implementation of AdminStore.
- */
-
-import { count, eq, sql, gte, ilike, or, desc, isNull, isNotNull, and, inArray, type SQL } from "drizzle-orm";
+import { count, eq, sql, gte, lte, gt, ilike, or, desc, isNull, isNotNull, and, inArray, type SQL } from "drizzle-orm";
 import type { DbClient } from "@avana/database/client";
 import { randomUUID } from "node:crypto";
 import {
@@ -14,12 +10,27 @@ import {
   quizzes,
   documents,
   generationJobs,
+  documentGenerationProgress,
   quizQuestions,
   auditLogs,
   generatedContents,
   organizationMemberships,
+  products,
+  orders,
+  payments,
+  userSubscriptions,
+  userEntitlements,
+  contentPacks,
 } from "@avana/database/schema";
-import { resolveEffectiveRole, type Role } from "@avana/domain";
+import {
+  resolveEffectiveRole,
+  calculateSubscriptionExpiry,
+  type Role,
+  STAGE_LABELS_FA,
+  type GenerationPipelineStage,
+  type GenerationProgressStatus,
+  type DocumentGenerationProgressResource,
+} from "@avana/domain";
 import { checkRedisHealth } from "./redis-health.js";
 import type {
   AdminStore,
@@ -40,6 +51,18 @@ import type {
   AdminCourseHierarchy,
   AdminAnalytics,
   AdminAiAnalytics,
+  AdminCommerceStats,
+  AdminOrderRecord,
+  AdminOrdersList,
+  AdminPaymentRecord,
+  AdminPaymentsList,
+  AdminSubscriptionRecord,
+  AdminSubscriptionsList,
+  AdminEntitlementRecord,
+  AdminEntitlementsList,
+  AdminProductRecord,
+  AdminUserCommerceProfile,
+  AdminGrantInput,
 } from "./admin-store.js";
 
 export class DrizzleAdminStore implements AdminStore {
@@ -308,6 +331,98 @@ export class DrizzleAdminStore implements AdminStore {
     };
   }
 
+  private formatDocumentGenerationProgress(
+    p: typeof documentGenerationProgress.$inferSelect | null | undefined,
+    docStatus: string,
+    docErrorCode?: string | null,
+  ): DocumentGenerationProgressResource {
+    if (p) {
+      let status = p.status as GenerationProgressStatus;
+      if (docStatus === "ready" && status !== "completed") {
+        status = "completed";
+      } else if (docStatus === "failed" && status !== "failed") {
+        status = "failed";
+      }
+
+      const stage = (p.stage as GenerationPipelineStage | null) ?? null;
+      const stageLabel = stage ? STAGE_LABELS_FA[stage] || stage : null;
+      let progress = null;
+      if (status === "generating" || status === "planning" || status === "reviewing") {
+        const total = p.progressTotal > 0 ? p.progressTotal : 1;
+        const current = Math.min(p.progressCurrent, total);
+        const percentage = Math.min(100, Math.round((current / total) * 100));
+        progress = {
+          current: p.progressCurrent,
+          total: p.progressTotal,
+          percentage,
+        };
+      }
+      return {
+        status,
+        stage,
+        stageLabel,
+        progress,
+        stageStartedAt: p.stageStartedAt ? p.stageStartedAt.toISOString() : null,
+        lastActivityAt: p.lastActivityAt ? p.lastActivityAt.toISOString() : null,
+        error: p.errorMessage,
+      };
+    }
+
+    if (docStatus === "generating") {
+      return {
+        status: "generating",
+        stage: null,
+        stageLabel: null,
+        progress: null,
+        stageStartedAt: null,
+        lastActivityAt: null,
+        error: null,
+      };
+    }
+    if (docStatus === "review_pending") {
+      return {
+        status: "reviewing",
+        stage: "review",
+        stageLabel: STAGE_LABELS_FA.review,
+        progress: null,
+        stageStartedAt: null,
+        lastActivityAt: null,
+        error: null,
+      };
+    }
+    if (docStatus === "ready") {
+      return {
+        status: "completed",
+        stage: null,
+        stageLabel: null,
+        progress: null,
+        stageStartedAt: null,
+        lastActivityAt: null,
+        error: null,
+      };
+    }
+    if (docStatus === "failed") {
+      return {
+        status: "failed",
+        stage: null,
+        stageLabel: null,
+        progress: null,
+        stageStartedAt: null,
+        lastActivityAt: null,
+        error: docErrorCode || "خطا در پردازش یا تولید سند",
+      };
+    }
+    return {
+      status: "idle",
+      stage: null,
+      stageLabel: null,
+      progress: null,
+      stageStartedAt: null,
+      lastActivityAt: null,
+      error: null,
+    };
+  }
+
   async listDocuments(params: { page: number; pageSize: number; search?: string; status?: string }): Promise<{ documents: AdminDocumentRecord[]; totalCount: number }> {
     const { page, pageSize, search, status } = params;
     const offset = (page - 1) * pageSize;
@@ -327,10 +442,12 @@ export class DrizzleAdminStore implements AdminStore {
         doc: documents,
         courseName: courses.name,
         userEmail: users.email,
+        progress: documentGenerationProgress,
       })
       .from(documents)
       .leftJoin(courses, eq(documents.courseId, courses.id))
       .leftJoin(users, eq(documents.ownerUserId, users.id))
+      .leftJoin(documentGenerationProgress, eq(documents.id, documentGenerationProgress.documentId))
       .where(whereClause)
       .limit(pageSize)
       .offset(offset)
@@ -349,6 +466,7 @@ export class DrizzleAdminStore implements AdminStore {
         createdAt: row.doc.createdAt.toISOString(),
         courseName: row.courseName || undefined,
         ownerEmail: row.userEmail || undefined,
+        generationProgress: this.formatDocumentGenerationProgress(row.progress, row.doc.status, row.doc.errorCode),
       })),
     };
   }
@@ -358,10 +476,12 @@ export class DrizzleAdminStore implements AdminStore {
       doc: documents,
       courseName: courses.name,
       userEmail: users.email,
+      progress: documentGenerationProgress,
     })
     .from(documents)
     .leftJoin(courses, eq(documents.courseId, courses.id))
     .leftJoin(users, eq(documents.ownerUserId, users.id))
+    .leftJoin(documentGenerationProgress, eq(documents.id, documentGenerationProgress.documentId))
     .where(and(eq(documents.id, id), isNull(documents.deletedAt)))
     .limit(1);
 
@@ -378,6 +498,7 @@ export class DrizzleAdminStore implements AdminStore {
       createdAt: row.doc.createdAt.toISOString(),
       courseName: row.courseName || undefined,
       ownerEmail: row.userEmail || undefined,
+      generationProgress: this.formatDocumentGenerationProgress(row.progress, row.doc.status, row.doc.errorCode),
     };
   }
 
@@ -936,5 +1057,1683 @@ export class DrizzleAdminStore implements AdminStore {
       details: {},
       createdAt: new Date()
     });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Monetization & Commerce Methods
+  // ---------------------------------------------------------------------------
+
+  async getCommerceStats(): Promise<AdminCommerceStats> {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const currentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    const [
+      totalRevRow,
+      todayRevRow,
+      monthRevRow,
+      subRevRow,
+      courseRevRow,
+      packRevRow,
+      ordersSuccessfulCount,
+      ordersPendingCount,
+      failedPaymentsCount,
+      activeSubsCount,
+      lifetimePurchasesCount,
+    ] = await Promise.all([
+      // Total Revenue from paid payments
+      this.db
+        .select({ total: sql<number>`COALESCE(SUM(${payments.amount}), 0)` })
+        .from(payments)
+        .where(eq(payments.status, "paid"))
+        .then((res) => Number(res[0]?.total ?? 0)),
+
+      // Today Revenue
+      this.db
+        .select({ total: sql<number>`COALESCE(SUM(${payments.amount}), 0)` })
+        .from(payments)
+        .where(and(eq(payments.status, "paid"), gte(payments.paidAt, today)))
+        .then((res) => Number(res[0]?.total ?? 0)),
+
+      // Current Month Revenue
+      this.db
+        .select({ total: sql<number>`COALESCE(SUM(${payments.amount}), 0)` })
+        .from(payments)
+        .where(and(eq(payments.status, "paid"), gte(payments.paidAt, currentMonth)))
+        .then((res) => Number(res[0]?.total ?? 0)),
+
+      // Subscription Revenue (join payments -> orders -> products)
+      this.db
+        .select({ total: sql<number>`COALESCE(SUM(${payments.amount}), 0)` })
+        .from(payments)
+        .innerJoin(orders, eq(payments.orderId, orders.id))
+        .innerJoin(products, eq(orders.productId, products.id))
+        .where(and(eq(payments.status, "paid"), eq(products.type, "subscription")))
+        .then((res) => Number(res[0]?.total ?? 0)),
+
+      // Course Revenue
+      this.db
+        .select({ total: sql<number>`COALESCE(SUM(${payments.amount}), 0)` })
+        .from(payments)
+        .innerJoin(orders, eq(payments.orderId, orders.id))
+        .innerJoin(products, eq(orders.productId, products.id))
+        .where(and(eq(payments.status, "paid"), eq(products.type, "course")))
+        .then((res) => Number(res[0]?.total ?? 0)),
+
+      // Content Pack Revenue
+      this.db
+        .select({ total: sql<number>`COALESCE(SUM(${payments.amount}), 0)` })
+        .from(payments)
+        .innerJoin(orders, eq(payments.orderId, orders.id))
+        .innerJoin(products, eq(orders.productId, products.id))
+        .where(and(eq(payments.status, "paid"), eq(products.type, "content_pack")))
+        .then((res) => Number(res[0]?.total ?? 0)),
+
+      // Successful Orders
+      this.db
+        .select({ count: count() })
+        .from(orders)
+        .where(eq(orders.status, "paid"))
+        .then((res) => Number(res[0]?.count ?? 0)),
+
+      // Pending Orders
+      this.db
+        .select({ count: count() })
+        .from(orders)
+        .where(eq(orders.status, "pending"))
+        .then((res) => Number(res[0]?.count ?? 0)),
+
+      // Failed / Cancelled Payments
+      this.db
+        .select({ count: count() })
+        .from(payments)
+        .where(inArray(payments.status, ["failed", "cancelled"]))
+        .then((res) => Number(res[0]?.count ?? 0)),
+
+      // Active Subscriptions
+      this.db
+        .select({ count: count() })
+        .from(userSubscriptions)
+        .where(and(eq(userSubscriptions.status, "active"), gte(userSubscriptions.expiresAt, now)))
+        .then((res) => Number(res[0]?.count ?? 0)),
+
+      // Lifetime Purchases (courses & content packs)
+      this.db
+        .select({ count: count() })
+        .from(userEntitlements)
+        .where(and(isNull(userEntitlements.expiresAt), inArray(userEntitlements.resourceType, ["course", "content_pack"])))
+        .then((res) => Number(res[0]?.count ?? 0)),
+    ]);
+
+    return {
+      totalRevenue: totalRevRow,
+      todayRevenue: todayRevRow,
+      currentMonthRevenue: monthRevRow,
+      successfulOrders: ordersSuccessfulCount,
+      activeSubscriptions: activeSubsCount,
+      lifetimePurchases: lifetimePurchasesCount,
+      subscriptionRevenue: subRevRow,
+      courseRevenue: courseRevRow,
+      contentPackRevenue: packRevRow,
+      pendingOrders: ordersPendingCount,
+      failedPayments: failedPaymentsCount,
+    };
+  }
+
+  async listCommerceOrders(params: {
+    page: number;
+    pageSize: number;
+    search?: string;
+    status?: string;
+    from?: string;
+    to?: string;
+  }): Promise<AdminOrdersList> {
+    const { page, pageSize, search, status, from, to } = params;
+    const offset = (page - 1) * pageSize;
+
+    const conditions: Array<SQL | undefined> = [];
+
+    if (status && status !== "all") {
+      conditions.push(eq(orders.status, status));
+    }
+    if (from) {
+      conditions.push(gte(orders.createdAt, new Date(from)));
+    }
+    if (to) {
+      conditions.push(lte(orders.createdAt, new Date(to)));
+    }
+
+    if (search && search.trim().length > 0) {
+      const q = `%${search.trim()}%`;
+      conditions.push(
+        or(
+          ilike(orders.orderNumber, q),
+          ilike(users.email, q),
+          ilike(users.name, q),
+          ilike(products.title, q),
+        )
+      );
+    }
+
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+    const [totalCountRes, rows] = await Promise.all([
+      this.db
+        .select({ count: count() })
+        .from(orders)
+        .innerJoin(users, eq(orders.userId, users.id))
+        .innerJoin(products, eq(orders.productId, products.id))
+        .where(whereClause),
+      this.db
+        .select({
+          order: orders,
+          user: { id: users.id, email: users.email, name: users.name },
+          product: { id: products.id, title: products.title, type: products.type },
+        })
+        .from(orders)
+        .innerJoin(users, eq(orders.userId, users.id))
+        .innerJoin(products, eq(orders.productId, products.id))
+        .where(whereClause)
+        .orderBy(desc(orders.createdAt))
+        .limit(pageSize)
+        .offset(offset),
+    ]);
+
+    const orderIds = rows.map((r) => r.order.id);
+    let paymentRows: Array<{ orderId: string; status: string; gateway: string; transactionId: string | null }> = [];
+    if (orderIds.length > 0) {
+      paymentRows = await this.db
+        .select({
+          orderId: payments.orderId,
+          status: payments.status,
+          gateway: payments.gateway,
+          transactionId: payments.transactionId,
+        })
+        .from(payments)
+        .where(inArray(payments.orderId, orderIds));
+    }
+
+    const paymentMap = new Map<string, { status: string; gateway: string; transactionId: string | null }>();
+    for (const p of paymentRows) {
+      paymentMap.set(p.orderId, p);
+    }
+
+    const ordersList: AdminOrderRecord[] = rows.map((r) => {
+      const pay = paymentMap.get(r.order.id);
+      return {
+        id: r.order.id,
+        orderNumber: r.order.orderNumber,
+        userId: r.user.id,
+        userName: r.user.name || undefined,
+        userEmail: r.user.email,
+        productId: r.product.id,
+        productTitle: r.product.title,
+        productType: r.product.type,
+        amount: r.order.amount,
+        currency: r.order.currency,
+        status: r.order.status,
+        createdAt: r.order.createdAt.toISOString(),
+        updatedAt: r.order.updatedAt.toISOString(),
+        paymentStatus: pay?.status,
+        paymentGateway: pay?.gateway,
+        paymentTransactionId: pay?.transactionId || undefined,
+      };
+    });
+
+    return {
+      orders: ordersList,
+      totalCount: Number(totalCountRes[0]?.count ?? 0),
+    };
+  }
+
+  async listCommercePayments(params: {
+    page: number;
+    pageSize: number;
+    search?: string;
+    gateway?: string;
+    status?: string;
+    from?: string;
+    to?: string;
+  }): Promise<AdminPaymentsList> {
+    const { page, pageSize, search, gateway, status, from, to } = params;
+    const offset = (page - 1) * pageSize;
+
+    const conditions: Array<SQL | undefined> = [];
+
+    if (gateway && gateway !== "all") {
+      conditions.push(eq(payments.gateway, gateway));
+    }
+    if (status && status !== "all") {
+      conditions.push(eq(payments.status, status));
+    }
+    if (from) {
+      conditions.push(gte(payments.createdAt, new Date(from)));
+    }
+    if (to) {
+      conditions.push(lte(payments.createdAt, new Date(to)));
+    }
+
+    if (search && search.trim().length > 0) {
+      const q = `%${search.trim()}%`;
+      conditions.push(
+        or(
+          ilike(payments.authority, q),
+          ilike(payments.transactionId, q),
+          ilike(payments.trackingNumber, q),
+          ilike(payments.payerName, q),
+          ilike(orders.orderNumber, q),
+          ilike(users.email, q),
+          ilike(users.name, q),
+        )
+      );
+    }
+
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+    const [totalCountRes, rows] = await Promise.all([
+      this.db
+        .select({ count: count() })
+        .from(payments)
+        .innerJoin(orders, eq(payments.orderId, orders.id))
+        .innerJoin(users, eq(payments.userId, users.id))
+        .innerJoin(products, eq(orders.productId, products.id))
+        .where(whereClause),
+      this.db
+        .select({
+          payment: payments,
+          order: { id: orders.id, orderNumber: orders.orderNumber },
+          user: { id: users.id, email: users.email, name: users.name },
+          product: { id: products.id, title: products.title },
+        })
+        .from(payments)
+        .innerJoin(orders, eq(payments.orderId, orders.id))
+        .innerJoin(users, eq(payments.userId, users.id))
+        .innerJoin(products, eq(orders.productId, products.id))
+        .where(whereClause)
+        .orderBy(desc(payments.createdAt))
+        .limit(pageSize)
+        .offset(offset),
+    ]);
+
+    const paymentsList: AdminPaymentRecord[] = rows.map((r) => ({
+      id: r.payment.id,
+      orderId: r.order.id,
+      orderNumber: r.order.orderNumber,
+      userId: r.user.id,
+      userName: r.user.name || undefined,
+      userEmail: r.user.email,
+      productTitle: r.product.title,
+      amount: r.payment.amount,
+      currency: r.payment.currency,
+      gateway: r.payment.gateway,
+      authority: r.payment.authority,
+      transactionId: r.payment.transactionId,
+      status: r.payment.status,
+      trackingNumber: r.payment.trackingNumber ?? null,
+      sourceCardLast4: r.payment.sourceCardLast4 ?? null,
+      payerName: r.payment.payerName ?? null,
+      receiptUrl: r.payment.receiptUrl ?? null,
+      initialValidationResult:
+        (r.payment.initialValidationResult as Record<string, unknown>) ?? null,
+      rejectionReason: r.payment.rejectionReason ?? null,
+      reviewedAt: r.payment.reviewedAt
+        ? r.payment.reviewedAt.toISOString()
+        : null,
+      reviewedBy: r.payment.reviewedBy ?? null,
+      paidAt: r.payment.paidAt ? r.payment.paidAt.toISOString() : null,
+      createdAt: r.payment.createdAt.toISOString(),
+    }));
+
+    return {
+      payments: paymentsList,
+      totalCount: Number(totalCountRes[0]?.count ?? 0),
+    };
+  }
+
+  async listCommerceSubscriptions(params: {
+    page: number;
+    pageSize: number;
+    search?: string;
+    status?: string;
+  }): Promise<AdminSubscriptionsList> {
+    const { page, pageSize, search, status } = params;
+    const offset = (page - 1) * pageSize;
+    const now = new Date();
+
+    const conditions: Array<SQL | undefined> = [];
+
+    if (status === "active") {
+      conditions.push(and(eq(userSubscriptions.status, "active"), gte(userSubscriptions.expiresAt, now)));
+    } else if (status === "expired") {
+      conditions.push(or(eq(userSubscriptions.status, "expired"), sql`${userSubscriptions.expiresAt} < ${now}`));
+    } else if (status === "cancelled") {
+      conditions.push(eq(userSubscriptions.status, "cancelled"));
+    }
+
+    if (search && search.trim().length > 0) {
+      const q = `%${search.trim()}%`;
+      conditions.push(
+        or(
+          ilike(users.email, q),
+          ilike(users.name, q),
+          ilike(products.title, q),
+          ilike(products.code, q),
+        )
+      );
+    }
+
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+    const [totalCountRes, rows] = await Promise.all([
+      this.db
+        .select({ count: count() })
+        .from(userSubscriptions)
+        .innerJoin(users, eq(userSubscriptions.userId, users.id))
+        .innerJoin(products, eq(userSubscriptions.productId, products.id))
+        .where(whereClause),
+      this.db
+        .select({
+          sub: userSubscriptions,
+          user: { id: users.id, email: users.email, name: users.name },
+          product: { id: products.id, title: products.title, code: products.code },
+        })
+        .from(userSubscriptions)
+        .innerJoin(users, eq(userSubscriptions.userId, users.id))
+        .innerJoin(products, eq(userSubscriptions.productId, products.id))
+        .where(whereClause)
+        .orderBy(desc(userSubscriptions.createdAt))
+        .limit(pageSize)
+        .offset(offset),
+    ]);
+
+    const subscriptionsList: AdminSubscriptionRecord[] = rows.map((r) => {
+      let resolvedStatus = r.sub.status;
+      if (r.sub.status === "active" && new Date(r.sub.expiresAt).getTime() < now.getTime()) {
+        resolvedStatus = "expired";
+      }
+
+      return {
+        id: r.sub.id,
+        userId: r.user.id,
+        userName: r.user.name || undefined,
+        userEmail: r.user.email,
+        productId: r.product.id,
+        productTitle: r.product.title,
+        plan: r.product.code,
+        status: resolvedStatus,
+        startedAt: r.sub.startedAt.toISOString(),
+        expiresAt: r.sub.expiresAt.toISOString(),
+        orderId: r.sub.orderId,
+        createdAt: r.sub.createdAt.toISOString(),
+      };
+    });
+
+    return {
+      subscriptions: subscriptionsList,
+      totalCount: Number(totalCountRes[0]?.count ?? 0),
+    };
+  }
+
+  async listCommerceEntitlements(params: {
+    page: number;
+    pageSize: number;
+    search?: string;
+    resourceType?: string;
+    sourceType?: string;
+    status?: string;
+  }): Promise<AdminEntitlementsList> {
+    const { page, pageSize, search, resourceType, sourceType, status } = params;
+    const offset = (page - 1) * pageSize;
+    const now = new Date();
+
+    const conditions: Array<SQL | undefined> = [];
+
+    if (resourceType && resourceType !== "all") {
+      conditions.push(eq(userEntitlements.resourceType, resourceType));
+    }
+    if (sourceType && sourceType !== "all") {
+      conditions.push(eq(userEntitlements.sourceType, sourceType));
+    }
+
+    if (status === "lifetime") {
+      conditions.push(isNull(userEntitlements.expiresAt));
+    } else if (status === "active") {
+      conditions.push(or(isNull(userEntitlements.expiresAt), gte(userEntitlements.expiresAt, now)));
+    } else if (status === "expired") {
+      conditions.push(and(isNotNull(userEntitlements.expiresAt), sql`${userEntitlements.expiresAt} < ${now}`));
+    }
+
+    if (search && search.trim().length > 0) {
+      const q = `%${search.trim()}%`;
+      conditions.push(
+        or(
+          ilike(users.email, q),
+          ilike(users.name, q),
+          sql`CAST(${userEntitlements.resourceId} AS text) ILIKE ${q}`,
+        )
+      );
+    }
+
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+    const [totalCountRes, rows] = await Promise.all([
+      this.db
+        .select({ count: count() })
+        .from(userEntitlements)
+        .innerJoin(users, eq(userEntitlements.userId, users.id))
+        .where(whereClause),
+      this.db
+        .select({
+          ent: userEntitlements,
+          user: { id: users.id, email: users.email, name: users.name },
+        })
+        .from(userEntitlements)
+        .innerJoin(users, eq(userEntitlements.userId, users.id))
+        .where(whereClause)
+        .orderBy(desc(userEntitlements.createdAt))
+        .limit(pageSize)
+        .offset(offset),
+    ]);
+
+    // Resource titles lookup
+    const courseIds = rows.filter((r) => r.ent.resourceType === "course" && r.ent.resourceId).map((r) => r.ent.resourceId!);
+    const packIds = rows.filter((r) => r.ent.resourceType === "content_pack" && r.ent.resourceId).map((r) => r.ent.resourceId!);
+
+    const [courseRows, packRows] = await Promise.all([
+      courseIds.length > 0
+        ? this.db.select({ id: courses.id, name: courses.name }).from(courses).where(inArray(courses.id, courseIds))
+        : Promise.resolve([]),
+      packIds.length > 0
+        ? this.db.select({ id: contentPacks.id, title: contentPacks.title }).from(contentPacks).where(inArray(contentPacks.id, packIds))
+        : Promise.resolve([]),
+    ]);
+
+    const titleMap = new Map<string, string>();
+    for (const c of courseRows) titleMap.set(c.id, c.name);
+    for (const p of packRows) titleMap.set(p.id, p.title);
+
+    const entitlementsList: AdminEntitlementRecord[] = rows.map((r) => {
+      const isLifetime = r.ent.expiresAt === null;
+      const isActive = isLifetime || new Date(r.ent.expiresAt!).getTime() >= now.getTime();
+
+      let resourceTitle: string | undefined;
+      if (r.ent.resourceType === "subscription") {
+        resourceTitle = "اشتراک سراسری آوانا";
+      } else if (r.ent.resourceId) {
+        resourceTitle = titleMap.get(r.ent.resourceId);
+      }
+
+      return {
+        id: r.ent.id,
+        userId: r.user.id,
+        userName: r.user.name || undefined,
+        userEmail: r.user.email,
+        resourceType: r.ent.resourceType,
+        resourceId: r.ent.resourceId,
+        resourceTitle,
+        sourceType: r.ent.sourceType,
+        orderId: r.ent.orderId,
+        startsAt: r.ent.startsAt.toISOString(),
+        expiresAt: r.ent.expiresAt ? r.ent.expiresAt.toISOString() : null,
+        lifetime: isLifetime,
+        active: isActive,
+        createdAt: r.ent.createdAt.toISOString(),
+      };
+    });
+
+    return {
+      entitlements: entitlementsList,
+      totalCount: Number(totalCountRes[0]?.count ?? 0),
+    };
+  }
+
+  async listCommerceProducts(): Promise<AdminProductRecord[]> {
+    const rows = await this.db
+      .select()
+      .from(products)
+      .where(isNull(products.deletedAt))
+      .orderBy(products.type, products.price);
+
+    const courseIds = rows.filter((r) => r.targetType === "course" && r.targetId).map((r) => r.targetId!);
+    const packIds = rows.filter((r) => r.targetType === "content_pack" && r.targetId).map((r) => r.targetId!);
+    const lessonIds = rows.filter((r) => (r.targetType === "content" || r.targetType === "lesson") && r.targetId).map((r) => r.targetId!);
+
+    const [courseRows, packRows, lessonRows] = await Promise.all([
+      courseIds.length > 0
+        ? this.db.select({ id: courses.id, name: courses.name }).from(courses).where(inArray(courses.id, courseIds))
+        : Promise.resolve([]),
+      packIds.length > 0
+        ? this.db.select({ id: contentPacks.id, title: contentPacks.title }).from(contentPacks).where(inArray(contentPacks.id, packIds))
+        : Promise.resolve([]),
+      lessonIds.length > 0
+        ? this.db.select({ id: lessons.id, title: lessons.title }).from(lessons).where(inArray(lessons.id, lessonIds))
+        : Promise.resolve([]),
+    ]);
+
+    const titleMap = new Map<string, string>();
+    for (const c of courseRows) titleMap.set(c.id, c.name);
+    for (const p of packRows) titleMap.set(p.id, p.title);
+    for (const l of lessonRows) titleMap.set(l.id, l.title);
+
+    return rows.map((r) => {
+      let targetTitle: string | undefined;
+      if (r.targetId) {
+        targetTitle = titleMap.get(r.targetId);
+      }
+
+      return {
+        id: r.id,
+        code: r.code,
+        type: r.type,
+        title: r.title,
+        description: r.description,
+        price: r.price,
+        currency: r.currency,
+        targetType: r.targetType,
+        targetId: r.targetId,
+        durationDays: r.durationDays,
+        active: r.active,
+        createdAt: r.createdAt.toISOString(),
+        targetTitle,
+      };
+    });
+  }
+
+  async updateCommerceProduct(
+    adminId: string,
+    productId: string,
+    payload: { active?: boolean; price?: number },
+  ): Promise<AdminProductRecord> {
+    return this.db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select()
+        .from(products)
+        .where(and(eq(products.id, productId), isNull(products.deletedAt)))
+        .limit(1);
+
+      if (!existing) {
+        throw new Error("not_found");
+      }
+
+
+      const updateData: { active?: boolean; price?: number; updatedAt: Date } = {
+        updatedAt: new Date(),
+      };
+      if (payload.active !== undefined) updateData.active = payload.active;
+      if (payload.price !== undefined) updateData.price = payload.price;
+
+      const [updated] = await tx
+        .update(products)
+        .set(updateData)
+        .where(eq(products.id, productId))
+        .returning();
+
+      await tx.insert(auditLogs).values({
+        id: randomUUID(),
+        actorId: adminId,
+        action: "COMMERCE_PRODUCT_UPDATED",
+        entityType: "product",
+        entityId: productId,
+        details: {
+          previousPrice: existing.price,
+          newPrice: updated.price,
+          previousActive: existing.active,
+          newActive: updated.active,
+        },
+        createdAt: new Date(),
+      });
+
+      return {
+        id: updated.id,
+        code: updated.code,
+        type: updated.type,
+        title: updated.title,
+        description: updated.description,
+        price: updated.price,
+        currency: updated.currency,
+        targetType: updated.targetType,
+        targetId: updated.targetId,
+        durationDays: updated.durationDays,
+        active: updated.active,
+        createdAt: updated.createdAt.toISOString(),
+      };
+    });
+  }
+
+  async grantCommerceEntitlement(
+    adminId: string,
+    input: AdminGrantInput,
+  ): Promise<AdminEntitlementRecord> {
+    return this.db.transaction(async (tx) => {
+      // 1. Verify User exists
+      const [targetUser] = await tx
+        .select({ id: users.id, email: users.email, name: users.name })
+        .from(users)
+        .where(and(eq(users.id, input.userId), isNull(users.deletedAt)))
+        .limit(1);
+
+      if (!targetUser) {
+        throw new Error("user_not_found");
+      }
+
+      const now = new Date();
+      let resourceTitle: string | undefined;
+
+      // 2. Resource-specific verification and setup
+      if (input.resourceType === "course") {
+        if (!input.resourceId) throw new Error("missing_resource_id");
+        const [courseRecord] = await tx
+          .select({ id: courses.id, name: courses.name })
+          .from(courses)
+          .where(and(eq(courses.id, input.resourceId), isNull(courses.deletedAt)))
+          .limit(1);
+
+        if (!courseRecord) throw new Error("course_not_found");
+        resourceTitle = courseRecord.name;
+
+        // Insert Lifetime Course Entitlement (expires_at = null)
+        const [inserted] = await tx
+          .insert(userEntitlements)
+          .values({
+            id: randomUUID(),
+            userId: targetUser.id,
+            resourceType: "course",
+            resourceId: input.resourceId,
+            sourceType: "admin_grant",
+            orderId: null,
+            startsAt: now,
+            expiresAt: null,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .onConflictDoNothing()
+          .returning();
+
+        let finalEntitlement = inserted;
+        if (!finalEntitlement) {
+          const [existing] = await tx
+            .select()
+            .from(userEntitlements)
+            .where(
+              and(
+                eq(userEntitlements.userId, targetUser.id),
+                eq(userEntitlements.resourceType, "course"),
+                eq(userEntitlements.resourceId, input.resourceId),
+                isNull(userEntitlements.expiresAt)
+              )
+            )
+            .limit(1);
+          finalEntitlement = existing;
+        }
+
+        await tx.insert(auditLogs).values({
+          id: randomUUID(),
+          actorId: adminId,
+          action: "COMMERCE_ADMIN_GRANT",
+          entityType: "entitlement",
+          entityId: finalEntitlement.id,
+          details: {
+            userId: targetUser.id,
+            userEmail: targetUser.email,
+            resourceType: "course",
+            resourceId: input.resourceId,
+            resourceTitle,
+            lifetime: true,
+          },
+          createdAt: now,
+        });
+
+        return {
+          id: finalEntitlement.id,
+          userId: targetUser.id,
+          userName: targetUser.name || undefined,
+          userEmail: targetUser.email,
+          resourceType: "course",
+          resourceId: input.resourceId,
+          resourceTitle,
+          sourceType: "admin_grant",
+          orderId: null,
+          startsAt: finalEntitlement.startsAt.toISOString(),
+          expiresAt: null,
+          lifetime: true,
+          active: true,
+          createdAt: finalEntitlement.createdAt.toISOString(),
+        };
+      } else if (input.resourceType === "content_pack") {
+        if (!input.resourceId) throw new Error("missing_resource_id");
+        const [packRecord] = await tx
+          .select({ id: contentPacks.id, title: contentPacks.title })
+          .from(contentPacks)
+          .where(and(eq(contentPacks.id, input.resourceId), isNull(contentPacks.deletedAt)))
+          .limit(1);
+
+        if (!packRecord) throw new Error("content_pack_not_found");
+        resourceTitle = packRecord.title;
+
+        // Insert Lifetime Content Pack Entitlement (expires_at = null)
+        const [inserted] = await tx
+          .insert(userEntitlements)
+          .values({
+            id: randomUUID(),
+            userId: targetUser.id,
+            resourceType: "content_pack",
+            resourceId: input.resourceId,
+            sourceType: "admin_grant",
+            orderId: null,
+            startsAt: now,
+            expiresAt: null,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .onConflictDoNothing()
+          .returning();
+
+        let finalEntitlement = inserted;
+        if (!finalEntitlement) {
+          const [existing] = await tx
+            .select()
+            .from(userEntitlements)
+            .where(
+              and(
+                eq(userEntitlements.userId, targetUser.id),
+                eq(userEntitlements.resourceType, "content_pack"),
+                eq(userEntitlements.resourceId, input.resourceId),
+                isNull(userEntitlements.expiresAt)
+              )
+            )
+            .limit(1);
+          finalEntitlement = existing;
+        }
+
+        await tx.insert(auditLogs).values({
+          id: randomUUID(),
+          actorId: adminId,
+          action: "COMMERCE_ADMIN_GRANT",
+          entityType: "entitlement",
+          entityId: finalEntitlement.id,
+          details: {
+            userId: targetUser.id,
+            userEmail: targetUser.email,
+            resourceType: "content_pack",
+            resourceId: input.resourceId,
+            resourceTitle,
+            lifetime: true,
+          },
+          createdAt: now,
+        });
+
+        return {
+          id: finalEntitlement.id,
+          userId: targetUser.id,
+          userName: targetUser.name || undefined,
+          userEmail: targetUser.email,
+          resourceType: "content_pack",
+          resourceId: input.resourceId,
+          resourceTitle,
+          sourceType: "admin_grant",
+          orderId: null,
+          startsAt: finalEntitlement.startsAt.toISOString(),
+          expiresAt: null,
+          lifetime: true,
+          active: true,
+          createdAt: finalEntitlement.createdAt.toISOString(),
+        };
+      } else if (input.resourceType === "content") {
+        if (!input.resourceId) throw new Error("missing_resource_id");
+        const [lessonRecord] = await tx
+          .select({ id: lessons.id, title: lessons.title })
+          .from(lessons)
+          .where(and(eq(lessons.id, input.resourceId), isNull(lessons.deletedAt)))
+          .limit(1);
+
+        if (!lessonRecord) throw new Error("lesson_not_found");
+        resourceTitle = lessonRecord.title;
+
+        // Insert Lifetime Content Entitlement (expires_at = null)
+        const [inserted] = await tx
+          .insert(userEntitlements)
+          .values({
+            id: randomUUID(),
+            userId: targetUser.id,
+            resourceType: "content",
+            resourceId: input.resourceId,
+            sourceType: "admin_grant",
+            orderId: null,
+            startsAt: now,
+            expiresAt: null,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .onConflictDoNothing()
+          .returning();
+
+        let finalEntitlement = inserted;
+        if (!finalEntitlement) {
+          const [existing] = await tx
+            .select()
+            .from(userEntitlements)
+            .where(
+              and(
+                eq(userEntitlements.userId, targetUser.id),
+                eq(userEntitlements.resourceType, "content"),
+                eq(userEntitlements.resourceId, input.resourceId),
+                isNull(userEntitlements.expiresAt),
+              ),
+            )
+            .limit(1);
+          finalEntitlement = existing;
+        }
+
+        await tx.insert(auditLogs).values({
+          id: randomUUID(),
+          actorId: adminId,
+          action: "COMMERCE_ADMIN_GRANT",
+          entityType: "entitlement",
+          entityId: finalEntitlement.id,
+          details: {
+            userId: targetUser.id,
+            userEmail: targetUser.email,
+            resourceType: "content",
+            resourceId: input.resourceId,
+            resourceTitle,
+            lifetime: true,
+          },
+          createdAt: now,
+        });
+
+        return {
+          id: finalEntitlement.id,
+          userId: targetUser.id,
+          userName: targetUser.name || undefined,
+          userEmail: targetUser.email,
+          resourceType: "content",
+          resourceId: input.resourceId,
+          resourceTitle,
+          sourceType: "admin_grant",
+          orderId: null,
+          startsAt: finalEntitlement.startsAt.toISOString(),
+          expiresAt: null,
+          lifetime: true,
+          active: true,
+          createdAt: finalEntitlement.createdAt.toISOString(),
+        };
+      } else {
+        // Subscription Grant
+        resourceTitle = "اشتراک سراسری آوانا";
+        const durationDays = input.durationDays && input.durationDays > 0 ? input.durationDays : 30;
+
+        // Check if user has active subscription to extend
+        const [activeSub] = await tx
+          .select()
+          .from(userSubscriptions)
+          .where(and(eq(userSubscriptions.userId, targetUser.id), eq(userSubscriptions.status, "active"), gte(userSubscriptions.expiresAt, now)))
+          .orderBy(desc(userSubscriptions.expiresAt))
+          .limit(1);
+
+        const baseDate = activeSub && new Date(activeSub.expiresAt).getTime() > now.getTime()
+          ? new Date(activeSub.expiresAt)
+          : now;
+
+        const expiryDate = calculateSubscriptionExpiry(baseDate, durationDays);
+
+        // Fetch standard subscription product for record linking
+        const [subProduct] = await tx
+          .select({ id: products.id })
+          .from(products)
+          .where(and(eq(products.type, "subscription"), isNull(products.deletedAt)))
+          .limit(1);
+
+        const subProductId = subProduct ? subProduct.id : randomUUID();
+
+        // Create user_subscriptions record
+        await tx.insert(userSubscriptions).values({
+          id: randomUUID(),
+          userId: targetUser.id,
+          productId: subProductId,
+          orderId: null,
+          status: "active",
+          startedAt: now,
+          expiresAt: expiryDate,
+          createdAt: now,
+          updatedAt: now,
+        });
+
+        // Insert / Update user_entitlements record for subscription
+        const [insertedEnt] = await tx
+          .insert(userEntitlements)
+          .values({
+            id: randomUUID(),
+            userId: targetUser.id,
+            resourceType: "subscription",
+            resourceId: null,
+            sourceType: "admin_grant",
+            orderId: null,
+            startsAt: now,
+            expiresAt: expiryDate,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .returning();
+
+        await tx.insert(auditLogs).values({
+          id: randomUUID(),
+          actorId: adminId,
+          action: "COMMERCE_ADMIN_GRANT",
+          entityType: "entitlement",
+          entityId: insertedEnt.id,
+          details: {
+            userId: targetUser.id,
+            userEmail: targetUser.email,
+            resourceType: "subscription",
+            durationDays,
+            expiresAt: expiryDate.toISOString(),
+          },
+          createdAt: now,
+        });
+
+        return {
+          id: insertedEnt.id,
+          userId: targetUser.id,
+          userName: targetUser.name || undefined,
+          userEmail: targetUser.email,
+          resourceType: "subscription",
+          resourceId: null,
+          resourceTitle,
+          sourceType: "admin_grant",
+          orderId: null,
+          startsAt: insertedEnt.startsAt.toISOString(),
+          expiresAt: insertedEnt.expiresAt ? insertedEnt.expiresAt.toISOString() : null,
+          lifetime: false,
+          active: true,
+          createdAt: insertedEnt.createdAt.toISOString(),
+        };
+      }
+    });
+  }
+
+  async cancelCommerceSubscription(
+    adminId: string,
+    subscriptionId: string,
+    reason?: string,
+  ): Promise<{ success: boolean; subscription: AdminSubscriptionRecord; message?: string }> {
+    const now = new Date();
+
+    const [sub] = await this.db
+      .select({
+        sub: userSubscriptions,
+        product: { id: products.id, title: products.title, code: products.code },
+        user: { id: users.id, email: users.email, name: users.name },
+      })
+      .from(userSubscriptions)
+      .innerJoin(products, eq(userSubscriptions.productId, products.id))
+      .innerJoin(users, eq(userSubscriptions.userId, users.id))
+      .where(eq(userSubscriptions.id, subscriptionId))
+      .limit(1);
+
+    if (!sub) {
+      throw new Error("not_found");
+    }
+
+    // Idempotent: If already cancelled, return existing state without duplicate mutation
+    if (sub.sub.status === "cancelled") {
+      return {
+        success: true,
+        subscription: {
+          id: sub.sub.id,
+          userId: sub.user.id,
+          userName: sub.user.name || undefined,
+          userEmail: sub.user.email,
+          productId: sub.product.id,
+          productTitle: sub.product.title,
+          plan: sub.product.code,
+          status: "cancelled",
+          startedAt: sub.sub.startedAt.toISOString(),
+          expiresAt: sub.sub.expiresAt.toISOString(),
+          orderId: sub.sub.orderId,
+          createdAt: sub.sub.createdAt.toISOString(),
+        },
+        message: "اشتراک قبلاً لغو شده است.",
+      };
+    }
+
+    // Expired subscriptions cannot be cancelled
+    const isExpired =
+      sub.sub.status === "expired" ||
+      new Date(sub.sub.expiresAt).getTime() <= now.getTime();
+    if (isExpired) {
+      throw new Error("subscription_already_expired");
+    }
+
+    return this.db.transaction(async (tx) => {
+      // 1. Update user_subscriptions status to 'cancelled' and expiresAt to 'now'
+      const [updatedSub] = await tx
+        .update(userSubscriptions)
+        .set({
+          status: "cancelled",
+          expiresAt: now,
+          updatedAt: now,
+        })
+        .where(eq(userSubscriptions.id, subscriptionId))
+        .returning();
+
+      // 2. Identify and expire strictly the entitlement linked to this subscription
+      if (sub.sub.orderId) {
+        // Linked by purchase orderId
+        await tx
+          .update(userEntitlements)
+          .set({
+            expiresAt: now,
+            updatedAt: now,
+          })
+          .where(
+            and(
+              eq(userEntitlements.userId, sub.user.id),
+              eq(userEntitlements.resourceType, "subscription"),
+              eq(userEntitlements.orderId, sub.sub.orderId),
+              or(isNull(userEntitlements.expiresAt), gt(userEntitlements.expiresAt, now)),
+            ),
+          );
+      } else {
+        // Linked by admin_grant - strictly target the exact matching entitlement
+        await tx
+          .update(userEntitlements)
+          .set({
+            expiresAt: now,
+            updatedAt: now,
+          })
+          .where(
+            and(
+              eq(userEntitlements.userId, sub.user.id),
+              eq(userEntitlements.resourceType, "subscription"),
+              eq(userEntitlements.sourceType, "admin_grant"),
+              isNull(userEntitlements.orderId),
+              eq(userEntitlements.startsAt, sub.sub.startedAt),
+              eq(userEntitlements.expiresAt, sub.sub.expiresAt),
+            ),
+          );
+      }
+
+      // 3. Emit immutable audit log
+      await tx.insert(auditLogs).values({
+        id: randomUUID(),
+        actorId: adminId,
+        action: "COMMERCE_SUBSCRIPTION_CANCELLED",
+        entityType: "subscription",
+        entityId: subscriptionId,
+        details: {
+          userId: sub.user.id,
+          userEmail: sub.user.email,
+          orderId: sub.sub.orderId,
+          plan: sub.product.code,
+          productTitle: sub.product.title,
+          previousStatus: sub.sub.status,
+          previousExpiresAt: sub.sub.expiresAt.toISOString(),
+          cancelledAt: now.toISOString(),
+          reason: reason?.trim() || null,
+          immediate: true,
+        },
+        createdAt: now,
+      });
+
+      return {
+        success: true,
+        subscription: {
+          id: updatedSub.id,
+          userId: sub.user.id,
+          userName: sub.user.name || undefined,
+          userEmail: sub.user.email,
+          productId: sub.product.id,
+          productTitle: sub.product.title,
+          plan: sub.product.code,
+          status: "cancelled",
+          startedAt: updatedSub.startedAt.toISOString(),
+          expiresAt: updatedSub.expiresAt.toISOString(),
+          orderId: updatedSub.orderId,
+          createdAt: updatedSub.createdAt.toISOString(),
+        },
+      };
+    });
+  }
+
+  async approveCommercePayment(
+    adminId: string,
+    paymentId: string,
+  ): Promise<{ success: boolean; payment: AdminPaymentRecord; message?: string }> {
+    const now = new Date();
+
+    const [record] = await this.db
+      .select({
+        payment: payments,
+        order: { id: orders.id, orderNumber: orders.orderNumber },
+        user: { id: users.id, email: users.email, name: users.name },
+        product: { id: products.id, title: products.title },
+      })
+      .from(payments)
+      .innerJoin(orders, eq(payments.orderId, orders.id))
+      .innerJoin(users, eq(payments.userId, users.id))
+      .innerJoin(products, eq(orders.productId, products.id))
+      .where(eq(payments.id, paymentId))
+      .limit(1);
+
+    if (!record) {
+      throw new Error("not_found");
+    }
+
+    // Idempotent: If already approved or paid
+    if (
+      record.payment.status === "admin_approved" ||
+      record.payment.status === "paid"
+    ) {
+      return {
+        success: true,
+        payment: {
+          id: record.payment.id,
+          orderId: record.order.id,
+          orderNumber: record.order.orderNumber,
+          userId: record.user.id,
+          userName: record.user.name || undefined,
+          userEmail: record.user.email,
+          productTitle: record.product.title,
+          amount: record.payment.amount,
+          currency: record.payment.currency,
+          gateway: record.payment.gateway,
+          authority: record.payment.authority,
+          transactionId: record.payment.transactionId,
+          status: record.payment.status,
+          trackingNumber: record.payment.trackingNumber ?? null,
+          sourceCardLast4: record.payment.sourceCardLast4 ?? null,
+          payerName: record.payment.payerName ?? null,
+          receiptUrl: record.payment.receiptUrl ?? null,
+          initialValidationResult:
+            (record.payment.initialValidationResult as Record<string, unknown>) ??
+            null,
+          rejectionReason: record.payment.rejectionReason ?? null,
+          reviewedAt: record.payment.reviewedAt
+            ? record.payment.reviewedAt.toISOString()
+            : null,
+          reviewedBy: record.payment.reviewedBy ?? null,
+          paidAt: record.payment.paidAt
+            ? record.payment.paidAt.toISOString()
+            : null,
+          createdAt: record.payment.createdAt.toISOString(),
+        },
+        message: "پرداخت قبلاً تأیید شده است.",
+      };
+    }
+
+    if (
+      record.payment.status === "admin_rejected" ||
+      record.payment.status === "cancelled"
+    ) {
+      throw new Error("payment_already_rejected");
+    }
+
+    if (record.payment.status !== "pending_admin_review") {
+      throw new Error("invalid_payment_status");
+    }
+
+    return this.db.transaction(async (tx) => {
+      // 1. Update payment to admin_approved
+      const [updatedPayment] = await tx
+        .update(payments)
+        .set({
+          status: "admin_approved",
+          reviewedAt: now,
+          reviewedBy: adminId,
+          updatedAt: now,
+        })
+        .where(eq(payments.id, paymentId))
+        .returning();
+
+      // 2. Update order to paid
+      await tx
+        .update(orders)
+        .set({
+          status: "paid",
+          updatedAt: now,
+        })
+        .where(eq(orders.id, record.order.id));
+
+      // 3. Update user subscription status to active
+      await tx
+        .update(userSubscriptions)
+        .set({
+          status: "active",
+          updatedAt: now,
+        })
+        .where(eq(userSubscriptions.orderId, record.order.id));
+
+      // 4. Emit Audit Log
+      await tx.insert(auditLogs).values({
+        id: randomUUID(),
+        actorId: adminId,
+        action: "COMMERCE_PAYMENT_ADMIN_APPROVED",
+        entityType: "payment",
+        entityId: paymentId,
+        details: {
+          userId: record.user.id,
+          userEmail: record.user.email,
+          orderId: record.order.id,
+          orderNumber: record.order.orderNumber,
+          amount: record.payment.amount,
+          trackingNumber: record.payment.trackingNumber,
+          sourceCardLast4: record.payment.sourceCardLast4,
+          approvedAt: now.toISOString(),
+        },
+        createdAt: now,
+      });
+
+      return {
+        success: true,
+        payment: {
+          id: updatedPayment.id,
+          orderId: record.order.id,
+          orderNumber: record.order.orderNumber,
+          userId: record.user.id,
+          userName: record.user.name || undefined,
+          userEmail: record.user.email,
+          productTitle: record.product.title,
+          amount: updatedPayment.amount,
+          currency: updatedPayment.currency,
+          gateway: updatedPayment.gateway,
+          authority: updatedPayment.authority,
+          transactionId: updatedPayment.transactionId,
+          status: updatedPayment.status,
+          trackingNumber: updatedPayment.trackingNumber ?? null,
+          sourceCardLast4: updatedPayment.sourceCardLast4 ?? null,
+          payerName: updatedPayment.payerName ?? null,
+          receiptUrl: updatedPayment.receiptUrl ?? null,
+          initialValidationResult:
+            (updatedPayment.initialValidationResult as Record<
+              string,
+              unknown
+            >) ?? null,
+          rejectionReason: updatedPayment.rejectionReason ?? null,
+          reviewedAt: updatedPayment.reviewedAt
+            ? updatedPayment.reviewedAt.toISOString()
+            : null,
+          reviewedBy: updatedPayment.reviewedBy ?? null,
+          paidAt: updatedPayment.paidAt
+            ? updatedPayment.paidAt.toISOString()
+            : null,
+          createdAt: updatedPayment.createdAt.toISOString(),
+        },
+        message: "پرداخت کارت‌به‌کارت با موفقیت تأیید شد.",
+      };
+    });
+  }
+
+  async rejectCommercePayment(
+    adminId: string,
+    paymentId: string,
+    reason: string,
+  ): Promise<{ success: boolean; payment: AdminPaymentRecord; message?: string }> {
+    const trimmedReason = reason?.trim();
+    if (!trimmedReason) {
+      throw new Error("rejection_reason_required");
+    }
+
+    const now = new Date();
+
+    const [record] = await this.db
+      .select({
+        payment: payments,
+        order: { id: orders.id, orderNumber: orders.orderNumber },
+        user: { id: users.id, email: users.email, name: users.name },
+        product: { id: products.id, title: products.title },
+      })
+      .from(payments)
+      .innerJoin(orders, eq(payments.orderId, orders.id))
+      .innerJoin(users, eq(payments.userId, users.id))
+      .innerJoin(products, eq(orders.productId, products.id))
+      .where(eq(payments.id, paymentId))
+      .limit(1);
+
+    if (!record) {
+      throw new Error("not_found");
+    }
+
+    // Idempotent: If already rejected
+    if (record.payment.status === "admin_rejected") {
+      return {
+        success: true,
+        payment: {
+          id: record.payment.id,
+          orderId: record.order.id,
+          orderNumber: record.order.orderNumber,
+          userId: record.user.id,
+          userName: record.user.name || undefined,
+          userEmail: record.user.email,
+          productTitle: record.product.title,
+          amount: record.payment.amount,
+          currency: record.payment.currency,
+          gateway: record.payment.gateway,
+          authority: record.payment.authority,
+          transactionId: record.payment.transactionId,
+          status: record.payment.status,
+          trackingNumber: record.payment.trackingNumber ?? null,
+          sourceCardLast4: record.payment.sourceCardLast4 ?? null,
+          payerName: record.payment.payerName ?? null,
+          receiptUrl: record.payment.receiptUrl ?? null,
+          initialValidationResult:
+            (record.payment.initialValidationResult as Record<string, unknown>) ??
+            null,
+          rejectionReason: record.payment.rejectionReason ?? null,
+          reviewedAt: record.payment.reviewedAt
+            ? record.payment.reviewedAt.toISOString()
+            : null,
+          reviewedBy: record.payment.reviewedBy ?? null,
+          paidAt: record.payment.paidAt
+            ? record.payment.paidAt.toISOString()
+            : null,
+          createdAt: record.payment.createdAt.toISOString(),
+        },
+        message: "پرداخت قبلاً رد شده است.",
+      };
+    }
+
+    if (
+      record.payment.status === "admin_approved" ||
+      record.payment.status === "paid"
+    ) {
+      throw new Error("payment_already_approved");
+    }
+
+    if (record.payment.status !== "pending_admin_review") {
+      throw new Error("invalid_payment_status");
+    }
+
+    return this.db.transaction(async (tx) => {
+      // 1. Update payment to admin_rejected with reason
+      const [updatedPayment] = await tx
+        .update(payments)
+        .set({
+          status: "admin_rejected",
+          rejectionReason: trimmedReason,
+          reviewedAt: now,
+          reviewedBy: adminId,
+          updatedAt: now,
+        })
+        .where(eq(payments.id, paymentId))
+        .returning();
+
+      // 2. Update order to cancelled
+      await tx
+        .update(orders)
+        .set({
+          status: "cancelled",
+          updatedAt: now,
+        })
+        .where(eq(orders.id, record.order.id));
+
+      // 3. Update subscription status to cancelled_payment_rejected and expire it
+      await tx
+        .update(userSubscriptions)
+        .set({
+          status: "cancelled_payment_rejected",
+          expiresAt: now,
+          updatedAt: now,
+        })
+        .where(eq(userSubscriptions.orderId, record.order.id));
+
+      // 4. Centralized Access Control Revocation: Immediately expire user_entitlements linked to this order
+      await tx
+        .update(userEntitlements)
+        .set({
+          expiresAt: now,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(userEntitlements.userId, record.user.id),
+            eq(userEntitlements.resourceType, "subscription"),
+            eq(userEntitlements.orderId, record.order.id),
+          ),
+        );
+
+      // 5. Emit Audit Log
+      await tx.insert(auditLogs).values({
+        id: randomUUID(),
+        actorId: adminId,
+        action: "COMMERCE_PAYMENT_ADMIN_REJECTED",
+        entityType: "payment",
+        entityId: paymentId,
+        details: {
+          userId: record.user.id,
+          userEmail: record.user.email,
+          orderId: record.order.id,
+          orderNumber: record.order.orderNumber,
+          amount: record.payment.amount,
+          trackingNumber: record.payment.trackingNumber,
+          sourceCardLast4: record.payment.sourceCardLast4,
+          reason: trimmedReason,
+          rejectedAt: now.toISOString(),
+        },
+        createdAt: now,
+      });
+
+      return {
+        success: true,
+        payment: {
+          id: updatedPayment.id,
+          orderId: record.order.id,
+          orderNumber: record.order.orderNumber,
+          userId: record.user.id,
+          userName: record.user.name || undefined,
+          userEmail: record.user.email,
+          productTitle: record.product.title,
+          amount: updatedPayment.amount,
+          currency: updatedPayment.currency,
+          gateway: updatedPayment.gateway,
+          authority: updatedPayment.authority,
+          transactionId: updatedPayment.transactionId,
+          status: updatedPayment.status,
+          trackingNumber: updatedPayment.trackingNumber ?? null,
+          sourceCardLast4: updatedPayment.sourceCardLast4 ?? null,
+          payerName: updatedPayment.payerName ?? null,
+          receiptUrl: updatedPayment.receiptUrl ?? null,
+          initialValidationResult:
+            (updatedPayment.initialValidationResult as Record<
+              string,
+              unknown
+            >) ?? null,
+          rejectionReason: updatedPayment.rejectionReason ?? null,
+          reviewedAt: updatedPayment.reviewedAt
+            ? updatedPayment.reviewedAt.toISOString()
+            : null,
+          reviewedBy: updatedPayment.reviewedBy ?? null,
+          paidAt: updatedPayment.paidAt
+            ? updatedPayment.paidAt.toISOString()
+            : null,
+          createdAt: updatedPayment.createdAt.toISOString(),
+        },
+        message: "پرداخت رد شد و دسترسی اشتراک بلافاصله لغو گردید.",
+      };
+    });
+  }
+
+  async getUserCommerceProfile(userId: string): Promise<AdminUserCommerceProfile> {
+    const now = new Date();
+
+    const [userRecord] = await this.db
+      .select({ id: users.id, email: users.email, name: users.name })
+      .from(users)
+      .where(and(eq(users.id, userId), isNull(users.deletedAt)))
+      .limit(1);
+
+    if (!userRecord) {
+      throw new Error("user_not_found");
+    }
+
+    // Subscriptions
+    const subRows = await this.db
+      .select({
+        sub: userSubscriptions,
+        product: { id: products.id, title: products.title, code: products.code },
+      })
+      .from(userSubscriptions)
+      .innerJoin(products, eq(userSubscriptions.productId, products.id))
+      .where(eq(userSubscriptions.userId, userId))
+      .orderBy(desc(userSubscriptions.createdAt));
+
+    let activeSubscription: AdminSubscriptionRecord | null = null;
+    const subscriptionHistory: AdminSubscriptionRecord[] = [];
+
+    for (const r of subRows) {
+      let resolvedStatus = r.sub.status;
+      const isSubActive = r.sub.status === "active" && new Date(r.sub.expiresAt).getTime() >= now.getTime();
+      if (r.sub.status === "active" && !isSubActive) {
+        resolvedStatus = "expired";
+      }
+
+      const rec: AdminSubscriptionRecord = {
+        id: r.sub.id,
+        userId: userRecord.id,
+        userName: userRecord.name || undefined,
+        userEmail: userRecord.email,
+        productId: r.product.id,
+        productTitle: r.product.title,
+        plan: r.product.code,
+        status: resolvedStatus,
+        startedAt: r.sub.startedAt.toISOString(),
+        expiresAt: r.sub.expiresAt.toISOString(),
+        orderId: r.sub.orderId,
+        createdAt: r.sub.createdAt.toISOString(),
+      };
+
+      subscriptionHistory.push(rec);
+      if (isSubActive && !activeSubscription) {
+        activeSubscription = rec;
+      }
+    }
+
+    // Entitlements
+    const entRows = await this.db
+      .select()
+      .from(userEntitlements)
+      .where(eq(userEntitlements.userId, userId))
+      .orderBy(desc(userEntitlements.createdAt));
+
+    const courseIds = entRows.filter((r) => r.resourceType === "course" && r.resourceId).map((r) => r.resourceId!);
+    const packIds = entRows.filter((r) => r.resourceType === "content_pack" && r.resourceId).map((r) => r.resourceId!);
+
+    const [courseRows, packRows] = await Promise.all([
+      courseIds.length > 0
+        ? this.db.select({ id: courses.id, name: courses.name }).from(courses).where(inArray(courses.id, courseIds))
+        : Promise.resolve([]),
+      packIds.length > 0
+        ? this.db.select({ id: contentPacks.id, title: contentPacks.title }).from(contentPacks).where(inArray(contentPacks.id, packIds))
+        : Promise.resolve([]),
+    ]);
+
+    const titleMap = new Map<string, string>();
+    for (const c of courseRows) titleMap.set(c.id, c.name);
+    for (const p of packRows) titleMap.set(p.id, p.title);
+
+    const entitlements: AdminEntitlementRecord[] = [];
+    const lifetimePurchases: AdminEntitlementRecord[] = [];
+
+    for (const r of entRows) {
+      const isLifetime = r.expiresAt === null;
+      const isActive = isLifetime || new Date(r.expiresAt!).getTime() >= now.getTime();
+
+      let resourceTitle: string | undefined;
+      if (r.resourceType === "subscription") {
+        resourceTitle = "اشتراک سراسری آوانا";
+      } else if (r.resourceId) {
+        resourceTitle = titleMap.get(r.resourceId);
+      }
+
+      const rec: AdminEntitlementRecord = {
+        id: r.id,
+        userId: userRecord.id,
+        userName: userRecord.name || undefined,
+        userEmail: userRecord.email,
+        resourceType: r.resourceType,
+        resourceId: r.resourceId,
+        resourceTitle,
+        sourceType: r.sourceType,
+        orderId: r.orderId,
+        startsAt: r.startsAt.toISOString(),
+        expiresAt: r.expiresAt ? r.expiresAt.toISOString() : null,
+        lifetime: isLifetime,
+        active: isActive,
+        createdAt: r.createdAt.toISOString(),
+      };
+
+      entitlements.push(rec);
+      if (isLifetime) {
+        lifetimePurchases.push(rec);
+      }
+    }
+
+    // Orders
+    const orderRows = await this.db
+      .select({
+        order: orders,
+        product: { id: products.id, title: products.title, type: products.type },
+      })
+      .from(orders)
+      .innerJoin(products, eq(orders.productId, products.id))
+      .where(eq(orders.userId, userId))
+      .orderBy(desc(orders.createdAt));
+
+    const orderList: AdminOrderRecord[] = orderRows.map((r) => ({
+      id: r.order.id,
+      orderNumber: r.order.orderNumber,
+      userId: userRecord.id,
+      userName: userRecord.name || undefined,
+      userEmail: userRecord.email,
+      productId: r.product.id,
+      productTitle: r.product.title,
+      productType: r.product.type,
+      amount: r.order.amount,
+      currency: r.order.currency,
+      status: r.order.status,
+      createdAt: r.order.createdAt.toISOString(),
+      updatedAt: r.order.updatedAt.toISOString(),
+    }));
+
+    // Payments
+    const paymentRows = await this.db
+      .select({
+        payment: payments,
+        order: { id: orders.id, orderNumber: orders.orderNumber },
+      })
+      .from(payments)
+      .innerJoin(orders, eq(payments.orderId, orders.id))
+      .where(eq(payments.userId, userId))
+      .orderBy(desc(payments.createdAt));
+
+    const paymentList: AdminPaymentRecord[] = paymentRows.map((r) => ({
+      id: r.payment.id,
+      orderId: r.order.id,
+      orderNumber: r.order.orderNumber,
+      userId: userRecord.id,
+      userName: userRecord.name || undefined,
+      userEmail: userRecord.email,
+      amount: r.payment.amount,
+      currency: r.payment.currency,
+      gateway: r.payment.gateway,
+      authority: r.payment.authority,
+      transactionId: r.payment.transactionId,
+      status: r.payment.status,
+      paidAt: r.payment.paidAt ? r.payment.paidAt.toISOString() : null,
+      createdAt: r.payment.createdAt.toISOString(),
+    }));
+
+    return {
+      user: {
+        id: userRecord.id,
+        email: userRecord.email,
+        name: userRecord.name || undefined,
+      },
+      activeSubscription,
+      subscriptionHistory,
+      lifetimePurchases,
+      entitlements,
+      orders: orderList,
+      payments: paymentList,
+    };
   }
 }

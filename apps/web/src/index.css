@@ -1,4 +1,13 @@
 @import "tailwindcss";
+@import "katex/dist/katex.min.css";
+
+
+@theme {
+  --font-sans: "Vazirmatn", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+  --font-body: "Vazirmatn", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-headline: "Vazirmatn", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-vazirmatn: "Vazirmatn", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
 
 :root {
   /* Layout Dimensions */
@@ -38,22 +47,40 @@
 * {
   font-family:
     "Vazirmatn",
-    "Inter",
-    system-ui,
     -apple-system,
     BlinkMacSystemFont,
     "Segoe UI",
     Roboto,
+    Helvetica,
+    Arial,
     sans-serif;
 }
 
 body {
+  font-family:
+    "Vazirmatn",
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Roboto,
+    Helvetica,
+    Arial,
+    sans-serif;
   background-color: var(--color-background);
   color: var(--color-text);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
   direction: rtl;
   text-align: right;
+}
+
+input,
+button,
+textarea,
+select,
+optgroup {
+  font-family: inherit;
 }
 
 /* Custom scrollbar */
@@ -230,7 +257,15 @@ a {
   /* Override body colors within landing scope */
   background-color: var(--lp-surface);
   color: var(--lp-on-surface);
-  font-family: "Vazirmatn", system-ui, sans-serif;
+  font-family:
+    "Vazirmatn",
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Roboto,
+    Helvetica,
+    Arial,
+    sans-serif;
   direction: rtl;
   text-align: right;
   -webkit-font-smoothing: antialiased;
@@ -265,7 +300,15 @@ a {
 
 /* Headline font */
 .landing-page .font-headline {
-  font-family: "Plus Jakarta Sans", "Vazirmatn", sans-serif;
+  font-family:
+    "Vazirmatn",
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Roboto,
+    Helvetica,
+    Arial,
+    sans-serif;
 }
 
 /* Animations */
@@ -320,5 +363,37 @@ a {
   opacity: 1;
   transform: translateY(0);
 }
+
+/* KaTeX Math RTL & Typography Integration */
+.katex {
+  direction: ltr !important;
+  unicode-bidi: isolate;
+  text-align: left;
+  display: inline-block;
+  font-size: 1.05em;
+  color: currentColor;
+}
+
+.katex-display {
+  direction: ltr !important;
+  text-align: center;
+  margin: 1.25rem 0 !important;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.75rem 1rem;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 0.75rem;
+  color: currentColor;
+}
+
+.rich-content-inline .katex-display {
+  display: inline-block;
+  margin: 0 !important;
+  padding: 0;
+  background: transparent;
+  border: none;
+}
+
 
 

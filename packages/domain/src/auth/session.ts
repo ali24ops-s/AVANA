@@ -39,6 +39,45 @@ export type Session = {
 
   /** When the session was revoked, if applicable. */
   revokedAt: UtcIsoDateTimeString | null;
+
+  /** Associated registered device identifier, if any. */
+  deviceId?: string | null;
+
+  /** Reason the session was revoked (e.g. 'session_takeover', 'admin_reset', 'sign_out'). */
+  revocationReason?: string | null;
+};
+
+/** Device categorization: strictly mobile or desktop. */
+export type DeviceType = "mobile" | "desktop";
+
+/** Registered user device domain model. */
+export type UserDevice = {
+  id: string;
+  userId: UserId;
+  deviceId: string;
+  deviceType: DeviceType;
+  deviceName: string | null;
+  userAgent: string | null;
+  lastIp: string | null;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  revokedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/** Authentication attempt log record. */
+export type AuthenticationAttempt = {
+  id: string;
+  userId: UserId | null;
+  email: string;
+  deviceType: DeviceType;
+  deviceId: string | null;
+  userAgent: string | null;
+  ip: string | null;
+  result: "SUCCESS" | "DEVICE_LIMIT_REACHED" | "SESSION_REVOKED" | "INVALID_CREDENTIALS" | string;
+  details: string | null;
+  createdAt: string;
 };
 
 /**

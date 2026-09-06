@@ -21,7 +21,7 @@ import {
   LESSON_GENERATION_SYSTEM_PROMPT,
   FLASHCARD_GENERATION_SYSTEM_PROMPT,
   QUIZ_GENERATION_SYSTEM_PROMPT,
-  RECOMMENDATION_SYSTEM_PROMPT,
+  REVIEW_SUMMARY_SYSTEM_PROMPT,
   DASHBOARD_ASSISTANT_SYSTEM_PROMPT,
 } from "../modules/generation/prompt-registry.js";
 
@@ -36,7 +36,7 @@ describe("Prompt Registry & Single Source of Truth", () => {
     expect(ids).toContain("lesson-generation");
     expect(ids).toContain("flashcard-generation");
     expect(ids).toContain("quiz-generation");
-    expect(ids).toContain("recommendations-generation");
+    expect(ids).toContain("review-summary");
     expect(ids).toContain("study-assistant-lesson");
     expect(ids).toContain("study-assistant-dashboard");
 
@@ -73,8 +73,8 @@ describe("Prompt Registry & Single Source of Truth", () => {
     const quiz = registry.find((p) => p.id === "quiz-generation");
     expect(quiz?.systemPrompt).toBe(QUIZ_GENERATION_SYSTEM_PROMPT);
 
-    const rec = registry.find((p) => p.id === "recommendations-generation");
-    expect(rec?.systemPrompt).toBe(RECOMMENDATION_SYSTEM_PROMPT);
+    const reviewSummary = registry.find((p) => p.id === "review-summary");
+    expect(reviewSummary?.systemPrompt).toBe(REVIEW_SUMMARY_SYSTEM_PROMPT);
 
     const dashboardAssistant = registry.find(
       (p) => p.id === "study-assistant-dashboard",
