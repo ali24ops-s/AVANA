@@ -6,6 +6,7 @@
     { "path": "./packages/config" },
     { "path": "./packages/contracts" },
     { "path": "./packages/domain" },
-    { "path": "./packages/ui" }
+    { "path": "./packages/ui" },
+    { "path": "./database" }
   ]
 }

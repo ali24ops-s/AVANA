@@ -6,18 +6,30 @@
   "exports": {
     "./client": {
       "types": "./client.ts",
-      "import": "./client.js",
+      "import": "./dist/client.js",
       "default": "./client.ts"
     },
     "./schema": {
       "types": "./schema/index.ts",
-      "import": "./schema/index.js",
+      "import": "./dist/schema/index.js",
       "default": "./schema/index.ts"
     },
     "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc --build tsconfig.build.json --force",
+    "type-check": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.2",
     "pg": "^8.22.0"
   }
 }
+

@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "include": [
+    "client.ts",
+    "schema/**/*.ts"
+  ],
+  "exclude": [
+    "dist",
+    "node_modules",
+    "migrations/**",
+    "seeds/**",
+    "tests/**",
+    "migrate.ts",
+    "drizzle.config.ts",
+    "vitest.config.ts"
+  ]
+}
