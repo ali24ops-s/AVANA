@@ -670,6 +670,7 @@ export function auditContentAccepted(
   details: {
     documentId: string;
     type: string;
+    bulkApproved?: boolean;
   },
 ): AuditEvent {
   return {
@@ -681,6 +682,9 @@ export function auditContentAccepted(
     details: {
       document_id: details.documentId,
       type: details.type,
+      ...(details.bulkApproved !== undefined
+        ? { bulk_approved: details.bulkApproved }
+        : {}),
     },
     createdAt: utcNow(),
   };

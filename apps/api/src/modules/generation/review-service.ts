@@ -1014,7 +1014,6 @@ export class ReviewService {
         return await this.executeAcceptPackBatch(
           actor,
           organizationId,
-          courseId,
           documentId,
           allContents,
           toAccept,
@@ -1037,7 +1036,6 @@ export class ReviewService {
       return await this.executeAcceptPackBatch(
         actor,
         organizationId,
-        courseId,
         documentId,
         allContents,
         toAccept,
@@ -1058,7 +1056,6 @@ export class ReviewService {
   private async executeAcceptPackBatch(
     actor: Actor,
     organizationId: OrganizationId,
-    courseId: CourseId,
     documentId: DocumentId,
     allContents: GeneratedContentRecord[],
     toAccept: GeneratedContentRecord[],

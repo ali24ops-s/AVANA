@@ -209,6 +209,21 @@ describe("PR6-4 generation audit helpers", () => {
     expect(event.details).toMatchObject({ type: "lesson" });
   });
 
+  it("creates a content.accepted audit event with bulkApproved flag", () => {
+    const event = auditContentAccepted(mockUserId, mockOrgId, mockContentId, {
+      documentId: mockDocId,
+      type: "lesson",
+      bulkApproved: true,
+    });
+
+    expect(event.action).toBe("content.accepted");
+    expect(event.entityType).toBe("generated_content");
+    expect(event.details).toMatchObject({
+      type: "lesson",
+      bulk_approved: true,
+    });
+  });
+
   it("creates a content.rejected audit event", () => {
     const event = auditContentRejected(mockUserId, mockOrgId, mockContentId, {
       documentId: mockDocId,

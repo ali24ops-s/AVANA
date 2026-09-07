@@ -13,8 +13,9 @@
     "npm": ">=10.0.0"
   },
   "scripts": {
-    "build": "npm run build --workspaces --if-present",
+    "build": "npm run build:packages && npm run build:apps",
     "build:packages": "npm run build --workspace=@avana/config --workspace=@avana/contracts --workspace=@avana/database --workspace=@avana/domain --workspace=@avana/ui",
+    "build:apps": "npm run build --workspace=@avana/api --workspace=@avana/web --workspace=@avana/worker",
     "type-check": "npm run type-check --workspaces --if-present",
     "test": "vitest run",
     "test:watch": "vitest watch",
