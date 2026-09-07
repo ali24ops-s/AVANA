@@ -42,7 +42,7 @@ export default defineConfig(({ command, mode }) => {
     process.env.BASE_PATH ||
     process.env.VITE_BASE_PATH ||
     process.env.BASE_URL ||
-    (isDev ? "/" : "/AVANA/");
+    "/";
 
   const base =
     rawBase === "./"
