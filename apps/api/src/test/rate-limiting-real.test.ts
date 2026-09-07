@@ -43,7 +43,11 @@ describe("Rate Limiting Real Integration Verification", () => {
     await app.inject({
       method: "POST",
       url: "/v1/auth/register",
-      payload: { email: targetEmail, password: "correctpassword123" },
+      payload: {
+        email: targetEmail,
+        password: "correctpassword123",
+        phoneNumber: "09121110047",
+      },
     });
 
     let lastStatus = 200;

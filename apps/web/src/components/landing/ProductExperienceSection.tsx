@@ -89,32 +89,32 @@ export function ProductExperienceSection() {
   return (
     <section
       id="experience"
-      className="relative py-20 md:py-28 px-6 max-w-[1280px] mx-auto overflow-hidden text-right"
+      className="snap-section relative py-10 lg:py-0 lg:h-[calc(100dvh-80px)] lg:min-h-[calc(100dvh-80px)] flex flex-col justify-center px-6 max-w-[1280px] mx-auto overflow-hidden text-right scroll-mt-20"
       aria-label="بخش تجربه تعاملی امکانات آوانا"
     >
       {/* Background Glow */}
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[550px] bg-teal-500/10 rounded-full blur-3xl pointer-events-none -z-10" />
 
       {/* Section Header */}
-      <div className="text-center max-w-3xl mx-auto mb-12">
-        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold tracking-wide border mb-4 bg-teal-950/60 text-teal-300 border-teal-500/40 shadow-sm">
+      <div className="text-center max-w-3xl mx-auto mb-3 lg:mb-4">
+        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold tracking-wide border mb-2 bg-teal-950/60 text-teal-300 border-teal-500/40 shadow-sm">
           <Sparkles className="w-3.5 h-3.5 text-teal-300 animate-pulse" />
           <span>تست درایو و تجربه زنده</span>
         </div>
 
-        <h2 className="font-headline text-3xl sm:text-4xl md:text-5xl font-black mb-4 text-white leading-tight">
+        <h2 className="font-headline text-2xl sm:text-3xl md:text-4xl font-black mb-1.5 text-white leading-tight">
           آوانا را تجربه کن
         </h2>
-        <p className="text-sm sm:text-base md:text-lg leading-relaxed text-slate-300">
+        <p className="text-xs sm:text-sm md:text-base leading-relaxed text-slate-300">
           قبل از شروع، بخشی از سیستم را همین‌جا لمس کن و تفاوت یادگیری هوشمند را ببین.
         </p>
       </div>
 
       {/* Main Experience Container */}
-      <div className="max-w-4xl mx-auto rounded-3xl bg-slate-900/85 border border-teal-500/30 p-4 sm:p-7 md:p-8 backdrop-blur-2xl shadow-[0_0_40px_rgba(0,128,128,0.15)]">
+      <div className="max-w-4xl mx-auto rounded-3xl bg-slate-900/85 border border-teal-500/30 p-3.5 sm:p-5 md:p-5 backdrop-blur-2xl shadow-[0_0_40px_rgba(0,128,128,0.15)] w-full">
         {/* Navigation Tabs Bar */}
         <div
-          className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-8 p-1.5 bg-slate-950/70 border border-white/10 rounded-2xl"
+          className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 mb-4 p-1 bg-slate-950/70 border border-white/10 rounded-2xl"
           role="tablist"
           aria-label="انتخاب تجربه زنده محصول"
         >

@@ -38,6 +38,21 @@ import type {
 export class InMemoryGeneratedContentStore implements GeneratedContentStore {
   private contents: Map<string, GeneratedContentRecord> = new Map();
 
+  takeSnapshot(): Map<string, GeneratedContentRecord> {
+    const map = new Map<string, GeneratedContentRecord>();
+    for (const [k, v] of this.contents.entries()) {
+      map.set(k, { ...v, payload: JSON.parse(JSON.stringify(v.payload)) });
+    }
+    return map;
+  }
+
+  restoreSnapshot(snapshot: Map<string, GeneratedContentRecord>): void {
+    this.contents = new Map();
+    for (const [k, v] of snapshot.entries()) {
+      this.contents.set(k, { ...v, payload: JSON.parse(JSON.stringify(v.payload)) });
+    }
+  }
+
   async findByIdForOrganization(
     id: GeneratedContentId,
     organizationId: OrganizationId,

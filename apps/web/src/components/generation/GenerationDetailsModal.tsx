@@ -133,7 +133,6 @@ export function GenerationDetailsModal({
   const isGenerating =
     currentItem?.status === "generating" ||
     currentItem?.status === "planning" ||
-    currentItem?.status === "reviewing" ||
     currentItem?.status === "queued";
 
   // Check if stale (> 3 minutes without activity while generating)
@@ -577,7 +576,7 @@ export function GenerationDetailsModal({
               </button>
             )}
 
-            {onDelete && !confirmingAction && (
+            {(isGenerating || isStopped || isFailed) && onDelete && !confirmingAction && (
               <button
                 type="button"
                 onClick={() => setConfirmingAction("delete")}

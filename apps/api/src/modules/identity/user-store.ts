@@ -13,8 +13,11 @@ export interface UserRecord {
   name?: string;
   role: string;
   globalRole?: string | null;
+  phoneNumber?: string | null;
   emailVerifiedAt?: string | null;
   emailVerified?: boolean;
+  phoneVerifiedAt?: string | null;
+  phoneVerified?: boolean;
 }
 
 export interface UserWithPasswordRecord extends UserRecord {
@@ -23,6 +26,8 @@ export interface UserWithPasswordRecord extends UserRecord {
 
 export interface UserStore {
   findByEmail(email: string): Promise<UserRecord | undefined>;
+
+  findByPhoneNumber?(phoneNumber: string): Promise<UserRecord | undefined>;
 
   findWithPasswordByEmail(email: string): Promise<UserWithPasswordRecord | undefined>;
 
@@ -34,10 +39,15 @@ export interface UserStore {
     email: string;
     passwordHash: string;
     name?: string;
+    phoneNumber?: string;
     globalRole?: string | null;
   }): Promise<UserRecord>;
 
   setEmailVerified(userId: UserId): Promise<void>;
+
+  setPhoneVerified(userId: UserId): Promise<void>;
+
+  updatePhoneNumber?(userId: UserId, phoneNumber: string): Promise<void>;
 
   deleteUser?(userId: UserId): Promise<void>;
 }

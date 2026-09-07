@@ -54,6 +54,11 @@ describe("Review Queue and Detail Flow", () => {
     );
 
     await waitFor(() => {
+      expect(screen.getByText("سند doc-1")).toBeDefined();
+    });
+    fireEvent.click(screen.getByText("سند doc-1"));
+
+    await waitFor(() => {
       expect(screen.getByText("Beta-Adrenergic Blockers Overview")).toBeDefined();
       expect(screen.getByText("بازبینی پیش‌نویس")).toBeDefined();
     });

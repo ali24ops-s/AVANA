@@ -316,6 +316,13 @@ describe("Admin Review Workspace — Complete Parity with User Review Experience
     // Verify Shared Queue Header, Filter Pills, and Items
     await waitFor(() => {
       expect(screen.getByText("صف بازبینی و تایید محتوا")).toBeInTheDocument();
+      expect(screen.getByText("سند doc-1")).toBeInTheDocument();
+    });
+
+    // Expand document group
+    fireEvent.click(screen.getByText("سند doc-1"));
+
+    await waitFor(() => {
       expect(screen.getByText("درسنامه گیرنده‌های آدرنرژیک")).toBeInTheDocument();
       expect(screen.getByText("فلش‌کارت‌های آدرنرژیک")).toBeInTheDocument();
       expect(screen.getByText("آزمون گیرنده‌ها")).toBeInTheDocument();
@@ -349,6 +356,11 @@ describe("Admin Review Workspace — Complete Parity with User Review Experience
       expect(screen.getByText("۲. پیش‌نویس‌ها و بازبینی (Draft Review)")).toBeInTheDocument();
     });
     fireEvent.click(screen.getByText("۲. پیش‌نویس‌ها و بازبینی (Draft Review)"));
+
+    await waitFor(() => {
+      expect(screen.getByText("سند doc-1")).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByText("سند doc-1"));
 
     await waitFor(() => {
       expect(screen.getByText("درسنامه گیرنده‌های آدرنرژیک")).toBeInTheDocument();
@@ -421,6 +433,11 @@ describe("Admin Review Workspace — Complete Parity with User Review Experience
     fireEvent.click(screen.getByText("۲. پیش‌نویس‌ها و بازبینی (Draft Review)"));
 
     await waitFor(() => {
+      expect(screen.getByText("سند doc-1")).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByText("سند doc-1"));
+
+    await waitFor(() => {
       expect(screen.getByText("درسنامه گیرنده‌های آدرنرژیک")).toBeInTheDocument();
     });
 
@@ -450,17 +467,19 @@ describe("Admin Review Workspace — Complete Parity with User Review Experience
       expect(rejectCalls.length).toBeGreaterThan(0);
     });
 
-    // 2. Returned to queue, click again to test Regenerate
+    // 2. Returned to queue (group doc-1 remains open)
     await waitFor(() => {
       expect(screen.getByText("صف بازبینی و تایید محتوا")).toBeInTheDocument();
+      expect(screen.getByText("درسنامه گیرنده‌های آدرنرژیک")).toBeInTheDocument();
     });
     fireEvent.click(screen.getByText("درسنامه گیرنده‌های آدرنرژیک"));
 
+    // 3. Test Regenerate button in ContentReviewDetail
     await waitFor(() => {
       expect(screen.getByText("تولید مجدد")).toBeInTheDocument();
     });
-
     fireEvent.click(screen.getByText("تولید مجدد"));
+
     await waitFor(() => {
       const regenCalls = fetchMock.mock.calls.filter(([url, init]) =>
         url.toString().includes("/generated/draft-lesson-101/regenerate") && init?.method === "POST",

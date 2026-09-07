@@ -151,7 +151,13 @@ describe("Generation Pipeline Progress Tracking - Runtime E2E Audit", () => {
     const regRes = await app.inject({
       method: "POST",
       url: "/v1/auth/register",
-      payload: { email: "admin-e2e@avana.org", password: "Password123!" },
+      payload: {
+        email: "admin-e2e@avana.org",
+        password: "Password123!",
+        firstName: "ادمین",
+        lastName: "سیستم",
+        phoneNumber: "09121110042",
+      },
     });
     adminToken = extractSessionToken(regRes) || "";
     const user = (regRes.json() as { user: { id: string } }).user;

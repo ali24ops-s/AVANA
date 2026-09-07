@@ -256,4 +256,156 @@ describe("LandingPage (صفحه اصلی آوانا) Complete Experience & Conte
     const authCtaLinks = screen.getAllByRole("link", { name: /شروع یادگیری/ });
     expect(authCtaLinks[0]).toHaveAttribute("href", "/courses");
   });
+
+  it("11. HowItWorks Presentation Stepper: switches active step and updates interactive preview", async () => {
+    renderLandingPage();
+
+    // Default step 1 is active
+    expect(screen.getByRole("tab", { name: /انتخاب دوره/ })).toHaveAttribute("aria-selected", "true");
+
+    // Click step 2 tab
+    const step2Tab = screen.getByRole("tab", { name: /مطالعه منسجم/ });
+    fireEvent.click(step2Tab);
+
+    await waitFor(() => {
+      expect(step2Tab).toHaveAttribute("aria-selected", "true");
+    });
+
+    // Click next step button to go to step 3
+    const nextBtn = screen.getByRole("button", { name: /گام بعدی/ });
+    fireEvent.click(nextBtn);
+
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: /مرور با فلش‌کارت/ })).toHaveAttribute("aria-selected", "true");
+    });
+  });
+
+  it("12. Presentation Navigation: renders Side Nav Dots and verifies all standard section IDs exist", () => {
+    const { container } = renderLandingPage();
+
+    // Verify all 6 section IDs exist for anchor & snap navigation
+    expect(container.querySelector("#hero")).toBeInTheDocument();
+    expect(container.querySelector("#features")).toBeInTheDocument();
+    expect(container.querySelector("#benefits")).toBeInTheDocument();
+    expect(container.querySelector("#experience")).toBeInTheDocument();
+    expect(container.querySelector("#how-it-works")).toBeInTheDocument();
+    expect(container.querySelector("#final-cta")).toBeInTheDocument();
+
+    // Verify PresentationNavDots nav element exists
+    const sideNav = screen.getByRole("navigation", { name: "ناوبری سریع بخش‌های ارائه" });
+    expect(sideNav).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "پرش به بخش آغاز معرفی" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "پرش به بخش مسائل و چالش‌ها" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "پرش به بخش اکوسیستم و قابلیت‌ها" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "پرش به بخش تست‌درایو و تجربه زنده" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "پرش به بخش فرایند ۴ مرحله‌ای یادگیری" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "پرش به بخش فراخوان و شروع یادگیری" })).toBeInTheDocument();
+  });
+
+  it("13. HowItWorks Stepper Full Cycle: cycles 01 -> 02 -> 03 -> 04 and backward 04 -> 03 -> 02 -> 01", async () => {
+    renderLandingPage();
+
+    const nextBtn = screen.getByRole("button", { name: /گام بعدی/ });
+    const prevBtn = screen.getByRole("button", { name: /گام قبلی/ });
+
+    // Step 1 -> Step 2
+    fireEvent.click(nextBtn);
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: /مطالعه منسجم/ })).toHaveAttribute("aria-selected", "true");
+    });
+
+    // Step 2 -> Step 3
+    fireEvent.click(nextBtn);
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: /مرور با فلش‌کارت/ })).toHaveAttribute("aria-selected", "true");
+    });
+
+    // Step 3 -> Step 4
+    fireEvent.click(nextBtn);
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: /سنجش هوشمند/ })).toHaveAttribute("aria-selected", "true");
+    });
+
+    // Step 4 -> Step 3 (Backward)
+    fireEvent.click(prevBtn);
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: /مرور با فلش‌کارت/ })).toHaveAttribute("aria-selected", "true");
+    });
+
+    // Step 3 -> Step 2
+    fireEvent.click(prevBtn);
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: /مطالعه منسجم/ })).toHaveAttribute("aria-selected", "true");
+    });
+
+    // Step 2 -> Step 1
+    fireEvent.click(prevBtn);
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: /انتخاب دوره/ })).toHaveAttribute("aria-selected", "true");
+    });
+  });
+
+  it("14. Mobile Drawer Menu: opens and closes cleanly", async () => {
+    renderLandingPage();
+
+    // Hamburger button
+    const menuBtn = screen.getByRole("button", { name: "باز کردن منو" });
+    expect(menuBtn).toBeInTheDocument();
+    fireEvent.click(menuBtn);
+
+    // Close button appears
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "بستن منو" })).toBeInTheDocument();
+    });
+
+    // Click close
+    const closeBtn = screen.getByRole("button", { name: "بستن منو" });
+    fireEvent.click(closeBtn);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "باز کردن منو" })).toBeInTheDocument();
+    });
+  });
+
+  it("15. Presentation Architecture: canonical HEADER_HEIGHT is 80 and PRESENTATION_SECTIONS contains exactly 6 sections excluding Footer", async () => {
+    const { HEADER_HEIGHT, PRESENTATION_SECTIONS } = await import(
+      "../components/landing/PresentationNavDots.js"
+    );
+
+    expect(HEADER_HEIGHT).toBe(80);
+    expect(PRESENTATION_SECTIONS).toHaveLength(6);
+    expect(PRESENTATION_SECTIONS.map((s) => s.id)).toEqual([
+      "hero",
+      "features",
+      "benefits",
+      "experience",
+      "how-it-works",
+      "final-cta",
+    ]);
+  });
+
+  it("16. Desktop Presentation Navigation: wheel events trigger section transitions while keyboard remains non-hijacked", async () => {
+    // Set desktop window dimensions
+    Object.defineProperty(window, "innerWidth", { writable: true, configurable: true, value: 1440 });
+    Object.defineProperty(window, "innerHeight", { writable: true, configurable: true, value: 900 });
+
+    const scrollToMock = vi.fn();
+    window.scrollTo = scrollToMock;
+
+    renderLandingPage();
+
+    // Wheel event with deltaY >= 35 triggers transition
+    fireEvent.wheel(window, { deltaY: 50 });
+    expect(scrollToMock).toHaveBeenCalled();
+
+    // Side nav dots click triggers transition
+    const heroDot = screen.getByRole("button", { name: "پرش به بخش آغاز معرفی" });
+    fireEvent.click(heroDot);
+    expect(scrollToMock).toHaveBeenCalled();
+
+    // Keyboard events are not hijacked (native browser handling preserved)
+    const arrowDownEvent = new KeyboardEvent("keydown", { code: "ArrowDown", cancelable: true });
+    window.dispatchEvent(arrowDownEvent);
+    expect(arrowDownEvent.defaultPrevented).toBe(false);
+  });
 });

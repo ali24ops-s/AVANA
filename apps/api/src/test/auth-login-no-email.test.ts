@@ -74,6 +74,7 @@ describe("Authentication & Email Verification Isolation Tests", () => {
         email: "reg_test@example.com",
         password: "password123",
         name: "Registration User",
+        phoneNumber: "09121110011",
       },
     });
 
@@ -88,7 +89,7 @@ describe("Authentication & Email Verification Isolation Tests", () => {
     await app.close();
   });
 
-  it("Test 2: Email Provider Failure during Registration rolls back user & prevents login", async () => {
+  it("Test 2: Email Provider Failure during Registration does not block account creation in dual-channel flow", async () => {
     const failingService = new FailingEmailService();
     failingService.shouldFail = true;
     const app = await createTestApp(failingService);
@@ -100,60 +101,61 @@ describe("Authentication & Email Verification Isolation Tests", () => {
       payload: {
         email: "fail_email@unregistered-domain.org",
         password: "password123",
+        firstName: "علی",
+        lastName: "علوی",
+        phoneNumber: "09121110012",
       },
     });
 
-    expect(res.statusCode).toBe(500);
+    // Account creation succeeds (200) with unverified status
+    expect(res.statusCode).toBe(200);
 
-    // User record is rolled back / deleted from DB
+    // User record is created in DB with unverified status
     const userInDb = await userStore.findByEmail("fail_email@unregistered-domain.org");
-    expect(userInDb).toBeUndefined();
+    expect(userInDb).toBeDefined();
+    expect(userInDb?.emailVerifiedAt).toBeNull();
+    expect(userInDb?.phoneVerifiedAt).toBeNull();
 
-    // Login for failed registration is impossible (401)
+    // Login for unverified registration succeeds (200) without crashing
     const loginRes = await app.inject({
       method: "POST",
       url: "/v1/auth/sign-in",
+      cookies: {
+        avana_device_id: res.cookies.find((c) => c.name === "avana_device_id")?.value ?? "",
+      },
       payload: {
         email: "fail_email@unregistered-domain.org",
         password: "password123",
       },
     });
 
-    expect(loginRes.statusCode).toBe(401);
+    expect(loginRes.statusCode).toBe(200);
 
     await app.close();
   });
 
-  it("Test 3: Retry Registration succeeds after previous email delivery failure", async () => {
+  it("Test 3: Registration succeeds and preserves user state regardless of initial email failure", async () => {
     const failingService = new FailingEmailService();
-
-    // Attempt 1: Email fails
     failingService.shouldFail = true;
-    const app1 = await createTestApp(failingService);
-    const attempt1 = await app1.inject({
+    const app = await createTestApp(failingService);
+    const attempt = await app.inject({
       method: "POST",
       url: "/v1/auth/register",
-      payload: { email: "retry_test@example.com", password: "password123" },
+      payload: {
+        email: "retry_test@example.com",
+        password: "password123",
+        firstName: "علی",
+        lastName: "علوی",
+        phoneNumber: "09121110013",
+      },
     });
-    expect(attempt1.statusCode).toBe(500);
-    await app1.close();
-
-    // Attempt 2: Email fixed / working
-    failingService.shouldFail = false;
-    const app2 = await createTestApp(failingService);
-    const attempt2 = await app2.inject({
-      method: "POST",
-      url: "/v1/auth/register",
-      payload: { email: "retry_test@example.com", password: "password123" },
-    });
-
-    // Succeeds without "Email already exists" conflict error!
-    expect(attempt2.statusCode).toBe(200);
+    expect(attempt.statusCode).toBe(200);
 
     const user = await userStore.findByEmail("retry_test@example.com");
     expect(user).toBeDefined();
+    expect(user?.phoneNumber).toBe("+989121110013");
 
-    await app2.close();
+    await app.close();
   });
 
   it("Test 4: Unverified User Login succeeds, returns emailVerified=false, and sends NO email", async () => {
@@ -162,7 +164,13 @@ describe("Authentication & Email Verification Isolation Tests", () => {
     await app.inject({
       method: "POST",
       url: "/v1/auth/register",
-      payload: { email: "unverified_user@example.com", password: "password123" },
+      payload: {
+        email: "unverified_user@example.com",
+        password: "password123",
+        firstName: "علی",
+        lastName: "علوی",
+        phoneNumber: "09121110014",
+      },
     });
 
     emailService.clear();
@@ -190,7 +198,13 @@ describe("Authentication & Email Verification Isolation Tests", () => {
     const regRes = await app.inject({
       method: "POST",
       url: "/v1/auth/register",
-      payload: { email: "verified_user@example.com", password: "password123" },
+      payload: {
+        email: "verified_user@example.com",
+        password: "password123",
+        firstName: "علی",
+        lastName: "علوی",
+        phoneNumber: "09121110015",
+      },
     });
     const regToken = extractSessionToken(regRes)!;
     const code = emailService.getLastCodeFor("verified_user@example.com")!;
@@ -226,7 +240,13 @@ describe("Authentication & Email Verification Isolation Tests", () => {
     await app.inject({
       method: "POST",
       url: "/v1/auth/register",
-      payload: { email: "wrong_pass@example.com", password: "password123" },
+      payload: {
+        email: "wrong_pass@example.com",
+        password: "password123",
+        firstName: "علی",
+        lastName: "علوی",
+        phoneNumber: "09121110016",
+      },
     });
 
     emailService.clear();
@@ -249,7 +269,13 @@ describe("Authentication & Email Verification Isolation Tests", () => {
     const regRes = await app.inject({
       method: "POST",
       url: "/v1/auth/register",
-      payload: { email: "resend_user@example.com", password: "password123" },
+      payload: {
+        email: "resend_user@example.com",
+        password: "password123",
+        firstName: "علی",
+        lastName: "علوی",
+        phoneNumber: "09121110017",
+      },
     });
     const token = extractSessionToken(regRes)!;
 

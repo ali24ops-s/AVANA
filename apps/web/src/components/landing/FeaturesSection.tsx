@@ -41,7 +41,7 @@ export function FeaturesSection() {
   return (
     <section
       id="features"
-      className="relative w-full py-20 md:py-28 overflow-hidden text-right border-y border-white/5 bg-[#0d1527]/60 backdrop-blur-md"
+      className="snap-section relative w-full py-10 lg:py-0 lg:h-[calc(100dvh-80px)] lg:min-h-[calc(100dvh-80px)] flex flex-col justify-center overflow-hidden text-right border-y border-white/5 bg-[#0d1527]/60 backdrop-blur-md scroll-mt-20"
       aria-label="بخش بررسی چالش‌های روش‌های سنتی مطالعه"
     >
       {/* 100% Full-Width Atmospheric Ambient Glows */}
@@ -50,9 +50,9 @@ export function FeaturesSection() {
       <div className="absolute bottom-10 right-0 w-[500px] h-[500px] bg-teal-900/15 rounded-full blur-3xl pointer-events-none translate-x-1/2 -z-10" />
 
       {/* Centered Content Container */}
-      <div className="max-w-[1280px] mx-auto px-6">
+      <div className="max-w-[1280px] w-full mx-auto px-6">
         {/* Section Header & 4 Cards Grid */}
-        <div className="flex flex-col lg:flex-row items-start gap-12 lg:gap-16">
+        <div className="flex flex-col lg:flex-row items-center gap-8 lg:gap-12">
           {/* Text Block */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}

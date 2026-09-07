@@ -88,7 +88,9 @@ describe("Commerce & Monetization HTTP Endpoints Test Suite", () => {
     return app;
   }
 
+  let phoneIndex = 100000;
   async function registerAndLogin(app: any, email: string) {
+    phoneIndex++;
     const signupRes = await app.inject({
       method: "POST",
       url: "/v1/auth/register",
@@ -96,6 +98,7 @@ describe("Commerce & Monetization HTTP Endpoints Test Suite", () => {
         email,
         password: "Password123!",
         name: "Test Student",
+        phoneNumber: `0912${String(phoneIndex).padStart(7, "0")}`,
       },
     });
     expect(signupRes.statusCode).toBe(200);

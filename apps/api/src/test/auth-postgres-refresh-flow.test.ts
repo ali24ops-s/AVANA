@@ -78,6 +78,7 @@ describe("Real PostgreSQL Auth Refresh & Re-Authentication E2E Flow", () => {
         email: testEmail,
         password: testPassword,
         name: "Postgres Refresh User",
+        phoneNumber: "09121110025",
       },
     });
 

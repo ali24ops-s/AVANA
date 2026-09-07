@@ -65,6 +65,7 @@ describe("Email Verification System - Unit & API Integration", () => {
           email: "newuser@example.com",
           password: "password123",
           name: "New User",
+          phoneNumber: "09123456789",
         },
       });
 
@@ -92,6 +93,9 @@ describe("Email Verification System - Unit & API Integration", () => {
         payload: {
           email: "verifytest@example.com",
           password: "password123",
+          firstName: "علی",
+          lastName: "علوی",
+          phoneNumber: "09123456781",
         },
       });
 
@@ -134,6 +138,9 @@ describe("Email Verification System - Unit & API Integration", () => {
         payload: {
           email: "wrongcode@example.com",
           password: "password123",
+          firstName: "علی",
+          lastName: "علوی",
+          phoneNumber: "09123456782",
         },
       });
 
@@ -161,6 +168,9 @@ describe("Email Verification System - Unit & API Integration", () => {
         payload: {
           email: "attempts@example.com",
           password: "password123",
+          firstName: "علی",
+          lastName: "علوی",
+          phoneNumber: "09123456783",
         },
       });
 
@@ -199,6 +209,9 @@ describe("Email Verification System - Unit & API Integration", () => {
         payload: {
           email: "reuse@example.com",
           password: "password123",
+          firstName: "علی",
+          lastName: "علوی",
+          phoneNumber: "09123456784",
         },
       });
 
@@ -236,6 +249,9 @@ describe("Email Verification System - Unit & API Integration", () => {
         payload: {
           email: "resendtest@example.com",
           password: "password123",
+          firstName: "علی",
+          lastName: "علوی",
+          phoneNumber: "09123456785",
         },
       });
 
@@ -276,7 +292,13 @@ describe("Email Verification System - Unit & API Integration", () => {
       const resA = await app.inject({
         method: "POST",
         url: "/v1/auth/register",
-        payload: { email: "userA@example.com", password: "password123" },
+        payload: {
+          email: "userA@example.com",
+          password: "password123",
+          firstName: "کاربر",
+          lastName: "اول",
+          phoneNumber: "09123456786",
+        },
       });
       const tokenA = extractSessionToken(resA)!;
       const codeA = emailService.getLastCodeFor("userA@example.com")!;
@@ -285,7 +307,13 @@ describe("Email Verification System - Unit & API Integration", () => {
       const resB = await app.inject({
         method: "POST",
         url: "/v1/auth/register",
-        payload: { email: "userB@example.com", password: "password123" },
+        payload: {
+          email: "userB@example.com",
+          password: "password123",
+          firstName: "کاربر",
+          lastName: "دوم",
+          phoneNumber: "09123456787",
+        },
       });
       const tokenB = extractSessionToken(resB)!;
 

@@ -10,7 +10,7 @@ import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../../providers/AuthProvider.js";
 
 export function ProtectedRoute() {
-  const { isAuthenticated, isEmailVerified, isLoading } = useAuth();
+  const { isAuthenticated, isVerified, isEmailVerified, isPhoneVerified, isLoading } = useAuth();
   const location = useLocation();
 
   // Show loading state while checking auth on mount
@@ -31,7 +31,8 @@ export function ProtectedRoute() {
   }
 
   // Authenticated but unverified — redirect to /verify-email
-  if (!isEmailVerified && location.pathname !== "/verify-email") {
+  const verified = isVerified || isEmailVerified || isPhoneVerified;
+  if (!verified && location.pathname !== "/verify-email") {
     return <Navigate to="/verify-email" replace />;
   }
 

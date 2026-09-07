@@ -21,7 +21,7 @@ export function FinalCTASection() {
   return (
     <section
       id="final-cta"
-      className="relative py-24 md:py-32 px-6 max-w-[1280px] mx-auto overflow-hidden text-center"
+      className="snap-section relative py-10 lg:py-0 lg:h-[calc(100dvh-80px)] lg:min-h-[calc(100dvh-80px)] flex flex-col justify-center px-6 max-w-[1280px] mx-auto overflow-hidden text-center scroll-mt-20"
       aria-label="بخش فراخوان نهایی و شروع یادگیری"
     >
       {/* Symmetrical Crystalline Background Canvas (The resolved state of knowledge) */}
@@ -38,14 +38,14 @@ export function FinalCTASection() {
         className="max-w-3xl mx-auto px-6 text-center relative z-10"
       >
         {/* Culmination Badge */}
-        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs sm:text-sm font-semibold tracking-wide border mb-6 bg-teal-950/70 text-teal-300 border-teal-400/40 shadow-[0_0_25px_rgba(45,212,191,0.25)]">
+        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs sm:text-sm font-semibold tracking-wide border mb-4 bg-teal-950/70 text-teal-300 border-teal-400/40 shadow-[0_0_25px_rgba(45,212,191,0.25)]">
           <Sparkles className="w-4 h-4 text-teal-300 animate-pulse" />
           <span>آماده‌ای یادگیری را جور دیگری تجربه کنی؟</span>
         </div>
 
         {/* Headline */}
         <h2
-          className="font-headline text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-black mb-6 text-white leading-tight"
+          className="font-headline text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-black mb-3 text-white leading-tight"
         >
           یادگیری بهتر از{" "}
           <span className="text-transparent bg-clip-text bg-gradient-to-l from-teal-300 via-teal-400 to-cyan-300 drop-shadow-[0_0_25px_rgba(45,212,191,0.3)]">
@@ -56,17 +56,17 @@ export function FinalCTASection() {
 
         {/* Subtitle */}
         <p
-          className="text-base sm:text-lg md:text-xl mb-10 text-slate-300 max-w-xl mx-auto leading-relaxed font-body"
+          className="text-xs sm:text-sm md:text-base mb-6 text-slate-300 max-w-xl mx-auto leading-relaxed font-body"
         >
           به هزاران دانشجوی پزشکی بپیوندید که مسیر موفقیت خود را با آوانا هموار
           کرده‌اند.
         </p>
 
         {/* Dual CTAs */}
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-4 w-full max-w-2xl mx-auto">
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-3 w-full max-w-2xl mx-auto">
           <Link
             to={ctaHref}
-            className="w-full sm:w-auto h-16 px-8 sm:px-10 rounded-2xl font-bold text-base sm:text-lg flex items-center justify-center gap-3 whitespace-nowrap cursor-pointer active:scale-95 transition-all duration-300 bg-[#008080] hover:bg-[#005a5a] text-white shadow-[0_0_30px_rgba(0,128,128,0.4)] hover:shadow-[0_0_40px_rgba(45,212,191,0.5)] hover:-translate-y-1.5"
+            className="w-full sm:w-auto h-14 px-8 sm:px-9 rounded-xl font-bold text-sm sm:text-base flex items-center justify-center gap-2.5 whitespace-nowrap cursor-pointer active:scale-95 transition-all duration-300 bg-[#008080] hover:bg-[#005a5a] text-white shadow-[0_0_30px_rgba(0,128,128,0.4)] hover:shadow-[0_0_40px_rgba(45,212,191,0.5)] hover:-translate-y-1"
           >
             <span>همین حالا شروع کنید</span>
             <span className="material-symbols-outlined rtl:-scale-x-100 text-xl">
@@ -76,7 +76,7 @@ export function FinalCTASection() {
 
           <Link
             to="/library"
-            className="w-full sm:w-auto h-16 px-8 sm:px-10 rounded-2xl font-bold text-base flex items-center justify-center gap-2 whitespace-nowrap cursor-pointer active:scale-95 transition-all duration-300 bg-slate-900/80 hover:bg-slate-800 text-slate-200 border border-white/20 hover:border-teal-500/50 hover:-translate-y-1 backdrop-blur-md"
+            className="w-full sm:w-auto h-14 px-7 sm:px-8 rounded-xl font-bold text-sm sm:text-base flex items-center justify-center gap-2 whitespace-nowrap cursor-pointer active:scale-95 transition-all duration-300 bg-slate-900/80 hover:bg-slate-800 text-slate-200 border border-white/20 hover:border-teal-500/50 hover:-translate-y-1 backdrop-blur-md"
           >
             <BookOpen className="w-4 h-4 text-teal-400" />
             <span>مشاهده دوره‌ها و منابع</span>
@@ -84,7 +84,7 @@ export function FinalCTASection() {
         </div>
 
         {/* Trust Badges */}
-        <div className="flex flex-wrap items-center justify-center gap-6 mt-12 pt-8 border-t border-white/10 text-xs text-slate-400">
+        <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 mt-6 pt-5 border-t border-white/10 text-[11px] sm:text-xs text-slate-400">
           <div className="flex items-center gap-1.5">
             <CheckCircle2 className="w-4 h-4 text-teal-400" />
             <span>منطبق با رفرنس‌های آزمون‌های جامع علوم پزشکی</span>

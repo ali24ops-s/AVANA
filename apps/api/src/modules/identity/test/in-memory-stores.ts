@@ -393,6 +393,20 @@ export class InMemoryUserStore implements UserStore {
     return undefined;
   }
 
+  async findByPhoneNumber(phoneNumber: string): Promise<UserRecord | undefined> {
+    const norm = phoneNumber.trim();
+    for (const user of this.users.values()) {
+      if (user.phoneNumber && user.phoneNumber.trim() === norm) {
+        const userCopy = { ...user };
+        delete userCopy.passwordHash;
+        const globalRole = user.globalRole === "platform_admin" || user.role === "platform_admin" ? "platform_admin" : (user.globalRole ?? null);
+        const role = await this.resolveRole(user.id, globalRole);
+        return { ...userCopy, role, globalRole };
+      }
+    }
+    return undefined;
+  }
+
   async findWithPasswordByEmail(
     email: string,
   ): Promise<(UserRecord & { passwordHash?: string | null }) | undefined> {
@@ -431,8 +445,11 @@ export class InMemoryUserStore implements UserStore {
       name: identity.name,
       role: "student",
       globalRole: null,
+      phoneNumber: null,
       emailVerifiedAt: new Date().toISOString(),
       emailVerified: true,
+      phoneVerifiedAt: null,
+      phoneVerified: false,
     };
     this.users.set(id, record);
     return record;
@@ -442,6 +459,7 @@ export class InMemoryUserStore implements UserStore {
     email: string;
     passwordHash: string;
     name?: string;
+    phoneNumber?: string;
     globalRole?: string | null;
   }): Promise<UserRecord> {
     const id = randomUUID() as UserId;
@@ -454,9 +472,12 @@ export class InMemoryUserStore implements UserStore {
       name: params.name,
       role,
       globalRole,
+      phoneNumber: params.phoneNumber ?? null,
       passwordHash: params.passwordHash,
       emailVerifiedAt: null,
       emailVerified: false,
+      phoneVerifiedAt: null,
+      phoneVerified: false,
     };
     this.users.set(id, userWithHash);
     return {
@@ -465,8 +486,11 @@ export class InMemoryUserStore implements UserStore {
       name: params.name,
       role,
       globalRole,
+      phoneNumber: params.phoneNumber ?? null,
       emailVerifiedAt: null,
       emailVerified: false,
+      phoneVerifiedAt: null,
+      phoneVerified: false,
     };
   }
 
@@ -479,6 +503,24 @@ export class InMemoryUserStore implements UserStore {
     }
   }
 
+  async setPhoneVerified(userId: UserId): Promise<void> {
+    const user = this.users.get(userId);
+    if (user) {
+      const iso = new Date().toISOString();
+      user.phoneVerifiedAt = iso;
+      user.phoneVerified = true;
+    }
+  }
+
+  async updatePhoneNumber(userId: UserId, phoneNumber: string): Promise<void> {
+    const user = this.users.get(userId);
+    if (user) {
+      user.phoneNumber = phoneNumber;
+      user.phoneVerifiedAt = null;
+      user.phoneVerified = false;
+    }
+  }
+
   async deleteUser(userId: UserId): Promise<void> {
     this.users.delete(userId);
   }
@@ -486,8 +528,9 @@ export class InMemoryUserStore implements UserStore {
   /** Directly insert a user record (used for seeding editor/admin roles in tests). */
   insert(record: UserRecord & { passwordHash?: string | null }): void {
     const emailVerified = record.emailVerified ?? (record.emailVerifiedAt != null);
+    const phoneVerified = record.phoneVerified ?? (record.phoneVerifiedAt != null);
     const globalRole = record.globalRole !== undefined ? record.globalRole : (record.role === "platform_admin" ? "platform_admin" : null);
-    this.users.set(record.id, { ...record, globalRole, emailVerified });
+    this.users.set(record.id, { ...record, globalRole, emailVerified, phoneVerified });
   }
 }
 
@@ -498,6 +541,8 @@ export class InMemoryEmailVerificationStore implements EmailVerificationStore {
     userId: UserId;
     codeHash: string;
     expiresAt: string;
+    channel?: "email" | "phone";
+    target?: string | null;
   }): Promise<EmailVerificationCodeRecord> {
     const id = randomUUID();
     const record: EmailVerificationCodeRecord = {
@@ -506,6 +551,8 @@ export class InMemoryEmailVerificationStore implements EmailVerificationStore {
       codeHash: values.codeHash,
       expiresAt: values.expiresAt,
       attempts: 0,
+      channel: values.channel ?? "email",
+      target: values.target ?? null,
       createdAt: new Date().toISOString(),
       usedAt: null,
     };
@@ -515,9 +562,10 @@ export class InMemoryEmailVerificationStore implements EmailVerificationStore {
 
   async findLatestActiveCode(
     userId: UserId,
+    channel?: "email" | "phone",
   ): Promise<EmailVerificationCodeRecord | undefined> {
     const userCodes = Array.from(this.codes.values())
-      .filter((c) => c.userId === userId)
+      .filter((c) => c.userId === userId && (!channel || c.channel === channel))
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
     return userCodes[0];
@@ -537,10 +585,13 @@ export class InMemoryEmailVerificationStore implements EmailVerificationStore {
     }
   }
 
-  async invalidateAllForUser(userId: UserId): Promise<void> {
+  async invalidateAllForUser(
+    userId: UserId,
+    channel?: "email" | "phone",
+  ): Promise<void> {
     const now = new Date().toISOString();
     for (const code of this.codes.values()) {
-      if (code.userId === userId && !code.usedAt) {
+      if (code.userId === userId && (!channel || code.channel === channel) && !code.usedAt) {
         code.usedAt = now;
       }
     }

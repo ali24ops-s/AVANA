@@ -86,6 +86,8 @@ describe("PR6-6: AI generation review & acceptance API", () => {
     overrides: {
       id?: GeneratedContentId;
       status?: GeneratedContentStatus;
+      type?: any;
+      payload?: any;
       courseId?: string;
       documentId?: string;
     } = {},
@@ -97,9 +99,9 @@ describe("PR6-6: AI generation review & acceptance API", () => {
       organizationId,
       documentId: (overrides.documentId ?? documentId) as DocumentId,
       courseId: (overrides.courseId ?? courseId) as CourseId,
-      type: "lesson",
+      type: overrides.type ?? "lesson",
       status: overrides.status ?? "draft",
-      payload: {
+      payload: overrides.payload ?? {
         kind: "lesson",
         title: "AI Lesson",
         contentMarkdown: "# Generated content",
@@ -967,6 +969,144 @@ describe("PR6-6: AI generation review & acceptance API", () => {
         cookies: { avana_session: studentToken },
       });
       expect(res.statusCode).toBe(404);
+      await app.close();
+    });
+  });
+
+  describe("POST .../generated/documents/:documentId/accept-all", () => {
+    it("Editor bulk accepts all draft items for a document pack (200 OK)", async () => {
+      const app = await buildApp();
+      const { token: editorToken, userId: editorUserId } = await signIn(
+        app,
+        "editor-bulk@example.com",
+        "course_editor",
+      );
+      const orgId = await createOrg(app, editorToken, "Org Bulk Accept");
+      orgStore.addMembership({
+        id: randomUUID(),
+        organizationId: orgId,
+        userId: editorUserId,
+        role: "course_editor",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+
+      const packDocId = "44444444-4444-4444-4444-444444444444" as DocumentId;
+      const now = new Date().toISOString();
+      documentStore.insert({
+        id: packDocId,
+        organizationId: orgId,
+        courseId,
+        ownerUserId: editorUserId,
+        originalName: "pharma-pack.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 100,
+        sha256: "4".repeat(64),
+        storageKey: `uploads/${packDocId}.pdf`,
+        pageCount: 1,
+        status: "review_pending",
+        errorCode: null,
+        retryCount: 0,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      });
+
+      const id1 = seedContent(orgId, {
+        documentId: packDocId,
+        status: "draft",
+        type: "lesson",
+        payload: { kind: "lesson", title: "Pharma Lesson", contentMarkdown: "# Content" },
+      });
+      const id2 = seedContent(orgId, {
+        documentId: packDocId,
+        status: "draft",
+        type: "flashcard",
+        payload: { kind: "flashcard", flashcards: [{ front: "Q", back: "A" }] },
+      });
+
+      const res = await app.inject({
+        method: "POST",
+        url: `/v1/organizations/${orgId}/courses/${courseId}/generated/documents/${packDocId}/accept-all`,
+        cookies: { avana_session: editorToken },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.body);
+      expect(body.document_id).toBe(packDocId);
+      expect(body.total_items).toBe(2);
+      expect(body.accepted_count).toBe(2);
+      expect(body.already_accepted_count).toBe(0);
+      expect(body.accepted_content_ids).toHaveLength(2);
+      expect(body.results).toHaveLength(2);
+
+      // Verify idempotent repeat call
+      const resRepeat = await app.inject({
+        method: "POST",
+        url: `/v1/organizations/${orgId}/courses/${courseId}/generated/documents/${packDocId}/accept-all`,
+        cookies: { avana_session: editorToken },
+      });
+      expect(resRepeat.statusCode).toBe(200);
+      const bodyRepeat = JSON.parse(resRepeat.body);
+      expect(bodyRepeat.accepted_count).toBe(0);
+      expect(bodyRepeat.already_accepted_count).toBe(2);
+
+      await app.close();
+    });
+
+    it("Student without permission gets 403 Forbidden when calling accept-all on another's document", async () => {
+      const app = await buildApp();
+      const { token: adminToken, userId: adminUserId } = await signIn(
+        app,
+        "admin-pack@example.com",
+        "organization_admin",
+      );
+      const orgId = await createOrg(app, adminToken, "Org Pack Forbidden");
+
+      const { token: studentToken, userId: studentUserId } = await signIn(
+        app,
+        "student-pack@example.com",
+        "student",
+      );
+      orgStore.addMembership({
+        id: randomUUID(),
+        organizationId: orgId,
+        userId: studentUserId,
+        role: "student",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+
+      const adminDocId = "55555555-5555-5555-5555-555555555555" as DocumentId;
+      const now = new Date().toISOString();
+      documentStore.insert({
+        id: adminDocId,
+        organizationId: orgId,
+        courseId,
+        ownerUserId: adminUserId,
+        originalName: "admin-doc.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 100,
+        sha256: "5".repeat(64),
+        storageKey: `uploads/${adminDocId}.pdf`,
+        pageCount: 1,
+        status: "review_pending",
+        errorCode: null,
+        retryCount: 0,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      });
+
+      seedContent(orgId, { documentId: adminDocId, status: "draft" });
+
+      const res = await app.inject({
+        method: "POST",
+        url: `/v1/organizations/${orgId}/courses/${courseId}/generated/documents/${adminDocId}/accept-all`,
+        cookies: { avana_session: studentToken },
+      });
+
+      expect(res.statusCode).toBe(403);
       await app.close();
     });
   });

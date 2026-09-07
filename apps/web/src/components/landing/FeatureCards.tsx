@@ -113,7 +113,7 @@ export function FeatureCards() {
   return (
     <section
       id="benefits"
-      className="relative py-20 md:py-28 px-6 max-w-[1280px] mx-auto overflow-hidden text-right"
+      className="snap-section relative py-10 lg:py-0 lg:h-[calc(100dvh-80px)] lg:min-h-[calc(100dvh-80px)] flex flex-col justify-center px-6 max-w-[1280px] mx-auto overflow-hidden text-right scroll-mt-20"
       aria-label="بخش معرفی ویژگی‌ها و قابلیت‌های اصلی آوانا"
     >
       {/* Background Lighting */}
@@ -125,20 +125,20 @@ export function FeatureCards() {
         whileInView={{ opacity: 1, y: 0 }}
         viewport={{ once: true }}
         transition={{ duration: 0.6 }}
-        className="text-center mb-16 max-w-3xl mx-auto"
+        className="text-center mb-4 lg:mb-5 max-w-3xl mx-auto"
       >
-        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold tracking-wide border mb-4 bg-teal-950/60 text-teal-300 border-teal-500/40 shadow-sm">
+        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold tracking-wide border mb-2 bg-teal-950/60 text-teal-300 border-teal-500/40 shadow-sm">
           <Sparkles className="w-3.5 h-3.5 text-teal-300 animate-pulse" />
           <span>اکوسیستم یکپارچه آموزشی</span>
         </div>
 
         <h2
-          className="font-headline text-3xl sm:text-4xl md:text-5xl font-black mb-4 text-white leading-tight"
+          className="font-headline text-2xl sm:text-3xl md:text-4xl font-black mb-1.5 text-white leading-tight"
         >
           آوانا چیست؟
         </h2>
         <p
-          className="text-sm sm:text-base md:text-lg leading-relaxed text-slate-300 max-w-2xl mx-auto"
+          className="text-xs sm:text-sm md:text-base leading-relaxed text-slate-300 max-w-2xl mx-auto"
         >
           یک اکوسیستم کامل برای مدیریت فرآیند یادگیری، مرور و سنجش
           دانش‌آموختگان علوم پزشکی.
@@ -151,17 +151,17 @@ export function FeatureCards() {
         initial="hidden"
         whileInView="visible"
         viewport={{ once: true, margin: "-60px" }}
-        className="flex flex-wrap justify-center gap-6"
+        className="flex flex-wrap justify-center gap-3 lg:gap-4"
       >
         {features.map((feature) => (
           <motion.div
             key={feature.title}
             variants={cardVariants}
             whileHover={{
-              y: -6,
-              boxShadow: `0 15px 35px ${feature.hoverGlow}`,
+              y: -5,
+              boxShadow: `0 12px 30px ${feature.hoverGlow}`,
             }}
-            className="w-full md:w-[calc(50%-12px)] lg:w-[calc(33.333%-16px)] rounded-2xl p-6 sm:p-7 bg-slate-900/80 border border-white/10 backdrop-blur-xl flex flex-col justify-between text-right group cursor-default transition-all duration-300 relative overflow-hidden"
+            className="w-full md:w-[calc(50%-10px)] lg:w-[calc(33.333%-12px)] rounded-2xl p-4 sm:p-5 bg-slate-900/80 border border-white/10 backdrop-blur-xl flex flex-col justify-between text-right group cursor-default transition-all duration-300 relative overflow-hidden"
           >
             {/* Top Accent Line */}
             <div
@@ -172,7 +172,7 @@ export function FeatureCards() {
             <div>
               {/* Icon */}
               <div
-                className="w-14 h-14 rounded-2xl flex items-center justify-center mb-5 group-hover:scale-110 transition-transform duration-300 border shadow-md"
+                className="w-11 h-11 rounded-xl flex items-center justify-center mb-3 group-hover:scale-110 transition-transform duration-300 border shadow-md"
                 style={{
                   backgroundColor: feature.accentBg,
                   borderColor: feature.borderColor,
@@ -180,7 +180,7 @@ export function FeatureCards() {
                 }}
               >
                 <span
-                  className="material-symbols-outlined text-3xl"
+                  className="material-symbols-outlined text-2xl"
                   style={{
                     fontVariationSettings: feature.iconFill
                       ? "'FILL' 1"
@@ -193,21 +193,21 @@ export function FeatureCards() {
 
               {/* Title */}
               <h3
-                className="font-bold text-lg sm:text-xl mb-2.5 text-white group-hover:text-teal-300 transition-colors"
+                className="font-bold text-base sm:text-lg mb-1.5 text-white group-hover:text-teal-300 transition-colors"
               >
                 {feature.title}
               </h3>
 
               {/* Description */}
               <p
-                className="leading-relaxed text-xs sm:text-sm text-slate-300 mb-5"
+                className="leading-relaxed text-xs sm:text-sm text-slate-300 mb-3"
               >
                 {feature.description}
               </p>
             </div>
 
             {/* Visual Metaphor / Pipeline Badge */}
-            <div className="pt-3 border-t border-white/10 flex items-center gap-2 text-[11px] font-semibold text-slate-400">
+            <div className="pt-2.5 border-t border-white/10 flex items-center gap-2 text-[11px] font-semibold text-slate-400">
               {feature.metaphorIcon}
               <span className="truncate">{feature.metaphor}</span>
             </div>

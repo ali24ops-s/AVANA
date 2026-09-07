@@ -115,7 +115,9 @@ function toUserRecord(
     email: string;
     name: string;
     globalRole?: string | null;
+    phoneNumber?: string | null;
     emailVerifiedAt?: Date | null;
+    phoneVerifiedAt?: Date | null;
   },
   effectiveRole: Role = "student",
 ): UserRecord {
@@ -125,8 +127,11 @@ function toUserRecord(
     name: row.name,
     role: effectiveRole,
     globalRole: row.globalRole ?? null,
+    phoneNumber: row.phoneNumber ?? null,
     emailVerifiedAt: row.emailVerifiedAt?.toISOString() ?? null,
     emailVerified: row.emailVerifiedAt != null,
+    phoneVerifiedAt: row.phoneVerifiedAt?.toISOString() ?? null,
+    phoneVerified: row.phoneVerifiedAt != null,
   };
 }
 
@@ -598,6 +603,29 @@ export class DrizzleUserStore implements UserStore {
     return toUserRecord(userRow, effectiveRole);
   }
 
+  async findByPhoneNumber(phoneNumber: string): Promise<UserRecord | undefined> {
+    const norm = phoneNumber.trim();
+    const rows = await this.db
+      .select({
+        user: users,
+        role: organizationMemberships.role,
+      })
+      .from(users)
+      .leftJoin(
+        organizationMemberships,
+        eq(organizationMemberships.userId, users.id),
+      )
+      .where(eq(users.phoneNumber, norm));
+
+    if (rows.length === 0) return undefined;
+    const userRow = rows[0].user;
+    const roles = rows
+      .map((r) => r.role)
+      .filter((r): r is Role => r != null);
+    const effectiveRole = resolveEffectiveRole(userRow.globalRole, roles);
+    return toUserRecord(userRow, effectiveRole);
+  }
+
   async findWithPasswordByEmail(
     email: string,
   ): Promise<(UserRecord & { passwordHash?: string | null }) | undefined> {
@@ -664,7 +692,9 @@ export class DrizzleUserStore implements UserStore {
         email: users.email,
         name: users.name,
         globalRole: users.globalRole,
+        phoneNumber: users.phoneNumber,
         emailVerifiedAt: users.emailVerifiedAt,
+        phoneVerifiedAt: users.phoneVerifiedAt,
       });
 
     return toUserRecord(row);
@@ -674,6 +704,7 @@ export class DrizzleUserStore implements UserStore {
     email: string;
     passwordHash: string;
     name?: string;
+    phoneNumber?: string;
     globalRole?: string | null;
   }): Promise<UserRecord> {
     const normalizedEmail = params.email.trim().toLowerCase();
@@ -684,6 +715,7 @@ export class DrizzleUserStore implements UserStore {
         email: normalizedEmail,
         passwordHash: params.passwordHash,
         name: params.name ?? normalizedEmail.split("@")[0],
+        phoneNumber: params.phoneNumber ?? null,
         globalRole: params.globalRole ?? null,
       })
       .returning({
@@ -691,7 +723,9 @@ export class DrizzleUserStore implements UserStore {
         email: users.email,
         name: users.name,
         globalRole: users.globalRole,
+        phoneNumber: users.phoneNumber,
         emailVerifiedAt: users.emailVerifiedAt,
+        phoneVerifiedAt: users.phoneVerifiedAt,
       });
 
     const effectiveRole = resolveEffectiveRole(row.globalRole, []);
@@ -702,6 +736,24 @@ export class DrizzleUserStore implements UserStore {
     await this.db
       .update(users)
       .set({ emailVerifiedAt: new Date(), updatedAt: new Date() })
+      .where(eq(users.id, userId));
+  }
+
+  async setPhoneVerified(userId: UserId): Promise<void> {
+    await this.db
+      .update(users)
+      .set({ phoneVerifiedAt: new Date(), updatedAt: new Date() })
+      .where(eq(users.id, userId));
+  }
+
+  async updatePhoneNumber(userId: UserId, phoneNumber: string): Promise<void> {
+    await this.db
+      .update(users)
+      .set({
+        phoneNumber,
+        phoneVerifiedAt: null,
+        updatedAt: new Date(),
+      })
       .where(eq(users.id, userId));
   }
 
@@ -722,13 +774,18 @@ export class DrizzleEmailVerificationStore implements EmailVerificationStore {
     userId: UserId;
     codeHash: string;
     expiresAt: string;
+    channel?: "email" | "phone";
+    target?: string | null;
   }): Promise<EmailVerificationCodeRecord> {
+    const channel = values.channel ?? "email";
     const [row] = await this.db
       .insert(emailVerificationCodes)
       .values({
         userId: values.userId,
         codeHash: values.codeHash,
         expiresAt: new Date(values.expiresAt),
+        channel,
+        target: values.target ?? null,
       })
       .returning();
 
@@ -738,6 +795,8 @@ export class DrizzleEmailVerificationStore implements EmailVerificationStore {
       codeHash: row.codeHash,
       expiresAt: row.expiresAt.toISOString(),
       attempts: row.attempts,
+      channel: (row.channel as "email" | "phone") ?? "email",
+      target: row.target ?? null,
       createdAt: row.createdAt.toISOString(),
       usedAt: row.usedAt?.toISOString() ?? null,
     };
@@ -745,11 +804,17 @@ export class DrizzleEmailVerificationStore implements EmailVerificationStore {
 
   async findLatestActiveCode(
     userId: UserId,
+    channel?: "email" | "phone",
   ): Promise<EmailVerificationCodeRecord | undefined> {
+    const conditions = [eq(emailVerificationCodes.userId, userId)];
+    if (channel) {
+      conditions.push(eq(emailVerificationCodes.channel, channel));
+    }
+
     const row = await this.db
       .select()
       .from(emailVerificationCodes)
-      .where(eq(emailVerificationCodes.userId, userId))
+      .where(and(...conditions))
       .orderBy(desc(emailVerificationCodes.createdAt))
       .limit(1)
       .then((rows) => rows[0]);
@@ -761,6 +826,8 @@ export class DrizzleEmailVerificationStore implements EmailVerificationStore {
       codeHash: row.codeHash,
       expiresAt: row.expiresAt.toISOString(),
       attempts: row.attempts,
+      channel: (row.channel as "email" | "phone") ?? "email",
+      target: row.target ?? null,
       createdAt: row.createdAt.toISOString(),
       usedAt: row.usedAt?.toISOString() ?? null,
     };
@@ -780,16 +847,22 @@ export class DrizzleEmailVerificationStore implements EmailVerificationStore {
       .where(eq(emailVerificationCodes.id, id));
   }
 
-  async invalidateAllForUser(userId: UserId): Promise<void> {
+  async invalidateAllForUser(
+    userId: UserId,
+    channel?: "email" | "phone",
+  ): Promise<void> {
+    const conditions = [
+      eq(emailVerificationCodes.userId, userId),
+      sql`${emailVerificationCodes.usedAt} IS NULL`,
+    ];
+    if (channel) {
+      conditions.push(eq(emailVerificationCodes.channel, channel));
+    }
+
     await this.db
       .update(emailVerificationCodes)
       .set({ usedAt: new Date() })
-      .where(
-        and(
-          eq(emailVerificationCodes.userId, userId),
-          sql`${emailVerificationCodes.usedAt} IS NULL`,
-        ),
-      );
+      .where(and(...conditions));
   }
 }
 

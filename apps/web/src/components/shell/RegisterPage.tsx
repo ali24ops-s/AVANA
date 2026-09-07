@@ -8,14 +8,17 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Mail, Lock, User, Eye, EyeOff, ArrowLeft } from "lucide-react";
+import { Mail, Phone, Lock, User, Eye, EyeOff, ArrowLeft } from "lucide-react";
 import { BrandLogo } from "../brand/BrandLogo.js";
 import { useAuth } from "../../providers/AuthProvider.js";
 import { ApiError } from "../../lib/api/errors.js";
+import { validateAndNormalizeIranPhone } from "@avana/domain";
 
 export function RegisterPage() {
-  const [name, setName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
+  const [phoneNumber, setPhoneNumber] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -34,9 +37,36 @@ export function RegisterPage() {
     e.preventDefault();
     setError(null);
 
+    const trimmedFirstName = firstName.trim();
+    if (!trimmedFirstName) {
+      setError("لطفاً نام خود را وارد نمایید.");
+      return;
+    }
+
+    const trimmedLastName = lastName.trim();
+    if (!trimmedLastName) {
+      setError("لطفاً نام خانوادگی خود را وارد نمایید.");
+      return;
+    }
+
     const trimmedEmail = email.trim();
     if (!trimmedEmail || !trimmedEmail.includes("@")) {
       setError("لطفاً یک نشانی ایمیل معتبر وارد نمایید.");
+      return;
+    }
+
+    const trimmedPhone = phoneNumber.trim();
+    if (!trimmedPhone) {
+      setError("لطفاً شماره موبایل خود را وارد نمایید.");
+      return;
+    }
+
+    const phoneValidation = validateAndNormalizeIranPhone(trimmedPhone);
+    if (!phoneValidation.valid || !phoneValidation.normalized) {
+      setError(
+        phoneValidation.error ||
+          "شماره موبایل معتبر نیست. شماره‌ای با فرمت 09123456789 وارد نمایید.",
+      );
       return;
     }
 
@@ -52,8 +82,15 @@ export function RegisterPage() {
 
     setIsSubmitting(true);
     try {
-      await signUp(trimmedEmail, password, name.trim() || undefined);
-      navigate("/home", { replace: true });
+      await signUp(
+        trimmedEmail,
+        password,
+        `${trimmedFirstName} ${trimmedLastName}`,
+        phoneValidation.normalized,
+        trimmedFirstName,
+        trimmedLastName,
+      );
+      navigate("/verify-email", { replace: true });
     } catch (err) {
       if (err instanceof ApiError) {
         const errorMsg =
@@ -111,24 +148,49 @@ export function RegisterPage() {
             )}
 
             <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <label
-                  htmlFor="name"
-                  className="block text-xs font-semibold text-slate-300 mb-1.5"
-                >
-                  نام و نام خانوادگی (اختیاری)
-                </label>
-                <div className="relative">
-                  <User className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
-                  <input
-                    id="name"
-                    type="text"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="علی محمدی"
-                    disabled={isSubmitting}
-                    className="w-full pr-11 pl-4 py-3 rounded-xl border border-white/10 bg-slate-900/60 text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent text-right text-sm disabled:opacity-50 transition-all"
-                  />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label
+                    htmlFor="firstName"
+                    className="block text-xs font-semibold text-slate-300 mb-1.5"
+                  >
+                    نام
+                  </label>
+                  <div className="relative">
+                    <User className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                    <input
+                      id="firstName"
+                      type="text"
+                      value={firstName}
+                      onChange={(e) => setFirstName(e.target.value)}
+                      placeholder="علی"
+                      required
+                      disabled={isSubmitting}
+                      className="w-full pr-11 pl-4 py-3 rounded-xl border border-white/10 bg-slate-900/60 text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent text-right text-sm disabled:opacity-50 transition-all"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="lastName"
+                    className="block text-xs font-semibold text-slate-300 mb-1.5"
+                  >
+                    نام خانوادگی
+                  </label>
+                  <div className="relative">
+                    <User className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                    <input
+                      id="lastName"
+                      type="text"
+                      value={lastName}
+                      onChange={(e) => setLastName(e.target.value)}
+                      placeholder="محمدی"
+                      required
+                      disabled={isSubmitting}
+                      className="w-full pr-11 pl-4 py-3 rounded-xl border border-white/10 bg-slate-900/60 text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent text-right text-sm disabled:opacity-50 transition-all"
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -149,6 +211,35 @@ export function RegisterPage() {
                     placeholder="name@example.com"
                     required
                     autoComplete="email"
+                    disabled={isSubmitting}
+                    dir="ltr"
+                    className="w-full pr-11 pl-4 py-3 rounded-xl border border-white/10 bg-slate-900/60 text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent text-left font-mono text-sm disabled:opacity-50 transition-all"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label
+                    htmlFor="phoneNumber"
+                    className="block text-xs font-semibold text-slate-300"
+                  >
+                    شماره موبایل
+                  </label>
+                  <span className="text-[11px] text-slate-500 font-mono" dir="ltr">
+                    مثال: 09123456789
+                  </span>
+                </div>
+                <div className="relative">
+                  <Phone className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                  <input
+                    id="phoneNumber"
+                    type="tel"
+                    value={phoneNumber}
+                    onChange={(e) => setPhoneNumber(e.target.value)}
+                    placeholder="09123456789"
+                    required
+                    autoComplete="tel"
                     disabled={isSubmitting}
                     dir="ltr"
                     className="w-full pr-11 pl-4 py-3 rounded-xl border border-white/10 bg-slate-900/60 text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent text-left font-mono text-sm disabled:opacity-50 transition-all"
@@ -220,7 +311,10 @@ export function RegisterPage() {
                 type="submit"
                 disabled={
                   isSubmitting ||
+                  !firstName.trim() ||
+                  !lastName.trim() ||
                   !email.trim() ||
+                  !phoneNumber.trim() ||
                   !password ||
                   !confirmPassword
                 }
@@ -272,3 +366,4 @@ export function RegisterPage() {
     </div>
   );
 }
+

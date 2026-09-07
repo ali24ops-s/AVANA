@@ -143,7 +143,12 @@ describe("Generation Routes Lifecycle & Tenant Isolation (Stop & Delete)", () =>
     const regA = await app.inject({
       method: "POST",
       url: "/v1/auth/register",
-      payload: { email: "authorA@avana.org", password: "Password123!" },
+      payload: {
+        name: "کاربر نویسنده",
+        email: "authorA@avana.org",
+        password: "Password123!",
+        phoneNumber: "09121110043",
+      },
     });
     tokenUserA = extractSessionToken(regA) || "";
     userAId = (regA.json() as { user: { id: string } }).user.id as UserId;
@@ -177,7 +182,12 @@ describe("Generation Routes Lifecycle & Tenant Isolation (Stop & Delete)", () =>
     const regB = await app.inject({
       method: "POST",
       url: "/v1/auth/register",
-      payload: { email: "attackerB@avana.org", password: "Password123!" },
+      payload: {
+        name: "کاربر نفوذی",
+        email: "attackerB@avana.org",
+        password: "Password123!",
+        phoneNumber: "09121110044",
+      },
     });
     tokenUserB = extractSessionToken(regB) || "";
     userBId = (regB.json() as { user: { id: string } }).user.id as UserId;

@@ -24,6 +24,11 @@ import {
   MockEmailService,
   ResendEmailService,
   type EmailService,
+  ConsoleSmsProvider,
+  MockSmsProvider,
+  HttpSmsProvider,
+  MedianaSmsProvider,
+  type SmsProvider,
 } from "../modules/identity/index.js";
 
 export interface ProductionDependencies {
@@ -265,6 +270,53 @@ export async function composeProduction(
   } else {
     emailService = new MockEmailService();
   }
+
+  let smsProvider: SmsProvider;
+  if (
+    config.sms.provider === "mediana" ||
+    (config.nodeEnv === "production" &&
+      config.sms.apiKey &&
+      config.sms.patternCode)
+  ) {
+    if (!config.sms.apiKey) {
+      throw new Error(
+        "Missing required SMS configuration: MEDIANA_API_KEY is not set.",
+      );
+    }
+    if (!config.sms.patternCode) {
+      throw new Error(
+        "Missing required SMS configuration: MEDIANA_PATTERN_CODE is not set.",
+      );
+    }
+    smsProvider = new MedianaSmsProvider({
+      apiKey: config.sms.apiKey,
+      patternCode: config.sms.patternCode,
+      apiUrl: config.sms.apiUrl,
+      timeoutMs: config.sms.timeoutMs,
+    });
+  } else if (
+    config.sms.provider === "http" ||
+    (config.nodeEnv === "production" &&
+      config.sms.apiUrl &&
+      !config.sms.patternCode)
+  ) {
+    if (!config.sms.apiUrl) {
+      throw new Error(
+        "Missing required production SMS configuration: SMS_API_URL is not set.",
+      );
+    }
+    smsProvider = new HttpSmsProvider({
+      apiUrl: config.sms.apiUrl,
+      apiKey: config.sms.apiKey,
+      username: config.sms.username,
+      password: config.sms.password,
+      sender: config.sms.sender,
+    });
+  } else if (config.nodeEnv === "test" || config.sms.provider === "mock") {
+    smsProvider = new MockSmsProvider();
+  } else {
+    smsProvider = new ConsoleSmsProvider();
+  }
   const organizationStore = new DrizzleOrganizationStore(db);
   const courseStore = new DrizzleCourseStore(db);
   const moduleStore = new DrizzleModuleStore(db);
@@ -374,6 +426,7 @@ export async function composeProduction(
     deviceStore,
     emailVerificationStore,
     emailService,
+    smsProvider,
     organizationStore,
     courseStore,
     moduleStore,
@@ -408,6 +461,7 @@ export async function composeProduction(
     commerceStore,
     paymentGateway,
     blogStore,
+    db,
   };
 
   // Explicit opt-in dev seed: never seed automatically on regular dev/restart

@@ -138,7 +138,12 @@ describe("IDOR & Authorization Real Security Verification", () => {
     const resA = await app.inject({
       method: "POST",
       url: "/v1/auth/register",
-      payload: { email: "usera_idor@example.com", password: "password123", name: "User A" },
+      payload: {
+        email: "usera_idor@example.com",
+        password: "password123",
+        name: "User A",
+        phoneNumber: "09121110045",
+      },
     });
     userAToken = extractCookie(resA, "avana_session")!;
     userAId = JSON.parse(resA.body).user.id;
@@ -147,7 +152,12 @@ describe("IDOR & Authorization Real Security Verification", () => {
     const resB = await app.inject({
       method: "POST",
       url: "/v1/auth/register",
-      payload: { email: "userb_idor@example.com", password: "password123", name: "User B" },
+      payload: {
+        email: "userb_idor@example.com",
+        password: "password123",
+        name: "User B",
+        phoneNumber: "09121110046",
+      },
     });
     userBId = JSON.parse(resB.body).user.id;
 

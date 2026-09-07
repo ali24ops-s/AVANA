@@ -229,15 +229,18 @@ export function createGenerationApi(client: ApiClient) {
 
     /**
      * GET /v1/organizations/:organizationId/generation/active
+     * GET /v1/generation/active
      * Returns all active generation progress items for the authenticated user/org.
      */
     getActiveGenerations(
-      organizationId: string,
+      organizationId?: string,
       courseId?: string | null,
     ): Promise<{ request_id: string; items: ActiveGenerationItem[] }> {
-      const url = courseId
-        ? `/v1/organizations/${organizationId}/courses/${courseId}/generation/active`
-        : `/v1/organizations/${organizationId}/generation/active`;
+      const url = organizationId && organizationId.trim().length > 0
+        ? (courseId && courseId.trim().length > 0
+          ? `/v1/organizations/${organizationId.trim()}/courses/${courseId.trim()}/generation/active`
+          : `/v1/organizations/${organizationId.trim()}/generation/active`)
+        : `/v1/generation/active`;
       return client.get<{ request_id: string; items: ActiveGenerationItem[] }>(url);
     },
 

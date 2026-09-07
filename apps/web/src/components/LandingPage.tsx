@@ -13,7 +13,7 @@
  * 8. Footer
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { motion, useScroll, useSpring } from "framer-motion";
 import { ArrowLeft, Menu, X } from "lucide-react";
@@ -24,6 +24,11 @@ import { ProductExperienceSection } from "./landing/ProductExperienceSection.js"
 import { HowItWorksSection } from "./landing/HowItWorksSection.js";
 import { FinalCTASection } from "./landing/FinalCTASection.js";
 import { Footer } from "./landing/Footer.js";
+import {
+  PresentationNavDots,
+  HEADER_HEIGHT,
+  PRESENTATION_SECTIONS,
+} from "./landing/PresentationNavDots.js";
 import { useAuth } from "../providers/AuthProvider.js";
 import { BrandLogo } from "./brand/BrandLogo.js";
 
@@ -31,6 +36,7 @@ export function LandingPage() {
   const { isAuthenticated } = useAuth();
   const [isScrolled, setIsScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [activeSection, setActiveSection] = useState("hero");
 
   const ctaHref = isAuthenticated ? "/courses" : "/sign-in";
 
@@ -42,7 +48,161 @@ export function LandingPage() {
     restDelta: 0.001,
   });
 
-  // SEO and Meta Tags setup
+  // Presentation Controller Refs
+  const isAnimatingRef = useRef(false);
+  const isLockedRef = useRef(false);
+  const lockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const currentSectionIndexRef = useRef(0);
+  const accumulatedDeltaRef = useRef(0);
+  const deltaResetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const rafIdRef = useRef<number | null>(null);
+
+  // Exact target scroll position calculation with canonical HEADER_HEIGHT
+  const getSectionTargetY = useCallback((id: string): number => {
+    if (id === "hero") return 0;
+    const el = document.getElementById(id);
+    if (!el) return 0;
+    const rect = el.getBoundingClientRect();
+    return Math.max(0, rect.top + window.scrollY - HEADER_HEIGHT);
+  }, []);
+
+  const getFooterTargetY = useCallback((): number => {
+    const footer = document.querySelector("footer");
+    if (!footer) return document.documentElement.scrollHeight;
+    const rect = footer.getBoundingClientRect();
+    return Math.max(0, rect.top + window.scrollY - HEADER_HEIGHT);
+  }, []);
+
+  // Smooth cubic-bezier(0.22, 1, 0.36, 1) evaluator for presentation slide transitions
+  const cubicBezierEase = (t: number): number => {
+    if (t <= 0) return 0;
+    if (t >= 1) return 1;
+
+    let u = t;
+    for (let i = 0; i < 6; i++) {
+      const currentX = u * (0.66 + u * (0.42 - 0.08 * u));
+      const currentSlope = 0.66 + u * (0.84 - 0.24 * u);
+      if (Math.abs(currentSlope) < 1e-7) break;
+      const diff = currentX - t;
+      u -= diff / currentSlope;
+      if (Math.abs(diff) < 1e-5) break;
+    }
+    u = Math.max(0, Math.min(1, u));
+
+    const oneMinusU = 1 - u;
+    return 1 - oneMinusU * oneMinusU * oneMinusU;
+  };
+
+  // Robust RAF animation engine immune to browser smooth scroll cancellations
+  const animateScrollTo = useCallback(
+    (
+      targetY: number,
+      targetIndex: number,
+      duration = 670,
+      onComplete?: () => void
+    ) => {
+      if (rafIdRef.current) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
+
+      const prefersReduced =
+        typeof window !== "undefined" &&
+        typeof window.matchMedia === "function" &&
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+      const startY = window.scrollY;
+      const distance = targetY - startY;
+
+      if (prefersReduced || Math.abs(distance) < 2 || duration <= 0) {
+        window.scrollTo(0, targetY);
+        currentSectionIndexRef.current = targetIndex;
+        if (targetIndex < PRESENTATION_SECTIONS.length) {
+          setActiveSection(PRESENTATION_SECTIONS[targetIndex].id);
+        }
+        isAnimatingRef.current = false;
+        onComplete?.();
+        return;
+      }
+
+      isAnimatingRef.current = true;
+      const startTime = performance.now();
+
+      const step = (currentTime: number) => {
+        const elapsed = currentTime - startTime;
+        const progress = Math.min(1, elapsed / duration);
+        const eased = cubicBezierEase(progress);
+        const currentY = Math.round(startY + distance * eased);
+
+        window.scrollTo(0, currentY);
+
+        if (progress < 1) {
+          rafIdRef.current = requestAnimationFrame(step);
+        } else {
+          // Guarantee exact target settlement on final frame
+          window.scrollTo(0, targetY);
+          currentSectionIndexRef.current = targetIndex;
+          if (targetIndex < PRESENTATION_SECTIONS.length) {
+            setActiveSection(PRESENTATION_SECTIONS[targetIndex].id);
+          }
+          isAnimatingRef.current = false;
+          rafIdRef.current = null;
+          onComplete?.();
+        }
+      };
+
+      rafIdRef.current = requestAnimationFrame(step);
+    },
+    []
+  );
+
+  const transitionToSection = useCallback(
+    (targetIndex: number) => {
+      if (targetIndex < 0) return;
+      if (targetIndex > PRESENTATION_SECTIONS.length) return;
+
+      isLockedRef.current = true;
+      accumulatedDeltaRef.current = 0;
+      if (deltaResetTimeoutRef.current) {
+        clearTimeout(deltaResetTimeoutRef.current);
+      }
+      if (lockTimerRef.current) {
+        clearTimeout(lockTimerRef.current);
+      }
+
+      const targetY =
+        targetIndex === 0
+          ? 0
+          : targetIndex >= PRESENTATION_SECTIONS.length
+          ? getFooterTargetY()
+          : getSectionTargetY(PRESENTATION_SECTIONS[targetIndex].id);
+
+      // 670ms cubic-bezier transition + 110ms inertia cooldown
+      animateScrollTo(targetY, targetIndex, 670, () => {
+        if (lockTimerRef.current) clearTimeout(lockTimerRef.current);
+        lockTimerRef.current = setTimeout(() => {
+          isLockedRef.current = false;
+          accumulatedDeltaRef.current = 0;
+        }, 110);
+      });
+    },
+    [animateScrollTo, getFooterTargetY, getSectionTargetY]
+  );
+
+  const handleSelectSection = useCallback(
+    (id: string) => {
+      const idx = PRESENTATION_SECTIONS.findIndex((s) => s.id === id);
+      if (idx !== -1) {
+        transitionToSection(idx);
+      } else {
+        const targetY = getSectionTargetY(id);
+        animateScrollTo(targetY, 0, 670);
+      }
+    },
+    [animateScrollTo, getSectionTargetY, transitionToSection]
+  );
+
+  // SEO, Scroll detection, Section Observer, and Desktop Presentation Wheel Controller
   useEffect(() => {
     document.title = "آوانا | پلتفرم نوین آموزش و یادگیری هوشمند پزشکی و داروسازی";
 
@@ -59,10 +219,157 @@ export function LandingPage() {
 
     const handleScroll = () => {
       setIsScrolled(window.scrollY > 20);
+
+      // Keep currentSectionIndexRef roughly in sync with manual scrolling if any
+      if (!isAnimatingRef.current && !isLockedRef.current) {
+        const currentScrollY = window.scrollY;
+        const footerTargetY = getFooterTargetY();
+        const finalCtaTargetY = getSectionTargetY("final-cta");
+
+        if (currentScrollY >= finalCtaTargetY + Math.max(30, (footerTargetY - finalCtaTargetY) * 0.4)) {
+          currentSectionIndexRef.current = PRESENTATION_SECTIONS.length; // Footer
+        } else {
+          let closest = 0;
+          let minDiff = Infinity;
+          PRESENTATION_SECTIONS.forEach((sec, idx) => {
+            const targetY = sec.id === "hero" ? 0 : getSectionTargetY(sec.id);
+            const diff = Math.abs(currentScrollY - targetY);
+            if (diff < minDiff) {
+              minDiff = diff;
+              closest = idx;
+            }
+          });
+          currentSectionIndexRef.current = closest;
+        }
+      }
     };
-    window.addEventListener("scroll", handleScroll);
-    return () => window.removeEventListener("scroll", handleScroll);
-  }, []);
+    window.addEventListener("scroll", handleScroll, { passive: true });
+
+    // Active Section IntersectionObserver for dots & indicators
+    let observer: IntersectionObserver | null = null;
+    if (typeof IntersectionObserver !== "undefined") {
+      observer = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((entry) => {
+            if (entry.isIntersecting && entry.target.id) {
+              setActiveSection(entry.target.id);
+            }
+          });
+        },
+        {
+          root: null,
+          rootMargin: "-20% 0px -35% 0px",
+          threshold: 0.15,
+        }
+      );
+
+      PRESENTATION_SECTIONS.forEach((section) => {
+        const el = document.getElementById(section.id);
+        if (el) observer?.observe(el);
+      });
+    }
+
+    // Desktop Wheel / Trackpad Presentation Controller
+    const handleWheel = (e: WheelEvent) => {
+      const isDesktopPresentation =
+        window.innerWidth >= 1024 && window.innerHeight >= 720;
+      if (!isDesktopPresentation || mobileMenuOpen) return;
+
+      // When transition is actively animating or in post-transition inertia lock, discard events
+      if (isAnimatingRef.current || isLockedRef.current) {
+        e.preventDefault();
+        return;
+      }
+
+      const currentIndex = currentSectionIndexRef.current;
+      const isAtFooter = currentIndex >= PRESENTATION_SECTIONS.length;
+      const footerTargetY = getFooterTargetY();
+
+      // In Footer:
+      if (isAtFooter) {
+        // If scrolling DOWN: let user freely and naturally scroll the footer
+        if (e.deltaY > 0) {
+          return;
+        }
+
+        // If scrolling UP:
+        // If user is scrolled deep in footer, let them naturally scroll up to footer top
+        if (window.scrollY > footerTargetY + 25) {
+          return;
+        }
+
+        // At footer top scrolling UP: intercept and transition back to final-cta (slide 5)
+        e.preventDefault();
+        accumulatedDeltaRef.current += e.deltaY;
+
+        if (deltaResetTimeoutRef.current) clearTimeout(deltaResetTimeoutRef.current);
+        deltaResetTimeoutRef.current = setTimeout(() => {
+          accumulatedDeltaRef.current = 0;
+        }, 120);
+
+        if (accumulatedDeltaRef.current <= -30) {
+          transitionToSection(PRESENTATION_SECTIONS.length - 1);
+        }
+        return;
+      }
+
+      // At Hero (index 0) and scrolling UP: allow native top bounce, don't lock
+      if (currentIndex === 0 && e.deltaY < 0 && window.scrollY <= 5) {
+        accumulatedDeltaRef.current = 0;
+        return;
+      }
+
+      // Intercept wheel for presentation sections (0 to 5)
+      e.preventDefault();
+
+      // Reset accumulator on direction inversion
+      if (
+        (accumulatedDeltaRef.current > 0 && e.deltaY < 0) ||
+        (accumulatedDeltaRef.current < 0 && e.deltaY > 0)
+      ) {
+        accumulatedDeltaRef.current = 0;
+      }
+
+      accumulatedDeltaRef.current += e.deltaY;
+
+      if (deltaResetTimeoutRef.current) clearTimeout(deltaResetTimeoutRef.current);
+      deltaResetTimeoutRef.current = setTimeout(() => {
+        accumulatedDeltaRef.current = 0;
+      }, 120);
+
+      const THRESHOLD = 30;
+
+      if (accumulatedDeltaRef.current >= THRESHOLD) {
+        // NEXT Section
+        if (currentIndex < PRESENTATION_SECTIONS.length - 1) {
+          transitionToSection(currentIndex + 1);
+        } else if (currentIndex === PRESENTATION_SECTIONS.length - 1) {
+          transitionToSection(PRESENTATION_SECTIONS.length); // Enter Footer
+        }
+      } else if (accumulatedDeltaRef.current <= -THRESHOLD) {
+        // PREVIOUS Section
+        if (currentIndex > 0) {
+          transitionToSection(currentIndex - 1);
+        }
+      }
+    };
+
+    window.addEventListener("wheel", handleWheel, { passive: false });
+
+    return () => {
+      window.removeEventListener("scroll", handleScroll);
+      window.removeEventListener("wheel", handleWheel);
+      observer?.disconnect();
+      if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
+      if (lockTimerRef.current) clearTimeout(lockTimerRef.current);
+      if (deltaResetTimeoutRef.current) clearTimeout(deltaResetTimeoutRef.current);
+    };
+  }, [
+    mobileMenuOpen,
+    getFooterTargetY,
+    getSectionTargetY,
+    transitionToSection,
+  ]);
 
   const navLinks = [
     { label: "درباره ما", href: "/about", isInternalRoute: true },
@@ -71,6 +378,17 @@ export function LandingPage() {
     { label: "تجربه محصول", href: "#experience", isInternalRoute: false },
     { label: "چطور کار می‌کند", href: "#how-it-works", isInternalRoute: false },
   ];
+
+  const handleNavAnchorClick = (
+    e: React.MouseEvent<HTMLAnchorElement>,
+    href: string
+  ) => {
+    if (href.startsWith("#")) {
+      e.preventDefault();
+      const id = href.slice(1);
+      handleSelectSection(id);
+    }
+  };
 
   return (
     <div className="landing-page min-h-screen relative font-body bg-[#0b1120] text-slate-100 selection:bg-teal-500/30 selection:text-teal-200">
@@ -114,6 +432,7 @@ export function LandingPage() {
                 ) : (
                   <a
                     href={item.href}
+                    onClick={(e) => handleNavAnchorClick(e, item.href)}
                     className="text-slate-300 hover:text-teal-300 transition-colors duration-200 font-medium"
                   >
                     {item.label}
@@ -167,7 +486,10 @@ export function LandingPage() {
                   key={item.href}
                   href={item.href}
                   className="py-2.5 px-3 rounded-lg text-slate-200 hover:text-teal-300 hover:bg-white/5 transition-colors font-medium text-sm"
-                  onClick={() => setMobileMenuOpen(false)}
+                  onClick={(e) => {
+                    setMobileMenuOpen(false);
+                    handleNavAnchorClick(e, item.href);
+                  }}
                 >
                   {item.label}
                 </a>
@@ -185,6 +507,12 @@ export function LandingPage() {
           </motion.div>
         )}
       </nav>
+
+      {/* Desktop Side Rail Presentation Dots */}
+      <PresentationNavDots
+        activeSection={activeSection}
+        onSelectSection={handleSelectSection}
+      />
 
       {/* Main Narrative Journey */}
       <main className="relative z-10 pt-20">

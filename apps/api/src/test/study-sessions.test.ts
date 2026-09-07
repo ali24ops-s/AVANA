@@ -223,6 +223,7 @@ describe("Study Sessions & Active Study Time Tracking", () => {
           email: "student@avana.ai",
           password: "password123",
           name: "Student User",
+          phoneNumber: "09123456789",
         }),
       });
 

@@ -122,7 +122,13 @@ describe("Generation Flow End-to-End RCA Regression Suite", () => {
     const reg = await app.inject({
       method: "POST",
       url: "/v1/auth/register",
-      payload: { email: "teacher@avana.org", password: "Password123!" },
+      payload: {
+        email: "teacher@avana.org",
+        password: "Password123!",
+        firstName: "استاد",
+        lastName: "آوانا",
+        phoneNumber: "09121110041",
+      },
     });
     sessionToken = extractSessionToken(reg) || "";
     userId = (reg.json() as { user: { id: string } }).user.id as UserId;
@@ -280,9 +286,12 @@ describe("Generation Flow End-to-End RCA Regression Suite", () => {
       cookies: { avana_session: sessionToken },
     });
     const activeBody5 = JSON.parse(activeRes5.payload);
-    // Completed item is still recent and visible for UI indicator completion toast
-    expect(activeBody5.items[0].status).toBe("completed");
-    expect(activeBody5.items[0].progress.percentage).toBe(100);
+    // Completed item is no longer in active generations (Header projection removes completed item)
+    expect(activeBody5.items).toHaveLength(0);
+
+    // Canonical progress store still contains the completed record
+    const finalRecord = await progressService.getRecord(docId, orgId);
+    expect(finalRecord?.status).toBe("completed");
   });
 
   it("Requirement 1: Deterministic Stale Detection - Safe reconciliation without deleting data", async () => {

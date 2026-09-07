@@ -3,7 +3,7 @@
  *
  * Centralises auth state for the application:
  *  - Fetches /v1/me on mount to determine auth state
- *  - Exposes user, memberships, loading, error, signIn, signOut
+ *  - Exposes user, memberships, loading, error, signIn, signUp, verifyChannel, sendVerification, signOut
  *  - Handles loading, success, error, and unauthorized states
  */
 
@@ -19,7 +19,11 @@ import {
 import { createApiClient, getApiBaseUrl } from "../lib/api/client.js";
 import { createAuthApi } from "../lib/api/auth.js";
 import { ApiError } from "../lib/api/errors.js";
-import type { UserMembership, UserResource } from "@avana/contracts";
+import type {
+  UserMembership,
+  UserResource,
+  VerificationChannel,
+} from "@avana/contracts";
 
 export type AuthState = {
   /** Current authenticated user, or null if not authenticated. */
@@ -34,13 +38,32 @@ export type AuthState = {
   isAuthenticated: boolean;
   /** True if the authenticated user's email is verified. */
   isEmailVerified: boolean;
+  /** True if the authenticated user's phone is verified. */
+  isPhoneVerified: boolean;
+  /** True if the authenticated user has at least one verified channel. */
+  isVerified: boolean;
   /** Sign in with email and password. */
   signIn: (email: string, password: string) => Promise<void>;
-  /** Register a new user account. */
-  signUp: (email: string, password: string, name?: string) => Promise<void>;
-  /** Verify 6-digit email verification code. */
+  /** Request login OTP for phone number. */
+  sendPhoneLoginOtp: (phoneNumber: string) => Promise<void>;
+  /** Verify login OTP and create session. */
+  verifyPhoneLoginOtp: (phoneNumber: string, code: string) => Promise<void>;
+  /** Register a new user account with email, password, name, phone, firstName, lastName. */
+  signUp: (
+    email: string,
+    password: string,
+    name?: string,
+    phoneNumber?: string,
+    firstName?: string,
+    lastName?: string,
+  ) => Promise<void>;
+  /** Send a verification code to chosen channel (email or phone). */
+  sendVerification: (channel: VerificationChannel) => Promise<void>;
+  /** Verify code for chosen channel (email or phone). */
+  verifyChannel: (channel: VerificationChannel, code: string) => Promise<void>;
+  /** Verify 6-digit email verification code (legacy). */
   verifyEmail: (code: string) => Promise<void>;
-  /** Request resending a verification code. */
+  /** Request resending a verification code (legacy). */
   resendVerification: (email?: string) => Promise<void>;
   /** Sign out (revoke session). */
   signOut: () => Promise<void>;
@@ -135,17 +158,105 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [authApi],
   );
 
-  const signUp = useCallback(
-    async (email: string, password: string, name?: string) => {
+  const sendPhoneLoginOtp = useCallback(
+    async (phoneNumber: string) => {
+      setError(null);
+      try {
+        await authApi.sendPhoneLoginOtp(phoneNumber);
+      } catch (err) {
+        const message =
+          err instanceof ApiError
+            ? err.message
+            : "ارسال کد تأیید ورود با خطا مواجه شد.";
+        setError(message);
+        throw err;
+      }
+    },
+    [authApi],
+  );
+
+  const verifyPhoneLoginOtp = useCallback(
+    async (phoneNumber: string, code: string) => {
       setIsLoading(true);
       setError(null);
       try {
-        const response = await authApi.signUp(email, password, name);
+        const response = await authApi.verifyPhoneLoginOtp(phoneNumber, code);
+        setUser(response.user);
+        setMemberships(response.memberships ?? []);
+      } catch (err) {
+        const message =
+          err instanceof ApiError
+            ? err.message
+            : "تأیید کد ورود با خطا مواجه شد.";
+        setError(message);
+        throw err;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [authApi],
+  );
+
+  const signUp = useCallback(
+    async (
+      email: string,
+      password: string,
+      name?: string,
+      phoneNumber?: string,
+      firstName?: string,
+      lastName?: string,
+    ) => {
+      setIsLoading(true);
+      setError(null);
+      try {
+        const response = await authApi.signUp(
+          email,
+          password,
+          name,
+          phoneNumber,
+          firstName,
+          lastName,
+        );
         setUser(response.user);
         setMemberships(response.memberships ?? []);
       } catch (err) {
         const message =
           err instanceof ApiError ? err.message : "ثبت‌نام حساب کاربری با خطا مواجه شد.";
+        setError(message);
+        throw err;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [authApi],
+  );
+
+  const sendVerification = useCallback(
+    async (channel: VerificationChannel) => {
+      setError(null);
+      try {
+        await authApi.sendVerification(channel);
+      } catch (err) {
+        const message =
+          err instanceof ApiError ? err.message : "ارسال کد تأیید با خطا مواجه شد.";
+        setError(message);
+        throw err;
+      }
+    },
+    [authApi],
+  );
+
+  const verifyChannel = useCallback(
+    async (channel: VerificationChannel, code: string) => {
+      setIsLoading(true);
+      setError(null);
+      try {
+        const response = await authApi.verifyChannel(channel, code);
+        setUser(response.user);
+        setMemberships(response.memberships ?? []);
+      } catch (err) {
+        const message =
+          err instanceof ApiError ? err.message : "تأیید کد با خطا مواجه شد.";
         setError(message);
         throw err;
       } finally {
@@ -201,15 +312,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setError(null);
   }, [authApi]);
 
+  const isEmailVerified = user ? user.emailVerified === true : false;
+  const isPhoneVerified = user ? user.phoneVerified === true : false;
+  const isVerified = user
+    ? Boolean(user.isVerified ?? (user.emailVerified || user.phoneVerified))
+    : false;
+
   const value: AuthState = {
     user,
     memberships,
     isLoading,
     error,
     isAuthenticated: user !== null,
-    isEmailVerified: user ? user.emailVerified !== false : false,
+    isEmailVerified,
+    isPhoneVerified,
+    isVerified,
     signIn,
+    sendPhoneLoginOtp,
+    verifyPhoneLoginOtp,
     signUp,
+    sendVerification,
+    verifyChannel,
     verifyEmail,
     resendVerification,
     signOut,
@@ -232,8 +355,14 @@ export function useAuth(): AuthState {
       error: null,
       isAuthenticated: false,
       isEmailVerified: false,
+      isPhoneVerified: false,
+      isVerified: false,
       signIn: async () => {},
+      sendPhoneLoginOtp: async () => {},
+      verifyPhoneLoginOtp: async () => {},
       signUp: async () => {},
+      sendVerification: async () => {},
+      verifyChannel: async () => {},
       verifyEmail: async () => {},
       resendVerification: async () => {},
       signOut: async () => {},

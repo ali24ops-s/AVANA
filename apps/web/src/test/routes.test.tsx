@@ -78,6 +78,8 @@ describe("Route protection", () => {
             id: "user-1",
             email: "alice@example.com",
             role: "student" as const,
+            emailVerified: true,
+            isVerified: true,
           },
         }),
     } as Response);

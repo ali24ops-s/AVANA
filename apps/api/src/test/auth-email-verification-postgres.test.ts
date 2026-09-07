@@ -74,7 +74,12 @@ describe("Real PostgreSQL Integration - Email Verification Flow", () => {
     const regRes = await app1.inject({
       method: "POST",
       url: "/v1/auth/register",
-      payload: { email: testEmail, password: testPassword, name: "PG User" },
+      payload: {
+        email: testEmail,
+        password: testPassword,
+        name: "PG User",
+        phoneNumber: "09121110005",
+      },
     });
 
     expect(regRes.statusCode).toBe(200);
@@ -195,7 +200,12 @@ describe("Real PostgreSQL Integration - Email Verification Flow", () => {
     const regRes = await app.inject({
       method: "POST",
       url: "/v1/auth/register",
-      payload: { email: failEmail, password, name: "Failed User" },
+      payload: {
+        email: failEmail,
+        password,
+        name: "Failed User",
+        phoneNumber: "09121110006",
+      },
     });
     expect(regRes.statusCode).toBe(500);
 
@@ -228,7 +238,12 @@ describe("Real PostgreSQL Integration - Email Verification Flow", () => {
     const retryRes = await app2.inject({
       method: "POST",
       url: "/v1/auth/register",
-      payload: { email: failEmail, password, name: "Retried User" },
+      payload: {
+        email: failEmail,
+        password,
+        name: "Retried User",
+        phoneNumber: "09121110006",
+      },
     });
     expect(retryRes.statusCode).toBe(200);
 

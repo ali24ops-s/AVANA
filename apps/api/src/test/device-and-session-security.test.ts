@@ -146,6 +146,7 @@ describe("Device & Single-Session Security", () => {
           email: "student1@example.com",
           password: "Password123!",
           name: "Student One",
+          phoneNumber: "09121110051",
         },
       });
 
@@ -189,6 +190,7 @@ describe("Device & Single-Session Security", () => {
           email: "student2@example.com",
           password: "Password123!",
           name: "Student Two",
+          phoneNumber: "09121110052",
         },
       });
       expect(regRes.statusCode).toBe(200);
@@ -222,6 +224,7 @@ describe("Device & Single-Session Security", () => {
           email: "student3@example.com",
           password: "Password123!",
           name: "Student Three",
+          phoneNumber: "09121110053",
         },
       });
       expect(regRes.statusCode).toBe(200);
@@ -260,6 +263,7 @@ describe("Device & Single-Session Security", () => {
           email: "takeover@example.com",
           password: "Password123!",
           name: "Takeover User",
+          phoneNumber: "09121110054",
         },
       });
       const mobileToken = extractCookie(mobileRes, "avana_session")!;
@@ -305,8 +309,41 @@ describe("Device & Single-Session Security", () => {
       const errBody = meMobile2.json();
       expect(errBody.error.code).toBe("SESSION_REVOKED");
 
-      // 5. Reverse takeover: log in again from registered mobile device
-      const mobileLoginAgain = await app.inject({
+      // 5. Invariant: 2 active devices registered for user (1 mobile, 1 desktop)
+      const devices = await deviceStore.findActiveByUser(asUserId(mobileRes.json().user.id));
+      expect(devices).toHaveLength(2);
+      expect(devices.map((d) => d.deviceId).sort()).toEqual([deskDeviceId, mobileDeviceId].sort());
+    });
+
+    it("revokes existing desktop session when user re-logs in from their registered mobile device", async () => {
+      // Setup: user already registered on mobile & desktop
+      const regRes = await app.inject({
+        method: "POST",
+        url: "/v1/auth/register",
+        headers: { "x-device-type": "mobile" },
+        payload: {
+          email: "takeover2@example.com",
+          password: "Password123!",
+          name: "Takeover User 2",
+          phoneNumber: "09121110055",
+        },
+      });
+      const mobileDeviceId = extractCookie(regRes, "avana_device_id")!;
+
+      // Desktop login (takeover from initial mobile register session)
+      const deskRes = await app.inject({
+        method: "POST",
+        url: "/v1/auth/sign-in",
+        headers: { "x-device-type": "desktop" },
+        payload: {
+          email: "takeover2@example.com",
+          password: "Password123!",
+        },
+      });
+      const deskToken = extractCookie(deskRes, "avana_session")!;
+
+      // Re-login from registered mobile device with its device cookie
+      const mobileReLogin = await app.inject({
         method: "POST",
         url: "/v1/auth/sign-in",
         headers: {
@@ -314,29 +351,29 @@ describe("Device & Single-Session Security", () => {
           cookie: `avana_device_id=${mobileDeviceId}`,
         },
         payload: {
-          email: "takeover@example.com",
+          email: "takeover2@example.com",
           password: "Password123!",
         },
       });
-      expect(mobileLoginAgain.statusCode).toBe(200);
-      const newMobileToken = extractCookie(mobileLoginAgain, "avana_session")!;
+      expect(mobileReLogin.statusCode).toBe(200);
+      const newMobileToken = extractCookie(mobileReLogin, "avana_session")!;
 
-      // 6. Mobile session is active again
-      const meMobile3 = await app.inject({
-        method: "GET",
-        url: "/v1/me",
-        headers: { cookie: `avana_session=${newMobileToken}` },
-      });
-      expect(meMobile3.statusCode).toBe(200);
-
-      // 7. Desktop session is now revoked with SESSION_REVOKED
-      const meDesk2 = await app.inject({
+      // Desktop session is now revoked
+      const meDeskAfter = await app.inject({
         method: "GET",
         url: "/v1/me",
         headers: { cookie: `avana_session=${deskToken}` },
       });
-      expect(meDesk2.statusCode).toBe(401);
-      expect(meDesk2.json().error.code).toBe("SESSION_REVOKED");
+      expect(meDeskAfter.statusCode).toBe(401);
+      expect(meDeskAfter.json().error.code).toBe("SESSION_REVOKED");
+
+      // New mobile session is active
+      const meMobileAfter = await app.inject({
+        method: "GET",
+        url: "/v1/me",
+        headers: { cookie: `avana_session=${newMobileToken}` },
+      });
+      expect(meMobileAfter.statusCode).toBe(200);
     });
   });
 
@@ -354,6 +391,7 @@ describe("Device & Single-Session Security", () => {
           email: "casec@example.com",
           password: "Password123!",
           name: "Case C User",
+          phoneNumber: "09121110056",
         },
       });
       const originalSession = extractCookie(regRes, "avana_session")!;
@@ -409,6 +447,7 @@ describe("Device & Single-Session Security", () => {
           email: "samedevice@example.com",
           password: "Password123!",
           name: "Same Device User",
+          phoneNumber: "09121110057",
         },
       });
       const deviceId = extractCookie(regRes, "avana_device_id")!;
@@ -459,6 +498,7 @@ describe("Device & Single-Session Security", () => {
           email: "admin@example.com",
           password: "Password123!",
           name: "Platform Admin",
+          phoneNumber: "09121110058",
         },
       });
       adminToken = extractCookie(adminReg, "avana_session")!;
@@ -482,6 +522,7 @@ describe("Device & Single-Session Security", () => {
           email: "target@example.com",
           password: "Password123!",
           name: "Target User",
+          phoneNumber: "09121110059",
         },
       });
       targetUserId = userReg.json().user.id;
@@ -518,6 +559,7 @@ describe("Device & Single-Session Security", () => {
           email: "student@example.com",
           password: "Password123!",
           name: "Normal Student",
+          phoneNumber: "09121110060",
         },
       });
       const studentToken = extractCookie(studentReg, "avana_session")!;
@@ -599,6 +641,7 @@ describe("Device & Single-Session Security", () => {
           email: "usera@example.com",
           password: "Password123!",
           name: "User A",
+          phoneNumber: "09121110061",
         },
       });
       const userAToken = extractCookie(userARes, "avana_session")!;
@@ -637,6 +680,7 @@ describe("Device & Single-Session Security", () => {
           email: "userb@example.com",
           password: "Password123!",
           name: "User B",
+          phoneNumber: "09121110062",
         },
       });
       const userBToken = extractCookie(userBRes, "avana_session")!;
@@ -685,6 +729,7 @@ describe("Device & Single-Session Security", () => {
           email: "study@example.com",
           password: "Password123!",
           name: "Study User",
+          phoneNumber: "09121110063",
         },
       });
       const mobileToken = extractCookie(regRes, "avana_session")!;
@@ -747,6 +792,7 @@ describe("Device & Single-Session Security", () => {
           email: "race@example.com",
           password: "Password123!",
           name: "Race User",
+          phoneNumber: "09121110064",
         },
       });
       const deviceId = extractCookie(regRes, "avana_device_id")!;
@@ -805,6 +851,7 @@ describe("Device & Single-Session Security", () => {
           email: "twodevices@example.com",
           password: "Password123!",
           name: "Two Devices",
+          phoneNumber: "09121110065",
         },
       });
       const userId = asUserId(regRes.json().user.id);
@@ -880,6 +927,7 @@ describe("Device & Single-Session Security", () => {
           email: "legacy@example.com",
           password: "Password123!",
           name: "Legacy User",
+          phoneNumber: "09121110066",
         },
       });
       const userId = asUserId(regRes.json().user.id);
@@ -951,6 +999,7 @@ describe("Device & Single-Session Security", () => {
           email: "leaktest@example.com",
           password: "SuperSecretPassword123!",
           name: "Leak Test",
+          phoneNumber: "09121110067",
         },
       });
       const userId = asUserId(regRes.json().user.id);
@@ -992,6 +1041,7 @@ describe("Device & Single-Session Security", () => {
           email: "subowner@example.com",
           password: "Password123!",
           name: "Sub Owner",
+          phoneNumber: "09121110068",
         },
       });
       const userAToken = extractCookie(userARes, "avana_session")!;
@@ -1029,6 +1079,7 @@ describe("Device & Single-Session Security", () => {
           email: "subattacker@example.com",
           password: "Password123!",
           name: "Sub Attacker",
+          phoneNumber: "09121110069",
         },
       });
       const userBToken = extractCookie(userBRes, "avana_session")!;

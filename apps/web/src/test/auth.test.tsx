@@ -250,4 +250,53 @@ describe("AuthProvider", () => {
       expect(lastElement("error").textContent).toBe("دامنه ایمیل مجاز نیست.");
     });
   });
+
+  it("handles user with phone verification and exposes verification helper functions", async () => {
+    const mockMeResponse = {
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          request_id: "test-req",
+          user: {
+            id: "user-phone-1",
+            email: "phoneuser@example.com",
+            phoneNumber: "+989123456789",
+            emailVerified: false,
+            phoneVerified: true,
+            isVerified: true,
+            role: "student" as const,
+          },
+        }),
+    } as Response;
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(mockMeResponse);
+
+    let authContext: ReturnType<typeof useAuth>;
+    function ConsumerWithPhone() {
+      authContext = useAuth();
+      return (
+        <div>
+          <div data-testid="is-phone-verified">{String(authContext.isPhoneVerified)}</div>
+          <div data-testid="is-verified">{String(authContext.isVerified)}</div>
+          <div data-testid="user-phone">{authContext.user?.phoneNumber ?? "null"}</div>
+        </div>
+      );
+    }
+
+    renderWithProviders(
+      <AuthProvider>
+        <ConsumerWithPhone />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => {
+      expect(lastElement("is-phone-verified").textContent).toBe("true");
+    });
+
+    expect(lastElement("is-verified").textContent).toBe("true");
+    expect(lastElement("user-phone").textContent).toBe("+989123456789");
+    expect(typeof authContext!.sendVerification).toBe("function");
+    expect(typeof authContext!.verifyChannel).toBe("function");
+  });
 });

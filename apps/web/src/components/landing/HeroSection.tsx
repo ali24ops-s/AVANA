@@ -19,7 +19,7 @@ export function HeroSection() {
   return (
     <section
       id="hero"
-      className="relative pt-8 pb-20 md:pb-28 px-6 max-w-[1280px] mx-auto overflow-hidden"
+      className="snap-section relative py-10 lg:py-0 lg:h-[calc(100dvh-80px)] lg:min-h-[calc(100dvh-80px)] flex flex-col justify-center px-6 max-w-[1280px] mx-auto overflow-hidden scroll-mt-20"
       aria-label="بخش آغازین معرفی پلتفرم آوانا"
     >
       {/* Dynamic Background Constellation Canvas */}

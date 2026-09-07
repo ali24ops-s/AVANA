@@ -36,6 +36,8 @@ async function main(): Promise<void> {
 
   try {
     const prod = await composeProduction(config);
+    // Eagerly probe database connectivity to verify PostgreSQL is actually reachable
+    await prod.v1Options.userStore.findByEmail("probe@local.dev");
     v1Options = prod.v1Options;
     close = prod.close;
     process.stdout.write("[dev] Connected to PostgreSQL stores.\n");

@@ -47,6 +47,21 @@ import type {
 export class InMemoryFlashcardStore implements FlashcardStore {
   private flashcards: Map<string, FlashcardRecord> = new Map();
 
+  takeSnapshot(): Map<string, FlashcardRecord> {
+    const map = new Map<string, FlashcardRecord>();
+    for (const [k, v] of this.flashcards.entries()) {
+      map.set(k, { ...v });
+    }
+    return map;
+  }
+
+  restoreSnapshot(snapshot: Map<string, FlashcardRecord>): void {
+    this.flashcards = new Map();
+    for (const [k, v] of snapshot.entries()) {
+      this.flashcards.set(k, { ...v });
+    }
+  }
+
   async findByIdForOrganization(
     id: FlashcardId,
     organizationId: OrganizationId,
@@ -267,6 +282,29 @@ export class InMemoryQuizStore implements QuizStore {
   private quizzes: Map<string, QuizRecord> = new Map();
   private questionsByQuiz: Map<string, QuizQuestionRecord[]> = new Map();
 
+  takeSnapshot(): { quizzes: Map<string, QuizRecord>; questionsByQuiz: Map<string, QuizQuestionRecord[]> } {
+    const qMap = new Map<string, QuizRecord>();
+    for (const [k, v] of this.quizzes.entries()) {
+      qMap.set(k, { ...v });
+    }
+    const qbMap = new Map<string, QuizQuestionRecord[]>();
+    for (const [k, v] of this.questionsByQuiz.entries()) {
+      qbMap.set(k, v.map((item) => ({ ...item })));
+    }
+    return { quizzes: qMap, questionsByQuiz: qbMap };
+  }
+
+  restoreSnapshot(snapshot: { quizzes: Map<string, QuizRecord>; questionsByQuiz: Map<string, QuizQuestionRecord[]> }): void {
+    this.quizzes = new Map();
+    for (const [k, v] of snapshot.quizzes.entries()) {
+      this.quizzes.set(k, { ...v });
+    }
+    this.questionsByQuiz = new Map();
+    for (const [k, v] of snapshot.questionsByQuiz.entries()) {
+      this.questionsByQuiz.set(k, v.map((item) => ({ ...item })));
+    }
+  }
+
   async findByIdForOrganization(
     id: QuizId,
     organizationId?: OrganizationId,
@@ -380,6 +418,14 @@ export class InMemoryQuizQuestionStore implements QuizQuestionStore {
   private questions: QuizQuestionRecord[] = [];
 
   constructor(private readonly quizStore?: InMemoryQuizStore) {}
+
+  takeSnapshot(): QuizQuestionRecord[] {
+    return this.questions.map((q) => ({ ...q }));
+  }
+
+  restoreSnapshot(snapshot: QuizQuestionRecord[]): void {
+    this.questions = snapshot.map((q) => ({ ...q }));
+  }
 
   async listByQuiz(quizId: QuizId): Promise<QuizQuestionRecord[]> {
     return this.questions

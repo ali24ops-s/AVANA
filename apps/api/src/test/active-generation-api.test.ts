@@ -124,7 +124,12 @@ describe("Active Generation and Document Progress API & Tenant Isolation", () =>
     const regA = await app.inject({
       method: "POST",
       url: "/v1/auth/register",
-      payload: { email: "userA@avana.org", password: "Password123!" },
+      payload: {
+        name: "کاربر اول",
+        email: "userA@avana.org",
+        password: "Password123!",
+        phoneNumber: "09121110001",
+      },
     });
     tokenUserA = extractSessionToken(regA) || "";
     userAId = (regA.json() as { user: { id: string } }).user.id as UserId;
@@ -156,7 +161,12 @@ describe("Active Generation and Document Progress API & Tenant Isolation", () =>
     const regB = await app.inject({
       method: "POST",
       url: "/v1/auth/register",
-      payload: { email: "userB@avana.org", password: "Password123!" },
+      payload: {
+        name: "کاربر دوم",
+        email: "userB@avana.org",
+        password: "Password123!",
+        phoneNumber: "09121110002",
+      },
     });
     tokenUserB = extractSessionToken(regB) || "";
     userBId = (regB.json() as { user: { id: string } }).user.id as UserId;
@@ -346,5 +356,299 @@ describe("Active Generation and Document Progress API & Tenant Isolation", () =>
       cookies: { avana_session: tokenUserB },
     });
     expect(resDocUnderOrgB.statusCode).toBe(404);
+  });
+
+  it("GET /v1/generation/active: Global endpoint returns active generations across user's organizations and system org", async () => {
+    // Org C (second organization for User A)
+    const orgCId = randomUUID() as OrganizationId;
+    await orgStore.createWithAdminMembership({
+      organization: {
+        id: orgCId,
+        name: "Org C",
+        slug: "org-c",
+        type: "regular",
+        status: "active",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      },
+      membership: {
+        id: randomUUID() as any,
+        organizationId: orgCId,
+        userId: userAId,
+        role: "student",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      auditEvents: [],
+    });
+
+    const docIdOrgA = randomUUID() as DocumentId;
+    const docIdOrgC = randomUUID() as DocumentId;
+    const now = new Date().toISOString();
+
+    await documentStore.create({
+      id: docIdOrgA,
+      organizationId: orgAId,
+      courseId: null,
+      ownerUserId: userAId,
+      originalName: "orgA-doc.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 1024,
+      storageKey: "key-orga",
+      status: "generating",
+      pageCount: 5,
+      qualityScore: null,
+      qualityLevel: null,
+      qualityReport: null,
+      qualityAnalyzedAt: null,
+      errorCode: null,
+      retryCount: 0,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    });
+
+    await documentStore.create({
+      id: docIdOrgC,
+      organizationId: orgCId,
+      courseId: null,
+      ownerUserId: userAId,
+      originalName: "orgC-doc.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 2048,
+      storageKey: "key-orgc",
+      status: "generating",
+      pageCount: 10,
+      qualityScore: null,
+      qualityLevel: null,
+      qualityReport: null,
+      qualityAnalyzedAt: null,
+      errorCode: null,
+      retryCount: 0,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    });
+
+    await progressService.startStage(docIdOrgA, orgAId, "planning", 1);
+    await progressService.startStage(docIdOrgC, orgCId, "lesson", 5);
+
+    // Query global active generations for User A
+    const res = await app.inject({
+      method: "GET",
+      url: "/v1/generation/active",
+      cookies: { avana_session: tokenUserA },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.payload);
+    expect(body.items.length).toBeGreaterThanOrEqual(2);
+    const docIds = body.items.map((i: { documentId: string }) => i.documentId);
+    expect(docIds).toContain(docIdOrgA);
+    expect(docIds).toContain(docIdOrgC);
+  });
+
+  it("Global Header Projection vs Real Lifecycle: queued, planning, and generating are active; reviewing, validating, publishing, and completed are excluded from active API", async () => {
+    const docQueued = randomUUID() as DocumentId;
+    const docPlanning = randomUUID() as DocumentId;
+    const docGenerating = randomUUID() as DocumentId;
+    const docReviewing = randomUUID() as DocumentId;
+    const docPublishing = randomUUID() as DocumentId;
+    const docCompleted = randomUUID() as DocumentId;
+    const now = new Date().toISOString();
+
+    // 1. Create documents
+    for (const [id, name, status] of [
+      [docQueued, "doc-queued.pdf", "pending_generation"],
+      [docPlanning, "doc-planning.pdf", "generating"],
+      [docGenerating, "doc-generating.pdf", "generating"],
+      [docReviewing, "doc-reviewing.pdf", "review_pending"],
+      [docPublishing, "doc-publishing.pdf", "review_pending"],
+      [docCompleted, "doc-completed.pdf", "ready"],
+    ] as const) {
+      await documentStore.create({
+        id,
+        organizationId: orgAId,
+        courseId: null,
+        ownerUserId: userAId,
+        originalName: name,
+        mimeType: "application/pdf",
+        sizeBytes: 1024,
+        storageKey: `key-${name}`,
+        status,
+        pageCount: 5,
+        qualityScore: null,
+        qualityLevel: null,
+        qualityReport: null,
+        qualityAnalyzedAt: null,
+        errorCode: null,
+        retryCount: 0,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      });
+    }
+
+    // 2. Set progress states
+    await progressService.queue(docQueued, orgAId);
+    await progressService.startStage(docPlanning, orgAId, "planning", 1);
+    await progressService.startStage(docGenerating, orgAId, "lesson", 4);
+    await progressService.startStage(docReviewing, orgAId, "review", 1);
+    await progressService.startStage(docPublishing, orgAId, "publishing", 1);
+    await progressService.complete(docCompleted, orgAId);
+
+    // 3. Query active generations
+    const activeRes = await app.inject({
+      method: "GET",
+      url: `/v1/organizations/${orgAId}/generation/active`,
+      cookies: { avana_session: tokenUserA },
+    });
+
+    expect(activeRes.statusCode).toBe(200);
+    const activeBody = JSON.parse(activeRes.payload);
+    const activeDocIds = activeBody.items.map((i: { documentId: string }) => i.documentId);
+
+    // Proves:
+    // 1. queued is active
+    expect(activeDocIds).toContain(docQueued);
+    // 2. planning is active
+    expect(activeDocIds).toContain(docPlanning);
+    // 3. generating is active
+    expect(activeDocIds).toContain(docGenerating);
+    // 4. reviewing is NOT active
+    expect(activeDocIds).not.toContain(docReviewing);
+    // 5. validating / publishing is NOT active
+    expect(activeDocIds).not.toContain(docPublishing);
+    // 6. completed is NOT active
+    expect(activeDocIds).not.toContain(docCompleted);
+
+    // 4. Verify that real document-level progress still exists and accurately reflects post-generation states
+    const reviewingProgressRes = await app.inject({
+      method: "GET",
+      url: `/v1/organizations/${orgAId}/documents/${docReviewing}/progress`,
+      cookies: { avana_session: tokenUserA },
+    });
+    expect(reviewingProgressRes.statusCode).toBe(200);
+    const reviewingProgressBody = JSON.parse(reviewingProgressRes.payload);
+    expect(reviewingProgressBody.generationProgress.status).toBe("reviewing");
+    expect(reviewingProgressBody.generationProgress.stage).toBe("review");
+
+    const completedProgressRes = await app.inject({
+      method: "GET",
+      url: `/v1/organizations/${orgAId}/documents/${docCompleted}/progress`,
+      cookies: { avana_session: tokenUserA },
+    });
+    expect(completedProgressRes.statusCode).toBe(200);
+    const completedProgressBody = JSON.parse(completedProgressRes.payload);
+    expect(completedProgressBody.generationProgress.status).toBe("completed");
+  });
+
+  it("Transition test: generating → reviewing transition removes document from active generations while preserving drafts and real lifecycle", async () => {
+    const docId = randomUUID() as DocumentId;
+    const now = new Date().toISOString();
+
+    await documentStore.create({
+      id: docId,
+      organizationId: orgAId,
+      courseId: null,
+      ownerUserId: userAId,
+      originalName: "cardiology-session.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 2048,
+      storageKey: "key-cardio",
+      status: "generating",
+      pageCount: 10,
+      qualityScore: null,
+      qualityLevel: null,
+      qualityReport: null,
+      qualityAnalyzedAt: null,
+      errorCode: null,
+      retryCount: 0,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    });
+
+    // Step 1: Document is actively generating
+    await progressService.startStage(docId, orgAId, "lesson", 5);
+    await progressService.updateProgress(docId, orgAId, "lesson", 2, 5);
+
+    const activeRes1 = await app.inject({
+      method: "GET",
+      url: `/v1/organizations/${orgAId}/generation/active`,
+      cookies: { avana_session: tokenUserA },
+    });
+    const activeBody1 = JSON.parse(activeRes1.payload);
+    expect(activeBody1.items).toHaveLength(1);
+    expect(activeBody1.items[0].documentId).toBe(docId);
+    expect(activeBody1.items[0].status).toBe("generating");
+
+    // Persist a generated draft
+    const draftId = randomUUID();
+    await generatedContentStore.create({
+      id: draftId as any,
+      organizationId: orgAId,
+      documentId: docId,
+      courseId: null,
+      type: "lesson",
+      status: "draft",
+      payload: { title: "Cardio 101", content: "Heart rhythm..." },
+      model: "mock-ai",
+      promptVersion: "1.0",
+      errorMessage: null,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    });
+
+    // Step 2: Generation finishes content generation and transitions to reviewing/review_pending
+    await documentStore.update({
+      id: docId,
+      organizationId: orgAId,
+      courseId: null,
+      ownerUserId: userAId,
+      originalName: "cardiology-session.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 2048,
+      storageKey: "key-cardio",
+      status: "review_pending",
+      pageCount: 10,
+      qualityScore: null,
+      qualityLevel: null,
+      qualityReport: null,
+      qualityAnalyzedAt: null,
+      errorCode: null,
+      retryCount: 0,
+      createdAt: now,
+      updatedAt: new Date().toISOString(),
+      deletedAt: null,
+    });
+    await progressService.startStage(docId, orgAId, "review", 1);
+
+    // Step 3: GET /v1/generation/active should now NOT return this document (Header disappears)
+    const activeRes2 = await app.inject({
+      method: "GET",
+      url: `/v1/organizations/${orgAId}/generation/active`,
+      cookies: { avana_session: tokenUserA },
+    });
+    const activeBody2 = JSON.parse(activeRes2.payload);
+    const activeIds = activeBody2.items.map((i: { documentId: string }) => i.documentId);
+    expect(activeIds).not.toContain(docId);
+
+    // Step 4: Proves real backend pipeline is NOT terminated, drafts are preserved, and document progress is accessible
+    const drafts = await generatedContentStore.listByDocument(docId, orgAId);
+    expect(drafts).toHaveLength(1);
+    expect(drafts[0].id).toBe(draftId);
+
+    const docProgRes = await app.inject({
+      method: "GET",
+      url: `/v1/organizations/${orgAId}/documents/${docId}/progress`,
+      cookies: { avana_session: tokenUserA },
+    });
+    expect(docProgRes.statusCode).toBe(200);
+    const docProgBody = JSON.parse(docProgRes.payload);
+    expect(docProgBody.generationProgress.status).toBe("reviewing");
+    expect(docProgBody.generationProgress.stage).toBe("review");
   });
 });

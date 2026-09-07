@@ -112,6 +112,7 @@ describe("AI Study Assistant API Integration Tests (POST /v1/ai/ask)", () => {
         email: "student@avana.ai",
         password: "password123",
         name: "Student User",
+        phoneNumber: "09121110004",
       }),
     });
 

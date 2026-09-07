@@ -47,12 +47,17 @@ export type Role =
   | "support_agent"
   | "platform_admin";
 
+export type VerificationChannel = "email" | "phone";
+
 export type UserResource = {
   id: UUID;
   email: string;
   name?: string;
   role: Role;
+  phoneNumber?: string | null;
   emailVerified?: boolean;
+  phoneVerified?: boolean;
+  isVerified?: boolean;
 };
 
 /**
@@ -88,6 +93,28 @@ export type ResendVerificationResponse = {
   request_id: string;
   message: string;
   cooldown_seconds?: number;
+};
+
+export type SendVerificationRequest = {
+  channel: VerificationChannel;
+};
+
+export type SendVerificationResponse = {
+  request_id: string;
+  message: string;
+  cooldown_seconds?: number;
+  channel?: VerificationChannel;
+};
+
+export type VerifyChannelRequest = {
+  channel: VerificationChannel;
+  code: string;
+};
+
+export type VerifyChannelResponse = {
+  request_id: string;
+  user: UserResource;
+  memberships: UserMembership[];
 };
 
 export type OrganizationResource = {
@@ -168,6 +195,9 @@ export type RegisterRequest = {
   email: string;
   password: string;
   name?: string;
+  firstName?: string;
+  lastName?: string;
+  phoneNumber?: string;
 };
 
 export type SignInResponse = {
@@ -177,6 +207,23 @@ export type SignInResponse = {
 };
 
 export type RegisterResponse = SignInResponse;
+
+export type PhoneSendOtpRequest = {
+  phoneNumber: string;
+};
+
+export type PhoneSendOtpResponse = {
+  request_id: string;
+  message: string;
+  cooldown_seconds?: number;
+};
+
+export type PhoneVerifyOtpRequest = {
+  phoneNumber: string;
+  code: string;
+};
+
+export type PhoneVerifyOtpResponse = SignInResponse;
 
 
 // ---------------------------------------------------------------------------
@@ -684,6 +731,21 @@ export type AcceptContentResponse = {
   content_id: UUID;
   status: "accepted";
   materialized_lesson_id: UUID | null;
+};
+
+export type BulkAcceptContentResponse = {
+  request_id: string;
+  document_id: UUID | null;
+  total_items: number;
+  accepted_count: number;
+  already_accepted_count: number;
+  accepted_content_ids: UUID[];
+  results: Array<{
+    content_id: UUID;
+    type: GeneratedContentType;
+    status: "accepted";
+    materialized_lesson_id: UUID | null;
+  }>;
 };
 
 export type RejectContentRequest = {

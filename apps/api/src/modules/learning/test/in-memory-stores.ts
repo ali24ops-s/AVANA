@@ -30,6 +30,21 @@ import type {
 export class InMemoryModuleStore implements ModuleStore {
   private modules: Map<string, ModuleRecord> = new Map();
 
+  takeSnapshot(): Map<string, ModuleRecord> {
+    const map = new Map<string, ModuleRecord>();
+    for (const [k, v] of this.modules.entries()) {
+      map.set(k, { ...v });
+    }
+    return map;
+  }
+
+  restoreSnapshot(snapshot: Map<string, ModuleRecord>): void {
+    this.modules = new Map();
+    for (const [k, v] of snapshot.entries()) {
+      this.modules.set(k, { ...v });
+    }
+  }
+
   async listByCourse(courseId: CourseId): Promise<ModuleRecord[]> {
     return Array.from(this.modules.values())
       .filter((m) => m.courseId === courseId && m.deletedAt === null)
@@ -95,6 +110,21 @@ export class InMemoryModuleStore implements ModuleStore {
 
 export class InMemoryLessonStore implements LessonStore {
   private lessons: Map<string, LessonRecord> = new Map();
+
+  takeSnapshot(): Map<string, LessonRecord> {
+    const map = new Map<string, LessonRecord>();
+    for (const [k, v] of this.lessons.entries()) {
+      map.set(k, { ...v });
+    }
+    return map;
+  }
+
+  restoreSnapshot(snapshot: Map<string, LessonRecord>): void {
+    this.lessons = new Map();
+    for (const [k, v] of snapshot.entries()) {
+      this.lessons.set(k, { ...v });
+    }
+  }
 
   async listByModule(moduleId: ModuleId): Promise<LessonRecord[]> {
     return Array.from(this.lessons.values())

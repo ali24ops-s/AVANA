@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Sparkles,
   ChevronLeft,
@@ -32,9 +32,24 @@ export function ReviewQueueList({
   const [typeFilter, setTypeFilter] = useState<GeneratedContentType | "all">("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [page, setPage] = useState(1);
+  const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null);
 
+  const queryClient = useQueryClient();
   const apiClient = createApiClient({ baseUrl: getApiBaseUrl() });
   const reviewApi = createReviewApi(apiClient);
+
+  const bulkApproveMutation = useMutation({
+    mutationFn: (documentId: string) =>
+      reviewApi.acceptAllInDocument(organizationId, courseId, documentId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["review-queue", organizationId, courseId],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["official-review-workspace", courseId],
+      });
+    },
+  });
 
   const queueQuery = useQuery({
     queryKey: [
@@ -266,13 +281,32 @@ export function ReviewQueueList({
         </div>
       ) : (
         <div className="space-y-4">
-          {groups.map((group, index) => (
-            <ReviewDocumentGroup
-              key={group.document?.id ?? `unknown-group-${index}`}
-              group={group}
-              onSelectItem={(contentId) => setActiveContentId(contentId)}
-            />
-          ))}
+          {groups.map((group, index) => {
+            const groupId = group.document?.id ?? `unknown-group-${index}`;
+            const isOpen = expandedGroupId === groupId;
+            return (
+              <ReviewDocumentGroup
+                key={groupId}
+                group={group}
+                isOpen={isOpen}
+                onToggle={() =>
+                  setExpandedGroupId((prev) => (prev === groupId ? null : groupId))
+                }
+                onSelectItem={(contentId) => setActiveContentId(contentId)}
+                onApproveAll={
+                  group.document?.id
+                    ? async (docId) => {
+                        await bulkApproveMutation.mutateAsync(docId);
+                      }
+                    : undefined
+                }
+                isApprovingAll={
+                  bulkApproveMutation.isPending &&
+                  bulkApproveMutation.variables === group.document?.id
+                }
+              />
+            );
+          })}
         </div>
       )}
 

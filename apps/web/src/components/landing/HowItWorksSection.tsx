@@ -8,12 +8,14 @@
  * AVANA's actual components (CourseListPage, LearningPage, FlashcardExperience, ExamTakingView).
  */
 
-import { motion } from "framer-motion";
+import { useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   Sparkles,
   GraduationCap,
   BookOpen,
   ChevronLeft,
+  ChevronRight,
   Plus,
   HelpCircle,
   BarChart3,
@@ -29,6 +31,7 @@ import {
 interface Step {
   id: number;
   title: string;
+  shortTitle: string;
   description: string;
   highlights: string[];
   imageAlt: string;
@@ -42,6 +45,7 @@ const steps: Step[] = [
   {
     id: 1,
     title: "انتخاب دوره، سرفصل و بارگذاری منابع",
+    shortTitle: "انتخاب دوره و منابع",
     description:
       "شما می‌توانید جزوات درسی و فایل‌های PDF خود را بارگذاری کنید یا کورس‌های تخصصی علوم پزشکی را انتخاب نمایید. آوانا به صورت هوشمند ساختار آموزشی فصول، درس‌ها و منابع شما را سازمان‌دهی کرده و داشبوردی کامل از روند پیشرفت در اختیارتان قرار می‌دهد.",
     highlights: [
@@ -57,6 +61,7 @@ const steps: Step[] = [
   {
     id: 2,
     title: "مطالعه ساختاریافته و منسجم محتوا",
+    shortTitle: "مطالعه منسجم محتوا",
     description:
       "وارد محیط اختصاصی مطالعه شوید؛ متن درس‌ها همراه با خلاصه‌های کاربردی، نکات کلیدی کنکوری و هایلایت‌های مهم در قالبی عاری از حواس‌پرتی ارائه می‌شوند. سیستم هوشمند آوانا امکان ثبت تیک مطالعه و انتقال گام‌به‌گام بین مباحث را فراهم می‌کند.",
     highlights: [
@@ -73,6 +78,7 @@ const steps: Step[] = [
   {
     id: 3,
     title: "تثبیت عمیق و مرور با فلش‌کارت SRS",
+    shortTitle: "مرور با فلش‌کارت SRS",
     description:
       "پس از مطالعه هر مبحث، فلش‌کارت‌های استاندارد مرتبط فعال می‌شوند. الگوریتم هوشمند مرور فاصله‌دار (Spaced Repetition) با برچسب‌گذاری میزان سختی هر کارت، زمان دقیق یادآوری و مرور بعدی را پیش‌بینی می‌کند تا مطالب به حافظه بلندمدت منتقل شوند.",
     highlights: [
@@ -88,6 +94,7 @@ const steps: Step[] = [
   {
     id: 4,
     title: "سنجش هوشمند با آزمون‌های شبیه‌سازی‌شده",
+    shortTitle: "سنجش هوشمند با آزمون",
     description:
       "با تنظیم تعداد سوالات، انتخاب مباحث دلخواه و فعال‌سازی حالت شب امتحان، میزان تسلط خود را بسنجید. آوانا کارنامه تحلیلی دقیق، نمره ارزیابی و گزارش جامعی از نقاط ضعف و قوت شما ارائه می‌دهد تا با آمادگی کامل وارد امتحانات اصلی شوید.",
     highlights: [
@@ -104,10 +111,13 @@ const steps: Step[] = [
 ];
 
 export function HowItWorksSection() {
+  const [activeStep, setActiveStep] = useState<number>(1);
+  const currentStep = steps.find((s) => s.id === activeStep) || steps[0];
+
   return (
     <section
       id="how-it-works"
-      className="relative py-20 md:py-28 px-6 max-w-[1280px] mx-auto overflow-hidden text-right"
+      className="snap-section relative py-10 lg:py-0 lg:h-[calc(100dvh-80px)] lg:min-h-[calc(100dvh-80px)] flex flex-col justify-center px-6 max-w-[1280px] mx-auto overflow-hidden text-right scroll-mt-20"
       aria-label="بخش راهنمای مراحل یادگیری با آوانا"
     >
       {/* Background Glow */}
@@ -120,88 +130,176 @@ export function HowItWorksSection() {
         whileInView={{ opacity: 1, y: 0 }}
         viewport={{ once: true }}
         transition={{ duration: 0.6 }}
-        className="text-center mb-20 max-w-3xl mx-auto"
+        className="text-center mb-3 lg:mb-4 max-w-3xl mx-auto"
       >
-        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold tracking-wide border mb-4 bg-teal-950/60 text-teal-300 border-teal-500/40 shadow-sm">
+        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold tracking-wide border mb-2 bg-teal-950/60 text-teal-300 border-teal-500/40 shadow-sm">
           <Sparkles className="w-3.5 h-3.5 text-teal-300 animate-pulse" />
           <span>فرایند یادگیری</span>
         </div>
 
-        <h2 className="font-headline text-3xl sm:text-4xl md:text-5xl font-black text-white leading-tight">
+        <h2 className="font-headline text-2xl sm:text-3xl md:text-4xl font-black text-white leading-tight">
           آوانا را در ۴ مرحله یاد بگیر
         </h2>
       </motion.div>
 
-      {/* Steps List */}
-      <div className="space-y-24 sm:space-y-32">
-        {steps.map((step) => (
-          <motion.div
-            key={step.id}
-            initial={{ opacity: 0, y: 35 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, margin: "-80px" }}
-            transition={{ duration: 0.7, ease: "easeOut" }}
-            className={`flex flex-col lg:flex-row items-center gap-10 lg:gap-16 ${
-              step.reverse ? "lg:flex-row-reverse" : ""
-            }`}
-          >
-            {/* Text Area */}
-            <div className="lg:w-1/2 text-right">
-              <div
-                className="inline-flex items-center justify-center w-12 h-12 rounded-2xl font-black text-xl mb-6 text-white shadow-lg border border-white/20"
-                style={{
-                  backgroundColor: step.color,
-                  boxShadow: `0 0 20px ${step.shadowColor}`,
-                }}
+      {/* Interactive 4-Step Tab Bar */}
+      <div
+        className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 mb-3 max-w-4xl mx-auto w-full p-1 bg-slate-950/70 border border-white/10 rounded-2xl"
+        role="tablist"
+        aria-label="مراحل ۴ گانه یادگیری با آوانا"
+      >
+        {steps.map((step) => {
+          const isActive = activeStep === step.id;
+          return (
+            <button
+              key={step.id}
+              role="tab"
+              aria-selected={isActive}
+              aria-controls={`step-panel-${step.id}`}
+              onClick={() => setActiveStep(step.id)}
+              className={`py-2 px-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                isActive
+                  ? "bg-teal-500 text-slate-950 shadow-lg font-black"
+                  : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
+              }`}
+            >
+              <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black shrink-0 ${
+                isActive ? "bg-slate-950 text-teal-300" : "bg-slate-800 text-slate-300"
+              }`}>
+                ۰{step.id}
+              </span>
+              <span className="truncate">{step.shortTitle}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Active Step Presentation Stage */}
+      <div className="max-w-5xl mx-auto w-full bg-slate-900/80 border border-white/10 rounded-3xl p-3.5 sm:p-5 md:p-6 backdrop-blur-2xl shadow-2xl">
+        <div className="flex flex-col lg:flex-row items-center gap-8 lg:gap-12">
+          {/* Text Area */}
+          <div className="lg:w-1/2 text-right w-full flex flex-col justify-between">
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={currentStep.id}
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                transition={{ duration: 0.3 }}
+                className="space-y-4"
               >
-                {step.id}
+                <div className="flex items-center gap-3">
+                  <div
+                    className="inline-flex items-center justify-center w-10 h-10 rounded-xl font-black text-lg text-white shadow-lg border border-white/20 shrink-0"
+                    style={{
+                      backgroundColor: currentStep.color,
+                      boxShadow: `0 0 15px ${currentStep.shadowColor}`,
+                    }}
+                  >
+                    {currentStep.id}
+                  </div>
+                  <h3 className="font-headline text-xl sm:text-2xl font-extrabold text-white leading-tight">
+                    {currentStep.title}
+                  </h3>
+                </div>
+
+                <p className="text-xs sm:text-sm leading-relaxed text-slate-300 font-body">
+                  {currentStep.description}
+                </p>
+
+                {/* Highlights List */}
+                <ul className="space-y-2 pt-1">
+                  {currentStep.highlights.map((item, idx) => (
+                    <li
+                      key={idx}
+                      className="flex items-start gap-2.5 text-xs sm:text-sm font-medium text-slate-200"
+                    >
+                      <span className="w-4 h-4 rounded-full bg-teal-500/20 border border-teal-500/40 text-teal-300 flex items-center justify-center text-[10px] shrink-0 mt-0.5 shadow-sm">
+                        ✓
+                      </span>
+                      <span className="leading-relaxed">{item}</span>
+                    </li>
+                  ))}
+                </ul>
+              </motion.div>
+            </AnimatePresence>
+
+            {/* Stepper Navigation Controls */}
+            <div className="flex items-center justify-between pt-5 mt-5 border-t border-white/10">
+              <button
+                onClick={() => setActiveStep((prev) => (prev > 1 ? prev - 1 : 4))}
+                className="px-3.5 py-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-200 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer border border-white/10"
+              >
+                <ChevronRight className="w-4 h-4" />
+                <span>گام قبلی</span>
+              </button>
+
+              <div className="flex items-center gap-1.5">
+                {steps.map((s) => (
+                  <button
+                    key={s.id}
+                    onClick={() => setActiveStep(s.id)}
+                    aria-label={`رفتن به گام ${s.id}`}
+                    className={`h-2 rounded-full transition-all cursor-pointer ${
+                      activeStep === s.id
+                        ? "w-6 bg-teal-400"
+                        : "w-2 bg-slate-700 hover:bg-slate-500"
+                    }`}
+                  />
+                ))}
               </div>
 
-              <h3 className="font-headline text-2xl sm:text-3xl font-extrabold mb-4 text-white leading-tight">
-                {step.title}
-              </h3>
+              <button
+                onClick={() => setActiveStep((prev) => (prev < 4 ? prev + 1 : 1))}
+                className="px-3.5 py-2 rounded-xl bg-teal-500/20 hover:bg-teal-500/30 text-teal-300 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer border border-teal-500/40"
+              >
+                <span>گام بعدی</span>
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
 
-              <p className="text-sm sm:text-base mb-6 leading-relaxed text-slate-300 font-body">
-                {step.description}
-              </p>
+          {/* Miniature Product Mockup Area */}
+          <div className="lg:w-1/2 w-full">
+            <div className="rounded-2xl overflow-hidden shadow-2xl relative aspect-[4/3] bg-[#0b1120] border border-white/15">
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={currentStep.id}
+                  initial={{ opacity: 0, scale: 0.96 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.96 }}
+                  transition={{ duration: 0.3 }}
+                  className="absolute inset-0"
+                >
+                  {currentStep.id === 1 && <CourseSelectionMiniature />}
+                  {currentStep.id === 2 && <LessonStudyMiniature />}
+                  {currentStep.id === 3 && <FlashcardSRSMiniature />}
+                  {currentStep.id === 4 && <ExamTakingMiniature />}
+                </motion.div>
+              </AnimatePresence>
 
-              {/* Highlights List */}
-              <ul className="space-y-2.5 mb-6">
-                {step.highlights.map((item, idx) => (
-                  <li
-                    key={idx}
-                    className="flex items-start gap-2.5 text-xs sm:text-sm font-medium text-slate-200"
-                  >
-                    <span className="w-5 h-5 rounded-full bg-teal-500/20 border border-teal-500/40 text-teal-300 flex items-center justify-center text-xs shrink-0 mt-0.5 shadow-sm">
-                      ✓
-                    </span>
-                    <span className="leading-relaxed">{item}</span>
-                  </li>
+              {/* Ambient Bottom Gradient */}
+              <div className="absolute inset-0 bg-gradient-to-t from-[#0b1120]/30 via-transparent to-transparent pointer-events-none" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Accessible semantic fallback containing inactive steps for SEO, Screen Readers, and test accessibility */}
+      <div className="sr-only">
+        {steps
+          .filter((s) => s.id !== activeStep)
+          .map((s) => (
+            <div key={s.id} id={`step-panel-${s.id}`}>
+              <h3>{s.title}</h3>
+              <p>{s.description}</p>
+              <ul>
+                {s.highlights.map((h, i) => (
+                  <li key={i}>{h}</li>
                 ))}
               </ul>
             </div>
-
-            {/* Image / Realistic Miniature Product Mockup Area */}
-            <div className="lg:w-1/2 w-full">
-              <div className="rounded-2xl overflow-hidden shadow-2xl relative group hover:shadow-[0_20px_50px_rgba(0,128,128,0.25)] transition-all duration-500 aspect-[4/3] bg-[#0b1120] border border-white/15">
-                {/* 1. Step 1 Mockup: Course Selection & Management */}
-                {step.id === 1 && <CourseSelectionMiniature />}
-
-                {/* 2. Step 2 Mockup: Structured Lesson & Content Reader */}
-                {step.id === 2 && <LessonStudyMiniature />}
-
-                {/* 3. Step 3 Mockup: SRS Active Flashcards Experience */}
-                {step.id === 3 && <FlashcardSRSMiniature />}
-
-                {/* 4. Step 4 Mockup: Standardized Exam & Self Assessment */}
-                {step.id === 4 && <ExamTakingMiniature />}
-
-                {/* Ambient Bottom Gradient */}
-                <div className="absolute inset-0 bg-gradient-to-t from-[#0b1120]/30 via-transparent to-transparent pointer-events-none" />
-              </div>
-            </div>
-          </motion.div>
-        ))}
+          ))}
       </div>
     </section>
   );

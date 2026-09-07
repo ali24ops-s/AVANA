@@ -476,7 +476,13 @@ describe("AdminCourseHubPage (/admin/courses/:courseId)", () => {
         return Promise.resolve(
           new Response(
             JSON.stringify({
-              user: { id: "admin-user-id", email: "admin@avana.ir", role: "platform_admin" },
+              user: {
+                id: "admin-user-id",
+                email: "admin@avana.ir",
+                role: "platform_admin",
+                emailVerified: true,
+                isVerified: true,
+              },
               memberships: [],
             }),
             { status: 200, headers: { "Content-Type": "application/json" } }

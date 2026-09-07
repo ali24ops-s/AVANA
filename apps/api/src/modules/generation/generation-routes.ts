@@ -616,6 +616,24 @@ export const generationRoutes: FastifyPluginAsync<
     };
   };
 
+  // -----------------------------------------------------------------------
+  // GET /v1/generation/active
+  // Returns all active generation progress items across all accessible organizations for the authenticated actor.
+  // -----------------------------------------------------------------------
+  app.get(
+    "/v1/generation/active",
+    { preHandler: [requireAuth] },
+    async (request) => {
+      const req = request as { id: string };
+      const actor = getActor(req);
+      const items = await service.getGlobalActiveGenerations(actor);
+      return {
+        request_id: req.id,
+        items,
+      };
+    },
+  );
+
   app.get(
     "/v1/organizations/:organizationId/generation/active",
     { preHandler: [requireAuth] },

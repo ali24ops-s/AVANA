@@ -47,6 +47,11 @@ import type {
   DocumentChunkRecord,
 } from "../learning/learning-store.js";
 import type { LessonPayload } from "@avana/domain";
+import {
+  InMemoryFlashcardStore,
+  InMemoryQuizStore,
+  InMemoryQuizQuestionStore,
+} from "../study/test/in-memory-stores.js";
 import { InMemoryAuditStore } from "../../observability/test/in-memory-stores.js";
 import { AuditService } from "../../observability/audit-service.js";
 
@@ -143,6 +148,9 @@ describe("ReviewService", () => {
   let chunkStore: InMemoryDocumentChunkStore;
   let moduleStore: InMemoryModuleStore;
   let lessonStore: InMemoryLessonStore;
+  let flashcardStore: InMemoryFlashcardStore;
+  let quizStore: InMemoryQuizStore;
+  let quizQuestionStore: InMemoryQuizQuestionStore;
   let jobStore: InMemoryGenerationJobStore;
   let queue: InMemoryGenerationQueue;
   let auditStore: InMemoryAuditStore;
@@ -182,6 +190,9 @@ describe("ReviewService", () => {
     chunkStore = new InMemoryDocumentChunkStore();
     moduleStore = new InMemoryModuleStore();
     lessonStore = new InMemoryLessonStore();
+    flashcardStore = new InMemoryFlashcardStore();
+    quizStore = new InMemoryQuizStore();
+    quizQuestionStore = new InMemoryQuizQuestionStore();
     jobStore = new InMemoryGenerationJobStore();
     queue = new InMemoryGenerationQueue(jobStore);
     auditStore = new InMemoryAuditStore();
@@ -204,6 +215,9 @@ describe("ReviewService", () => {
       new RoleBasedPolicy(),
       queue,
       auditService,
+      flashcardStore,
+      quizStore,
+      quizQuestionStore,
     );
   });
 
@@ -600,6 +614,217 @@ describe("ReviewService", () => {
       const resItemSearch = await service.reviewQueue(editor, organizationId, courseId, "req-s-2", { search: "synaptic" });
       expect(resItemSearch.groups).toHaveLength(1);
       expect(resItemSearch.groups![0].document?.id).toBe(docNeuro.id);
+    });
+  });
+
+  describe("acceptPack", () => {
+    it("bulk approves all draft/edited items in a document pack atomically", async () => {
+      // 1. Seed pack items for documentId: lesson, flashcard, quiz
+      const lessonItem = seedContent({
+        id: randomUUID() as GeneratedContentId,
+        type: "lesson",
+        status: "draft",
+        payload: { kind: "lesson", title: "Intro to Cardiology", contentMarkdown: "# Cardio", citationChunkIds: [] },
+      });
+      const flashcardItem = seedContent({
+        id: randomUUID() as GeneratedContentId,
+        type: "flashcard",
+        status: "edited",
+        payload: { kind: "flashcard", flashcards: [{ front: "What is SA node?", back: "Natural pacemaker" }] },
+      });
+      const quizItem = seedContent({
+        id: randomUUID() as GeneratedContentId,
+        type: "quiz",
+        status: "draft",
+        payload: {
+          kind: "quiz",
+          title: "Cardio Quiz",
+          questions: [{ question: "Where is SA node located?", options: ["Right atrium", "Left ventricle"], correctAnswerIndex: 0 }],
+        },
+      });
+
+      // 2. Perform bulk accept
+      const result = await service.acceptPack(
+        editor,
+        organizationId,
+        courseId,
+        documentId,
+        "req-pack-1",
+      );
+
+      // 3. Verify return stats
+      expect(result.document_id).toBe(documentId);
+      expect(result.total_items).toBe(3);
+      expect(result.accepted_count).toBe(3);
+      expect(result.already_accepted_count).toBe(0);
+      expect(result.accepted_content_ids).toHaveLength(3);
+      expect(result.results).toHaveLength(3);
+
+      // 4. Verify content store statuses updated
+      const updatedLesson = await contentStore.findByIdForOrganization(lessonItem.id, organizationId);
+      expect(updatedLesson?.status).toBe("accepted");
+      expect(updatedLesson?.acceptedBy).toBe(editor.userId);
+      expect(updatedLesson?.acceptedAt).toBeDefined();
+      expect(updatedLesson?.materializedLessonId).toBeDefined();
+
+      const updatedCards = await contentStore.findByIdForOrganization(flashcardItem.id, organizationId);
+      expect(updatedCards?.status).toBe("accepted");
+      expect(updatedCards?.acceptedBy).toBe(editor.userId);
+
+      const updatedQuiz = await contentStore.findByIdForOrganization(quizItem.id, organizationId);
+      expect(updatedQuiz?.status).toBe("accepted");
+      expect(updatedQuiz?.acceptedBy).toBe(editor.userId);
+
+      // 5. Verify materializations occurred
+      const lessons = lessonStore.getAll();
+      expect(lessons.length).toBeGreaterThanOrEqual(1);
+      expect(lessons.some((l) => l.title === "Intro to Cardiology")).toBe(true);
+
+      const cards = await flashcardStore.listByCourse(courseId, organizationId);
+      expect(cards.length).toBeGreaterThanOrEqual(1);
+      expect(cards.some((c) => c.question === "What is SA node?")).toBe(true);
+
+      const quizzes = await quizStore.listByCourse(courseId, organizationId);
+      expect(quizzes.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it("skips already accepted or rejected items without re-processing (idempotence)", async () => {
+      // 1 already accepted item
+      const alreadyAccepted = seedContent({
+        id: randomUUID() as GeneratedContentId,
+        type: "lesson",
+        status: "accepted",
+        acceptedBy: editor.userId as any,
+        acceptedAt: new Date().toISOString(),
+      });
+      // 1 rejected item
+      const rejectedItem = seedContent({
+        id: randomUUID() as GeneratedContentId,
+        type: "lesson",
+        status: "rejected",
+        reviewReason: "Out of scope",
+      });
+      // 1 draft item
+      const draftItem = seedContent({
+        id: randomUUID() as GeneratedContentId,
+        type: "lesson",
+        status: "draft",
+        payload: { kind: "lesson", title: "New Valid Lesson", contentMarkdown: "# Lesson", citationChunkIds: [] },
+      });
+
+      const result = await service.acceptPack(
+        editor,
+        organizationId,
+        courseId,
+        documentId,
+        "req-pack-2",
+      );
+
+      expect(result.total_items).toBe(3);
+      expect(result.accepted_count).toBe(1);
+      expect(result.already_accepted_count).toBe(1);
+      expect(result.accepted_content_ids).toEqual([draftItem.id]);
+
+      // Rejected item remained rejected
+      const fetchedRejected = await contentStore.findByIdForOrganization(rejectedItem.id, organizationId);
+      expect(fetchedRejected?.status).toBe("rejected");
+    });
+
+    it("returns 0 accepted when pack has no pending items", async () => {
+      seedContent({
+        id: randomUUID() as GeneratedContentId,
+        type: "lesson",
+        status: "accepted",
+        acceptedBy: editor.userId as any,
+        acceptedAt: new Date().toISOString(),
+      });
+
+      const result = await service.acceptPack(
+        editor,
+        organizationId,
+        courseId,
+        documentId,
+        "req-pack-3",
+      );
+
+      expect(result.total_items).toBe(1);
+      expect(result.accepted_count).toBe(0);
+      expect(result.already_accepted_count).toBe(1);
+      expect(result.accepted_content_ids).toHaveLength(0);
+      expect(result.results).toHaveLength(1);
+      expect(result.results[0].status).toBe("accepted");
+    });
+
+    it("strictly isolates by documentId and courseId (other packs/courses unaffected)", async () => {
+      const otherDocId = randomUUID() as DocumentId;
+      documentStore.insert(makeDocument({ id: otherDocId, originalName: "other.pdf" }, organizationId, courseId));
+
+      const packItem = seedContent({
+        id: randomUUID() as GeneratedContentId,
+        documentId,
+        status: "draft",
+      });
+      const otherDocItem = makeContent(
+        { id: randomUUID() as GeneratedContentId, documentId: otherDocId, status: "draft" },
+        organizationId,
+        otherDocId,
+        courseId,
+      );
+      contentStore.insert(otherDocItem);
+
+      await service.acceptPack(editor, organizationId, courseId, documentId, "req-pack-4");
+
+      const packItemAfter = await contentStore.findByIdForOrganization(packItem.id, organizationId);
+      expect(packItemAfter?.status).toBe("accepted");
+
+      const otherItemAfter = await contentStore.findByIdForOrganization(otherDocItem.id, organizationId);
+      expect(otherItemAfter?.status).toBe("draft");
+    });
+
+    it("throws 403 Forbidden for unauthorized roles (e.g. student)", async () => {
+      seedContent({ id: randomUUID() as GeneratedContentId, status: "draft" });
+
+      await expect(
+        service.acceptPack(student, organizationId, courseId, documentId, "req-pack-5"),
+      ).rejects.toThrow();
+    });
+
+    it("rolls back all state changes atomically if an error occurs during pack materialization", async () => {
+      // Seed 2 draft items
+      const item1 = seedContent({
+        id: randomUUID() as GeneratedContentId,
+        type: "lesson",
+        status: "draft",
+        payload: { kind: "lesson", title: "Lesson 1", contentMarkdown: "# 1", citationChunkIds: [] },
+      });
+      const item2 = seedContent({
+        id: randomUUID() as GeneratedContentId,
+        type: "lesson",
+        status: "draft",
+        payload: { kind: "lesson", title: "Lesson 2", contentMarkdown: "# 2", citationChunkIds: [] },
+      });
+
+      // Force lessonStore.create to throw on the 2nd item
+      let callCount = 0;
+      const origCreate = lessonStore.create.bind(lessonStore);
+      lessonStore.create = async (rec) => {
+        callCount++;
+        if (callCount === 2) {
+          throw new Error("Simulated DB error during bulk materialization");
+        }
+        return origCreate(rec);
+      };
+
+      // Execution should fail and throw
+      await expect(
+        service.acceptPack(editor, organizationId, courseId, documentId, "req-pack-6"),
+      ).rejects.toThrow("Simulated DB error during bulk materialization");
+
+      // Verify ATOMICITY: No items should remain accepted!
+      const item1After = await contentStore.findByIdForOrganization(item1.id, organizationId);
+      const item2After = await contentStore.findByIdForOrganization(item2.id, organizationId);
+      expect(item1After?.status).toBe("draft");
+      expect(item2After?.status).toBe("draft");
     });
   });
 });

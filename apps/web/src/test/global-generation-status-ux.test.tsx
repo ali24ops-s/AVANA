@@ -442,4 +442,398 @@ describe("Background Generation UX & Global Status Visibility", () => {
       expect(mockGetActiveGenerations).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe("5. End-to-End Global Generation Pipeline Discovery & Resilience", () => {
+    it("Scenario A: Polling does not stop on empty response, discovers new generation and renders without reload", async () => {
+      const queryClient = createTestQueryClient();
+
+      // Step 1: Initial call returns empty
+      mockGetActiveGenerations.mockResolvedValueOnce({
+        requestId: "req-empty",
+        items: [],
+      });
+
+      const { rerender } = render(
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter>
+            <GlobalGenerationIndicator />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+
+      // Verify nothing is rendered initially
+      await waitFor(() => {
+        expect(screen.queryByRole("button", { name: /نشانگر وضعیت تولید محتوا/i })).toBeNull();
+      });
+
+      // Step 2: Generation starts in background
+      const activeItem: ActiveGenerationItem = {
+        documentId: "doc-live-1",
+        documentName: "pharmacology-chapter1.pdf",
+        courseId: "course-1",
+        status: "queued",
+        stage: null,
+        stageLabel: null,
+        progress: null,
+        stageStartedAt: null,
+        lastActivityAt: new Date().toISOString(),
+        error: null,
+        updatedAt: new Date().toISOString(),
+      };
+
+      mockGetActiveGenerations.mockResolvedValue({
+        requestId: "req-active",
+        items: [activeItem],
+      });
+
+      // Step 3: Next poll / invalidate queries
+      await queryClient.invalidateQueries({ queryKey: ["active-generations"] });
+
+      // Step 4: Header renders active generation without page reload
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /نشانگر وضعیت تولید محتوا/i })).toBeDefined();
+        expect(screen.getByText(/در حال تولید محتوا/i)).toBeDefined();
+      });
+    });
+
+    it("Scenario B: Preserves generation status across page refresh / remount", async () => {
+      const activeItem: ActiveGenerationItem = {
+        documentId: "doc-persist-1",
+        documentName: "cardiology-review.pdf",
+        courseId: "course-2",
+        status: "generating",
+        stage: "lesson",
+        stageLabel: "تولید درسنامه",
+        progress: { current: 5, total: 10, percentage: 50 },
+        stageStartedAt: new Date().toISOString(),
+        lastActivityAt: new Date().toISOString(),
+        error: null,
+        updatedAt: new Date().toISOString(),
+      };
+
+      mockGetActiveGenerations.mockResolvedValue({
+        requestId: "req-persist",
+        items: [activeItem],
+      });
+
+      // Initial Mount
+      const queryClient1 = createTestQueryClient();
+      const { unmount } = render(
+        <QueryClientProvider client={queryClient1}>
+          <MemoryRouter>
+            <GlobalGenerationIndicator />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText(/تولید درسنامه/i)).toBeDefined();
+        expect(screen.getByText(/50٪/i)).toBeDefined();
+      });
+
+      // Simulate Page Refresh (Unmount & Mount new QueryClient/Component)
+      unmount();
+
+      const queryClient2 = createTestQueryClient();
+      render(
+        <QueryClientProvider client={queryClient2}>
+          <MemoryRouter>
+            <GlobalGenerationIndicator />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText(/تولید درسنامه/i)).toBeDefined();
+        expect(screen.getByText(/50٪/i)).toBeDefined();
+      });
+    });
+
+    it("Scenario C: Discovers generation from an organization that is not memberships[0]", async () => {
+      const queryClient = createTestQueryClient();
+      const nonPrimaryOrgId = "00000000-0000-0000-0000-000000000099";
+
+      const itemInOtherOrg: ActiveGenerationItem = {
+        documentId: "doc-other-org",
+        documentName: "neurology-notes.pdf",
+        courseId: "course-other",
+        organizationId: nonPrimaryOrgId,
+        status: "planning",
+        stage: "planning",
+        stageLabel: "برنامه‌ریزی محتوا",
+        progress: { current: 1, total: 5, percentage: 20 },
+        stageStartedAt: new Date().toISOString(),
+        lastActivityAt: new Date().toISOString(),
+        error: null,
+        updatedAt: new Date().toISOString(),
+      };
+
+      mockGetActiveGenerations.mockResolvedValue({
+        requestId: "req-other-org",
+        items: [itemInOtherOrg],
+      });
+
+      // Render Header without explicit organizationId (must use global discovery)
+      render(
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter>
+            <GlobalGenerationIndicator />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText(/برنامه‌ریزی محتوا/i)).toBeDefined();
+        expect(screen.getByText(/20٪/i)).toBeDefined();
+      });
+    });
+
+    it("Scenario D: Discovers generation in system organization for authorized actor", async () => {
+      const queryClient = createTestQueryClient();
+      const systemOrgId = "00000000-0000-0000-0000-000000000000";
+
+      const systemItem: ActiveGenerationItem = {
+        documentId: "doc-system-1",
+        documentName: "official-pharmacology.pdf",
+        courseId: "official-course-1",
+        organizationId: systemOrgId,
+        status: "generating",
+        stage: "quiz",
+        stageLabel: "تولید آزمون",
+        progress: { current: 8, total: 10, percentage: 80 },
+        stageStartedAt: new Date().toISOString(),
+        lastActivityAt: new Date().toISOString(),
+        error: null,
+        updatedAt: new Date().toISOString(),
+      };
+
+      mockGetActiveGenerations.mockResolvedValue({
+        requestId: "req-system",
+        items: [systemItem],
+      });
+
+      render(
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter>
+            <GlobalGenerationIndicator />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText(/تولید آزمون/i)).toBeDefined();
+        expect(screen.getByText(/80٪/i)).toBeDefined();
+      });
+    });
+
+    it("Scenario E: Header displays indicator ONLY for active generation phases (queued, planning, generating, stopping, deleting) and HIDES for post-generation (reviewing, validating, publishing, completed)", async () => {
+      const activeStatuses: Array<ActiveGenerationItem["status"]> = [
+        "queued",
+        "planning",
+        "generating",
+        "stopping",
+        "deleting",
+      ];
+
+      for (const status of activeStatuses) {
+        const queryClient = createTestQueryClient();
+        const item: ActiveGenerationItem = {
+          documentId: `doc-${status}`,
+          documentName: `${status}-document.pdf`,
+          courseId: "course-1",
+          status,
+          stage: status === "generating" ? "lesson" : status === "planning" ? "planning" : null,
+          stageLabel: status === "generating" ? "تولید درسنامه" : status === "planning" ? "برنامه‌ریزی محتوا" : null,
+          progress: status === "generating" ? { current: 2, total: 4, percentage: 50 } : null,
+          stageStartedAt: new Date().toISOString(),
+          lastActivityAt: new Date().toISOString(),
+          error: null,
+          updatedAt: new Date().toISOString(),
+        };
+
+        mockGetActiveGenerations.mockResolvedValue({
+          requestId: `req-${status}`,
+          items: [item],
+        });
+
+        const { unmount } = render(
+          <QueryClientProvider client={queryClient}>
+            <MemoryRouter>
+              <GlobalGenerationIndicator />
+            </MemoryRouter>
+          </QueryClientProvider>,
+        );
+
+        await waitFor(() => {
+          expect(screen.getByRole("button", { name: /نشانگر وضعیت تولید محتوا/i })).toBeDefined();
+        });
+
+        unmount();
+      }
+
+      // Non-active post-generation / completed statuses
+      const postGenerationCases: Array<{ status: ActiveGenerationItem["status"]; stage?: ActiveGenerationItem["stage"] }> = [
+        { status: "reviewing", stage: "review" },
+        { status: "completed", stage: "publishing" },
+        { status: "generating", stage: "review" },
+        { status: "generating", stage: "publishing" },
+      ];
+
+      for (const { status, stage } of postGenerationCases) {
+        const queryClient = createTestQueryClient();
+        const item: ActiveGenerationItem = {
+          documentId: `doc-post-${status}-${stage}`,
+          documentName: `post-${status}-document.pdf`,
+          courseId: "course-1",
+          status,
+          stage: stage ?? null,
+          stageLabel: stage === "review" ? "بازبینی و اعتبارسنجی" : "انتشار",
+          progress: null,
+          stageStartedAt: new Date().toISOString(),
+          lastActivityAt: new Date().toISOString(),
+          error: null,
+          updatedAt: new Date().toISOString(),
+        };
+
+        mockGetActiveGenerations.mockResolvedValue({
+          requestId: `req-${status}-${stage}`,
+          items: [item],
+        });
+
+        const { unmount } = render(
+          <QueryClientProvider client={queryClient}>
+            <MemoryRouter>
+              <GlobalGenerationIndicator />
+            </MemoryRouter>
+          </QueryClientProvider>,
+        );
+
+        await waitFor(() => {
+          expect(screen.queryByRole("button", { name: /نشانگر وضعیت تولید محتوا/i })).toBeNull();
+        });
+
+        unmount();
+      }
+    });
+
+    it("Transition Flow: Header displays indicator during generating, and immediately removes it when transitioning to reviewing", async () => {
+      const queryClient = createTestQueryClient();
+
+      // 1. Initial State: generating
+      const generatingItem: ActiveGenerationItem = {
+        documentId: mockDocId,
+        documentName: "biochemistry.pdf",
+        courseId: mockCourseId,
+        status: "generating",
+        stage: "lesson",
+        stageLabel: "تولید درسنامه",
+        progress: { current: 3, total: 4, percentage: 75 },
+        stageStartedAt: new Date().toISOString(),
+        lastActivityAt: new Date().toISOString(),
+        error: null,
+        updatedAt: new Date().toISOString(),
+      };
+
+      mockGetActiveGenerations.mockResolvedValue({
+        requestId: "req-gen-1",
+        items: [generatingItem],
+      });
+
+      const { rerender } = render(
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter>
+            <GlobalGenerationIndicator organizationId={mockOrgId} />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+
+      // Verify indicator is displayed during generating
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /نشانگر وضعیت تولید محتوا/i })).toBeDefined();
+        expect(screen.getByText("تولید درسنامه")).toBeDefined();
+      });
+
+      // 2. Generation phase concludes and enters reviewing: active endpoint returns empty items (or reviewing item)
+      mockGetActiveGenerations.mockResolvedValue({
+        requestId: "req-gen-2",
+        items: [],
+      });
+
+      // Invalidate query to trigger refetch
+      await queryClient.invalidateQueries({ queryKey: ["active-generations", mockOrgId] });
+
+      rerender(
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter>
+            <GlobalGenerationIndicator organizationId={mockOrgId} />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+
+      // Verify Header indicator is completely removed from DOM
+      await waitFor(() => {
+        expect(screen.queryByRole("button", { name: /نشانگر وضعیت تولید محتوا/i })).toBeNull();
+      });
+    });
+
+    it("Stop/Delete controls gating: Stop/Delete are only available for active generation phases and never shown post-generation", async () => {
+      const onStop = vi.fn();
+      const onDelete = vi.fn();
+
+      // 1. Active generation item: Stop and Delete buttons should exist
+      const activeGenItem: ActiveGenerationItem = {
+        documentId: "doc-active-1",
+        documentName: "active-lecture.pdf",
+        status: "generating",
+        stage: "quiz",
+        stageLabel: "تولید آزمون",
+        progress: { current: 1, total: 5, percentage: 20 },
+        stageStartedAt: new Date().toISOString(),
+        lastActivityAt: new Date().toISOString(),
+        error: null,
+        updatedAt: new Date().toISOString(),
+      };
+
+      const { rerender, unmount } = render(
+        <GenerationDetailsModal
+          isOpen={true}
+          onClose={vi.fn()}
+          items={[activeGenItem]}
+          onStop={onStop}
+          onDelete={onDelete}
+        />,
+      );
+
+      expect(screen.getByRole("button", { name: /توقف تولید/i })).toBeDefined();
+      expect(screen.getByRole("button", { name: /حذف تولید/i })).toBeDefined();
+      unmount();
+
+      // 2. Reviewing/completed item: Stop button MUST NOT exist
+      const reviewingItem: ActiveGenerationItem = {
+        documentId: "doc-rev-1",
+        documentName: "reviewing-lecture.pdf",
+        status: "reviewing",
+        stage: "review",
+        stageLabel: "بازبینی و اعتبارسنجی",
+        progress: null,
+        stageStartedAt: new Date().toISOString(),
+        lastActivityAt: new Date().toISOString(),
+        error: null,
+        updatedAt: new Date().toISOString(),
+      };
+
+      render(
+        <GenerationDetailsModal
+          isOpen={true}
+          onClose={vi.fn()}
+          items={[reviewingItem]}
+          onStop={onStop}
+          onDelete={onDelete}
+        />,
+      );
+
+      expect(screen.queryByRole("button", { name: /توقف تولید/i })).toBeNull();
+      expect(screen.queryByRole("button", { name: /حذف تولید/i })).toBeNull();
+    });
+  });
 });

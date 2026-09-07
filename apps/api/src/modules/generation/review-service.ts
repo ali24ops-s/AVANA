@@ -79,11 +79,53 @@ import type {
 } from "../study/study-store.js";
 import type { OrganizationStore } from "../organizations/organization-store.js";
 import type { GenerationQueue } from "./generation-queue.js";
-import type { AuditService } from "../../observability/audit-service.js";
+import { AuditService } from "../../observability/audit-service.js";
+import type { DbClient } from "@avana/database/client";
+import { DrizzleGeneratedContentStore } from "./drizzle-stores.js";
+import {
+  DrizzleDocumentStore,
+  DrizzleModuleStore,
+  DrizzleLessonStore,
+} from "../learning/drizzle-stores.js";
+import {
+  DrizzleFlashcardStore,
+  DrizzleQuizStore,
+  DrizzleQuizQuestionStore,
+} from "../study/drizzle-stores.js";
+import { DrizzleCommerceStore } from "../commerce/commerce-store.js";
+import { DrizzleAuditStore } from "../../observability/drizzle-stores.js";
 
 // ---------------------------------------------------------------------------
 // Response contract types
 // ---------------------------------------------------------------------------
+
+export type BulkAcceptItemResult = {
+  content_id: GeneratedContentId;
+  type: GeneratedContentRecord["type"];
+  status: "accepted";
+  materialized_lesson_id: LessonId | null;
+};
+
+export type BulkAcceptPackResult = {
+  document_id: DocumentId | null;
+  total_items: number;
+  accepted_count: number;
+  already_accepted_count: number;
+  accepted_content_ids: GeneratedContentId[];
+  results: BulkAcceptItemResult[];
+};
+
+export type ReviewScopedStores = {
+  generatedContentStore?: GeneratedContentStore;
+  documentStore?: DocumentStore;
+  moduleStore?: ModuleStore;
+  lessonStore?: LessonStore;
+  flashcardStore?: FlashcardStore;
+  quizStore?: QuizStore;
+  quizQuestionStore?: QuizQuestionStore;
+  commerceStore?: CommerceStore;
+  auditService?: AuditService;
+};
 
 export type ReviewDocumentResource = {
   id: string;
@@ -201,6 +243,7 @@ export class ReviewService {
     private readonly quizQuestionStore?: QuizQuestionStore,
     private readonly organizationStore?: OrganizationStore,
     private readonly commerceStore?: CommerceStore,
+    private readonly db?: DbClient,
   ) {}
 
   /**
@@ -837,6 +880,266 @@ export class ReviewService {
     };
   }
 
+  private getModuleStore(stores?: ReviewScopedStores): ModuleStore | undefined {
+    return stores?.moduleStore ?? this.moduleStore;
+  }
+  private getLessonStore(stores?: ReviewScopedStores): LessonStore | undefined {
+    return stores?.lessonStore ?? this.lessonStore;
+  }
+  private getGeneratedContentStore(stores?: ReviewScopedStores): GeneratedContentStore {
+    return stores?.generatedContentStore ?? this.generatedContentStore;
+  }
+  private getFlashcardStore(stores?: ReviewScopedStores): FlashcardStore | undefined {
+    return stores?.flashcardStore ?? this.flashcardStore;
+  }
+  private getQuizStore(stores?: ReviewScopedStores): QuizStore | undefined {
+    return stores?.quizStore ?? this.quizStore;
+  }
+  private getQuizQuestionStore(stores?: ReviewScopedStores): QuizQuestionStore | undefined {
+    return stores?.quizQuestionStore ?? this.quizQuestionStore;
+  }
+  private getCommerceStore(stores?: ReviewScopedStores): CommerceStore | undefined {
+    return stores?.commerceStore ?? this.commerceStore;
+  }
+  private getDocumentStore(stores?: ReviewScopedStores): DocumentStore | undefined {
+    return stores?.documentStore ?? this.documentStore;
+  }
+  private getAuditService(stores?: ReviewScopedStores): AuditService | undefined {
+    return stores?.auditService ?? this.auditService;
+  }
+
+  /**
+   * Bulk accept all pending generated contents for a document (Content Pack).
+   *
+   * Rules:
+   * 1. Requires `content:accept` permission or document ownership.
+   * 2. Only processes approvable items (`draft` / `edited`).
+   * 3. Already accepted items are skipped (idempotent, not re-processed).
+   * 4. Only items for this specific document & course change status.
+   * 5. Atomicity: In PostgreSQL, executes inside a real database transaction.
+   *    In in-memory environments, snapshots state and rolls back completely on any failure.
+   * 6. Emits audit logs for newly accepted items.
+   */
+  async acceptPack(
+    actor: Actor,
+    organizationId: OrganizationId,
+    courseId: CourseId,
+    documentId: DocumentId,
+  ): Promise<BulkAcceptPackResult> {
+    let scopedActor = actor;
+    if (
+      this.organizationStore &&
+      typeof this.organizationStore.findMembership === "function"
+    ) {
+      const membership = await this.organizationStore.findMembership(
+        organizationId,
+        actor.userId,
+      );
+      if (!membership && actor.role !== "platform_admin") {
+        throw new DomainError("not_found", "Organization not found");
+      }
+      const role =
+        actor.role === "platform_admin"
+          ? "platform_admin"
+          : (membership?.role as Actor["role"] ?? actor.role);
+      scopedActor = { ...actor, role };
+    }
+
+    const context: AuthContext = { organizationId };
+    const hasRolePermission = this.policy.check(
+      "content:accept",
+      scopedActor,
+      context,
+    );
+
+    let isOwner = false;
+    if (this.documentStore) {
+      const doc = await this.documentStore.findByIdForOrganization(
+        documentId,
+        organizationId,
+      );
+      if (!doc) {
+        throw new DomainError("not_found", "Document not found");
+      }
+      if (doc.ownerUserId === actor.userId) {
+        isOwner = true;
+      }
+    }
+
+    if (!hasRolePermission && !isOwner) {
+      throw new DomainError(
+        "forbidden",
+        `Action 'content:accept' not permitted for role '${scopedActor.role}' on content pack not owned by user`,
+      );
+    }
+
+    const allContents = (
+      await this.generatedContentStore.listByDocument(documentId, organizationId)
+    ).filter((c) => c.courseId === courseId && c.deletedAt === null);
+
+    const alreadyAccepted = allContents.filter((c) => c.status === "accepted");
+    const toAccept = allContents.filter(
+      (c) => c.status === "draft" || c.status === "edited",
+    );
+
+    if (toAccept.length === 0) {
+      return {
+        document_id: documentId,
+        total_items: allContents.length,
+        accepted_count: 0,
+        already_accepted_count: alreadyAccepted.length,
+        accepted_content_ids: [],
+        results: alreadyAccepted.map((item) => ({
+          content_id: item.id,
+          type: item.type,
+          status: "accepted" as const,
+          materialized_lesson_id: item.materializedLessonId,
+        })),
+      };
+    }
+
+    if (this.db && typeof this.db.transaction === "function") {
+      return await this.db.transaction(async (tx) => {
+        const txStores: ReviewScopedStores = {
+          generatedContentStore: new DrizzleGeneratedContentStore(tx),
+          documentStore: this.documentStore ? new DrizzleDocumentStore(tx) : undefined,
+          moduleStore: this.moduleStore ? new DrizzleModuleStore(tx) : undefined,
+          lessonStore: this.lessonStore ? new DrizzleLessonStore(tx) : undefined,
+          flashcardStore: this.flashcardStore ? new DrizzleFlashcardStore(tx) : undefined,
+          quizStore: this.quizStore ? new DrizzleQuizStore(tx) : undefined,
+          quizQuestionStore: this.quizQuestionStore ? new DrizzleQuizQuestionStore(tx) : undefined,
+          commerceStore: this.commerceStore ? new DrizzleCommerceStore(tx) : undefined,
+          auditService: this.auditService ? new AuditService(new DrizzleAuditStore(tx)) : undefined,
+        };
+        return await this.executeAcceptPackBatch(
+          actor,
+          organizationId,
+          courseId,
+          documentId,
+          allContents,
+          toAccept,
+          alreadyAccepted,
+          txStores,
+        );
+      });
+    }
+
+    // In-memory execution with snapshot-based atomic rollback
+    const snapContent = (this.generatedContentStore as any).takeSnapshot?.();
+    const snapModule = (this.moduleStore as any)?.takeSnapshot?.();
+    const snapLesson = (this.lessonStore as any)?.takeSnapshot?.();
+    const snapFlashcard = (this.flashcardStore as any)?.takeSnapshot?.();
+    const snapQuiz = (this.quizStore as any)?.takeSnapshot?.();
+    const snapQuizQuestion = (this.quizQuestionStore as any)?.takeSnapshot?.();
+    const snapAudit = (this.auditService as any)?.store?.takeSnapshot?.();
+
+    try {
+      return await this.executeAcceptPackBatch(
+        actor,
+        organizationId,
+        courseId,
+        documentId,
+        allContents,
+        toAccept,
+        alreadyAccepted,
+      );
+    } catch (err) {
+      if (snapContent) (this.generatedContentStore as any).restoreSnapshot?.(snapContent);
+      if (snapModule) (this.moduleStore as any)?.restoreSnapshot?.(snapModule);
+      if (snapLesson) (this.lessonStore as any)?.restoreSnapshot?.(snapLesson);
+      if (snapFlashcard) (this.flashcardStore as any)?.restoreSnapshot?.(snapFlashcard);
+      if (snapQuiz) (this.quizStore as any)?.restoreSnapshot?.(snapQuiz);
+      if (snapQuizQuestion) (this.quizQuestionStore as any)?.restoreSnapshot?.(snapQuizQuestion);
+      if (snapAudit) (this.auditService as any)?.store?.restoreSnapshot?.(snapAudit);
+      throw err;
+    }
+  }
+
+  private async executeAcceptPackBatch(
+    actor: Actor,
+    organizationId: OrganizationId,
+    courseId: CourseId,
+    documentId: DocumentId,
+    allContents: GeneratedContentRecord[],
+    toAccept: GeneratedContentRecord[],
+    alreadyAccepted: GeneratedContentRecord[],
+    stores?: ReviewScopedStores,
+  ): Promise<BulkAcceptPackResult> {
+    const contentStore = this.getGeneratedContentStore(stores);
+    const auditService = this.getAuditService(stores);
+    const now = new Date().toISOString();
+
+    const results: BulkAcceptItemResult[] = [];
+    const newlyAcceptedIds: GeneratedContentId[] = [];
+    const auditEvents = [];
+
+    for (const record of toAccept) {
+      let materializedLessonId: LessonId | null = record.materializedLessonId;
+      if (record.type === "lesson" && !record.materializedLessonId) {
+        materializedLessonId = await this.materializeLesson(record, stores);
+      } else if (record.type === "flashcard") {
+        await this.materializeFlashcard(record, stores);
+      } else if (record.type === "quiz") {
+        const qLessonId = await this.materializeQuiz(record, stores);
+        if (qLessonId) {
+          materializedLessonId = qLessonId;
+        }
+      }
+
+      const updated: GeneratedContentRecord = {
+        ...record,
+        status: "accepted",
+        acceptedAt: now,
+        acceptedBy: actor.userId,
+        reviewedBy: actor.userId,
+        reviewedAt: now,
+        reviewReason: null,
+        materializedLessonId,
+        updatedAt: now,
+      };
+      await contentStore.update(updated);
+
+      newlyAcceptedIds.push(record.id);
+      results.push({
+        content_id: record.id,
+        type: record.type,
+        status: "accepted",
+        materialized_lesson_id: materializedLessonId,
+      });
+
+      auditEvents.push(
+        auditContentAccepted(actor.userId, organizationId, record.id, {
+          documentId: record.documentId ?? "",
+          type: record.type,
+          bulkApproved: true,
+        }),
+      );
+    }
+
+    if (auditService && auditEvents.length > 0) {
+      await auditService.emit(auditEvents);
+    }
+
+    const allResults: BulkAcceptItemResult[] = [
+      ...results,
+      ...alreadyAccepted.map((item) => ({
+        content_id: item.id,
+        type: item.type,
+        status: "accepted" as const,
+        materialized_lesson_id: item.materializedLessonId,
+      })),
+    ];
+
+    return {
+      document_id: documentId,
+      total_items: allContents.length,
+      accepted_count: newlyAcceptedIds.length,
+      already_accepted_count: alreadyAccepted.length,
+      accepted_content_ids: newlyAcceptedIds,
+      results: allResults,
+    };
+  }
+
   /**
    * Materialize an accepted AI lesson into the Learning Core.
    *
@@ -846,8 +1149,16 @@ export class ReviewService {
    */
   private async materializeLesson(
     record: GeneratedContentRecord,
+    stores?: ReviewScopedStores,
   ): Promise<LessonId> {
-    if (!this.lessonStore || !this.moduleStore) {
+    const lessonStore = this.getLessonStore(stores);
+    const moduleStore = this.getModuleStore(stores);
+    const generatedContentStore = this.getGeneratedContentStore(stores);
+    const flashcardStore = this.getFlashcardStore(stores);
+    const quizStore = this.getQuizStore(stores);
+    const commerceStore = this.getCommerceStore(stores);
+
+    if (!lessonStore || !moduleStore) {
       return randomUUID() as LessonId;
     }
 
@@ -868,6 +1179,7 @@ export class ReviewService {
       record,
       payload.moduleTitle,
       payload.title,
+      stores,
     );
 
     const now = new Date().toISOString();
@@ -886,7 +1198,7 @@ export class ReviewService {
     // 3. Clean up / soft-delete prior lessons materialized for this document/module to avoid duplication
     const priorLessonIds: LessonId[] = [];
     if (record.documentId) {
-      const priorDrafts = await this.generatedContentStore.listByDocument(
+      const priorDrafts = await generatedContentStore.listByDocument(
         record.documentId,
         record.organizationId,
       );
@@ -896,26 +1208,26 @@ export class ReviewService {
       for (const prior of priorLessonDrafts) {
         if (prior.materializedLessonId) {
           priorLessonIds.push(prior.materializedLessonId as LessonId);
-          const priorLesson = await this.lessonStore.findById(
+          const priorLesson = await lessonStore.findById(
             prior.materializedLessonId as LessonId,
           );
           if (priorLesson) {
-            await this.lessonStore.delete(priorLesson.id);
-            if (this.flashcardStore && record.documentId) {
-              await this.flashcardStore.deleteByDocument(
+            await lessonStore.delete(priorLesson.id);
+            if (flashcardStore && record.documentId) {
+              await flashcardStore.deleteByDocument(
                 record.documentId,
                 record.organizationId,
               );
             }
-            if (this.quizStore && record.documentId) {
-              await this.quizStore.deleteByDocument(
+            if (quizStore && record.documentId) {
+              await quizStore.deleteByDocument(
                 record.documentId,
                 record.organizationId,
               );
             }
           }
         }
-        await this.generatedContentStore.update({
+        await generatedContentStore.update({
           ...prior,
           deletedAt: now,
           updatedAt: now,
@@ -940,18 +1252,18 @@ export class ReviewService {
         updatedAt: now,
         deletedAt: null,
       };
-      await this.lessonStore.create(lessonRecord);
+      await lessonStore.create(lessonRecord);
       if (!firstLessonId) {
         firstLessonId = lessonRecord.id;
       }
     }
 
     // 5. Commerce Product Handling: Volume-based Suggested Pricing & Zero-Overwrite Preservation
-    if (this.commerceStore && firstLessonId) {
+    if (commerceStore && firstLessonId) {
       // Check if a prior materialized lesson had an existing product (e.g. from previous run / admin priced)
       let existingProduct = null;
       for (const priorId of priorLessonIds) {
-        const prod = await this.commerceStore.findProductByCode(
+        const prod = await commerceStore.findProductByCode(
           `content_${priorId}`,
         );
         if (prod) {
@@ -961,7 +1273,7 @@ export class ReviewService {
       }
 
       if (!existingProduct) {
-        existingProduct = await this.commerceStore.findProductByCode(
+        existingProduct = await commerceStore.findProductByCode(
           `content_${firstLessonId}`,
         );
       }
@@ -976,7 +1288,7 @@ export class ReviewService {
           new Set([...existingPrior, ...priorLessonIds, existingProduct.targetId].filter(Boolean)),
         );
 
-        await this.commerceStore.updateProduct(existingProduct.id, {
+        await commerceStore.updateProduct(existingProduct.id, {
           targetId: firstLessonId,
           code: `content_${firstLessonId}`,
           title: sessionList[0]?.title ?? existingProduct.title,
@@ -992,7 +1304,7 @@ export class ReviewService {
         let hasReviewSummary = false;
 
         if (record.documentId) {
-          const docDrafts = await this.generatedContentStore.listByDocument(
+          const docDrafts = await generatedContentStore.listByDocument(
             record.documentId,
             record.organizationId,
           );
@@ -1029,7 +1341,7 @@ export class ReviewService {
         const suggestedPrice = calculateDefaultContentPrice(metrics);
         const breakdown = calculateContentPricingBreakdown(metrics);
 
-        await this.commerceStore.createProduct({
+        await commerceStore.createProduct({
           id: asProductId(randomUUID()),
           code: `content_${firstLessonId}`,
           type: "content",
@@ -1073,35 +1385,41 @@ export class ReviewService {
     record: GeneratedContentRecord,
     payloadModuleTitle?: string,
     payloadTopic?: string,
+    stores?: ReviewScopedStores,
   ): Promise<ModuleRecord> {
-    if (!this.moduleStore) {
+    const moduleStore = this.getModuleStore(stores);
+    const generatedContentStore = this.getGeneratedContentStore(stores);
+    const lessonStore = this.getLessonStore(stores);
+    const documentStore = this.getDocumentStore(stores);
+
+    if (!moduleStore) {
       throw new DomainError("bad_request", "Module store not initialized");
     }
 
     // 1. Primary Identity: Check if a Module is already explicitly linked to this documentId
     let targetModule = record.documentId
-      ? await this.moduleStore.findByDocument(record.documentId)
+      ? await moduleStore.findByDocument(record.documentId)
       : undefined;
     if (targetModule) {
       return targetModule;
     }
 
     // 2. Check previously materialized generated content records for this document
-    if (this.generatedContentStore && record.documentId) {
-      const docContents = await this.generatedContentStore.listByDocument(
+    if (generatedContentStore && record.documentId) {
+      const docContents = await generatedContentStore.listByDocument(
         record.documentId,
         record.organizationId,
       );
       for (const gc of docContents) {
-        if (gc.materializedLessonId && this.lessonStore) {
-          const lesson = await this.lessonStore.findById(gc.materializedLessonId);
+        if (gc.materializedLessonId && lessonStore) {
+          const lesson = await lessonStore.findById(gc.materializedLessonId);
           if (lesson) {
-            const mod = await this.moduleStore.findById(lesson.moduleId);
+            const mod = await moduleStore.findById(lesson.moduleId);
             if (mod) {
               // Update module's documentId reference if missing
               if (!mod.documentId && record.documentId) {
                 mod.documentId = record.documentId;
-                await this.moduleStore.update(mod).catch(() => {});
+                await moduleStore.update(mod).catch(() => {});
               }
               return mod;
             }
@@ -1111,8 +1429,8 @@ export class ReviewService {
     }
 
     // Fetch document metadata for title fallback if needed
-    const doc = this.documentStore && record.documentId
-      ? await this.documentStore.findByIdForOrganization(
+    const doc = documentStore && record.documentId
+      ? await documentStore.findByIdForOrganization(
           record.documentId,
           record.organizationId,
         )
@@ -1121,7 +1439,7 @@ export class ReviewService {
       ? doc.originalName.replace(/\.pdf$/i, "").replace(/[-_]/g, " ").trim()
       : null;
 
-    const modules = await this.moduleStore.listByCourse(record.courseId);
+    const modules = await moduleStore.listByCourse(record.courseId);
 
     // 3. Title-based match for existing course modules
     targetModule = modules.find((m) => {
@@ -1160,7 +1478,7 @@ export class ReviewService {
         needsUpdate = true;
       }
       if (needsUpdate) {
-        await this.moduleStore.update(targetModule).catch(() => {});
+        await moduleStore.update(targetModule).catch(() => {});
       }
       return targetModule;
     }
@@ -1175,7 +1493,7 @@ export class ReviewService {
 
     // 5. Create new Module with concurrency safety against race conditions
     try {
-      targetModule = await this.moduleStore.create({
+      targetModule = await moduleStore.create({
         id: randomUUID() as ModuleId,
         courseId: record.courseId,
         documentId: record.documentId,
@@ -1192,14 +1510,12 @@ export class ReviewService {
       const e = err as ErrorWithCode;
       // Race condition catch: if another concurrent process inserted the module milliseconds ago
       if (e?.code === "23505" || e?.message?.includes("idx_modules_course_document_unique")) {
-        const raceModule = record.documentId ? await this.moduleStore.findByDocument(record.documentId) : undefined;
+        const raceModule = record.documentId ? await moduleStore.findByDocument(record.documentId) : undefined;
         if (raceModule) return raceModule;
       }
       throw err;
     }
   }
-
-
 
   /**
    * Materialize an accepted AI flashcard (or flashcard set).
@@ -1208,16 +1524,20 @@ export class ReviewService {
    */
   private async materializeFlashcard(
     record: GeneratedContentRecord,
+    stores?: ReviewScopedStores,
   ): Promise<void> {
-    if (!this.flashcardStore) return;
-    const existing = await this.flashcardStore.findByGeneratedContent(
+    const flashcardStore = this.getFlashcardStore(stores);
+    const lessonStore = this.getLessonStore(stores);
+
+    if (!flashcardStore) return;
+    const existing = await flashcardStore.findByGeneratedContent(
       record.id,
     );
     if (existing) return;
 
     // Clean up previous flashcards for this document to avoid duplicate card piles
     if (record.documentId) {
-      await this.flashcardStore.deleteByDocument(
+      await flashcardStore.deleteByDocument(
         record.documentId,
         record.organizationId,
       );
@@ -1251,10 +1571,11 @@ export class ReviewService {
       record,
       payload.moduleTitle,
       payload.topic,
+      stores,
     );
 
-    const lessons = this.lessonStore
-      ? await this.lessonStore.listByModule(targetModule.id)
+    const lessons = lessonStore
+      ? await lessonStore.listByModule(targetModule.id)
       : [];
 
     const rawCards: RawFlashcardItem[] =
@@ -1314,7 +1635,7 @@ export class ReviewService {
     });
 
     if (cards.length > 0) {
-      await this.flashcardStore.createMany(cards);
+      await flashcardStore.createMany(cards);
     }
   }
 
@@ -1326,14 +1647,21 @@ export class ReviewService {
    * attaches quiz questions to matching lessons or leaves lessonId as null if unmapped,
    * avoiding creation of duplicate shell modules or fake placeholder lessons.
    */
-  private async materializeQuiz(record: GeneratedContentRecord): Promise<LessonId | null> {
-    if (!this.quizStore || !this.quizQuestionStore) return null;
-    const existing = await this.quizStore.findByGeneratedContent(record.id);
+  private async materializeQuiz(
+    record: GeneratedContentRecord,
+    stores?: ReviewScopedStores,
+  ): Promise<LessonId | null> {
+    const quizStore = this.getQuizStore(stores);
+    const quizQuestionStore = this.getQuizQuestionStore(stores);
+    const lessonStore = this.getLessonStore(stores);
+
+    if (!quizStore || !quizQuestionStore) return null;
+    const existing = await quizStore.findByGeneratedContent(record.id);
     if (existing) return record.materializedLessonId ?? null;
 
     // Clean up previous quizzes for this document to avoid duplicate quizzes
     if (record.documentId) {
-      await this.quizStore.deleteByDocument(
+      await quizStore.deleteByDocument(
         record.documentId,
         record.organizationId,
       );
@@ -1373,10 +1701,11 @@ export class ReviewService {
       record,
       payload.moduleTitle,
       payload.topic,
+      stores,
     );
 
-    const lessons = this.lessonStore
-      ? await this.lessonStore.listByModule(targetModule.id)
+    const lessons = lessonStore
+      ? await lessonStore.listByModule(targetModule.id)
       : [];
 
     const quizId = parseQuizId(randomUUID());
@@ -1389,7 +1718,7 @@ export class ReviewService {
         ? `آزمون: ${payload.question.slice(0, 30)}`
         : `آزمون ارزیابی: ${targetModule.title}`);
 
-    await this.quizStore.create({
+    await quizStore.create({
       id: quizId,
       organizationId: record.organizationId,
       courseId: record.courseId,
@@ -1511,7 +1840,7 @@ export class ReviewService {
     });
 
     if (questions.length > 0) {
-      await this.quizQuestionStore.createMany(questions);
+      await quizQuestionStore.createMany(questions);
     }
 
     return matchedLessonId;

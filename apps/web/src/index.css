@@ -270,9 +270,10 @@ a {
   text-align: right;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  overflow-x: hidden;
+  overflow-x: clip;
 }
 
+/* Presentation Mode styling for Landing Page */
 .landing-page ::selection {
   background-color: var(--lp-primary-container);
   color: var(--lp-on-primary-container);

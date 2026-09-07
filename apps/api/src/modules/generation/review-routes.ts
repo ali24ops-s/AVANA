@@ -27,6 +27,7 @@ import type { FastifyPluginAsync } from "fastify";
 import {
   type Actor,
   type CourseId,
+  type DocumentId,
   type GeneratedContentId,
   type OrganizationId,
   DomainError,
@@ -54,6 +55,7 @@ import type {
   QuizQuestionStore,
 } from "../study/study-store.js";
 import type { OrganizationStore } from "../organizations/organization-store.js";
+import type { DbClient } from "@avana/database/client";
 
 export interface ReviewRouteOptions {
   sessionService: AuthMiddlewareDeps["sessionService"];
@@ -70,6 +72,7 @@ export interface ReviewRouteOptions {
   quizQuestionStore?: QuizQuestionStore;
   organizationStore?: OrganizationStore;
   auditService?: AuditService;
+  db?: DbClient;
 }
 
 const UUID_RE =
@@ -93,6 +96,7 @@ export const reviewRoutes: FastifyPluginAsync<ReviewRouteOptions> = async (
     quizStore,
     quizQuestionStore,
     auditService,
+    db,
   } = opts;
 
   const { requireAuth } = makeAuthMiddleware({ sessionService, userStore });
@@ -110,6 +114,8 @@ export const reviewRoutes: FastifyPluginAsync<ReviewRouteOptions> = async (
     quizStore,
     quizQuestionStore,
     opts.organizationStore,
+    undefined,
+    db,
   );
 
   /** Helper to extract actor from authenticated request. */
@@ -142,6 +148,14 @@ export const reviewRoutes: FastifyPluginAsync<ReviewRouteOptions> = async (
       throw new DomainError("bad_request", "Invalid course ID");
     }
     return params.courseId as CourseId;
+  }
+
+  /** Helper to validate and extract document ID from params. */
+  function getDocumentId(params: { documentId: string }): DocumentId {
+    if (!params.documentId || !UUID_RE.test(params.documentId)) {
+      throw new DomainError("bad_request", "Invalid document ID");
+    }
+    return params.documentId as DocumentId;
   }
 
   /** Helper to validate and extract generated content ID from params. */
@@ -229,6 +243,34 @@ export const reviewRoutes: FastifyPluginAsync<ReviewRouteOptions> = async (
         actor,
         organizationId,
         contentId,
+      );
+
+      return { request_id: request.id, ...result };
+    },
+  );
+
+  // -----------------------------------------------------------------------
+  // POST /v1/organizations/:organizationId/courses/:courseId/generated/documents/:documentId/accept-all
+  // -----------------------------------------------------------------------
+  app.post(
+    "/v1/organizations/:organizationId/courses/:courseId/generated/documents/:documentId/accept-all",
+    { preHandler: [requireAuth] },
+    async (request, _reply) => {
+      const actor = getActor(request);
+      const params = request.params as {
+        organizationId: string;
+        courseId: string;
+        documentId: string;
+      };
+      const organizationId = getOrganizationId(params);
+      const courseId = getCourseId(params);
+      const documentId = getDocumentId(params);
+
+      const result = await service.acceptPack(
+        actor,
+        organizationId,
+        courseId,
+        documentId,
       );
 
       return { request_id: request.id, ...result };

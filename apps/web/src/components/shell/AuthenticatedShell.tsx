@@ -33,10 +33,12 @@ import {
   calculateRemainingTime,
   getUserChipSubscriptionInfo,
 } from "../commerce/userCommerceUtils.js";
+import { isUserAdmin } from "../../utils/adminPermissions.js";
 import { GlobalGenerationIndicator } from "../generation/GlobalGenerationIndicator.js";
 
 export function AuthenticatedShell() {
-  const { user, isLoading, error, signOut } = useAuth();
+  const { user, memberships, isLoading, error, signOut } = useAuth();
+  const isAdmin = isUserAdmin(user, memberships);
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -136,8 +138,8 @@ export function AuthenticatedShell() {
 
           {/* Controls & User Profile (RTL Left side) */}
           <div className="flex items-center gap-3 shrink-0">
-            {/* Global Generation Status Indicator */}
-            <GlobalGenerationIndicator />
+            {/* Global Generation Status Indicator (Admin only) */}
+            {isAdmin && <GlobalGenerationIndicator />}
 
             {/* Real Search Bar (Desktop) */}
             <HeaderSearch />

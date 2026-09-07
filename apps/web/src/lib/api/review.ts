@@ -8,6 +8,7 @@ import type {
   ReviewQueueResponse,
   GeneratedContentReviewResponse,
   AcceptContentResponse,
+  BulkAcceptContentResponse,
   RejectContentRequest,
   RejectContentResponse,
   EditGeneratedContentRequest,
@@ -69,6 +70,20 @@ export function createReviewApi(client: ApiClient) {
     ): Promise<AcceptContentResponse> {
       return client.post<AcceptContentResponse>(
         `/v1/organizations/${organizationId}/courses/${courseId}/generated/${contentId}/accept`,
+      );
+    },
+
+    /**
+     * POST /v1/organizations/:organizationId/courses/:courseId/generated/documents/:documentId/accept-all
+     * Bulk accepts all pending generated drafts for a document (Content Pack).
+     */
+    acceptAllInDocument(
+      organizationId: string,
+      courseId: string,
+      documentId: string,
+    ): Promise<BulkAcceptContentResponse> {
+      return client.post<BulkAcceptContentResponse>(
+        `/v1/organizations/${organizationId}/courses/${courseId}/generated/documents/${documentId}/accept-all`,
       );
     },
 

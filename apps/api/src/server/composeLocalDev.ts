@@ -12,7 +12,13 @@ import {
   InMemorySessionStore,
   InMemoryUserStore,
   InMemoryDeviceStore,
+  InMemoryEmailVerificationStore,
 } from "../modules/identity/test/in-memory-stores.js";
+import { MockEmailService } from "../modules/identity/email-service.js";
+import {
+  MockSmsProvider,
+  ConsoleSmsProvider,
+} from "../modules/identity/sms-service.js";
 import { InMemoryOrganizationStore } from "../modules/organizations/test/in-memory-stores.js";
 import { InMemoryCourseStore } from "../modules/courses/test/in-memory-stores.js";
 import {
@@ -82,6 +88,12 @@ export async function composeLocalDev(
   deviceStore.setSessionStore(sessionStore);
   const organizationStore = new InMemoryOrganizationStore();
   const userStore = new InMemoryUserStore(organizationStore);
+  const emailVerificationStore = new InMemoryEmailVerificationStore();
+  const emailService = new MockEmailService();
+  const smsProvider =
+    config.nodeEnv === "test" || config.sms.provider === "mock"
+      ? new MockSmsProvider()
+      : new ConsoleSmsProvider();
   const courseStore = new InMemoryCourseStore();
   const moduleStore = new InMemoryModuleStore();
   const lessonStore = new InMemoryLessonStore();
@@ -181,6 +193,9 @@ export async function composeLocalDev(
     sessionStore,
     userStore,
     deviceStore,
+    emailVerificationStore,
+    emailService,
+    smsProvider,
     organizationStore,
     courseStore,
     moduleStore,

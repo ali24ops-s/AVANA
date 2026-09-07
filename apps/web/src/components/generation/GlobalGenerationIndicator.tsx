@@ -6,8 +6,9 @@ import {
   AlertCircle,
   ChevronLeft,
 } from "lucide-react";
-import { useActiveGenerations } from "../../hooks/useActiveGenerations.js";
 import { useAuth } from "../../providers/AuthProvider.js";
+import { isUserAdmin } from "../../utils/adminPermissions.js";
+import { useActiveGenerations } from "../../hooks/useActiveGenerations.js";
 import { GenerationDetailsModal } from "./GenerationDetailsModal.js";
 import { useQueryClient } from "@tanstack/react-query";
 import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
@@ -27,23 +28,31 @@ export function GlobalGenerationIndicator({
 }: GlobalGenerationIndicatorProps) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { memberships } = useAuth();
-  const effectiveOrgId = organizationId || memberships?.[0]?.organization_id || "";
+  const { user, memberships } = useAuth();
+  const isAdmin = isUserAdmin(user, memberships);
 
-  const { items, activeItems, completedItems, failedItems } =
-    useActiveGenerations(effectiveOrgId);
+  const { items, activeItems, failedItems, stoppedItems } =
+    useActiveGenerations(organizationId);
 
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [selectedDocId, setSelectedDocId] = useState<string | undefined>(undefined);
 
-  // If no active, recently completed, or failed items exist, render nothing
-  if (items.length === 0) return null;
+  // If user is not an admin, or no active, stopped, or failed items exist, render nothing
+  if (!isAdmin || items.length === 0) return null;
 
   const activeCount = activeItems.length;
-  const primaryItem = activeItems[0] || completedItems[0] || failedItems[0] || items[0];
-  if (!primaryItem) return null;
+  const primaryItem = activeItems[0] || failedItems[0] || stoppedItems[0] || items[0];
+  if (
+    !primaryItem ||
+    primaryItem.status === "reviewing" ||
+    primaryItem.status === "completed" ||
+    primaryItem.stage === "review" ||
+    primaryItem.stage === "publishing"
+  ) {
+    return null;
+  }
 
-  const isPrimaryCompleted = primaryItem.status === "completed";
+  const isPrimaryCompleted = (primaryItem.status as string) === "completed";
   const isPrimaryFailed = primaryItem.status === "failed";
   const isPrimaryStopped = primaryItem.status === "stopped";
   const isPrimaryStopping = primaryItem.status === "stopping";
@@ -51,7 +60,6 @@ export function GlobalGenerationIndicator({
   const isPrimaryGenerating =
     primaryItem.status === "generating" ||
     primaryItem.status === "planning" ||
-    primaryItem.status === "reviewing" ||
     primaryItem.status === "queued";
 
   const percentage = isPrimaryCompleted
@@ -67,7 +75,7 @@ export function GlobalGenerationIndicator({
   };
 
   const handleRetry = async (documentId: string, courseId?: string | null, itemOrgId?: string) => {
-    const targetOrgId = itemOrgId || effectiveOrgId;
+    const targetOrgId = itemOrgId || organizationId || primaryItem?.organizationId || "";
     try {
       if (courseId && targetOrgId) {
         await genApi.triggerGeneration(targetOrgId, courseId, documentId, {
@@ -83,7 +91,7 @@ export function GlobalGenerationIndicator({
   };
 
   const handleStop = async (documentId: string, courseId?: string | null, itemOrgId?: string) => {
-    const targetOrgId = itemOrgId || effectiveOrgId;
+    const targetOrgId = itemOrgId || organizationId || primaryItem?.organizationId || "";
     try {
       if (targetOrgId) {
         await genApi.stopGeneration(targetOrgId, documentId, courseId);
@@ -97,7 +105,7 @@ export function GlobalGenerationIndicator({
   };
 
   const handleDelete = async (documentId: string, courseId?: string | null, itemOrgId?: string) => {
-    const targetOrgId = itemOrgId || effectiveOrgId;
+    const targetOrgId = itemOrgId || organizationId || primaryItem?.organizationId || "";
     try {
       if (targetOrgId) {
         await genApi.deleteGeneration(targetOrgId, documentId, courseId);

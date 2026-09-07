@@ -29,6 +29,19 @@ export type {
 export type { EmailService } from "./email-service.js";
 export { MockEmailService, ResendEmailService } from "./email-service.js";
 export type {
+  SmsProvider,
+  HttpSmsProviderOptions,
+  MedianaSmsProviderOptions,
+} from "./sms-service.js";
+export {
+  ConsoleSmsProvider,
+  MockSmsProvider,
+  HttpSmsProvider,
+  MedianaSmsProvider,
+  formatMedianaRecipient,
+  maskPhoneNumberForLogs,
+} from "./sms-service.js";
+export type {
   DeviceStore,
   RegisterDeviceInput,
   RecordAttemptInput,

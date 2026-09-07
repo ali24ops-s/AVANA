@@ -2958,6 +2958,101 @@ export class GenerationService {
   }
 
   /**
+   * Return all active generation items visible to the authenticated actor across all
+   * authorized organizations and system organization.
+   */
+  async getGlobalActiveGenerations(
+    actor: Actor,
+  ): Promise<ActiveGenerationResource[]> {
+    const orgIds = new Set<OrganizationId>();
+
+    if (this.systemOrganizationId && actor.role === "platform_admin") {
+      orgIds.add(this.systemOrganizationId);
+    }
+
+    if (this.orgStore && typeof this.orgStore.listMembershipsByUserId === "function") {
+      try {
+        const memberships = await this.orgStore.listMembershipsByUserId(actor.userId);
+        for (const m of memberships) {
+          if (m.organizationId) {
+            orgIds.add(m.organizationId);
+          }
+        }
+      } catch {
+        // Suppress and fallback
+      }
+    }
+
+    if (actor.role === "platform_admin" && this.orgStore) {
+      if (typeof (this.orgStore as any).listAll === "function") {
+        try {
+          const allOrgs = await (this.orgStore as any).listAll();
+          for (const o of allOrgs) {
+            if (o.id) orgIds.add(o.id);
+          }
+        } catch {
+          // Suppress
+        }
+      } else if (typeof (this.orgStore as any).listOrganizations === "function") {
+        try {
+          const allOrgs = await (this.orgStore as any).listOrganizations();
+          for (const o of allOrgs) {
+            if (o.id) orgIds.add(o.id);
+          }
+        } catch {
+          // Suppress
+        }
+      }
+    }
+
+    // Fallback if no orgs were found: check systemOrganizationId
+    if (orgIds.size === 0 && this.systemOrganizationId) {
+      orgIds.add(this.systemOrganizationId);
+    }
+
+    const itemsMap = new Map<DocumentId, ActiveGenerationResource>();
+
+    for (const orgId of orgIds) {
+      try {
+        const orgItems = await this.getActiveGenerations(actor, orgId);
+        for (const item of orgItems) {
+          if (!itemsMap.has(item.documentId)) {
+            itemsMap.set(item.documentId, item);
+          }
+        }
+      } catch {
+        // If actor is not authorized for this specific org, safely continue
+      }
+    }
+
+    const items = Array.from(itemsMap.values());
+
+    // Sort active ones first, then by lastActivityAt descending
+    items.sort((a, b) => {
+      const aActive =
+        a.status === "queued" ||
+        a.status === "planning" ||
+        a.status === "generating" ||
+        a.status === "stopping" ||
+        a.status === "deleting";
+      const bActive =
+        b.status === "queued" ||
+        b.status === "planning" ||
+        b.status === "generating" ||
+        b.status === "stopping" ||
+        b.status === "deleting";
+      if (aActive && !bActive) return -1;
+      if (!aActive && bActive) return 1;
+
+      const aTime = a.lastActivityAt ? new Date(a.lastActivityAt).getTime() : 0;
+      const bTime = b.lastActivityAt ? new Date(b.lastActivityAt).getTime() : 0;
+      return bTime - aTime;
+    });
+
+    return items;
+  }
+
+  /**
    * Return all currently active generation items for the current user and organization.
    * Scoped strictly to the actor's authorized documents and membership.
    */
@@ -3003,15 +3098,26 @@ export class GenerationService {
       const record = recordsMap.get(doc.id);
       let res = this.progressService.toResource(record, doc.status, doc.errorCode);
 
-      let isActive =
-        res.status === "queued" ||
-        res.status === "planning" ||
-        res.status === "generating" ||
+      // A document is only in active generation phase if it is in queued, planning, generating, stopping, or deleting.
+      // Reviewing, validating, publishing, ready, and completed are post-generation or completed phases and are NOT active generation.
+      const isPostGenerationOrCompleted =
         res.status === "reviewing" ||
-        res.status === "stopping" ||
-        res.status === "deleting" ||
-        doc.status === "generating" ||
-        doc.status === "pending_generation";
+        res.status === "completed" ||
+        res.status === "deleted" ||
+        res.stage === "review" ||
+        res.stage === "publishing" ||
+        doc.status === "review_pending" ||
+        doc.status === "ready";
+
+      let isActive =
+        !isPostGenerationOrCompleted &&
+        (res.status === "queued" ||
+          res.status === "planning" ||
+          res.status === "generating" ||
+          res.status === "stopping" ||
+          res.status === "deleting" ||
+          doc.status === "generating" ||
+          doc.status === "pending_generation");
 
       // If marked active, verify whether it is actually stale (abandoned worker / crashed process)
       if (isActive && res.status !== "stopping" && res.status !== "deleting") {
@@ -3055,10 +3161,11 @@ export class GenerationService {
         }
       }
 
-      const isStopped = res.status === "stopped";
-      // Include completed/failed within recent window so client indicator can show the completion toast/summary
+      const isStopped = !isPostGenerationOrCompleted && res.status === "stopped";
+      // Include failed within recent window so client indicator can show the failure state
       const isRecent =
-        (res.status === "completed" || res.status === "failed") &&
+        !isPostGenerationOrCompleted &&
+        res.status === "failed" &&
         ((res.lastActivityAt && now - new Date(res.lastActivityAt).getTime() < THREE_MINUTES_MS) ||
           (doc.updatedAt && now - new Date(doc.updatedAt).getTime() < THREE_MINUTES_MS));
 
@@ -3086,12 +3193,14 @@ export class GenerationService {
         a.status === "queued" ||
         a.status === "planning" ||
         a.status === "generating" ||
-        a.status === "reviewing";
+        a.status === "stopping" ||
+        a.status === "deleting";
       const bActive =
         b.status === "queued" ||
         b.status === "planning" ||
         b.status === "generating" ||
-        b.status === "reviewing";
+        b.status === "stopping" ||
+        b.status === "deleting";
       if (aActive && !bActive) return -1;
       if (!aActive && bActive) return 1;
 

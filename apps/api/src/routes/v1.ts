@@ -94,6 +94,8 @@ import {
   type BlogStore,
 } from "../modules/blog/index.js";
 
+import type { SmsProvider } from "../modules/identity/sms-service.js";
+
 export interface V1RouteOptions {
   config: IdentityPluginOptions["config"];
   sessionStore: SessionStore;
@@ -101,6 +103,7 @@ export interface V1RouteOptions {
   deviceStore?: DeviceStore;
   emailVerificationStore?: EmailVerificationStore;
   emailService?: EmailService;
+  smsProvider?: SmsProvider;
   organizationStore: OrganizationStore;
   courseStore?: CourseStore;
   moduleStore?: ModuleStore;
@@ -137,6 +140,7 @@ export interface V1RouteOptions {
   entitlementService?: EntitlementService;
   officialContentService?: OfficialContentService;
   blogStore?: BlogStore;
+  db?: import("@avana/database/client").DbClient;
 }
 
 export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
@@ -155,6 +159,7 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       deviceStore: opts.deviceStore,
       emailVerificationStore: opts.emailVerificationStore,
       emailService: opts.emailService,
+      smsProvider: opts.smsProvider,
       organizationStore: opts.organizationStore,
     });
   }
@@ -374,6 +379,7 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       quizQuestionStore: opts.quizQuestionStore,
       organizationStore: opts.organizationStore,
       auditService: opts.auditService,
+      db: opts.db,
     });
   }
 

@@ -39,6 +39,7 @@ export const users = pgTable(
     name: varchar("name", { length: 255 }).notNull(),
     globalRole: varchar("global_role", { length: 50 }),
     passwordHash: varchar("password_hash", { length: 255 }),
+    phoneNumber: varchar("phone_number", { length: 20 }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -47,9 +48,11 @@ export const users = pgTable(
       .notNull(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
     emailVerifiedAt: timestamp("email_verified_at", { withTimezone: true }),
+    phoneVerifiedAt: timestamp("phone_verified_at", { withTimezone: true }),
   },
   (table) => ({
     emailIdx: uniqueIndex("idx_users_email").on(table.email),
+    phoneIdx: uniqueIndex("idx_users_phone_number").on(table.phoneNumber),
     globalRoleIdx: index("idx_users_global_role").on(table.globalRole),
   }),
 );
@@ -64,6 +67,8 @@ export const emailVerificationCodes = pgTable(
     codeHash: varchar("code_hash", { length: 255 }).notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     attempts: integer("attempts").default(0).notNull(),
+    channel: varchar("channel", { length: 20 }).default("email").notNull(),
+    target: varchar("target", { length: 320 }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -74,6 +79,10 @@ export const emailVerificationCodes = pgTable(
     activeIdx: index("idx_email_verification_codes_active").on(
       table.userId,
       table.expiresAt,
+    ),
+    channelIdx: index("idx_email_verification_codes_channel").on(
+      table.userId,
+      table.channel,
     ),
   }),
 );

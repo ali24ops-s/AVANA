@@ -108,7 +108,12 @@ describe("Admin Documents API - Generation Progress Tracking", () => {
     const regRes = await app.inject({
       method: "POST",
       url: "/v1/auth/register",
-      payload: { email: "admin@avana.org", password: "Password123!" },
+      payload: {
+        name: "مدیر سیستم",
+        email: "admin@avana.org",
+        password: "Password123!",
+        phoneNumber: "09121110003",
+      },
     });
     adminToken = extractSessionToken(regRes) || "";
     const user = (regRes.json() as { user: { id: string } }).user;

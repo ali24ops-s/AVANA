@@ -79,6 +79,7 @@ describe("AVANA Authentication & Authorization Security Audit Suite", () => {
           email: "NewUser@Example.com",
           password: "mysecretpassword",
           name: "New User",
+          phoneNumber: "09121110031",
         },
       });
 
@@ -104,14 +105,24 @@ describe("AVANA Authentication & Authorization Security Audit Suite", () => {
       await app.inject({
         method: "POST",
         url: "/v1/auth/register",
-        payload: { email: "dupe@example.com", password: "password123" },
+        payload: {
+          email: "dupe@example.com",
+          password: "password123",
+          name: "First Dupe",
+          phoneNumber: "09121110032",
+        },
       });
 
       // Second registration with same email
       const res = await app.inject({
         method: "POST",
         url: "/v1/auth/register",
-        payload: { email: "DUPE@example.com", password: "password123" },
+        payload: {
+          email: "DUPE@example.com",
+          password: "password123",
+          name: "Second Dupe",
+          phoneNumber: "09121110033",
+        },
       });
 
       expect(res.statusCode).toBe(409);
@@ -128,7 +139,12 @@ describe("AVANA Authentication & Authorization Security Audit Suite", () => {
       const res = await app.inject({
         method: "POST",
         url: "/v1/auth/register",
-        payload: { email: "short@example.com", password: "short" },
+        payload: {
+          email: "short@example.com",
+          password: "short",
+          name: "Short User",
+          phoneNumber: "09121110034",
+        },
       });
 
       expect(res.statusCode).toBe(400);
@@ -190,7 +206,12 @@ describe("AVANA Authentication & Authorization Security Audit Suite", () => {
       await app.inject({
         method: "POST",
         url: "/v1/auth/register",
-        payload: { email: "user@example.com", password: "password123" },
+        payload: {
+          email: "user@example.com",
+          password: "password123",
+          name: "Whitespace User",
+          phoneNumber: "09121110035",
+        },
       });
 
       const res = await app.inject({
@@ -217,7 +238,12 @@ describe("AVANA Authentication & Authorization Security Audit Suite", () => {
       const regRes = await app.inject({
         method: "POST",
         url: "/v1/auth/register",
-        payload: { email: "logout_test@example.com", password: "password123" },
+        payload: {
+          email: "logout_test@example.com",
+          password: "password123",
+          name: "Logout User",
+          phoneNumber: "09121110036",
+        },
       });
       const sessionToken = extractCookie(regRes, "avana_session");
       expect(sessionToken).toBeDefined();
@@ -260,7 +286,12 @@ describe("AVANA Authentication & Authorization Security Audit Suite", () => {
       const userARes = await app.inject({
         method: "POST",
         url: "/v1/auth/register",
-        payload: { email: "usera@example.com", password: "password123" },
+        payload: {
+          email: "usera@example.com",
+          password: "password123",
+          name: "User A",
+          phoneNumber: "09121110037",
+        },
       });
       const userAToken = extractCookie(userARes, "avana_session")!;
       const userABody = JSON.parse(userARes.body);
@@ -269,7 +300,12 @@ describe("AVANA Authentication & Authorization Security Audit Suite", () => {
       const userBRes = await app.inject({
         method: "POST",
         url: "/v1/auth/register",
-        payload: { email: "userb@example.com", password: "password123" },
+        payload: {
+          email: "userb@example.com",
+          password: "password123",
+          name: "User B",
+          phoneNumber: "09121110038",
+        },
       });
       const userBToken = extractCookie(userBRes, "avana_session")!;
       const userBBody = JSON.parse(userBRes.body);

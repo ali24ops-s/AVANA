@@ -69,6 +69,19 @@ export type ApiConfig = {
     resendApiKey?: string;
     from: string;
   };
+  sms: {
+    provider: string;
+    apiUrl?: string;
+    apiKey?: string;
+    patternCode?: string;
+    timeoutMs?: number;
+    username?: string;
+    password?: string;
+    sender?: string;
+  };
+  auth: {
+    verificationSecret: string;
+  };
   systemOrganizationId: string;
   generation: {
     aiProvider: string;
@@ -301,6 +314,35 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
       ),
       resendApiKey: env.RESEND_API_KEY,
       from: getOptionalString(env, "EMAIL_FROM", "AVANA <onboarding@resend.dev>"),
+    },
+    sms: {
+      provider: getOptionalString(
+        env,
+        "SMS_PROVIDER",
+        nodeEnv === "test" ? "mock" : "console",
+      ).toLowerCase(),
+      apiUrl:
+        env.MEDIANA_API_URL ||
+        env.SMS_API_URL ||
+        "https://api.mediana.ir",
+      apiKey: env.MEDIANA_API_KEY || env.SMS_API_KEY,
+      patternCode:
+        env.MEDIANA_PATTERN_CODE ||
+        env.SMS_PATTERN_CODE,
+      timeoutMs:
+        env.MEDIANA_TIMEOUT_MS || env.SMS_TIMEOUT_MS
+          ? Number(env.MEDIANA_TIMEOUT_MS || env.SMS_TIMEOUT_MS)
+          : 10_000,
+      username: env.SMS_USERNAME,
+      password: env.SMS_PASSWORD,
+      sender: getOptionalString(env, "SMS_SENDER", "AVANA"),
+    },
+    auth: {
+      verificationSecret: getOptionalString(
+        env,
+        "VERIFICATION_SECRET",
+        "avana_verification_hmac_secret_2026_dev_key",
+      ),
     },
     systemOrganizationId: getOptionalString(
       env,

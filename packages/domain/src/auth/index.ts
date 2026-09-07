@@ -27,3 +27,11 @@ export {
 export type { CsrfConfig } from "./csrf.js";
 
 export { DEFAULT_CSRF_CONFIG, PRODUCTION_CSRF_CONFIG } from "./csrf.js";
+
+export type { PhoneValidationResult } from "./phone-validation.js";
+export {
+  convertEasternToAsciiDigits,
+  validateAndNormalizeIranPhone,
+  normalizeIranPhone,
+  isValidIranPhone,
+} from "./phone-validation.js";

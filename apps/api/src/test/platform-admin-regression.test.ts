@@ -109,15 +109,23 @@ describe("Platform Admin Authorization Regression Tests", () => {
     return app;
   }
 
+  let phoneCounter = 1000000;
   async function createAuthenticatedUser(
     app: Awaited<ReturnType<typeof buildApp>>,
     email: string,
     role: "student" | "teacher" | "platform_admin",
   ) {
+    phoneCounter++;
     const regRes = await app.inject({
       method: "POST",
       url: "/v1/auth/register",
-      payload: { email, password: "Password123!" },
+      payload: {
+        email,
+        password: "Password123!",
+        firstName: "ادمین",
+        lastName: "سیستم",
+        phoneNumber: `0912${String(phoneCounter).padStart(7, "0")}`,
+      },
     });
     const token = extractSessionToken(regRes);
     const user = (regRes.json() as { user: { id: string } }).user;
