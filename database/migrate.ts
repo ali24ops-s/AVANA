@@ -1,4 +1,5 @@
 /* eslint-disable no-console */
+import { loadMonorepoEnv } from "@avana/config";
 import { createDbClient } from "./client.js";
 import { up as up0001 } from "./migrations/0001_init.js";
 import { up as up0002 } from "./migrations/0002_auth.js";
@@ -49,6 +50,7 @@ function localConnectionString(): string {
   return `postgres://${user}:${password}@${host}:${port}/${db}`;
 }
 
+loadMonorepoEnv();
 const connectionString = process.env.DATABASE_URL ?? localConnectionString();
 
 async function runMigrations() {
