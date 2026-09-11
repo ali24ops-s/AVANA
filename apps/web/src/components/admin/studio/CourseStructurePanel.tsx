@@ -11,6 +11,7 @@ import {
   X,
 } from "lucide-react";
 import { api, type AdminCourseHierarchy, type AdminCourseHierarchyLesson } from "../../../lib/api/admin.js";
+import { toPersianDigits } from "@avana/domain";
 
 export interface CourseStructurePanelProps {
   courseId: string;
@@ -42,45 +43,45 @@ export function CourseStructurePanel({ courseId }: CourseStructurePanelProps) {
   return (
     <div className="space-y-6">
       {/* Header Info */}
-      <div className="bg-slate-900/60 rounded-3xl border border-slate-800 p-5 sm:p-6 shadow-xl space-y-2">
+      <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-5 sm:p-6 shadow-sm space-y-2">
         <div className="flex items-center justify-between">
-          <h3 className="text-base font-bold text-white flex items-center gap-2">
-            <Layers className="w-5 h-5 text-teal-400" />
+          <h3 className="text-base font-bold text-[var(--color-text)] flex items-center gap-2">
+            <Layers className="w-5 h-5 text-[var(--color-primary-default)]" />
             <span>ساختار و درخت محتوای دوره (Course Builder)</span>
           </h3>
-          <span className="text-xs font-semibold text-slate-400 bg-slate-800 px-3 py-1 rounded-xl border border-slate-700">
+          <span className="text-xs font-semibold text-[var(--color-text-muted)] bg-[var(--color-surface-warm)] px-3 py-1 rounded-full border border-[var(--color-border)]">
             {modules.length} فصل مصوب
           </span>
         </div>
-        <p className="text-xs text-slate-400">
+        <p className="text-xs text-[var(--color-text-muted)]">
           نمایش ماژول‌ها، درسنامه‌ها و اقلام آموزشی تاییدشده در پایگاه‌داده رسمی. محتوای هوش مصنوعی پس از تایید نهایی در این بخش ثبت می‌شود.
         </p>
       </div>
 
       {/* Loading state */}
       {hierarchyQuery.isLoading && (
-        <div className="py-16 flex flex-col items-center justify-center gap-3 text-slate-400 bg-slate-900/40 rounded-3xl border border-slate-800">
-          <Loader2 className="w-6 h-6 animate-spin text-teal-400" />
+        <div className="py-16 flex flex-col items-center justify-center gap-3 text-[var(--color-text-muted)] bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)]">
+          <Loader2 className="w-6 h-6 animate-spin text-[var(--color-primary-default)]" />
           <p className="text-xs">در حال بارگذاری ساختار دوره...</p>
         </div>
       )}
 
       {/* Error state */}
       {hierarchyQuery.isError && (
-        <div className="p-4 rounded-2xl bg-rose-950/40 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-3">
-          <AlertCircle className="w-5 h-5 shrink-0 text-rose-400" />
+        <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-700 dark:text-rose-300 text-xs flex items-center gap-3">
+          <AlertCircle className="w-5 h-5 shrink-0 text-rose-600 dark:text-rose-400" />
           <span>{hierarchyQuery.error?.message || "خطا در دریافت ساختار دوره"}</span>
         </div>
       )}
 
       {/* Empty State */}
       {!hierarchyQuery.isLoading && modules.length === 0 && (
-        <div className="bg-slate-900/40 rounded-3xl border border-slate-800/80 p-10 text-center space-y-3">
-          <BookOpen className="w-10 h-10 text-slate-600 mx-auto" />
-          <h4 className="text-sm font-bold text-slate-300">
+        <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-10 text-center space-y-3">
+          <BookOpen className="w-10 h-10 text-[var(--color-text-muted)] opacity-60 mx-auto" />
+          <h4 className="text-sm font-bold text-[var(--color-text)]">
             هنوز فصلی برای این دوره ثبت نهایی نشده است
           </h4>
-          <p className="text-xs text-slate-500 max-w-md mx-auto">
+          <p className="text-xs text-[var(--color-text-muted)] max-w-md mx-auto">
             پیش‌نویس‌های تولیدشده توسط هوش مصنوعی ابتدا در برگه «پیش‌نویس‌ها و بازبینی» بررسی می‌شوند و پس از «تایید رسمی دوره»، ساختار آموزشی در این بخش مستقر خواهد شد.
           </p>
         </div>
@@ -94,31 +95,31 @@ export function CourseStructurePanel({ courseId }: CourseStructurePanelProps) {
             return (
               <div
                 key={mod.id}
-                className="bg-slate-900/60 rounded-2xl border border-slate-800 overflow-hidden transition-all shadow-md"
+                className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] overflow-hidden transition-all shadow-sm"
               >
                 {/* Module Header */}
                 <button
                   type="button"
                   onClick={() => toggleModule(mod.id)}
-                  className="w-full p-4 sm:p-5 flex items-center justify-between hover:bg-slate-800/40 transition-colors text-right"
+                  className="w-full p-4 sm:p-5 flex items-center justify-between hover:bg-[var(--color-surface-warm)]/60 transition-colors text-right"
                 >
                   <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-xl bg-teal-950/50 border border-teal-500/30 text-teal-400 flex items-center justify-center font-bold text-xs">
+                    <div className="w-8 h-8 rounded-xl bg-[var(--color-primary-default)]/10 border border-[var(--color-primary-default)]/20 text-[var(--color-primary-default)] flex items-center justify-center font-bold text-xs">
                       {index + 1}
                     </div>
                     <div>
-                      <h4 className="font-bold text-sm text-slate-200">
+                      <h4 className="font-bold text-sm text-[var(--color-text)]">
                         {mod.title}
                       </h4>
-                      <p className="text-[11px] text-slate-400 mt-0.5">
-                        {mod.lessons.length} درسنامه
+                      <p className="text-[11px] text-[var(--color-text-muted)] mt-0.5">
+                        {toPersianDigits(mod.lessons.length)} درسنامه
                       </p>
                     </div>
                   </div>
 
                   <div className="flex items-center gap-2">
                     <ChevronDown
-                      className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${
+                      className={`w-4 h-4 text-[var(--color-text-muted)] transition-transform duration-200 ${
                         isExpanded ? "rotate-180" : ""
                       }`}
                     />
@@ -127,29 +128,29 @@ export function CourseStructurePanel({ courseId }: CourseStructurePanelProps) {
 
                 {/* Lessons in Module */}
                 {isExpanded && (
-                  <div className="border-t border-slate-800/80 bg-slate-950/40 divide-y divide-slate-800/50">
+                  <div className="border-t border-[var(--color-border)] bg-[var(--color-surface-warm)]/30 divide-y divide-[var(--color-border)]">
                     {mod.lessons.length === 0 ? (
-                      <div className="p-4 text-center text-xs text-slate-500">
+                      <div className="p-4 text-center text-xs text-[var(--color-text-muted)]">
                         درسی در این فصل وجود ندارد.
                       </div>
                     ) : (
                       mod.lessons.map((lesson, lIdx) => (
                         <div
                           key={lesson.id}
-                          className="p-3.5 sm:p-4 flex items-center justify-between gap-3 hover:bg-slate-800/30 transition-colors"
+                          className="p-3.5 sm:p-4 flex items-center justify-between gap-3 hover:bg-[var(--color-surface-warm)]/70 transition-colors"
                         >
                           <div className="flex items-center gap-3 min-w-0">
-                            <div className="w-6 h-6 rounded-lg bg-slate-800 border border-slate-700 text-slate-400 flex items-center justify-center text-[10px] font-bold shrink-0">
-                              {lIdx + 1}
+                            <div className="w-6 h-6 rounded-lg bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text-muted)] flex items-center justify-center text-[10px] font-bold shrink-0">
+                              {toPersianDigits(lIdx + 1)}
                             </div>
                             <div className="min-w-0">
-                              <div className="font-bold text-xs text-slate-200 truncate">
+                              <div className="font-bold text-xs text-[var(--color-text)] truncate">
                                 {lesson.title}
                               </div>
-                              <div className="flex flex-wrap items-center gap-2 text-[10px] text-slate-400 mt-0.5">
+                              <div className="flex flex-wrap items-center gap-2 text-[10px] text-[var(--color-text-muted)] mt-0.5">
                                 <span>
                                   وضعیت:{" "}
-                                  <span className="text-slate-300 font-semibold">
+                                  <span className="text-[var(--color-text)] font-semibold">
                                     {lesson.publicationStatus === "published"
                                       ? "منتشر شده"
                                       : "پیش‌نویس"}
@@ -158,11 +159,11 @@ export function CourseStructurePanel({ courseId }: CourseStructurePanelProps) {
                                 <span>•</span>
                                 <span>
                                   {lesson.hasContent ? (
-                                    <span className="text-emerald-400 font-bold">
+                                    <span className="text-emerald-600 dark:text-emerald-400 font-bold">
                                       ✓ دارای متن درس
                                     </span>
                                   ) : (
-                                    <span className="text-slate-500">بدون متن</span>
+                                    <span className="text-[var(--color-text-muted)]">بدون متن</span>
                                   )}
                                 </span>
                               </div>
@@ -172,23 +173,23 @@ export function CourseStructurePanel({ courseId }: CourseStructurePanelProps) {
                           {/* Stats Badges & View Content */}
                           <div className="flex items-center gap-2 shrink-0">
                             {lesson.flashcardCount > 0 && (
-                              <span className="px-2 py-0.5 rounded-lg bg-purple-950/40 border border-purple-500/30 text-purple-300 text-[10px] font-bold flex items-center gap-1">
-                                <Sparkles className="w-3 h-3 text-purple-400" />
-                                <span>{lesson.flashcardCount} کارت</span>
+                              <span className="px-2 py-0.5 rounded-lg bg-teal-500/10 border border-teal-500/20 text-teal-700 dark:text-teal-300 text-[10px] font-bold flex items-center gap-1">
+                                <Sparkles className="w-3 h-3 text-teal-600 dark:text-teal-400" />
+                                <span>{toPersianDigits(lesson.flashcardCount)} کارت</span>
                               </span>
                             )}
 
                             {lesson.quizCount > 0 && (
-                              <span className="px-2 py-0.5 rounded-lg bg-amber-950/40 border border-amber-500/30 text-amber-300 text-[10px] font-bold flex items-center gap-1">
-                                <HelpCircle className="w-3 h-3 text-amber-400" />
-                                <span>{lesson.quizCount} سؤال</span>
+                              <span className="px-2 py-0.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-300 text-[10px] font-bold flex items-center gap-1">
+                                <HelpCircle className="w-3 h-3 text-amber-600 dark:text-amber-400" />
+                                <span>{toPersianDigits(lesson.quizCount)} سؤال</span>
                               </span>
                             )}
 
                             <button
                               type="button"
                               onClick={() => setPreviewLesson(lesson)}
-                              className="px-2.5 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-bold transition-colors"
+                              className="px-2.5 py-1 rounded-xl bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-[var(--color-text)] text-xs font-bold transition-colors"
                             >
                               مشاهده
                             </button>
@@ -206,19 +207,19 @@ export function CourseStructurePanel({ courseId }: CourseStructurePanelProps) {
 
       {/* Lesson Details Preview Modal */}
       {previewLesson && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-in fade-in">
-          <div className="w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl space-y-5">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+          <div className="w-full max-w-2xl bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl p-6 shadow-2xl space-y-5">
+            <div className="flex items-center justify-between border-b border-[var(--color-border)] pb-4">
               <div>
-                <h3 className="font-bold text-lg text-white">{previewLesson.title}</h3>
-                <p className="text-xs text-slate-400 mt-0.5">
+                <h3 className="font-bold text-lg text-[var(--color-text)]">{previewLesson.title}</h3>
+                <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
                   شناسه درس: {previewLesson.id}
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setPreviewLesson(null)}
-                className="text-slate-400 hover:text-white"
+                className="text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -226,29 +227,29 @@ export function CourseStructurePanel({ courseId }: CourseStructurePanelProps) {
 
             <div className="space-y-4">
               <div className="flex flex-wrap gap-2 text-xs">
-                <span className="px-3 py-1 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 font-bold">
-                  فلش‌کارت‌های مرتبط: {previewLesson.flashcardCount}
+                <span className="px-3 py-1 rounded-xl bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-[var(--color-text-muted)] font-bold">
+                  فلش‌کارت‌های مرتبط: {toPersianDigits(previewLesson.flashcardCount)}
                 </span>
-                <span className="px-3 py-1 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 font-bold">
-                  سؤالات تستی مرتبط: {previewLesson.quizCount}
+                <span className="px-3 py-1 rounded-xl bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-[var(--color-text-muted)] font-bold">
+                  سؤالات تستی مرتبط: {toPersianDigits(previewLesson.quizCount)}
                 </span>
-                <span className="px-3 py-1 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 font-bold">
+                <span className="px-3 py-1 rounded-xl bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-[var(--color-text-muted)] font-bold">
                   وضعیت محتوا: {previewLesson.hasContent ? "تکمیل شده" : "فاقد متن"}
                 </span>
               </div>
 
-              <div className="p-4 bg-slate-950/60 rounded-2xl border border-slate-800 text-xs text-slate-300 max-h-80 overflow-y-auto">
-                <p className="text-slate-400">
+              <div className="p-4 bg-[var(--color-surface-warm)]/50 rounded-xl border border-[var(--color-border)] text-xs text-[var(--color-text)] max-h-80 overflow-y-auto">
+                <p className="text-[var(--color-text-muted)]">
                   درسنامه با موفقیت در ساختار رسمی دوره مستقر شده است و تمامی ارجاعات کارت‌ها و آزمون‌ها به این شناسه نگاشت شده‌اند.
                 </p>
               </div>
             </div>
 
-            <div className="flex justify-end pt-3 border-t border-slate-800">
+            <div className="flex justify-end pt-3 border-t border-[var(--color-border)]">
               <button
                 type="button"
                 onClick={() => setPreviewLesson(null)}
-                className="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold"
+                className="px-5 py-2.5 rounded-xl bg-[var(--color-surface-warm)] hover:bg-[var(--color-surface-card)] text-[var(--color-text)] border border-[var(--color-border)] text-xs font-bold transition-colors"
               >
                 بستن
               </button>

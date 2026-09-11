@@ -565,6 +565,7 @@ export class InMemoryQuizAttemptStore implements QuizAttemptStore {
   async listByUser(userId: UserId): Promise<QuizAttemptRecord[]> {
     return Array.from(this.attempts.values())
       .filter((a) => a.userId === userId)
+      .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())
       .map((a) => ({ ...a }));
   }
 

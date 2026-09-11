@@ -209,7 +209,6 @@ export const TERMS_SECTIONS: TermsSection[] = [
       "قیمت، مدت اعتبار، سطح دسترسی و امکانات هر پلن پیش از انجام تراکنش به صورت شفاف به کاربر نمایش داده می‌شود.",
       "دسترسی به خدمات پس از تکمیل فرآیند پرداخت فعال می‌گردد.",
       "شرایط اختصاصی مربوط به هر خرید در زمان سفارش به اطلاع کاربر می‌رسد.",
-      "در صورت بروز هرگونه اشکال در پرداخت یا فعال‌سازی دسترسی، تیم پشتیبانی آوانا پاسخگوی درخواست‌های کاربران خواهد بود.",
       "درخواست‌های احتمالی لغو یا بازگشت وجه، با توجه به شرایط اعلام‌شده در زمان خرید توسط بخش پشتیبانی بررسی و پیگیری می‌شود.",
     ],
   },
@@ -337,16 +336,16 @@ export function TermsPage() {
 
   return (
     <div
-      className="min-h-screen bg-[#0b1120] text-slate-200 font-sans selection:bg-teal-700/50 selection:text-teal-200"
+      className="min-h-screen bg-[var(--color-bg-default)] text-[var(--color-text)] font-body selection:bg-[#008080]/20 selection:text-[#008080]"
       dir="rtl"
     >
       {/* 1. Header Navigation Bar */}
-      <header className="sticky top-0 z-40 glass-panel border-b border-white/10 w-full shadow-ambient backdrop-blur-md">
+      <header className="sticky top-0 z-40 bg-[var(--color-surface)]/90 border-b border-[var(--color-border)] w-full shadow-xs backdrop-blur-xl">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between gap-4">
           <div className="flex items-center gap-4">
             <BrandLogo linkTo="/" variant="logo-only" size="md" />
-            <div className="hidden sm:flex items-center gap-2 pr-4 border-r border-white/10 text-xs font-semibold text-slate-400">
-              <FileText className="w-4 h-4 text-teal-400" />
+            <div className="hidden sm:flex items-center gap-2 pr-4 border-r border-[var(--color-border)] text-xs font-semibold text-[var(--color-text-muted)]">
+              <FileText className="w-4 h-4 text-[#008080]" />
               <span>مستندات قانونی و شرایط استفاده</span>
             </div>
           </div>
@@ -354,7 +353,7 @@ export function TermsPage() {
           <div className="flex items-center gap-3">
             <Link
               to="/"
-              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold text-slate-300 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 transition-all cursor-pointer"
+              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-[10px] text-xs sm:text-sm font-semibold text-[var(--color-text)] hover:text-[#008080] bg-[var(--color-surface-warm)] hover:bg-slate-200/70 border border-[var(--color-border)] transition-all cursor-pointer"
             >
               <span>بازگشت به صفحه اصلی</span>
               <ArrowRight className="w-4 h-4" />
@@ -364,30 +363,30 @@ export function TermsPage() {
       </header>
 
       {/* 2. Hero Section */}
-      <section className="relative overflow-hidden pt-12 pb-10 border-b border-white/5 bg-gradient-to-b from-slate-900/80 via-slate-950/60 to-[#0b1120]">
+      <section className="relative overflow-hidden pt-12 pb-10 border-b border-[var(--color-border)] bg-gradient-to-b from-[var(--color-surface-warm)] via-[var(--color-bg-default)] to-[var(--color-bg-default)]">
         {/* Subtle Background Glows */}
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[250px] bg-teal-500/10 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute top-0 right-1/4 w-[350px] h-[200px] bg-purple-500/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[250px] bg-[#008080]/5 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute top-0 right-1/4 w-[350px] h-[200px] bg-purple-500/5 rounded-full blur-3xl pointer-events-none" />
 
         <div className="relative max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 text-center space-y-4">
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-teal-500/10 text-teal-400 border border-teal-500/30 text-xs font-bold shadow-sm">
-            <ShieldCheck className="w-4 h-4 text-teal-300" />
+          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#008080]/10 text-[#008080] border border-[#008080]/20 text-xs font-bold shadow-xs">
+            <ShieldCheck className="w-4 h-4 text-[#008080]" />
             <span>ضوابط و شرایط استفاده رسمی</span>
           </div>
 
-          <h1 className="text-2xl sm:text-4xl lg:text-5xl font-black text-white tracking-tight leading-tight">
+          <h1 className="text-2xl sm:text-4xl lg:text-5xl font-black text-[var(--color-text)] tracking-tight leading-tight">
             قوانین و مقررات استفاده از آوانا
           </h1>
 
-          <p className="text-xs sm:text-base text-slate-300 max-w-2xl mx-auto leading-relaxed">
+          <p className="text-xs sm:text-base text-[var(--color-text-muted)] max-w-2xl mx-auto leading-relaxed">
             لطفاً پیش از استفاده از خدمات، محتوا و ابزارهای سامانه هوشمند آموزش داروسازی آوانا، شرایط و ضوابط زیر را با دقت مطالعه فرمایید.
           </p>
 
-          <div className="pt-2 flex items-center justify-center gap-2 text-xs text-slate-400">
-            <Calendar className="w-3.5 h-3.5 text-teal-400" />
+          <div className="pt-2 flex items-center justify-center gap-2 text-xs text-[var(--color-text-muted)]">
+            <Calendar className="w-3.5 h-3.5 text-[#008080]" />
             <span className="font-medium">
               آخرین به‌روزرسانی:{" "}
-              <strong className="text-slate-200 font-bold" data-testid="last-updated-date">
+              <strong className="text-[var(--color-text)] font-bold" data-testid="last-updated-date">
                 {TERMS_LAST_UPDATED.fullDisplay}
               </strong>
             </span>
@@ -396,9 +395,9 @@ export function TermsPage() {
       </section>
 
       {/* 3. Mobile Table of Contents Quick Navigator */}
-      <div className="lg:hidden sticky top-20 z-30 bg-[#0b1120]/95 backdrop-blur-md border-b border-white/10 px-4 py-3">
+      <div className="lg:hidden sticky top-20 z-30 bg-[var(--color-surface)]/95 backdrop-blur-md border-b border-[var(--color-border)] px-4 py-3">
         <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
-          <span className="text-[11px] font-bold text-slate-400 shrink-0 ml-1">
+          <span className="text-[11px] font-bold text-[var(--color-text-muted)] shrink-0 ml-1">
             فهرست بخش‌ها:
           </span>
           {TERMS_SECTIONS.map((sec) => {
@@ -407,10 +406,10 @@ export function TermsPage() {
               <button
                 key={sec.id}
                 onClick={() => scrollToSection(sec.id)}
-                className={`text-[11px] font-semibold px-2.5 py-1 rounded-lg shrink-0 transition-all cursor-pointer ${
+                className={`text-[11px] font-semibold px-2.5 py-1 rounded-[6px] shrink-0 transition-all cursor-pointer ${
                   isActive
-                    ? "bg-teal-500/20 text-teal-300 border border-teal-500/40"
-                    : "bg-white/5 text-slate-300 hover:bg-white/10 hover:text-white border border-transparent"
+                    ? "bg-[#008080]/15 text-[#008080] border border-[#008080]/30 font-bold"
+                    : "bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] border border-[var(--color-border)]"
                 }`}
               >
                 {sec.number}. {sec.title}
@@ -425,9 +424,9 @@ export function TermsPage() {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           {/* Desktop Sticky Table of Contents (Right side in RTL) */}
           <aside className="hidden lg:block lg:col-span-4 sticky top-28 space-y-4">
-            <div className="glass-panel card-inner-border rounded-2xl p-5 shadow-ambient">
-              <div className="flex items-center gap-2 text-sm font-black text-white pb-3 mb-3 border-b border-white/10">
-                <Layers className="w-4 h-4 text-teal-400" />
+            <div className="rounded-[16px] bg-[var(--color-surface)] border border-[var(--color-border)] p-5 shadow-xs">
+              <div className="flex items-center gap-2 text-sm font-black text-[var(--color-text)] pb-3 mb-3 border-b border-[var(--color-border)]">
+                <Layers className="w-4 h-4 text-[#008080]" />
                 <span>فهرست عناوین و بخش‌ها</span>
               </div>
 
@@ -439,25 +438,25 @@ export function TermsPage() {
                     <button
                       key={sec.id}
                       onClick={() => scrollToSection(sec.id)}
-                      className={`w-full text-right flex items-center justify-between gap-3 px-3 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                      className={`w-full text-right flex items-center justify-between gap-3 px-3 py-2 rounded-[8px] text-xs font-semibold transition-all cursor-pointer ${
                         isActive
-                          ? "bg-teal-500/15 text-teal-300 border border-teal-500/30 shadow-sm"
-                          : "text-slate-400 hover:text-slate-200 hover:bg-white/5 border border-transparent"
+                          ? "bg-[#008080]/10 text-[#008080] border border-[#008080]/25 shadow-xs font-bold"
+                          : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-slate-100/70 border border-transparent"
                       }`}
                     >
                       <div className="flex items-center gap-2.5 min-w-0">
                         <Icon
                           className={`w-3.5 h-3.5 shrink-0 ${
-                            isActive ? "text-teal-400" : "text-slate-500"
-                          } ${sec.isCriticalAlert ? "text-amber-400" : ""}`}
+                            isActive ? "text-[#008080]" : "text-[var(--color-text-muted)]"
+                          } ${sec.isCriticalAlert ? "text-amber-600" : ""}`}
                         />
                         <span className="truncate">{sec.title}</span>
                       </div>
                       <span
-                        className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-md ${
+                        className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-[4px] ${
                           isActive
-                            ? "bg-teal-400/20 text-teal-200"
-                            : "bg-white/5 text-slate-500"
+                            ? "bg-[#008080]/20 text-[#008080]"
+                            : "bg-[var(--color-surface-warm)] text-[var(--color-text-muted)]"
                         }`}
                       >
                         بخش {sec.number}
@@ -479,25 +478,25 @@ export function TermsPage() {
                   <article
                     key={section.id}
                     id={section.id}
-                    className="rounded-3xl border-2 border-amber-500/40 bg-gradient-to-b from-amber-950/30 via-slate-900/90 to-slate-900 p-6 sm:p-8 shadow-xl shadow-amber-950/20 space-y-6 scroll-mt-28"
+                    className="rounded-[16px] border-2 border-amber-300 bg-amber-50/60 p-6 sm:p-8 shadow-xs space-y-6 scroll-mt-28"
                     aria-labelledby={`heading-${section.id}`}
                   >
                     {/* Header */}
                     <div className="flex items-start gap-4">
-                      <div className="w-12 h-12 rounded-2xl bg-amber-500/20 border border-amber-500/40 text-amber-400 flex items-center justify-center shrink-0 shadow-md">
+                      <div className="w-12 h-12 rounded-[12px] bg-amber-100 border border-amber-300 text-amber-700 flex items-center justify-center shrink-0 shadow-xs">
                         <Icon className="w-6 h-6" />
                       </div>
                       <div className="space-y-1">
-                        <div className="inline-flex items-center gap-2 text-xs font-bold text-amber-400">
+                        <div className="inline-flex items-center gap-2 text-xs font-bold text-amber-700">
                           <span>بخش {section.number}</span>
                           <span>•</span>
-                          <span className="bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-full text-[10px] font-black border border-amber-500/30">
+                          <span className="bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full text-[10px] font-black border border-amber-300">
                             اخطار ویژه و بسیار مهم
                           </span>
                         </div>
                         <h2
                           id={`heading-${section.id}`}
-                          className="text-xl sm:text-2xl font-black text-amber-100 tracking-tight"
+                          className="text-xl sm:text-2xl font-black text-amber-950 tracking-tight"
                         >
                           {section.title}
                         </h2>
@@ -506,7 +505,7 @@ export function TermsPage() {
 
                     {/* Intro */}
                     {section.intro && (
-                      <p className="text-xs sm:text-sm text-amber-200/90 leading-relaxed font-medium">
+                      <p className="text-xs sm:text-sm text-amber-900 leading-relaxed font-medium">
                         {section.intro}
                       </p>
                     )}
@@ -516,18 +515,18 @@ export function TermsPage() {
                       {section.subsections?.map((sub, sIdx) => (
                         <div
                           key={sIdx}
-                          className="p-4 sm:p-5 rounded-2xl bg-amber-950/20 border border-amber-500/20 space-y-2.5"
+                          className="p-4 sm:p-5 rounded-[12px] bg-white border border-amber-200 space-y-2.5 shadow-xs"
                         >
                           {sub.subtitle && (
-                            <h3 className="text-xs sm:text-sm font-bold text-amber-300 flex items-center gap-2">
-                              <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                            <h3 className="text-xs sm:text-sm font-bold text-amber-800 flex items-center gap-2">
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
                               <span>{sub.subtitle}</span>
                             </h3>
                           )}
                           {sub.paragraphs?.map((p, pIdx) => (
                             <p
                               key={pIdx}
-                              className="text-xs sm:text-sm text-slate-300 leading-relaxed"
+                              className="text-xs sm:text-sm text-amber-950/80 leading-relaxed"
                             >
                               {p}
                             </p>
@@ -543,21 +542,21 @@ export function TermsPage() {
                 <article
                   key={section.id}
                   id={section.id}
-                  className="rounded-3xl glass-panel card-inner-border p-6 sm:p-8 space-y-5 shadow-ambient scroll-mt-28"
+                  className="rounded-[16px] bg-[var(--color-surface)] border border-[var(--color-border)] p-6 sm:p-8 space-y-5 shadow-xs scroll-mt-28"
                   aria-labelledby={`heading-${section.id}`}
                 >
                   {/* Section Title */}
-                  <div className="flex items-center gap-3.5 pb-4 border-b border-white/10">
-                    <div className="w-10 h-10 rounded-xl bg-teal-500/10 border border-teal-500/20 text-teal-400 flex items-center justify-center shrink-0">
+                  <div className="flex items-center gap-3.5 pb-4 border-b border-[var(--color-border)]">
+                    <div className="w-10 h-10 rounded-[10px] bg-[#008080]/10 border border-[#008080]/20 text-[#008080] flex items-center justify-center shrink-0">
                       <Icon className="w-5 h-5" />
                     </div>
                     <div>
-                      <span className="text-[11px] font-bold text-teal-400 block">
+                      <span className="text-[11px] font-bold text-[#008080] block">
                         بخش {section.number}
                       </span>
                       <h2
                         id={`heading-${section.id}`}
-                        className="text-lg sm:text-xl font-bold text-white tracking-tight"
+                        className="text-lg sm:text-xl font-bold text-[var(--color-text)] tracking-tight"
                       >
                         {section.title}
                       </h2>
@@ -566,7 +565,7 @@ export function TermsPage() {
 
                   {/* Intro */}
                   {section.intro && (
-                    <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+                    <p className="text-xs sm:text-sm text-[var(--color-text)] leading-relaxed">
                       {section.intro}
                     </p>
                   )}
@@ -577,9 +576,9 @@ export function TermsPage() {
                       {section.items.map((item, idx) => (
                         <li
                           key={idx}
-                          className="flex items-start gap-3 text-xs sm:text-sm text-slate-300 leading-relaxed"
+                          className="flex items-start gap-3 text-xs sm:text-sm text-[var(--color-text)] leading-relaxed"
                         >
-                          <span className="w-1.5 h-1.5 rounded-full bg-teal-400 mt-2 shrink-0" />
+                          <span className="w-1.5 h-1.5 rounded-full bg-[#008080] mt-2 shrink-0" />
                           <span>{item}</span>
                         </li>
                       ))}
@@ -592,17 +591,17 @@ export function TermsPage() {
                       {section.subsections.map((sub, subIdx) => (
                         <div
                           key={subIdx}
-                          className="p-4 rounded-xl bg-slate-900/60 border border-white/5 space-y-2"
+                          className="p-4 rounded-[10px] bg-[var(--color-surface-warm)] border border-[var(--color-border)] space-y-2"
                         >
                           {sub.subtitle && (
-                            <h3 className="text-xs sm:text-sm font-bold text-teal-300">
+                            <h3 className="text-xs sm:text-sm font-bold text-[#008080]">
                               {sub.subtitle}
                             </h3>
                           )}
                           {sub.paragraphs?.map((p, pIdx) => (
                             <p
                               key={pIdx}
-                              className="text-xs sm:text-sm text-slate-400 leading-relaxed"
+                              className="text-xs sm:text-sm text-[var(--color-text-muted)] leading-relaxed"
                             >
                               {p}
                             </p>
@@ -616,19 +615,19 @@ export function TermsPage() {
             })}
 
             {/* Bottom Support Callout */}
-            <div className="rounded-3xl glass-panel border border-teal-500/30 bg-gradient-to-r from-teal-950/40 via-slate-900 to-slate-900/80 p-6 sm:p-8 flex flex-col sm:flex-row items-center justify-between gap-6">
+            <div className="rounded-[16px] border border-[var(--color-border)] bg-gradient-to-r from-teal-50/80 via-[var(--color-surface-warm)] to-[var(--color-surface-warm)] p-6 sm:p-8 flex flex-col sm:flex-row items-center justify-between gap-6 shadow-xs">
               <div className="space-y-2 text-center sm:text-right">
-                <h3 className="text-base sm:text-lg font-bold text-white">
+                <h3 className="text-base sm:text-lg font-bold text-[var(--color-text)]">
                   نیاز به راهنمایی یا مشاوره بیشتر دارید؟
                 </h3>
-                <p className="text-xs sm:text-sm text-slate-300 max-w-xl">
+                <p className="text-xs sm:text-sm text-[var(--color-text-muted)] max-w-xl">
                   تیم پشتیبانی آوانا آماده پاسخگویی به هرگونه ابهام، سوال یا درخواست شما درباره شرایط و قوانین سامانه است.
                 </p>
               </div>
 
               <Link
                 to="/"
-                className="shrink-0 px-5 py-3 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-xs sm:text-sm font-bold shadow-lg shadow-teal-900/40 transition-all cursor-pointer flex items-center gap-2"
+                className="shrink-0 px-5 py-3 rounded-[10px] bg-[#008080] hover:bg-[#006666] active:bg-[#005050] text-white text-xs sm:text-sm font-bold shadow-sm transition-all cursor-pointer flex items-center gap-2"
               >
                 <span>بازگشت به صفحه اصلی</span>
                 <ArrowRight className="w-4 h-4" />
@@ -643,22 +642,22 @@ export function TermsPage() {
         <button
           onClick={scrollToTop}
           aria-label="بازگشت به بالای صفحه"
-          className="fixed bottom-6 left-6 z-50 p-3 rounded-full bg-teal-600 hover:bg-teal-500 text-white shadow-xl shadow-teal-950/60 border border-teal-400/30 transition-all cursor-pointer hover:scale-105 active:scale-95"
+          className="fixed bottom-6 left-6 z-50 p-3 rounded-full bg-[#008080] hover:bg-[#006666] text-white shadow-lg border border-[#008080]/30 transition-all cursor-pointer hover:scale-105 active:scale-95"
         >
           <ChevronUp className="w-5 h-5" />
         </button>
       )}
 
       {/* 6. Footer */}
-      <footer className="w-full border-t border-white/10 py-8 px-6 text-center text-xs text-slate-400 mt-12 bg-slate-950/60">
+      <footer className="w-full border-t border-[var(--color-border)] py-8 px-6 text-center text-xs text-[var(--color-text-muted)] mt-12 bg-[var(--color-surface)]">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
           <BrandLogo linkTo="/" variant="wordmark-only" size="sm" />
           <p>© ۲۰۲۶ آوانا. تمامی حقوق مادی و معنوی برای پلتفرم آموزشی آوانا محفوظ است.</p>
           <div className="flex items-center gap-4 text-xs">
-            <Link to="/terms" className="text-teal-400 font-medium hover:underline">
+            <Link to="/terms" className="text-[#008080] font-medium hover:underline">
               قوانین و مقررات
             </Link>
-            <Link to="/" className="text-slate-400 hover:text-slate-200">
+            <Link to="/" className="text-[var(--color-text-muted)] hover:text-[var(--color-text)]">
               صفحه اصلی
             </Link>
           </div>

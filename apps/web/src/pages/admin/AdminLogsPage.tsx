@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../../lib/api/admin";
 import { AdminTable, AdminPagination, AdminFilter, AdminLoadingState, AdminEmptyState, AdminErrorState } from "../../components/admin/AdminUI";
+import { FileText } from "lucide-react";
 
 interface SystemLogRecord {
   id: string;
@@ -42,13 +43,17 @@ export function AdminLogsPage() {
   }, [page, level]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" dir="rtl">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-100">لاگ سیستم</h1>
-          <p className="text-sm text-slate-400 mt-1">مشاهده خطاهای سیستم (Redacted)</p>
+          <h1 className="text-2xl font-bold text-[var(--color-text)] flex items-center gap-3">
+            <FileText className="w-6 h-6 text-[var(--color-primary-default)]" />
+            لاگ‌های سیستم
+          </h1>
+          <p className="text-sm text-[var(--color-text-muted)] mt-1">مشاهده رویدادها و خطاهای سیستم (Redacted)</p>
         </div>
         <AdminFilter
+          label="سطح رویداد:"
           value={level}
           onChange={(v) => { setLevel(v); setPage(1); }}
           options={[
@@ -63,11 +68,21 @@ export function AdminLogsPage() {
       <AdminTable headers={["زمان", "سطح", "سرویس", "پیام"]}>
         {loading ? <AdminLoadingState colSpan={4} /> : error ? <AdminErrorState message={error} colSpan={4} /> : logs.length === 0 ? <AdminEmptyState message="لاگی یافت نشد (سیستم فعلاً Logs روی DB ذخیره نمی‌کند)." /> : (
           logs.map(log => (
-            <tr key={log.id} className="hover:bg-white/5">
-              <td className="px-6 py-4 text-slate-400" dir="ltr">{new Date(log.timestamp).toLocaleString("fa-IR")}</td>
-              <td className="px-6 py-4"><span className={`px-2 py-1 rounded text-xs ${log.level === 'ERROR' ? 'bg-red-500/20 text-red-400' : 'bg-slate-700 text-slate-300'}`}>{log.level}</span></td>
-              <td className="px-6 py-4 text-slate-400">{log.service}</td>
-              <td className="px-6 py-4 truncate max-w-md">{log.message}</td>
+            <tr key={log.id} className="hover:bg-[var(--color-surface-subtle)] transition-colors">
+              <td className="px-6 py-4 text-xs font-mono text-[var(--color-text-muted)]" dir="ltr">{new Date(log.timestamp).toLocaleString("fa-IR")}</td>
+              <td className="px-6 py-4">
+                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${
+                  log.level === 'ERROR'
+                    ? 'bg-rose-500/10 border-rose-500/20 text-rose-600 dark:text-rose-400'
+                    : log.level === 'WARNING'
+                    ? 'bg-amber-500/10 border-amber-500/20 text-amber-600 dark:text-amber-400'
+                    : 'bg-sky-500/10 border-sky-500/20 text-sky-600 dark:text-sky-400'
+                }`} dir="ltr">
+                  {log.level}
+                </span>
+              </td>
+              <td className="px-6 py-4 text-xs font-mono text-[var(--color-text-muted)]" dir="ltr">{log.service || "-"}</td>
+              <td className="px-6 py-4 text-sm text-[var(--color-text)] truncate max-w-md">{log.message}</td>
             </tr>
           ))
         )}

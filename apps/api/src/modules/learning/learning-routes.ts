@@ -132,12 +132,20 @@ export const learningRoutes: FastifyPluginAsync<LearningRouteOptions> = async (
     async (request, _reply) => {
       const actor = getActor(request);
       const params = request.params as { courseId: string };
+      const query = (request.query || {}) as {
+        moduleId?: string;
+        previewSessionId?: string;
+      };
       const courseId = getCourseId(params);
 
       const result = await learningService.getCourseLearning(
         actor,
         courseId,
         request.id,
+        {
+          moduleId: query.moduleId,
+          previewSessionId: query.previewSessionId,
+        },
       );
 
       return result;

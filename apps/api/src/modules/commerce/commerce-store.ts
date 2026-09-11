@@ -132,12 +132,12 @@ export interface CommerceStore {
   submitCardToCardTransaction(params: {
     order: OrderRecord;
     payment: PaymentRecord;
-    subscription: UserSubscriptionRecord;
+    subscription?: UserSubscriptionRecord;
     entitlement: UserEntitlementRecord;
   }): Promise<{
     order: OrderRecord;
     payment: PaymentRecord;
-    subscription: UserSubscriptionRecord;
+    subscription?: UserSubscriptionRecord;
     entitlement: UserEntitlementRecord;
   }>;
 }
@@ -731,12 +731,12 @@ export class DrizzleCommerceStore implements CommerceStore {
   async submitCardToCardTransaction(params: {
     order: OrderRecord;
     payment: PaymentRecord;
-    subscription: UserSubscriptionRecord;
+    subscription?: UserSubscriptionRecord;
     entitlement: UserEntitlementRecord;
   }): Promise<{
     order: OrderRecord;
     payment: PaymentRecord;
-    subscription: UserSubscriptionRecord;
+    subscription?: UserSubscriptionRecord;
     entitlement: UserEntitlementRecord;
   }> {
     return this.db.transaction(async (tx) => {
@@ -788,21 +788,27 @@ export class DrizzleCommerceStore implements CommerceStore {
         })
         .returning();
 
-      // 3. Insert Subscription (status: active_pending_payment_review)
-      const [createdSub] = await tx
-        .insert(userSubscriptions)
-        .values({
-          id: params.subscription.id,
-          userId: params.subscription.userId,
-          productId: params.subscription.productId,
-          orderId: params.subscription.orderId,
-          status: params.subscription.status,
-          startedAt: new Date(params.subscription.startedAt),
-          expiresAt: new Date(params.subscription.expiresAt),
-          createdAt: new Date(params.subscription.createdAt),
-          updatedAt: new Date(params.subscription.updatedAt),
-        })
-        .returning();
+      // 3. Insert Subscription if applicable (status: active_pending_payment_review)
+      let mappedSub: UserSubscriptionRecord | undefined;
+      if (params.subscription) {
+        const [createdSub] = await tx
+          .insert(userSubscriptions)
+          .values({
+            id: params.subscription.id,
+            userId: params.subscription.userId,
+            productId: params.subscription.productId,
+            orderId: params.subscription.orderId,
+            status: params.subscription.status,
+            startedAt: new Date(params.subscription.startedAt),
+            expiresAt: new Date(params.subscription.expiresAt),
+            createdAt: new Date(params.subscription.createdAt),
+            updatedAt: new Date(params.subscription.updatedAt),
+          })
+          .returning();
+        if (createdSub) {
+          mappedSub = this.mapSubscription(createdSub);
+        }
+      }
 
       // 4. Grant Entitlement
       const ent = params.entitlement;
@@ -834,7 +840,9 @@ export class DrizzleCommerceStore implements CommerceStore {
             and(
               eq(userEntitlements.userId, ent.userId),
               eq(userEntitlements.resourceType, ent.resourceType),
-              isNull(userEntitlements.resourceId),
+              ent.resourceId
+                ? eq(userEntitlements.resourceId, ent.resourceId)
+                : isNull(userEntitlements.resourceId),
             ),
           )
           .limit(1);
@@ -844,7 +852,7 @@ export class DrizzleCommerceStore implements CommerceStore {
       return {
         order: this.mapOrder(createdOrder),
         payment: this.mapPayment(createdPayment),
-        subscription: this.mapSubscription(createdSub),
+        subscription: mappedSub,
         entitlement: finalEnt,
       };
     });
@@ -1040,7 +1048,7 @@ export class InMemoryCommerceStore implements CommerceStore {
       (x) =>
         x.targetType === targetType &&
         x.targetId === targetId &&
-        x.active &&
+        ((x as any).active ?? (x as any).isActive ?? true) &&
         x.deletedAt === null,
     );
     return p ? { ...p } : null;
@@ -1061,13 +1069,17 @@ export class InMemoryCommerceStore implements CommerceStore {
 
   async listActiveProducts(): Promise<ProductRecord[]> {
     return this.products
-      .filter((x) => x.active && x.deletedAt === null)
+      .filter((x) => ((x as any).active ?? (x as any).isActive ?? true) && x.deletedAt === null)
       .map((p) => ({ ...p }));
   }
 
   async createProduct(product: ProductRecord): Promise<ProductRecord> {
-    this.products.push({ ...product });
-    return { ...product };
+    const record: ProductRecord = {
+      ...product,
+      active: (product as any).active ?? (product as any).isActive ?? true,
+    };
+    this.products.push(record);
+    return { ...record };
   }
 
   async updateProduct(
@@ -1317,17 +1329,19 @@ export class InMemoryCommerceStore implements CommerceStore {
   async submitCardToCardTransaction(params: {
     order: OrderRecord;
     payment: PaymentRecord;
-    subscription: UserSubscriptionRecord;
+    subscription?: UserSubscriptionRecord;
     entitlement: UserEntitlementRecord;
   }): Promise<{
     order: OrderRecord;
     payment: PaymentRecord;
-    subscription: UserSubscriptionRecord;
+    subscription?: UserSubscriptionRecord;
     entitlement: UserEntitlementRecord;
   }> {
     const order = await this.createOrder(params.order);
     const payment = await this.createPayment(params.payment);
-    const subscription = await this.createSubscription(params.subscription);
+    const subscription = params.subscription
+      ? await this.createSubscription(params.subscription)
+      : undefined;
     const entitlement = await this.grantEntitlement(params.entitlement);
 
     return {

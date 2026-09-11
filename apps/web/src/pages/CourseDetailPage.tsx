@@ -120,54 +120,54 @@ export function CourseDetailPage() {
       {/* Back link */}
       <Link
         to="/courses"
-        className="inline-flex items-center gap-2 text-xs font-semibold text-slate-400 hover:text-teal-400 transition-colors"
+        className="inline-flex items-center gap-2 text-xs font-semibold text-[var(--color-text-muted)] hover:text-[#008080] transition-colors"
       >
         <ArrowRight className="w-4 h-4" />
         <span>بازگشت به دوره‌ها</span>
       </Link>
 
       {/* Course header */}
-      <div className="glass-panel rounded-xl card-inner-border p-8 shadow-ambient space-y-6">
+      <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-8 shadow-xs space-y-6">
         <div className="flex items-start gap-4">
-          <div className="w-14 h-14 rounded-2xl bg-teal-950/60 border border-teal-500/30 text-teal-400 flex items-center justify-center flex-shrink-0">
+          <div className="w-14 h-14 rounded-2xl bg-teal-50 border border-teal-200 text-[#008080] flex items-center justify-center flex-shrink-0">
             <GraduationCap className="w-7 h-7" />
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-extrabold text-white truncate">
+              <h1 className="text-2xl font-extrabold text-[var(--color-text)] truncate">
                 {course.title}
               </h1>
               {course.archived && (
-                <span className="text-xs px-2.5 py-1 rounded-full bg-amber-950/40 text-amber-300 font-medium border border-amber-500/30 flex-shrink-0">
+                <span className="text-xs px-2.5 py-1 rounded-full bg-amber-50 text-amber-800 font-medium border border-amber-200 flex-shrink-0">
                   بایگانی شده
                 </span>
               )}
             </div>
-            <p className="text-xs text-slate-400 mt-1">
+            <p className="text-xs text-[var(--color-text-muted)] mt-1">
               {course.subject ?? "دوره تخصصی"}
             </p>
           </div>
         </div>
 
         {/* Course metadata */}
-        <div className="grid grid-cols-2 gap-4 pt-6 border-t border-white/10">
+        <div className="grid grid-cols-2 gap-4 pt-6 border-t border-[var(--color-border)]">
           <div className="flex items-center gap-3">
-            <Calendar className="w-5 h-5 text-teal-400" />
+            <Calendar className="w-5 h-5 text-[#008080]" />
             <div>
-              <p className="text-xs text-slate-400">تاریخ ایجاد</p>
-              <p className="text-sm font-semibold text-white">
+              <p className="text-xs text-[var(--color-text-muted)]">تاریخ ایجاد</p>
+              <p className="text-sm font-semibold text-[var(--color-text)]">
                 {createdDate}
               </p>
             </div>
           </div>
           {examDate && (
             <div className="flex items-center gap-3">
-              <FileText className="w-5 h-5 text-teal-400" />
+              <FileText className="w-5 h-5 text-[#008080]" />
               <div>
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-[var(--color-text-muted)]">
                   تاریخ آزمون
                 </p>
-                <p className="text-sm font-semibold text-white">
+                <p className="text-sm font-semibold text-[var(--color-text)]">
                   {examDate}
                 </p>
               </div>

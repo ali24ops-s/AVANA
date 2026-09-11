@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../../lib/api/admin";
-import { AdminTable, AdminLoadingState, AdminErrorState } from "../../components/admin/AdminUI";
+import { AdminTable } from "../../components/admin/AdminUI";
+import { TableLoadingState, TableErrorState } from "@avana/ui";
 import { Server } from "lucide-react";
 
 interface ProviderConfig {
@@ -25,30 +26,34 @@ export function AdminProvidersPage() {
   }, []);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" dir="rtl">
       <div>
-        <h1 className="text-2xl font-bold text-slate-100 flex items-center gap-3">
-          <Server className="w-6 h-6 text-teal-400" />
+        <h1 className="text-2xl font-bold text-[var(--color-text)] flex items-center gap-3">
+          <Server className="w-6 h-6 text-[var(--color-primary-default)]" />
           مدیریت ارائه‌دهندگان هوش مصنوعی
         </h1>
-        <p className="text-sm text-slate-400 mt-1">مشاهده وضعیت Configuration ارائه‌دهندگان (Read-only)</p>
+        <p className="text-sm text-[var(--color-text-muted)] mt-1">مشاهده وضعیت Configuration ارائه‌دهندگان (Read-only)</p>
       </div>
 
       <AdminTable headers={["ارائه‌دهنده", "وضعیت فعالیت", "مدل", "اولویت", "سلامت"]}>
-        {loading ? <AdminLoadingState colSpan={5} /> : error ? <AdminErrorState message={error} colSpan={5} /> : (
+        {loading ? <TableLoadingState colSpan={5} /> : error ? <TableErrorState message={error} colSpan={5} /> : (
           providers.map(p => (
-            <tr key={p.id} className="hover:bg-white/5">
-              <td className="px-6 py-4 font-medium text-slate-200">{p.name}</td>
+            <tr key={p.id} className="hover:bg-[var(--color-surface-subtle)] transition-colors">
+              <td className="px-6 py-4 font-medium text-[var(--color-text)]">{p.name}</td>
               <td className="px-6 py-4">
-                <span className={`px-2 py-1 rounded text-xs ${p.status === 'active' ? 'bg-teal-500/20 text-teal-400' : 'bg-slate-700 text-slate-400'}`}>
+                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${
+                  p.status === 'active'
+                    ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-300'
+                    : 'bg-[var(--color-surface-subtle)] border-[var(--color-border)] text-[var(--color-text-muted)]'
+                }`}>
                   {p.status === 'active' ? 'Configured' : 'Not Configured'}
                 </span>
               </td>
-              <td className="px-6 py-4 text-slate-400 font-mono text-sm">{p.model}</td>
-              <td className="px-6 py-4 text-slate-400">{p.priority}</td>
+              <td className="px-6 py-4 text-[var(--color-text-muted)] font-mono text-xs sm:text-sm" dir="ltr">{p.model}</td>
+              <td className="px-6 py-4 text-[var(--color-text)] font-semibold text-sm" dir="ltr">{p.priority}</td>
               <td className="px-6 py-4">
-                <span className="px-2 py-1 rounded text-xs bg-slate-800 text-slate-400">
-                  Unknown
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-[var(--color-surface-subtle)] border border-[var(--color-border)] text-[var(--color-text-muted)]" dir="ltr">
+                  {p.health || 'Unknown'}
                 </span>
               </td>
             </tr>

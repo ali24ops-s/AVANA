@@ -23,7 +23,7 @@ describe("AdaptiveLearningConcept (Future Product Concept Suite)", () => {
     expect(screen.getByText("بتا بلاکر غیرانتخابی (Non-selective β-blocker)")).toBeInTheDocument();
 
     // Default Step 1 (Molecule)
-    expect(screen.getByText("مرحله 1 از ۶")).toBeInTheDocument();
+    expect(screen.getByText("مرحله ۱ از ۶")).toBeInTheDocument();
     expect(screen.getByText("مولکول پروپرانولول")).toBeInTheDocument();
     expect(
       screen.getByText("یک آنتاگونیست بتا آدرنرژیک با ماهیت چربی‌دوست (Lipophilic) بالا.")
@@ -76,7 +76,7 @@ describe("AdaptiveLearningConcept (Future Product Concept Suite)", () => {
     // Step to 2: Mechanism
     fireEvent.click(screen.getByRole("button", { name: /گام بعدی/ }));
     await waitFor(() => {
-      expect(screen.getByText("مرحله 2 از ۶")).toBeInTheDocument();
+      expect(screen.getByText("مرحله ۲ از ۶")).toBeInTheDocument();
       expect(screen.getByText("مهار رقابتی کاتکول‌آمین‌ها")).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /گام قبلی/ })).not.toBeDisabled();
     });
@@ -84,14 +84,14 @@ describe("AdaptiveLearningConcept (Future Product Concept Suite)", () => {
     // Step to 3: Target Receptor
     fireEvent.click(screen.getByRole("button", { name: /گام بعدی/ }));
     await waitFor(() => {
-      expect(screen.getByText("مرحله 3 از ۶")).toBeInTheDocument();
+      expect(screen.getByText("مرحله ۳ از ۶")).toBeInTheDocument();
       expect(screen.getByText("آنتاگونیست گیرنده‌های β1 و β2")).toBeInTheDocument();
     });
 
     // Step backwards to 2
     fireEvent.click(screen.getByRole("button", { name: /گام قبلی/ }));
     await waitFor(() => {
-      expect(screen.getByText("مرحله 2 از ۶")).toBeInTheDocument();
+      expect(screen.getByText("مرحله ۲ از ۶")).toBeInTheDocument();
       expect(screen.getByText("مهار رقابتی کاتکول‌آمین‌ها")).toBeInTheDocument();
     });
   });
@@ -104,7 +104,7 @@ describe("AdaptiveLearningConcept (Future Product Concept Suite)", () => {
     fireEvent.click(sideEffectsNode);
 
     await waitFor(() => {
-      expect(screen.getByText("مرحله 6 از ۶")).toBeInTheDocument();
+      expect(screen.getByText("مرحله ۶ از ۶")).toBeInTheDocument();
       expect(screen.getByText("برادی‌کاردی و برونکواسپاسم")).toBeInTheDocument();
       expect(screen.getByText("زنجیره ارتباطی کامل شد ✔")).toBeInTheDocument();
     });

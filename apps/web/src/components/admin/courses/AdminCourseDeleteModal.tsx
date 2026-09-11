@@ -8,6 +8,7 @@ import {
   FileWarning,
 } from "lucide-react";
 import { useAdmin } from "../../../hooks/useAdmin.js";
+import { Checkbox } from "@avana/ui";
 
 export interface AdminCourseDeleteModalProps {
   isOpen: boolean;
@@ -79,24 +80,24 @@ export function AdminCourseDeleteModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
       dir="rtl"
       role="dialog"
       aria-modal="true"
       aria-labelledby="delete-course-title"
     >
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+      <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
         {/* Modal Header */}
-        <div className="flex items-center justify-between p-5 sm:p-6 border-b border-slate-800/80 bg-rose-950/20">
+        <div className="flex items-center justify-between p-5 sm:p-6 border-b border-[var(--color-border)] bg-rose-500/5">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-400 flex items-center justify-center">
+            <div className="w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-500 flex items-center justify-center">
               <Trash2 className="w-5 h-5" />
             </div>
             <div>
-              <h3 id="delete-course-title" className="text-base font-bold text-white">
+              <h3 id="delete-course-title" className="text-base font-bold text-[var(--color-text)]">
                 حذف قطعی دوره آموزشی
               </h3>
-              <p className="text-xs text-rose-300/80">
+              <p className="text-xs text-rose-600 dark:text-rose-400">
                 این عملیات دائمی و غیرقابل بازگشت است
               </p>
             </div>
@@ -106,7 +107,7 @@ export function AdminCourseDeleteModal({
             onClick={onClose}
             disabled={deleting}
             aria-label="بستن پنجره"
-            className="p-2 text-slate-400 hover:text-slate-200 rounded-xl hover:bg-slate-800 transition-colors"
+            className="p-2 text-[var(--color-text-muted)] hover:text-[var(--color-text)] rounded-xl hover:bg-[var(--color-surface-warm)] transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -115,44 +116,44 @@ export function AdminCourseDeleteModal({
         {/* Modal Body */}
         <form onSubmit={handleDelete} className="p-5 sm:p-6 space-y-5">
           {error && (
-            <div className="p-4 rounded-2xl bg-rose-950/60 border border-rose-500/40 text-rose-200 text-xs flex items-center gap-2.5">
-              <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+            <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-300 text-xs flex items-center gap-2.5">
+              <AlertCircle className="w-4 h-4 shrink-0 text-rose-500" />
               <span className="leading-relaxed">{error}</span>
             </div>
           )}
 
           {isPublished && (
             /* Informational Published Course Notice */
-            <div className="p-3.5 rounded-2xl bg-amber-950/30 border border-amber-500/30 text-amber-200 text-xs flex items-start gap-2.5">
-              <FileWarning className="w-4 h-4 shrink-0 text-amber-400 mt-0.5" />
-              <p className="text-[11px] leading-relaxed text-amber-200/90">
+            <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-300 text-xs flex items-start gap-2.5">
+              <FileWarning className="w-4 h-4 shrink-0 text-amber-500 mt-0.5" />
+              <p className="text-[11px] leading-relaxed text-amber-800 dark:text-amber-200/90">
                 این دوره در وضعیت <strong>منتشر شده</strong> است. در صورتی که سفارش یا دسترسی فعالی برای کاربران ثبت نشده باشد، حذف قطعی انجام خواهد شد؛ در غیر این صورت برای حفظ سوابق مالی و حقوق کاربران، باید دوره را بایگانی کنید.
               </p>
             </div>
           )}
 
           {/* Deletion Scope Warning */}
-          <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800 text-xs text-slate-300 space-y-2 leading-relaxed">
+          <div className="p-4 rounded-xl bg-[var(--color-surface-warm)]/60 border border-[var(--color-border)] text-xs text-[var(--color-text)] space-y-2 leading-relaxed">
             <p>
               با تأیید حذف، تمامی داده‌های مربوط به دوره <strong>«{course.name}»</strong> شامل:
             </p>
-            <ul className="list-disc list-inside text-[11px] text-slate-400 space-y-1 mr-2">
+            <ul className="list-disc list-inside text-[11px] text-[var(--color-text-muted)] space-y-1 ms-2">
               <li>فصل‌ها، درس‌ها و ساختار آموزشی</li>
               <li>فلش‌کارت‌ها و سؤالات آزمون تولیدشده</li>
               <li>پیش‌نویس‌ها و وظایف پردازش هوش مصنوعی</li>
               <li>محصول تجاری اختصاصی دوره در کاتالوگ</li>
             </ul>
-            <p className="text-[11px] text-rose-400 font-semibold pt-1">
+            <p className="text-[11px] text-rose-600 dark:text-rose-400 font-semibold pt-1">
               به‌صورت دائمی از پایگاه داده حذف خواهند شد.
             </p>
           </div>
 
           {/* Exact Name Confirmation Field */}
           <div className="space-y-2">
-            <label className="block text-xs font-bold text-slate-300">
+            <label className="block text-xs font-bold text-[var(--color-text)]">
               برای تأیید، لطفاً نام دقیق دوره را بنویسید:
             </label>
-            <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs font-bold text-slate-200 select-all text-center">
+            <div className="p-2.5 rounded-xl bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-xs font-bold text-[var(--color-text)] select-all text-center">
               {course.name}
             </div>
             <input
@@ -162,37 +163,28 @@ export function AdminCourseDeleteModal({
               placeholder="نام دوره را اینجا بنویسید..."
               disabled={deleting}
               aria-label="تأیید نام دوره برای حذف"
-              className="w-full bg-slate-950/90 border border-slate-700 focus:border-rose-500 rounded-2xl px-4 py-2.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none transition-colors"
+              className="w-full bg-[var(--color-surface-warm)] border border-[var(--color-border)] focus:border-rose-500 focus:ring-1 focus:ring-rose-500 rounded-xl px-4 py-2.5 text-xs text-[var(--color-text)] placeholder:[var(--color-text-muted)] focus:outline-none transition-colors"
               autoFocus
             />
           </div>
 
           {/* Delete Source Documents Option */}
-          <label className="flex items-start gap-3 p-3.5 rounded-2xl bg-slate-950/40 border border-slate-800/80 cursor-pointer hover:bg-slate-950/60 transition-colors">
-            <input
-              type="checkbox"
-              checked={deleteSourceDocuments}
-              onChange={(e) => setDeleteSourceDocuments(e.target.checked)}
-              disabled={deleting}
-              className="mt-0.5 rounded bg-slate-900 border-slate-700 text-rose-600 focus:ring-rose-500/20 w-4 h-4 cursor-pointer"
-            />
-            <div className="text-xs space-y-0.5">
-              <span className="font-bold text-slate-200">
-                حذف اسناد و فایل‌های منبع اختصاصی
-              </span>
-              <p className="text-[11px] text-slate-400">
-                فقط فایل‌هایی که در دوره یا بسته آموزشی دیگری استفاده نشده‌اند حذف خواهند شد.
-              </p>
-            </div>
-          </label>
+          <Checkbox
+            checked={deleteSourceDocuments}
+            onChange={(e) => setDeleteSourceDocuments(e.target.checked)}
+            disabled={deleting}
+            label="حذف اسناد و فایل‌های منبع اختصاصی"
+            description="فقط فایل‌هایی که در دوره یا بسته آموزشی دیگری استفاده نشده‌اند حذف خواهند شد."
+            className="w-full p-3.5 rounded-xl bg-[var(--color-surface-warm)]/40 border border-[var(--color-border)] hover:bg-[var(--color-surface-warm)]/70 transition-colors"
+          />
 
           {/* Modal Footer Actions */}
-          <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-800/80">
+          <div className="flex items-center justify-end gap-3 pt-3 border-t border-[var(--color-border)]">
             <button
               type="button"
               onClick={onClose}
               disabled={deleting}
-              className="px-4 py-2.5 rounded-2xl text-xs font-bold text-slate-400 hover:text-white bg-slate-800/80 hover:bg-slate-800 transition-colors"
+              className="px-4 py-2.5 rounded-xl text-xs font-bold text-[var(--color-text-muted)] hover:text-[var(--color-text)] bg-[var(--color-surface-warm)] hover:bg-[var(--color-surface-hover)] border border-[var(--color-border)] transition-colors"
             >
               انصراف
             </button>
@@ -200,7 +192,7 @@ export function AdminCourseDeleteModal({
             <button
               type="submit"
               disabled={!isNameMatched || deleting}
-              className="px-5 py-2.5 rounded-2xl bg-rose-600 hover:bg-rose-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold transition-all shadow-lg shadow-rose-950/50 flex items-center gap-2"
+              className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold transition-all shadow-sm flex items-center gap-2"
             >
               {deleting ? (
                 <Loader2 className="w-4 h-4 animate-spin" />

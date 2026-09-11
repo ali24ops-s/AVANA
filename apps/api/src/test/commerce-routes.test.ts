@@ -130,7 +130,7 @@ describe("Commerce & Monetization HTTP Endpoints Test Suite", () => {
     expect(body.items[2].price).toBe(599000);
   });
 
-  it("POST /v1/commerce/checkout initializes order and returns redirect URL with authority", async () => {
+  it("POST /v1/commerce/checkout rejects when mock/online payment gateway is disabled", async () => {
     const app = await buildTestApp();
     const user = await registerAndLogin(app, "buyer@avana.ir");
     const products = await commerceStore.listActiveProducts();
@@ -146,45 +146,43 @@ describe("Commerce & Monetization HTTP Endpoints Test Suite", () => {
       },
     });
 
-    expect(checkoutRes.statusCode).toBe(201);
+    expect(checkoutRes.statusCode).toBe(400);
     const body = JSON.parse(checkoutRes.body);
-    expect(body.order_id).toBeDefined();
-    expect(body.payment_id).toBeDefined();
-    expect(body.authority).toContain("mock_auth_");
-    expect(body.payment_url).toContain(body.authority);
+    expect(body.error.message).toContain("غیرفعال است");
   });
 
-  it("GET /v1/commerce/callback verifies payment, creates subscription, and grants runtime entitlement", async () => {
+  it("POST /v1/commerce/card-to-card/submit creates pending payment, provisions subscription, and grants runtime entitlement", async () => {
     const app = await buildTestApp();
     const user = await registerAndLogin(app, "verifier@avana.ir");
     const products = await commerceStore.listActiveProducts();
     const monthly = products.find((p) => p.code === "sub_monthly")!;
 
-    const checkoutRes = await app.inject({
+    const c2cRes = await app.inject({
       method: "POST",
-      url: "/v1/commerce/checkout",
+      url: "/v1/commerce/card-to-card/submit",
       cookies: user.cookies,
       payload: {
         product_id: monthly.id,
-        callback_url: "https://avana.ai/checkout/callback",
+        amount: monthly.price,
+        tracking_number: "TRK-C2C-ROUTE-1",
+        source_card_last4: "1234",
       },
     });
-    const { authority } = JSON.parse(checkoutRes.body);
 
+    expect(c2cRes.statusCode).toBe(201);
+    const c2cBody = JSON.parse(c2cRes.body);
+    expect(c2cBody.success).toBe(true);
+    expect(c2cBody.orderId).toBeDefined();
+    expect(c2cBody.subscriptionId).toBeDefined();
+
+    // Verify GET /v1/commerce/callback rejects mock authority when mock gateway is disabled
     const callbackRes = await app.inject({
       method: "GET",
-      url: `/v1/commerce/callback?Authority=${authority}&Status=OK`,
+      url: `/v1/commerce/callback?Authority=mock_auth_test&Status=OK`,
     });
+    expect([400, 404]).toContain(callbackRes.statusCode);
 
-    expect(callbackRes.statusCode).toBe(200);
-    const callbackBody = JSON.parse(callbackRes.body);
-    expect(callbackBody.success).toBe(true);
-    expect(callbackBody.transaction_id).toBeDefined();
-    expect(callbackBody.entitlement?.resource_type).toBe("subscription");
-    expect(callbackBody.entitlement?.resource_id).toBeNull();
-    expect(callbackBody.subscription?.id).toBeDefined();
-
-    // Check my subscription endpoint
+    // Check my subscription endpoint -> active_pending_payment_review
     const subRes = await app.inject({
       method: "GET",
       url: "/v1/commerce/subscriptions/my",
@@ -193,9 +191,9 @@ describe("Commerce & Monetization HTTP Endpoints Test Suite", () => {
     expect(subRes.statusCode).toBe(200);
     const subBody = JSON.parse(subRes.body);
     expect(subBody.subscription).toBeDefined();
-    expect(subBody.subscription.status).toBe("active");
+    expect(subBody.subscription.status).toBe("active_pending_payment_review");
 
-    // Check my entitlements endpoint
+    // Check my entitlements endpoint -> granted
     const entRes = await app.inject({
       method: "GET",
       url: "/v1/commerce/entitlements/my",
@@ -224,20 +222,21 @@ describe("Commerce & Monetization HTTP Endpoints Test Suite", () => {
     expect(body1.reason).toBe("locked");
     expect(body1.availablePurchaseOptions.length).toBeGreaterThanOrEqual(3);
 
-    // After subscribing
+    // After subscribing via Card-to-Card
     const products = await commerceStore.listActiveProducts();
     const monthly = products.find((p) => p.code === "sub_monthly")!;
-    const checkoutRes = await app.inject({
+    const c2cRes = await app.inject({
       method: "POST",
-      url: "/v1/commerce/checkout",
+      url: "/v1/commerce/card-to-card/submit",
       cookies: user.cookies,
-      payload: { product_id: monthly.id },
+      payload: {
+        product_id: monthly.id,
+        amount: monthly.price,
+        tracking_number: "TRK-C2C-ACCESS-1",
+        source_card_last4: "1234",
+      },
     });
-    const { authority } = JSON.parse(checkoutRes.body);
-    await app.inject({
-      method: "GET",
-      url: `/v1/commerce/callback?Authority=${authority}&Status=OK`,
-    });
+    expect(c2cRes.statusCode).toBe(201);
 
     const check2 = await app.inject({
       method: "GET",
@@ -354,20 +353,21 @@ describe("Commerce & Monetization HTTP Endpoints Test Suite", () => {
     expect(lessons[1].content_markdown).toContain("🔒 این محتوا مخصوص اعضای ویژه آوانا است");
     expect(lessons[1].content_markdown).not.toContain("متن سری و کامل");
 
-    // After purchasing yearly subscription
+    // After purchasing yearly subscription via Card-to-Card
     const products = await commerceStore.listActiveProducts();
     const yearly = products.find((p) => p.code === "sub_yearly")!;
-    const checkoutRes = await app.inject({
+    const c2cRes = await app.inject({
       method: "POST",
-      url: "/v1/commerce/checkout",
+      url: "/v1/commerce/card-to-card/submit",
       cookies: user.cookies,
-      payload: { product_id: yearly.id },
+      payload: {
+        product_id: yearly.id,
+        amount: yearly.price,
+        tracking_number: "TRK-C2C-PREVIEW-1",
+        source_card_last4: "1234",
+      },
     });
-    const { authority } = JSON.parse(checkoutRes.body);
-    await app.inject({
-      method: "GET",
-      url: `/v1/commerce/callback?Authority=${authority}&Status=OK`,
-    });
+    expect(c2cRes.statusCode).toBe(201);
 
     // Re-query course learning
     const learnRes2 = await app.inject({
@@ -396,16 +396,21 @@ describe("Commerce & Monetization HTTP Endpoints Test Suite", () => {
     });
     expect(unauthRes.statusCode).toBe(401);
 
-    // User A checks out monthly sub
+    // User A purchases monthly sub via card-to-card
     const products = await commerceStore.listActiveProducts();
     const monthly = products.find((p) => p.code === "sub_monthly")!;
-    const checkoutResA = await app.inject({
+    const c2cResA = await app.inject({
       method: "POST",
-      url: "/v1/commerce/checkout",
+      url: "/v1/commerce/card-to-card/submit",
       cookies: userA.cookies,
-      payload: { product_id: monthly.id },
+      payload: {
+        product_id: monthly.id,
+        amount: monthly.price,
+        tracking_number: "TRK-C2C-ORDER-A",
+        source_card_last4: "1234",
+      },
     });
-    expect(checkoutResA.statusCode).toBe(201);
+    expect(c2cResA.statusCode).toBe(201);
 
     // User A gets their orders
     const ordersResA = await app.inject({
@@ -417,7 +422,7 @@ describe("Commerce & Monetization HTTP Endpoints Test Suite", () => {
     const bodyA = JSON.parse(ordersResA.body);
     expect(bodyA.items).toHaveLength(1);
     expect(bodyA.items[0].product_id).toBe(monthly.id);
-    expect(bodyA.items[0].order_number).toMatch(/^ORD-/);
+    expect(bodyA.items[0].order_number).toMatch(/^(ORD|C2C)-/);
     expect(bodyA.items[0].status).toBe("pending");
 
     // User B gets their orders (should be empty, zero leakage)

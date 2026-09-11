@@ -15,12 +15,13 @@ import {
   Check,
   X,
 } from "lucide-react";
+import { Card, Button, Badge, LoadingState } from "@avana/ui";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
 import { createStudyApi } from "../../lib/api/study.js";
 import { useStudySessionTracker } from "../../hooks/useStudySessionTracker.js";
 import type { FlashcardResource, FlashcardRating } from "@avana/contracts";
-import { nextReviewInterval } from "@avana/domain";
+import { nextReviewInterval, toPersianDigits } from "@avana/domain";
 import { RichContent } from "../markdown/MarkdownRenderer.js";
 
 export interface FlashcardExperienceProps {
@@ -33,6 +34,8 @@ export interface FlashcardExperienceProps {
   customMode?: "weak" | "forgotten" | "review_ahead" | "new";
   aheadDays?: number;
   limit?: number;
+  isPreview?: boolean;
+  onUnlock?: () => void;
   onBack?: () => void;
 }
 
@@ -74,6 +77,8 @@ export function FlashcardExperience({
   customMode = "weak",
   aheadDays = 3,
   limit,
+  isPreview = false,
+  onUnlock,
   onBack,
 }: FlashcardExperienceProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -154,6 +159,7 @@ export function FlashcardExperience({
     ? (sessionCards ?? [])
     : (queueQuery.data?.due_cards ?? []);
   const rawCurrentCard = dueCards[currentIndex] as FlashcardResource | undefined;
+  const effectiveIsPreview = isPreview || (queueQuery.data as any)?.is_preview === true;
 
   // Initialize index & results when resuming a persistent study session
   useEffect(() => {
@@ -555,10 +561,7 @@ export function FlashcardExperience({
   if (isDataLoading) {
     return (
       <div className="flex flex-col items-center justify-center py-28 gap-4 min-h-[60vh]">
-        <Loader2 className="w-10 h-10 animate-spin text-[#14b8a6]" />
-        <p className="text-sm text-[#94a3b8] font-bold">
-          در حال دریافت کارت‌های مرور...
-        </p>
+        <LoadingState message="در حال دریافت کارت‌های مرور..." />
       </div>
     );
   }
@@ -566,17 +569,19 @@ export function FlashcardExperience({
   // Error state
   if (isDataError) {
     return (
-      <div className="max-w-md mx-auto my-16 p-8 glass-panel rounded-3xl border border-[#94a3b8]/20 text-center space-y-5 shadow-2xl">
-        <AlertCircle className="w-12 h-12 text-red-400 mx-auto" />
-        <h3 className="text-lg font-bold text-[#e0e6ed]">
+      <Card variant="solid" className="max-w-md mx-auto my-16 p-8 bg-[var(--color-surface)] rounded-[16px] border border-[var(--color-border)] text-center space-y-5 shadow-[var(--shadow-card)]">
+        <AlertCircle className="w-12 h-12 text-[var(--color-error)] mx-auto" />
+        <h3 className="text-lg font-bold text-[var(--color-text)]">
           خطا در بارگذاری فلش‌کارت‌ها
         </h3>
-        <p className="text-xs text-[#94a3b8]">
+        <p className="text-xs text-[var(--color-text-muted)]">
           {dataErrorMessage}
         </p>
         <div className="flex items-center justify-center gap-3 pt-2">
-          <button
+          <Button
             type="button"
+            variant="primary"
+            size="sm"
             onClick={() => {
               if (sessionId) {
                 void sessionQuery.refetch();
@@ -585,21 +590,23 @@ export function FlashcardExperience({
               }
               void summaryQuery.refetch();
             }}
-            className="px-5 py-2.5 bg-[#14b8a6] hover:bg-[#0f766e] text-white rounded-xl text-xs font-bold transition-all shadow-md"
+            className="rounded-[10px]"
           >
             تلاش مجدد
-          </button>
+          </Button>
           {onBack && (
-            <button
+            <Button
               type="button"
+              variant="outline"
+              size="sm"
               onClick={onBack}
-              className="px-5 py-2.5 bg-[#1e293b] hover:bg-[#334155] text-[#e0e6ed] border border-[#475569]/40 rounded-xl text-xs font-bold transition-all"
+              className="rounded-[10px]"
             >
               بازگشت به داشبورد
-            </button>
+            </Button>
           )}
         </div>
-      </div>
+      </Card>
     );
   }
 
@@ -622,44 +629,48 @@ export function FlashcardExperience({
     }
 
     return (
-      <div className="max-w-lg mx-auto my-16 p-10 glass-panel rounded-3xl border border-[#14b8a6]/20 text-center space-y-6 shadow-2xl">
-        <div className="w-16 h-16 rounded-2xl bg-[#14b8a6]/20 text-[#14b8a6] border border-[#14b8a6]/30 flex items-center justify-center mx-auto shadow-inner">
+      <Card variant="solid" className="max-w-lg mx-auto my-16 p-10 bg-[var(--color-surface)] rounded-[16px] border border-[var(--color-border)] text-center space-y-6 shadow-[var(--shadow-card)]">
+        <div className="w-16 h-16 rounded-[12px] bg-[var(--color-primary-soft)] text-[var(--color-primary)] border border-[var(--color-primary-muted)] flex items-center justify-center mx-auto">
           <Sparkles className="w-8 h-8" />
         </div>
         <div>
-          <h3 className="text-xl font-bold text-[#e0e6ed]">
+          <h3 className="text-xl font-bold text-[var(--color-text)]">
             مرور کارت‌ها به پایان رسید!
           </h3>
-          <p className="text-xs text-[#94a3b8] mt-2 leading-relaxed">
+          <p className="text-xs text-[var(--color-text-muted)] mt-2 leading-relaxed">
             در حال حاضر کارتی برای مرور زمان‌بندی نشده است.
           </p>
         </div>
-        <div className="p-4 bg-[#0f172a]/60 rounded-2xl border border-[#334155]/40 text-xs text-[#94a3b8]">
+        <div className="p-4 bg-[var(--color-surface-hover)] rounded-[12px] border border-[var(--color-border)] text-xs text-[var(--color-text-muted)]">
           تعداد کل فلش‌کارت‌های این محدوده:{" "}
-          <span className="font-bold text-[#14b8a6] text-sm">{totalCount}</span>
+          <span className="font-bold text-[var(--color-primary)] text-sm">{totalCount}</span>
         </div>
         <div className="flex items-center justify-center gap-3 pt-2">
-          <button
+          <Button
             type="button"
+            variant="outline"
+            size="sm"
             onClick={() => {
               void queueQuery.refetch();
               void summaryQuery.refetch();
             }}
-            className="px-5 py-2.5 bg-[#1e293b] hover:bg-[#334155] text-[#e0e6ed] border border-[#475569]/40 rounded-xl text-xs font-bold transition-all"
+            className="rounded-[10px]"
           >
             تازه‌سازی صف مرور
-          </button>
+          </Button>
           {onBack && (
-            <button
+            <Button
               type="button"
+              variant="primary"
+              size="sm"
               onClick={onBack}
-              className="px-6 py-2.5 bg-[#14b8a6] hover:bg-[#0f766e] text-white rounded-xl text-xs font-bold transition-all shadow-lg"
+              className="rounded-[10px]"
             >
               بازگشت به داشبورد
-            </button>
+            </Button>
           )}
         </div>
-      </div>
+      </Card>
     );
   }
 
@@ -676,71 +687,101 @@ export function FlashcardExperience({
     const durationMinutes = Math.floor(durationSeconds / 60);
 
     return (
-      <div className="max-w-xl mx-auto my-12 p-8 glass-panel rounded-3xl border border-[#14b8a6]/30 text-center space-y-6 shadow-2xl">
-        <div className="w-20 h-20 rounded-full bg-gradient-to-br from-[#14b8a6] to-[#8455ef] flex items-center justify-center mx-auto text-white shadow-xl">
+      <Card variant="solid" className="max-w-xl mx-auto my-12 p-8 bg-[var(--color-surface)] rounded-[16px] border border-[var(--color-border)] text-center space-y-6 shadow-[var(--shadow-card)]">
+        <div className="w-20 h-20 rounded-full bg-[var(--color-primary-soft)] text-[var(--color-primary)] border border-[var(--color-primary-muted)] flex items-center justify-center mx-auto shadow-sm">
           <Award className="w-10 h-10" />
         </div>
 
         <div>
-          <h3 className="text-2xl font-extrabold text-[#e0e6ed]">
-            مرور تمام شد 🎉
+          <h3 className="text-2xl font-extrabold text-[var(--color-text)]">
+            مرور تمام شد!
           </h3>
-          <p className="text-xs text-[#94a3b8] mt-2 leading-relaxed">
+          <p className="text-xs text-[var(--color-text-muted)] mt-2 leading-relaxed">
             جلسه مرور با موفقیت به پایان رسید!
           </p>
         </div>
 
-        <div className="p-5 bg-[#0f172a]/70 rounded-2xl border border-[#334155]/50 text-xs space-y-4">
-          <div className="text-xl font-black text-[#14b8a6] pb-3 border-b border-[#334155]/50">
-            {results.length} کارت مرور شد
+        <div className="p-5 bg-[var(--color-surface-hover)] rounded-[14px] border border-[var(--color-border)] text-xs space-y-4">
+          <div className="text-xl font-black text-[var(--color-primary)] pb-3 border-b border-[var(--color-border)]">
+            {toPersianDigits(results.length)} کارت مرور شد
           </div>
 
           <div className="grid grid-cols-4 gap-2 text-center py-1">
-            <div className="bg-red-500/10 p-2.5 rounded-xl border border-red-500/30">
-              <span className="text-xs font-bold text-red-400">Again</span>
-              <p className="text-base font-black text-red-300 mt-0.5">{againCount}</p>
+            <div className="bg-[var(--color-error-soft)] p-2.5 rounded-[10px] border border-[var(--color-error-muted)]">
+              <span className="text-xs font-bold text-[var(--color-error)]">Again</span>
+              <p className="text-base font-black text-[var(--color-error)] mt-0.5">{toPersianDigits(againCount)}</p>
             </div>
-            <div className="bg-orange-500/10 p-2.5 rounded-xl border border-orange-500/30">
-              <span className="text-xs font-bold text-orange-400">Hard</span>
-              <p className="text-base font-black text-orange-300 mt-0.5">{hardCount}</p>
+            <div className="bg-[var(--color-warning-soft)] p-2.5 rounded-[10px] border border-[var(--color-warning-muted)]">
+              <span className="text-xs font-bold text-[var(--color-warning)]">Hard</span>
+              <p className="text-base font-black text-[var(--color-warning)] mt-0.5">{toPersianDigits(hardCount)}</p>
             </div>
-            <div className="bg-[#a78bfa]/10 p-2.5 rounded-xl border border-[#a78bfa]/30">
-              <span className="text-xs font-bold text-[#a78bfa]">Good</span>
-              <p className="text-base font-black text-[#a78bfa] mt-0.5">{goodCount}</p>
+            <div className="bg-[var(--color-secondary-light)] p-2.5 rounded-[10px] border border-[var(--color-secondary)]">
+              <span className="text-xs font-bold text-[var(--color-secondary-dark)]">Good</span>
+              <p className="text-base font-black text-[var(--color-secondary-dark)] mt-0.5">{toPersianDigits(goodCount)}</p>
             </div>
-            <div className="bg-[#14b8a6]/10 p-2.5 rounded-xl border border-[#14b8a6]/30">
-              <span className="text-xs font-bold text-[#14b8a6]">Easy</span>
-              <p className="text-base font-black text-[#14b8a6] mt-0.5">{easyCount}</p>
+            <div className="bg-[var(--color-success-soft)] p-2.5 rounded-[10px] border border-[var(--color-success-muted)]">
+              <span className="text-xs font-bold text-[var(--color-success)]">Easy</span>
+              <p className="text-base font-black text-[var(--color-success)] mt-0.5">{toPersianDigits(easyCount)}</p>
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3 pt-2 text-right">
             <div>
-              <span className="text-[#94a3b8]">دقت پاسخ‌دهی:</span>{" "}
-              <span className="font-bold text-[#e0e6ed]">{accuracy}%</span>
+              <span className="text-[var(--color-text-muted)]">دقت پاسخ‌دهی:</span>{" "}
+              <span className="font-bold text-[var(--color-text)]">{toPersianDigits(accuracy)}%</span>
             </div>
             <div>
-              <span className="text-[#94a3b8]">زمان مطالعه:</span>{" "}
-              <span className="font-bold text-[#e0e6ed]">
-                {durationMinutes > 0 ? `${durationMinutes} دقیقه` : `${durationSeconds} ثانیه`}
+              <span className="text-[var(--color-text-muted)]">زمان مطالعه:</span>{" "}
+              <span className="font-bold text-[var(--color-text)]">
+                {durationMinutes > 0 ? `${toPersianDigits(durationMinutes)} دقیقه` : `${toPersianDigits(durationSeconds)} ثانیه`}
               </span>
             </div>
             <div>
-              <span className="text-[#94a3b8]">کارت‌های ضعیف:</span>{" "}
-              <span className="font-bold text-red-400">{againCount}</span>
+              <span className="text-[var(--color-text-muted)]">کارت‌های ضعیف:</span>{" "}
+              <span className="font-bold text-[var(--color-error)]">{toPersianDigits(againCount)}</span>
             </div>
             <div>
-              <span className="text-[#94a3b8]">کارت‌های باقی‌مانده:</span>{" "}
-              <span className="font-bold text-[#e0e6ed]">
-                {summaryQuery.data?.total_due || 0}
+              <span className="text-[var(--color-text-muted)]">کارت‌های باقی‌مانده:</span>{" "}
+              <span className="font-bold text-[var(--color-text)]">
+                {toPersianDigits(summaryQuery.data?.total_due || 0)}
               </span>
             </div>
           </div>
         </div>
 
+        {effectiveIsPreview && (
+          <div className="p-6 rounded-2xl bg-gradient-to-br from-teal-500/15 via-indigo-500/10 to-purple-500/15 border border-teal-500/30 text-center space-y-3.5 shadow-sm">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-teal-400/20 text-teal-600 dark:text-teal-300 text-xs font-bold">
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>پایان پیش‌نمایش فلش‌کارت‌ها</span>
+            </div>
+            <h4 className="text-base font-bold text-[var(--color-text)]">
+              تمام ۵ فلش‌کارت نمونه را مرور کردید!
+            </h4>
+            <p className="text-xs text-[var(--color-text-secondary)] max-w-md mx-auto leading-relaxed">
+              برای دسترسی به تمام فلش‌کارت‌های دوره‌ها، مرور فاصله‌دار هوشمند لایتنر (Spaced Repetition) و تثبیت دائمی یادگیری در حافظه بلندمدت، دوره را تهیه کنید.
+            </p>
+            {onUnlock && (
+              <div className="pt-2">
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="md"
+                  onClick={onUnlock}
+                  className="rounded-[10px]"
+                >
+                  خرید و دسترسی به تمام فلش‌کارت‌ها
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="flex items-center justify-center gap-4">
-          <button
+          <Button
             type="button"
+            variant="outline"
+            size="md"
             onClick={() => {
               setIsCompleted(false);
               setCurrentIndex(0);
@@ -748,60 +789,62 @@ export function FlashcardExperience({
               setResults([]);
               void queueQuery.refetch();
             }}
-            className="px-5 py-2.5 bg-[#1e293b] hover:bg-[#334155] text-[#e0e6ed] rounded-xl text-xs font-bold border border-[#475569]/40 flex items-center gap-2 transition-all"
+            className="rounded-[10px] gap-2"
           >
             <RotateCcw className="w-4 h-4" />
             <span>تکرار جلسه</span>
-          </button>
+          </Button>
           {onBack && (
-            <button
+            <Button
               type="button"
+              variant="primary"
+              size="md"
               onClick={onBack}
-              className="px-6 py-2.5 bg-[#14b8a6] hover:bg-[#0f766e] text-white rounded-xl text-xs font-bold transition-all shadow-lg"
+              className="rounded-[10px]"
             >
               بازگشت به داشبورد
-            </button>
+            </Button>
           )}
         </div>
-      </div>
+      </Card>
     );
   }
 
   // Active review session
   return (
-    <div className="relative min-h-screen flex flex-col justify-between overflow-hidden bg-[#0b1116] text-[#e0e6ed]">
-      {/* Ambient Background Glow */}
-      <div className="absolute inset-0 pointer-events-none overflow-hidden">
-        <div className="absolute top-[-10%] right-[-10%] w-[50%] h-[50%] bg-[#14b8a6]/10 rounded-full blur-[120px]" />
-        <div className="absolute bottom-[-10%] left-[-10%] w-[40%] h-[40%] bg-[#a78bfa]/10 rounded-full blur-[100px]" />
-      </div>
-
+    <div className="relative min-h-screen flex flex-col justify-between overflow-hidden bg-[var(--color-bg)] text-[var(--color-text)] font-sans dir-rtl text-right">
       {/* Review Header */}
-      <header className="w-full px-4 md:px-16 py-6 z-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+      <header className="w-full px-4 md:px-16 py-6 z-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-[var(--color-border)]">
         <div>
-          <div className="flex items-center gap-2">
-            <h2 className="font-semibold text-xl md:text-2xl text-[#e0e6ed]">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h2 className="font-semibold text-xl md:text-2xl text-[var(--color-text)]">
               {currentCourseInfo ? currentCourseInfo.title : "Pharmacology - Cardiovascular"}
             </h2>
+            {effectiveIsPreview && (
+              <Badge variant="info" size="sm" className="gap-1">
+                <Sparkles className="w-3 h-3 text-teal-400" />
+                پیش‌نمایش رایگان (۵ کارت)
+              </Badge>
+            )}
             {mode === "exam" && (
-              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-orange-500/20 text-orange-400 border border-orange-500/30 flex items-center gap-1">
+              <Badge variant="warning" size="sm" className="gap-1">
                 <Sparkles className="w-3 h-3" />
                 مرور فشرده
-              </span>
+              </Badge>
             )}
             {mode === "custom" && (
-              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-[#a78bfa]/20 text-[#a78bfa] border border-[#a78bfa]/30">
+              <Badge variant="info" size="sm">
                 مطالعه سفارشی
-              </span>
+              </Badge>
             )}
           </div>
           <div className="flex items-center gap-3 mt-1">
-            <p className="text-xs text-[#a78bfa] font-medium">مرور فلش‌کارت‌ها</p>
+            <p className="text-xs text-[var(--color-text-muted)] font-medium">مرور فلش‌کارت‌ها</p>
             {onBack && (
               <button
                 type="button"
                 onClick={onBack}
-                className="inline-flex items-center gap-1 text-[11px] text-[#94a3b8] hover:text-[#e0e6ed] transition-colors"
+                className="inline-flex items-center gap-1 text-[11px] text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors cursor-pointer"
               >
                 <ArrowRight className="w-3 h-3" />
                 <span>خروج از مرور</span>
@@ -811,25 +854,25 @@ export function FlashcardExperience({
         </div>
 
         {/* Compact 3-Stats Header Pill (Replaces Today's Progress) */}
-        <div className="inline-flex items-center gap-4 px-4 py-2 bg-[#0f172a]/70 rounded-full border border-[#334155]/40 glass-panel shadow-sm text-xs">
-          <div className="flex items-center gap-1.5 border-l border-[#334155]/40 pl-3">
-            <span className="text-[#94a3b8]">دیده‌نشده:</span>
-            <span className="font-bold text-[#a78bfa]">{unseenCount}</span>
+        <div className="inline-flex items-center gap-4 px-4 py-2 bg-[var(--color-surface)] rounded-full border border-[var(--color-border)] shadow-[var(--shadow-subtle)] text-xs">
+          <div className="flex items-center gap-1.5 border-e border-[var(--color-border)] pe-3">
+            <span className="text-[var(--color-text-muted)]">دیده‌نشده:</span>
+            <span className="font-bold text-[var(--color-primary)]">{toPersianDigits(unseenCount)}</span>
           </div>
-          <div className="flex items-center gap-1.5 border-l border-[#334155]/40 pl-3">
-            <span className="text-[#94a3b8]">مرور مجدد:</span>
-            <span className="font-bold text-red-400">{reviewCount}</span>
+          <div className="flex items-center gap-1.5 border-e border-[var(--color-border)] pe-3">
+            <span className="text-[var(--color-text-muted)]">مرور مجدد:</span>
+            <span className="font-bold text-[var(--color-error)]">{toPersianDigits(reviewCount)}</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="text-[#94a3b8]">پایان‌یافته:</span>
-            <span className="font-bold text-[#14b8a6]">{finishedCount}</span>
+            <span className="text-[var(--color-text-muted)]">پایان‌یافته:</span>
+            <span className="font-bold text-[var(--color-success)]">{toPersianDigits(finishedCount)}</span>
           </div>
         </div>
       </header>
 
       {reviewMutation.isError && (
         <div className="max-w-3xl mx-auto w-full px-4 z-10 mb-3">
-          <div className="p-3 bg-red-500/10 rounded-xl border border-red-500/30 text-xs text-red-400 flex items-center gap-2 justify-center">
+          <div className="p-3 bg-[var(--color-error-soft)] rounded-[10px] border border-[var(--color-error-muted)] text-xs text-[var(--color-error)] flex items-center gap-2 justify-center">
             <AlertCircle className="w-4 h-4" />
             <span>خطا در ثبت بازخورد. لطفاً دوباره تلاش کنید.</span>
           </div>
@@ -838,7 +881,7 @@ export function FlashcardExperience({
 
       {/* Tier 2 Surface: Review Canvas Container Surface */}
       <div className="flex-1 flex flex-col items-center justify-center p-4 md:p-6 z-10 w-full max-w-4xl mx-auto">
-        <div className="w-full p-4 md:p-6 bg-[#0f172a]/50 rounded-3xl border border-[#334155]/40 shadow-2xl glass-panel flex flex-col items-center justify-center gap-4">
+        <Card variant="solid" className="w-full p-4 md:p-6 bg-[var(--color-surface)] rounded-[16px] border border-[var(--color-border)] shadow-[var(--shadow-card)] flex flex-col items-center justify-center gap-4">
           
           {/* Tier 3 Surface: 3D Perspective Flashcard Container */}
           {currentCard && (
@@ -868,7 +911,7 @@ export function FlashcardExperience({
                 >
                   {/* Front (Question Side) - Frameless Floating Content */}
                   <div
-                    className={`flip-card-front absolute inset-0 w-full h-full p-4 md:p-8 flex flex-col justify-between items-center text-center bg-transparent border-0 shadow-none transition-opacity duration-300 ${
+                    className={`flip-card-front absolute inset-0 w-full h-full p-4 md:p-8 flex flex-col justify-between items-center text-center rounded-[16px] bg-[var(--color-surface)] border border-[var(--color-border)] shadow-[var(--shadow-subtle)] transition-opacity duration-300 ${
                       isFlipped ? "opacity-0 pointer-events-none" : "opacity-100"
                     }`}
                   >
@@ -879,60 +922,64 @@ export function FlashcardExperience({
                         onClick={(e) => e.stopPropagation()}
                       >
                         <div className="w-full text-right space-y-1">
-                          <label className="text-xs text-[#14b8a6] font-bold">متن سوال:</label>
+                          <label className="text-xs text-[var(--color-primary)] font-bold">متن سوال:</label>
                           <textarea
                             value={editQuestion}
                             onChange={(e) => setEditQuestion(e.target.value)}
-                            className="w-full p-2.5 bg-[#0f172a] border border-[#334155] rounded-xl text-xs md:text-sm text-[#e0e6ed] focus:outline-none focus:border-[#14b8a6] resize-none h-20 leading-relaxed font-vazirmatn"
+                            className="w-full p-2.5 bg-[var(--color-bg)] border border-[var(--color-border)] rounded-[10px] text-xs md:text-sm text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary)] focus:ring-1 focus:ring-[var(--color-primary)] resize-none h-20 leading-relaxed font-sans"
                             dir="rtl"
                           />
                         </div>
                         <div className="w-full text-right space-y-1">
-                          <label className="text-xs text-[#14b8a6] font-bold">متن پاسخ:</label>
+                          <label className="text-xs text-[var(--color-primary)] font-bold">متن پاسخ:</label>
                           <textarea
                             value={editAnswer}
                             onChange={(e) => setEditAnswer(e.target.value)}
-                            className="w-full p-2.5 bg-[#0f172a] border border-[#334155] rounded-xl text-xs md:text-sm text-[#e0e6ed] focus:outline-none focus:border-[#14b8a6] resize-none h-20 leading-relaxed font-vazirmatn"
+                            className="w-full p-2.5 bg-[var(--color-bg)] border border-[var(--color-border)] rounded-[10px] text-xs md:text-sm text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary)] focus:ring-1 focus:ring-[var(--color-primary)] resize-none h-20 leading-relaxed font-sans"
                             dir="rtl"
                           />
                         </div>
                         <div className="flex items-center justify-center gap-3 pt-1">
-                          <button
+                          <Button
                             type="button"
+                            variant="primary"
+                            size="sm"
                             onClick={handleSaveEdit}
-                            className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-[#14b8a6] text-[#0f172a] font-bold text-xs hover:bg-[#14b8a6]/90 transition-all shadow-md cursor-pointer"
+                            className="rounded-[10px] gap-1.5"
                           >
                             <Check className="w-3.5 h-3.5" />
                             <span>ثبت تغییرات</span>
-                          </button>
-                          <button
+                          </Button>
+                          <Button
                             type="button"
+                            variant="outline"
+                            size="sm"
                             onClick={handleCancelEdit}
-                            className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-[#1e293b] text-[#cbd5e1] border border-[#334155] font-bold text-xs hover:bg-[#334155]/50 transition-all cursor-pointer"
+                            className="rounded-[10px] gap-1.5"
                           >
                             <X className="w-3.5 h-3.5" />
                             <span>انصراف</span>
-                          </button>
+                          </Button>
                         </div>
                       </div>
                     ) : (
                       <div className="flex-1 flex flex-col justify-center items-center text-center w-full my-auto px-4 py-4">
-                        <h3 className="text-xl md:text-2xl lg:text-3xl font-bold text-[#e0e6ed] leading-relaxed max-w-2xl text-center">
+                        <h3 className="text-xl md:text-2xl lg:text-3xl font-bold text-[var(--color-text)] leading-relaxed max-w-2xl text-center">
                           <RichContent content={currentCard.question} inline />
                         </h3>
                       </div>
                     )}
 
                     {/* Bottom Touch Prompt Footer */}
-                    <div className="flex justify-center items-center gap-2 text-xs text-[#94a3b8] pt-2.5 border-t border-[#334155]/20 w-full flex-shrink-0 opacity-80 group-hover:opacity-100 transition-opacity">
-                      <Pointer className="w-4 h-4 text-[#14b8a6]" />
+                    <div className="flex justify-center items-center gap-2 text-xs text-[var(--color-text-muted)] pt-2.5 border-t border-[var(--color-border)] w-full flex-shrink-0 opacity-80 group-hover:opacity-100 transition-opacity">
+                      <Pointer className="w-4 h-4 text-[var(--color-primary)]" />
                       <span>برای مشاهده پاسخ کلیک کنید</span>
                     </div>
                   </div>
 
                   {/* Back (Answer Side) - Frameless Floating Content */}
                   <div
-                    className={`flip-card-back absolute inset-0 w-full h-full p-4 md:p-8 flex flex-col justify-between items-center text-center bg-transparent border-0 shadow-none transition-opacity duration-300 ${
+                    className={`flip-card-back absolute inset-0 w-full h-full p-4 md:p-8 flex flex-col justify-between items-center text-center rounded-[16px] bg-[var(--color-surface)] border border-[var(--color-border)] shadow-[var(--shadow-subtle)] transition-opacity duration-300 ${
                       isFlipped ? "opacity-100" : "opacity-0 pointer-events-none"
                     }`}
                   >
@@ -943,54 +990,58 @@ export function FlashcardExperience({
                         onClick={(e) => e.stopPropagation()}
                       >
                         <div className="w-full text-right space-y-1">
-                          <label className="text-xs text-[#14b8a6] font-bold">متن سوال:</label>
+                          <label className="text-xs text-[var(--color-primary)] font-bold">متن سوال:</label>
                           <textarea
                             value={editQuestion}
                             onChange={(e) => setEditQuestion(e.target.value)}
-                            className="w-full p-2.5 bg-[#0f172a] border border-[#334155] rounded-xl text-xs md:text-sm text-[#e0e6ed] focus:outline-none focus:border-[#14b8a6] resize-none h-20 leading-relaxed font-vazirmatn"
+                            className="w-full p-2.5 bg-[var(--color-bg)] border border-[var(--color-border)] rounded-[10px] text-xs md:text-sm text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary)] focus:ring-1 focus:ring-[var(--color-primary)] resize-none h-20 leading-relaxed font-sans"
                             dir="rtl"
                           />
                         </div>
                         <div className="w-full text-right space-y-1">
-                          <label className="text-xs text-[#14b8a6] font-bold">متن پاسخ:</label>
+                          <label className="text-xs text-[var(--color-primary)] font-bold">متن پاسخ:</label>
                           <textarea
                             value={editAnswer}
                             onChange={(e) => setEditAnswer(e.target.value)}
-                            className="w-full p-2.5 bg-[#0f172a] border border-[#334155] rounded-xl text-xs md:text-sm text-[#e0e6ed] focus:outline-none focus:border-[#14b8a6] resize-none h-20 leading-relaxed font-vazirmatn"
+                            className="w-full p-2.5 bg-[var(--color-bg)] border border-[var(--color-border)] rounded-[10px] text-xs md:text-sm text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary)] focus:ring-1 focus:ring-[var(--color-primary)] resize-none h-20 leading-relaxed font-sans"
                             dir="rtl"
                           />
                         </div>
                         <div className="flex items-center justify-center gap-3 pt-1">
-                          <button
+                          <Button
                             type="button"
+                            variant="primary"
+                            size="sm"
                             onClick={handleSaveEdit}
-                            className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-[#14b8a6] text-[#0f172a] font-bold text-xs hover:bg-[#14b8a6]/90 transition-all shadow-md cursor-pointer"
+                            className="rounded-[10px] gap-1.5"
                           >
                             <Check className="w-3.5 h-3.5" />
                             <span>ثبت تغییرات</span>
-                          </button>
-                          <button
+                          </Button>
+                          <Button
                             type="button"
+                            variant="outline"
+                            size="sm"
                             onClick={handleCancelEdit}
-                            className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-[#1e293b] text-[#cbd5e1] border border-[#334155] font-bold text-xs hover:bg-[#334155]/50 transition-all cursor-pointer"
+                            className="rounded-[10px] gap-1.5"
                           >
                             <X className="w-3.5 h-3.5" />
                             <span>انصراف</span>
-                          </button>
+                          </Button>
                         </div>
                       </div>
                     ) : (
                       <div className="flex-1 flex flex-col justify-center items-center text-center w-full my-auto px-4 py-4 space-y-3">
-                        <div className="text-base md:text-lg lg:text-xl font-semibold text-[#e0e6ed] leading-relaxed max-w-2xl text-center">
+                        <div className="text-base md:text-lg lg:text-xl font-semibold text-[var(--color-text)] leading-relaxed max-w-2xl text-center">
                           <RichContent content={currentCard.answer} inline />
                         </div>
                         {currentCard.explanation && (
-                          <div className="w-full max-w-2xl p-3.5 bg-[#0f172a]/80 rounded-2xl border border-[#334155]/60 text-xs md:text-sm text-[#94a3b8] space-y-1.5 text-right">
-                            <div className="font-bold text-[#14b8a6] flex items-center gap-1.5 justify-start">
-                              <Lightbulb className="w-4 h-4 text-[#14b8a6]" />
+                          <div className="w-full max-w-2xl p-3.5 bg-[var(--color-surface-hover)] rounded-[12px] border border-[var(--color-border)] text-xs md:text-sm text-[var(--color-text-secondary)] space-y-1.5 text-right">
+                            <div className="font-bold text-[var(--color-primary)] flex items-center gap-1.5 justify-start">
+                              <Lightbulb className="w-4 h-4 text-[var(--color-primary)]" />
                               <span>توضیح تکمیلی:</span>
                             </div>
-                            <div className="leading-relaxed text-[#cbd5e1]">
+                            <div className="leading-relaxed text-[var(--color-text-secondary)]">
                               <RichContent content={currentCard.explanation} />
                             </div>
                           </div>
@@ -999,7 +1050,7 @@ export function FlashcardExperience({
                     )}
 
                     {/* Bottom Status Hint */}
-                    <div className="flex justify-center items-center gap-2 text-xs text-[#14b8a6] pt-2.5 border-t border-[#14b8a6]/20 w-full flex-shrink-0 font-medium">
+                    <div className="flex justify-center items-center gap-2 text-xs text-[var(--color-primary)] pt-2.5 border-t border-[var(--color-primary-muted)] w-full flex-shrink-0 font-medium">
                       <Sparkles className="w-3.5 h-3.5" />
                       <span>پاسخ ثبت آماده ارزیابی است</span>
                     </div>
@@ -1009,24 +1060,26 @@ export function FlashcardExperience({
 
               {/* External Control Bar Below Flashcard Box */}
               <div className="w-full max-w-3xl flex items-center justify-between px-2 py-1 flex-shrink-0 gap-2 z-20">
-                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#14b8a6]/15 text-[#14b8a6] border border-[#14b8a6]/30 text-xs font-semibold">
+                <Badge variant="primary" size="sm" className="gap-1.5">
                   <BookOpen className="w-3.5 h-3.5" />
                   <span>{currentCourseInfo ? currentCourseInfo.title : "فلش‌کارت"}</span>
-                </span>
+                </Badge>
 
                 {/* Edit Card Button */}
-                <button
+                <Button
                   type="button"
+                  variant="outline"
+                  size="sm"
                   onClick={handleStartEdit}
                   aria-label="ویرایش کارت"
                   title="ویرایش کارت"
-                  className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-[#1e293b] text-[#e0e6ed] border border-[#334155]/60 hover:bg-[#14b8a6]/20 hover:text-[#14b8a6] hover:border-[#14b8a6]/40 transition-all text-xs font-medium cursor-pointer shadow-sm z-20"
+                  className="rounded-[10px] gap-1.5 text-xs z-20"
                 >
-                  <Pencil className="w-3.5 h-3.5 text-[#14b8a6]" />
+                  <Pencil className="w-3.5 h-3.5 text-[var(--color-primary)]" />
                   <span>ویرایش کارت</span>
-                </button>
+                </Button>
 
-                <span className="text-xs text-[#94a3b8] font-medium bg-[#1e293b]/60 px-3 py-1 rounded-full border border-[#334155]/30">
+                <span className="text-xs text-[var(--color-text-muted)] font-medium bg-[var(--color-surface-hover)] px-3 py-1 rounded-full border border-[var(--color-border)]">
                   {isFlipped ? "پاسخ" : "سوال"}
                 </span>
               </div>
@@ -1036,15 +1089,15 @@ export function FlashcardExperience({
           {/* Spaced Repetition Controls */}
           <div className="w-full max-w-3xl flex flex-col gap-3">
             {/* Priority Markers */}
-            <div className="flex justify-center items-center gap-4 p-3 glass-panel rounded-xl border border-[#334155]/30">
-              <span className="text-xs text-[#94a3b8] self-center ml-2">نشانی‌گذاری اولویت:</span>
+            <div className="flex justify-center items-center gap-4 p-3 bg-[var(--color-surface-hover)] rounded-[10px] border border-[var(--color-border)]">
+              <span className="text-xs text-[var(--color-text-muted)] self-center me-2">نشانی‌گذاری اولویت:</span>
               <button
                 type="button"
                 onClick={() => togglePriority("high")}
-                className={`w-7 h-7 rounded-full border transition-transform hover:scale-110 ${
+                className={`w-7 h-7 rounded-full border transition-transform hover:scale-110 cursor-pointer ${
                   currentCard && cardPriorities[currentCard.id] === "high"
-                    ? "bg-red-500 border-red-400 scale-110"
-                    : "bg-red-500/40 border-red-500/60"
+                    ? "bg-[var(--color-error)] border-[var(--color-error)] scale-110"
+                    : "bg-[var(--color-error-soft)] border-[var(--color-error-muted)]"
                 }`}
                 aria-label="اولویت بالا"
                 title="اولویت بالا"
@@ -1052,10 +1105,10 @@ export function FlashcardExperience({
               <button
                 type="button"
                 onClick={() => togglePriority("medium")}
-                className={`w-7 h-7 rounded-full border transition-transform hover:scale-110 ${
+                className={`w-7 h-7 rounded-full border transition-transform hover:scale-110 cursor-pointer ${
                   currentCard && cardPriorities[currentCard.id] === "medium"
-                    ? "bg-orange-500 border-orange-400 scale-110"
-                    : "bg-orange-500/40 border-orange-500/60"
+                    ? "bg-[var(--color-warning)] border-[var(--color-warning)] scale-110"
+                    : "bg-[var(--color-warning-soft)] border-[var(--color-warning-muted)]"
                 }`}
                 aria-label="اولویت متوسط"
                 title="اولویت متوسط"
@@ -1063,10 +1116,10 @@ export function FlashcardExperience({
               <button
                 type="button"
                 onClick={() => togglePriority("low")}
-                className={`w-7 h-7 rounded-full border transition-transform hover:scale-110 ${
+                className={`w-7 h-7 rounded-full border transition-transform hover:scale-110 cursor-pointer ${
                   currentCard && cardPriorities[currentCard.id] === "low"
-                    ? "bg-[#a78bfa] border-[#a78bfa] scale-110"
-                    : "bg-[#a78bfa]/40 border-[#a78bfa]/60"
+                    ? "bg-[var(--color-secondary-dark)] border-[var(--color-secondary)] scale-110"
+                    : "bg-[var(--color-secondary-light)] border-[var(--color-secondary)]"
                 }`}
                 aria-label="اولویت پایین"
                 title="اولویت پایین"
@@ -1076,16 +1129,18 @@ export function FlashcardExperience({
             {/* Rating & Navigation Row */}
             <div className="flex items-center gap-3">
               {/* Previous Button (Icon Only - RTL ChevronRight) */}
-              <button
+              <Button
                 type="button"
+                variant="outline"
+                size="md"
                 onClick={handlePrevCard}
                 disabled={currentIndex === 0}
                 aria-label="کارت قبلی"
                 title="کارت قبلی"
-                className="flex-shrink-0 w-12 h-12 flex items-center justify-center rounded-full bg-[#1e293b] border border-[#334155]/40 text-[#e0e6ed] hover:bg-[#14b8a6]/20 hover:text-[#14b8a6] transition-all disabled:opacity-30 disabled:pointer-events-none shadow-md"
+                className="flex-shrink-0 w-12 h-12 !p-0 rounded-full"
               >
-                <ChevronRight className="w-5 h-5 text-[#e0e6ed]" />
-              </button>
+                <ChevronRight className="w-5 h-5 text-[var(--color-text)]" />
+              </Button>
 
               {/* Spaced Repetition Grid */}
               <div
@@ -1099,14 +1154,14 @@ export function FlashcardExperience({
                   onClick={() => handleRating("again")}
                   disabled={!isFlipped || isSubmitting || reviewMutation.isPending}
                   aria-label="تکرار"
-                  className="flex flex-col items-center justify-center py-3.5 px-2 rounded-xl bg-[#1e293b] border border-[#334155]/40 hover:bg-red-500/20 hover:border-red-500/50 hover:text-red-400 transition-colors group disabled:opacity-50"
+                  className="flex flex-col items-center justify-center py-3.5 px-2 rounded-[10px] bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-[var(--color-error)] hover:bg-[var(--color-error-soft)] transition-colors group disabled:opacity-50 cursor-pointer"
                 >
                   {selectedRating === "again" && isSubmitting ? (
-                    <Loader2 className="w-4 h-4 animate-spin text-red-400" />
+                    <Loader2 className="w-4 h-4 animate-spin text-[var(--color-error)]" />
                   ) : (
                     <>
-                      <span className="text-xs md:text-sm font-bold text-[#e0e6ed] mb-1">دوباره</span>
-                      <span className="text-[11px] md:text-[12px] font-bold text-red-400">
+                      <span className="text-xs md:text-sm font-bold text-[var(--color-text)] mb-1">دوباره</span>
+                      <span className="text-[11px] md:text-[12px] font-bold text-[var(--color-error)]">
                         {getIntervalHint("again", currentCard)}
                       </span>
                     </>
@@ -1118,14 +1173,14 @@ export function FlashcardExperience({
                   onClick={() => handleRating("hard")}
                   disabled={!isFlipped || isSubmitting || reviewMutation.isPending}
                   aria-label="سخت"
-                  className="flex flex-col items-center justify-center py-3.5 px-2 rounded-xl bg-[#1e293b] border border-[#334155]/40 hover:bg-orange-500/20 hover:border-orange-500/50 hover:text-orange-400 transition-colors group disabled:opacity-50"
+                  className="flex flex-col items-center justify-center py-3.5 px-2 rounded-[10px] bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-[var(--color-warning)] hover:bg-[var(--color-warning-soft)] transition-colors group disabled:opacity-50 cursor-pointer"
                 >
                   {selectedRating === "hard" && isSubmitting ? (
-                    <Loader2 className="w-4 h-4 animate-spin text-orange-400" />
+                    <Loader2 className="w-4 h-4 animate-spin text-[var(--color-warning)]" />
                   ) : (
                     <>
-                      <span className="text-xs md:text-sm font-bold text-[#e0e6ed] mb-1">سخت</span>
-                      <span className="text-[11px] md:text-[12px] font-bold text-orange-400/80">
+                      <span className="text-xs md:text-sm font-bold text-[var(--color-text)] mb-1">سخت</span>
+                      <span className="text-[11px] md:text-[12px] font-bold text-[var(--color-warning)]">
                         {getIntervalHint("hard", currentCard)}
                       </span>
                     </>
@@ -1137,14 +1192,14 @@ export function FlashcardExperience({
                   onClick={() => handleRating("good")}
                   disabled={!isFlipped || isSubmitting || reviewMutation.isPending}
                   aria-label="خوب"
-                  className="flex flex-col items-center justify-center py-3.5 px-2 rounded-xl bg-[#1e293b] border border-[#334155]/40 hover:bg-[#14b8a6]/20 hover:border-[#14b8a6]/50 hover:text-[#14b8a6] transition-colors group disabled:opacity-50"
+                  className="flex flex-col items-center justify-center py-3.5 px-2 rounded-[10px] bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-[var(--color-secondary)] hover:bg-[var(--color-secondary-light)] transition-colors group disabled:opacity-50 cursor-pointer"
                 >
                   {selectedRating === "good" && isSubmitting ? (
-                    <Loader2 className="w-4 h-4 animate-spin text-[#14b8a6]" />
+                    <Loader2 className="w-4 h-4 animate-spin text-[var(--color-secondary-dark)]" />
                   ) : (
                     <>
-                      <span className="text-xs md:text-sm font-bold text-[#e0e6ed] mb-1">خوب</span>
-                      <span className="text-[11px] md:text-[12px] font-bold text-[#a78bfa]">
+                      <span className="text-xs md:text-sm font-bold text-[var(--color-text)] mb-1">خوب</span>
+                      <span className="text-[11px] md:text-[12px] font-bold text-[var(--color-secondary-dark)]">
                         {getIntervalHint("good", currentCard)}
                       </span>
                     </>
@@ -1156,14 +1211,14 @@ export function FlashcardExperience({
                   onClick={() => handleRating("easy")}
                   disabled={!isFlipped || isSubmitting || reviewMutation.isPending}
                   aria-label="آسان"
-                  className="flex flex-col items-center justify-center py-3.5 px-2 rounded-xl bg-[#1e293b] border border-[#334155]/40 hover:bg-[#4edea3]/20 hover:border-[#4edea3]/50 hover:text-[#4edea3] transition-colors group disabled:opacity-50"
+                  className="flex flex-col items-center justify-center py-3.5 px-2 rounded-[10px] bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-[var(--color-success)] hover:bg-[var(--color-success-soft)] transition-colors group disabled:opacity-50 cursor-pointer"
                 >
                   {selectedRating === "easy" && isSubmitting ? (
-                    <Loader2 className="w-4 h-4 animate-spin text-[#4edea3]" />
+                    <Loader2 className="w-4 h-4 animate-spin text-[var(--color-success)]" />
                   ) : (
                     <>
-                      <span className="text-xs md:text-sm font-bold text-[#e0e6ed] mb-1">آسان</span>
-                      <span className="text-[11px] md:text-[12px] font-bold text-[#14b8a6]">
+                      <span className="text-xs md:text-sm font-bold text-[var(--color-text)] mb-1">آسان</span>
+                      <span className="text-[11px] md:text-[12px] font-bold text-[var(--color-success)]">
                         {getIntervalHint("easy", currentCard)}
                       </span>
                     </>
@@ -1172,26 +1227,28 @@ export function FlashcardExperience({
               </div>
 
               {/* Next Button (Icon Only - RTL ChevronLeft) */}
-              <button
+              <Button
                 type="button"
+                variant="outline"
+                size="md"
                 onClick={handleNextCard}
                 disabled={currentIndex >= dueCards.length - 1 && isFlipped}
                 aria-label="کارت بعدی"
                 title="کارت بعدی"
-                className="flex-shrink-0 w-12 h-12 flex items-center justify-center rounded-full bg-[#1e293b] border border-[#334155]/40 text-[#e0e6ed] hover:bg-[#14b8a6]/20 hover:text-[#14b8a6] transition-all disabled:opacity-30 disabled:pointer-events-none shadow-md"
+                className="flex-shrink-0 w-12 h-12 !p-0 rounded-full"
               >
-                <ChevronLeft className="w-5 h-5 text-[#e0e6ed]" />
-              </button>
+                <ChevronLeft className="w-5 h-5 text-[var(--color-text)]" />
+              </Button>
             </div>
           </div>
-        </div>
+        </Card>
       </div>
 
       {/* Floating AI Assistant Button */}
       <button
         type="button"
         aria-label="دستیار هوش مصنوعی"
-        className="fixed bottom-6 left-6 md:bottom-10 md:left-10 w-14 h-14 rounded-full bg-gradient-to-br from-[#8455ef] to-[#14b8a6] shadow-[0px_4px_20px_rgba(139,92,246,0.3)] flex items-center justify-center z-50 hover:scale-105 transition-transform"
+        className="fixed bottom-6 left-6 md:bottom-10 md:left-10 w-14 h-14 rounded-full bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary-hover)] shadow-[var(--shadow-card)] flex items-center justify-center z-50 hover:scale-105 transition-transform cursor-pointer"
       >
         <span className="text-white text-2xl font-bold leading-none">A</span>
       </button>

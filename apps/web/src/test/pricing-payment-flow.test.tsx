@@ -137,7 +137,8 @@ describe("Pricing & Card-to-Card UX Refactor Suite", () => {
     renderWithRouter(["/modal-test"]);
 
     expect(screen.getByText("ارتقا به آوانا پلاس (اشتراک ویژه)")).toBeDefined();
-    expect(screen.getByText("درگاه پرداخت آنلاین (شتاب)")).toBeDefined();
+    expect(screen.getByText("پرداخت آنلاین")).toBeDefined();
+    expect(screen.getByText("به‌زودی")).toBeDefined();
     expect(screen.getByText("کارت‌به‌کارت (فعال‌سازی فوری)")).toBeDefined();
 
     // Destination card and payment form MUST NOT be in the modal
@@ -170,7 +171,7 @@ describe("Pricing & Card-to-Card UX Refactor Suite", () => {
 
     // Destination details
     expect(screen.getByText("5894 6311 3173 8239")).toBeDefined();
-    expect(screen.getByText("علی محمدلو")).toBeDefined();
+    expect(screen.queryByText("علی محمدلو")).toBeNull();
     expect(screen.getAllByText(/۹۹٬۰۰۰/).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("کپی")).toBeDefined();
 

@@ -5,7 +5,7 @@
  * on read to match the domain shape.
  */
 
-import { and, asc, count, eq, inArray, isNull, isNotNull, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNull, isNotNull, or, sql } from "drizzle-orm";
 import type { DbClient } from "@avana/database/client";
 import {
   flashcards,
@@ -220,6 +220,8 @@ function toQuizAttemptRecord(row: {
   score: string;
   answers: unknown;
   questionIds?: unknown;
+  questionSnapshot?: unknown;
+  metrics?: unknown;
   topic?: string | null;
   difficulty?: string | null;
   status?: string | null;
@@ -233,6 +235,8 @@ function toQuizAttemptRecord(row: {
     score: Number(row.score),
     answers: (row.answers as Record<string, unknown>) ?? {},
     questionIds: (row.questionIds as string[]) ?? null,
+    questionSnapshot: (row.questionSnapshot as unknown[]) ?? null,
+    metrics: row.metrics ?? null,
     topic: row.topic ?? null,
     difficulty: row.difficulty ?? null,
     status: row.status ?? "in_progress",
@@ -911,7 +915,7 @@ export class DrizzleQuizAttemptStore implements QuizAttemptStore {
       .select()
       .from(quizAttempts)
       .where(eq(quizAttempts.userId, userId))
-      .orderBy(asc(quizAttempts.completedAt));
+      .orderBy(desc(quizAttempts.startedAt));
 
     return rows.map(toQuizAttemptRecord);
   }
@@ -962,6 +966,8 @@ export class DrizzleQuizAttemptStore implements QuizAttemptStore {
         score: record.score.toString(),
         answers: record.answers,
         questionIds: record.questionIds ?? null,
+        questionSnapshot: record.questionSnapshot ?? null,
+        metrics: record.metrics ?? null,
         topic: record.topic ?? null,
         difficulty: record.difficulty ?? null,
         status: record.status ?? "in_progress",
@@ -979,6 +985,8 @@ export class DrizzleQuizAttemptStore implements QuizAttemptStore {
       .set({
         score: record.score.toString(),
         answers: record.answers,
+        questionSnapshot: record.questionSnapshot ?? null,
+        metrics: record.metrics ?? null,
         status: record.status ?? "completed",
         completedAt: record.completedAt ? new Date(record.completedAt) : new Date(),
       })

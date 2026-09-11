@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { BookOpen, Loader2, X } from "lucide-react";
+import { BookOpen, Loader2 } from "lucide-react";
+import { Dialog, DialogHeader, DialogContent, AvanaSelect } from "@avana/ui";
 import type { CourseResource } from "@avana/contracts";
 
 export interface FileAttachCourseModalProps {
@@ -25,105 +26,79 @@ export function FileAttachCourseModal({
     currentCourseId ?? "",
   );
 
-  if (!isOpen) return null;
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     await onConfirm(selectedCourseId ? selectedCourseId : null);
   };
 
   return (
-    <>
-      {/* Backdrop */}
-      <div
-        className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-50 transition-opacity"
-        onClick={() => !isSaving && onClose()}
-      />
+    <Dialog
+      isOpen={isOpen}
+      onClose={() => !isSaving && onClose()}
+      maxWidth="md"
+      ariaLabel={count > 1 ? `اتصال ${count.toLocaleString("fa-IR")} فایل به دوره` : "اتصال / تغییر دوره فایل"}
+    >
+      {/* Header */}
+      <DialogHeader onClose={!isSaving ? onClose : undefined}>
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 rounded-2xl bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+            <BookOpen className="w-5 h-5" />
+          </div>
+          <div>
+            <h3 className="text-base font-bold text-[var(--color-text)]">
+              {count > 1
+                ? `اتصال ${count.toLocaleString("fa-IR")} فایل به دوره`
+                : "اتصال / تغییر دوره فایل"}
+            </h3>
+            <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
+              دوره مورد نظر را برای دسته‌بندی فایل انتخاب کنید
+            </p>
+          </div>
+        </div>
+      </DialogHeader>
 
-      {/* Modal Container */}
-      <div
-        className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 overflow-y-auto"
-        dir="rtl"
-      >
-        <div className="bg-[#0f172a] border border-white/15 rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-5 text-slate-200 font-sans">
-          {/* Header */}
-          <div className="flex items-center justify-between border-b border-white/10 pb-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-2xl bg-purple-500/10 text-purple-400 border border-purple-500/20">
-                <BookOpen className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="text-base font-bold text-white">
-                  {count > 1
-                    ? `اتصال ${count.toLocaleString("fa-IR")} فایل به دوره`
-                    : "اتصال / تغییر دوره فایل"}
-                </h3>
-                <p className="text-xs text-slate-400">
-                  دوره مورد نظر را برای دسته‌بندی فایل انتخاب کنید
-                </p>
-              </div>
-            </div>
+      {/* Form Content */}
+      <DialogContent>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <AvanaSelect
+            label="انتخاب دوره آموزشی:"
+            value={selectedCourseId}
+            onChange={(val) => setSelectedCourseId(typeof val === "string" ? val : val[0] || "")}
+            disabled={isSaving}
+            options={[
+              { value: "", label: "بدون اتصال به دوره (آزاد / Unassigned)" },
+              ...courses.map((c) => ({ value: c.id, label: c.title })),
+            ]}
+          />
 
+          {/* Footer Actions */}
+          <div className="flex items-center justify-end gap-3 pt-3 border-t border-[var(--color-border)]">
             <button
               type="button"
               onClick={onClose}
               disabled={isSaving}
-              className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+              className="px-4 py-2 rounded-xl text-xs font-semibold text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] transition-colors disabled:opacity-50 cursor-pointer"
             >
-              <X className="w-4 h-4" />
+              انصراف
+            </button>
+
+            <button
+              type="submit"
+              disabled={isSaving}
+              className="flex items-center gap-2 px-5 py-2 rounded-xl bg-[#008080] hover:bg-[#006666] text-white text-xs font-bold transition-colors shadow-xs disabled:opacity-50 cursor-pointer"
+            >
+              {isSaving ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>در حال ذخیره...</span>
+                </>
+              ) : (
+                <span>ثبت و اتصال</span>
+              )}
             </button>
           </div>
-
-          {/* Form */}
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-1.5 text-xs">
-              <label className="font-semibold text-slate-300">
-                انتخاب دوره آموزشی:
-              </label>
-              <select
-                value={selectedCourseId}
-                onChange={(e) => setSelectedCourseId(e.target.value)}
-                disabled={isSaving}
-                className="w-full bg-[#131d31] border border-white/15 rounded-xl px-3.5 py-2.5 text-slate-100 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
-              >
-                <option value="">بدون اتصال به دوره (آزاد / Unassigned)</option>
-                {courses.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.title}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Footer */}
-            <div className="flex items-center justify-end gap-3 pt-2">
-              <button
-                type="button"
-                onClick={onClose}
-                disabled={isSaving}
-                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-300 hover:bg-white/10 transition-colors disabled:opacity-50"
-              >
-                انصراف
-              </button>
-
-              <button
-                type="submit"
-                disabled={isSaving}
-                className="flex items-center gap-2 px-5 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition-colors shadow-lg shadow-purple-900/40 disabled:opacity-50"
-              >
-                {isSaving ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>در حال ذخیره...</span>
-                  </>
-                ) : (
-                  <span>ثبت و اتصال</span>
-                )}
-              </button>
-            </div>
-          </form>
-        </div>
-      </div>
-    </>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -4,6 +4,7 @@ import { api } from "../../lib/api/admin";
 import { useAdmin } from "../../hooks/useAdmin.js";
 import { useMutation } from "@tanstack/react-query";
 import { AdminStatusBadge, AdminConfirmModal } from "../../components/admin/AdminUI";
+import { toPersianDigits } from "@avana/domain";
 import {
   ArrowRight,
   FileText,
@@ -169,9 +170,9 @@ export function AdminDocumentDetailPage() {
     return () => clearInterval(interval);
   }, [id, doc?.status, doc?.generationProgress?.status]);
 
-  if (loading) return <div className="text-slate-400">در حال بارگذاری...</div>;
-  if (error) return <div className="text-red-400">{error}</div>;
-  if (!doc) return <div className="text-slate-400">فایل یافت نشد.</div>;
+  if (loading) return <div className="text-[var(--color-text-muted)] py-12 text-center" dir="rtl">در حال بارگذاری...</div>;
+  if (error) return <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-sm text-rose-600 dark:text-rose-400" dir="rtl">{error}</div>;
+  if (!doc) return <div className="text-[var(--color-text-muted)] py-12 text-center" dir="rtl">فایل یافت نشد.</div>;
 
   const prog = doc.generationProgress;
   const progressStatus = prog?.status ?? (
@@ -237,39 +238,39 @@ export function AdminDocumentDetailPage() {
   );
 
   return (
-    <div className="space-y-6 max-w-5xl">
+    <div className="space-y-6 max-w-5xl" dir="rtl">
       {/* Header */}
-      <div className="flex items-center gap-4">
-        <Link to="/admin/documents" className="p-2 bg-slate-800 rounded-lg hover:bg-slate-700 text-slate-300 transition-colors">
+      <div className="flex flex-wrap items-center gap-3">
+        <Link to="/admin/documents" className="p-2.5 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl hover:bg-[var(--color-surface-warm)] text-[var(--color-text)] transition-colors shadow-sm" aria-label="بازگشت به لیست اسناد">
           <ArrowRight className="w-5 h-5" />
         </Link>
         <div>
-          <h1 className="text-2xl font-bold text-slate-100 flex items-center gap-3">
-            <FileText className="w-6 h-6 text-teal-400" />
+          <h1 className="text-2xl font-bold text-[var(--color-text)] flex items-center gap-3">
+            <FileText className="w-6 h-6 text-[var(--color-primary-default)]" />
             جزئیات فایل و خط لوله هوش مصنوعی
           </h1>
-          <p className="text-sm text-slate-400 mt-1" dir="ltr">{doc.id}</p>
+          <p className="text-xs font-mono text-[var(--color-text-muted)] mt-1" dir="ltr">{doc.id}</p>
         </div>
         
         {(doc.status === 'failed' || doc.status === 'error' || progressStatus === 'failed') && (
           <button 
             onClick={() => setIsRetryModalOpen(true)}
-            className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 px-4 py-2 rounded-lg text-sm transition-colors"
+            className="flex items-center gap-2 bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-[var(--color-text)] px-3.5 py-2 rounded-xl text-xs sm:text-sm font-medium transition-colors shadow-sm cursor-pointer"
           >
-            <RefreshCw className="w-4 h-4" />
+            <RefreshCw className="w-4 h-4 text-[var(--color-primary-default)]" />
             تلاش مجدد
           </button>
         )}
         <button 
           onClick={handleDownload}
-          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm transition-colors"
+          className="flex items-center gap-2 bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-[var(--color-text)] px-3.5 py-2 rounded-xl text-xs sm:text-sm font-medium transition-colors shadow-sm cursor-pointer"
         >
-          <Download className="w-4 h-4" />
+          <Download className="w-4 h-4 text-[var(--color-primary-default)]" />
           دانلود فایل
         </button>
         <button 
           onClick={() => setIsDeleteModalOpen(true)}
-          className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm transition-colors mr-auto"
+          className="flex items-center gap-2 bg-rose-600 hover:bg-rose-700 text-white px-3.5 py-2 rounded-xl text-xs sm:text-sm font-medium transition-colors shadow-sm cursor-pointer ms-auto"
         >
           <Trash2 className="w-4 h-4" />
           حذف سند
@@ -296,11 +297,11 @@ export function AdminDocumentDetailPage() {
 
       {/* Stale Activity Warning */}
       {isStale && (
-        <div className="bg-amber-500/10 border border-amber-500/30 text-amber-300 p-4 rounded-xl flex items-start gap-3">
-          <Clock className="w-5 h-5 mt-0.5 shrink-0 animate-pulse text-amber-400" />
+        <div className="bg-amber-500/10 border border-amber-500/20 text-amber-800 dark:text-amber-200 p-4 rounded-2xl flex items-start gap-3 shadow-sm">
+          <Clock className="w-5 h-5 mt-0.5 shrink-0 animate-pulse text-amber-600 dark:text-amber-400" />
           <div>
-            <h3 className="font-semibold text-amber-200">عدم دریافت فعالیت در ۵ دقیقه اخیر</h3>
-            <p className="text-sm mt-1 text-amber-300/90">
+            <h3 className="font-semibold text-amber-800 dark:text-amber-200">عدم دریافت فعالیت در ۵ دقیقه اخیر</h3>
+            <p className="text-sm mt-1 leading-relaxed opacity-90">
               خط لوله تولید در وضعیت فعال است اما بیش از ۵ دقیقه سیگنال فعالیتی ثبت نکرده است. این وضعیت معمولاً به دلیل صف درخواست مدل هوش مصنوعی یا پردازش فایل‌های سنگین رخ می‌دهد.
             </p>
           </div>
@@ -309,32 +310,32 @@ export function AdminDocumentDetailPage() {
 
       {/* Error Alert */}
       {(doc.errorCode || prog?.error) && (
-        <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-4 rounded-xl flex items-start gap-3">
-          <AlertTriangle className="w-5 h-5 mt-0.5 shrink-0" />
+        <div className="bg-rose-500/10 border border-rose-500/20 text-rose-700 dark:text-rose-300 p-4 rounded-2xl flex items-start gap-3 shadow-sm">
+          <AlertTriangle className="w-5 h-5 mt-0.5 shrink-0 text-rose-600 dark:text-rose-400" />
           <div>
-            <h3 className="font-medium text-red-300">خطا در پردازش یا تولید محتوا</h3>
-            <p className="text-sm mt-1">{prog?.error || `کد خطا: ${doc.errorCode}`}</p>
+            <h3 className="font-semibold text-rose-700 dark:text-rose-300">خطا در پردازش یا تولید محتوا</h3>
+            <p className="text-sm mt-1 leading-relaxed opacity-90">{prog?.error || `کد خطا: ${doc.errorCode}`}</p>
           </div>
         </div>
       )}
 
       {/* AI Pipeline Visual Stage Timeline */}
-      <div className="glass-panel p-6 rounded-2xl border border-white/5 space-y-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-4">
+      <div className="bg-[var(--color-surface)] p-6 rounded-2xl border border-[var(--color-border)] shadow-sm space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[var(--color-border)] pb-4">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-teal-500/10 text-teal-400 rounded-xl border border-teal-500/20">
+            <div className="p-2.5 bg-[var(--color-surface-warm)] text-[var(--color-primary-default)] rounded-xl border border-[var(--color-border)]">
               <Cpu className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-white">خط لوله تولید هوش مصنوعی (AI Generation Pipeline)</h2>
-              <p className="text-xs text-slate-400 mt-0.5">رهگیری لحظه‌ای و گام‌به‌گام مراحل تولید و اعتبارسنجی محتوا</p>
+              <h2 className="text-base sm:text-lg font-bold text-[var(--color-text)]">خط لوله تولید هوش مصنوعی (AI Generation Pipeline)</h2>
+              <p className="text-xs text-[var(--color-text-muted)] mt-0.5">رهگیری لحظه‌ای و گام‌به‌گام مراحل تولید و اعتبارسنجی محتوا</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-400">وضعیت خط لوله:</span>
+            <span className="text-xs text-[var(--color-text-muted)]">وضعیت خط لوله:</span>
             <AdminStatusBadge status={progressStatus} />
             {prog?.progress && typeof prog.progress.percentage === "number" && (
-              <span className="text-xs font-semibold text-teal-400 bg-teal-500/10 px-2.5 py-0.5 rounded-full border border-teal-500/20">
+              <span className="text-xs font-semibold text-[var(--color-primary-default)] bg-[var(--color-surface-warm)] px-2.5 py-0.5 rounded-full border border-[var(--color-border)]" dir="ltr">
                 {prog.progress.percentage}%
               </span>
             )}
@@ -352,31 +353,31 @@ export function AdminDocumentDetailPage() {
             const isErr = state === "failed";
             const isQ = state === "queued";
 
-            let cardBg = "bg-slate-900/40 border-white/5 text-slate-400";
-            let iconColor = "text-slate-500 bg-slate-800/80";
+            let cardBg = "bg-[var(--color-surface-subtle)] border-[var(--color-border)] text-[var(--color-text-muted)]";
+            let iconColor = "text-[var(--color-text-muted)] bg-[var(--color-surface)] border border-[var(--color-border)]";
             let badgeText = "در انتظار";
-            let badgeColor = "text-slate-500 bg-slate-800/50";
+            let badgeColor = "text-[var(--color-text-muted)] bg-[var(--color-surface)] border-[var(--color-border)]";
 
             if (isDone) {
-              cardBg = "bg-emerald-950/20 border-emerald-500/30 text-emerald-300";
-              iconColor = "text-emerald-400 bg-emerald-500/10";
+              cardBg = "bg-emerald-500/5 border-emerald-500/20 text-emerald-800 dark:text-emerald-300";
+              iconColor = "text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/20";
               badgeText = "تکمیل شده";
-              badgeColor = "text-emerald-400 bg-emerald-500/10 border-emerald-500/20";
+              badgeColor = "text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 border-emerald-500/20 font-semibold";
             } else if (isCurrent) {
-              cardBg = "bg-teal-950/40 border-teal-500/50 text-teal-200 ring-1 ring-teal-500/30";
-              iconColor = "text-teal-300 bg-teal-500/20";
+              cardBg = "bg-[var(--color-surface)] border-[var(--color-primary-default)] text-[var(--color-text)] ring-2 ring-[var(--color-primary-default)]/20 shadow-sm";
+              iconColor = "text-[var(--color-primary-default)] bg-[var(--color-surface-warm)] border border-[var(--color-primary-default)]/30";
               badgeText = "در حال انجام";
-              badgeColor = "text-teal-300 bg-teal-500/20 border-teal-500/30";
+              badgeColor = "text-[var(--color-primary-default)] bg-[var(--color-surface-warm)] border-[var(--color-primary-default)]/30 font-semibold";
             } else if (isErr) {
-              cardBg = "bg-red-950/20 border-red-500/30 text-red-300";
-              iconColor = "text-red-400 bg-red-500/10";
+              cardBg = "bg-rose-500/5 border-rose-500/30 text-rose-800 dark:text-rose-300";
+              iconColor = "text-rose-600 dark:text-rose-400 bg-rose-500/10 border border-rose-500/20";
               badgeText = "متوقف با خطا";
-              badgeColor = "text-red-400 bg-red-500/10 border-red-500/20";
+              badgeColor = "text-rose-700 dark:text-rose-300 bg-rose-500/10 border-rose-500/20 font-semibold";
             } else if (isQ) {
-              cardBg = "bg-amber-950/20 border-amber-500/30 text-amber-300";
-              iconColor = "text-amber-400 bg-amber-500/10";
+              cardBg = "bg-amber-500/5 border-amber-500/30 text-amber-800 dark:text-amber-300";
+              iconColor = "text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20";
               badgeText = "در صف";
-              badgeColor = "text-amber-400 bg-amber-500/10 border-amber-500/20";
+              badgeColor = "text-amber-700 dark:text-amber-300 bg-amber-500/10 border-amber-500/20 font-semibold";
             }
 
             return (
@@ -386,7 +387,7 @@ export function AdminDocumentDetailPage() {
               >
                 <div>
                   <div className="flex items-center justify-between gap-2 mb-2">
-                    <span className="text-[11px] font-mono opacity-60">گام ۰{idx + 1}</span>
+                    <span className="text-[11px] font-mono opacity-70">گام ۰{toPersianDigits(idx + 1)}</span>
                     <span className={`text-[10px] px-2 py-0.5 rounded-full border ${badgeColor}`}>
                       {badgeText}
                     </span>
@@ -394,35 +395,35 @@ export function AdminDocumentDetailPage() {
                   <div className="flex items-center gap-2.5 mb-1.5">
                     <div className={`p-1.5 rounded-lg shrink-0 ${iconColor}`}>
                       {isCurrent ? (
-                        <Loader2 className="w-4 h-4 animate-spin text-teal-300" />
+                        <Loader2 className="w-4 h-4 animate-spin text-[var(--color-primary-default)]" />
                       ) : isDone ? (
-                        <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
                       ) : isErr ? (
-                        <AlertCircle className="w-4 h-4 text-red-400" />
+                        <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400" />
                       ) : isQ ? (
-                        <Clock className="w-4 h-4 text-amber-400" />
+                        <Clock className="w-4 h-4 text-amber-600 dark:text-amber-400" />
                       ) : (
                         <Icon className="w-4 h-4" />
                       )}
                     </div>
                     <span className="font-semibold text-sm truncate">{stage.label}</span>
                   </div>
-                  <p className="text-[11px] opacity-75 line-clamp-2 leading-relaxed">
+                  <p className="text-[11px] opacity-80 line-clamp-2 leading-relaxed">
                     {stage.description}
                   </p>
                 </div>
 
                 {isCurrent && prog?.progress && (
-                  <div className="mt-3 pt-2.5 border-t border-teal-500/20 space-y-1.5">
-                    <div className="flex justify-between text-[11px] text-teal-300 font-medium">
+                  <div className="mt-3 pt-2.5 border-t border-[var(--color-border)] space-y-1.5">
+                    <div className="flex justify-between text-[11px] text-[var(--color-primary-default)] font-semibold">
                       <span>پیشرفت مرحله</span>
                       <span dir="ltr">
                         {prog.progress.current} / {prog.progress.total}
                       </span>
                     </div>
-                    <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                    <div className="w-full bg-[var(--color-surface-subtle)] border border-[var(--color-border)] rounded-full h-1.5 overflow-hidden">
                       <div
-                        className="bg-gradient-to-r from-teal-500 to-cyan-400 h-1.5 rounded-full transition-all duration-300"
+                        className="bg-[var(--color-primary-default)] h-1.5 rounded-full transition-all duration-300"
                         style={{ width: `${Math.max(5, prog.progress.percentage)}%` }}
                       />
                     </div>
@@ -434,34 +435,34 @@ export function AdminDocumentDetailPage() {
         </div>
 
         {/* Detailed Generation Meta */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 pt-2 border-t border-white/5 text-xs text-slate-300">
-          <div className="bg-slate-900/30 p-3 rounded-xl border border-white/5 space-y-1">
-            <span className="text-slate-400 flex items-center gap-1.5">
-              <Activity className="w-3.5 h-3.5 text-teal-400" /> مرحله فعلی
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 pt-4 border-t border-[var(--color-border)] text-xs text-[var(--color-text)]">
+          <div className="bg-[var(--color-surface-subtle)] p-3.5 rounded-xl border border-[var(--color-border)] space-y-1">
+            <span className="text-[var(--color-text-muted)] flex items-center gap-1.5">
+              <Activity className="w-3.5 h-3.5 text-[var(--color-primary-default)]" /> مرحله فعلی
             </span>
-            <span className="font-medium text-slate-100">{prog?.stageLabel || (prog?.stage ? prog.stage : "تعریف‌نشده")}</span>
+            <span className="font-semibold text-xs sm:text-sm text-[var(--color-text)]">{prog?.stageLabel || (prog?.stage ? prog.stage : "تعریف‌نشده")}</span>
           </div>
-          <div className="bg-slate-900/30 p-3 rounded-xl border border-white/5 space-y-1">
-            <span className="text-slate-400 flex items-center gap-1.5">
-              <Sparkles className="w-3.5 h-3.5 text-cyan-400" /> شمارنده واحدها
+          <div className="bg-[var(--color-surface-subtle)] p-3.5 rounded-xl border border-[var(--color-border)] space-y-1">
+            <span className="text-[var(--color-text-muted)] flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5 text-[var(--color-primary-default)]" /> شمارنده واحدها
             </span>
-            <span className="font-medium text-slate-100" dir="ltr">
+            <span className="font-semibold text-xs sm:text-sm text-[var(--color-text)]" dir="ltr">
               {prog?.progress ? `${prog.progress.current} / ${prog.progress.total} (${prog.progress.percentage}%)` : "-"}
             </span>
           </div>
-          <div className="bg-slate-900/30 p-3 rounded-xl border border-white/5 space-y-1">
-            <span className="text-slate-400 flex items-center gap-1.5">
-              <Clock className="w-3.5 h-3.5 text-amber-400" /> شروع مرحله
+          <div className="bg-[var(--color-surface-subtle)] p-3.5 rounded-xl border border-[var(--color-border)] space-y-1">
+            <span className="text-[var(--color-text-muted)] flex items-center gap-1.5">
+              <Clock className="w-3.5 h-3.5 text-amber-500" /> شروع مرحله
             </span>
-            <span className="font-medium text-slate-100" dir="ltr">
+            <span className="font-semibold text-xs sm:text-sm text-[var(--color-text)]" dir="ltr">
               {prog?.stageStartedAt ? new Date(prog.stageStartedAt).toLocaleString("fa-IR") : "-"}
             </span>
           </div>
-          <div className="bg-slate-900/30 p-3 rounded-xl border border-white/5 space-y-1">
-            <span className="text-slate-400 flex items-center gap-1.5">
-              <RefreshCw className="w-3.5 h-3.5 text-emerald-400" /> آخرین فعالیت
+          <div className="bg-[var(--color-surface-subtle)] p-3.5 rounded-xl border border-[var(--color-border)] space-y-1">
+            <span className="text-[var(--color-text-muted)] flex items-center gap-1.5">
+              <RefreshCw className="w-3.5 h-3.5 text-emerald-500" /> آخرین فعالیت
             </span>
-            <span className="font-medium text-slate-100" dir="ltr">
+            <span className="font-semibold text-xs sm:text-sm text-[var(--color-text)]" dir="ltr">
               {prog?.lastActivityAt ? new Date(prog.lastActivityAt).toLocaleString("fa-IR") : "-"}
             </span>
           </div>
@@ -470,42 +471,42 @@ export function AdminDocumentDetailPage() {
 
       {/* Basic & Relationship Info */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="glass-panel p-6 rounded-2xl border border-white/5 space-y-4">
-          <h2 className="text-lg font-semibold text-white border-b border-white/10 pb-2">اطلاعات پایه</h2>
-          <div className="space-y-3 text-sm">
-            <div className="flex justify-between">
-              <span className="text-slate-400 flex items-center gap-2"><FileText className="w-4 h-4"/> نام فایل</span>
-              <span className="text-slate-200 font-medium break-all" dir="ltr">{doc.originalName}</span>
+        <div className="bg-[var(--color-surface)] p-6 rounded-2xl border border-[var(--color-border)] shadow-sm space-y-4">
+          <h2 className="text-base font-bold text-[var(--color-text)] border-b border-[var(--color-border)] pb-3">اطلاعات پایه</h2>
+          <div className="space-y-3 text-xs sm:text-sm">
+            <div className="flex justify-between items-center py-1">
+              <span className="text-[var(--color-text-muted)] flex items-center gap-2"><FileText className="w-4 h-4"/> نام فایل</span>
+              <span className="text-[var(--color-text)] font-semibold break-all" dir="ltr">{doc.originalName}</span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-slate-400 flex items-center gap-2"><HardDrive className="w-4 h-4"/> حجم</span>
-              <span className="text-slate-200" dir="ltr">{(doc.sizeBytes / 1024 / 1024).toFixed(2)} MB</span>
+            <div className="flex justify-between items-center py-1">
+              <span className="text-[var(--color-text-muted)] flex items-center gap-2"><HardDrive className="w-4 h-4"/> حجم</span>
+              <span className="text-[var(--color-text)] font-mono" dir="ltr">{(doc.sizeBytes / 1024 / 1024).toFixed(2)} MB</span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-slate-400 flex items-center gap-2"><FileText className="w-4 h-4"/> نوع (MIME)</span>
-              <span className="text-slate-200" dir="ltr">{doc.mimeType}</span>
+            <div className="flex justify-between items-center py-1">
+              <span className="text-[var(--color-text-muted)] flex items-center gap-2"><FileText className="w-4 h-4"/> نوع (MIME)</span>
+              <span className="text-[var(--color-text)] font-mono text-xs" dir="ltr">{doc.mimeType}</span>
             </div>
-            <div className="flex justify-between items-center">
-              <span className="text-slate-400 flex items-center gap-2"><AlertTriangle className="w-4 h-4"/> وضعیت سند</span>
+            <div className="flex justify-between items-center py-1">
+              <span className="text-[var(--color-text-muted)] flex items-center gap-2"><AlertTriangle className="w-4 h-4"/> وضعیت سند</span>
               <AdminStatusBadge status={doc.status} />
             </div>
           </div>
         </div>
 
-        <div className="glass-panel p-6 rounded-2xl border border-white/5 space-y-4">
-          <h2 className="text-lg font-semibold text-white border-b border-white/10 pb-2">روابط و مالکیت</h2>
-          <div className="space-y-3 text-sm">
-            <div className="flex justify-between">
-              <span className="text-slate-400 flex items-center gap-2"><User className="w-4 h-4"/> کاربر ایجاد کننده</span>
-              <span className="text-slate-200">{doc.ownerEmail || "-"}</span>
+        <div className="bg-[var(--color-surface)] p-6 rounded-2xl border border-[var(--color-border)] shadow-sm space-y-4">
+          <h2 className="text-base font-bold text-[var(--color-text)] border-b border-[var(--color-border)] pb-3">روابط و مالکیت</h2>
+          <div className="space-y-3 text-xs sm:text-sm">
+            <div className="flex justify-between items-center py-1">
+              <span className="text-[var(--color-text-muted)] flex items-center gap-2"><User className="w-4 h-4"/> کاربر ایجاد کننده</span>
+              <span className="text-[var(--color-text)] font-mono text-xs" dir="ltr">{doc.ownerEmail || "-"}</span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-slate-400 flex items-center gap-2"><HardDrive className="w-4 h-4"/> دوره مرتبط</span>
-              <span className="text-slate-200">{doc.courseName || "-"}</span>
+            <div className="flex justify-between items-center py-1">
+              <span className="text-[var(--color-text-muted)] flex items-center gap-2"><HardDrive className="w-4 h-4"/> دوره مرتبط</span>
+              <span className="text-[var(--color-text)] font-medium">{doc.courseName || "-"}</span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-slate-400 flex items-center gap-2"><Calendar className="w-4 h-4"/> تاریخ آپلود</span>
-              <span className="text-slate-200" dir="ltr">{new Date(doc.createdAt).toLocaleString("fa-IR")}</span>
+            <div className="flex justify-between items-center py-1">
+              <span className="text-[var(--color-text-muted)] flex items-center gap-2"><Calendar className="w-4 h-4"/> تاریخ آپلود</span>
+              <span className="text-[var(--color-text)] text-xs" dir="ltr">{new Date(doc.createdAt).toLocaleString("fa-IR")}</span>
             </div>
           </div>
         </div>
@@ -513,3 +514,4 @@ export function AdminDocumentDetailPage() {
     </div>
   );
 }
+

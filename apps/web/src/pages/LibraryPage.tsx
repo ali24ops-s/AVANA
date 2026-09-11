@@ -3,7 +3,6 @@ import { useSearchParams } from "react-router-dom";
 import {
   Search,
   X,
-  Filter,
   TrendingUp,
   Clock,
   ChevronLeft,
@@ -21,10 +20,20 @@ import { ContentLibraryCard } from "../components/library/ContentLibraryCard.js"
 import { ChapterPackageCard } from "../components/library/ChapterPackageCard.js";
 import { ChapterPackageModal } from "../components/library/ChapterPackageModal.js";
 import { PaywallModal } from "../components/commerce/index.js";
+import {
+  Button,
+  Input,
+  AvanaSelect,
+  Badge,
+  Card,
+  EmptyState,
+  Skeleton,
+} from "@avana/ui";
 import type {
   ChapterPackageItem,
   CourseWithChapterPackages,
 } from "@avana/domain";
+import { formatPersianOf } from "@avana/domain";
 import type {
   LibraryCourseItem,
   LibraryContentItem,
@@ -33,21 +42,21 @@ import type {
 type LibraryTab = "all" | "courses" | "contents" | "packs";
 
 const PRESET_SUBJECTS = [
-  { id: "all", label: "همه موضوعات" },
-  { id: "داروسازی", label: "داروسازی" },
-  { id: "فیزیولوژی", label: "فیزیولوژی" },
-  { id: "فارماکولوژی", label: "فارماکولوژی" },
-  { id: "شیمی دارویی", label: "شیمی دارویی" },
-  { id: "فارماسیوتیکس", label: "فارماسیوتیکس" },
-  { id: "سم شناسی", label: "سم‌شناسی" },
-  { id: "بافت شناسی", label: "بافت‌شناسی" },
-  { id: "بیولوژی", label: "بیولوژی" },
-  { id: "میکروبیولوژی", label: "میکروبیولوژی" },
-  { id: "گیاهان دارویی", label: "گیاهان دارویی" },
-  { id: "انگل‌شناسی", label: "انگل‌شناسی" },
-  { id: "آناتومی", label: "آناتومی" },
-  { id: "بیوشیمی", label: "بیوشیمی" },
-  { id: "پزشکی عمومی", label: "پزشکی عمومی" },
+  { value: "all", label: "همه موضوعات" },
+  { value: "داروسازی", label: "داروسازی" },
+  { value: "فیزیولوژی", label: "فیزیولوژی" },
+  { value: "فارماکولوژی", label: "فارماکولوژی" },
+  { value: "شیمی دارویی", label: "شیمی دارویی" },
+  { value: "فارماسیوتیکس", label: "فارماسیوتیکس" },
+  { value: "سم شناسی", label: "سم‌شناسی" },
+  { value: "بافت شناسی", label: "بافت‌شناسی" },
+  { value: "بیولوژی", label: "بیولوژی" },
+  { value: "میکروبیولوژی", label: "میکروبیولوژی" },
+  { value: "گیاهان دارویی", label: "گیاهان دارویی" },
+  { value: "انگل‌شناسی", label: "انگل‌شناسی" },
+  { value: "آناتومی", label: "آناتومی" },
+  { value: "بیوشیمی", label: "بیوشیمی" },
+  { value: "پزشکی عمومی", label: "پزشکی عمومی" },
 ];
 
 export function LibraryPage() {
@@ -61,9 +70,11 @@ export function LibraryPage() {
   const [selectedSort, setSelectedSort] = useState<"popular" | "newest">("popular");
   const [currentPage, setCurrentPage] = useState(1);
 
-  // Selected Educational Chapter Package for Preview Modal
+  // Selected Educational Chapter Package or Course for Preview Modal
   const [selectedChapterPackage, setSelectedChapterPackage] =
     useState<ChapterPackageItem | null>(null);
+  const [selectedCourseForPreview, setSelectedCourseForPreview] =
+    useState<LibraryCourseItem | null>(null);
   const [isChapterModalOpen, setIsChapterModalOpen] = useState(false);
 
   // Paywall Modal State for Course / Content / Package purchase
@@ -162,27 +173,24 @@ export function LibraryPage() {
         currency: pkg.purchase.currency || "IRR",
         durationDays: null,
       });
-    } else if (pkg.purchase && pkg.purchase.price > 0) {
-      options.push({
-        type: "content_pack",
-        productId: `pack-${pkg.id}`,
-        code: `pack-${pkg.id}`,
-        title: pkg.title,
-        price: pkg.purchase.price,
-        currency: pkg.purchase.currency || "IRR",
-        durationDays: null,
-      });
     }
 
     setPaywallResource({
-      title: `بسته آموزشی: ${pkg.title}`,
+      title: pkg.title,
       type: "content_pack",
       options,
     });
   };
 
   const handleViewPackage = (pkg: ChapterPackageItem) => {
+    setSelectedCourseForPreview(null);
     setSelectedChapterPackage(pkg);
+    setIsChapterModalOpen(true);
+  };
+
+  const handleViewCourse = (course: LibraryCourseItem) => {
+    setSelectedChapterPackage(null);
+    setSelectedCourseForPreview(course);
     setIsChapterModalOpen(true);
   };
 
@@ -195,7 +203,7 @@ export function LibraryPage() {
     return () => clearTimeout(timer);
   }, [searchInput]);
 
-  // 1. Query library courses & contents (GET /v1/library/resources)
+  // 1. Query library courses & contents
   const resourcesQuery = useLibraryResources({
     q: debouncedQuery || undefined,
     type:
@@ -212,7 +220,7 @@ export function LibraryPage() {
     limit: 12,
   });
 
-  // 2. Query Course Chapter Educational Packages (GET /v1/library/course-packages)
+  // 2. Query Course Chapter Educational Packages
   const coursePackagesQuery = useCoursePackages({
     q: debouncedQuery || undefined,
     subject: selectedSubject !== "all" ? selectedSubject : undefined,
@@ -245,8 +253,9 @@ export function LibraryPage() {
     setCurrentPage(1);
   };
 
-  const handleSubjectChange = (subjectId: string) => {
-    setSelectedSubject(subjectId);
+  const handleSubjectChange = (subjectVal: string | string[]) => {
+    const val = Array.isArray(subjectVal) ? subjectVal[0] || "all" : subjectVal;
+    setSelectedSubject(val);
     setCurrentPage(1);
   };
 
@@ -333,155 +342,139 @@ export function LibraryPage() {
   return (
     <div className="space-y-8 pb-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4" dir="rtl">
       {/* 1. Hero Header Banner */}
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-l from-teal-950/60 via-slate-900/80 to-slate-900 border border-teal-500/20 p-6 sm:p-10 shadow-ambient">
+      <Card variant="glass" className="relative overflow-hidden p-6 sm:p-10 border-[var(--color-border)] shadow-md">
         <div className="relative z-10 max-w-2xl space-y-3">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-teal-500/10 text-teal-400 border border-teal-500/30 text-xs font-bold">
-            <LibraryIcon className="w-3.5 h-3.5" />
-            <span>کتابخانه جامع یادگیری و محتوای آموزشی آوانا</span>
-          </div>
+          <Badge variant="primary" icon={<LibraryIcon className="w-3.5 h-3.5" />}>
+            کتابخانه جامع یادگیری و محتوای آموزشی آوانا
+          </Badge>
 
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+          <h1 className="text-h1 text-[var(--color-text)]">
             کتابخانه آوانا
           </h1>
 
-          <p className="text-sm sm:text-base text-slate-300 leading-relaxed">
+          <p className="text-body-lg text-[var(--color-text-muted)] leading-relaxed">
             مطالب آموزشی، دوره‌های معتبر و درسنامه‌های دانشگاهی را مرور و مطالعه کن، یا بسته‌های آموزشی آماده هر فصل را برای یادگیری کامل باز کن.
           </p>
         </div>
-
-        {/* Decorative background glow */}
-        <div className="absolute top-0 left-0 w-96 h-96 bg-teal-500/10 rounded-full blur-3xl pointer-events-none -translate-x-1/2 -translate-y-1/2" />
-      </div>
+      </Card>
 
       {/* 2. Search, Tabs, Filter & Sort Toolbar */}
       <div className="space-y-4 pt-2">
         {/* Resource Category Tabs */}
-        <div className="flex items-center gap-2 border-b border-white/10 pb-3 overflow-x-auto scrollbar-none">
-          <button
-            type="button"
+        <div className="flex items-center gap-2 border-b border-[var(--color-border)] pb-3 overflow-x-auto">
+          <Button
             data-testid="tab-all"
+            size="sm"
+            variant={activeTab === "all" ? "primary" : "ghost"}
             onClick={() => handleTabChange("all")}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all shrink-0 ${
-              activeTab === "all"
-                ? "bg-teal-600 text-white shadow-sm shadow-teal-900/50"
-                : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
-            }`}
+            leftIcon={<LibraryIcon className="w-4 h-4" />}
           >
-            <LibraryIcon className="w-4 h-4" />
-            <span>همه</span>
-          </button>
+            همه
+          </Button>
 
-          <button
-            type="button"
+          <Button
             data-testid="tab-courses"
+            size="sm"
+            variant={activeTab === "courses" ? "primary" : "ghost"}
             onClick={() => handleTabChange("courses")}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all shrink-0 ${
-              activeTab === "courses"
-                ? "bg-teal-600 text-white shadow-sm shadow-teal-900/50"
-                : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
-            }`}
+            leftIcon={<GraduationCap className="w-4 h-4" />}
           >
-            <GraduationCap className="w-4 h-4" />
-            <span>دوره‌ها</span>
-          </button>
+            دوره‌ها
+          </Button>
 
-          <button
-            type="button"
+          <Button
             data-testid="tab-contents"
+            size="sm"
+            variant={activeTab === "contents" ? "primary" : "ghost"}
             onClick={() => handleTabChange("contents")}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all shrink-0 ${
-              activeTab === "contents"
-                ? "bg-teal-600 text-white shadow-sm shadow-teal-900/50"
-                : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
-            }`}
+            leftIcon={<FileText className="w-4 h-4" />}
           >
-            <FileText className="w-4 h-4" />
-            <span>محتواها و درسنامه‌ها</span>
-          </button>
+            محتواها و درسنامه‌ها
+          </Button>
 
-          <button
-            type="button"
+          <Button
             data-testid="tab-packs"
+            size="sm"
+            variant={activeTab === "packs" ? "primary" : "ghost"}
             onClick={() => handleTabChange("packs")}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all shrink-0 ${
-              activeTab === "packs"
-                ? "bg-teal-600 text-white shadow-sm shadow-teal-900/50"
-                : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
-            }`}
+            leftIcon={<Layers className="w-4 h-4 text-amber-400" />}
           >
-            <Layers className="w-4 h-4 text-amber-400" />
-            <span>بسته‌های آموزشی آماده</span>
-          </button>
+            بسته‌های آموزشی آماده
+          </Button>
         </div>
 
-        {/* Search Box & Sort Controls */}
-        <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
+        {/* Search Box, AvanaSelect Subject Filter & Sort Controls */}
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
           {/* Search Box */}
-          <div className="relative flex-1 max-w-xl">
-            <Search className="w-4 h-4 absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
-              type="text"
+          <div className="md:col-span-6">
+            <Input
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
               placeholder="جستجو در عنوان دوره‌ها، درسنامه‌ها، سرفصل‌ها یا موضوع..."
-              className="w-full pl-10 pr-10 py-3 rounded-2xl border border-white/10 bg-slate-900/80 text-slate-200 text-xs sm:text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 shadow-sm"
+              startIcon={<Search className="w-4 h-4" />}
+              endIcon={
+                searchInput ? (
+                  <button
+                    type="button"
+                    onClick={handleClearSearch}
+                    className="p-1 hover:text-red-500 transition-colors"
+                    aria-label="پاک کردن جستجو"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                ) : undefined
+              }
             />
-            {searchInput && (
-              <button
-                type="button"
-                onClick={handleClearSearch}
-                className="absolute left-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-white rounded-full hover:bg-white/10"
-                aria-label="پاک کردن جستجو"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            )}
+          </div>
+
+          {/* Canonical AvanaSelect for Subject Filtering */}
+          <div className="md:col-span-3">
+            <AvanaSelect
+              options={PRESET_SUBJECTS}
+              value={selectedSubject}
+              onChange={handleSubjectChange}
+              placeholder="فیلتر موضوعی..."
+              isSearchable
+            />
           </div>
 
           {/* Sort Switcher (محبوب‌ترین / جدیدترین) */}
-          <div className="flex items-center gap-1.5 p-1 rounded-2xl bg-slate-900/80 border border-white/10 shrink-0 self-start md:self-auto">
-            <button
-              type="button"
+          <div className="md:col-span-3 flex items-center justify-end gap-1.5 p-1 rounded-xl bg-[var(--color-surface)] border border-[var(--color-border)]">
+            <Button
+              size="sm"
+              variant={selectedSort === "popular" ? "primary" : "ghost"}
               onClick={() => handleSortChange("popular")}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-                selectedSort === "popular"
-                  ? "bg-teal-600 text-white shadow-sm shadow-teal-900/40"
-                  : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
-              }`}
+              leftIcon={<TrendingUp className="w-3.5 h-3.5" />}
+              className="flex-1"
             >
-              <TrendingUp className="w-3.5 h-3.5" />
-              <span>محبوب‌ترین</span>
-            </button>
+              محبوب‌ترین
+            </Button>
 
-            <button
-              type="button"
+            <Button
+              size="sm"
+              variant={selectedSort === "newest" ? "primary" : "ghost"}
               onClick={() => handleSortChange("newest")}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-                selectedSort === "newest"
-                  ? "bg-teal-600 text-white shadow-sm shadow-teal-900/40"
-                  : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
-              }`}
+              leftIcon={<Clock className="w-3.5 h-3.5" />}
+              className="flex-1"
             >
-              <Clock className="w-3.5 h-3.5" />
-              <span>جدیدترین</span>
-            </button>
+              جدیدترین
+            </Button>
           </div>
         </div>
 
         {/* Subject Filter Pills */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
-          <Filter className="w-4 h-4 text-slate-400 shrink-0 ml-1" />
+        <div className="flex items-center gap-2 overflow-x-auto pb-1">
           {PRESET_SUBJECTS.map((sub) => {
-            const isSelected = selectedSubject === sub.id;
+            const isSelected = selectedSubject === sub.value;
             return (
               <button
-                key={sub.id}
+                key={sub.value}
                 type="button"
-                onClick={() => handleSubjectChange(sub.id)}
+                onClick={() => handleSubjectChange(sub.value)}
                 className={`px-3.5 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all border ${
                   isSelected
-                    ? "bg-teal-500/20 text-teal-300 border-teal-500/40 shadow-sm"
-                    : "bg-white/[0.03] text-slate-400 border-white/5 hover:bg-white/10 hover:text-slate-200"
+                    ? "bg-primary/20 text-primary border-primary/40 shadow-sm"
+                    : "bg-[var(--color-surface)] text-[var(--color-text-muted)] border-[var(--color-border)] hover:bg-[var(--color-surface-warm)] hover:text-[var(--color-text)]"
                 }`}
               >
                 {sub.label}
@@ -497,308 +490,202 @@ export function LibraryPage() {
         {isLoading && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {Array.from({ length: 6 }).map((_, i) => (
-              <div
-                key={i}
-                className="h-64 rounded-2xl bg-slate-900/40 border border-white/5 p-5 animate-pulse flex flex-col justify-between"
-              >
-                <div className="space-y-3">
-                  <div className="flex justify-between items-center">
-                    <div className="h-5 w-24 bg-white/10 rounded-full" />
-                    <div className="h-4 w-16 bg-white/5 rounded-full" />
-                  </div>
-                  <div className="h-6 w-3/4 bg-white/10 rounded-xl" />
-                  <div className="h-4 w-full bg-white/5 rounded" />
-                </div>
-                <div className="h-10 bg-white/10 rounded-xl" />
-              </div>
+              <Skeleton key={i} className="h-64 w-full rounded-2xl" />
             ))}
           </div>
         )}
 
         {/* Error State */}
-        {isError && (
-          <div className="p-8 rounded-3xl bg-rose-500/10 border border-rose-500/20 text-center space-y-4 max-w-lg mx-auto">
-            <AlertCircle className="w-10 h-10 text-rose-400 mx-auto" />
-            <h3 className="text-base font-bold text-white">
-              خطا در دریافت منابع کتابخانه
-            </h3>
-            <p className="text-xs text-slate-400">
-              {resourcesQuery.error?.message ||
-                coursePackagesQuery.error?.message ||
-                "امکان برقراری ارتباط با سرور وجود ندارد."}
-            </p>
-            <button
-              type="button"
-              onClick={() => {
-                void resourcesQuery.refetch();
-                void coursePackagesQuery.refetch();
-              }}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-rose-500/20 hover:bg-rose-500/30 text-rose-200 text-xs font-bold rounded-xl transition-colors"
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
-              <span>تلاش مجدد</span>
-            </button>
-          </div>
+        {isError && !isLoading && (
+          <EmptyState
+            icon={<AlertCircle className="w-10 h-10 text-red-400" />}
+            title="خطا در دریافت منابع کتابخانه"
+            description="ارتباط با سرور برقرار نشد. لطفا مجدداً تلاش کنید."
+            action={
+              <Button
+                variant="primary"
+                onClick={() => {
+                  void resourcesQuery.refetch();
+                  void coursePackagesQuery.refetch();
+                }}
+                leftIcon={<RefreshCw className="w-4 h-4" />}
+              >
+                تلاش مجدد
+              </Button>
+            }
+          />
         )}
 
-        {/* Empty State */}
+        {/* Empty Result State */}
         {!isLoading && !isError && totalItemsInView === 0 && (
-          <div className="p-12 text-center rounded-3xl bg-slate-900/60 border border-white/10 space-y-4 max-w-md mx-auto shadow-ambient">
-            <LibraryIcon className="w-12 h-12 text-teal-400/60 mx-auto" />
-            {isSearchActive ? (
-              <>
-                <h3 className="text-base font-bold text-white">
-                  محتوایی با این عبارت پیدا نشد.
-                </h3>
-                <p className="text-xs text-slate-400 leading-relaxed">
-                  عبارت دیگری را جستجو کن یا فیلترهای موضوعی را تغییر بده.
-                </p>
-                <button
-                  type="button"
-                  onClick={handleClearSearch}
-                  className="px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold"
-                >
-                  پاک کردن جستجو و فیلترها
-                </button>
-              </>
-            ) : (
-              <>
-                <h3 className="text-base font-bold text-white">
-                  هنوز محتوایی در این بخش وجود ندارد.
-                </h3>
-                <p className="text-xs text-slate-400 leading-relaxed">
-                  به زودی دوره‌ها و بسته‌های آموزشی دانشگاهی در این بخش قرار می‌گیرد.
-                </p>
-              </>
-            )}
-          </div>
+          <EmptyState
+            icon={<LibraryIcon className="w-10 h-10 text-[var(--color-text-muted)]" />}
+            title="هیچ محتوایی یافت نشد"
+            description={
+              isSearchActive
+                ? "با فیلترها و عبارت جستجوی فعلی، موردی در کتابخانه پیدا نشد."
+                : "هنوز محتوایی در این بخش وجود ندارد."
+            }
+            action={
+              isSearchActive ? (
+                <Button variant="outline" onClick={handleClearSearch}>
+                  پاک کردن فیلترها
+                </Button>
+              ) : undefined
+            }
+          />
         )}
 
-        {/* --- SECTION: COURSES --- */}
-        {!isLoading &&
-          !isError &&
-          (activeTab === "all" || activeTab === "courses") &&
-          courses.length > 0 && (
-            <section className="space-y-4" data-testid="library-courses-section">
-              <div className="flex items-center justify-between">
-                <h2 className="text-lg sm:text-xl font-bold text-white flex items-center gap-2">
-                  <GraduationCap className="w-5 h-5 text-teal-400" />
-                  <span>دوره‌ها</span>
-                </h2>
-                {activeTab === "all" && courses.length > 6 && (
-                  <button
-                    type="button"
-                    onClick={() => handleTabChange("courses")}
-                    className="text-teal-400 text-xs font-bold hover:underline flex items-center gap-1"
-                  >
-                    <span>مشاهده همه دوره‌ها</span>
-                    <ChevronLeft className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                {courses.map((course) => (
-                  <CourseLibraryCard
-                    key={course.id}
-                    course={course}
-                    onBuy={handleBuyCourse}
-                  />
-                ))}
-              </div>
-            </section>
-          )}
-
-        {/* --- SECTION: CONTENTS --- */}
-        {!isLoading &&
-          !isError &&
-          (activeTab === "all" || activeTab === "contents") &&
-          contents.length > 0 && (
-            <section className="space-y-4" data-testid="library-contents-section">
-              <div className="flex items-center justify-between">
-                <h2 className="text-lg sm:text-xl font-bold text-white flex items-center gap-2">
-                  <FileText className="w-5 h-5 text-cyan-400" />
-                  <span>محتواها و درسنامه‌ها</span>
-                </h2>
-                {activeTab === "all" && contents.length > 6 && (
-                  <button
-                    type="button"
-                    onClick={() => handleTabChange("contents")}
-                    className="text-cyan-400 text-xs font-bold hover:underline flex items-center gap-1"
-                  >
-                    <span>مشاهده همه محتواها</span>
-                    <ChevronLeft className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                {contents.map((content) => (
-                  <ContentLibraryCard
-                    key={content.id}
-                    content={content}
-                    onBuy={handleBuyContent}
-                  />
-                ))}
-              </div>
-            </section>
-          )}
-
-        {/* --- SECTION: EDUCATIONAL CHAPTER PACKAGES (بسته‌های آموزشی آماده) --- */}
-        {!isLoading &&
-          !isError &&
-          (activeTab === "all" || activeTab === "packs") &&
-          coursePackages.length > 0 && (
-            <section
-              className="space-y-8"
-              data-testid="public-content-packs-section"
-            >
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-lg sm:text-xl font-bold text-white flex items-center gap-2">
-                    <Layers className="w-5 h-5 text-amber-400" />
-                    <span>بسته‌های آموزشی آماده بر اساس فصول دوره‌ها</span>
-                  </h2>
-                  <p className="text-xs text-slate-400 mt-1">
-                    هر فصل یک بسته آموزشی کامل شامل ۴ محتوای مستقل (درسنامه، خلاصه، فلش‌کارت و آزمون) است.
-                  </p>
-                </div>
-
-                {activeTab === "all" && totalChapterPackages > 6 && (
-                  <button
-                    type="button"
-                    onClick={() => handleTabChange("packs")}
-                    className="text-teal-400 text-xs font-bold hover:underline flex items-center gap-1"
-                  >
-                    <span>مشاهده همه بسته‌ها</span>
-                    <ChevronLeft className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
-
-              {/* Course Groups & Chapters */}
-              <div className="space-y-8">
-                {coursePackages.map((course: CourseWithChapterPackages) => (
-                  <div
-                    key={course.id}
-                    data-testid={`course-package-group-${course.id}`}
-                    className="rounded-3xl bg-slate-900/40 border border-white/10 p-5 sm:p-7 space-y-5"
-                  >
-                    {/* Course Group Header */}
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-white/10">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <GraduationCap className="w-5 h-5 text-teal-400 shrink-0" />
-                          <h3 className="text-base sm:text-lg font-bold text-white">
-                            {course.title}
-                          </h3>
-                          {course.subject && (
-                            <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-teal-500/10 text-teal-400 border border-teal-500/20">
-                              {course.subject}
-                            </span>
-                          )}
-                        </div>
-                        {course.description && (
-                          <p className="text-xs text-slate-400 line-clamp-1">
-                            {course.description}
-                          </p>
-                        )}
+        {/* Course Packages (بسته‌های آموزشی آماده) */}
+        {!isLoading && !isError && (activeTab === "all" || activeTab === "packs") && coursePackages.length > 0 && (
+          <div className="space-y-6" data-testid="library-packs-section">
+            <div className="flex items-center justify-between" data-testid="public-content-packs-section">
+              <h2 className="text-h2 text-[var(--color-text)] flex items-center gap-2">
+                <Layers className="w-5 h-5 text-amber-400" />
+                <span>بسته‌های آموزشی آماده سرفصل‌ها</span>
+              </h2>
+            </div>
+            <div className="space-y-8">
+              {coursePackages.map((course: CourseWithChapterPackages) => (
+                <Card
+                  key={course.id}
+                  data-testid={`course-package-group-${course.id}`}
+                  variant="solid"
+                  className="space-y-5"
+                >
+                  {/* Course Group Header */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-[var(--color-border)]">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <GraduationCap className="w-5 h-5 text-primary shrink-0" />
+                        <h3 className="text-h3 text-[var(--color-text)]">{course.title}</h3>
+                        {course.subject && <Badge variant="primary">{course.subject}</Badge>}
                       </div>
-
-                      <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
-                        <span className="text-xs font-medium text-slate-400 bg-white/5 px-3 py-1 rounded-full border border-white/5">
-                          {course.packages.length} فصل دارای بسته آموزشی
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Chapter Packages Cards Grid */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-                      {course.packages.map((pkg) => (
-                        <ChapterPackageCard
-                          key={pkg.id}
-                          packageItem={pkg}
-                          onView={handleViewPackage}
-                          onBuy={handleBuyPackage}
-                        />
-                      ))}
+                      <p className="text-xs text-[var(--color-text-muted)]">
+                        {course.packages.length} فصل دارای بسته آموزشی
+                      </p>
                     </div>
                   </div>
-                ))}
-              </div>
-            </section>
-          )}
 
-        {/* Pagination Bar */}
+                  {/* Chapter Packages Grid */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {course.packages.map((pkg: ChapterPackageItem) => (
+                      <ChapterPackageCard
+                        key={pkg.id}
+                        packageItem={pkg}
+                        onView={() => handleViewPackage(pkg)}
+                        onBuy={() => handleBuyPackage(pkg)}
+                      />
+                    ))}
+                  </div>
+                </Card>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Courses Grid */}
+        {!isLoading && !isError && (activeTab === "all" || activeTab === "courses") && courses.length > 0 && (
+          <div className="space-y-4" data-testid="library-courses-section">
+            {activeTab === "all" && (
+              <h2 className="text-h2 text-[var(--color-text)] flex items-center gap-2">
+                <GraduationCap className="w-5 h-5 text-primary" />
+                <span>دوره‌ها</span>
+              </h2>
+            )}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+              {courses.map((course: LibraryCourseItem) => (
+                <CourseLibraryCard
+                  key={course.id}
+                  course={course}
+                  onView={handleViewCourse}
+                  onBuy={() => handleBuyCourse(course)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Content Items Grid */}
+        {!isLoading && !isError && (activeTab === "all" || activeTab === "contents") && contents.length > 0 && (
+          <div className="space-y-4" data-testid="library-contents-section">
+            {activeTab === "all" && (
+              <h2 className="text-h2 text-[var(--color-text)] flex items-center gap-2">
+                <FileText className="w-5 h-5 text-purple-400" />
+                <span>درسنامه‌ها و محتواها</span>
+              </h2>
+            )}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+              {contents.map((content: LibraryContentItem) => (
+                <ContentLibraryCard
+                  key={content.id}
+                  content={content}
+                  onBuy={() => handleBuyContent(content)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 4. Pagination */}
         {!isLoading && !isError && pagination.total_pages > 1 && (
-          <div className="flex items-center justify-between gap-4 pt-6 border-t border-white/10">
-            <div className="text-xs text-slate-400">
-              نمایش صفحه {pagination.page} از {pagination.total_pages} (مجموع{" "}
-              {pagination.total_count} مورد)
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                disabled={
-                  currentPage <= 1 ||
-                  resourcesQuery.isFetching ||
-                  coursePackagesQuery.isFetching
-                }
-                className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-900 border border-white/10 text-xs font-bold text-slate-300 hover:bg-white/10 disabled:opacity-40 transition-colors"
-              >
-                <ChevronRight className="w-4 h-4" />
-                <span>صفحه قبل</span>
-              </button>
-
-              <span className="px-3 py-1 text-xs font-bold text-teal-400 bg-teal-500/10 border border-teal-500/30 rounded-xl">
-                {currentPage}
-              </span>
-
-              <button
-                type="button"
-                onClick={() =>
-                  setCurrentPage((p) => Math.min(pagination.total_pages, p + 1))
-                }
-                disabled={
-                  currentPage >= pagination.total_pages ||
-                  resourcesQuery.isFetching ||
-                  coursePackagesQuery.isFetching
-                }
-                className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-900 border border-white/10 text-xs font-bold text-slate-300 hover:bg-white/10 disabled:opacity-40 transition-colors"
-              >
-                <span>صفحه بعد</span>
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-            </div>
+          <div className="flex items-center justify-center gap-2 pt-6 border-t border-[var(--color-border)]">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={currentPage <= 1}
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              leftIcon={<ChevronRight className="w-4 h-4" />}
+            >
+              صفحه قبل
+            </Button>
+            <span className="text-xs font-bold text-[var(--color-text-muted)] px-3">
+              {formatPersianOf(currentPage, pagination.total_pages, { prefix: "صفحه" })}
+            </span>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={currentPage >= pagination.total_pages}
+              onClick={() => setCurrentPage((p) => Math.min(pagination.total_pages, p + 1))}
+              rightIcon={<ChevronLeft className="w-4 h-4" />}
+            >
+              صفحه بعد
+            </Button>
           </div>
         )}
       </div>
 
-      {/* 4. Chapter Package Detail Preview Modal */}
-      <ChapterPackageModal
-        packageItem={selectedChapterPackage}
-        open={isChapterModalOpen}
-        onClose={() => {
-          setIsChapterModalOpen(false);
-          setSelectedChapterPackage(null);
-        }}
-        onBuy={(pkg) => {
-          setIsChapterModalOpen(false);
-          handleBuyPackage(pkg);
-        }}
-      />
+      {/* Chapter Package / Course Preview Modal */}
+      {(selectedChapterPackage || selectedCourseForPreview) && (
+        <ChapterPackageModal
+          open={isChapterModalOpen}
+          onClose={() => {
+            setIsChapterModalOpen(false);
+            setSelectedChapterPackage(null);
+            setSelectedCourseForPreview(null);
+          }}
+          packageItem={selectedChapterPackage}
+          courseItem={selectedCourseForPreview}
+          onBuy={() => {
+            if (selectedChapterPackage) {
+              handleBuyPackage(selectedChapterPackage);
+            } else if (selectedCourseForPreview) {
+              handleBuyCourse(selectedCourseForPreview);
+            }
+          }}
+        />
+      )}
 
-      {/* 5. Commerce Paywall Modal */}
-      <PaywallModal
-        isOpen={Boolean(paywallResource)}
-        onClose={() => setPaywallResource(null)}
-        resourceTitle={paywallResource?.title}
-        resourceType={paywallResource?.type}
-        availablePurchaseOptions={paywallResource?.options ?? []}
-      />
+      {/* Paywall Modal */}
+      {paywallResource && (
+        <PaywallModal
+          isOpen={Boolean(paywallResource)}
+          onClose={() => setPaywallResource(null)}
+          resourceTitle={paywallResource.title}
+          resourceType={paywallResource.type}
+          availablePurchaseOptions={paywallResource.options}
+        />
+      )}
     </div>
   );
 }
-

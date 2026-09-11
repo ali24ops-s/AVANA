@@ -527,28 +527,17 @@ export class OfficialContentService {
 
       if (draft.type === "flashcard") {
         const rawCards = Array.isArray(payload?.cards)
-          ? (payload.cards as Array<{
-              topic?: string;
-              sessionIndex?: number;
-              targetTopic?: string;
-            }>)
+          ? payload.cards
           : Array.isArray(payload?.flashcards)
-          ? (payload.flashcards as Array<{
-              topic?: string;
-              sessionIndex?: number;
-              targetTopic?: string;
-            }>)
+          ? payload.flashcards
+          : payload?.question && payload?.answer
+          ? [payload]
           : [];
         itemCount = rawCards.length;
-        for (const c of rawCards) {
-          const hasIdentifiableLesson =
-            (typeof c.sessionIndex === "number" && !isNaN(c.sessionIndex)) ||
-            (typeof c.topic === "string" && c.topic.trim().length > 0) ||
-            (typeof c.targetTopic === "string" && c.targetTopic.trim().length > 0);
-          if (!hasIdentifiableLesson) {
-            unresolvedItems++;
-            totalUnresolved++;
-          }
+        // Flashcards require a valid documentId (document ownership). lessonId is optional.
+        if (!draft.documentId) {
+          unresolvedItems = itemCount;
+          totalUnresolved += itemCount;
         }
       } else if (draft.type === "quiz") {
         const rawQuestions = Array.isArray(payload?.questions)
@@ -631,7 +620,7 @@ export class OfficialContentService {
     }
 
     const pendingDrafts = workspace.draftContents.filter(
-      (d) => d.status !== "accepted",
+      (d) => d.status === "draft" || d.status === "edited",
     );
 
     if (pendingDrafts.length === 0 && workspace.draftContents.length === 0) {
@@ -692,13 +681,19 @@ export class OfficialContentService {
       }
     }
 
-    // Invariant 2: Every official Flashcard must have a valid Lesson
+    // Invariant 2: Every official Flashcard must have a valid Document and (if lessonId is set) a valid Lesson
     const validLessonIds = new Set(activeLessons.map((l) => l.id));
     for (const card of activeFlashcards) {
-      if (!card.lessonId || !validLessonIds.has(card.lessonId)) {
+      if (!card.documentId) {
         throw new DomainError(
           "unprocessable",
-          `فلش‌کارت رسمی فاقد اتصال معتبر به درس است (lesson_id نامعتبر).`,
+          `فلش‌کارت رسمی فاقد سند معتبر است (document_id نامعتبر).`,
+        );
+      }
+      if (card.lessonId && !validLessonIds.has(card.lessonId)) {
+        throw new DomainError(
+          "unprocessable",
+          `فلش‌کارت رسمی دارای اتصال نامعتبر به درس است (lesson_id نامعتبر).`,
         );
       }
     }
@@ -1350,14 +1345,21 @@ export class OfficialContentService {
     }
 
     const validLessonIds = new Set(activeLessons.map((l) => l.id));
-    let unmappedCards = 0;
+    let invalidDocCards = 0;
+    let invalidLessonCards = 0;
     for (const card of activeFlashcards) {
-      if (!card.lessonId || !validLessonIds.has(card.lessonId)) {
-        unmappedCards++;
+      if (!card.documentId) {
+        invalidDocCards++;
+      }
+      if (card.lessonId && !validLessonIds.has(card.lessonId)) {
+        invalidLessonCards++;
       }
     }
-    if (unmappedCards > 0) {
-      errors.push(`${unmappedCards} فلش‌کارت فاقد اتصال معتبر به درس هستند.`);
+    if (invalidDocCards > 0) {
+      errors.push(`${invalidDocCards} فلش‌کارت فاقد سند معتبر هستند (document_id نامعتبر).`);
+    }
+    if (invalidLessonCards > 0) {
+      errors.push(`${invalidLessonCards} فلش‌کارت دارای اتصال نامعتبر به درس هستند (lesson_id نامعتبر).`);
     }
 
     let totalQuestions = 0;
@@ -1393,7 +1395,7 @@ export class OfficialContentService {
       flashcardCount: activeFlashcards.length,
       quizCount: quizzesList.filter((qu) => !qu.deletedAt).length,
       quizQuestionCount: totalQuestions,
-      unresolvedLessonMappings: unmappedCards + unmappedQuestions,
+      unresolvedLessonMappings: invalidLessonCards + unmappedQuestions,
       productLinked: Boolean(productRow),
       productPrice: productRow?.price ?? 0,
       productActive: productRow?.active ?? false,

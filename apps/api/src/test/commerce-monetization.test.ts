@@ -44,8 +44,17 @@ describe("AVANA Monetization & Commerce Engine", () => {
 
   beforeEach(() => {
     commerceStore = new InMemoryCommerceStore();
-    mockGateway = new MockPaymentGateway();
-    commerceService = new CommerceService(commerceStore, mockGateway);
+    mockGateway = new MockPaymentGateway({ enabled: true });
+    commerceService = new CommerceService(
+      commerceStore,
+      mockGateway,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { onlinePaymentEnabled: true, mockPaymentEnabled: true },
+    );
 
     courseStore = new InMemoryCourseStore();
     moduleStore = new InMemoryModuleStore();
@@ -225,6 +234,59 @@ describe("AVANA Monetization & Commerce Engine", () => {
 
       const sub = await commerceStore.findActiveSubscription(testUser.userId);
       expect(sub).toBeNull();
+    });
+
+    it("rejects checkout and verification when mock gateway is globally disabled (production mode)", async () => {
+      const disabledService = new CommerceService(
+        commerceStore,
+        new MockPaymentGateway({ enabled: false }),
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { onlinePaymentEnabled: false, mockPaymentEnabled: false },
+      );
+      const monthlyProduct = (await commerceService.listActiveProducts())[0];
+      await expect(
+        disabledService.checkout(
+          testUser,
+          { productId: monthlyProduct.id, callbackUrl: "https://app.avana.ai/cb" },
+          "req-disabled",
+        ),
+      ).rejects.toThrow("غیرفعال است");
+
+      const order = await commerceStore.createOrder({
+        id: `ord-dis-${Date.now()}` as any,
+        orderNumber: "ORD-DIS-01",
+        userId: testUser.userId,
+        productId: monthlyProduct.id,
+        amount: monthlyProduct.price,
+        currency: "toman",
+        status: "pending",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+
+      await commerceStore.createPayment({
+        id: `pay-dis-${Date.now()}` as any,
+        orderId: order.id,
+        amount: monthlyProduct.price,
+        currency: "toman",
+        gateway: "mock",
+        authority: "mock_auth_test",
+        status: "pending",
+        metadata: {},
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+
+      const verifyRes = await disabledService.verifyPayment(
+        { authority: "mock_auth_test", status: "OK" },
+        "req-verify-disabled",
+      );
+      expect(verifyRes.success).toBe(false);
+      expect(verifyRes.error_message).toContain("غیرفعال است");
     });
   });
 

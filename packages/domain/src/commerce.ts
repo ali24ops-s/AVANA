@@ -12,6 +12,7 @@
 import type {
   ContentPackId,
   CourseId,
+  ModuleId,
   OrderId,
   PaymentId,
   ProductId,
@@ -198,15 +199,24 @@ export type CardToCardInfoResponse = {
   instructions?: string;
 };
 
+export type PaymentMethodStatus = "ACTIVE" | "COMING_SOON" | "DISABLED";
+
+export const PAYMENT_METHODS_CONFIG = {
+  CARD_TO_CARD: "ACTIVE",
+  ONLINE_PAYMENT: "COMING_SOON",
+  MOCK_PAYMENT: "DISABLED",
+} as const;
+
 export type CardToCardSubmissionResult = {
   success: boolean;
   orderId: OrderId;
   paymentId: PaymentId;
-  subscriptionId: UserSubscriptionId;
+  subscriptionId?: UserSubscriptionId;
   status: PaymentStatus;
-  subscriptionStatus: UserSubscriptionStatus;
+  subscriptionStatus?: UserSubscriptionStatus;
   message: string;
-  expiresAt: string;
+  expiresAt?: string | null;
+  entitlementId?: UserEntitlementId;
 };
 
 // ---------------------------------------------------------------------------
@@ -303,6 +313,7 @@ export type UserEntitlementRecord = {
 
 export type AccessReason =
   | "free"
+  | "free_preview"
   | "admin_grant"
   | "creator_access"
   | "subscription"
@@ -324,6 +335,15 @@ export type AvailablePurchaseOption = {
 export type ResourceAccessResult = {
   granted: boolean;
   reason: AccessReason;
+  accessSource?:
+    | "free"
+    | "free_preview"
+    | "content_purchase"
+    | "course_purchase"
+    | "subscription"
+    | "admin_grant"
+    | "creator_access"
+    | null;
   expiresAt: string | null; // null for permanent ownership or free
   availablePurchaseOptions: AvailablePurchaseOption[];
 };
@@ -334,6 +354,7 @@ export type ResourceAccessSummary = {
   hasAccess: boolean;
   accessSource:
     | "free"
+    | "free_preview"
     | "content_purchase"
     | "course_purchase"
     | "subscription"
@@ -365,6 +386,8 @@ export type CheckAccessInput = {
   resourceId: string;
   courseId?: CourseId;
   contentPackId?: ContentPackId;
+  moduleId?: ModuleId;
+  previewSessionId?: string;
 };
 
 // ---------------------------------------------------------------------------

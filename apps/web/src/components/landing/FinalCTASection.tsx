@@ -1,18 +1,17 @@
 /**
- * Final CTA Section
+ * Final CTA Section — "منبعت را بده به آوانا. از همین‌جا شروع کن."
  *
- * Preserves 100% of existing content, headings, subtitles, and CTA buttons.
- * Enhanced with:
- * - Dynamic Crystalline Constellation Canvas in the background (structured knowledge resolution)
- * - Trust Badges
- * - Secondary Explore Link
+ * Light-first, clean, warm editorial finish matching Reference Design.
+ * Includes:
+ * - Direct motivational headline
+ * - Primary auth-aware CTA button ("شروع با آوانا")
+ * - Aesthetic stack of medical books with sticky note: "موفقیت در انتظار توست..."
  */
 
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
 import { useAuth } from "../../providers/AuthProvider.js";
-import { LandingCrystallineCanvas } from "./canvas/LandingCrystallineCanvas.js";
-import { Sparkles, BookOpen, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, Sparkles, BookOpen } from "lucide-react";
 
 export function FinalCTASection() {
   const { isAuthenticated } = useAuth();
@@ -21,84 +20,102 @@ export function FinalCTASection() {
   return (
     <section
       id="final-cta"
-      className="snap-section relative py-10 lg:py-0 lg:h-[calc(100dvh-80px)] lg:min-h-[calc(100dvh-80px)] flex flex-col justify-center px-6 max-w-[1280px] mx-auto overflow-hidden text-center scroll-mt-20"
-      aria-label="بخش فراخوان نهایی و شروع یادگیری"
+      className="relative py-16 lg:py-24 px-4 sm:px-6 max-w-[1280px] mx-auto overflow-hidden text-right border-t border-[#E2E7EA]/60"
+      aria-label="بخش فراخوان نهایی و شروع مطالعه با آوانا"
     >
-      {/* Symmetrical Crystalline Background Canvas (The resolved state of knowledge) */}
-      <div className="absolute inset-0 -z-10">
-        <LandingCrystallineCanvas />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[500px] bg-gradient-to-tr from-teal-500/15 via-cyan-500/15 to-purple-600/10 rounded-full blur-3xl pointer-events-none" />
-      </div>
-
-      <motion.div
-        initial={{ opacity: 0, y: 30 }}
-        whileInView={{ opacity: 1, y: 0 }}
-        viewport={{ once: true }}
-        transition={{ duration: 0.8, ease: "easeOut" }}
-        className="max-w-3xl mx-auto px-6 text-center relative z-10"
-      >
-        {/* Culmination Badge */}
-        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs sm:text-sm font-semibold tracking-wide border mb-4 bg-teal-950/70 text-teal-300 border-teal-400/40 shadow-[0_0_25px_rgba(45,212,191,0.25)]">
-          <Sparkles className="w-4 h-4 text-teal-300 animate-pulse" />
-          <span>آماده‌ای یادگیری را جور دیگری تجربه کنی؟</span>
-        </div>
-
-        {/* Headline */}
-        <h2
-          className="font-headline text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-black mb-3 text-white leading-tight"
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-8 items-center">
+        {/* RIGHT COLUMN (RTL): Call to Action Text */}
+        <motion.div
+          initial={{ opacity: 0, y: 24 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: "-100px" }}
+          transition={{ duration: 0.6 }}
+          className="lg:col-span-7 flex flex-col gap-5 z-10"
         >
-          یادگیری بهتر از{" "}
-          <span className="text-transparent bg-clip-text bg-gradient-to-l from-teal-300 via-teal-400 to-cyan-300 drop-shadow-[0_0_25px_rgba(45,212,191,0.3)]">
-            همین‌جا
-          </span>{" "}
-          شروع می‌شود
-        </h2>
-
-        {/* Subtitle */}
-        <p
-          className="text-xs sm:text-sm md:text-base mb-6 text-slate-300 max-w-xl mx-auto leading-relaxed font-body"
-        >
-          به هزاران دانشجوی پزشکی بپیوندید که مسیر موفقیت خود را با آوانا هموار
-          کرده‌اند.
-        </p>
-
-        {/* Dual CTAs */}
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-3 w-full max-w-2xl mx-auto">
-          <Link
-            to={ctaHref}
-            className="w-full sm:w-auto h-14 px-8 sm:px-9 rounded-xl font-bold text-sm sm:text-base flex items-center justify-center gap-2.5 whitespace-nowrap cursor-pointer active:scale-95 transition-all duration-300 bg-[#008080] hover:bg-[#005a5a] text-white shadow-[0_0_30px_rgba(0,128,128,0.4)] hover:shadow-[0_0_40px_rgba(45,212,191,0.5)] hover:-translate-y-1"
-          >
-            <span>همین حالا شروع کنید</span>
-            <span className="material-symbols-outlined rtl:-scale-x-100 text-xl">
-              rocket_launch
+          {/* Badge */}
+          <div className="w-max">
+            <span className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-teal-50 border border-teal-200 text-[#008080] text-xs font-bold shadow-xs">
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>شروع یک تجربه متفاوت</span>
             </span>
-          </Link>
+          </div>
 
-          <Link
-            to="/library"
-            className="w-full sm:w-auto h-14 px-7 sm:px-8 rounded-xl font-bold text-sm sm:text-base flex items-center justify-center gap-2 whitespace-nowrap cursor-pointer active:scale-95 transition-all duration-300 bg-slate-900/80 hover:bg-slate-800 text-slate-200 border border-white/20 hover:border-teal-500/50 hover:-translate-y-1 backdrop-blur-md"
-          >
-            <BookOpen className="w-4 h-4 text-teal-400" />
-            <span>مشاهده دوره‌ها و منابع</span>
-          </Link>
-        </div>
+          {/* Heading */}
+          <h2 className="font-headline text-3xl sm:text-4xl lg:text-[46px] leading-[1.22] font-black text-[#1a2226] tracking-tight">
+            منبعت را بده به آوانا.
+            <br />
+            <span className="text-[#008080]">از همین‌جا شروع کن.</span>
+          </h2>
 
-        {/* Trust Badges */}
-        <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 mt-6 pt-5 border-t border-white/10 text-[11px] sm:text-xs text-slate-400">
-          <div className="flex items-center gap-1.5">
-            <CheckCircle2 className="w-4 h-4 text-teal-400" />
-            <span>منطبق با رفرنس‌های آزمون‌های جامع علوم پزشکی</span>
+          {/* Subtitle */}
+          <p className="text-base sm:text-lg leading-relaxed text-[#3d4f55] max-w-xl">
+            آوانا همیشه کنار توست؛ از مطالعه خط‌به‌خط جزوات تا قبولی با بالاترین نمره در امتحانات جامع و آزمون‌های تخصصی.
+          </p>
+
+          {/* CTAs */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 pt-2">
+            <Link
+              to={ctaHref}
+              className="h-12 px-8 rounded-xl font-bold text-sm sm:text-base flex items-center justify-center gap-2.5 cursor-pointer active:scale-[0.98] transition-all duration-200 bg-[#008080] hover:bg-[#007575] active:bg-[#006060] text-white shadow-md shadow-[#008080]/20 hover:-translate-y-0.5"
+            >
+              <span>شروع با آوانا</span>
+              <ArrowLeft className="w-4 h-4" />
+            </Link>
+
+            <Link
+              to="/library"
+              className="h-12 px-6 rounded-xl font-semibold text-sm sm:text-base flex items-center justify-center gap-2 cursor-pointer transition-colors duration-200 bg-white border border-[#E2E7EA] hover:border-[#008080]/40 text-[#3d4f55] shadow-xs"
+            >
+              <BookOpen className="w-4 h-4 text-[#008080]" />
+              <span>مشاهده دوره‌ها و منابع</span>
+            </Link>
           </div>
-          <div className="flex items-center gap-1.5">
-            <CheckCircle2 className="w-4 h-4 text-teal-400" />
-            <span>الگوریتم علمی مرور فاصله‌دار (Spaced Repetition)</span>
+        </motion.div>
+
+        {/* LEFT COLUMN (RTL): Book Stack & Motivational Sticky Note */}
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          whileInView={{ opacity: 1, scale: 1 }}
+          viewport={{ once: true, margin: "-100px" }}
+          transition={{ duration: 0.7 }}
+          className="lg:col-span-5 flex justify-center relative"
+        >
+          <div className="relative w-full max-w-sm flex flex-col items-center">
+            {/* Ambient warm glow */}
+            <div className="absolute inset-0 bg-[#F0E6D2]/40 rounded-full blur-2xl pointer-events-none" />
+
+            {/* Motivational Sticky Note */}
+            <motion.div
+              animate={{ y: [0, -4, 0] }}
+              transition={{ duration: 5, repeat: Infinity, ease: "easeInOut" }}
+              className="relative z-20 mb-[-12px] rotate-[-4deg] p-3 rounded-xl bg-amber-100 border border-amber-300 shadow-card text-center text-xs font-bold text-amber-900"
+            >
+              <span>✨ موفقیت در انتظار توست...</span>
+            </motion.div>
+
+            {/* Stack of Academic Books (Pharmacology, Medicine) */}
+            <div className="relative z-10 w-64 sm:w-72 flex flex-col gap-1.5">
+              {/* Top Book: Pharmacology */}
+              <div className="h-12 rounded-xl bg-gradient-to-r from-teal-700 to-teal-800 text-white p-3 flex items-center justify-between border-b-2 border-teal-950 shadow-card">
+                <span className="text-xs font-black tracking-wider">PHARMACOLOGY</span>
+                <span className="text-[10px] text-teal-200 font-mono">جلد اول</span>
+              </div>
+
+              {/* Middle Book: Internal Medicine */}
+              <div className="h-12 rounded-xl bg-gradient-to-r from-slate-700 to-slate-800 text-white p-3 flex items-center justify-between border-b-2 border-slate-950 shadow-card">
+                <span className="text-xs font-black tracking-wider">INTERNAL MEDICINE</span>
+                <span className="text-[10px] text-slate-300 font-mono">هاریسون</span>
+              </div>
+
+              {/* Bottom Book: Physiology */}
+              <div className="h-14 rounded-xl bg-gradient-to-r from-teal-900 to-[#004d40] text-white p-3 flex items-center justify-between border-b-2 border-black shadow-lg">
+                <span className="text-xs font-black tracking-wider">HUMAN PHYSIOLOGY</span>
+                <span className="text-[10px] text-teal-300 font-mono">گایتون</span>
+              </div>
+            </div>
           </div>
-          <div className="flex items-center gap-1.5">
-            <CheckCircle2 className="w-4 h-4 text-teal-400" />
-            <span>بیش از ۱۰,۰۰۰+ دانشجوی فعال</span>
-          </div>
-        </div>
-      </motion.div>
+        </motion.div>
+      </div>
     </section>
   );
 }

@@ -33,7 +33,9 @@
     "worker:start": "tsx tools/worker/worker-start.ts",
     "worker:stop": "tsx tools/worker/worker-stop.ts",
     "worker:status": "tsx tools/worker/worker-status.ts",
-    "worker:reset": "tsx tools/worker/worker-reset.ts"
+    "worker:reset": "tsx tools/worker/worker-reset.ts",
+    "content:export": "tsx scripts/export-course-package.ts",
+    "content:import": "tsx scripts/import-course-package.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

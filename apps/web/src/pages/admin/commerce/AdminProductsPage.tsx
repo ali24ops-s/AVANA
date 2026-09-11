@@ -74,11 +74,11 @@ export function AdminProductsPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-2.5">
-            <ShoppingBag className="w-7 h-7 text-teal-400" />
+          <h1 className="text-2xl font-bold text-[var(--color-text)] flex items-center gap-2.5">
+            <ShoppingBag className="w-7 h-7 text-[var(--color-primary-default)]" />
             کاتالوگ و قیمت‌گذاری محصولات (Products Catalog)
           </h1>
-          <p className="text-sm text-slate-400 mt-1">
+          <p className="text-sm text-[var(--color-text-muted)] mt-1">
             مدیریت محصولات قابل خرید شامل اشتراک‌ها، دوره‌های آموزشی و بسته‌های محتوایی
           </p>
         </div>
@@ -88,24 +88,24 @@ export function AdminProductsPage() {
       <AdminCommerceNavigation />
 
       {/* Filter and Search Bar */}
-      <div className="glass-panel border border-white/5 rounded-2xl p-4 bg-slate-800/40 flex flex-col sm:flex-row items-center justify-between gap-4">
+      <div className="border border-[var(--color-border)] rounded-2xl p-4 bg-[var(--color-surface)] shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
         <div className="relative w-full sm:w-80">
           <input
             type="text"
             placeholder="جستجوی نام یا کد محصول..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full bg-slate-900/60 border border-slate-700 rounded-xl pl-4 pr-10 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-teal-500"
+            className="w-full bg-[var(--color-surface-warm)] border border-[var(--color-border)] rounded-xl ps-10 pe-4 py-2.5 text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:border-[var(--color-primary-default)]"
           />
-          <Search className="w-4 h-4 text-slate-400 absolute right-3 top-3.5" />
+          <Search className="w-4 h-4 text-[var(--color-text-muted)] absolute start-3 top-3.5" />
         </div>
 
         <div className="flex items-center gap-2 w-full sm:w-auto">
-          <Filter className="w-4 h-4 text-slate-400" />
+          <Filter className="w-4 h-4 text-[var(--color-text-muted)]" />
           <select
             value={typeFilter}
             onChange={(e) => setTypeFilter(e.target.value)}
-            className="bg-slate-900/60 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-teal-500"
+            className="bg-[var(--color-surface-warm)] border border-[var(--color-border)] rounded-xl px-3 py-2 text-sm text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary-default)]"
           >
             <option value="all">همه انواع محصولات</option>
             <option value="subscription">اشتراک‌ها (Subscriptions)</option>
@@ -137,62 +137,62 @@ export function AdminProductsPage() {
         ) : (
           filteredProducts.map((p) => {
             return (
-              <tr key={p.id} className="hover:bg-slate-800/30 transition-colors">
-                <td className="px-6 py-4 font-mono text-xs text-slate-300 font-semibold">
+              <tr key={p.id} className="hover:bg-[var(--color-surface-warm)]/60 transition-colors">
+                <td className="px-6 py-4 font-mono text-xs text-[var(--color-text)] font-semibold">
                   {p.code}
                 </td>
                 <td className="px-6 py-4">
                   <div className="flex flex-col">
-                    <span className="text-sm font-bold text-slate-200">
+                    <span className="text-sm font-bold text-[var(--color-text)]">
                       {p.title}
                     </span>
                     {p.targetTitle && (
-                      <span className="text-xs text-slate-400 mt-0.5">
+                      <span className="text-xs text-[var(--color-text-muted)] mt-0.5">
                         منبع متصل: {p.targetTitle}
                       </span>
                     )}
                   </div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="flex items-center gap-1.5 text-xs font-medium text-slate-300">
+                  <div className="flex items-center gap-1.5 text-xs font-medium text-[var(--color-text)]">
                     {p.type === "subscription" ? (
-                      <Sparkles className="w-4 h-4 text-teal-400" />
+                      <Sparkles className="w-4 h-4 text-[var(--color-primary-default)]" />
                     ) : p.type === "course" ? (
-                      <BookOpen className="w-4 h-4 text-blue-400" />
+                      <BookOpen className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                     ) : p.type === "content" ? (
-                      <FileText className="w-4 h-4 text-cyan-400" />
+                      <FileText className="w-4 h-4 text-[var(--color-primary-default)]" />
                     ) : (
-                      <FolderTree className="w-4 h-4 text-purple-400" />
+                      <FolderTree className="w-4 h-4 text-[var(--color-primary-default)]" />
                     )}
                     <span>{getResourceTypeLabel(p.type)}</span>
                   </div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
-                  <span className="font-bold text-teal-400 text-sm">
+                  <span className="font-bold text-[var(--color-primary-default)] text-sm">
                     {formatToman(p.price)}
                   </span>
                 </td>
-                <td className="px-6 py-4 text-xs text-slate-400 whitespace-nowrap">
+                <td className="px-6 py-4 text-xs text-[var(--color-text-muted)] whitespace-nowrap">
                   {p.durationDays ? (
-                    <span className="flex items-center gap-1 text-slate-300">
-                      <Clock className="w-3.5 h-3.5 text-teal-400" />
+                    <span className="flex items-center gap-1 text-[var(--color-text)]">
+                      <Clock className="w-3.5 h-3.5 text-[var(--color-primary-default)]" />
                       {p.durationDays} روز
                     </span>
                   ) : (
-                    <span className="flex items-center gap-1 text-purple-300">
-                      <InfinityIcon className="w-3.5 h-3.5 text-purple-400" />
+                    <span className="flex items-center gap-1 text-[var(--color-primary-default)]">
+                      <InfinityIcon className="w-3.5 h-3.5 text-[var(--color-primary-default)]" />
                       مادام‌العمر (دائمی)
                     </span>
                   )}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   {p.active ? (
-                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
                       <CheckCircle2 className="w-3 h-3" />
                       فعال برای خرید
                     </span>
                   ) : (
-                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-800 text-slate-400 border border-slate-700">
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] border border-[var(--color-border)]">
                       <XCircle className="w-3 h-3" />
                       غیرفعال
                     </span>
@@ -201,7 +201,7 @@ export function AdminProductsPage() {
                 <td className="px-6 py-4 whitespace-nowrap">
                   <button
                     onClick={() => setSelectedProductForEdit(p)}
-                    className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors flex items-center gap-1 text-xs"
+                    className="p-1.5 rounded-lg bg-[var(--color-surface-warm)] hover:bg-[var(--color-surface-muted)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] border border-[var(--color-border)] transition-colors flex items-center gap-1 text-xs"
                     title="ویرایش قیمت و وضعیت عرضه"
                   >
                     <Edit2 className="w-3.5 h-3.5" />

@@ -15,13 +15,13 @@
 
 import { Navigate, Outlet, useParams } from "react-router-dom";
 import { useAuth } from "../../providers/AuthProvider.js";
-import { canManageCourseContent } from "../../utils/coursePermissions.js";
+import { isContentManagerOrAdmin } from "../../utils/generationPermissions.js";
 
 export function RequireCourseManager() {
   const { courseId } = useParams<{ courseId: string }>();
-  const { memberships } = useAuth();
+  const { user, memberships } = useAuth();
 
-  const allowed = canManageCourseContent(memberships);
+  const allowed = isContentManagerOrAdmin(user, memberships);
 
   // Unauthorized — prevent the management UI from rendering and redirect to
   // the course detail page.

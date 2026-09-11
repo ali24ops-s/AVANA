@@ -11,9 +11,11 @@ import {
   CheckCircle2,
   Lightbulb,
 } from "lucide-react";
+import { Card, Button, Progress, Badge } from "@avana/ui";
 import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
 import { createStudyApi } from "../../lib/api/study.js";
 import type { StudyRecommendationResource } from "@avana/contracts";
+import { formatPersianOf, toPersianDigits } from "@avana/domain";
 
 export interface StudyAnalyticsViewProps {
   organizationId: string;
@@ -42,15 +44,15 @@ export function StudyAnalyticsView({
   if (analyticsQuery.isLoading || recommendationsQuery.isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <Loader2 className="w-8 h-8 animate-spin text-[#008080]" />
+        <Loader2 className="w-8 h-8 animate-spin text-[var(--color-primary)]" />
       </div>
     );
   }
 
   if (analyticsQuery.isError) {
     return (
-      <div className="bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] p-12 text-center space-y-4">
-        <AlertCircle className="w-10 h-10 text-red-500 mx-auto" />
+      <Card className="p-12 text-center space-y-4" dir="rtl">
+        <AlertCircle className="w-10 h-10 text-[var(--color-error)] mx-auto" />
         <h3 className="text-base font-bold text-[var(--color-text)]">
           خطا در بارگذاری تحلیل عملکرد
         </h3>
@@ -58,18 +60,18 @@ export function StudyAnalyticsView({
           {analyticsQuery.error?.message || "خطایی در دریافت تحلیل‌ها رخ داد."}
         </p>
         <div className="pt-2">
-          <button
-            type="button"
+          <Button
+            variant="primary"
+            size="sm"
             onClick={() => {
               void analyticsQuery.refetch();
               void recommendationsQuery.refetch();
             }}
-            className="px-4 py-2 bg-[#008080] hover:bg-[#006666] text-white rounded-xl text-xs font-bold transition-colors"
           >
             تلاش مجدد
-          </button>
+          </Button>
         </div>
-      </div>
+      </Card>
     );
   }
 
@@ -83,7 +85,7 @@ export function StudyAnalyticsView({
     analytics.attempts_taken === 0;
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 font-sans" dir="rtl">
       {/* Top Header */}
       <div>
         <h3 className="text-lg font-bold text-[var(--color-text)]">
@@ -96,8 +98,8 @@ export function StudyAnalyticsView({
 
       {/* New Learner Prompt */}
       {isNewLearner && (
-        <div className="flex items-start gap-4 p-6 bg-[#008080]/10 rounded-3xl border border-[#008080]/20">
-          <div className="w-10 h-10 rounded-2xl bg-[#008080] text-white flex items-center justify-center flex-shrink-0 shadow-sm">
+        <div className="flex items-start gap-4 p-6 bg-[var(--color-primary-soft)] rounded-card border border-[var(--color-primary-muted)]/40">
+          <div className="w-10 h-10 rounded-button bg-[var(--color-primary)] text-white flex items-center justify-center flex-shrink-0 shadow-xs">
             <Sparkles className="w-5 h-5" />
           </div>
           <div className="space-y-1">
@@ -115,12 +117,12 @@ export function StudyAnalyticsView({
       {analytics && (
         <div className="grid gap-4 sm:grid-cols-3">
           {/* Lessons Card */}
-          <div className="bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] p-6 space-y-3 shadow-sm">
+          <Card className="space-y-3 shadow-xs">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-[var(--color-text-muted)]">
                 پیشرفت مطالعه درس‌ها
               </span>
-              <div className="w-8 h-8 rounded-xl bg-[#008080]/10 text-[#008080] flex items-center justify-center">
+              <div className="w-8 h-8 rounded-button bg-[var(--color-primary-soft)] text-[var(--color-primary)] flex items-center justify-center">
                 <Trophy className="w-4 h-4" />
               </div>
             </div>
@@ -129,31 +131,24 @@ export function StudyAnalyticsView({
                 {`${analytics.lesson_progress_percent}%`}
               </span>
               <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
-                {`${analytics.completed_lessons} از ${analytics.total_lessons} درس تکمیل شده`}
+                {formatPersianOf(analytics.completed_lessons, analytics.total_lessons, { suffix: " درس تکمیل شده" })}
               </p>
             </div>
-            <div
-              role="progressbar"
+            <Progress
+              value={analytics.lesson_progress_percent}
               aria-label="پیشرفت درس‌ها"
-              aria-valuenow={analytics.lesson_progress_percent}
-              aria-valuemin={0}
-              aria-valuemax={100}
-              className="w-full h-2 bg-[var(--color-surface-warm)] rounded-full overflow-hidden border border-[var(--color-border)]"
-            >
-              <div
-                className="h-full bg-[#008080] rounded-full"
-                style={{ width: `${analytics.lesson_progress_percent}%` }}
-              />
-            </div>
-          </div>
+              variant="primary"
+              size="sm"
+            />
+          </Card>
 
           {/* Flashcards Card */}
-          <div className="bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] p-6 space-y-3 shadow-sm">
+          <Card className="space-y-3 shadow-xs">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-[var(--color-text-muted)]">
                 تسلط بر فلش‌کارت‌ها
               </span>
-              <div className="w-8 h-8 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 flex items-center justify-center">
+              <div className="w-8 h-8 rounded-button bg-[var(--color-secondary-soft)] dark:bg-[var(--color-secondary-dark)]/30 text-[var(--color-secondary-dark)] dark:text-[var(--color-secondary-blue)] flex items-center justify-center">
                 <Layers className="w-4 h-4" />
               </div>
             </div>
@@ -162,31 +157,24 @@ export function StudyAnalyticsView({
                 {`${analytics.flashcard_mastery_percent}%`}
               </span>
               <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
-                {`${analytics.reviewed_flashcards} از ${analytics.total_flashcards} کارت مرور شده`}
+                {formatPersianOf(analytics.reviewed_flashcards, analytics.total_flashcards, { suffix: " کارت مرور شده" })}
               </p>
             </div>
-            <div
-              role="progressbar"
+            <Progress
+              value={analytics.flashcard_mastery_percent}
               aria-label="تسلط فلش‌کارت"
-              aria-valuenow={analytics.flashcard_mastery_percent}
-              aria-valuemin={0}
-              aria-valuemax={100}
-              className="w-full h-2 bg-[var(--color-surface-warm)] rounded-full overflow-hidden border border-[var(--color-border)]"
-            >
-              <div
-                className="h-full bg-amber-500 rounded-full"
-                style={{ width: `${analytics.flashcard_mastery_percent}%` }}
-              />
-            </div>
-          </div>
+              variant="warning"
+              size="sm"
+            />
+          </Card>
 
           {/* Quiz Performance Card */}
-          <div className="bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] p-6 space-y-3 shadow-sm">
+          <Card className="space-y-3 shadow-xs">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-[var(--color-text-muted)]">
                 میانگین نمرات آزمون
               </span>
-              <div className="w-8 h-8 rounded-xl bg-[#a7d0e6]/40 text-[#008080] flex items-center justify-center">
+              <div className="w-8 h-8 rounded-button bg-[var(--color-primary-soft)] text-[var(--color-primary)] flex items-center justify-center">
                 <HelpCircle className="w-4 h-4" />
               </div>
             </div>
@@ -195,23 +183,16 @@ export function StudyAnalyticsView({
                 {`${analytics.average_quiz_score}%`}
               </span>
               <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
-                {`در ${analytics.attempts_taken} نوبت آزمون در ${analytics.total_quizzes} آزمون`}
+                {`در ${toPersianDigits(analytics.attempts_taken)} نوبت آزمون در ${toPersianDigits(analytics.total_quizzes)} آزمون`}
               </p>
             </div>
-            <div
-              role="progressbar"
+            <Progress
+              value={analytics.average_quiz_score}
               aria-label="میانگین آزمون"
-              aria-valuenow={analytics.average_quiz_score}
-              aria-valuemin={0}
-              aria-valuemax={100}
-              className="w-full h-2 bg-[var(--color-surface-warm)] rounded-full overflow-hidden border border-[var(--color-border)]"
-            >
-              <div
-                className="h-full bg-[#008080] rounded-full"
-                style={{ width: `${analytics.average_quiz_score}%` }}
-              />
-            </div>
-          </div>
+              variant="primary"
+              size="sm"
+            />
+          </Card>
         </div>
       )}
 
@@ -219,9 +200,9 @@ export function StudyAnalyticsView({
       {analytics && (
         <div className="grid gap-6 sm:grid-cols-2">
           {/* Weak Areas */}
-          <div className="bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] p-6 space-y-3 shadow-sm">
+          <Card className="space-y-3 shadow-xs">
             <h4 className="text-sm font-bold text-[var(--color-text)] flex items-center gap-2">
-              <Brain className="w-4 h-4 text-amber-500" />
+              <Brain className="w-4 h-4 text-[var(--color-warning)]" />
               <span>مباحث اولویت‌دار و نیازمند تمرین</span>
             </h4>
             {analytics.weak_areas.length === 0 ? (
@@ -231,21 +212,23 @@ export function StudyAnalyticsView({
             ) : (
               <div className="flex flex-wrap gap-2 pt-1">
                 {analytics.weak_areas.map((topic: string, i: number) => (
-                  <span
+                  <Badge
                     key={i}
-                    className="px-3.5 py-1.5 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 text-amber-800 dark:text-amber-300 rounded-xl text-xs font-semibold"
+                    variant="warning"
+                    size="md"
+                    className="px-3.5 py-1.5"
                   >
                     {topic}
-                  </span>
+                  </Badge>
                 ))}
               </div>
             )}
-          </div>
+          </Card>
 
           {/* Recommended Next Steps */}
-          <div className="bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] p-6 space-y-3 shadow-sm">
+          <Card className="space-y-3 shadow-xs">
             <h4 className="text-sm font-bold text-[var(--color-text)] flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-green-600" />
+              <CheckCircle2 className="w-4 h-4 text-[var(--color-success)]" />
               <span>گام‌های پیشنهادی برای ادامه مطالعه</span>
             </h4>
             {analytics.recommended_next_steps.length === 0 ? (
@@ -257,15 +240,15 @@ export function StudyAnalyticsView({
                 {analytics.recommended_next_steps.map((step: string, i: number) => (
                   <li
                     key={i}
-                    className="flex items-center gap-2 text-xs font-medium text-[var(--color-text)] p-2.5 rounded-xl bg-[var(--color-surface-warm)] border border-[var(--color-border)]"
+                    className="flex items-center gap-2 text-xs font-medium text-[var(--color-text)] p-2.5 rounded-button bg-[var(--color-surface-warm)] border border-[var(--color-border)]"
                   >
-                    <span className="w-1.5 h-1.5 rounded-full bg-[#008080] flex-shrink-0" />
+                    <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-primary)] flex-shrink-0" />
                     <span>{step}</span>
                   </li>
                 ))}
               </ul>
             )}
-          </div>
+          </Card>
         </div>
       )}
 
@@ -273,34 +256,43 @@ export function StudyAnalyticsView({
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <h4 className="text-sm font-bold text-[var(--color-text)] flex items-center gap-2">
-            <Lightbulb className="w-4 h-4 text-[#008080]" />
+            <Lightbulb className="w-4 h-4 text-[var(--color-primary)]" />
             <span>پیشنهادهای هوشمند مطالعه</span>
           </h4>
-          <span className="text-xs text-[var(--color-text-muted)]">
+          <Badge variant="neutral" size="sm">
             {recommendations.length} پیشنهاد فعال
-          </span>
+          </Badge>
         </div>
 
         {recommendations.length === 0 ? (
-          <div className="bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] p-8 text-center text-xs text-[var(--color-text-muted)]">
+          <Card className="p-8 text-center text-xs text-[var(--color-text-muted)]">
             در حال حاضر پیشنهاد جدیدی برای این دوره ثبت نشده است.
-          </div>
+          </Card>
         ) : (
           <div className="grid gap-4 sm:grid-cols-2">
             {recommendations.map((rec: StudyRecommendationResource) => (
-              <div
+              <Card
                 key={rec.id}
-                className="bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] p-6 space-y-4 flex flex-col justify-between shadow-sm"
+                className="p-6 space-y-4 flex flex-col justify-between shadow-xs"
               >
                 <div className="space-y-2">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-md bg-[#008080]/10 text-[#008080]">
+                    <Badge
+                      variant={
+                        rec.source === "flashcard_review"
+                          ? "secondary"
+                          : rec.source === "quiz_attempt"
+                          ? "primary"
+                          : "neutral"
+                      }
+                      size="sm"
+                    >
                       {rec.source === "flashcard_review"
                         ? "مرور فلش‌کارت"
                         : rec.source === "quiz_attempt"
                         ? "آزمون"
                         : "مطالعه درس"}
-                    </span>
+                    </Badge>
                   </div>
                   <p className="text-xs sm:text-sm font-bold text-[var(--color-text)] leading-relaxed">
                     {rec.summary}
@@ -310,7 +302,7 @@ export function StudyAnalyticsView({
                       {rec.topics.map((t, tIdx) => (
                         <span
                           key={tIdx}
-                          className="text-[10px] px-2 py-0.5 rounded-md bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-[var(--color-text-muted)] font-medium"
+                          className="text-[10px] px-2 py-0.5 rounded-sm bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-[var(--color-text-muted)] font-medium"
                         >
                           {t}
                         </span>
@@ -321,8 +313,9 @@ export function StudyAnalyticsView({
 
                 {onNavigateToTab && (
                   <div className="pt-3 border-t border-[var(--color-border)]">
-                    <button
-                      type="button"
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       onClick={() => {
                         if (rec.source === "flashcard_review") {
                           onNavigateToTab("flashcards");
@@ -332,14 +325,14 @@ export function StudyAnalyticsView({
                           onNavigateToTab("lessons");
                         }
                       }}
-                      className="text-xs font-bold text-[#008080] hover:text-[#006666] flex items-center gap-1"
+                      className="text-xs font-bold text-[var(--color-primary)] hover:text-[var(--color-primary-dark)] dark:hover:text-[var(--color-primary-light)] p-0 h-auto"
+                      rightIcon={<ChevronLeft className="w-3.5 h-3.5" />}
                     >
                       <span>شروع تمرین پیشنهادی</span>
-                      <ChevronLeft className="w-3.5 h-3.5" />
-                    </button>
+                    </Button>
                   </div>
                 )}
-              </div>
+              </Card>
             ))}
           </div>
         )}

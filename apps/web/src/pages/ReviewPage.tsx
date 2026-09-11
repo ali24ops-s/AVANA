@@ -42,14 +42,14 @@ export function ReviewPage() {
 
   if (isAuthLoading || orgQuery.isLoading || !organizationId) {
     return (
-      <div className="flex items-center justify-center py-20 min-h-screen bg-[#0b1116]">
-        <Loader2 className="w-8 h-8 animate-spin text-[#14b8a6]" />
+      <div className="flex items-center justify-center py-20 min-h-screen bg-[var(--color-bg)]">
+        <Loader2 className="w-8 h-8 animate-spin text-[var(--color-primary)]" />
       </div>
     );
   }
 
   return (
-    <div className="w-full min-h-screen bg-[#0b1116] text-[#e0e6ed] relative overflow-x-hidden">
+    <div className="w-full min-h-screen bg-[var(--color-bg)] text-[var(--color-text)] relative overflow-x-hidden font-sans" dir="rtl">
       <FlashcardExperience
         organizationId={organizationId}
         sessionId={sessionId}

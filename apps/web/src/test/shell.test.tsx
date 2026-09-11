@@ -76,7 +76,7 @@ describe("AuthenticatedShell", () => {
     });
   });
 
-  it("renders navigation links", async () => {
+  it("renders navigation links without 'فایل‌ها' when files feature is disabled", async () => {
     const mockMeResponse = {
       ok: true,
       status: 200,
@@ -102,7 +102,14 @@ describe("AuthenticatedShell", () => {
     await waitFor(() => {
       expect(screen.getByText("دوره‌ها")).toBeInTheDocument();
       expect(screen.getByText("خانه")).toBeInTheDocument();
+      expect(screen.getByText("فلش‌کارت‌ها")).toBeInTheDocument();
+      expect(screen.getByText("آزمون‌ها")).toBeInTheDocument();
+      expect(screen.getByText("کتابخانه")).toBeInTheDocument();
+      expect(screen.getByText("وبلاگ")).toBeInTheDocument();
     });
+
+    // Files link must NOT be rendered when feature is disabled
+    expect(screen.queryByText("فایل‌ها")).not.toBeInTheDocument();
   });
 
   it("renders sign-out button", async () => {

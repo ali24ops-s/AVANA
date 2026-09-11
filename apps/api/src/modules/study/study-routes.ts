@@ -404,12 +404,44 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
   // 2. Flashcards List Handler
   // -------------------------------------------------------------------------
   const handleListFlashcards = async (request: unknown) => {
-    const req = request as { params: { organizationId?: string; courseId: string }; id: string };
+    const req = request as {
+      params: { organizationId?: string; courseId: string };
+      query?: { moduleId?: string; previewSessionId?: string; limit?: string };
+      id: string;
+    };
     const actor = getActor(req);
     const courseId = getCourseId(req.params);
     const organizationId = await resolveOrganizationId(actor, req.params);
+    const query = req.query || {};
 
     await service.authorize(actor, organizationId, "study:read");
+
+    if (entitlementService) {
+      const access = await entitlementService.checkAccess(actor, {
+        userId: actor.userId,
+        resourceType: "course",
+        resourceId: courseId,
+        moduleId: (query.moduleId as any) ?? undefined,
+        previewSessionId: query.previewSessionId,
+      });
+      if (!access.granted) {
+        const previewLimit = query.limit ? parseInt(query.limit, 10) : (query.moduleId ? 15 : 5);
+        const previewCards = await service.getPreviewFlashcards(actor, organizationId, courseId, {
+          moduleId: query.moduleId,
+          previewSessionId: query.previewSessionId,
+          limit: previewLimit,
+        });
+        return {
+          request_id: req.id,
+          is_preview: true,
+          preview_limit: previewLimit,
+          preview_lesson_id: previewCards.preview_lesson_id,
+          flashcards: previewCards.flashcards,
+          items: previewCards.flashcards,
+          next_review_count: previewCards.flashcards.length,
+        };
+      }
+    }
 
     const [allFlashcards, userReviews] = await Promise.all([
       flashcardStore.listByCourse(courseId, organizationId),
@@ -432,6 +464,47 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
       next_review_count: nextReviewCount,
     };
   };
+
+  const handleGetPreviewFlashcards = async (request: unknown) => {
+    const req = request as {
+      params: { organizationId?: string; courseId: string };
+      query?: { moduleId?: string; previewSessionId?: string; limit?: string };
+      id: string;
+    };
+    const actor = getActor(req);
+    const courseId = getCourseId(req.params);
+    const organizationId = await resolveOrganizationId(actor, req.params);
+    const query = req.query || {};
+
+    await service.authorize(actor, organizationId, "study:read");
+
+    const previewLimit = query.limit ? parseInt(query.limit, 10) : (query.moduleId ? 15 : 5);
+    const previewCards = await service.getPreviewFlashcards(actor, organizationId, courseId, {
+      moduleId: query.moduleId,
+      previewSessionId: query.previewSessionId,
+      limit: previewLimit,
+    });
+    return {
+      request_id: req.id,
+      is_preview: true,
+      preview_limit: previewLimit,
+      preview_lesson_id: previewCards.preview_lesson_id,
+      flashcards: previewCards.flashcards,
+      items: previewCards.flashcards,
+      next_review_count: previewCards.flashcards.length,
+    };
+  };
+
+  app.get(
+    "/v1/organizations/:organizationId/courses/:courseId/flashcards/preview",
+    { preHandler: [requireAuth] },
+    handleGetPreviewFlashcards,
+  );
+  app.get(
+    "/v1/courses/:courseId/flashcards/preview",
+    { preHandler: [requireAuth] },
+    handleGetPreviewFlashcards,
+  );
 
   app.get(
     "/v1/organizations/:organizationId/courses/:courseId/flashcards",
@@ -980,8 +1053,37 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
       questions: res.questions,
       coverage: res.coverage,
       isCompleted: res.isCompleted,
+      answers: res.answers ?? res.attempt.answers,
+      questionResults: res.questionResults,
+      correct: res.correct,
+      incorrect: res.incorrect,
+      unanswered: res.unanswered,
+      partial: res.partial,
     };
   };
+
+  const handleListExamHistory = async (request: unknown) => {
+    const req = request as {
+      params: { organizationId: string };
+      query?: { limit?: string };
+      id: string;
+    };
+    const actor = getActor(req);
+    const organizationId = await resolveOrganizationId(actor, req.params as { organizationId: string });
+    const limit = req.query?.limit ? Math.min(100, Math.max(1, parseInt(req.query.limit, 10))) : 50;
+
+    const result = await service.listExamHistory(actor, organizationId, limit);
+    return {
+      request_id: req.id,
+      ...result,
+    };
+  };
+
+  app.get(
+    "/v1/organizations/:organizationId/study/exams/history",
+    { preHandler: [requireAuth] },
+    handleListExamHistory,
+  );
 
   app.get(
     "/v1/organizations/:organizationId/study/exams/attempts/:attemptId",
@@ -1080,8 +1182,13 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
       attemptId: result.attemptId,
       score: result.score,
       correct: result.correct,
+      incorrect: result.incorrect,
+      unanswered: result.unanswered,
+      partial: result.partial,
       total: result.total,
       passed,
+      answers: result.answers,
+      questionResults: result.questionResults,
       questions: result.questions,
     };
   };
@@ -1101,6 +1208,31 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
     const courseId = getCourseId(req.params);
     const organizationId = await resolveOrganizationId(actor, req.params);
 
+    if (entitlementService) {
+      const access = await entitlementService.checkAccess(actor, {
+        userId: actor.userId,
+        resourceType: "course",
+        resourceId: courseId,
+      });
+      if (!access.granted) {
+        const preview = await service.getPreviewQuiz(actor, organizationId, courseId);
+        const previewItems = preview.quiz ? [{
+          ...preview.quiz,
+          questions: preview.quiz.questions.map((qn) => ({
+            ...qn,
+            question_type: qn.questionType,
+          })),
+        }] : [];
+        return {
+          request_id: req.id,
+          is_preview: true,
+          preview_limit: 5,
+          quizzes: previewItems,
+          items: previewItems,
+        };
+      }
+    }
+
     const quizzes = await service.listQuizzes(
       actor,
       organizationId,
@@ -1114,7 +1246,6 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
           ...q,
           questions: questions.map((qn) => ({
             ...qn,
-            correct_answer: qn.correctAnswer,
             question_type: qn.questionType,
           })),
         };
@@ -1127,6 +1258,39 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
       items: quizzesWithQuestions,
     };
   };
+
+  const handleGetPreviewQuiz = async (request: unknown) => {
+    const req = request as { params: { organizationId?: string; courseId: string }; id: string };
+    const actor = getActor(req);
+    const courseId = getCourseId(req.params);
+    const organizationId = await resolveOrganizationId(actor, req.params);
+
+    const preview = await service.getPreviewQuiz(actor, organizationId, courseId);
+    return {
+      request_id: req.id,
+      is_preview: true,
+      preview_limit: 5,
+      preview_lesson_id: preview.preview_lesson_id,
+      quiz: preview.quiz ? {
+        ...preview.quiz,
+        questions: preview.quiz.questions.map((qn) => ({
+          ...qn,
+          question_type: qn.questionType,
+        })),
+      } : null,
+    };
+  };
+
+  app.get(
+    "/v1/organizations/:organizationId/courses/:courseId/quizzes/preview",
+    { preHandler: [requireAuth] },
+    handleGetPreviewQuiz,
+  );
+  app.get(
+    "/v1/courses/:courseId/quizzes/preview",
+    { preHandler: [requireAuth] },
+    handleGetPreviewQuiz,
+  );
 
   app.get(
     "/v1/organizations/:organizationId/courses/:courseId/quizzes",
@@ -1145,16 +1309,22 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
   const handleGetQuiz = async (request: unknown) => {
     const req = request as {
       params: { organizationId?: string; courseId: string; quizId: string };
+      query?: { moduleId?: string; previewSessionId?: string };
       id: string;
     };
     const actor = getActor(req);
     const organizationId = await resolveOrganizationId(actor, req.params);
     const quizId = parseQuizId(req.params.quizId, "quizId");
+    const query = req.query || {};
 
     const quiz = await service.getQuizForAttempt(
       actor,
       organizationId,
       quizId,
+      {
+        moduleId: query.moduleId,
+        previewSessionId: query.previewSessionId,
+      },
     );
 
     return {
@@ -1231,6 +1401,9 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
       score: attempt.correct,
       maxScore: formattedAnswers.length,
       passed,
+      answers: attempt.answers,
+      questionResults: attempt.questionResults,
+      questions: attempt.questions,
     };
   };
 
@@ -1271,6 +1444,9 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
     return {
       request_id: req.id,
       attempt,
+      answers: attempt.answers,
+      questions: attempt.questions,
+      questionResults: attempt.questionResults,
     };
   };
 

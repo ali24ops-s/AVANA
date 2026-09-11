@@ -83,11 +83,11 @@ export function BlogDetailPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-[#0b1120] text-slate-100 flex flex-col font-sans" dir="rtl">
+      <div className="min-h-screen bg-[var(--color-bg-default)] text-[var(--color-text)] flex flex-col font-body" dir="rtl">
         <AboutNavbar />
         <div className="flex-1 flex flex-col items-center justify-center pt-24 gap-4">
-          <Loader2 className="w-10 h-10 animate-spin text-teal-400" />
-          <p className="text-sm font-medium text-slate-400">در حال بارگذاری مقاله...</p>
+          <Loader2 className="w-10 h-10 animate-spin text-[#008080]" />
+          <p className="text-sm font-medium text-[var(--color-text-muted)]">در حال بارگذاری مقاله...</p>
         </div>
         <Footer />
       </div>
@@ -96,19 +96,19 @@ export function BlogDetailPage() {
 
   if (isError || !post) {
     return (
-      <div className="min-h-screen bg-[#0b1120] text-slate-100 flex flex-col font-sans" dir="rtl">
+      <div className="min-h-screen bg-[var(--color-bg-default)] text-[var(--color-text)] flex flex-col font-body" dir="rtl">
         <AboutNavbar />
         <main className="flex-1 max-w-xl mx-auto pt-36 pb-20 px-4 text-center space-y-4">
-          <div className="glass-panel p-8 rounded-3xl border border-red-500/20 shadow-2xl space-y-4">
-            <AlertTriangle className="w-14 h-14 text-red-400 mx-auto" />
-            <h1 className="text-xl font-bold text-white">مقاله مورد نظر یافت نشد</h1>
-            <p className="text-xs text-slate-400 leading-relaxed">
+          <div className="p-8 rounded-[16px] bg-[var(--color-surface)] border border-red-200 shadow-xs space-y-4">
+            <AlertTriangle className="w-14 h-14 text-red-500 mx-auto" />
+            <h1 className="text-xl font-bold text-[var(--color-text)]">مقاله مورد نظر یافت نشد</h1>
+            <p className="text-xs text-[var(--color-text-muted)] leading-relaxed">
               این مقاله وجود ندارد یا ممکن است هنوز در وضعیت پیش‌نویس باشد و منتشر نشده باشد.
             </p>
             <div className="pt-2">
               <Link
                 to="/blog"
-                className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#008080] hover:bg-[#006666] text-white rounded-xl text-xs font-bold transition-all shadow-md"
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#008080] hover:bg-[#006666] active:bg-[#005050] text-white rounded-[10px] text-xs font-bold transition-all shadow-xs"
               >
                 <ArrowRight className="w-4 h-4" />
                 <span>بازگشت به وبلاگ آوانا</span>
@@ -130,7 +130,7 @@ export function BlogDetailPage() {
     : "امروز";
 
   return (
-    <div className="min-h-screen bg-[#0b1120] text-slate-100 font-sans selection:bg-teal-700/50 selection:text-teal-200" dir="rtl">
+    <div className="min-h-screen bg-[var(--color-bg-default)] text-[var(--color-text)] font-body selection:bg-[#008080]/20 selection:text-[#008080]" dir="rtl">
       {/* Dynamic SEO metadata & JSON-LD Structured Data */}
       <BlogSEO
         title={post.seoTitle || post.title}
@@ -150,27 +150,27 @@ export function BlogDetailPage() {
 
       <main className="pt-28 pb-20 px-4 sm:px-6 lg:px-8 max-w-5xl mx-auto space-y-10">
         {/* Breadcrumb Navigation */}
-        <nav aria-label="مسیر راهنما" className="flex items-center gap-2 text-xs text-slate-400 flex-wrap">
-          <Link to="/" className="hover:text-teal-300 transition-colors">
+        <nav aria-label="مسیر راهنما" className="flex items-center gap-2 text-xs text-[var(--color-text-muted)] flex-wrap">
+          <Link to="/" className="hover:text-[#008080] transition-colors">
             صفحه اصلی
           </Link>
-          <ChevronLeft className="w-3.5 h-3.5 text-slate-600" />
-          <Link to="/blog" className="hover:text-teal-300 transition-colors">
+          <ChevronLeft className="w-3.5 h-3.5 text-slate-400" />
+          <Link to="/blog" className="hover:text-[#008080] transition-colors">
             وبلاگ آموزشی
           </Link>
           {post.category && (
             <>
-              <ChevronLeft className="w-3.5 h-3.5 text-slate-600" />
+              <ChevronLeft className="w-3.5 h-3.5 text-slate-400" />
               <Link
                 to={`/blog/category/${post.category.slug}`}
-                className="hover:text-teal-300 transition-colors"
+                className="hover:text-[#008080] transition-colors"
               >
                 {post.category.name}
               </Link>
             </>
           )}
-          <ChevronLeft className="w-3.5 h-3.5 text-slate-600" />
-          <span className="text-slate-200 font-semibold truncate max-w-xs sm:max-w-md">
+          <ChevronLeft className="w-3.5 h-3.5 text-slate-400" />
+          <span className="text-[var(--color-text)] font-semibold truncate max-w-xs sm:max-w-md">
             {post.title}
           </span>
         </nav>
@@ -181,31 +181,31 @@ export function BlogDetailPage() {
             {post.category && (
               <Link
                 to={`/blog/category/${post.category.slug}`}
-                className="px-3.5 py-1 rounded-full text-xs font-bold bg-teal-500/15 text-teal-300 border border-teal-500/30 hover:bg-teal-500/25 transition-colors"
+                className="px-3.5 py-1 rounded-full text-xs font-bold bg-[#008080]/10 text-[#008080] border border-[#008080]/20 hover:bg-[#008080]/15 transition-colors"
               >
                 {post.category.name}
               </Link>
             )}
-            <span className="text-xs text-slate-400 flex items-center gap-1">
+            <span className="text-xs text-[var(--color-text-muted)] flex items-center gap-1">
               <Calendar className="w-3.5 h-3.5" />
               <time dateTime={post.publishedAt || undefined}>{publishedDateFormatted}</time>
             </span>
-            <span className="text-xs text-slate-400 flex items-center gap-1">
+            <span className="text-xs text-[var(--color-text-muted)] flex items-center gap-1">
               <Clock className="w-3.5 h-3.5" />
               <span>{post.readingTimeMinutes} دقیقه زمان مطالعه</span>
             </span>
-            <span className="text-xs text-slate-400 flex items-center gap-1">
+            <span className="text-xs text-[var(--color-text-muted)] flex items-center gap-1">
               <Eye className="w-3.5 h-3.5" />
               <span>{post.viewCount.toLocaleString("fa-IR")} بازدید</span>
             </span>
           </div>
 
-          <h1 className="text-2xl sm:text-4xl lg:text-5xl font-black text-white leading-tight tracking-tight">
+          <h1 className="text-2xl sm:text-4xl lg:text-5xl font-black text-[var(--color-text)] leading-tight tracking-tight">
             {post.title}
           </h1>
 
           {post.excerpt && (
-            <p className="text-base sm:text-lg text-slate-300 leading-relaxed font-normal border-r-2 border-teal-500 pr-4">
+            <p className="text-base sm:text-lg text-[var(--color-text-muted)] leading-relaxed font-normal border-r-2 border-[#008080] pr-4">
               {post.excerpt}
             </p>
           )}
@@ -213,7 +213,7 @@ export function BlogDetailPage() {
 
         {/* Featured Image */}
         {post.featuredImage && (
-          <div className="relative rounded-3xl overflow-hidden aspect-video sm:aspect-21/9 border border-white/10 shadow-2xl bg-slate-950">
+          <div className="relative rounded-[16px] overflow-hidden aspect-video sm:aspect-21/9 border border-[var(--color-border)] shadow-xs bg-slate-100">
             <img
               src={post.featuredImage}
               alt={post.title}
@@ -228,17 +228,17 @@ export function BlogDetailPage() {
           <article className="lg:col-span-8 space-y-8">
             {/* Inline Table of Contents for Mobile / Short screens */}
             {toc.length > 2 && (
-              <div className="lg:hidden glass-panel p-5 rounded-2xl border border-white/10 space-y-3">
-                <div className="flex items-center gap-2 text-xs font-bold text-teal-400">
+              <div className="lg:hidden p-5 rounded-[12px] bg-[var(--color-surface)] border border-[var(--color-border)] space-y-3 shadow-xs">
+                <div className="flex items-center gap-2 text-xs font-bold text-[#008080]">
                   <List className="w-4 h-4" />
                   <span>فهرست عناوین این مقاله</span>
                 </div>
-                <ul className="space-y-1.5 text-xs text-slate-300">
+                <ul className="space-y-1.5 text-xs text-[var(--color-text)]">
                   {toc.map((item, idx) => (
-                    <li key={idx} className={item.level === 3 ? "pr-4 text-slate-400" : ""}>
+                    <li key={idx} className={item.level === 3 ? "pr-4 text-[var(--color-text-muted)]" : ""}>
                       <a
                         href={`#${item.id}`}
-                        className="hover:text-teal-300 transition-colors"
+                        className="hover:text-[#008080] transition-colors"
                       >
                         • {item.text}
                       </a>
@@ -249,8 +249,8 @@ export function BlogDetailPage() {
             )}
 
             {/* Markdown Body */}
-            <div className="glass-panel p-6 sm:p-10 rounded-3xl border border-white/10 shadow-xl">
-              <div className="prose prose-invert max-w-none text-slate-200">
+            <div className="p-6 sm:p-10 rounded-[16px] bg-[var(--color-surface)] border border-[var(--color-border)] shadow-xs">
+              <div className="prose max-w-none text-[var(--color-text)]">
                 <MarkdownRenderer content={post.content} />
               </div>
             </div>
@@ -258,11 +258,11 @@ export function BlogDetailPage() {
             {/* Tags */}
             {post.tags && post.tags.length > 0 && (
               <div className="flex flex-wrap items-center gap-2 pt-4">
-                <span className="text-xs font-semibold text-slate-400">برچسب‌ها:</span>
+                <span className="text-xs font-semibold text-[var(--color-text-muted)]">برچسب‌ها:</span>
                 {post.tags.map((tag) => (
                   <span
                     key={tag.id}
-                    className="px-3 py-1 rounded-xl text-xs font-medium bg-white/5 text-slate-300 border border-white/10 hover:border-teal-500/30 transition-colors"
+                    className="px-3 py-1 rounded-[8px] text-xs font-medium bg-[var(--color-surface-warm)] text-[var(--color-text)] border border-[var(--color-border)] hover:border-[#008080]/40 transition-colors"
                   >
                     #{tag.name}
                   </span>
@@ -271,9 +271,9 @@ export function BlogDetailPage() {
             )}
 
             {/* Share Actions Bar */}
-            <div className="glass-panel p-5 rounded-2xl border border-white/10 flex flex-wrap items-center justify-between gap-4">
-              <div className="flex items-center gap-2 text-xs font-bold text-slate-200">
-                <Share2 className="w-4 h-4 text-teal-400" />
+            <div className="p-5 rounded-[12px] bg-[var(--color-surface)] border border-[var(--color-border)] shadow-xs flex flex-wrap items-center justify-between gap-4">
+              <div className="flex items-center gap-2 text-xs font-bold text-[var(--color-text)]">
+                <Share2 className="w-4 h-4 text-[#008080]" />
                 <span>اشتراک‌گذاری این مقاله با همکاران و دانشجویان:</span>
               </div>
 
@@ -281,9 +281,9 @@ export function BlogDetailPage() {
                 <button
                   type="button"
                   onClick={handleCopyLink}
-                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors"
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-[8px] text-xs font-semibold bg-[var(--color-surface-warm)] hover:bg-slate-200 text-[var(--color-text)] border border-[var(--color-border)] transition-colors"
                 >
-                  {copied ? <Check className="w-3.5 h-3.5 text-green-400" /> : null}
+                  {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : null}
                   <span>{copied ? "کپی شد!" : "کپی لینک مقاله"}</span>
                 </button>
 
@@ -291,7 +291,7 @@ export function BlogDetailPage() {
                   href={`https://t.me/share/url?url=${encodeURIComponent(currentUrl)}&text=${encodeURIComponent(post.title)}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="px-3 py-1.5 rounded-xl text-xs font-bold bg-[#229ED9]/20 text-[#229ED9] hover:bg-[#229ED9]/30 transition-colors"
+                  className="px-3 py-1.5 rounded-[8px] text-xs font-bold bg-[#229ED9]/10 text-[#229ED9] hover:bg-[#229ED9]/20 transition-colors"
                 >
                   تلگرام
                 </a>
@@ -300,7 +300,7 @@ export function BlogDetailPage() {
                   href={`https://api.whatsapp.com/send?text=${encodeURIComponent(`${post.title}\n${currentUrl}`)}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="px-3 py-1.5 rounded-xl text-xs font-bold bg-[#25D366]/20 text-[#25D366] hover:bg-[#25D366]/30 transition-colors"
+                  className="px-3 py-1.5 rounded-[8px] text-xs font-bold bg-[#25D366]/10 text-[#25D366] hover:bg-[#25D366]/20 transition-colors"
                 >
                   واتس‌اپ
                 </a>
@@ -308,21 +308,21 @@ export function BlogDetailPage() {
             </div>
 
             {/* Call to Action Box */}
-            <div className="relative rounded-3xl overflow-hidden p-8 border border-teal-500/30 shadow-2xl bg-gradient-to-br from-teal-950/40 via-slate-900/80 to-slate-950 space-y-4">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold bg-teal-500/10 text-teal-300 border border-teal-500/20">
-                <Sparkles className="w-3.5 h-3.5 text-teal-400" />
+            <div className="relative rounded-[16px] overflow-hidden p-8 border border-[var(--color-border)] shadow-xs bg-gradient-to-br from-teal-50/80 via-[var(--color-surface)] to-[var(--color-surface)] space-y-4">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold bg-[#008080]/10 text-[#008080] border border-[#008080]/20">
+                <Sparkles className="w-3.5 h-3.5 text-[#008080]" />
                 <span>شروع یادگیری با آوانا</span>
               </div>
-              <h3 className="text-xl sm:text-2xl font-black text-white">
+              <h3 className="text-xl sm:text-2xl font-black text-[var(--color-text)]">
                 آماده تسلط کامل بر دروس و امتحانات داروسازی هستید؟
               </h3>
-              <p className="text-xs sm:text-sm text-slate-300 leading-relaxed max-w-xl">
+              <p className="text-xs sm:text-sm text-[var(--color-text-muted)] leading-relaxed max-w-xl">
                 با عضویت در آوانا، به هزاران فلش‌کارت هوشمند مبتنی بر سیستم لایتنر، آزمون‌های آزمایشی استاندارد و دستیار هوشمند مطالعه دسترسی خواهید داشت.
               </p>
               <div className="pt-2">
                 <Link
                   to="/courses"
-                  className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-bold text-xs sm:text-sm bg-[#008080] hover:bg-[#006666] text-white shadow-[0_0_25px_rgba(0,128,128,0.4)] transition-all active:scale-95"
+                  className="inline-flex items-center gap-2 px-6 py-3 rounded-[10px] font-bold text-xs sm:text-sm bg-[#008080] hover:bg-[#006666] active:bg-[#005050] text-white shadow-xs transition-all active:scale-95"
                 >
                   <span>مشاهده دوره‌ها و شروع رایگان</span>
                   <ArrowLeft className="w-4 h-4" />
@@ -335,9 +335,9 @@ export function BlogDetailPage() {
           <aside className="lg:col-span-4 space-y-6">
             {/* Sticky Table of Contents */}
             {toc.length > 0 && (
-              <div className="hidden lg:block sticky top-28 glass-panel p-6 rounded-3xl border border-white/10 space-y-4 shadow-xl">
-                <div className="flex items-center gap-2 text-sm font-bold text-white pb-3 border-b border-white/10">
-                  <List className="w-4 h-4 text-teal-400" />
+              <div className="hidden lg:block sticky top-28 p-6 rounded-[16px] bg-[var(--color-surface)] border border-[var(--color-border)] space-y-4 shadow-xs">
+                <div className="flex items-center gap-2 text-sm font-bold text-[var(--color-text)] pb-3 border-b border-[var(--color-border)]">
+                  <List className="w-4 h-4 text-[#008080]" />
                   <span>فهرست عناوین مقاله</span>
                 </div>
                 <nav className="max-h-[calc(100vh-250px)] overflow-y-auto space-y-2 text-xs">
@@ -346,8 +346,8 @@ export function BlogDetailPage() {
                       key={idx}
                       type="button"
                       onClick={() => handleScrollToSection(item.id)}
-                      className={`w-full text-right py-1 transition-colors block text-slate-300 hover:text-teal-300 leading-relaxed ${
-                        item.level === 3 ? "pr-4 text-[11px] text-slate-400" : "font-medium"
+                      className={`w-full text-right py-1 transition-colors block text-[var(--color-text)] hover:text-[#008080] leading-relaxed ${
+                        item.level === 3 ? "pr-4 text-[11px] text-[var(--color-text-muted)]" : "font-medium"
                       }`}
                     >
                       {item.text}
@@ -361,13 +361,13 @@ export function BlogDetailPage() {
 
         {/* Related Posts Section */}
         {post.relatedPosts && post.relatedPosts.length > 0 && (
-          <section className="pt-12 border-t border-white/10 space-y-6">
+          <section className="pt-12 border-t border-[var(--color-border)] space-y-6">
             <div className="flex items-center justify-between">
-              <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                <BookOpen className="w-5 h-5 text-teal-400" />
+              <h3 className="text-xl font-bold text-[var(--color-text)] flex items-center gap-2">
+                <BookOpen className="w-5 h-5 text-[#008080]" />
                 <span>مقالات مرتبط پیشنهادی</span>
               </h3>
-              <Link to="/blog" className="text-xs font-semibold text-teal-400 hover:underline">
+              <Link to="/blog" className="text-xs font-semibold text-[#008080] hover:underline">
                 مشاهده همه مقالات
               </Link>
             </div>
@@ -377,12 +377,13 @@ export function BlogDetailPage() {
                 <Link
                   key={related.id}
                   to={`/blog/${related.slug}`}
-                  className="glass-panel group rounded-2xl border border-white/10 overflow-hidden hover:border-teal-500/40 transition-all p-4 flex flex-col justify-between space-y-3"
+                  className="group rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] overflow-hidden hover:border-[#008080]/40 shadow-xs transition-all p-4 flex flex-col justify-between space-y-3"
                 >
-                  <div className="aspect-video rounded-xl overflow-hidden bg-slate-950">
+                  <div className="aspect-video rounded-xl overflow-hidden bg-slate-100">
                     <img
                       src={
                         related.featuredImage ||
+                        /* eslint-disable-next-line no-secrets/no-secrets */
                         "https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?auto=format&fit=crop&w=600&q=80"
                       }
                       alt={related.title}
@@ -391,17 +392,17 @@ export function BlogDetailPage() {
                   </div>
 
                   <div className="space-y-1.5 flex-1">
-                    <div className="text-[10px] text-teal-400 font-semibold">
+                    <div className="text-[10px] text-[#008080] font-semibold">
                       {related.category?.name || "وبلاگ"}
                     </div>
-                    <h4 className="text-xs font-bold text-white group-hover:text-teal-300 transition-colors line-clamp-2 leading-snug">
+                    <h4 className="text-xs font-bold text-[var(--color-text)] group-hover:text-[#008080] transition-colors line-clamp-2 leading-snug">
                       {related.title}
                     </h4>
                   </div>
 
-                  <div className="text-[10px] text-slate-400 flex items-center justify-between pt-2 border-t border-white/5">
+                  <div className="text-[10px] text-[var(--color-text-muted)] flex items-center justify-between pt-2 border-t border-[var(--color-border)]">
                     <span>{related.readingTimeMinutes} دقیقه مطالعه</span>
-                    <span className="text-teal-400 font-semibold flex items-center gap-1">
+                    <span className="text-[#008080] font-semibold flex items-center gap-1">
                       <span>مطالعه</span>
                       <ArrowLeft className="w-3 h-3" />
                     </span>

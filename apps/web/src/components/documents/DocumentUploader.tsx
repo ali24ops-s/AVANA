@@ -158,13 +158,13 @@ export function DocumentUploader({
   };
 
   return (
-    <div className="glass-panel rounded-xl card-inner-border p-6 space-y-4 shadow-ambient">
+    <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-6 space-y-4 shadow-xs">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-base font-bold text-white">
+          <h3 className="text-base font-bold text-[var(--color-text)]">
             بارگذاری منابع و جزوات آموزشی
           </h3>
-          <p className="text-xs text-slate-300 mt-0.5">
+          <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
             فایل جزوه، اسلاید یا سرفصل دوره را بارگذاری کنید (PDF, PPTX, DOCX تا حداکثر ۵۰ مگابایت)
           </p>
         </div>
@@ -184,10 +184,10 @@ export function DocumentUploader({
             fileInputRef.current?.click();
           }
         }}
-        className={`border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-teal-500 ${
+        className={`border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-[#008080] ${
           isDragOver
-            ? "border-teal-400 bg-teal-900/30"
-            : "border-white/15 hover:border-teal-400 hover:bg-white/5"
+            ? "border-[#008080] bg-teal-50/50"
+            : "border-[var(--color-border)] hover:border-[#008080] hover:bg-slate-50"
         }`}
       >
         <input
@@ -201,14 +201,14 @@ export function DocumentUploader({
         />
 
         <div className="flex flex-col items-center justify-center gap-3">
-          <div className="w-12 h-12 rounded-2xl bg-teal-900/40 border border-teal-500/20 text-teal-400 flex items-center justify-center">
+          <div className="w-12 h-12 rounded-2xl bg-teal-50 border border-teal-200 text-[#008080] flex items-center justify-center">
             <UploadIcon className="w-6 h-6" />
           </div>
           <div className="space-y-1">
-            <p className="text-sm font-bold text-white">
+            <p className="text-sm font-bold text-[var(--color-text)]">
               برای انتخاب فایل کلیک کنید یا فایل را به اینجا بکشید
             </p>
-            <p className="text-xs text-slate-400 font-mono" dir="ltr">
+            <p className="text-xs text-[var(--color-text-muted)] font-mono" dir="ltr">
               PDF, PPTX, DOCX, PPT, DOC (Max 50MB)
             </p>
           </div>
@@ -218,7 +218,7 @@ export function DocumentUploader({
               e.stopPropagation();
               fileInputRef.current?.click();
             }}
-            className="mt-2 px-5 py-2.5 bg-teal-600 hover:bg-teal-500 text-white rounded-xl text-xs font-bold shadow-md shadow-teal-900/40 transition-all"
+            className="mt-2 px-5 py-2.5 bg-[#008080] hover:bg-[#006666] text-white rounded-xl text-xs font-bold shadow-xs transition-all"
           >
             انتخاب فایل از سیستم
           </button>
@@ -229,7 +229,7 @@ export function DocumentUploader({
         <div
           role="alert"
           aria-live="polite"
-          className="flex items-center gap-2 p-3 bg-red-950/40 border border-red-500/30 rounded-xl text-red-300 text-xs font-medium"
+          className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-xs font-medium"
         >
           <AlertCircle className="w-4 h-4 flex-shrink-0" />
           <span>{validationError}</span>
@@ -237,14 +237,14 @@ export function DocumentUploader({
       )}
 
       {selectedFile && (
-        <div className="flex items-center justify-between p-4 bg-slate-900/60 rounded-xl border border-white/10">
+        <div className="flex items-center justify-between p-4 bg-[var(--color-surface-warm)] rounded-xl border border-[var(--color-border)]">
           <div className="flex items-center gap-3 min-w-0">
-            <FileText className="w-5 h-5 text-teal-400 flex-shrink-0" />
+            <FileText className="w-5 h-5 text-[#008080] flex-shrink-0" />
             <div className="min-w-0">
-              <p className="text-xs font-bold text-white truncate" dir="ltr">
+              <p className="text-xs font-bold text-[var(--color-text)] truncate" dir="ltr">
                 {selectedFile.name}
               </p>
-              <p className="text-[11px] text-slate-400 mt-0.5" dir="ltr">
+              <p className="text-[11px] text-[var(--color-text-muted)] mt-0.5" dir="ltr">
                 {(selectedFile.size / (1024 * 1024)).toFixed(2)} MB
               </p>
             </div>
@@ -254,7 +254,7 @@ export function DocumentUploader({
               type="button"
               onClick={() => setSelectedFile(null)}
               disabled={uploadMutation.isPending}
-              className="px-3 py-1.5 text-xs font-bold text-slate-400 hover:text-white rounded-xl"
+              className="px-3 py-1.5 text-xs font-bold text-[var(--color-text-muted)] hover:text-[var(--color-text)] rounded-xl"
             >
               انصراف
             </button>
@@ -262,7 +262,7 @@ export function DocumentUploader({
               type="button"
               onClick={handleStartUpload}
               disabled={uploadMutation.isPending}
-              className="px-4 py-2 bg-teal-600 hover:bg-teal-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 disabled:opacity-50 transition-all shadow-sm"
+              className="px-4 py-2 bg-[#008080] hover:bg-[#006666] text-white rounded-xl text-xs font-bold flex items-center gap-1.5 disabled:opacity-50 transition-all shadow-xs"
             >
               {uploadMutation.isPending ? (
                 <>
@@ -281,21 +281,21 @@ export function DocumentUploader({
       )}
 
       {uploadMutation.isPending && !selectedFile && (
-        <div className="flex items-center gap-2 p-3 bg-teal-900/30 border border-teal-500/30 rounded-xl text-teal-300 text-xs font-medium">
+        <div className="flex items-center gap-2 p-3 bg-teal-50 border border-teal-200 rounded-xl text-teal-800 text-xs font-medium">
           <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />
           <span>در حال آپلود فایل و استخراج خودکار متن...</span>
         </div>
       )}
 
       {uploadMutation.isError && (
-        <div className="flex items-center gap-2 p-3 bg-red-950/40 border border-red-500/30 rounded-xl text-red-300 text-xs font-medium">
+        <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-xs font-medium">
           <AlertCircle className="w-4 h-4 flex-shrink-0" />
           <span>{uploadMutation.error.message || "خطا در بارگذاری فایل"}</span>
         </div>
       )}
 
       {uploadMutation.isSuccess && (
-        <div className="flex items-center gap-2 p-3 bg-emerald-950/40 border border-emerald-500/30 rounded-xl text-emerald-300 text-xs font-medium">
+        <div className="flex items-center gap-2 p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-xs font-medium">
           <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
           <span>فایل با موفقیت بارگذاری شد و استخراج متن آغاز گردید.</span>
         </div>

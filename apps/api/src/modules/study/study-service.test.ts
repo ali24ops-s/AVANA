@@ -530,6 +530,64 @@ describe("StudyService", () => {
         ),
       ).rejects.toThrow("Quiz attempt not found");
     });
+
+    it("preserves historical question snapshot on course quiz review even if original questions are modified or deleted", async () => {
+      const quiz = seedQuiz();
+      const questions = seedQuizQuestions(quiz.id);
+
+      // 1. Submit Course Quiz
+      const submitRes = await service.submitQuizAttempt(student, organizationId, {
+        quizId: quiz.id,
+        answers: [
+          { questionId: questions[0].id, answer: "Activates receptor" },
+          { questionId: questions[1].id, answer: "Blocks receptor" },
+        ],
+      });
+
+      // 2. Snapshot is created and stored in quizAttemptStore
+      const storedAttempt = await quizAttemptStore.findById(submitRes.attemptId as QuizAttemptId);
+      expect(storedAttempt?.questionSnapshot).toBeDefined();
+      expect(Array.isArray(storedAttempt?.questionSnapshot)).toBe(true);
+      expect((storedAttempt?.questionSnapshot as unknown[]).length).toBe(2);
+
+      // 3. Mutate/delete the original questions in quizQuestionStore
+      quizQuestionStore.clear();
+      quizQuestionStore.insert({
+        id: questions[0].id,
+        quizId: quiz.id,
+        generatedContentId: null,
+        question: "MUTATED QUESTION TEXT",
+        choices: ["Changed Option A", "Changed Option B"],
+        correctAnswer: "Changed Option A",
+        explanation: "Mutated explanation",
+        sortOrder: 1,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+
+      // 4. Review of the attempt via getQuizAttempt still returns original snapshot question and choices
+      const review = await service.getQuizAttempt(
+        student,
+        organizationId,
+        submitRes.attemptId as QuizAttemptId,
+      );
+
+      expect(review.questions).toHaveLength(2);
+      expect(review.questions![0].question).toBe(questions[0].question);
+      expect(review.questions![0].question).not.toBe("MUTATED QUESTION TEXT");
+      expect(review.questions![0].choices).toEqual(questions[0].choices);
+      expect(review.questions![1].question).toBe(questions[1].question);
+
+      // Also verify getExamAttempt (used by ExamResultView / exams history) returns original snapshot
+      const examReview = await service.getExamAttempt(
+        student,
+        organizationId,
+        submitRes.attemptId as QuizAttemptId,
+      );
+      expect(examReview.questions).toHaveLength(2);
+      expect(examReview.questions![0].question).toBe(questions[0].question);
+      expect(examReview.questions![0].question).not.toBe("MUTATED QUESTION TEXT");
+    });
   });
 
   // -------------------------------------------------------------------------

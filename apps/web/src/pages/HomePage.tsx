@@ -42,7 +42,8 @@ import { createOrganizationApi } from "../lib/api/organizations.js";
 import { createCourseApi } from "../lib/api/courses.js";
 import { createLearningApi } from "../lib/api/learning.js";
 import { createStudyApi } from "../lib/api/study.js";
-import { toPersianDigits, getWeeklyStudyComparison } from "@avana/domain";
+import { toPersianDigits, formatPersianOf, getWeeklyStudyComparison } from "@avana/domain";
+import { Button } from "@avana/ui";
 import { useAuth } from "../providers/AuthProvider.js";
 import {
   useCurrentPersianDate,
@@ -173,16 +174,16 @@ export function HomePage() {
       {/* 1. Welcome Greeting Header & Date Badge */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
         <div>
-          <h2 className="text-2xl md:text-3xl font-bold text-white mb-1">
+          <h2 className="text-2xl md:text-3xl font-bold text-[var(--color-text)] mb-1">
             سلام {userDisplayName} 👋
           </h2>
-          <p className="text-sm md:text-base text-slate-400">
+          <p className="text-sm md:text-base text-[var(--color-text-muted)]">
             {dailyQuote}
           </p>
         </div>
-        <div className="glass-panel px-4 py-2 rounded-full shadow-ambient card-inner-border text-xs md:text-sm text-slate-300 flex items-center gap-1.5">
-          <Calendar className="w-4 h-4 text-purple-400" />
-          <span className="text-purple-400 font-bold">{currentDate.formattedHeader}</span>
+        <div className="bg-[var(--color-surface)] px-4 py-2 rounded-full border border-[var(--color-border)] shadow-xs text-xs md:text-sm text-[var(--color-text)] flex items-center gap-1.5">
+          <Calendar className="w-4 h-4 text-primary" />
+          <span className="text-primary font-bold">{currentDate.formattedHeader}</span>
           <span>{currentDate.year}</span>
         </div>
       </div>
@@ -199,18 +200,18 @@ export function HomePage() {
 
           {/* Stats Grid (4 Cards) */}
           <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="glass-panel p-4 rounded-xl shadow-ambient card-inner-border flex flex-col items-center justify-center text-center hover:bg-white/10 transition-colors">
-              <Clock className="w-7 h-7 text-purple-400 mb-2" />
+            <div className="bg-[var(--color-surface)] p-4 rounded-card border border-[var(--color-border)] shadow-xs flex flex-col items-center justify-center text-center hover:bg-[var(--color-surface-warm)] transition-colors">
+              <Clock className="w-7 h-7 text-primary mb-2" />
               {studyTimeQuery.isLoading ? (
                 <div className="h-7 flex items-center justify-center">
-                  <Loader2 className="w-4 h-4 animate-spin text-purple-400" />
+                  <Loader2 className="w-4 h-4 animate-spin text-primary" />
                 </div>
               ) : (
-                <span className="text-lg font-bold text-white">
+                <span className="text-lg font-bold text-[var(--color-text)]">
                   {studyTimeQuery.data?.thisWeek?.formatted || "۰ دقیقه"}
                 </span>
               )}
-              <span className="text-xs text-slate-400 mt-1">
+              <span className="text-xs text-[var(--color-text-muted)] mt-1">
                 زمان مطالعه این هفته
               </span>
               {studyTimeQuery.data && !studyTimeQuery.isLoading && (
@@ -226,12 +227,12 @@ export function HomePage() {
 
                   const colorClass =
                     comparison.type === "increase" || comparison.type === "new_start"
-                      ? "text-emerald-400 font-medium"
+                      ? "text-[var(--avana-success)] font-medium"
                       : comparison.type === "decrease"
-                        ? "text-rose-400 font-medium"
+                        ? "text-[var(--avana-error)] font-medium"
                         : comparison.type === "last_week_reference"
-                          ? "text-purple-300 font-medium bg-purple-500/15 px-2 py-0.5 rounded-full border border-purple-500/25 shadow-xs"
-                          : "text-slate-400";
+                          ? "text-primary font-medium bg-[var(--avana-accent-soft)] px-2 py-0.5 rounded-full border border-primary/25 shadow-xs"
+                          : "text-[var(--color-text-muted)]";
 
                   return (
                     <span
@@ -244,48 +245,48 @@ export function HomePage() {
               )}
             </div>
 
-            <div className="glass-panel p-4 rounded-xl shadow-ambient card-inner-border flex flex-col items-center justify-center text-center hover:bg-white/10 transition-colors">
-              <CheckCircle2 className="w-7 h-7 text-teal-400 mb-2" />
+            <div className="bg-[var(--color-surface)] p-4 rounded-card border border-[var(--color-border)] shadow-xs flex flex-col items-center justify-center text-center hover:bg-[var(--color-surface-warm)] transition-colors">
+              <CheckCircle2 className="w-7 h-7 text-primary mb-2" />
               {studyTimeQuery.isLoading ? (
                 <div className="h-7 flex items-center justify-center">
-                  <Loader2 className="w-4 h-4 animate-spin text-teal-400" />
+                  <Loader2 className="w-4 h-4 animate-spin text-primary" />
                 </div>
               ) : (
-                <span className="text-lg font-bold text-white">
+                <span className="text-lg font-bold text-[var(--color-text)]">
                   {toPersianDigits(studyTimeQuery.data?.stats?.completedLessons ?? 0)}
                 </span>
               )}
-              <span className="text-xs text-slate-400 mt-1">
+              <span className="text-xs text-[var(--color-text-muted)] mt-1">
                 درس‌های تکمیل‌شده
               </span>
             </div>
 
-            <div className="glass-panel p-4 rounded-xl shadow-ambient card-inner-border flex flex-col items-center justify-center text-center hover:bg-white/10 transition-colors">
-              <FileText className="w-7 h-7 text-cyan-400 mb-2" />
+            <div className="bg-[var(--color-surface)] p-4 rounded-card border border-[var(--color-border)] shadow-xs flex flex-col items-center justify-center text-center hover:bg-[var(--color-surface-warm)] transition-colors">
+              <FileText className="w-7 h-7 text-primary mb-2" />
               {studyTimeQuery.isLoading ? (
                 <div className="h-7 flex items-center justify-center">
-                  <Loader2 className="w-4 h-4 animate-spin text-cyan-400" />
+                  <Loader2 className="w-4 h-4 animate-spin text-primary" />
                 </div>
               ) : (
-                <span className="text-lg font-bold text-white">
+                <span className="text-lg font-bold text-[var(--color-text)]">
                   {toPersianDigits(studyTimeQuery.data?.stats?.completedExams ?? 0)}
                 </span>
               )}
-              <span className="text-xs text-slate-400 mt-1">آزمون‌ها</span>
+              <span className="text-xs text-[var(--color-text-muted)] mt-1">آزمون‌ها</span>
             </div>
 
-            <div className="glass-panel p-4 rounded-xl shadow-ambient card-inner-border flex flex-col items-center justify-center text-center hover:bg-white/10 transition-colors">
-              <Flame className="w-7 h-7 text-orange-400 mb-2 drop-shadow-[0_0_8px_rgba(251,146,60,0.5)]" />
+            <div className="bg-[var(--color-surface)] p-4 rounded-card border border-[var(--color-border)] shadow-xs flex flex-col items-center justify-center text-center hover:bg-[var(--color-surface-warm)] transition-colors">
+              <Flame className="w-7 h-7 text-amber-500 mb-2" />
               {studyTimeQuery.isLoading ? (
                 <div className="h-7 flex items-center justify-center">
-                  <Loader2 className="w-4 h-4 animate-spin text-orange-400" />
+                  <Loader2 className="w-4 h-4 animate-spin text-amber-500" />
                 </div>
               ) : (
-                <span className="text-lg font-bold text-white">
+                <span className="text-lg font-bold text-[var(--color-text)]">
                   {toPersianDigits(studyTimeQuery.data?.stats?.currentStreak ?? 0)} روز
                 </span>
               )}
-              <span className="text-xs text-slate-400 mt-1">streak</span>
+              <span className="text-xs text-[var(--color-text-muted)] mt-1">streak</span>
             </div>
           </section>
 
@@ -301,39 +302,40 @@ export function HomePage() {
           {/* AI Mentor Card (Stitch Reference) */}
           <section
             id="assistant-section"
-            className="bg-gradient-to-br from-slate-800/80 to-slate-900/90 backdrop-blur-xl p-6 rounded-xl shadow-ambient-lg card-inner-border relative overflow-hidden border-t-4 border-t-purple-500 space-y-4"
+            className="bg-[var(--color-surface)] p-6 rounded-card border border-[var(--color-border)] shadow-card relative overflow-hidden space-y-4"
           >
-            <div className="absolute -right-10 -bottom-10 w-32 h-32 bg-purple-600/20 rounded-full blur-2xl" />
             <div className="flex items-center gap-3 relative z-10">
-              <div className="w-12 h-12 rounded-full bg-purple-500/20 flex items-center justify-center text-purple-400 border border-purple-500/30 shrink-0">
-                <Brain className="w-6 h-6 drop-shadow-[0_0_5px_rgba(168,85,247,0.5)]" />
+              <div className="w-12 h-12 rounded-card bg-[var(--avana-accent-soft)] flex items-center justify-center text-primary border border-primary/20 shrink-0">
+                <Brain className="w-6 h-6" />
               </div>
               <div className="min-w-0">
-                <h3 className="text-base font-bold text-white truncate">
+                <h3 className="text-base font-bold text-[var(--color-text)] truncate">
                   دستیار هوشمند آوانا
                 </h3>
-                <span className="text-[10px] text-purple-300 font-medium">
+                <span className="text-[10px] text-primary font-medium">
                   پاسخگویی هوشمند با Cloudflare AI
                 </span>
               </div>
             </div>
-            <p className="text-xs text-slate-300 leading-relaxed relative z-10">
+            <p className="text-xs text-[var(--color-text-muted)] leading-relaxed relative z-10">
               درباره امکانات آوانا، تبدیل جزوه به درس و آزمون، روش‌های مرور و برنامه‌ریزی مطالعه از من بپرس.
             </p>
             <div className="flex items-center gap-2 relative z-10">
-              <button
+              <Button
                 type="button"
                 onClick={() => setIsChatOpen(true)}
-                className="flex-1 bg-purple-600 hover:bg-purple-500 text-white px-4 py-2.5 rounded-lg text-xs font-bold transition-all duration-300 flex items-center justify-center gap-2 shadow-md active:scale-98 cursor-pointer"
+                variant="primary"
+                size="sm"
+                className="flex-1"
               >
                 <Sparkles className="w-4 h-4" />
                 <span>از آوانا بپرس</span>
-              </button>
+              </Button>
               {primaryCourse && (
                 <Link
                   to={`/courses/${primaryCourse.id}`}
                   title="رفتن به آخرین درس"
-                  className="bg-white/10 text-slate-300 hover:text-white px-3 py-2.5 rounded-lg text-xs font-medium border border-white/10 hover:bg-white/15 transition-all flex items-center justify-center"
+                  className="bg-[var(--color-surface-warm)] text-[var(--color-text)] hover:bg-[var(--color-surface)] px-3 py-2 rounded-button text-xs font-medium border border-[var(--color-border)] transition-all flex items-center justify-center cursor-pointer"
                 >
                   <ArrowLeft className="w-4 h-4" />
                 </Link>
@@ -342,48 +344,48 @@ export function HomePage() {
           </section>
 
           {/* Today's Study Plan */}
-          <section className="glass-panel p-6 rounded-xl shadow-ambient card-inner-border space-y-4 relative overflow-hidden">
-            <h3 className="text-base font-bold text-white flex items-center gap-2">
-              <Calendar className="w-5 h-5 text-teal-400" />
+          <section className="bg-[var(--color-surface)] p-6 rounded-card border border-[var(--color-border)] shadow-xs space-y-4 relative overflow-hidden">
+            <h3 className="text-base font-bold text-[var(--color-text)] flex items-center gap-2">
+              <Calendar className="w-5 h-5 text-primary" />
               <span>برنامه مطالعه امروز</span>
             </h3>
 
             <div className="relative">
               {/* Blurred items mockup */}
               <ul className="space-y-2.5 filter blur-[3px] opacity-40 select-none pointer-events-none" aria-hidden="true">
-                <li className="flex items-start gap-3 p-3 rounded-lg border border-transparent">
-                  <div className="w-5 h-5 rounded border-2 border-slate-600 flex items-center justify-center mt-0.5 shrink-0" />
+                <li className="flex items-start gap-3 p-3 rounded-card border border-transparent">
+                  <div className="w-5 h-5 rounded-input border-2 border-[var(--color-border)] flex items-center justify-center mt-0.5 shrink-0" />
                   <div>
-                    <p className="text-xs font-medium text-slate-200">
+                    <p className="text-xs font-medium text-[var(--color-text)]">
                       مرور فلش‌کارت‌های آناتومی
                     </p>
-                    <p className="text-[11px] text-slate-400 mt-0.5">
+                    <p className="text-[11px] text-[var(--color-text-muted)] mt-0.5">
                       ۳۰ کارت • ۱۵ دقیقه
                     </p>
                   </div>
                 </li>
 
-                <li className="flex items-start gap-3 p-3 rounded-lg bg-teal-900/20 border border-teal-500/30">
-                  <div className="w-5 h-5 rounded bg-teal-500 border-2 border-teal-500 flex items-center justify-center mt-0.5 text-slate-900 shadow-[0_0_8px_rgba(20,184,166,0.5)] shrink-0">
+                <li className="flex items-start gap-3 p-3 rounded-card bg-[var(--avana-accent-soft)] border border-primary/20">
+                  <div className="w-5 h-5 rounded-input bg-primary border-2 border-primary flex items-center justify-center mt-0.5 text-[var(--color-primary-foreground)] shrink-0">
                     <Check className="w-3.5 h-3.5 stroke-[3]" />
                   </div>
                   <div>
-                    <p className="text-xs font-medium text-slate-400 line-through">
+                    <p className="text-xs font-medium text-[var(--color-text-muted)] line-through">
                       کوییز فیزیولوژی قلب
                     </p>
-                    <p className="text-[11px] text-teal-300/80 mt-0.5">
+                    <p className="text-[11px] text-primary mt-0.5">
                       تکمیل شده • نمره: ۱۸/۲۰
                     </p>
                   </div>
                 </li>
 
-                <li className="flex items-start gap-3 p-3 rounded-lg border border-transparent">
-                  <div className="w-5 h-5 rounded border-2 border-slate-600 flex items-center justify-center mt-0.5 shrink-0" />
+                <li className="flex items-start gap-3 p-3 rounded-card border border-transparent">
+                  <div className="w-5 h-5 rounded-input border-2 border-[var(--color-border)] flex items-center justify-center mt-0.5 shrink-0" />
                   <div>
-                    <p className="text-xs font-medium text-slate-200">
+                    <p className="text-xs font-medium text-[var(--color-text)]">
                       مطالعه فصل ۵ فارماکولوژی
                     </p>
-                    <p className="text-[11px] text-slate-400 mt-0.5">
+                    <p className="text-[11px] text-[var(--color-text-muted)] mt-0.5">
                       صفحات ۱۲۰-۱۴۵
                     </p>
                   </div>
@@ -391,8 +393,8 @@ export function HomePage() {
               </ul>
 
               {/* Coming soon overlay */}
-              <div className="absolute inset-0 flex items-center justify-center bg-slate-950/20 backdrop-blur-[1px] rounded-lg">
-                <span className="px-6 py-2.5 rounded-2xl bg-teal-500/15 border border-teal-500/40 text-teal-200 text-base sm:text-lg font-bold shadow-[0_0_20px_rgba(20,184,166,0.25)] backdrop-blur-md">
+              <div className="absolute inset-0 flex items-center justify-center bg-[var(--color-scrim)]/20 backdrop-blur-[1px] rounded-card">
+                <span className="px-5 py-2 rounded-full bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)] text-sm font-bold shadow-card">
                   به‌زودی
                 </span>
               </div>
@@ -400,28 +402,29 @@ export function HomePage() {
           </section>
 
           {/* Upcoming Exams Section (Replaced Content Recommendations) */}
-          <section className="glass-panel p-6 rounded-xl shadow-ambient card-inner-border space-y-4">
+          <section className="bg-[var(--color-surface)] p-6 rounded-card border border-[var(--color-border)] shadow-xs space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="text-base font-bold text-white flex items-center gap-2">
-                <GraduationCap className="w-5 h-5 text-teal-400" />
+              <h3 className="text-base font-bold text-[var(--color-text)] flex items-center gap-2">
+                <GraduationCap className="w-5 h-5 text-primary" />
                 <span>امتحانات پیش رو</span>
               </h3>
-              <button
+              <Button
                 type="button"
                 onClick={() => {
                   setSelectedCourseIdForExam(undefined);
                   setIsAddExamOpen(true);
                 }}
-                className="text-xs text-teal-400 hover:text-teal-300 font-semibold flex items-center gap-1 bg-teal-500/10 hover:bg-teal-500/20 border border-teal-500/30 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
+                variant="secondary"
+                size="sm"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>افزودن امتحان</span>
-              </button>
+              </Button>
             </div>
 
             {coursesQuery.isLoading ? (
               <div className="p-6 flex items-center justify-center">
-                <Loader2 className="w-5 h-5 animate-spin text-teal-400" />
+                <Loader2 className="w-5 h-5 animate-spin text-primary" />
               </div>
             ) : upcomingExams.length > 0 ? (
               <div className="space-y-2.5">
@@ -446,23 +449,23 @@ export function HomePage() {
                   return (
                     <div
                       key={course.id}
-                      className="glass-panel p-3.5 rounded-xl card-inner-border flex items-center justify-between gap-3 hover:bg-white/5 transition-colors group"
+                      className="glass-panel bg-[var(--color-surface-warm)] p-3.5 rounded-card border border-[var(--color-border)] flex items-center justify-between gap-3 hover:bg-[var(--color-surface)] transition-colors group"
                     >
                       <div className="flex items-center gap-3 min-w-0">
                         <div
-                          className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 border ${urgencyTheme.iconBox}`}
+                          className={`w-9 h-9 rounded-card flex items-center justify-center shrink-0 border ${urgencyTheme.iconBox}`}
                         >
                           <Calendar className="w-4 h-4" />
                         </div>
                         <div className="min-w-0">
                           <Link
                             to={`/courses/${course.id}`}
-                            className="text-xs font-bold text-white group-hover:text-teal-400 transition-colors truncate block"
+                            className="text-xs font-bold text-[var(--color-text)] group-hover:text-primary transition-colors truncate block"
                             title={course.title}
                           >
                             {course.title}
                           </Link>
-                          <p className="text-[11px] text-slate-400 mt-0.5">
+                          <p className="text-[11px] text-[var(--color-text-muted)] mt-0.5">
                             تاریخ امتحان: {formattedDate}
                           </p>
                         </div>
@@ -476,45 +479,48 @@ export function HomePage() {
                             ? "امروز"
                             : `${toPersianDigits(daysRemaining)} روز باقیمانده`}
                         </span>
-                        <button
+                        <Button
                           type="button"
+                          variant="ghost"
+                          size="sm"
                           onClick={() => {
                             setSelectedCourseIdForExam(course.id);
                             setIsAddExamOpen(true);
                           }}
-                          className="text-[11px] text-slate-400 hover:text-teal-300 p-1 rounded hover:bg-white/5 transition-colors cursor-pointer"
+                          className="!p-1 !h-auto text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
                           title="ویرایش تاریخ امتحان"
                           aria-label={`ویرایش امتحان ${course.title}`}
-                        >
-                          <FileText className="w-3.5 h-3.5" />
-                        </button>
+                          leftIcon={<FileText className="w-3.5 h-3.5" />}
+                        />
                       </div>
                     </div>
                   );
                 })}
               </div>
             ) : (
-              <div className="py-6 flex flex-col items-center justify-center text-center p-4 rounded-xl border border-dashed border-white/10 bg-white/[0.02]">
-                <div className="w-10 h-10 rounded-full bg-slate-800/80 border border-white/10 flex items-center justify-center text-slate-400 mb-2.5">
-                  <Calendar className="w-5 h-5 text-teal-400/80" />
+              <div className="py-6 flex flex-col items-center justify-center text-center p-4 rounded-card border border-dashed border-[var(--color-border)] bg-[var(--color-surface-warm)]">
+                <div className="w-10 h-10 rounded-full bg-[var(--color-surface)] border border-[var(--color-border)] flex items-center justify-center text-primary mb-2.5">
+                  <Calendar className="w-5 h-5" />
                 </div>
-                <p className="text-xs font-bold text-slate-300">
+                <p className="text-xs font-bold text-[var(--color-text)]">
                   هیچ امتحانی ثبت نشده است
                 </p>
-                <p className="text-[11px] text-slate-400 mt-1 max-w-[220px] leading-relaxed">
+                <p className="text-[11px] text-[var(--color-text-muted)] mt-1 max-w-[220px] leading-relaxed">
                   با ثبت تاریخ آزمون‌ها، زمان‌بندی و مطالعه خود را مدیریت کنید.
                 </p>
-                <button
+                <Button
                   type="button"
                   onClick={() => {
                     setSelectedCourseIdForExam(undefined);
                     setIsAddExamOpen(true);
                   }}
-                  className="mt-3.5 text-xs text-teal-400 font-bold hover:text-teal-300 inline-flex items-center gap-1.5 bg-teal-500/10 hover:bg-teal-500/20 border border-teal-500/30 px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
+                  variant="primary"
+                  size="sm"
+                  className="mt-3.5"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   <span>افزودن امتحان</span>
-                </button>
+                </Button>
               </div>
             )}
           </section>
@@ -708,34 +714,35 @@ function AddExamModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[var(--color-scrim)]/80 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-labelledby="add-exam-modal-title"
     >
-      <div className="w-full max-w-md bg-slate-900 border border-white/15 rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+      <div className="w-full max-w-md bg-[var(--color-surface)] border border-[var(--color-border)] rounded-dialog shadow-card overflow-hidden">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-white/10 flex items-center justify-between bg-slate-800/40">
-          <div className="flex items-center gap-2 text-teal-400">
+        <div className="px-6 py-4 border-b border-[var(--color-border)] flex items-center justify-between bg-[var(--color-surface-warm)]">
+          <div className="flex items-center gap-2 text-primary">
             <GraduationCap className="w-5 h-5" />
-            <h3 id="add-exam-modal-title" className="text-base font-bold text-white">
+            <h3 id="add-exam-modal-title" className="text-base font-bold text-[var(--color-text)]">
               {selectedCourse?.exam_at ? "ویرایش تاریخ امتحان" : "افزودن تاریخ امتحان"}
             </h3>
           </div>
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="sm"
             onClick={onClose}
             aria-label="بستن"
-            className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-colors cursor-pointer"
-          >
-            <X className="w-5 h-5" />
-          </button>
+            className="!p-1 !h-auto text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+            leftIcon={<X className="w-5 h-5" />}
+          />
         </div>
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {error && (
-            <div className="p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2">
+            <div className="p-3 rounded-card bg-[var(--avana-error-bg)] border border-[var(--avana-error-border)] text-[var(--avana-error)] text-xs flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0" />
               <span>{error}</span>
             </div>
@@ -745,7 +752,7 @@ function AddExamModal({
           <div className="space-y-1.5">
             <label
               htmlFor="exam-course-select"
-              className="block text-xs font-semibold text-slate-300"
+              className="block text-xs font-semibold text-[var(--color-text)]"
             >
               انتخاب درس / دوره
             </label>
@@ -754,7 +761,7 @@ function AddExamModal({
                 id="exam-course-select"
                 value={selectedCourseId}
                 onChange={(e) => handleCourseChange(e.target.value)}
-                className="w-full bg-slate-800/90 border border-white/15 rounded-xl px-3.5 py-2.5 text-xs md:text-sm text-white focus:outline-none focus:border-teal-500 transition-colors"
+                className="w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded-input px-3.5 py-2.5 text-xs md:text-sm text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors"
                 required
               >
                 <option value="">-- یک درس را انتخاب کنید --</option>
@@ -765,7 +772,7 @@ function AddExamModal({
                 ))}
               </select>
             ) : (
-              <p className="text-xs text-slate-400 p-3 bg-slate-800/40 rounded-xl border border-white/5">
+              <p className="text-xs text-[var(--color-text-muted)] p-3 bg-[var(--color-surface-warm)] rounded-card border border-[var(--color-border)]">
                 دوره‌ای برای انتخاب موجود نیست.
               </p>
             )}
@@ -784,28 +791,24 @@ function AddExamModal({
           </div>
 
           {/* Footer Actions */}
-          <div className="pt-3 flex items-center justify-end gap-3 border-t border-white/10">
-            <button
+          <div className="pt-3 flex items-center justify-end gap-3 border-t border-[var(--color-border)]">
+            <Button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white bg-white/5 hover:bg-white/10 rounded-xl transition-colors cursor-pointer"
+              variant="ghost"
+              size="sm"
             >
               انصراف
-            </button>
-            <button
+            </Button>
+            <Button
               type="submit"
               disabled={isSubmitting || courses.length === 0}
-              className="px-5 py-2 text-xs font-bold text-white bg-teal-600 hover:bg-teal-500 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl transition-all shadow-lg shadow-teal-900/40 flex items-center gap-2 cursor-pointer"
+              isLoading={isSubmitting}
+              variant="primary"
+              size="sm"
             >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>در حال ثبت...</span>
-                </>
-              ) : (
-                <span>ثبت امتحان</span>
-              )}
-            </button>
+              ثبت امتحان
+            </Button>
           </div>
         </form>
       </div>
@@ -910,12 +913,12 @@ function PopularContentPacksSection({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <div>
           <div className="flex items-center gap-2">
-            <Layers className="w-5 h-5 text-amber-400" />
-            <h3 className="text-lg font-bold text-white">
+            <Layers className="w-5 h-5 text-primary" />
+            <h3 className="text-lg font-bold text-[var(--color-text)]">
               محبوب‌ترین بسته‌های محتوای آموزشی
             </h3>
           </div>
-          <p className="text-xs text-slate-400 mt-0.5">
+          <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
             بسته‌های آموزشی پرمخاطب که بیشترین استفاده را توسط کاربران آوانا داشته‌اند
           </p>
         </div>
@@ -923,9 +926,8 @@ function PopularContentPacksSection({
         <div className="flex items-center gap-3 self-end sm:self-auto">
           {totalGroups > 1 && (
             <div className="flex items-center gap-1.5 ml-2">
-              <span className="text-[11px] text-slate-400 font-medium ml-1">
-                {toPersianDigits(safeGroupIndex + 1)} از{" "}
-                {toPersianDigits(totalGroups)}
+              <span className="text-[11px] text-[var(--color-text-muted)] font-medium ml-1">
+                {formatPersianOf(safeGroupIndex + 1, totalGroups)}
               </span>
               <div className="flex items-center gap-1">
                 {packPairs.map((_, i) => (
@@ -938,8 +940,8 @@ function PopularContentPacksSection({
                     aria-label={`رفتن به گروه ${toPersianDigits(i + 1)}`}
                     className={`h-1.5 rounded-full transition-all duration-300 cursor-pointer ${
                       i === safeGroupIndex
-                        ? "w-4 bg-teal-400 shadow-[0_0_8px_rgba(45,212,191,0.6)]"
-                        : "w-1.5 bg-slate-600 hover:bg-slate-400"
+                        ? "w-4 bg-primary shadow-xs"
+                        : "w-1.5 bg-[var(--color-border-hover)] hover:bg-primary/50"
                     }`}
                   />
                 ))}
@@ -949,7 +951,7 @@ function PopularContentPacksSection({
 
           <Link
             to="/library"
-            className="text-teal-400 text-xs font-semibold hover:underline flex items-center gap-1"
+            className="text-primary text-xs font-semibold hover:underline flex items-center gap-1"
           >
             <span>مشاهده همه</span>
             <ChevronLeft className="w-3.5 h-3.5" />
@@ -958,8 +960,8 @@ function PopularContentPacksSection({
       </div>
 
       {packsQuery.isLoading ? (
-        <div className="glass-panel p-8 rounded-xl card-inner-border flex justify-center items-center min-h-[160px]">
-          <Loader2 className="w-6 h-6 animate-spin text-teal-400" />
+        <div className="bg-[var(--color-surface)] p-8 rounded-card border border-[var(--color-border)] flex justify-center items-center min-h-[160px]">
+          <Loader2 className="w-6 h-6 animate-spin text-primary" />
         </div>
       ) : totalGroups > 0 ? (
         <div className="relative overflow-hidden min-h-[160px]">
@@ -985,14 +987,14 @@ function PopularContentPacksSection({
           </AnimatePresence>
         </div>
       ) : (
-        <div className="glass-panel p-8 rounded-xl card-inner-border flex flex-col items-center justify-center text-center p-6 min-h-[160px]">
-          <Layers className="w-8 h-8 text-slate-400 mb-2" />
-          <p className="text-sm text-slate-300 font-semibold">
+        <div className="bg-[var(--color-surface)] p-8 rounded-card border border-[var(--color-border)] flex flex-col items-center justify-center text-center p-6 min-h-[160px]">
+          <Layers className="w-8 h-8 text-[var(--color-text-muted)] mb-2" />
+          <p className="text-sm text-[var(--color-text)] font-semibold">
             هنوز بسته آموزشی در کتابخانه منتشر نشده است
           </p>
           <Link
             to="/library"
-            className="mt-3 text-xs text-teal-400 font-bold hover:underline inline-flex items-center gap-1"
+            className="mt-3 text-xs text-primary font-bold hover:underline inline-flex items-center gap-1"
           >
             <span>+ مشاهده کتابخانه محتوا</span>
             <ChevronLeft className="w-3.5 h-3.5" />
@@ -1024,79 +1026,83 @@ function PopularContentPackCard({
 
   return (
     <div
-      className="glass-panel p-4 sm:p-5 rounded-xl shadow-ambient card-inner-border flex flex-col justify-between hover:bg-white/10 hover:border-teal-500/50 transition-all group min-h-[180px] bg-slate-900/60"
+      className="bg-[var(--color-surface)] p-4 sm:p-5 rounded-card border border-[var(--color-border)] shadow-xs flex flex-col justify-between hover:border-primary/40 hover:shadow-card transition-all group min-h-[180px]"
       dir="rtl"
     >
       <div>
         {/* Top Header: Subject Badge & Usage Count */}
         <div className="flex items-start justify-between gap-2 mb-2.5">
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-teal-500/10 text-teal-400 border border-teal-500/20 truncate max-w-[140px]">
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-[var(--avana-accent-soft)] text-primary border border-primary/20 truncate max-w-[140px]">
             <Sparkles className="w-3 h-3 shrink-0" />
             <span className="truncate">{pack.subject || "عمومی / پزشکی"}</span>
           </span>
 
           <span
-            className="inline-flex items-center gap-1 text-[10px] text-slate-400 font-medium bg-white/5 px-2.5 py-0.5 rounded-full border border-white/5 shrink-0 whitespace-nowrap"
+            className="inline-flex items-center gap-1 text-[10px] text-[var(--color-text-muted)] font-medium bg-[var(--color-surface-warm)] px-2.5 py-0.5 rounded-full border border-[var(--color-border)] shrink-0 whitespace-nowrap"
             title="تعداد دفعات افزوده‌شده به دوره‌ها"
           >
-            <Users className="w-3 h-3 text-teal-400 shrink-0" />
+            <Users className="w-3 h-3 text-primary shrink-0" />
             <span>{toPersianDigits(usageCount)} افزوده‌شده</span>
           </span>
         </div>
 
         {/* Title */}
         <h4
-          className="text-sm font-bold text-white group-hover:text-teal-300 transition-colors line-clamp-1 mb-1.5 leading-snug"
+          className="text-sm font-bold text-[var(--color-text)] group-hover:text-primary transition-colors line-clamp-1 mb-1.5 leading-snug"
           title={pack.title}
         >
           {pack.title}
         </h4>
 
         {/* Description */}
-        <p className="text-xs text-slate-400 line-clamp-2 leading-relaxed mb-3 min-h-[2rem]">
+        <p className="text-xs text-[var(--color-text-muted)] line-clamp-2 leading-relaxed mb-3 min-h-[2rem]">
           {pack.description && pack.description.trim().length > 0
             ? pack.description
             : "مجموعه آموزشی جامع شامل درسنامه‌ها، فلش‌کارت‌های مرور فعال و آزمون‌های ارزیابی آنلاین."}
         </p>
 
         {/* Educational Content Stats Grid */}
-        <div className="grid grid-cols-3 gap-1.5 mb-3 text-[11px] text-slate-300">
-          <div className="flex items-center gap-1 p-1.5 rounded-lg bg-white/[0.03] border border-white/5">
-            <BookOpen className="w-3 h-3 text-blue-400 shrink-0" />
+        <div className="grid grid-cols-3 gap-1.5 mb-3 text-[11px] text-[var(--color-text)]">
+          <div className="flex items-center gap-1 p-1.5 rounded-card bg-[var(--color-surface-warm)] border border-[var(--color-border)]">
+            <BookOpen className="w-3 h-3 text-primary shrink-0" />
             <span className="truncate">{toPersianDigits(sessionCount)} درس</span>
           </div>
 
-          <div className="flex items-center gap-1 p-1.5 rounded-lg bg-white/[0.03] border border-white/5">
-            <Layers className="w-3 h-3 text-amber-400 shrink-0" />
+          <div className="flex items-center gap-1 p-1.5 rounded-card bg-[var(--color-surface-warm)] border border-[var(--color-border)]">
+            <Layers className="w-3 h-3 text-primary shrink-0" />
             <span className="truncate">{toPersianDigits(flashcardCount)} کارت</span>
           </div>
 
-          <div className="flex items-center gap-1 p-1.5 rounded-lg bg-white/[0.03] border border-white/5">
-            <Clock className="w-3 h-3 text-emerald-400 shrink-0" />
+          <div className="flex items-center gap-1 p-1.5 rounded-card bg-[var(--color-surface-warm)] border border-[var(--color-border)]">
+            <Clock className="w-3 h-3 text-primary shrink-0" />
             <span className="truncate">~{toPersianDigits(estimatedReadingMinutes)}د</span>
           </div>
         </div>
       </div>
 
       {/* Action Footer */}
-      <div className="pt-2.5 border-t border-white/10 flex items-center gap-2">
-        <button
+      <div className="pt-2.5 border-t border-[var(--color-border)] flex items-center gap-2">
+        <Button
           type="button"
           onClick={() => onViewDetails(pack)}
-          className="flex-1 flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-slate-300 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 transition-all cursor-pointer"
+          variant="outline"
+          size="sm"
+          className="flex-1"
         >
-          <Eye className="w-3.5 h-3.5 text-slate-400" />
+          <Eye className="w-3.5 h-3.5" />
           <span>مشاهده</span>
-        </button>
+        </Button>
 
-        <button
+        <Button
           type="button"
           onClick={() => onAddToCourse(pack)}
-          className="flex-1 flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-white bg-teal-600 hover:bg-teal-500 shadow-md shadow-teal-900/30 transition-all cursor-pointer"
+          variant="primary"
+          size="sm"
+          className="flex-1"
         >
           <PlusCircle className="w-3.5 h-3.5" />
           <span>افزودن</span>
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -1213,9 +1219,9 @@ function HeroCoursesCarousel({
   // Loading state
   if (isLoading) {
     return (
-      <section className="glass-panel rounded-xl p-6 md:p-8 shadow-ambient card-inner-border relative overflow-hidden flex items-center justify-center min-h-[250px]">
-        <div className="flex flex-col items-center gap-3 text-slate-400">
-          <Loader2 className="w-8 h-8 animate-spin text-teal-400" />
+      <section className="bg-[var(--color-surface)] rounded-card p-6 md:p-8 border border-[var(--color-border)] shadow-xs relative overflow-hidden flex items-center justify-center min-h-[250px]">
+        <div className="flex flex-col items-center gap-3 text-[var(--color-text-muted)]">
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
           <span className="text-xs font-medium">در حال بارگذاری دوره‌های شما...</span>
         </div>
       </section>
@@ -1225,18 +1231,17 @@ function HeroCoursesCarousel({
   // 0 courses: Empty State
   if (topCourses.length === 0) {
     return (
-      <section className="glass-panel rounded-xl p-6 md:p-8 shadow-ambient card-inner-border relative overflow-hidden flex flex-col md:flex-row justify-between items-center gap-6 min-h-[250px]">
-        <div className="absolute -left-20 -top-20 w-64 h-64 bg-teal-600/20 rounded-full blur-3xl" />
+      <section className="bg-[var(--color-surface)] rounded-card p-6 md:p-8 border border-[var(--color-border)] shadow-card relative overflow-hidden flex flex-col md:flex-row justify-between items-center gap-6 min-h-[250px]">
         <div className="z-10 w-full md:w-2/3 space-y-4">
-          <span className="inline-block px-3 py-1 bg-teal-500/20 text-teal-300 text-xs font-semibold rounded-full border border-teal-500/30">
+          <span className="inline-block px-3 py-1 bg-[var(--avana-accent-soft)] text-primary text-xs font-semibold rounded-full border border-primary/20">
             شروع یادگیری با آوانا
           </span>
 
           <div>
-            <h3 className="text-lg md:text-xl font-bold text-white mb-2">
+            <h3 className="text-lg md:text-xl font-bold text-[var(--color-text)] mb-2">
               اولین دوره خود را ایجاد کنید
             </h3>
-            <p className="text-xs md:text-sm text-slate-300 leading-relaxed">
+            <p className="text-xs md:text-sm text-[var(--color-text-muted)] leading-relaxed">
               هنوز دوره‌ای در حساب شما ثبت نشده است. با ایجاد یا انتخاب دوره، بسته‌های یادگیری هوشمند، فلش‌کارت‌های مرور و آزمون‌های خودسنجی برای شما فعال خواهند شد.
             </p>
           </div>
@@ -1244,7 +1249,7 @@ function HeroCoursesCarousel({
           <div className="pt-2">
             <Link
               to="/courses"
-              className="w-full md:w-auto bg-teal-600 hover:bg-teal-500 text-white px-6 py-3 rounded-lg text-sm font-bold transition-all inline-flex items-center justify-center gap-2 shadow-lg shadow-teal-900/50 cursor-pointer"
+              className="w-full md:w-auto bg-primary text-[var(--color-primary-foreground)] px-6 py-2.5 rounded-button text-sm font-bold hover:opacity-90 transition-opacity inline-flex items-center justify-center gap-2 shadow-xs cursor-pointer"
             >
               <Plus className="w-4 h-4" />
               <span>ایجاد دوره</span>
@@ -1254,8 +1259,8 @@ function HeroCoursesCarousel({
         </div>
 
         <div className="z-10 w-full md:w-1/3 flex justify-center">
-          <div className="w-32 h-32 md:w-40 md:h-40 rounded-full border-4 border-slate-700/80 shadow-ambient-lg overflow-hidden relative bg-gradient-to-br from-teal-900/50 via-slate-800 to-purple-900/40 flex items-center justify-center group">
-            <Sparkles className="w-16 h-16 md:w-20 md:h-20 text-teal-400 drop-shadow-[0_0_12px_rgba(45,212,191,0.6)] group-hover:scale-110 transition-transform duration-500" />
+          <div className="w-32 h-32 md:w-40 md:h-40 rounded-full border border-[var(--color-border)] shadow-card overflow-hidden relative bg-[var(--color-surface-warm)] flex items-center justify-center group">
+            <Sparkles className="w-16 h-16 md:w-20 md:h-20 text-primary group-hover:scale-110 transition-transform duration-500" />
           </div>
         </div>
       </section>
@@ -1267,11 +1272,10 @@ function HeroCoursesCarousel({
 
   return (
     <section
-      className="glass-panel rounded-xl p-6 md:p-8 shadow-ambient card-inner-border relative overflow-hidden flex flex-col md:flex-row justify-between items-center gap-6 min-h-[250px] transition-all duration-300"
+      className="bg-[var(--color-surface)] rounded-card p-6 md:p-8 border border-[var(--color-border)] shadow-card relative overflow-hidden flex flex-col md:flex-row justify-between items-center gap-6 min-h-[250px] transition-all duration-300"
       onMouseEnter={() => setIsPaused(true)}
       onMouseLeave={() => setIsPaused(false)}
     >
-      <div className="absolute -left-20 -top-20 w-64 h-64 bg-teal-600/20 rounded-full blur-3xl" />
       <div className="z-10 w-full md:w-2/3 space-y-4">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
@@ -1283,7 +1287,7 @@ function HeroCoursesCarousel({
                 initial="enter"
                 animate="center"
                 exit="exit"
-                className="inline-block px-3 py-1 bg-purple-500/20 text-purple-300 text-xs font-semibold rounded-full border border-purple-500/30 truncate"
+                className="inline-block px-3 py-1 bg-[var(--avana-accent-soft)] text-primary text-xs font-semibold rounded-full border border-primary/20 truncate"
               >
                 {current.course.subject || "دوره آموزشی"}
               </motion.span>
@@ -1293,8 +1297,8 @@ function HeroCoursesCarousel({
           {/* Carousel Indicator & Controls (Shown ONLY if 2 or 3 courses exist) */}
           {totalCount > 1 && (
             <div className="flex items-center gap-2 shrink-0">
-              <span className="text-[11px] text-slate-400 font-medium ml-1">
-                دوره {toPersianDigits(activeIndex + 1)} از {toPersianDigits(totalCount)}
+              <span className="text-[11px] text-[var(--color-text-muted)] font-medium ml-1">
+                {formatPersianOf(activeIndex + 1, totalCount, { prefix: "دوره " })}
               </span>
 
               <div className="flex items-center gap-1">
@@ -1308,8 +1312,8 @@ function HeroCoursesCarousel({
                     aria-label={`رفتن به دوره ${toPersianDigits(i + 1)}`}
                     className={`h-1.5 rounded-full transition-all duration-300 cursor-pointer ${
                       i === activeIndex
-                        ? "w-5 bg-teal-400 shadow-[0_0_8px_rgba(45,212,191,0.6)]"
-                        : "w-1.5 bg-slate-600 hover:bg-slate-400"
+                        ? "w-5 bg-primary shadow-xs"
+                        : "w-1.5 bg-[var(--color-border-hover)] hover:bg-primary/50"
                     }`}
                   />
                 ))}
@@ -1322,7 +1326,7 @@ function HeroCoursesCarousel({
                   whileTap={{ scale: 0.9 }}
                   onClick={handlePrev}
                   aria-label="دوره قبلی"
-                  className="p-1 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white border border-white/5 transition-colors cursor-pointer"
+                  className="p-1 rounded-button bg-[var(--color-surface-warm)] hover:bg-[var(--color-surface)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] border border-[var(--color-border)] transition-colors cursor-pointer"
                 >
                   <ChevronRight className="w-3.5 h-3.5" />
                 </motion.button>
@@ -1332,7 +1336,7 @@ function HeroCoursesCarousel({
                   whileTap={{ scale: 0.9 }}
                   onClick={handleNext}
                   aria-label="دوره بعدی"
-                  className="p-1 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white border border-white/5 transition-colors cursor-pointer"
+                  className="p-1 rounded-button bg-[var(--color-surface-warm)] hover:bg-[var(--color-surface)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] border border-[var(--color-border)] transition-colors cursor-pointer"
                 >
                   <ChevronLeft className="w-3.5 h-3.5" />
                 </motion.button>
@@ -1353,17 +1357,17 @@ function HeroCoursesCarousel({
               className="space-y-4"
             >
               <div>
-                <h3 className="text-lg md:text-xl font-bold text-white mb-1 leading-snug">
+                <h3 className="text-lg md:text-xl font-bold text-[var(--color-text)] mb-1 leading-snug">
                   {current.course.title}
                 </h3>
-                <p className="text-xs md:text-sm text-slate-300 mt-1.5 leading-relaxed">
+                <p className="text-xs md:text-sm text-[var(--color-text-muted)] mt-1.5 leading-relaxed">
                   {current.isProgressLoading ? (
-                    <span className="inline-flex items-center gap-1.5 text-slate-400">
-                      <Loader2 className="w-3.5 h-3.5 animate-spin text-teal-400" />
+                    <span className="inline-flex items-center gap-1.5 text-[var(--color-text-muted)]">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
                       <span>در حال دریافت پیشرفت...</span>
                     </span>
                   ) : current.totalLessons > 0 ? (
-                    `${toPersianDigits(current.completedLessons)} از ${toPersianDigits(current.totalLessons)} درس تکمیل شده است.`
+                    formatPersianOf(current.completedLessons, current.totalLessons, { suffix: " درس تکمیل شده است." })
                   ) : (
                     "دوره در حال آماده‌سازی محتوا و دروس است."
                   )}
@@ -1373,15 +1377,15 @@ function HeroCoursesCarousel({
               {/* Progress bar */}
               <div className="pt-1">
                 <div className="flex justify-between items-center text-xs font-medium mb-1.5">
-                  <span className="text-slate-300">میزان پیشرفت</span>
-                  <span className="text-teal-400 font-bold" dir="rtl">
+                  <span className="text-[var(--color-text)]">میزان پیشرفت</span>
+                  <span className="text-primary font-bold" dir="rtl">
                     {current.isProgressLoading
                       ? "..."
                       : `${toPersianDigits(current.percentage)}٪ تکمیل شده`}
                   </span>
                 </div>
                 <div
-                  className="w-full h-2 bg-slate-700/50 rounded-full overflow-hidden border border-white/5"
+                  className="w-full h-2 bg-[var(--color-surface-warm)] rounded-full overflow-hidden border border-[var(--color-border)]"
                   role="progressbar"
                   aria-label={`میزان پیشرفت دوره ${current.course.title}`}
                   aria-valuemin={0}
@@ -1389,7 +1393,7 @@ function HeroCoursesCarousel({
                   aria-valuenow={current.percentage}
                 >
                   <div
-                    className="h-full bg-gradient-to-l from-teal-400 to-teal-600 rounded-full transition-all duration-500 shadow-[0_0_10px_rgba(45,212,191,0.5)]"
+                    className="h-full bg-primary rounded-full transition-all duration-500"
                     style={{ width: `${current.isProgressLoading ? 0 : current.percentage}%` }}
                   />
                 </div>
@@ -1399,7 +1403,7 @@ function HeroCoursesCarousel({
               <div className="flex flex-wrap items-center gap-3 pt-2">
                 <Link
                   to={`/courses/${current.course.id}`}
-                  className="w-full md:w-auto bg-teal-600 text-white px-6 py-3 rounded-lg text-sm font-bold hover:bg-teal-500 transition-colors flex items-center justify-center gap-2 shadow-lg shadow-teal-900/50 cursor-pointer group"
+                  className="w-full md:w-auto bg-primary text-[var(--color-primary-foreground)] px-6 py-2.5 rounded-button text-sm font-bold hover:opacity-90 transition-opacity flex items-center justify-center gap-2 shadow-xs cursor-pointer group"
                 >
                   <span>
                     {current.percentage > 0 ? "ادامه یادگیری" : "شروع یادگیری"}
@@ -1414,8 +1418,8 @@ function HeroCoursesCarousel({
 
       {/* Glowing Brain / Artwork Frame */}
       <div className="z-10 w-full md:w-1/3 flex justify-center">
-        <div className="w-32 h-32 md:w-40 md:h-40 rounded-full border-4 border-slate-700/80 shadow-ambient-lg overflow-hidden relative bg-gradient-to-br from-teal-900/50 via-slate-800 to-purple-900/40 flex items-center justify-center group">
-          <Brain className="w-16 h-16 md:w-20 md:h-20 text-teal-400 drop-shadow-[0_0_12px_rgba(45,212,191,0.6)] group-hover:scale-110 transition-transform duration-500" />
+        <div className="w-32 h-32 md:w-40 md:h-40 rounded-full border border-[var(--color-border)] shadow-card overflow-hidden relative bg-[var(--color-surface-warm)] flex items-center justify-center group">
+          <Brain className="w-16 h-16 md:w-20 md:h-20 text-primary group-hover:scale-110 transition-transform duration-500" />
         </div>
       </div>
     </section>

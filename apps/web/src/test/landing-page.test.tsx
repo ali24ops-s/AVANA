@@ -23,13 +23,14 @@ const renderLandingPage = () => {
         <Route path="/sign-in" element={<div>Sign In Page</div>} />
         <Route path="/courses" element={<div>Courses Page</div>} />
         <Route path="/library" element={<div>Library Page</div>} />
+        <Route path="/pricing" element={<div>Pricing Page</div>} />
         <Route path="/terms" element={<div>Terms Page</div>} />
       </Routes>
     </MemoryRouter>
   );
 };
 
-describe("LandingPage (صفحه اصلی آوانا) Complete Experience & Content Preservation Suite", () => {
+describe("LandingPage (صفحه اصلی آوانا) Reference Design Complete Suite", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockAuth = {
@@ -47,164 +48,198 @@ describe("LandingPage (صفحه اصلی آوانا) Complete Experience & Conte
 
     const mainHeading = screen.getByRole("heading", { level: 1 });
     expect(mainHeading).toBeInTheDocument();
-    expect(mainHeading).toHaveTextContent("درس بخون، مرور کن،");
-    expect(mainHeading).toHaveTextContent("همه‌چیز با آوانا");
+    expect(mainHeading).toHaveTextContent("جزوهات را بده به آوانا.");
+    expect(mainHeading).toHaveTextContent("یادگیریش با آوانا.");
   });
 
-  it("2. Verifies 100% preservation of all existing Hero section contents and dashboard mockup", () => {
+  it("2. Verifies Hero section contents, supporting text, and transformation outputs", () => {
     renderLandingPage();
-
-    // Badge
-    expect(screen.getByText("پلتفرم نوین آموزش پزشکی")).toBeInTheDocument();
 
     // Subtitle
     expect(
-      screen.getByText(/تجربه‌ای متفاوت از یادگیری با خلاصه‌سازی هوشمند/)
+      screen.getByText(/آوانا منابع درسی‌ات را به درسنامه، فلش‌کارت، آزمون و مرور سریع تبدیل می‌کند/)
     ).toBeInTheDocument();
 
-    // Social Proof
-    expect(screen.getByText("بیش از ۱۰,۰۰۰+")).toBeInTheDocument();
-    expect(screen.getByText(/دانشجوی پزشکی و داروسازی/)).toBeInTheDocument();
+    // Secondary CTA
+    expect(screen.getByText("آوانا چطور کار می‌کند؟")).toBeInTheDocument();
 
-    // Dashboard Mockup elements
-    expect(screen.getByText("سلام علی 👋")).toBeInTheDocument();
-    expect(screen.getByText("۱۲ ساعت")).toBeInTheDocument();
-    expect(screen.getByText("۸ درس")).toBeInTheDocument();
-    expect(screen.getByText("ساعت مطالعه این هفته")).toBeInTheDocument();
-    expect(screen.getByText("۱۲.۵ ساعت")).toBeInTheDocument();
+    // Output Cards
+    expect(screen.getAllByText("درسنامه").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("فلش‌کارت").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("آزمون").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("مرور").length).toBeGreaterThan(0);
+
+    // Source Label
+    expect(screen.getByText("جزوه + PDF + عکس + نمونه سؤال")).toBeInTheDocument();
   });
 
-  it("3. Verifies 100% preservation of all 4 Problem Section cards and contents", () => {
+  it("3. Verifies Problem Section: 'منابع زیادند. وقت کم است.' and scattered desk items", () => {
     renderLandingPage();
 
-    expect(screen.getByText("چرا روش‌های سنتی")).toBeInTheDocument();
-    expect(screen.getByText("پاسخگو نیستند؟")).toBeInTheDocument();
+    expect(screen.getByText("چالش اصلی دانشجو")).toBeInTheDocument();
+    expect(screen.getByText("منابع زیادند.")).toBeInTheDocument();
+    expect(screen.getByText("وقت کم است.")).toBeInTheDocument();
     expect(
-      screen.getByText(/حجم بالای مطالب پزشکی نیازمند رویکردی سیستماتیک است/)
+      screen.getByText(/جزوه، PDF، عکس‌ها، فایل‌ها و منابع مختلف در جاهای مختلف پراکنده‌اند/)
     ).toBeInTheDocument();
 
-    // 4 Problem cards
-    expect(screen.getByText("حجم وحشتناک مطالب")).toBeInTheDocument();
-    expect(screen.getByText("گم شدن در میان صدها صفحه جزوه و کتاب بدون ساختار.")).toBeInTheDocument();
-
-    expect(screen.getByText("فراموشی سریع")).toBeInTheDocument();
-    expect(screen.getByText("منحنی فراموشی ابینگهاوس و از دست رفتن تلاش‌ها.")).toBeInTheDocument();
-
-    expect(screen.getByText("ندانستن زمان مرور")).toBeInTheDocument();
-    expect(screen.getByText("مرورهای بی‌برنامه و غیربهینه که زمان زیادی می‌گیرد.")).toBeInTheDocument();
-
-    expect(screen.getByText("عدم تحلیل پیشرفت")).toBeInTheDocument();
-    expect(screen.getByText("نداشتن دید واضح نسبت به نقاط ضعف و قوت.")).toBeInTheDocument();
+    // Scattered cards
+    expect(screen.getByText("PDF رفرنس")).toBeInTheDocument();
+    expect(screen.getByText("کانال تلگرام")).toBeInTheDocument();
+    expect(screen.getByText("عکس تخته")).toBeInTheDocument();
+    expect(screen.getByText("فایل ورد")).toBeInTheDocument();
+    expect(screen.getByText("گوگل درایو")).toBeInTheDocument();
+    expect(screen.getByText("نمونه سؤال")).toBeInTheDocument();
   });
 
-  it("4. Verifies 100% preservation of all 5 Feature/Benefit cards in 'آوانا چیست؟'", () => {
+  it("4. Verifies Transformation Section: 'آوانا، این پراکندگی را تبدیل به مسیر یادگیری می‌کند.'", () => {
     renderLandingPage();
 
-    expect(screen.getByText("آوانا چیست؟")).toBeInTheDocument();
+    expect(screen.getByText("فرآیند تبدیل هوشمند")).toBeInTheDocument();
     expect(
-      screen.getByText(/یک اکوسیستم کامل برای مدیریت فرآیند یادگیری، مرور و سنجش/)
+      screen.getByText(/آوانا، این پراکندگی را تبدیل به/)
+    ).toBeInTheDocument();
+    expect(screen.getAllByText(/مسیر یادگیری/).length).toBeGreaterThan(0);
+    expect(
+      screen.getByText(/منابع درسی‌ات را یک‌جا جمع می‌کند و آن‌ها را به یک مسیر هوشمند/)
     ).toBeInTheDocument();
 
-    // 5 Feature cards
-    expect(screen.getByText("مطالعه عمیق")).toBeInTheDocument();
-    expect(screen.getByText(/دسترسی به منابع ساختاریافته، خلاصه‌های کاربردی/)).toBeInTheDocument();
+    // 3 Step elements
+    expect(screen.getAllByText("منابع پراکنده").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("یک مسیر منظم یادگیری").length).toBeGreaterThan(0);
+  });
 
-    expect(screen.getByText("پردازش هوشمند PDF")).toBeInTheDocument();
-    expect(screen.getByText(/بارگذاری فایل‌ها و جزوات درسی PDF/)).toBeInTheDocument();
+  it("5. Verifies Living Textbook Section: authentic Persian medical content & contextual actions", async () => {
+    renderLandingPage();
 
-    expect(screen.getByText("دستیار هوشمند آوانا")).toBeInTheDocument();
-    expect(screen.getByText(/دستیار مبتنی بر هوش مصنوعی برای پاسخگویی/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/جزوه فقط برای خواندن نیست./)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/با آوانا، تبدیل به یادگیری می‌شود./)
+    ).toBeInTheDocument();
 
+    // Checkbook content
+    expect(screen.getByText("مکانیسم اثر داروهای بتا بلاکر")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /توضیح ساده‌تر/ })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /ساخت فلش‌کارت/ })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /سؤال امتحانی/ })
+    ).toBeInTheDocument();
+
+    // Interactive switch to 'توضیح ساده‌تر'
+    const explainBtn = screen.getByRole("button", { name: /توضیح ساده‌تر/ });
+    fireEvent.click(explainBtn);
+    await waitFor(() => {
+      expect(screen.getByText(/توضیح ساده و کاربردی آوانا:/)).toBeInTheDocument();
+    });
+
+    // Interactive switch to 'ساخت فلش‌کارت'
+    const flashcardBtn = screen.getByRole("button", { name: /ساخت فلش‌کارت/ });
+    fireEvent.click(flashcardBtn);
+    await waitFor(() => {
+      expect(screen.getByText(/فلش‌کارت آماده مطالعه \(SRS\)/)).toBeInTheDocument();
+    });
+  });
+
+  it("6. Verifies Learning Pipeline Section: 5 connected stages from source to mastery", () => {
+    renderLandingPage();
+
+    expect(screen.getByText(/از یک منبع تا/)).toBeInTheDocument();
+    expect(screen.getByText("یادگیری کامل")).toBeInTheDocument();
+    expect(screen.getByText("یک منبع خام")).toBeInTheDocument();
+    expect(screen.getByText("درسنامه مفهومی")).toBeInTheDocument();
+    expect(screen.getByText("فلش‌کارت SRS")).toBeInTheDocument();
+    expect(screen.getByText("آزمون شبیه‌ساز")).toBeInTheDocument();
     expect(screen.getByText("مرور هوشمند")).toBeInTheDocument();
-    expect(screen.getByText(/سیستم فلش‌کارت مبتنی بر تکرار با فاصله‌گذاری/)).toBeInTheDocument();
-
-    expect(screen.getByText("سنجش دقیق")).toBeInTheDocument();
-    expect(screen.getByText(/آزمون‌های دوره‌ای و شبیه‌سازی شرایط واقعی/)).toBeInTheDocument();
   });
 
-  it("5. Verifies 100% preservation of all 4 'چطور کار می‌کند' steps and highlights", () => {
+  it("7. Verifies Quiz Experience Section: interactive choice selection and instant rationale", async () => {
     renderLandingPage();
 
-    expect(screen.getByText("آوانا را در ۴ مرحله یاد بگیر")).toBeInTheDocument();
+    expect(screen.getByText(/فقط نخوان؛/)).toBeInTheDocument();
+    expect(screen.getByText("خودت را امتحان کن.")).toBeInTheDocument();
 
-    // Step 1
-    expect(screen.getByText("انتخاب دوره، سرفصل و بارگذاری منابع")).toBeInTheDocument();
-    expect(screen.getByText("بارگذاری مستقیم فایل‌های PDF و استخراج هوشمند فصل‌ها")).toBeInTheDocument();
+    // Question
+    expect(
+      screen.getByText(/کدام‌یک از داروهای زیر یک بتابلاکر غیرانتخابی/)
+    ).toBeInTheDocument();
 
-    // Step 2
-    expect(screen.getByText("مطالعه ساختاریافته و منسجم محتوا")).toBeInTheDocument();
-    expect(screen.getByText("رابط کاربری تیره (Dark Mode) و بدون حواس‌پرتی برای تمرکز بالا")).toBeInTheDocument();
+    // Select option B (Propranolol)
+    const optionB = screen.getByRole("button", { name: /پروپرانولول/ });
+    fireEvent.click(optionB);
 
-    // Step 3
-    expect(screen.getByText("تثبیت عمیق و مرور با فلش‌کارت SRS")).toBeInTheDocument();
-    expect(screen.getByText("الگوریتم علمی مرور فاصله‌دار (SRS) جهت جلوگیری از فراموشی")).toBeInTheDocument();
-
-    // Step 4
-    expect(screen.getByText("سنجش هوشمند با آزمون‌های شبیه‌سازی‌شده")).toBeInTheDocument();
-    expect(screen.getByText("شبیه‌سازی دقیق شرایط امتحانات سراسری و آزمون‌های دانشگاهی")).toBeInTheDocument();
+    // Verified correct response and detailed rationale appears
+    await waitFor(() => {
+      expect(screen.getByText(/آفرین! پاسخ کاملاً صحیح است/)).toBeInTheDocument();
+      expect(screen.getByText(/نکته طلایی امتحانی:/)).toBeInTheDocument();
+    });
   });
 
-  it("6. Verifies 100% preservation of Final CTA and Footer links", () => {
+  it("8. Verifies Review Summary Section: key concepts, rapid revision, and exam traps", () => {
+    renderLandingPage();
+
+    expect(screen.getByText("وقتی وقت کم است،")).toBeInTheDocument();
+    expect(screen.getByText("دقیق مرور کن.")).toBeInTheDocument();
+    expect(
+      screen.getByText(/خلاصه مرور • مهارکننده‌های بتا-آدرنرژیک/)
+    ).toBeInTheDocument();
+    expect(screen.getByText("دام‌های پرتکرار آزمون‌های جامع:")).toBeInTheDocument();
+    expect(screen.getByText(/منع مصرف در آسم:/)).toBeInTheDocument();
+    expect(screen.getByText("شروع مرور سریع")).toBeInTheDocument();
+  });
+
+  it("9. Verifies Complete AVANA Loop Section: 4 orbital nodes and center brand mark", () => {
+    renderLandingPage();
+
+    expect(screen.getByText("چرخه یکپارچه")).toBeInTheDocument();
+    expect(screen.getByText("یادگیری آوانا")).toBeInTheDocument();
+    expect(screen.getByText("۱. منبع درسی")).toBeInTheDocument();
+    expect(screen.getByText("۲. یادگیری عمیق")).toBeInTheDocument();
+    expect(screen.getByText("۳. تمرین و آزمون")).toBeInTheDocument();
+    expect(screen.getByText("۴. مرور هوشمند")).toBeInTheDocument();
+  });
+
+  it("10. Verifies Final CTA and Footer links", () => {
     renderLandingPage();
 
     // Final CTA
-    const finalHeading = screen.getByRole("heading", { name: /یادگیری بهتر از/ });
-    expect(finalHeading).toBeInTheDocument();
-    expect(finalHeading).toHaveTextContent("یادگیری بهتر از همین‌جا شروع می‌شود");
+    expect(screen.getByText("منبعت را بده به آوانا.")).toBeInTheDocument();
+    expect(screen.getByText("از همین‌جا شروع کن.")).toBeInTheDocument();
+    expect(screen.getByText("✨ موفقیت در انتظار توست...")).toBeInTheDocument();
+
+    // Footer Slogan and Copyright
+    expect(screen.getByText("نگاه دارویی ما، راهنمای سلامت شما")).toBeInTheDocument();
     expect(
-      screen.getByText(/به هزاران دانشجوی پزشکی بپیوندید که مسیر موفقیت خود را/)
+      screen.getByText(/© ۲۰۲۶ آوانا. تمامی حقوق برای پلتفرم آموزشی آوانا محفوظ است/)
     ).toBeInTheDocument();
-    expect(screen.getByText("همین حالا شروع کنید")).toBeInTheDocument();
-
-    // Footer
-    expect(screen.getByText(/© ۲۰۲۶ آوانا. تمامی حقوق برای پلتفرم آموزشی آوانا محفوظ است/)).toBeInTheDocument();
   });
 
-  it("7. Interactive Product Experience: Flips flashcard and schedules SRS interval", async () => {
+  it("11. Auth State checks: unauthenticated user links to /sign-in, authenticated links to /courses", () => {
+    const { unmount } = renderLandingPage();
+
+    // Unauthenticated: CTA links point to /sign-in
+    const ctaLinks = screen.getAllByRole("link", { name: /شروع با آوانا/ });
+    expect(ctaLinks[0]).toHaveAttribute("href", "/sign-in");
+
+    unmount();
+
+    // Authenticated user
+    mockAuth = {
+      user: { id: "user-1", email: "test@avana.ir" } as any,
+      isAuthenticated: true,
+    };
+
     renderLandingPage();
-
-    expect(screen.getByText("آوانا را تجربه کن")).toBeInTheDocument();
-
-    // Question visible on front
-    expect(screen.getByText(/گیرنده اصلی استیل‌کولین در صفحه محرکه عضلانی چیست/)).toBeInTheDocument();
-
-    // Click to flip
-    const flashcard = screen.getByRole("button", { name: "ورق زدن فلش کارت" });
-    fireEvent.click(flashcard);
-
-    // Answer visible on back
-    expect(screen.getByText(/گیرنده نیکوتینی نوع عضلانی \(Nm\)/)).toBeInTheDocument();
-
-    // Click rating 'خوب'
-    const goodRatingBtn = screen.getByRole("button", { name: /خوب/ });
-    fireEvent.click(goodRatingBtn);
-
-    await waitFor(() => {
-      expect(screen.getByText(/در نوبت یادآوری هوشمند قرار گرفت/)).toBeInTheDocument();
-    });
+    const authCtaLinks = screen.getAllByRole("link", { name: /شروع با آوانا/ });
+    expect(authCtaLinks[0]).toHaveAttribute("href", "/courses");
   });
 
-  it("8. Interactive Product Experience: AI Assistant Demo switches questions and shows reasoning", async () => {
-    renderLandingPage();
-
-    // Switch to AI Assistant tab
-    const aiTab = screen.getByRole("tab", { name: /دستیار هوشمند/ });
-    fireEvent.click(aiTab);
-
-    await waitFor(() => {
-      expect(screen.getByText(/مراحل استدلال شناختی دستیار هوشمند/)).toBeInTheDocument();
-    });
-
-    // Select second question
-    const question2Btn = screen.getByText(/تفاوت فارماکوکینتیک و فارماکودینامیک/);
-    fireEvent.click(question2Btn);
-
-    await waitFor(() => {
-      expect(screen.getByText(/فارماکوکینتیک مسیر سرنوشت دارو در بدن/)).toBeInTheDocument();
-    });
-  });
-
-  it("9. Knowledge Network is hidden from Landing UI, while FutureKnowledgeNetwork component remains fully functional", async () => {
+  it("12. Knowledge Network is hidden from Landing UI, while FutureKnowledgeNetwork component remains fully functional", async () => {
     const { unmount } = renderLandingPage();
 
     // Verify it is completely hidden from LandingPage
@@ -219,133 +254,9 @@ describe("LandingPage (صفحه اصلی آوانا) Complete Experience & Conte
 
     // Default drug Propranolol
     expect(screen.getByText("بتا بلاکر غیرانتخابی (Non-selective β-blocker)")).toBeInTheDocument();
-
-    // Switch to Metformin
-    const metforminBtn = screen.getByRole("tab", { name: /متفورمین/ });
-    fireEvent.click(metforminBtn);
-
-    await waitFor(() => {
-      expect(screen.getByText("بیگوانید ضددیابت (Biguanide Antidiabetic)")).toBeInTheDocument();
-    });
-
-    // Click 'کاربرد بالینی' node
-    const clinicalNodeBtn = screen.getByRole("tab", { name: /کاربرد بالینی/ });
-    fireEvent.click(clinicalNodeBtn);
-
-    await waitFor(() => {
-      expect(screen.getByText(/دیابت نوع ۲ و سندرم تخمدان پلی‌کیستیک/)).toBeInTheDocument();
-    });
   });
 
-  it("10. Auth State checks: unauthenticated user links to /sign-in, authenticated links to /courses", () => {
-    const { unmount } = renderLandingPage();
-
-    // Unauthenticated: CTA links point to /sign-in
-    const ctaLinks = screen.getAllByRole("link", { name: /شروع یادگیری/ });
-    expect(ctaLinks[0]).toHaveAttribute("href", "/sign-in");
-
-    unmount();
-
-    // Authenticated user
-    mockAuth = {
-      user: { id: "user-1", email: "test@avana.ir" } as any,
-      isAuthenticated: true,
-    };
-
-    renderLandingPage();
-    const authCtaLinks = screen.getAllByRole("link", { name: /شروع یادگیری/ });
-    expect(authCtaLinks[0]).toHaveAttribute("href", "/courses");
-  });
-
-  it("11. HowItWorks Presentation Stepper: switches active step and updates interactive preview", async () => {
-    renderLandingPage();
-
-    // Default step 1 is active
-    expect(screen.getByRole("tab", { name: /انتخاب دوره/ })).toHaveAttribute("aria-selected", "true");
-
-    // Click step 2 tab
-    const step2Tab = screen.getByRole("tab", { name: /مطالعه منسجم/ });
-    fireEvent.click(step2Tab);
-
-    await waitFor(() => {
-      expect(step2Tab).toHaveAttribute("aria-selected", "true");
-    });
-
-    // Click next step button to go to step 3
-    const nextBtn = screen.getByRole("button", { name: /گام بعدی/ });
-    fireEvent.click(nextBtn);
-
-    await waitFor(() => {
-      expect(screen.getByRole("tab", { name: /مرور با فلش‌کارت/ })).toHaveAttribute("aria-selected", "true");
-    });
-  });
-
-  it("12. Presentation Navigation: renders Side Nav Dots and verifies all standard section IDs exist", () => {
-    const { container } = renderLandingPage();
-
-    // Verify all 6 section IDs exist for anchor & snap navigation
-    expect(container.querySelector("#hero")).toBeInTheDocument();
-    expect(container.querySelector("#features")).toBeInTheDocument();
-    expect(container.querySelector("#benefits")).toBeInTheDocument();
-    expect(container.querySelector("#experience")).toBeInTheDocument();
-    expect(container.querySelector("#how-it-works")).toBeInTheDocument();
-    expect(container.querySelector("#final-cta")).toBeInTheDocument();
-
-    // Verify PresentationNavDots nav element exists
-    const sideNav = screen.getByRole("navigation", { name: "ناوبری سریع بخش‌های ارائه" });
-    expect(sideNav).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "پرش به بخش آغاز معرفی" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "پرش به بخش مسائل و چالش‌ها" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "پرش به بخش اکوسیستم و قابلیت‌ها" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "پرش به بخش تست‌درایو و تجربه زنده" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "پرش به بخش فرایند ۴ مرحله‌ای یادگیری" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "پرش به بخش فراخوان و شروع یادگیری" })).toBeInTheDocument();
-  });
-
-  it("13. HowItWorks Stepper Full Cycle: cycles 01 -> 02 -> 03 -> 04 and backward 04 -> 03 -> 02 -> 01", async () => {
-    renderLandingPage();
-
-    const nextBtn = screen.getByRole("button", { name: /گام بعدی/ });
-    const prevBtn = screen.getByRole("button", { name: /گام قبلی/ });
-
-    // Step 1 -> Step 2
-    fireEvent.click(nextBtn);
-    await waitFor(() => {
-      expect(screen.getByRole("tab", { name: /مطالعه منسجم/ })).toHaveAttribute("aria-selected", "true");
-    });
-
-    // Step 2 -> Step 3
-    fireEvent.click(nextBtn);
-    await waitFor(() => {
-      expect(screen.getByRole("tab", { name: /مرور با فلش‌کارت/ })).toHaveAttribute("aria-selected", "true");
-    });
-
-    // Step 3 -> Step 4
-    fireEvent.click(nextBtn);
-    await waitFor(() => {
-      expect(screen.getByRole("tab", { name: /سنجش هوشمند/ })).toHaveAttribute("aria-selected", "true");
-    });
-
-    // Step 4 -> Step 3 (Backward)
-    fireEvent.click(prevBtn);
-    await waitFor(() => {
-      expect(screen.getByRole("tab", { name: /مرور با فلش‌کارت/ })).toHaveAttribute("aria-selected", "true");
-    });
-
-    // Step 3 -> Step 2
-    fireEvent.click(prevBtn);
-    await waitFor(() => {
-      expect(screen.getByRole("tab", { name: /مطالعه منسجم/ })).toHaveAttribute("aria-selected", "true");
-    });
-
-    // Step 2 -> Step 1
-    fireEvent.click(prevBtn);
-    await waitFor(() => {
-      expect(screen.getByRole("tab", { name: /انتخاب دوره/ })).toHaveAttribute("aria-selected", "true");
-    });
-  });
-
-  it("14. Mobile Drawer Menu: opens and closes cleanly", async () => {
+  it("13. Mobile Drawer Menu: opens and closes cleanly", async () => {
     renderLandingPage();
 
     // Hamburger button
@@ -365,47 +276,5 @@ describe("LandingPage (صفحه اصلی آوانا) Complete Experience & Conte
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "باز کردن منو" })).toBeInTheDocument();
     });
-  });
-
-  it("15. Presentation Architecture: canonical HEADER_HEIGHT is 80 and PRESENTATION_SECTIONS contains exactly 6 sections excluding Footer", async () => {
-    const { HEADER_HEIGHT, PRESENTATION_SECTIONS } = await import(
-      "../components/landing/PresentationNavDots.js"
-    );
-
-    expect(HEADER_HEIGHT).toBe(80);
-    expect(PRESENTATION_SECTIONS).toHaveLength(6);
-    expect(PRESENTATION_SECTIONS.map((s) => s.id)).toEqual([
-      "hero",
-      "features",
-      "benefits",
-      "experience",
-      "how-it-works",
-      "final-cta",
-    ]);
-  });
-
-  it("16. Desktop Presentation Navigation: wheel events trigger section transitions while keyboard remains non-hijacked", async () => {
-    // Set desktop window dimensions
-    Object.defineProperty(window, "innerWidth", { writable: true, configurable: true, value: 1440 });
-    Object.defineProperty(window, "innerHeight", { writable: true, configurable: true, value: 900 });
-
-    const scrollToMock = vi.fn();
-    window.scrollTo = scrollToMock;
-
-    renderLandingPage();
-
-    // Wheel event with deltaY >= 35 triggers transition
-    fireEvent.wheel(window, { deltaY: 50 });
-    expect(scrollToMock).toHaveBeenCalled();
-
-    // Side nav dots click triggers transition
-    const heroDot = screen.getByRole("button", { name: "پرش به بخش آغاز معرفی" });
-    fireEvent.click(heroDot);
-    expect(scrollToMock).toHaveBeenCalled();
-
-    // Keyboard events are not hijacked (native browser handling preserved)
-    const arrowDownEvent = new KeyboardEvent("keydown", { code: "ArrowDown", cancelable: true });
-    window.dispatchEvent(arrowDownEvent);
-    expect(arrowDownEvent.defaultPrevented).toBe(false);
   });
 });

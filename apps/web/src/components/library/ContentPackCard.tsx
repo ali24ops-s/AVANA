@@ -6,6 +6,7 @@
  * and clear actionable CTAs ("مشاهده محتوا" & "افزودن به دوره").
  */
 
+import React from "react";
 import {
   BookOpen,
   Layers,
@@ -17,14 +18,14 @@ import {
   Sparkles,
   ShoppingBag,
 } from "lucide-react";
-import type { PublicContentPackItemSummary } from "@avana/domain";
+import { type PublicContentPackItemSummary } from "@avana/domain";
 import {
   useCommerceProducts,
   useMyEntitlements,
   useMySubscription,
-  useCheckout,
 } from "../../hooks/useCommerce.js";
 import { formatToman } from "../commerce/userCommerceUtils.js";
+import { Card, Badge, Button } from "@avana/ui";
 
 export interface ContentPackCardProps {
   pack: PublicContentPackItemSummary;
@@ -46,7 +47,6 @@ export function ContentPackCard({
   const { data: productsData } = useCommerceProducts();
   const { data: entitlementsData } = useMyEntitlements();
   const { data: subData } = useMySubscription();
-  const checkoutMutation = useCheckout();
 
   // Find product for this pack
   const packProduct = (productsData?.items ?? []).find(
@@ -65,90 +65,81 @@ export function ContentPackCard({
     e.preventDefault();
     e.stopPropagation();
     if (packProduct) {
-      checkoutMutation.mutate({
-        product_id: packProduct.id,
-        callback_url: `${window.location.origin}/checkout/callback`,
-      });
+      window.location.href = `/checkout/card-to-card?productId=${encodeURIComponent(packProduct.id)}`;
     }
   };
 
   return (
-    <div
-      className="group relative flex flex-col justify-between rounded-2xl glass-panel border border-white/10 p-5 shadow-ambient hover:border-teal-500/40 hover:shadow-teal-500/5 transition-all duration-300 bg-slate-900/60"
+    <Card
+      hoverable
+      className="group relative flex flex-col justify-between p-5 bg-[var(--color-surface)] border-[var(--color-border)] text-[var(--color-text)] transition-all duration-300"
       dir="rtl"
     >
       {/* Top Header: Subject Badge & Usage Count */}
       <div>
         <div className="flex items-center justify-between gap-2 mb-3">
           <div className="flex items-center gap-2 flex-wrap min-w-0">
-            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-teal-500/10 text-teal-400 border border-teal-500/20">
-              <Sparkles className="w-3 h-3" />
-              <span>{pack.subject || "عمومی / پزشکی"}</span>
-            </span>
+            <Badge variant="primary" icon={<Sparkles className="w-3 h-3" />}>
+              {pack.subject || "عمومی / پزشکی"}
+            </Badge>
 
             {isPurchased ? (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
-                خریداری شده
-              </span>
+              <Badge variant="success">خریداری شده</Badge>
             ) : hasSubscription ? (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-teal-500/10 text-teal-300 border border-teal-500/30">
-                در دسترس با اشتراک
-              </span>
+              <Badge variant="primary">در دسترس با اشتراک</Badge>
             ) : packProduct ? (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-purple-500/10 text-purple-300 border border-purple-500/30">
-                {formatToman(packProduct.price)}
-              </span>
+              <Badge variant="warning">{formatToman(packProduct.price)}</Badge>
             ) : null}
           </div>
 
           <span
-            className="inline-flex items-center gap-1.5 text-[11px] text-slate-400 font-medium bg-white/5 px-2.5 py-1 rounded-full border border-white/5 whitespace-nowrap shrink-0"
+            className="inline-flex items-center gap-1.5 text-[11px] text-[var(--color-text-muted)] font-medium bg-[var(--color-surface-warm)] px-2.5 py-1 rounded-full border border-[var(--color-border)] whitespace-nowrap shrink-0"
             title="تعداد دفعات افزوده‌شده به دوره‌ها"
           >
-            <Users className="w-3.5 h-3.5 text-teal-400 shrink-0" />
+            <Users className="w-3.5 h-3.5 text-[#008080] shrink-0" />
             <span>{usageCount} افزوده‌شده</span>
           </span>
         </div>
 
         {/* Title */}
-        <h3 className="text-base font-bold text-white group-hover:text-teal-300 transition-colors line-clamp-1 mb-1.5">
+        <h3 className="text-base font-bold text-[var(--color-text)] group-hover:text-[#008080] transition-colors line-clamp-1 mb-1.5">
           {pack.title}
         </h3>
 
         {/* Description */}
-        <p className="text-xs text-slate-400 line-clamp-2 leading-relaxed mb-4 min-h-[2rem]">
+        <p className="text-xs text-[var(--color-text-muted)] line-clamp-2 leading-relaxed mb-4 min-h-[2rem]">
           {pack.description && pack.description.trim().length > 0
             ? pack.description
             : "مجموعه آموزشی جامع شامل درسنامه ساختاریافته، فلش‌کارت‌های مرور فعال، آزمون تستی و خلاصه نکات کلیدی."}
         </p>
 
         {/* Creator Info */}
-        <div className="flex items-center gap-2 mb-4 pb-3 border-b border-white/5 text-[11px] text-slate-400">
-          <span className="text-slate-500">سازنده:</span>
-          <span className="font-medium text-slate-300">
+        <div className="flex items-center gap-2 mb-4 pb-3 border-b border-[var(--color-border)] text-[11px] text-[var(--color-text-muted)]">
+          <span className="text-[var(--color-text-muted)]">سازنده:</span>
+          <span className="font-medium text-[var(--color-text)]">
             {pack.creator?.name || "کاربر آوانا"}
           </span>
         </div>
 
         {/* Educational Content Stats Grid */}
         <div className="grid grid-cols-2 gap-2 mb-5">
-          <div className="flex items-center gap-2 p-2 rounded-xl bg-white/[0.03] border border-white/5 text-xs text-slate-300">
-            <BookOpen className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+          <div className="flex items-center gap-2 p-2 rounded-xl bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-xs text-[var(--color-text)]">
+            <BookOpen className="w-3.5 h-3.5 text-blue-500 shrink-0" />
             <span className="truncate">{sessionCount} جلسه درس</span>
           </div>
 
-          <div className="flex items-center gap-2 p-2 rounded-xl bg-white/[0.03] border border-white/5 text-xs text-slate-300">
-            <Layers className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+          <div className="flex items-center gap-2 p-2 rounded-xl bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-xs text-[var(--color-text)]">
+            <Layers className="w-3.5 h-3.5 text-amber-500 shrink-0" />
             <span className="truncate">{flashcardCount} فلش‌کارت</span>
           </div>
 
-          <div className="flex items-center gap-2 p-2 rounded-xl bg-white/[0.03] border border-white/5 text-xs text-slate-300">
-            <HelpCircle className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+          <div className="flex items-center gap-2 p-2 rounded-xl bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-xs text-[var(--color-text)]">
+            <HelpCircle className="w-3.5 h-3.5 text-purple-500 shrink-0" />
             <span className="truncate">{quizQuestionCount} سوال آزمون</span>
           </div>
 
-          <div className="flex items-center gap-2 p-2 rounded-xl bg-white/[0.03] border border-white/5 text-xs text-slate-300">
-            <Clock className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+          <div className="flex items-center gap-2 p-2 rounded-xl bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-xs text-[var(--color-text)]">
+            <Clock className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
             <span className="truncate">~{estimatedReadingMinutes} دقیقه</span>
           </div>
         </div>
@@ -156,36 +147,38 @@ export function ContentPackCard({
 
       {/* Action Buttons */}
       <div className="flex items-center gap-2 pt-2">
-        <button
-          type="button"
+        <Button
+          size="sm"
+          variant="outline"
           onClick={() => onViewDetails(pack)}
-          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-slate-300 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 transition-all"
+          className="flex-1"
+          leftIcon={<Eye className="w-3.5 h-3.5" />}
         >
-          <Eye className="w-3.5 h-3.5 text-slate-400" />
-          <span>مشاهده محتوا</span>
-        </button>
+          مشاهده محتوا
+        </Button>
 
         {!isPurchased && !hasSubscription && packProduct ? (
-          <button
-            type="button"
+          <Button
+            size="sm"
+            variant="secondary"
             onClick={handleBuyPack}
-            disabled={checkoutMutation.isPending}
-            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-white bg-purple-600 hover:bg-purple-500 shadow-md shadow-purple-900/30 transition-all cursor-pointer"
+            className="flex-1"
+            leftIcon={<ShoppingBag className="w-3.5 h-3.5" />}
           >
-            <ShoppingBag className="w-3.5 h-3.5" />
-            <span>خرید بسته</span>
-          </button>
+            خرید بسته
+          </Button>
         ) : (
-          <button
-            type="button"
+          <Button
+            size="sm"
+            variant="primary"
             onClick={() => onAddToCourse(pack)}
-            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-white bg-teal-600 hover:bg-teal-500 shadow-md shadow-teal-900/30 transition-all"
+            className="flex-1"
+            leftIcon={<PlusCircle className="w-3.5 h-3.5" />}
           >
-            <PlusCircle className="w-3.5 h-3.5" />
-            <span>افزودن به دوره</span>
-          </button>
+            افزودن به دوره
+          </Button>
         )}
       </div>
-    </div>
+    </Card>
   );
 }

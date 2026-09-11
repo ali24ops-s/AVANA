@@ -158,9 +158,14 @@ export type QuizAttemptResult = {
   quizId: string;
   score: number; // 0–100 percentage
   correct: number;
+  incorrect?: number;
+  unanswered?: number;
+  partial?: number;
   total: number;
   answers: Record<string, unknown>;
+  questionResults?: Record<string, unknown>;
   completedAt: string;
+  questions?: unknown[];
 };
 
 /**
@@ -173,12 +178,30 @@ export type QuizAttemptRecord = {
   score: number;
   answers: Record<string, unknown>;
   questionIds?: string[] | null;
+  questionSnapshot?: unknown[] | null;
+  metrics?: unknown | null;
   topic?: string | null;
   difficulty?: string | null;
   status?: string;
   startedAt: string;
   completedAt?: string | null;
 };
+
+export interface ExamHistoryItem {
+  attemptId: string;
+  quizId?: string | null;
+  topic?: string | null;
+  difficulty?: string | null;
+  score: number;
+  totalQuestions: number;
+  correct: number;
+  incorrect: number;
+  unanswered: number;
+  partial: number;
+  status: string;
+  startedAt: string;
+  completedAt?: string | null;
+}
 
 export interface ExamCoverageModule {
   id: string;

@@ -1138,17 +1138,18 @@ describe("Volume-Based Default Suggested Content Pricing & Protection Suite", ()
       active: true,
     });
 
-    // 4. Student Purchases Product
-    const checkout = await commerceService.checkout(
+    // 4. Student Purchases Product via Card-to-Card
+    const c2cRes = await commerceService.submitCardToCardPayment(
       studentActor,
-      { productId: product!.id, callbackUrl: "https://app.avana.ir/cb" },
+      {
+        productId: product!.id,
+        amount: 8000,
+        trackingNumber: "TRK-PRICE-SUGG-1",
+        sourceCardLast4: "1234",
+      },
       "req-buy-lesson1",
     );
-    const verify = await commerceService.verifyPayment(
-      { authority: checkout.authority, status: "OK" },
-      "req-verify-lesson1",
-    );
-    expect(verify.success).toBe(true);
+    expect(c2cRes.success).toBe(true);
 
     // 5. Verify Student has Access to Lesson 1
     const accessBefore = await entitlementService.checkAccess(studentActor, {

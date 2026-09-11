@@ -10,6 +10,7 @@
  * - Production-safe KaTeX error handling (throwOnError: false)
  */
 
+import type { ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -35,7 +36,7 @@ export type MarkdownRendererProps = RichContentProps;
 function isScientificToken(token: string): boolean {
   const trimmed = token.trim();
   // Exclude anything containing programming syntax, spaces, operators, brackets, parentheses
-  if (/[\s();={}[\]<>/*+!~`".,\\\/]/.test(trimmed)) {
+  if (/[\s();={}[\]<>/*+!~`".,\\]/.test(trimmed) || trimmed.includes("/")) {
     return false;
   }
   // Specific biomedical prefixes (hsp40, CYP3A4, FKBP5, COX-2, GLUT4, JAK2, SGLT2, IL-1, TNF-alpha)
@@ -170,7 +171,10 @@ export function RichContent({
   const rawText = typeof content === "string" ? content : String(content);
   const normalized = normalizeRichContent(rawText);
 
-  const remarkPlugins: any[] = [remarkGfm, remarkMath];
+  const remarkPlugins: NonNullable<Parameters<typeof ReactMarkdown>[0]["remarkPlugins"]> = [
+    remarkGfm,
+    remarkMath,
+  ];
   if (enableLessonCallouts && !inline) {
     remarkPlugins.push(remarkLessonCallouts);
   }
@@ -239,7 +243,15 @@ export function RichContent({
         components={{
           ...(enableLessonCallouts
             ? {
-                callout: ({ type, title, children }: any) => (
+                callout: ({
+                  type,
+                  title,
+                  children,
+                }: {
+                  type?: unknown;
+                  title?: string;
+                  children?: ReactNode;
+                }) => (
                   <LessonCallout type={type as CalloutType} title={title}>
                     {children}
                   </LessonCallout>
@@ -264,7 +276,7 @@ export function RichContent({
           ),
           h3: ({ children, ...props }) => (
             <h3
-              className="text-lg sm:text-xl font-bold text-teal-400 mt-6 mb-2.5 leading-snug"
+              className="text-lg sm:text-xl font-bold text-[#006666] dark:text-teal-300 mt-6 mb-2.5 leading-snug"
               {...props}
             >
               {children}
@@ -272,21 +284,21 @@ export function RichContent({
           ),
           p: ({ children, ...props }) => (
             <p
-              className="text-[15px] sm:text-base text-slate-200 leading-[2.1] mb-5 font-normal tracking-normal"
+              className="text-[15px] sm:text-base text-[var(--color-text)] dark:text-slate-200 leading-[2.1] mb-5 font-normal tracking-normal"
               {...props}
             >
               {children}
             </p>
           ),
           strong: ({ children, ...props }) => (
-            <strong className="font-bold text-white" {...props}>
+            <strong className="font-extrabold text-[var(--color-text)] dark:text-white" {...props}>
               {children}
             </strong>
           ),
           a: ({ children, href, ...props }) => (
             <a
               href={href}
-              className="text-teal-400 hover:text-teal-300 underline underline-offset-4 decoration-teal-500/50 hover:decoration-teal-400 transition-colors font-medium"
+              className="text-[#006666] dark:text-teal-300 hover:text-[#008080] dark:hover:text-teal-200 underline underline-offset-4 decoration-[#008080]/40 dark:decoration-teal-500/50 hover:decoration-[#006666] dark:hover:decoration-teal-400 transition-colors font-medium"
               target="_blank"
               rel="noreferrer"
               {...props}
@@ -299,14 +311,14 @@ export function RichContent({
           ),
           img: ({ alt, ...props }) => (
             <img
-              className="rounded-xl max-w-full h-auto my-4 border border-[var(--color-border)] shadow-md mx-auto"
+              className="rounded-card max-w-full h-auto my-4 border border-[var(--color-border)] shadow-md mx-auto"
               alt={alt || ""}
               {...props}
             />
           ),
           ul: ({ children, ...props }) => (
             <ul
-              className="list-disc pr-6 pl-0 mb-5 space-y-2 text-[15px] sm:text-base text-slate-200"
+              className="list-disc pr-6 pl-0 mb-5 space-y-2 text-[15px] sm:text-base text-[var(--color-text)] dark:text-slate-200"
               {...props}
             >
               {children}
@@ -314,20 +326,20 @@ export function RichContent({
           ),
           ol: ({ children, ...props }) => (
             <ol
-              className="list-decimal pr-6 pl-0 mb-5 space-y-2 text-[15px] sm:text-base text-slate-200"
+              className="list-decimal pr-6 pl-0 mb-5 space-y-2 text-[15px] sm:text-base text-[var(--color-text)] dark:text-slate-200"
               {...props}
             >
               {children}
             </ol>
           ),
           li: ({ children, ...props }) => (
-            <li className="leading-[2.05] my-1" {...props}>
+            <li className="leading-[2.05] my-1 text-[var(--color-text)] dark:text-slate-200" {...props}>
               {children}
             </li>
           ),
           blockquote: ({ children, ...props }) => (
             <blockquote
-              className="my-5 border-r-4 border-teal-500 bg-teal-950/30 px-5 py-3.5 rounded-l-xl text-slate-200 leading-[2] border border-teal-500/20 shadow-xs"
+              className="my-5 border-r-4 border-teal-600 dark:border-teal-500 bg-[#e0f2f2]/60 dark:bg-teal-950/30 px-5 py-3.5 rounded-l-card text-[var(--color-text)] dark:text-slate-200 leading-[2] border border-teal-500/20 shadow-xs"
               {...props}
             >
               {children}
@@ -335,7 +347,7 @@ export function RichContent({
           ),
           pre: ({ children, ...props }) => (
             <pre
-              className="my-4 p-4 rounded-xl bg-slate-900/90 border border-[var(--color-border)] overflow-x-auto text-xs sm:text-sm font-mono text-slate-200 leading-relaxed shadow-inner"
+              className="my-4 p-4 rounded-button bg-slate-900/90 border border-[var(--color-border)] overflow-x-auto text-xs sm:text-sm font-mono text-slate-200 leading-relaxed shadow-inner"
               dir="ltr"
               {...props}
             >
@@ -352,7 +364,7 @@ export function RichContent({
           ),
           // GFM Table Components with High Contrast & RTL Persian Text Alignment
           table: ({ children, ...props }) => (
-            <div className="my-6 w-full overflow-x-auto rounded-2xl border border-white/10 shadow-ambient bg-[var(--color-surface)]">
+            <div className="my-6 w-full overflow-x-auto rounded-card border border-[var(--color-border)] shadow-ambient bg-[var(--color-surface)]">
               <table
                 className="w-full border-collapse text-right text-sm leading-relaxed"
                 dir="rtl"
@@ -364,7 +376,7 @@ export function RichContent({
           ),
           thead: ({ children, ...props }) => (
             <thead
-              className="bg-[var(--color-surface-warm)] text-[var(--color-text)] font-extrabold border-b border-white/10"
+              className="bg-[var(--color-surface-warm)] text-[var(--color-text)] font-extrabold border-b border-[var(--color-border)]"
               {...props}
             >
               {children}
@@ -372,7 +384,7 @@ export function RichContent({
           ),
           tbody: ({ children, ...props }) => (
             <tbody
-              className="divide-y divide-white/10 bg-[var(--color-surface)]"
+              className="divide-y divide-[var(--color-border)] bg-[var(--color-surface)]"
               {...props}
             >
               {children}
@@ -380,7 +392,7 @@ export function RichContent({
           ),
           tr: ({ children, ...props }) => (
             <tr
-              className="hover:bg-white/5 transition-colors"
+              className="hover:bg-[var(--color-surface-warm)] transition-colors"
               {...props}
             >
               {children}
@@ -388,7 +400,7 @@ export function RichContent({
           ),
           th: ({ children, ...props }) => (
             <th
-              className="px-4 py-3.5 text-right font-extrabold text-[var(--color-text)] tracking-tight whitespace-nowrap bg-[var(--color-surface-warm)] border-b border-white/10"
+              className="px-4 py-3.5 text-right font-extrabold text-[var(--color-text)] tracking-tight whitespace-nowrap bg-[var(--color-surface-warm)] border-b border-[var(--color-border)]"
               {...props}
             >
               {children}
@@ -396,7 +408,7 @@ export function RichContent({
           ),
           td: ({ children, ...props }) => (
             <td
-              className="px-4 py-3.5 text-right text-slate-200 align-top border-b border-white/5"
+              className="px-4 py-3.5 text-right text-[var(--color-text)] dark:text-slate-200 align-top border-b border-[var(--color-border)]"
               {...props}
             >
               {children}

@@ -37,6 +37,7 @@ export type PaymentVerifyResult = {
 
 export interface PaymentGateway {
   readonly gatewayName: string;
+  readonly enabled?: boolean;
 
   /**
    * Requests a payment transaction authority and gateway redirection URL.

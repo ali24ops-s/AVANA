@@ -265,6 +265,7 @@ export const modules = pgTable(
     title: varchar("title", { length: 255 }).notNull(),
     description: text("description"),
     sortOrder: integer("sort_order").notNull().default(0),
+    previewLessonId: uuid("preview_lesson_id"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -281,6 +282,9 @@ export const modules = pgTable(
     courseDocumentUniqueIdx: uniqueIndex("idx_modules_course_document_unique").on(
       table.courseId,
       table.documentId,
+    ),
+    previewLessonIdx: index("idx_modules_preview_lesson").on(
+      table.previewLessonId,
     ),
   }),
 );
@@ -1092,6 +1096,8 @@ export const quizAttempts = pgTable(
     score: numeric("score", { precision: 5, scale: 2 }).notNull().default("0"),
     answers: jsonb("answers").notNull().default({}),
     questionIds: jsonb("question_ids"),
+    questionSnapshot: jsonb("question_snapshot"),
+    metrics: jsonb("metrics"),
     topic: varchar("topic", { length: 1024 }),
     difficulty: varchar("difficulty", { length: 20 }),
     status: varchar("status", { length: 20 }).notNull().default("in_progress"),
@@ -1109,6 +1115,10 @@ export const quizAttempts = pgTable(
     userTimeIdx: index("idx_quiz_attempts_user_time").on(
       table.userId,
       table.completedAt,
+    ),
+    userStartedIdx: index("idx_quiz_attempts_user_started").on(
+      table.userId,
+      table.startedAt,
     ),
   }),
 );

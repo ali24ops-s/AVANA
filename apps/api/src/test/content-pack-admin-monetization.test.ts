@@ -674,35 +674,22 @@ describe("Community Content Pack Review & Monetization Architecture", () => {
     });
     expect(unauthAddRes.statusCode).toBe(403);
 
-    // Student initiates checkout for this pack product
-    const checkoutRes = await app.inject({
+    // Student initiates Card-to-Card payment for this pack product
+    const c2cRes = await app.inject({
       method: "POST",
-      url: "/v1/commerce/checkout",
+      url: "/v1/commerce/card-to-card/submit",
       cookies: { avana_session: studentToken },
       payload: {
-        productId,
-        callbackUrl: "https://example.com/checkout/callback",
+        product_id: productId,
+        amount: 120000,
+        tracking_number: "TRK-CPM-5",
+        source_card_last4: "1234",
       },
     });
-    expect(checkoutRes.statusCode).toBe(201);
-    const checkoutBody = JSON.parse(checkoutRes.body);
-    expect(checkoutBody.authority).toBeDefined();
-
-    // Verify Payment Callback -> provisions permanent entitlement
-    const verifyRes = await app.inject({
-      method: "POST",
-      url: "/v1/commerce/verify",
-      cookies: { avana_session: studentToken },
-      payload: {
-        authority: checkoutBody.authority,
-        status: "OK",
-      },
-    });
-    expect(verifyRes.statusCode).toBe(200);
-    const verifyBody = JSON.parse(verifyRes.body);
-    expect(verifyBody.success).toBe(true);
-    expect(verifyBody.entitlement.resource_type).toBe("content_pack");
-    expect(verifyBody.entitlement.resource_id).toBe(packId);
+    expect(c2cRes.statusCode).toBe(201);
+    const c2cBody = JSON.parse(c2cRes.body);
+    expect(c2cBody.success).toBe(true);
+    expect(c2cBody.entitlementId).toBeDefined();
 
     // Student now adds pack to course -> Materialization succeeds
     const addRes = await app.inject({
@@ -833,14 +820,16 @@ describe("Community Content Pack Review & Monetization Architecture", () => {
     const publicList = JSON.parse(publicListRes.body);
     expect(publicList.items[0].pricing.is_free).toBe(false);
 
-    // 2. Checkout must reject inactive product -> 404
+    // 2. Card-to-Card submission must reject inactive product -> 404
     const checkoutRes = await app.inject({
       method: "POST",
-      url: "/v1/commerce/checkout",
+      url: "/v1/commerce/card-to-card/submit",
       cookies: { avana_session: studentToken },
       payload: {
-        productId,
-        callbackUrl: "https://example.com/callback",
+        product_id: productId,
+        amount: 150000,
+        tracking_number: "TRK-FAIL-CLOSED",
+        source_card_last4: "1234",
       },
     });
     expect(checkoutRes.statusCode).toBe(404);

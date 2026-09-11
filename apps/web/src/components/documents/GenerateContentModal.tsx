@@ -11,8 +11,12 @@ import {
   Loader2,
   Info,
   Zap,
+  Clock,
 } from "lucide-react";
+import { useAuth } from "../../providers/AuthProvider.js";
+import { canUserGenerateContent } from "../../utils/generationPermissions.js";
 import type { DocumentContentStatus } from "../../lib/api/generation.js";
+import { toPersianDigits } from "@avana/domain";
 
 export interface GenerateContentModalProps {
   isOpen: boolean;
@@ -45,6 +49,9 @@ export function GenerateContentModal({
   isGenerating = false,
   onConfirmGenerate,
 }: GenerateContentModalProps) {
+  const { user, memberships } = useAuth();
+  const isGenerationPermitted = user ? canUserGenerateContent(user, memberships) : true;
+
   // Local selection state for each content type
   const [selectedLesson, setSelectedLesson] = useState(true);
   const [selectedFlashcards, setSelectedFlashcards] = useState(true);
@@ -141,23 +148,23 @@ export function GenerateContentModal({
       }}
     >
       <div
-        className="w-full max-w-xl bg-[#0f172a] border border-slate-700/80 rounded-3xl shadow-[0_0_50px_rgba(0,0,0,0.8)] overflow-hidden font-sans text-slate-200 space-y-0 relative z-[100000] my-auto"
+        className="w-full max-w-xl bg-[var(--color-surface)] border border-[var(--color-border)] rounded-3xl shadow-2xl overflow-hidden font-sans text-[var(--color-text)] space-y-0 relative z-[100000] my-auto"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="p-6 border-b border-slate-800 flex items-start justify-between gap-4 bg-white/[0.02]">
+        <div className="p-6 border-b border-[var(--color-border)] flex items-start justify-between gap-4 bg-[var(--color-surface)]">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-teal-500/10 border border-teal-500/30 text-teal-400 flex items-center justify-center shrink-0">
+            <div className="w-10 h-10 rounded-2xl bg-teal-50 border border-teal-200 text-[#008080] flex items-center justify-center shrink-0">
               <Sparkles className="w-5 h-5" />
             </div>
             <div>
               <h2
                 id="generate-modal-title"
-                className="text-base sm:text-lg font-black text-white"
+                className="text-base sm:text-lg font-black text-[var(--color-text)]"
               >
                 انتخاب محتوای موردنظر
               </h2>
-              <p className="text-xs text-slate-400 mt-0.5 truncate max-w-md" dir="ltr">
+              <p className="text-xs text-[var(--color-text-muted)] mt-0.5 truncate max-w-md" dir="ltr">
                 {documentName}
               </p>
             </div>
@@ -166,7 +173,7 @@ export function GenerateContentModal({
           <button
             type="button"
             onClick={onClose}
-            className="p-2 text-slate-400 hover:text-white hover:bg-white/10 rounded-xl transition-colors"
+            className="p-2 text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] rounded-xl transition-colors"
             aria-label="بستن"
             title={isGenerating ? "بستن پنجره (تولید در پس‌زمینه ادامه می‌یابد)" : "بستن"}
           >
@@ -175,22 +182,52 @@ export function GenerateContentModal({
         </div>
 
         {/* Content Body */}
-        <form onSubmit={handleFormSubmit} className="p-6 space-y-5">
+        {!isGenerationPermitted ? (
+          <div className="p-6 space-y-6 text-center">
+            <div className="p-6 rounded-2xl bg-amber-50 border border-amber-200 space-y-3">
+              <div className="w-12 h-12 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center mx-auto">
+                <Clock className="w-6 h-6" />
+              </div>
+              <div className="space-y-1">
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>به‌زودی</span>
+                </div>
+                <h3 className="text-base font-bold text-amber-900">
+                  قابلیت تولید محتوای هوشمند به‌زودی در آوانا فعال خواهد شد.
+                </h3>
+              </div>
+              <p className="text-xs text-[var(--color-text-muted)] leading-relaxed max-w-sm mx-auto">
+                فرآیند تولید خودکار محتوای آموزشی برای کاربران عادی به زودی فعال خواهد شد.
+              </p>
+            </div>
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-6 py-2.5 rounded-xl bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] text-[var(--color-text)] text-xs font-bold border border-[var(--color-border)] transition-colors cursor-pointer"
+              >
+                متوجه شدم
+              </button>
+            </div>
+          </div>
+        ) : (
+          <form onSubmit={handleFormSubmit} className="p-6 space-y-5">
           {isLoadingStatus ? (
-            <div className="py-12 flex flex-col items-center justify-center gap-3 text-slate-400">
-              <Loader2 className="w-8 h-8 animate-spin text-teal-400" />
+            <div className="py-12 flex flex-col items-center justify-center gap-3 text-[var(--color-text-muted)]">
+              <Loader2 className="w-8 h-8 animate-spin text-[#008080]" />
               <p className="text-xs">در حال بررسی وضعیت محتوای فایل...</p>
             </div>
           ) : allAvailableGenerated ? (
-            <div className="p-5 rounded-2xl bg-teal-950/40 border border-teal-500/30 text-center space-y-3">
-              <div className="w-12 h-12 rounded-full bg-teal-500/20 text-teal-400 flex items-center justify-center mx-auto">
+            <div className="p-5 rounded-2xl bg-teal-50 border border-teal-200 text-center space-y-3">
+              <div className="w-12 h-12 rounded-full bg-teal-100 text-[#008080] flex items-center justify-center mx-auto">
                 <CheckCircle2 className="w-6 h-6" />
               </div>
               <div>
-                <h3 className="text-sm font-bold text-teal-200">
+                <h3 className="text-sm font-bold text-teal-900">
                   تمام محتوای این فایل تولید شده است
                 </h3>
-                <p className="text-xs text-slate-400 mt-1">
+                <p className="text-xs text-[var(--color-text-muted)] mt-1">
                   درس، فلش‌کارت و آزمون برای این فایل از قبل در سیستم تولید شده و
                   موجود هستند.
                 </p>
@@ -198,7 +235,7 @@ export function GenerateContentModal({
             </div>
           ) : (
             <>
-              <p className="text-xs text-slate-300">
+              <p className="text-xs text-[var(--color-text-muted)]">
                 مشخص کنید برای این فایل چه نوع محتوایی تولید شود. مواردی که از
                 قبل تولید شده‌اند، غیرفعال هستند:
               </p>
@@ -209,39 +246,39 @@ export function GenerateContentModal({
                 <label
                   className={`flex items-start justify-between gap-4 p-4 rounded-2xl border transition-all cursor-pointer select-none ${
                     isLessonGenerated
-                      ? "bg-slate-900/60 border-slate-800 opacity-80 cursor-not-allowed"
+                      ? "bg-[var(--color-surface-warm)] border-[var(--color-border)] opacity-80 cursor-not-allowed"
                       : selectedLesson
-                      ? "bg-teal-950/20 border-teal-500/40 shadow-sm"
-                      : "bg-slate-900/40 border-slate-800 hover:border-slate-700"
+                      ? "bg-[#008080]/10 border-[#008080] shadow-xs"
+                      : "bg-[var(--color-surface-warm)] border-[var(--color-border)] hover:border-[#008080]/40"
                   }`}
                 >
                   <div className="flex items-start gap-3.5 min-w-0">
                     <div
                       className={`p-2.5 rounded-xl border shrink-0 mt-0.5 ${
                         isLessonGenerated
-                          ? "bg-emerald-950/30 border-emerald-500/30 text-emerald-400"
-                          : "bg-teal-500/10 border-teal-500/20 text-teal-400"
+                          ? "bg-emerald-50 border-emerald-200 text-emerald-700"
+                          : "bg-teal-50 border-teal-200 text-[#008080]"
                       }`}
                     >
                       <BookOpen className="w-5 h-5" />
                     </div>
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="font-bold text-sm text-slate-100">
+                        <span className="font-bold text-sm text-[var(--color-text)]">
                           درس (Lesson)
                         </span>
                         {isLessonGenerated ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
                             <CheckCircle2 className="w-3 h-3" />
-                            <span>تولید شده ({contentStatus?.lesson?.count || 1} درس)</span>
+                            <span>تولید شده ({toPersianDigits(contentStatus?.lesson?.count || 1)} درس)</span>
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-500/10 text-teal-300 border border-teal-500/20">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-50 text-[#008080] border border-teal-200">
                             آماده تولید
                           </span>
                         )}
                       </div>
-                      <p className="text-xs text-slate-400 mt-1">
+                      <p className="text-xs text-[var(--color-text-muted)] mt-1">
                         محتوای آموزشی ساختاریافته و دسته‌بندی‌شده برای مطالعه عمیق
                       </p>
                     </div>
@@ -252,7 +289,7 @@ export function GenerateContentModal({
                     checked={isLessonGenerated || selectedLesson}
                     disabled={isLessonGenerated || isGenerating}
                     onChange={(e) => setSelectedLesson(e.target.checked)}
-                    className="w-5 h-5 rounded-lg border-slate-700 bg-slate-800 text-teal-500 focus:ring-teal-500 focus:ring-offset-0 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed mt-1"
+                    className="w-5 h-5 rounded-lg border-[var(--color-border)] text-[#008080] focus:ring-[#008080] focus:ring-offset-0 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed mt-1"
                     aria-label="انتخاب درس"
                   />
                 </label>
@@ -261,41 +298,41 @@ export function GenerateContentModal({
                 <label
                   className={`flex items-start justify-between gap-4 p-4 rounded-2xl border transition-all cursor-pointer select-none ${
                     isFlashcardsGenerated
-                      ? "bg-slate-900/60 border-slate-800 opacity-80 cursor-not-allowed"
+                      ? "bg-[var(--color-surface-warm)] border-[var(--color-border)] opacity-80 cursor-not-allowed"
                       : selectedFlashcards
-                      ? "bg-purple-950/20 border-purple-500/40 shadow-sm"
-                      : "bg-slate-900/40 border-slate-800 hover:border-slate-700"
+                      ? "bg-[#008080]/10 border-[#008080] shadow-xs"
+                      : "bg-[var(--color-surface-warm)] border-[var(--color-border)] hover:border-[#008080]/40"
                   }`}
                 >
                   <div className="flex items-start gap-3.5 min-w-0">
                     <div
                       className={`p-2.5 rounded-xl border shrink-0 mt-0.5 ${
                         isFlashcardsGenerated
-                          ? "bg-emerald-950/30 border-emerald-500/30 text-emerald-400"
-                          : "bg-purple-500/10 border-purple-500/20 text-purple-400"
+                          ? "bg-emerald-50 border-emerald-200 text-emerald-700"
+                          : "bg-purple-50 border-purple-200 text-purple-700"
                       }`}
                     >
                       <Layers className="w-5 h-5" />
                     </div>
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="font-bold text-sm text-slate-100">
+                        <span className="font-bold text-sm text-[var(--color-text)]">
                           فلش‌کارت (Flashcards)
                         </span>
                         {isFlashcardsGenerated ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
                             <CheckCircle2 className="w-3 h-3" />
                             <span>
-                              تولید شده ({contentStatus?.flashcards?.count || 1} کارت)
+                              تولید شده ({toPersianDigits(contentStatus?.flashcards?.count || 1)} کارت)
                             </span>
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/10 text-purple-300 border border-purple-500/20">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-50 text-purple-700 border border-purple-200">
                             آماده تولید
                           </span>
                         )}
                       </div>
-                      <p className="text-xs text-slate-400 mt-1">
+                      <p className="text-xs text-[var(--color-text-muted)] mt-1">
                         کارت‌های مرور اتمیک و یادگیری فاصله‌دار (SRS) برای تثبیت
                       </p>
                     </div>
@@ -306,7 +343,7 @@ export function GenerateContentModal({
                     checked={isFlashcardsGenerated || selectedFlashcards}
                     disabled={isFlashcardsGenerated || isGenerating}
                     onChange={(e) => setSelectedFlashcards(e.target.checked)}
-                    className="w-5 h-5 rounded-lg border-slate-700 bg-slate-800 text-purple-500 focus:ring-purple-500 focus:ring-offset-0 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed mt-1"
+                    className="w-5 h-5 rounded-lg border-[var(--color-border)] text-[#008080] focus:ring-[#008080] focus:ring-offset-0 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed mt-1"
                     aria-label="انتخاب فلش‌کارت"
                   />
                 </label>
@@ -315,39 +352,39 @@ export function GenerateContentModal({
                 <label
                   className={`flex items-start justify-between gap-4 p-4 rounded-2xl border transition-all cursor-pointer select-none ${
                     isExamGenerated
-                      ? "bg-slate-900/60 border-slate-800 opacity-80 cursor-not-allowed"
+                      ? "bg-[var(--color-surface-warm)] border-[var(--color-border)] opacity-80 cursor-not-allowed"
                       : selectedExam
-                      ? "bg-amber-950/20 border-amber-500/40 shadow-sm"
-                      : "bg-slate-900/40 border-slate-800 hover:border-slate-700"
+                      ? "bg-[#008080]/10 border-[#008080] shadow-xs"
+                      : "bg-[var(--color-surface-warm)] border-[var(--color-border)] hover:border-[#008080]/40"
                   }`}
                 >
                   <div className="flex items-start gap-3.5 min-w-0">
                     <div
                       className={`p-2.5 rounded-xl border shrink-0 mt-0.5 ${
                         isExamGenerated
-                          ? "bg-emerald-950/30 border-emerald-500/30 text-emerald-400"
-                          : "bg-amber-500/10 border-amber-500/20 text-amber-400"
+                          ? "bg-emerald-50 border-emerald-200 text-emerald-700"
+                          : "bg-amber-50 border-amber-200 text-amber-700"
                       }`}
                     >
                       <HelpCircle className="w-5 h-5" />
                     </div>
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="font-bold text-sm text-slate-100">
+                        <span className="font-bold text-sm text-[var(--color-text)]">
                           آزمون (Exam / Quiz)
                         </span>
                         {isExamGenerated ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
                             <CheckCircle2 className="w-3 h-3" />
-                            <span>تولید شده ({contentStatus?.exam?.count || 1} سؤال)</span>
+                            <span>تولید شده ({toPersianDigits(contentStatus?.exam?.count || 1)} سؤال)</span>
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-300 border border-amber-500/20">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
                             آماده تولید
                           </span>
                         )}
                       </div>
-                      <p className="text-xs text-slate-400 mt-1">
+                      <p className="text-xs text-[var(--color-text-muted)] mt-1">
                         سؤالات تستی ۴ گزینه‌ای استاندارد همراه با پاسخ تشریحی
                       </p>
                     </div>
@@ -358,7 +395,7 @@ export function GenerateContentModal({
                     checked={isExamGenerated || selectedExam}
                     disabled={isExamGenerated || isGenerating}
                     onChange={(e) => setSelectedExam(e.target.checked)}
-                    className="w-5 h-5 rounded-lg border-slate-700 bg-slate-800 text-amber-500 focus:ring-amber-500 focus:ring-offset-0 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed mt-1"
+                    className="w-5 h-5 rounded-lg border-[var(--color-border)] text-[#008080] focus:ring-[#008080] focus:ring-offset-0 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed mt-1"
                     aria-label="انتخاب آزمون"
                   />
                 </label>
@@ -367,39 +404,39 @@ export function GenerateContentModal({
                 <label
                   className={`flex items-start justify-between gap-4 p-4 rounded-2xl border transition-all cursor-pointer select-none ${
                     isReviewSummaryGenerated
-                      ? "bg-slate-900/60 border-slate-800 opacity-80 cursor-not-allowed"
+                      ? "bg-[var(--color-surface-warm)] border-[var(--color-border)] opacity-80 cursor-not-allowed"
                       : selectedReviewSummary
-                      ? "bg-teal-950/30 border-teal-400/50 shadow-sm"
-                      : "bg-slate-900/40 border-slate-800 hover:border-slate-700"
+                      ? "bg-[#008080]/10 border-[#008080] shadow-xs"
+                      : "bg-[var(--color-surface-warm)] border-[var(--color-border)] hover:border-[#008080]/40"
                   }`}
                 >
                   <div className="flex items-start gap-3.5 min-w-0">
                     <div
                       className={`p-2.5 rounded-xl border shrink-0 mt-0.5 ${
                         isReviewSummaryGenerated
-                          ? "bg-emerald-950/30 border-emerald-500/30 text-emerald-400"
-                          : "bg-teal-500/10 border-teal-500/30 text-teal-400"
+                          ? "bg-emerald-50 border-emerald-200 text-emerald-700"
+                          : "bg-teal-50 border-teal-200 text-[#008080]"
                       }`}
                     >
                       <Zap className="w-5 h-5" />
                     </div>
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="font-bold text-sm text-slate-100">
+                        <span className="font-bold text-sm text-[var(--color-text)]">
                           خلاصه مروری (Review Summary)
                         </span>
                         {isReviewSummaryGenerated ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
                             <CheckCircle2 className="w-3 h-3" />
                             <span>تولید شده</span>
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-500/10 text-teal-300 border border-teal-500/20">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-50 text-[#008080] border border-teal-200">
                             مرور ۱۰–۱۵ دقیقه‌ای
                           </span>
                         )}
                       </div>
-                      <p className="text-xs text-slate-400 mt-1">
+                      <p className="text-xs text-[var(--color-text-muted)] mt-1">
                         نسخه فوق‌العاده فشرده با حداکثر اطلاعات مهم و نکات کلیدی آزمونی
                       </p>
                     </div>
@@ -410,7 +447,7 @@ export function GenerateContentModal({
                     checked={isReviewSummaryGenerated || selectedReviewSummary}
                     disabled={isReviewSummaryGenerated || isGenerating}
                     onChange={(e) => setSelectedReviewSummary(e.target.checked)}
-                    className="w-5 h-5 rounded-lg border-slate-700 bg-slate-800 text-teal-500 focus:ring-teal-500 focus:ring-offset-0 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed mt-1"
+                    className="w-5 h-5 rounded-lg border-[var(--color-border)] text-[#008080] focus:ring-[#008080] focus:ring-offset-0 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed mt-1"
                     aria-label="انتخاب خلاصه مروری"
                   />
                 </label>
@@ -418,7 +455,7 @@ export function GenerateContentModal({
 
               {/* Validation Warning when 0 ungenerated items selected */}
               {hasNoNewSelection && !allAvailableGenerated && (
-                <div className="flex items-center gap-2 p-3 rounded-xl bg-amber-950/40 border border-amber-500/30 text-amber-300 text-xs">
+                <div className="flex items-center gap-2 p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs">
                   <AlertCircle className="w-4 h-4 shrink-0" />
                   <span>حداقل یک نوع محتوا را برای تولید انتخاب کنید.</span>
                 </div>
@@ -427,8 +464,8 @@ export function GenerateContentModal({
           )}
 
           {/* Footer Actions */}
-          <div className="pt-3 border-t border-slate-800 flex items-center justify-between gap-3">
-            <div className="text-[11px] text-slate-400 flex items-center gap-1.5">
+          <div className="pt-3 border-t border-[var(--color-border)] flex items-center justify-between gap-3">
+            <div className="text-[11px] text-[var(--color-text-muted)] flex items-center gap-1.5">
               <Info className="w-3.5 h-3.5" />
               <span>
                 {newItemsToGenerate.length > 0
@@ -441,7 +478,7 @@ export function GenerateContentModal({
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2.5 rounded-xl border border-slate-700 bg-slate-800/80 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-colors"
+                className="px-4 py-2.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] text-xs font-bold transition-colors"
                 title={isGenerating ? "بستن پنجره (تولید در پس‌زمینه ادامه می‌یابد)" : "انصراف"}
               >
                 {isGenerating ? "بستن پنجره" : "انصراف"}
@@ -451,7 +488,7 @@ export function GenerateContentModal({
                 <button
                   type="submit"
                   disabled={hasNoNewSelection || isGenerating || isLoadingStatus}
-                  className="px-5 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold transition-all shadow-lg shadow-teal-950/50 flex items-center gap-2"
+                  className="px-5 py-2.5 rounded-xl bg-[#008080] hover:bg-[#007575] active:bg-[#006060] disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold transition-all shadow-xs flex items-center gap-2"
                 >
                   {isGenerating ? (
                     <>
@@ -473,6 +510,7 @@ export function GenerateContentModal({
             </div>
           </div>
         </form>
+        )}
       </div>
     </div>
   );

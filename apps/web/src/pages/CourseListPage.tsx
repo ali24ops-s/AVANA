@@ -8,7 +8,7 @@
 
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   BookOpen,
   Loader2,
@@ -26,13 +26,14 @@ import { createCourseApi } from "../lib/api/courses.js";
 import { createLearningApi } from "../lib/api/learning.js";
 import { CourseSelectionModal } from "../components/courses/CourseSelectionModal.js";
 import { CourseDeleteConfirmModal } from "../components/courses/CourseDeleteConfirmModal.js";
+import { toPersianDigits } from "@avana/domain";
 import {
   useCommerceProducts,
   useMyEntitlements,
   useMySubscription,
-  useCheckout,
 } from "../hooks/useCommerce.js";
 import { formatToman } from "../components/commerce/userCommerceUtils.js";
+import { Button } from "@avana/ui";
 import type { OrganizationResource, CourseResource, CourseListResponse } from "@avana/contracts";
 
 /**
@@ -184,7 +185,7 @@ export function CourseListPage() {
   if (isAuthLoading || orgQuery.isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <Loader2 className="w-8 h-8 animate-spin text-[#008080]" />
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
       </div>
     );
   }
@@ -197,13 +198,13 @@ export function CourseListPage() {
         title="خطا در بارگذاری سازمان"
         description="لطفاً اتصال اینترنت خود را بررسی کرده و دوباره تلاش کنید."
         action={
-          <button
-            type="button"
+          <Button
+            variant="primary"
+            size="sm"
             onClick={() => void orgQuery.refetch()}
-            className="px-4 py-2 bg-[#008080] hover:bg-[#006666] text-white rounded-xl text-xs font-semibold"
           >
             تلاش مجدد
-          </button>
+          </Button>
         }
       />
     );
@@ -217,13 +218,13 @@ export function CourseListPage() {
         title="سازمانی یافت نشد"
         description="شما هنوز عضو هیچ سازمان آموزشی نشده‌اید."
         action={
-          <button
-            type="button"
+          <Button
+            variant="primary"
+            size="sm"
             onClick={() => void orgQuery.refetch()}
-            className="px-4 py-2 bg-[#008080] hover:bg-[#006666] text-white rounded-xl text-xs font-semibold"
           >
             تازه‌سازی
-          </button>
+          </Button>
         }
       />
     );
@@ -233,7 +234,7 @@ export function CourseListPage() {
   if (myCoursesQuery.isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <Loader2 className="w-8 h-8 animate-spin text-[#008080]" />
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
       </div>
     );
   }
@@ -248,13 +249,13 @@ export function CourseListPage() {
           myCoursesQuery.error?.message ?? "خطایی در دریافت اطلاعات رخ داد."
         }
         action={
-          <button
-            type="button"
+          <Button
+            variant="primary"
+            size="sm"
             onClick={() => void myCoursesQuery.refetch()}
-            className="px-4 py-2 bg-[#008080] hover:bg-[#006666] text-white rounded-xl text-xs font-semibold"
           >
             تلاش مجدد
-          </button>
+          </Button>
         }
       />
     );
@@ -265,25 +266,25 @@ export function CourseListPage() {
       {/* Page header with Add Course CTA */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-white">دوره‌های من</h1>
-          <p className="text-slate-400 mt-1 text-xs">{organization.name}</p>
+          <h1 className="text-h1 text-[var(--color-text)]">دوره‌های من</h1>
+          <p className="text-[var(--color-text-muted)] mt-1 text-xs">{organization.name}</p>
         </div>
 
         <div className="flex items-center gap-3">
           {myCourses.length > 0 && (
-            <span className="text-xs font-bold text-teal-300 bg-teal-900/30 px-3 py-1.5 rounded-full border border-teal-500/30 glass-panel">
+            <span className="text-xs font-bold text-[#006666] dark:text-teal-200 bg-primary/10 px-3 py-1.5 rounded-full border border-primary/30">
               {myCourses.length} دوره در لیست شما
             </span>
           )}
 
-          <button
-            type="button"
+          <Button
+            variant="primary"
+            size="sm"
             onClick={() => setIsSelectionModalOpen(true)}
-            className="px-4 py-2 bg-teal-600 hover:bg-teal-500 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-lg shadow-teal-900/40 active:scale-98 cursor-pointer"
+            leftIcon={<Plus className="w-4 h-4" />}
           >
-            <Plus className="w-4 h-4" />
-            <span>افزودن دوره</span>
-          </button>
+            افزودن دوره
+          </Button>
         </div>
       </div>
 
@@ -294,14 +295,14 @@ export function CourseListPage() {
           title="هنوز دوره‌ای به لیست شما اضافه نشده است"
           description="دوره‌های موردنظر خود را انتخاب کنید تا در اینجا نمایش داده شوند."
           action={
-            <button
-              type="button"
+            <Button
+              variant="primary"
+              size="md"
               onClick={() => setIsSelectionModalOpen(true)}
-              className="px-5 py-2.5 bg-teal-600 hover:bg-teal-500 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-lg shadow-teal-900/40 cursor-pointer"
+              leftIcon={<Plus className="w-4 h-4" />}
             >
-              <Plus className="w-4 h-4" />
-              <span>افزودن دوره</span>
-            </button>
+              افزودن دوره
+            </Button>
           }
         />
       )}
@@ -361,11 +362,11 @@ function CourseCard({
   course: CourseResource;
   onDelete?: () => void;
 }) {
+  const navigate = useNavigate();
   const progressQuery = useCourseProgress(course.id);
   const { data: productsData } = useCommerceProducts();
   const { data: entitlementsData } = useMyEntitlements();
   const { data: subData } = useMySubscription();
-  const checkoutMutation = useCheckout();
 
   const progress = progressQuery.data;
   const isProgressLoading = progressQuery.isLoading;
@@ -392,62 +393,59 @@ function CourseCard({
     e.preventDefault();
     e.stopPropagation();
     if (courseProduct) {
-      checkoutMutation.mutate({
-        product_id: courseProduct.id,
-        callback_url: `${window.location.origin}/checkout/callback`,
-      });
+      navigate(`/checkout/card-to-card?productId=${encodeURIComponent(courseProduct.id)}`);
     }
   };
 
   return (
-    <div className="glass-panel rounded-xl card-inner-border p-5 hover:bg-white/10 hover:border-teal-500/50 shadow-ambient transition-all group relative flex flex-col justify-between">
+    <div className="bg-[var(--color-surface)] rounded-card border border-[var(--color-border)] p-5 hover:border-primary/50 shadow-sm transition-all group relative flex flex-col justify-between">
       <div>
         <div className="flex items-start justify-between mb-3">
-          <div className="w-10 h-10 rounded-xl bg-teal-950/60 border border-teal-500/30 text-teal-400 flex items-center justify-center group-hover:scale-105 transition-transform">
+          <div className="w-10 h-10 rounded-button bg-primary/10 border border-primary/20 text-primary flex items-center justify-center group-hover:scale-105 transition-transform">
             <GraduationCap className="w-5 h-5" />
           </div>
 
           <div className="flex items-center gap-2 flex-wrap justify-end">
             {isPurchased ? (
-              <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 font-bold border border-emerald-500/30">
+              <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 font-bold border border-emerald-500/30">
                 خریداری شده
               </span>
             ) : hasSubscription ? (
-              <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-teal-500/10 text-teal-400 font-bold border border-teal-500/30">
+              <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-primary/10 text-primary font-bold border border-primary/30">
                 در دسترس با اشتراک
               </span>
             ) : courseProduct ? (
-              <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-amber-500/10 text-amber-300 font-bold border border-amber-500/30">
+              <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-amber-500/15 text-amber-800 dark:text-amber-300 font-bold border border-amber-500/30">
                 {formatToman(courseProduct.price)}
               </span>
             ) : null}
 
             {course.archived && (
-              <span className="text-xs px-2.5 py-0.5 rounded-full bg-amber-950/40 text-amber-300 font-medium border border-amber-500/30">
+              <span className="text-xs px-2.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 font-bold border border-amber-300 dark:border-amber-800/60">
                 بایگانی شده
               </span>
             )}
 
             {onDelete && (
-              <button
-                type="button"
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
                   onDelete();
                 }}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/20 transition-colors"
+                className="!p-1.5 !h-auto text-[var(--color-text-muted)] hover:text-red-500 hover:bg-red-500/10"
                 title="حذف از دوره‌های من"
                 aria-label="حذف از دوره‌های من"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
+                leftIcon={<Trash2 className="w-4 h-4" />}
+              />
             )}
           </div>
         </div>
 
         <Link to={`/courses/${course.id}`} className="block">
-          <h3 className="font-bold text-white group-hover:text-teal-400 transition-colors line-clamp-1">
+          <h3 className="font-bold text-[var(--color-text)] group-hover:text-primary transition-colors line-clamp-1">
             {course.title}
           </h3>
         </Link>
@@ -455,13 +453,13 @@ function CourseCard({
         {/* Progress Bar Section */}
         <div className="mt-3.5 space-y-1.5">
           <div className="flex items-center justify-between text-xs">
-            <span className="text-slate-400 text-[11px]">پیشرفت</span>
-            <span className="font-bold text-teal-400 text-[11px]" dir="ltr">
+            <span className="text-[var(--color-text-muted)] text-[11px]">پیشرفت</span>
+            <span className="font-bold text-primary text-[11px]" dir="ltr">
               {isProgressLoading ? "..." : `${percentage}%`}
             </span>
           </div>
           <div
-            className="w-full h-2 bg-slate-800/80 rounded-full overflow-hidden border border-white/5"
+            className="w-full h-2 bg-[var(--color-surface-warm)] rounded-full overflow-hidden border border-[var(--color-border)]"
             role="progressbar"
             aria-label="پیشرفت دوره"
             aria-valuemin={0}
@@ -469,7 +467,7 @@ function CourseCard({
             aria-valuenow={percentage}
           >
             <div
-              className="h-full bg-gradient-to-r from-teal-500 to-emerald-400 rounded-full transition-all duration-500"
+              className="h-full bg-primary rounded-full transition-all duration-500"
               style={{ width: `${isProgressLoading ? 0 : percentage}%` }}
             />
           </div>
@@ -477,24 +475,24 @@ function CourseCard({
       </div>
 
       {/* Footer Section */}
-      <div className="mt-4 pt-3 border-t border-white/10 flex items-center justify-between text-xs text-slate-400">
-        <span>{isProgressLoading ? "... درس" : `${totalLessons} درس`}</span>
+      <div className="mt-4 pt-3 border-t border-[var(--color-border)] flex items-center justify-between text-xs text-[var(--color-text-muted)]">
+        <span>{isProgressLoading ? "... درس" : `${toPersianDigits(totalLessons)} درس`}</span>
 
         <div className="flex items-center gap-2">
           {!isPurchased && !hasSubscription && courseProduct && (
-            <button
-              type="button"
+            <Button
+              variant="primary"
+              size="sm"
               onClick={handleBuyCourse}
-              disabled={checkoutMutation.isPending}
-              className="px-2.5 py-1 rounded-lg bg-teal-600 hover:bg-teal-500 text-white text-[11px] font-bold transition-all flex items-center gap-1 shadow-sm cursor-pointer"
+              className="!h-7 !px-2.5 !text-[11px]"
             >
-              <span>خرید دوره</span>
-            </button>
+              خرید دوره
+            </Button>
           )}
 
           <Link
             to={`/courses/${course.id}`}
-            className="text-teal-400 font-semibold flex items-center gap-1 group-hover:underline"
+            className="text-primary font-semibold flex items-center gap-1 group-hover:underline"
           >
             <span>{isPurchased || hasSubscription || !courseProduct ? "ورود" : "پیش‌نمایش"}</span>
             <ChevronLeft className="w-3.5 h-3.5" />
@@ -520,10 +518,10 @@ function StateCard({
   action?: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center py-20 text-center glass-panel rounded-xl card-inner-border p-8 shadow-ambient">
-      <Icon className="w-12 h-12 text-slate-400 mb-4" />
-      <h2 className="text-lg font-bold text-white">{title}</h2>
-      <p className="text-xs text-slate-400 mt-1 max-w-sm">{description}</p>
+    <div className="flex flex-col items-center justify-center py-20 text-center bg-[var(--color-surface)] rounded-card border border-[var(--color-border)] p-8 shadow-sm">
+      <Icon className="w-12 h-12 text-[var(--color-text-muted)] mb-4" />
+      <h2 className="text-lg font-bold text-[var(--color-text)]">{title}</h2>
+      <p className="text-xs text-[var(--color-text-muted)] mt-1 max-w-sm">{description}</p>
       {action && <div className="mt-4">{action}</div>}
     </div>
   );

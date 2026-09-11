@@ -24,15 +24,15 @@ export const EvidenceSummary: React.FC<EvidenceSummaryProps> = ({
 
   return (
     <div
-      className={`bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] p-6 space-y-4 shadow-sm ${className}`}
+      className={`bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-6 space-y-4 shadow-sm ${className}`}
     >
       {/* Header */}
       <div className="flex items-center justify-between pb-3 border-b border-[var(--color-border)]">
         <h3 className="text-sm font-bold text-[var(--color-text)] flex items-center gap-2">
-          <FileText className="w-4 h-4 text-[#008080]" />
+          <FileText className="w-4 h-4 text-[var(--color-primary-default)]" />
           <span>ارجاعات و شواهد متنی از منبع</span>
         </h3>
-        <span className="text-xs font-bold text-[var(--color-text-muted)] bg-[var(--color-surface-warm)] px-2.5 py-0.5 rounded-lg">
+        <span className="text-xs font-bold text-[var(--color-text-muted)] bg-[var(--color-surface-warm)] px-2.5 py-0.5 rounded-lg border border-[var(--color-border)]">
           {sourceChunks?.length ?? 0} بخش
         </span>
       </div>
@@ -44,30 +44,30 @@ export const EvidenceSummary: React.FC<EvidenceSummaryProps> = ({
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {/* Word Count */}
-          <div className="p-3.5 bg-[var(--color-surface-warm)] rounded-2xl border border-[var(--color-border)] flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-[#008080]/10 text-[#008080]">
+          <div className="p-3.5 bg-[var(--color-surface-warm)] rounded-xl border border-[var(--color-border)] flex items-center gap-3">
+            <div className="p-2 rounded-xl bg-[var(--color-primary-default)]/10 text-[var(--color-primary-default)]">
               <BookOpen className="w-4 h-4" />
             </div>
             <div>
               <span className="block text-[11px] text-[var(--color-text-muted)] font-medium">
                 تعداد کلمات خوانده‌شده
               </span>
-              <span className="text-sm font-black text-[var(--color-text)] dir-ltr text-right inline-block">
+              <span className="text-sm font-bold text-[var(--color-text)]" dir="ltr">
                 {wordCount.toLocaleString("fa-IR")}
               </span>
             </div>
           </div>
 
           {/* Extracted Topics Count */}
-          <div className="p-3.5 bg-[var(--color-surface-warm)] rounded-2xl border border-[var(--color-border)] flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-[#008080]/10 text-[#008080]">
+          <div className="p-3.5 bg-[var(--color-surface-warm)] rounded-xl border border-[var(--color-border)] flex items-center gap-3">
+            <div className="p-2 rounded-xl bg-[var(--color-primary-default)]/10 text-[var(--color-primary-default)]">
               <Layers className="w-4 h-4" />
             </div>
             <div>
               <span className="block text-[11px] text-[var(--color-text-muted)] font-medium">
                 مطالب استخراج‌شده
               </span>
-              <span className="text-sm font-black text-[var(--color-text)]">
+              <span className="text-sm font-bold text-[var(--color-text)]">
                 {topics.length.toLocaleString("fa-IR")} موضوع
               </span>
             </div>

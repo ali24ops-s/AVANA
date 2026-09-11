@@ -651,6 +651,9 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       contentPackStore: opts.contentPackStore,
       auditService: opts.auditService,
       cardToCardConfig: opts.config?.commerce?.cardToCard,
+      onlinePaymentEnabled:
+        opts.config?.commerce?.onlinePaymentEnabled ?? false,
+      mockPaymentEnabled: opts.config?.commerce?.mockPaymentEnabled ?? false,
       modelGateway: opts.gateway,
     });
   }

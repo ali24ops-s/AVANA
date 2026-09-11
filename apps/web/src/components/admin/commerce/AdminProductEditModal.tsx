@@ -75,20 +75,20 @@ export function AdminProductEditModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
       <div
-        className="bg-slate-900 border border-slate-700/80 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden flex flex-col"
+        className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl w-full max-w-md shadow-xl overflow-hidden flex flex-col"
         dir="rtl"
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 bg-slate-800/40">
-          <div className="flex items-center gap-2 text-teal-400 font-bold text-base">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--color-border)] bg-[var(--color-surface-warm)]">
+          <div className="flex items-center gap-2 text-[var(--color-primary-default)] font-bold text-base">
             <ShoppingBag className="w-5 h-5" />
             <span>ویرایش محصول کاتالوگ</span>
           </div>
           <button
             onClick={onClose}
-            className="text-slate-400 hover:text-white p-1 rounded-lg transition-colors"
+            className="text-[var(--color-text-muted)] hover:text-[var(--color-text)] p-1 rounded-lg transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -97,28 +97,28 @@ export function AdminProductEditModal({
         {/* Body */}
         <form onSubmit={handleSubmit} className="p-6 space-y-5">
           {errorMsg && (
-            <div className="flex items-center gap-2 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-sm">
+            <div className="flex items-center gap-2 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-500 text-sm">
               <AlertCircle className="w-4 h-4 shrink-0" />
               <span>{errorMsg}</span>
             </div>
           )}
 
           {successMsg && (
-            <div className="flex items-center gap-2 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-sm">
+            <div className="flex items-center gap-2 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-sm">
               <CheckCircle2 className="w-4 h-4 shrink-0" />
               <span>{successMsg}</span>
             </div>
           )}
 
           <div>
-            <span className="text-xs text-slate-400 block mb-1">نام محصول:</span>
-            <p className="text-sm font-semibold text-slate-100">{product.title}</p>
-            <p className="text-xs text-slate-400 mt-0.5 font-mono">{product.code}</p>
+            <span className="text-xs text-[var(--color-text-muted)] block mb-1">نام محصول:</span>
+            <p className="text-sm font-semibold text-[var(--color-text)]">{product.title}</p>
+            <p className="text-xs text-[var(--color-text-muted)] mt-0.5 font-mono">{product.code}</p>
           </div>
 
           {/* Price Field */}
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1.5">
+            <label className="block text-sm font-medium text-[var(--color-text)] mb-1.5">
               قیمت فروش (تومان)
             </label>
             <div>
@@ -128,27 +128,27 @@ export function AdminProductEditModal({
                 step="1000"
                 value={priceInput}
                 onChange={(e) => setPriceInput(e.target.value)}
-                className="w-full bg-slate-800/60 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-teal-500"
+                className="w-full bg-[var(--color-surface-warm)] border border-[var(--color-border)] rounded-xl px-4 py-2.5 text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:border-[var(--color-primary-default)]"
                 placeholder="مثال: ۲۵۰۰۰۰"
               />
               {priceInput && !isNaN(parseInt(priceInput, 10)) && (
-                <p className="text-xs text-teal-400 mt-1.5">
+                <p className="text-xs text-[var(--color-primary-default)] mt-1.5">
                   معادل: {formatToman(parseInt(priceInput, 10))}
                 </p>
               )}
             </div>
             {isSubscription && (
-              <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
+              <p className="text-xs text-[var(--color-text-muted)] mt-1.5 leading-relaxed">
                 تغییر قیمت پلن اشتراک بلافاصله برای خریدهای جدید کاربران اعمال می‌شود.
               </p>
             )}
           </div>
 
           {/* Status Toggle */}
-          <div className="flex items-center justify-between p-3.5 rounded-xl bg-slate-800/40 border border-slate-700/60">
+          <div className="flex items-center justify-between p-3.5 rounded-xl bg-[var(--color-surface-warm)] border border-[var(--color-border)]">
             <div>
-              <span className="text-sm font-medium text-slate-200 block">وضعیت عرضه محصول</span>
-              <span className="text-xs text-slate-400">
+              <span className="text-sm font-medium text-[var(--color-text)] block">وضعیت عرضه محصول</span>
+              <span className="text-xs text-[var(--color-text-muted)]">
                 {isActive ? "محصول برای خرید کاربران فعال است" : "محصول غیرفعال و غیرقابل خرید است"}
               </span>
             </div>
@@ -156,7 +156,7 @@ export function AdminProductEditModal({
               type="button"
               onClick={() => setIsActive(!isActive)}
               className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                isActive ? "bg-teal-500" : "bg-slate-700"
+                isActive ? "bg-[var(--color-primary-default)]" : "bg-[var(--color-surface-muted)]"
               }`}
             >
               <span
@@ -168,19 +168,19 @@ export function AdminProductEditModal({
           </div>
 
           {/* Actions */}
-          <div className="flex justify-end gap-3 pt-3 border-t border-white/5">
+          <div className="flex justify-end gap-3 pt-3 border-t border-[var(--color-border)]">
             <button
               type="button"
               onClick={onClose}
               disabled={isSubmitting}
-              className="px-4 py-2 rounded-xl text-sm font-medium text-slate-300 hover:bg-slate-800 transition-colors"
+              className="px-4 py-2 rounded-xl text-sm font-medium text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] transition-colors cursor-pointer"
             >
               انصراف
             </button>
             <button
               type="submit"
               disabled={isSubmitting}
-              className="px-5 py-2 rounded-xl text-sm font-medium text-white bg-teal-600 hover:bg-teal-500 disabled:opacity-50 transition-colors"
+              className="px-5 py-2 rounded-xl text-sm font-medium text-[var(--color-primary-contrast)] bg-[var(--color-primary-default)] hover:bg-[var(--color-primary-dark)] disabled:opacity-50 transition-colors cursor-pointer shadow-sm"
             >
               {isSubmitting ? "در حال ذخیره..." : "ذخیره تغییرات"}
             </button>

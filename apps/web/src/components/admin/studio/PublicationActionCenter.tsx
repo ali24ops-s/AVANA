@@ -16,6 +16,7 @@ import {
   type OfficialReviewWorkspace,
   type ConsistencyValidationReport,
 } from "../../../lib/api/admin.js";
+import { toPersianDigits } from "@avana/domain";
 
 export interface PublicationActionCenterProps {
   course: OfficialCourse;
@@ -199,26 +200,26 @@ export function PublicationActionCenter({
   return (
     <div className="space-y-6">
       {/* 1. Official Course Approval Section */}
-      <div className="bg-slate-900/60 rounded-3xl border border-slate-800 p-5 sm:p-6 shadow-xl space-y-4">
-        <div className="flex items-center justify-between">
+      <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-5 sm:p-6 shadow-sm space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="space-y-1">
-            <h3 className="text-base font-bold text-white flex items-center gap-2">
-              <ShieldCheck className="w-5 h-5 text-teal-400" />
+            <h3 className="text-base font-bold text-[var(--color-text)] flex items-center gap-2">
+              <ShieldCheck className="w-5 h-5 text-[var(--color-primary-default)]" />
               <span>مرحله ۱: تایید رسمی و ثبت ساختار دوره (Official Approval)</span>
             </h3>
-            <p className="text-xs text-slate-400">
+            <p className="text-xs text-[var(--color-text-muted)]">
               تایید محتوای تولیدشده باعث ایجاد ماژول‌ها، درس‌ها، فلش‌کارت‌ها و آزمون‌ها در پایگاه‌داده و تغییر وضعیت دوره به «تایید شده» می‌شود.
             </p>
           </div>
 
-          <div>
+          <div className="shrink-0">
             {course.status === "approved" || course.status === "published" ? (
-              <span className="px-3 py-1 rounded-xl bg-emerald-950/50 border border-emerald-500/30 text-emerald-300 text-xs font-bold flex items-center gap-1.5">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+              <span className="px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-300 text-xs font-bold flex items-center gap-1.5">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
                 <span>تایید شده است</span>
               </span>
             ) : (
-              <span className="px-3 py-1 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 text-xs font-bold">
+              <span className="px-3 py-1 rounded-full bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-[var(--color-text-muted)] text-xs font-semibold">
                 در انتظار تایید
               </span>
             )}
@@ -227,24 +228,24 @@ export function PublicationActionCenter({
 
         {/* Approval Alerts */}
         {approveError && (
-          <div className="p-3.5 bg-rose-950/40 border border-rose-500/30 rounded-2xl text-xs text-rose-300 flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+          <div className="p-3.5 bg-rose-500/10 border border-rose-500/20 rounded-xl text-xs text-rose-700 dark:text-rose-300 flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0 text-rose-600 dark:text-rose-400" />
             <span>{approveError}</span>
           </div>
         )}
 
         {approveSuccessMsg && (
-          <div className="p-3.5 bg-emerald-950/40 border border-emerald-500/30 rounded-2xl text-xs text-emerald-300 flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+          <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-xs text-emerald-700 dark:text-emerald-300 flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
             <span>{approveSuccessMsg}</span>
           </div>
         )}
 
         {unresolvedCount > 0 && (
-          <div className="p-3.5 bg-rose-950/40 border border-rose-500/30 rounded-2xl text-xs text-rose-300 flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+          <div className="p-3.5 bg-rose-500/10 border border-rose-500/20 rounded-xl text-xs text-rose-700 dark:text-rose-300 flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0 text-rose-600 dark:text-rose-400" />
             <span>
-              {unresolvedCount} مورد خطای نگاشت درسنامه وجود دارد. تایید رسمی تا رفع خطاهای نگاشت مسدود است.
+              {toPersianDigits(unresolvedCount)} مورد خطای نگاشت درسنامه وجود دارد. تایید رسمی تا رفع خطاهای نگاشت مسدود است.
             </span>
           </div>
         )}
@@ -255,7 +256,7 @@ export function PublicationActionCenter({
               type="button"
               onClick={() => approveMutation.mutate()}
               disabled={approveMutation.isPending || !isReadyForApproval}
-              className="px-6 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-500 disabled:opacity-50 text-white text-xs font-bold flex items-center gap-2 shadow-lg shadow-teal-950/50 transition-all"
+              className="px-5 py-2.5 rounded-xl bg-[var(--color-primary-default)] hover:bg-[var(--color-primary-hover)] active:bg-[var(--color-primary-active)] disabled:opacity-50 text-white text-xs font-bold flex items-center gap-2 shadow-sm transition-all"
             >
               {approveMutation.isPending ? (
                 <>
@@ -274,20 +275,20 @@ export function PublicationActionCenter({
       </div>
 
       {/* 2. Product Pricing Section */}
-      <div className="bg-slate-900/60 rounded-3xl border border-slate-800 p-5 sm:p-6 shadow-xl space-y-4">
+      <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-5 sm:p-6 shadow-sm space-y-4">
         <div className="space-y-1">
-          <h3 className="text-base font-bold text-white flex items-center gap-2">
-            <DollarSign className="w-5 h-5 text-teal-400" />
+          <h3 className="text-base font-bold text-[var(--color-text)] flex items-center gap-2">
+            <DollarSign className="w-5 h-5 text-[var(--color-primary-default)]" />
             <span>مرحله ۲: قیمت‌گذاری محصول تجاری (Product Pricing)</span>
           </h3>
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-[var(--color-text-muted)]">
             قیمت دسترسی مادام‌العمر به دوره را تعیین نمایید. این قیمت در کاتالوگ فروش و فرآیند خرید اعمال می‌شود.
           </p>
         </div>
 
         {pricingError && (
-          <div className="p-3.5 bg-rose-950/40 border border-rose-500/30 rounded-2xl text-xs text-rose-300 flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+          <div className="p-3.5 bg-rose-500/10 border border-rose-500/20 rounded-xl text-xs text-rose-700 dark:text-rose-300 flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0 text-rose-600 dark:text-rose-400" />
             <span>{pricingError}</span>
           </div>
         )}
@@ -296,7 +297,7 @@ export function PublicationActionCenter({
           <div className="flex-1">
             <label
               htmlFor="course-price-input"
-              className="block text-xs font-bold text-slate-300 mb-1.5"
+              className="block text-xs font-bold text-[var(--color-text)] mb-1.5"
             >
               قیمت فروش دوره (تومان) *
             </label>
@@ -309,7 +310,7 @@ export function PublicationActionCenter({
               onChange={(e) =>
                 setPriceInput(parseInt(e.target.value, 10) || 0)
               }
-              className="w-full px-4 py-2.5 rounded-2xl bg-slate-800 border border-slate-700 text-white text-sm focus:outline-none focus:border-teal-500"
+              className="w-full px-4 py-2.5 rounded-xl bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-[var(--color-text)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-default)] focus:border-transparent transition-all"
             />
           </div>
 
@@ -318,12 +319,12 @@ export function PublicationActionCenter({
               type="button"
               onClick={() => pricingMutation.mutate()}
               disabled={pricingMutation.isPending}
-              className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-bold transition-colors flex items-center justify-center gap-2"
+              className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-[var(--color-text)] text-xs font-bold transition-colors flex items-center justify-center gap-2"
             >
               {pricingMutation.isPending ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
-                <ShoppingBag className="w-4 h-4 text-teal-400" />
+                <ShoppingBag className="w-4 h-4 text-[var(--color-primary-default)]" />
               )}
               <span>ثبت قیمت تجاری</span>
             </button>
@@ -332,41 +333,41 @@ export function PublicationActionCenter({
       </div>
 
       {/* 3. Consistency Validation & Publishing Section */}
-      <div className="bg-slate-900/60 rounded-3xl border border-slate-800 p-5 sm:p-6 shadow-xl space-y-4">
+      <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-5 sm:p-6 shadow-sm space-y-4">
         <div className="space-y-1">
-          <h3 className="text-base font-bold text-white flex items-center gap-2">
-            <Send className="w-5 h-5 text-teal-400" />
+          <h3 className="text-base font-bold text-[var(--color-text)] flex items-center gap-2">
+            <Send className="w-5 h-5 text-[var(--color-primary-default)]" />
             <span>مرحله ۳: اعتبارسنجی الزامات و انتشار عمومی (Publish & Activate)</span>
           </h3>
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-[var(--color-text-muted)]">
             بررسی نهایی الزامات پایگاه‌داده و فعال‌سازی فروش دوره برای دانشجویان در بستر سراسری آوانا.
           </p>
         </div>
 
         {/* Consistency Validation Checklist */}
         <div className="space-y-2">
-          <h4 className="text-xs font-bold text-slate-400">
+          <h4 className="text-xs font-bold text-[var(--color-text-muted)]">
             چک‌لیست اعتبارسنجی پیش از انتشار (Consistency Pre-flight):
           </h4>
 
           {consistencyQuery.isLoading ? (
-            <div className="p-4 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
-              <Loader2 className="w-4 h-4 animate-spin text-teal-400" />
+            <div className="p-4 text-center text-xs text-[var(--color-text-muted)] flex items-center justify-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin text-[var(--color-primary-default)]" />
               <span>در حال اعتبارسنجی الزامات دوره...</span>
             </div>
           ) : consistencyReport ? (
             <div
-              className={`p-4 rounded-2xl border text-xs space-y-2 ${
+              className={`p-4 rounded-xl border text-xs space-y-2 ${
                 consistencyReport.valid
-                  ? "bg-emerald-950/30 border-emerald-500/30 text-emerald-300"
-                  : "bg-rose-950/30 border-rose-500/30 text-rose-300"
+                  ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-800 dark:text-emerald-300"
+                  : "bg-rose-500/10 border-rose-500/20 text-rose-800 dark:text-rose-300"
               }`}
             >
               <div className="font-bold flex items-center gap-2">
                 {consistencyReport.valid ? (
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
                 ) : (
-                  <AlertCircle className="w-4 h-4 text-rose-400" />
+                  <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400" />
                 )}
                 <span>
                   {consistencyReport.valid
@@ -376,7 +377,7 @@ export function PublicationActionCenter({
               </div>
 
               {!consistencyReport.valid && (
-                <ul className="list-disc list-inside space-y-1 text-[11px] opacity-90 pr-2">
+                <ul className="list-disc list-inside space-y-1 text-[11px] opacity-90 ps-2">
                   {consistencyReport.errors.map((err, i) => (
                     <li key={i}>{err}</li>
                   ))}
@@ -387,21 +388,21 @@ export function PublicationActionCenter({
         </div>
 
         {publishError && (
-          <div className="p-3.5 bg-rose-950/40 border border-rose-500/30 rounded-2xl text-xs text-rose-300 flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+          <div className="p-3.5 bg-rose-500/10 border border-rose-500/20 rounded-xl text-xs text-rose-700 dark:text-rose-300 flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0 text-rose-600 dark:text-rose-400" />
             <span>{publishError}</span>
           </div>
         )}
 
         {publishSuccessMsg && (
-          <div className="p-3.5 bg-emerald-950/40 border border-emerald-500/30 rounded-2xl text-xs text-emerald-300 flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+          <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-xs text-emerald-700 dark:text-emerald-300 flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
             <span>{publishSuccessMsg}</span>
           </div>
         )}
 
         {/* Final Publish Button */}
-        <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 border-t border-slate-800">
+        <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 border-t border-[var(--color-border)]">
           <div>
             {course.status !== "archived" && (
               <button
@@ -416,7 +417,7 @@ export function PublicationActionCenter({
                   }
                 }}
                 disabled={archiveMutation.isPending}
-                className="px-4 py-2 text-slate-500 hover:text-rose-400 hover:bg-rose-950/30 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5"
+                className="px-4 py-2 text-[var(--color-text-muted)] hover:text-rose-600 hover:bg-rose-500/10 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5"
               >
                 <Archive className="w-3.5 h-3.5" />
                 <span>بایگانی دوره</span>
@@ -432,10 +433,10 @@ export function PublicationActionCenter({
               !consistencyReport?.valid ||
               course.status === "published"
             }
-            className={`px-7 py-3 rounded-2xl text-xs font-black flex items-center justify-center gap-2 shadow-xl transition-all ${
+            className={`px-6 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-sm transition-all ${
               course.status === "published"
-                ? "bg-emerald-900/60 text-emerald-300 border border-emerald-500/40 cursor-default"
-                : "bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white shadow-emerald-950/50"
+                ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 cursor-default"
+                : "bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white"
             }`}
           >
             {publishMutation.isPending ? (
@@ -445,7 +446,7 @@ export function PublicationActionCenter({
               </>
             ) : course.status === "published" ? (
               <>
-                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
                 <span>دوره منتشر شده و در حال فروش است</span>
               </>
             ) : (

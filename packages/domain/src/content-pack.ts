@@ -264,6 +264,7 @@ export type ChapterPackageItem = {
   completeness: ChapterPackageCompleteness;
   access: import("./commerce.js").ResourceAccessSummary;
   purchase: import("./commerce.js").ResourcePurchaseSummary;
+  preview?: import("./preview-resolver.js").ContentPreviewMetadata;
   createdAt: string;
   updatedAt: string;
 };

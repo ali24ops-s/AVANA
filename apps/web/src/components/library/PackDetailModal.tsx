@@ -22,11 +22,11 @@ import {
   ShoppingBag,
 } from "lucide-react";
 import { useLibraryPack } from "../../hooks/useLibrary.js";
+import { toPersianDigits } from "@avana/domain";
 import {
   useCommerceProducts,
   useMyEntitlements,
   useMySubscription,
-  useCheckout,
 } from "../../hooks/useCommerce.js";
 import { formatToman } from "../commerce/userCommerceUtils.js";
 import type { PublicContentPackDetailResource } from "@avana/domain";
@@ -54,7 +54,6 @@ export function PackDetailModal({
   const { data: productsData } = useCommerceProducts();
   const { data: entitlementsData } = useMyEntitlements();
   const { data: subData } = useMySubscription();
-  const checkoutMutation = useCheckout();
 
   // Resolve product for this pack
   const packProduct = (productsData?.items ?? []).find(
@@ -71,10 +70,7 @@ export function PackDetailModal({
 
   const handleBuyPack = () => {
     if (packProduct) {
-      checkoutMutation.mutate({
-        product_id: packProduct.id,
-        callback_url: `${window.location.origin}/checkout/callback`,
-      });
+      window.location.href = `/checkout/card-to-card?productId=${encodeURIComponent(packProduct.id)}`;
     }
   };
 
@@ -128,7 +124,7 @@ export function PackDetailModal({
 
   return (
     <div
-      className="fixed inset-x-0 bottom-0 top-[var(--header-height,5rem)] z-[9999] flex items-center justify-center p-4 sm:p-6 bg-slate-950/85 backdrop-blur-xl overflow-y-auto"
+      className="fixed inset-x-0 bottom-0 top-[var(--header-height,5rem)] z-[9999] flex items-center justify-center p-4 sm:p-6 bg-black/50 backdrop-blur-xs overflow-y-auto"
       dir="rtl"
       role="dialog"
       aria-modal="true"
@@ -139,18 +135,18 @@ export function PackDetailModal({
         }
       }}
     >
-      <div className="relative w-full max-w-3xl bg-slate-900 border border-white/10 rounded-2xl shadow-2xl overflow-hidden glass-panel flex flex-col max-h-[calc(100vh-var(--header-height,5rem)-2rem)] sm:max-h-[calc(100vh-var(--header-height,5rem)-3rem)] my-auto">
+      <div className="relative w-full max-w-3xl bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl shadow-xl overflow-hidden flex flex-col max-h-[calc(100vh-var(--header-height,5rem)-2rem)] sm:max-h-[calc(100vh-var(--header-height,5rem)-3rem)] my-auto">
         {/* Modal Header */}
-        <div className="p-5 sm:p-6 border-b border-white/10 flex items-start justify-between gap-4 bg-slate-900/80 shrink-0">
+        <div className="p-5 sm:p-6 border-b border-[var(--color-border)] flex items-start justify-between gap-4 bg-[var(--color-surface)] shrink-0">
           <div className="min-w-0">
             <div className="flex items-center gap-2 mb-2">
-              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-teal-500/10 text-teal-400 border border-teal-500/20">
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-teal-50 text-teal-700 border border-teal-200">
                 <Sparkles className="w-3 h-3" />
                 <span>{pack?.subject || "آموزش پزشکی و بالینی"}</span>
               </span>
               {pack && (
-                <span className="text-xs text-slate-400 flex items-center gap-1.5 whitespace-nowrap">
-                  <Users className="w-3.5 h-3.5 text-teal-400 shrink-0" />
+                <span className="text-xs text-[var(--color-text-muted)] flex items-center gap-1.5 whitespace-nowrap">
+                  <Users className="w-3.5 h-3.5 text-[#008080] shrink-0" />
                   <span>{pack.usage_count} افزوده‌شده به دوره‌ها</span>
                 </span>
               )}
@@ -158,13 +154,13 @@ export function PackDetailModal({
 
             <h2
               id="pack-detail-title"
-              className="text-lg sm:text-xl font-bold text-white truncate"
+              className="text-lg sm:text-xl font-bold text-[var(--color-text)] truncate"
             >
               {pack?.title || "جزئیات بسته آموزشی"}
             </h2>
-            <p className="text-xs text-slate-400 mt-1">
+            <p className="text-xs text-[var(--color-text-muted)] mt-1">
               سازنده:{" "}
-              <span className="text-slate-200 font-medium">
+              <span className="text-[var(--color-text)] font-medium">
                 {pack?.creator?.name || "کاربر آوانا"}
               </span>{" "}
               • انتشار:{" "}
@@ -178,7 +174,7 @@ export function PackDetailModal({
             type="button"
             onClick={onClose}
             aria-label="بستن پنجره"
-            className="text-slate-400 hover:text-white p-2 rounded-xl hover:bg-white/10 transition-colors"
+            className="text-[var(--color-text-muted)] hover:text-[var(--color-text)] p-2 rounded-xl hover:bg-slate-100 transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -188,24 +184,24 @@ export function PackDetailModal({
         <div className="p-5 sm:p-6 overflow-y-auto flex-1 space-y-6">
           {isLoading && (
             <div className="flex flex-col items-center justify-center py-16 gap-3">
-              <Loader2 className="w-8 h-8 text-teal-400 animate-spin" />
-              <p className="text-xs text-slate-400">در حال دریافت پیش‌نمایش بسته...</p>
+              <Loader2 className="w-8 h-8 text-[#008080] animate-spin" />
+              <p className="text-xs text-[var(--color-text-muted)]">در حال دریافت پیش‌نمایش بسته...</p>
             </div>
           )}
 
           {isError && (
-            <div className="p-6 bg-rose-500/10 border border-rose-500/20 rounded-2xl text-center space-y-3">
-              <AlertCircle className="w-8 h-8 text-rose-400 mx-auto" />
-              <p className="text-sm font-bold text-rose-300">
+            <div className="p-6 bg-rose-50 border border-rose-200 rounded-2xl text-center space-y-3">
+              <AlertCircle className="w-8 h-8 text-rose-500 mx-auto" />
+              <p className="text-sm font-bold text-rose-700">
                 خطا در دریافت اطلاعات بسته آموزشی
               </p>
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-[var(--color-text-muted)]">
                 {error?.message || "امکان اتصال به سرور وجود ندارد."}
               </p>
               <button
                 type="button"
                 onClick={() => void refetch()}
-                className="px-4 py-2 bg-rose-500/20 hover:bg-rose-500/30 text-rose-200 text-xs font-bold rounded-xl transition-colors"
+                className="px-4 py-2 bg-rose-100 hover:bg-rose-200 text-rose-800 text-xs font-bold rounded-xl transition-colors"
               >
                 تلاش مجدد
               </button>
@@ -216,64 +212,64 @@ export function PackDetailModal({
             <>
               {/* Description */}
               {pack.description && (
-                <div className="p-4 rounded-xl bg-white/[0.02] border border-white/5 text-xs text-slate-300 leading-relaxed">
+                <div className="p-4 rounded-xl bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-xs text-[var(--color-text)] leading-relaxed">
                   {pack.description}
                 </div>
               )}
 
               {/* Stats Summary Bar */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                <div className="p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center gap-3">
-                  <BookOpen className="w-4 h-4 text-blue-400" />
+                <div className="p-3 rounded-xl bg-blue-50 border border-blue-200 flex items-center gap-3">
+                  <BookOpen className="w-4 h-4 text-blue-600" />
                   <div>
-                    <div className="text-xs font-bold text-white">
-                      {pack.stats.session_count} جلسه
+                    <div className="text-xs font-bold text-[var(--color-text)]">
+                      {toPersianDigits(pack.stats.session_count)} جلسه
                     </div>
-                    <div className="text-[10px] text-slate-400">درسنامه آموزشی</div>
+                    <div className="text-[10px] text-[var(--color-text-muted)]">درسنامه آموزشی</div>
                   </div>
                 </div>
 
-                <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center gap-3">
-                  <Layers className="w-4 h-4 text-amber-400" />
+                <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 flex items-center gap-3">
+                  <Layers className="w-4 h-4 text-amber-600" />
                   <div>
-                    <div className="text-xs font-bold text-white">
-                      {pack.stats.flashcard_count} کارت
+                    <div className="text-xs font-bold text-[var(--color-text)]">
+                      {toPersianDigits(pack.stats.flashcard_count)} کارت
                     </div>
-                    <div className="text-[10px] text-slate-400">فلش‌کارت مرور</div>
+                    <div className="text-[10px] text-[var(--color-text-muted)]">فلش‌کارت مرور</div>
                   </div>
                 </div>
 
-                <div className="p-3 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center gap-3">
-                  <HelpCircle className="w-4 h-4 text-purple-400" />
+                <div className="p-3 rounded-xl bg-purple-50 border border-purple-200 flex items-center gap-3">
+                  <HelpCircle className="w-4 h-4 text-purple-600" />
                   <div>
-                    <div className="text-xs font-bold text-white">
-                      {pack.stats.quiz_question_count} سوال
+                    <div className="text-xs font-bold text-[var(--color-text)]">
+                      {toPersianDigits(pack.stats.quiz_question_count)} سوال
                     </div>
-                    <div className="text-[10px] text-slate-400">آزمون ارزیابی</div>
+                    <div className="text-[10px] text-[var(--color-text-muted)]">آزمون ارزیابی</div>
                   </div>
                 </div>
 
-                <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center gap-3">
-                  <Clock className="w-4 h-4 text-emerald-400" />
+                <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center gap-3">
+                  <Clock className="w-4 h-4 text-emerald-600" />
                   <div>
-                    <div className="text-xs font-bold text-white">
-                      ~{pack.stats.estimated_reading_minutes} دقیقه
+                    <div className="text-xs font-bold text-[var(--color-text)]">
+                      ~{toPersianDigits(pack.stats.estimated_reading_minutes)} دقیقه
                     </div>
-                    <div className="text-[10px] text-slate-400">زمان مطالعه تقریبی</div>
+                    <div className="text-[10px] text-[var(--color-text-muted)]">زمان مطالعه تقریبی</div>
                   </div>
                 </div>
               </div>
 
               {/* Preview Navigation Tabs */}
-              <div className="flex items-center gap-1 border-b border-white/10 pb-1">
+              <div className="flex items-center gap-1 border-b border-[var(--color-border)] pb-1">
                 {preview?.lesson && (
                   <button
                     type="button"
                     onClick={() => setActiveTab("lesson")}
                     className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-colors ${
                       activeTab === "lesson"
-                        ? "bg-teal-500/20 text-teal-300 border border-teal-500/30"
-                        : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
+                        ? "bg-teal-50 text-teal-800 border border-teal-200"
+                        : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-slate-100"
                     }`}
                   >
                     <BookOpen className="w-3.5 h-3.5" />
@@ -287,8 +283,8 @@ export function PackDetailModal({
                     onClick={() => setActiveTab("flashcard")}
                     className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-colors ${
                       activeTab === "flashcard"
-                        ? "bg-teal-500/20 text-teal-300 border border-teal-500/30"
-                        : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
+                        ? "bg-teal-50 text-teal-800 border border-teal-200"
+                        : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-slate-100"
                     }`}
                   >
                     <Layers className="w-3.5 h-3.5" />
@@ -302,8 +298,8 @@ export function PackDetailModal({
                     onClick={() => setActiveTab("quiz")}
                     className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-colors ${
                       activeTab === "quiz"
-                        ? "bg-teal-500/20 text-teal-300 border border-teal-500/30"
-                        : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
+                        ? "bg-teal-50 text-teal-800 border border-teal-200"
+                        : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-slate-100"
                     }`}
                   >
                     <HelpCircle className="w-3.5 h-3.5" />
@@ -317,8 +313,8 @@ export function PackDetailModal({
                     onClick={() => setActiveTab("summary")}
                     className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-colors ${
                       activeTab === "summary"
-                        ? "bg-teal-500/20 text-teal-300 border border-teal-500/30"
-                        : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
+                        ? "bg-teal-50 text-teal-800 border border-teal-200"
+                        : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-slate-100"
                     }`}
                   >
                     <FileText className="w-3.5 h-3.5" />
@@ -332,18 +328,18 @@ export function PackDetailModal({
                 {/* 1. Lesson Sessions Outline */}
                 {activeTab === "lesson" && (
                   <div className="space-y-3">
-                    <h4 className="text-xs font-bold text-slate-300">
+                    <h4 className="text-xs font-bold text-[var(--color-text)]">
                       سرفصل جلسات درسنامه:
                     </h4>
                     {preview?.lesson?.sessionTitles &&
                     preview.lesson.sessionTitles.length > 0 ? (
-                      <div className="divide-y divide-white/5 rounded-xl border border-white/5 bg-white/[0.02] overflow-hidden">
+                      <div className="divide-y divide-[var(--color-border)] rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-warm)] overflow-hidden">
                         {preview.lesson.sessionTitles.map((title, idx) => (
                           <div
                             key={idx}
-                            className="flex items-center gap-3 p-3 text-xs text-slate-200"
+                            className="flex items-center gap-3 p-3 text-xs text-[var(--color-text)]"
                           >
-                            <span className="w-6 h-6 rounded-lg bg-teal-500/20 text-teal-300 flex items-center justify-center font-bold text-[11px] shrink-0">
+                            <span className="w-6 h-6 rounded-lg bg-teal-100 text-teal-800 flex items-center justify-center font-bold text-[11px] shrink-0">
                               {idx + 1}
                             </span>
                             <span className="font-medium">{title}</span>
@@ -351,7 +347,7 @@ export function PackDetailModal({
                         ))}
                       </div>
                     ) : (
-                      <p className="text-xs text-slate-400">
+                      <p className="text-xs text-[var(--color-text-muted)]">
                         {preview?.lesson?.title || "درسنامه آموزشی شامل جلسات ساختاریافته"}
                       </p>
                     )}
@@ -361,8 +357,8 @@ export function PackDetailModal({
                 {/* 2. Sample Flashcards */}
                 {activeTab === "flashcard" && (
                   <div className="space-y-3">
-                    <h4 className="text-xs font-bold text-slate-300">
-                      نمونه پرسش‌های فلش‌کارت ({preview?.flashcard?.totalCards ?? pack.stats.flashcard_count} کارت در بسته):
+                    <h4 className="text-xs font-bold text-[var(--color-text)]">
+                      نمونه پرسش‌های فلش‌کارت ({toPersianDigits(preview?.flashcard?.totalCards ?? pack.stats.flashcard_count)} کارت در بسته):
                     </h4>
                     {preview?.flashcard?.sampleQuestions &&
                     preview.flashcard.sampleQuestions.length > 0 ? (
@@ -370,15 +366,15 @@ export function PackDetailModal({
                         {preview.flashcard.sampleQuestions.map((q, idx) => (
                           <div
                             key={idx}
-                            className="p-3 rounded-xl bg-amber-500/5 border border-amber-500/20 text-xs text-slate-200 flex items-start gap-2.5"
+                            className="p-3 rounded-xl bg-amber-50/50 border border-amber-200 text-xs text-[var(--color-text)] flex items-start gap-2.5"
                           >
-                            <Layers className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                            <Layers className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                             <span>{q}</span>
                           </div>
                         ))}
                       </div>
                     ) : (
-                      <p className="text-xs text-slate-400">
+                      <p className="text-xs text-[var(--color-text-muted)]">
                         مجموعه فلش‌کارت‌های مرور مبتنی بر الگوریتم فاصله‌گذاری تکرار (Spaced Repetition).
                       </p>
                     )}
@@ -388,22 +384,22 @@ export function PackDetailModal({
                 {/* 3. Sample Quiz */}
                 {activeTab === "quiz" && (
                   <div className="space-y-3">
-                    <h4 className="text-xs font-bold text-slate-300">
-                      مباحث و ساختار آزمون ({preview?.quiz?.totalQuestions ?? pack.stats.quiz_question_count} سوال تستی چهارگزینه‌ای):
+                    <h4 className="text-xs font-bold text-[var(--color-text)]">
+                      مباحث و ساختار آزمون ({toPersianDigits(preview?.quiz?.totalQuestions ?? pack.stats.quiz_question_count)} سوال تستی چهارگزینه‌ای):
                     </h4>
                     {preview?.quiz?.topics && preview.quiz.topics.length > 0 ? (
                       <div className="flex flex-wrap gap-2">
                         {preview.quiz.topics.map((t, idx) => (
                           <span
                             key={idx}
-                            className="px-3 py-1.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-300 text-xs font-medium"
+                            className="px-3 py-1.5 rounded-xl bg-purple-50 border border-purple-200 text-purple-800 text-xs font-medium"
                           >
                             {t}
                           </span>
                         ))}
                       </div>
                     ) : (
-                      <p className="text-xs text-slate-400">
+                      <p className="text-xs text-[var(--color-text-muted)]">
                         آزمون ارزیابی استاندارد چندگزینه‌ای با کلید پاسخ و توضیحات تشریحی.
                       </p>
                     )}
@@ -413,10 +409,10 @@ export function PackDetailModal({
                 {/* 4. Review Summary */}
                 {activeTab === "summary" && (
                   <div className="space-y-3">
-                    <h4 className="text-xs font-bold text-slate-300">
+                    <h4 className="text-xs font-bold text-[var(--color-text)]">
                       مرور اجمالی مباحث و نکات مهم:
                     </h4>
-                    <div className="p-4 rounded-xl bg-emerald-500/5 border border-emerald-500/20 text-xs text-slate-300 leading-relaxed">
+                    <div className="p-4 rounded-xl bg-emerald-50/50 border border-emerald-200 text-xs text-[var(--color-text)] leading-relaxed">
                       {preview?.review_summary?.overview ||
                         "این بسته شامل خلاصه جامع نکات کلیدی برای مرور سریع و جمع‌بندی پیش از امتحانات می‌باشد."}
                     </div>
@@ -429,18 +425,18 @@ export function PackDetailModal({
 
         {/* Modal Footer with Primary Add & Purchase CTAs */}
         {pack && (
-          <div className="p-4 sm:p-6 border-t border-white/10 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-slate-900/90 shrink-0">
+          <div className="p-4 sm:p-6 border-t border-[var(--color-border)] flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-[var(--color-surface)] shrink-0">
             <div className="flex items-center gap-3">
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2.5 rounded-xl text-xs font-bold text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                className="px-4 py-2.5 rounded-xl text-xs font-bold text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-slate-100 transition-colors"
               >
                 بستن
               </button>
 
               {packProduct && !isPurchased && !hasSubscription && (
-                <span className="text-xs font-bold text-amber-300 bg-amber-500/10 border border-amber-500/20 px-3 py-1.5 rounded-xl">
+                <span className="text-xs font-bold text-amber-800 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-xl">
                   قیمت: {formatToman(packProduct.price)}
                 </span>
               )}
@@ -451,8 +447,7 @@ export function PackDetailModal({
                 <button
                   type="button"
                   onClick={handleBuyPack}
-                  disabled={checkoutMutation.isPending}
-                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-purple-600 hover:bg-purple-500 shadow-lg shadow-purple-900/40 transition-all cursor-pointer"
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 shadow-xs transition-all cursor-pointer"
                 >
                   <ShoppingBag className="w-4 h-4" />
                   <span>خرید دائمی بسته ({formatToman(packProduct.price)})</span>
@@ -465,7 +460,7 @@ export function PackDetailModal({
                   onClose();
                   onAddToCourse(pack);
                 }}
-                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl text-xs font-bold text-white bg-teal-600 hover:bg-teal-500 shadow-lg shadow-teal-900/40 transition-all cursor-pointer"
+                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl text-xs font-bold text-white bg-[#008080] hover:bg-[#006666] shadow-xs transition-all cursor-pointer"
               >
                 <PlusCircle className="w-4 h-4" />
                 <span>افزودن این بسته به دوره من</span>

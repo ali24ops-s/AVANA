@@ -408,6 +408,7 @@ export async function composeProduction(
   const commerceStore = new DrizzleCommerceStore(db);
   let paymentGateway: MockPaymentGateway | ZarinpalPaymentGateway;
   if (
+    config.commerce.onlinePaymentEnabled &&
     config.commerce.provider === "zarinpal" &&
     config.commerce.zarinpalMerchantId
   ) {
@@ -416,7 +417,9 @@ export async function composeProduction(
       sandbox: config.commerce.zarinpalSandbox,
     });
   } else {
-    paymentGateway = new MockPaymentGateway();
+    paymentGateway = new MockPaymentGateway({
+      enabled: config.commerce.mockPaymentEnabled,
+    });
   }
 
   const v1Options: V1RouteOptions = {

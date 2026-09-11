@@ -236,8 +236,8 @@ export function TaxonomySelector({
 
   if (courses.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center p-12 text-center bg-[var(--color-surface)] border border-dashed border-[var(--color-border)] rounded-3xl space-y-3">
-        <div className="w-12 h-12 rounded-2xl bg-[#008080]/10 text-[#008080] flex items-center justify-center">
+      <div className="flex flex-col items-center justify-center p-12 text-center bg-[var(--color-surface)] border border-dashed border-[var(--color-border)] rounded-card space-y-3">
+        <div className="w-12 h-12 rounded-button bg-[var(--color-primary-soft)] text-[var(--color-primary)] flex items-center justify-center">
           <FolderX className="w-6 h-6" />
         </div>
         <h3 className="text-sm font-bold text-[var(--color-text)]">
@@ -251,7 +251,7 @@ export function TaxonomySelector({
   }
 
   return (
-    <div className="space-y-4 font-sans text-right" dir="rtl">
+    <div className="space-y-4 font-sans text-start" dir="rtl">
       {courses.map((course) => {
         const cState = getCourseState(course);
         const isExpanded = expandedCourses.has(course.id);
@@ -260,9 +260,9 @@ export function TaxonomySelector({
         return (
           <div
             key={course.id}
-            className={`rounded-2xl border transition-all overflow-hidden ${
+            className={`rounded-card border transition-all overflow-hidden ${
               isCourseSelected
-                ? "border-[#008080] bg-[#008080]/5 shadow-xs"
+                ? "border-[var(--color-primary)] bg-[var(--color-primary-soft)]/40 shadow-xs"
                 : "border-[var(--color-border)] bg-[var(--color-surface)]"
             }`}
           >
@@ -270,20 +270,20 @@ export function TaxonomySelector({
             <div
               className={`p-4 flex items-center justify-between gap-3 transition-colors ${
                 isCourseSelected
-                  ? "bg-[#008080]/10 dark:bg-[#008080]/20 border-r-4 border-r-[#008080]"
-                  : "bg-white/60 dark:bg-black/30 border-r-4 border-r-transparent"
+                  ? "bg-[var(--color-primary-soft)] dark:bg-[var(--color-primary)]/20 border-s-4 border-s-[var(--color-primary)]"
+                  : "bg-[var(--color-surface)]/80 dark:bg-black/30 border-s-4 border-s-transparent"
               }`}
             >
               <div className="flex items-center gap-3 flex-1 min-w-0">
                 <button
                   type="button"
                   onClick={() => toggleCourseSelect(course)}
-                  className={`w-5 h-5 rounded-md border flex items-center justify-center shrink-0 transition-colors ${
+                  className={`w-5 h-5 rounded-sm border flex items-center justify-center shrink-0 transition-colors ${
                     cState === "checked"
-                      ? "bg-[#008080] border-[#008080] text-white"
+                      ? "bg-[var(--color-primary)] border-[var(--color-primary)] text-white"
                       : cState === "indeterminate"
-                      ? "bg-[#008080]/20 border-[#008080] text-[#008080]"
-                      : "border-[var(--color-border)] bg-white dark:bg-black/30"
+                      ? "bg-[var(--color-primary-soft)] border-[var(--color-primary)] text-[var(--color-primary)]"
+                      : "border-[var(--color-border)] bg-[var(--color-surface)]"
                   }`}
                   aria-label={`انتخاب کل دوره ${course.title}`}
                 >
@@ -292,10 +292,10 @@ export function TaxonomySelector({
                 </button>
 
                 <div
-                  className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 transition-colors ${
+                  className={`w-8 h-8 rounded-button flex items-center justify-center shrink-0 transition-colors ${
                     isCourseSelected
-                      ? "bg-[#008080] text-white shadow-xs"
-                      : "bg-black/5 dark:bg-white/10 text-[var(--color-text-muted)]"
+                      ? "bg-[var(--color-primary)] text-white shadow-xs"
+                      : "bg-[var(--color-surface-warm)] text-[var(--color-text-muted)]"
                   }`}
                 >
                   <BookOpen className="w-4 h-4" />
@@ -307,10 +307,10 @@ export function TaxonomySelector({
                 >
                   <div className="flex items-center gap-2">
                     <span
-                      className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold tracking-wide transition-colors ${
+                      className={`px-2 py-0.5 rounded-sm text-[10px] font-extrabold tracking-wide transition-colors ${
                         isCourseSelected
-                          ? "bg-[#008080]/20 text-[#008080]"
-                          : "bg-black/5 dark:bg-white/10 text-[var(--color-text-muted)]"
+                          ? "bg-[var(--color-primary-soft)] text-[var(--color-primary-dark)] dark:text-[var(--color-primary-light)]"
+                          : "bg-[var(--color-surface-warm)] text-[var(--color-text-muted)]"
                       }`}
                     >
                       دوره آموزشی
@@ -328,10 +328,10 @@ export function TaxonomySelector({
               <div className="flex items-center gap-3 shrink-0">
                 {course.itemCount !== undefined && course.itemCount > 0 && (
                   <span
-                    className={`px-3 py-1 rounded-xl text-xs font-extrabold transition-colors ${
+                    className={`px-3 py-1 rounded-button text-xs font-extrabold transition-colors ${
                       isCourseSelected
-                        ? "bg-[#008080] text-white shadow-xs"
-                        : "bg-white/80 dark:bg-black/40 text-[var(--color-text-muted)] border border-[var(--color-border)]"
+                        ? "bg-[var(--color-primary)] text-white shadow-xs"
+                        : "bg-[var(--color-surface)] text-[var(--color-text-muted)] border border-[var(--color-border)]"
                     }`}
                   >
                     {course.itemCount} {itemLabelSingular}
@@ -341,7 +341,7 @@ export function TaxonomySelector({
                   type="button"
                   onClick={() => toggleExpandCourse(course.id)}
                   aria-label={`نمایش سرفصل‌های ${course.title}`}
-                  className="p-2 rounded-xl text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] transition-colors"
+                  className="p-2 rounded-button text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] transition-colors"
                 >
                   {isExpanded ? (
                     <ChevronDown className="w-4 h-4" />
@@ -364,10 +364,10 @@ export function TaxonomySelector({
                     <div key={module.id} className="space-y-1">
                       {/* Module Row */}
                       <div
-                        className={`p-3 rounded-xl border text-xs flex items-center justify-between gap-3 transition-all ${
+                        className={`p-3 rounded-button border text-xs flex items-center justify-between gap-3 transition-all ${
                           mState !== "unchecked"
-                            ? "bg-[#008080]/15 border-[#008080] font-bold text-[#008080] shadow-xs"
-                            : "bg-white/60 dark:bg-black/30 border-[var(--color-border)]/80 text-[var(--color-text)] hover:border-[#008080]/50"
+                            ? "bg-[var(--color-primary-soft)]/60 border-[var(--color-primary)] font-bold text-[var(--color-primary-dark)] dark:text-[var(--color-primary-light)] shadow-xs"
+                            : "bg-[var(--color-surface)] border-[var(--color-border)]/80 text-[var(--color-text)] hover:border-[var(--color-primary)]/50"
                         }`}
                       >
                         <div
@@ -375,19 +375,19 @@ export function TaxonomySelector({
                           onClick={() => toggleModuleSelect(course, module)}
                         >
                           <div
-                            className={`w-4.5 h-4.5 rounded border flex items-center justify-center shrink-0 transition-colors ${
+                            className={`w-4.5 h-4.5 rounded-sm border flex items-center justify-center shrink-0 transition-colors ${
                               mState === "checked"
-                                ? "bg-[#008080] border-[#008080] text-white"
+                                ? "bg-[var(--color-primary)] border-[var(--color-primary)] text-white"
                                 : mState === "indeterminate"
-                                ? "bg-[#008080]/20 border-[#008080] text-[#008080]"
-                                : "border-[var(--color-border)] bg-white dark:bg-black/30"
+                                ? "bg-[var(--color-primary-soft)] border-[var(--color-primary)] text-[var(--color-primary)]"
+                                : "border-[var(--color-border)] bg-[var(--color-surface)]"
                             }`}
                           >
                             {mState === "checked" && <Check className="w-3 h-3 stroke-[3]" />}
                             {mState === "indeterminate" && <Minus className="w-3 h-3 stroke-[3]" />}
                           </div>
 
-                          <div className="w-6 h-6 rounded-lg bg-[#008080]/10 text-[#008080] flex items-center justify-center shrink-0">
+                          <div className="w-6 h-6 rounded-sm bg-[var(--color-primary-soft)] text-[var(--color-primary)] flex items-center justify-center shrink-0">
                             <FolderTree className="w-3.5 h-3.5" />
                           </div>
 
@@ -397,7 +397,7 @@ export function TaxonomySelector({
                         <div className="flex items-center gap-2 shrink-0">
                           {module.itemBadges}
                           {module.itemCount !== undefined && (
-                            <span className="px-2.5 py-1 rounded-md bg-white/80 dark:bg-black/40 text-[11px] font-bold text-[var(--color-text-muted)] border border-[var(--color-border)]">
+                            <span className="px-2.5 py-1 rounded-sm bg-[var(--color-surface)] text-[11px] font-bold text-[var(--color-text-muted)] border border-[var(--color-border)]">
                               {module.itemCount} {itemLabelSingular}
                             </span>
                           )}
@@ -407,7 +407,7 @@ export function TaxonomySelector({
                               type="button"
                               onClick={() => toggleExpandModule(module.id)}
                               aria-label={`نمایش جلسات ${module.title}`}
-                              className="p-1 rounded-lg text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] transition-colors"
+                              className="p-1 rounded-sm text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] transition-colors"
                             >
                               {isMExpanded ? (
                                 <ChevronDown className="w-3.5 h-3.5" />
@@ -421,7 +421,7 @@ export function TaxonomySelector({
 
                       {/* Level 3: Lessons List */}
                       {isMExpanded && hasLessons && (
-                        <div className="mr-6 space-y-1.5 border-r-2 border-[#008080]/30 pr-3 py-1">
+                        <div className="ms-6 space-y-1.5 border-s-2 border-s-[var(--color-primary)]/30 ps-3 py-1">
                           {module.lessons!.map((lesson) => {
                             const isLSelected = selectedLessonIds.has(lesson.id);
 
@@ -429,24 +429,24 @@ export function TaxonomySelector({
                               <div
                                 key={lesson.id}
                                 onClick={() => toggleLessonSelect(course, module, lesson)}
-                                className={`cursor-pointer p-2.5 rounded-lg border text-[11px] flex items-center justify-between gap-3 transition-all ${
+                                className={`cursor-pointer p-2.5 rounded-button border text-[11px] flex items-center justify-between gap-3 transition-all ${
                                   isLSelected
-                                    ? "bg-[#008080]/20 border-[#008080] font-bold text-[#008080]"
-                                    : "bg-white/40 dark:bg-black/20 border-[var(--color-border)]/60 text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:border-[#008080]/40"
+                                    ? "bg-[var(--color-primary-soft)] border-[var(--color-primary)] font-bold text-[var(--color-primary-dark)] dark:text-[var(--color-primary-light)]"
+                                    : "bg-[var(--color-surface)]/80 border-[var(--color-border)]/60 text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:border-[var(--color-primary)]/40"
                                 }`}
                               >
                                 <div className="flex items-center gap-2 flex-1 min-w-0">
                                   <div
-                                    className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors ${
+                                    className={`w-4 h-4 rounded-sm border flex items-center justify-center shrink-0 transition-colors ${
                                       isLSelected
-                                        ? "bg-[#008080] border-[#008080] text-white"
-                                        : "border-[var(--color-border)] bg-white dark:bg-black/30"
+                                        ? "bg-[var(--color-primary)] border-[var(--color-primary)] text-white"
+                                        : "border-[var(--color-border)] bg-[var(--color-surface)]"
                                     }`}
                                   >
                                     {isLSelected && <Check className="w-2.5 h-2.5 stroke-[3]" />}
                                   </div>
 
-                                  <div className="w-5 h-5 rounded-md bg-[#008080]/10 text-[#008080] flex items-center justify-center shrink-0">
+                                  <div className="w-5 h-5 rounded-sm bg-[var(--color-primary-soft)] text-[var(--color-primary)] flex items-center justify-center shrink-0">
                                     <FileText className="w-3 h-3" />
                                   </div>
 
@@ -454,7 +454,7 @@ export function TaxonomySelector({
                                 </div>
 
                                 {lesson.itemCount !== undefined && (
-                                  <span className="px-2 py-0.5 rounded bg-white/70 dark:bg-black/30 text-[10px] font-bold text-[var(--color-text-muted)] border border-[var(--color-border)]">
+                                  <span className="px-2 py-0.5 rounded-sm bg-[var(--color-surface)] text-[10px] font-bold text-[var(--color-text-muted)] border border-[var(--color-border)]">
                                     {lesson.itemCount} {itemLabelSingular}
                                   </span>
                                 )}

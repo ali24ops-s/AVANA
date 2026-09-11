@@ -47,7 +47,7 @@ export function OfficialProductionWorkspace({
   };
 
   return (
-    <div className="space-y-6 text-slate-100" dir="rtl">
+    <div className="space-y-6 text-[var(--color-text)]" dir="rtl">
       {/* Studio Header Bar */}
       <OfficialStudioHeader
         course={course}
@@ -59,14 +59,14 @@ export function OfficialProductionWorkspace({
       />
 
       {/* Production Workspace Tabs Navigation */}
-      <div className="flex items-center gap-2 p-1.5 bg-slate-900/80 border border-slate-800 rounded-2xl overflow-x-auto text-xs font-bold shadow-lg">
+      <div className="flex items-center gap-1.5 p-1.5 bg-[var(--color-surface-warm)] border border-[var(--color-border)] rounded-2xl overflow-x-auto text-xs font-bold shadow-sm">
         <button
           type="button"
           onClick={() => setActiveTab("sources")}
           className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all whitespace-nowrap ${
             activeTab === "sources"
-              ? "bg-teal-600 text-white shadow-md shadow-teal-950/40"
-              : "text-slate-400 hover:text-white hover:bg-slate-800/60"
+              ? "bg-[var(--color-primary-default)] text-white shadow-sm"
+              : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)]"
           }`}
         >
           <UploadCloud className="w-4 h-4" />
@@ -78,8 +78,8 @@ export function OfficialProductionWorkspace({
           onClick={() => setActiveTab("review")}
           className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all whitespace-nowrap ${
             activeTab === "review"
-              ? "bg-teal-600 text-white shadow-md shadow-teal-950/40"
-              : "text-slate-400 hover:text-white hover:bg-slate-800/60"
+              ? "bg-[var(--color-primary-default)] text-white shadow-sm"
+              : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)]"
           }`}
         >
           <Sparkles className="w-4 h-4" />
@@ -91,8 +91,8 @@ export function OfficialProductionWorkspace({
           onClick={() => setActiveTab("structure")}
           className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all whitespace-nowrap ${
             activeTab === "structure"
-              ? "bg-teal-600 text-white shadow-md shadow-teal-950/40"
-              : "text-slate-400 hover:text-white hover:bg-slate-800/60"
+              ? "bg-[var(--color-primary-default)] text-white shadow-sm"
+              : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)]"
           }`}
         >
           <Layers className="w-4 h-4" />
@@ -104,8 +104,8 @@ export function OfficialProductionWorkspace({
           onClick={() => setActiveTab("publish")}
           className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all whitespace-nowrap ${
             activeTab === "publish"
-              ? "bg-teal-600 text-white shadow-md shadow-teal-950/40"
-              : "text-slate-400 hover:text-white hover:bg-slate-800/60"
+              ? "bg-[var(--color-primary-default)] text-white shadow-sm"
+              : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)]"
           }`}
         >
           <ShieldCheck className="w-4 h-4" />

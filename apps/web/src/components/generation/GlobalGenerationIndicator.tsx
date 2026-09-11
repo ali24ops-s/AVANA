@@ -126,16 +126,16 @@ export function GlobalGenerationIndicator({
           setSelectedDocId(primaryItem.documentId);
           setIsDetailsOpen(true);
         }}
-        className={`group relative flex items-center gap-2.5 px-3 py-1.5 rounded-full glass-panel border transition-all text-xs font-medium cursor-pointer shadow-sm hover:scale-[1.02] active:scale-[0.98] ${
+        className={`group relative flex items-center gap-2.5 px-3 py-1.5 rounded-full border transition-all text-xs font-medium cursor-pointer shadow-sm hover:scale-[1.02] active:scale-[0.98] ${
           isPrimaryCompleted
-            ? "bg-emerald-950/40 border-emerald-500/40 text-emerald-300 hover:border-emerald-400"
+            ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-300 hover:border-emerald-500"
             : isPrimaryFailed
-            ? "bg-rose-950/40 border-rose-500/40 text-rose-300 hover:border-rose-400"
+            ? "bg-rose-500/10 border-rose-500/30 text-rose-700 dark:text-rose-300 hover:border-rose-500"
             : isPrimaryStopped
-            ? "bg-amber-950/40 border-amber-500/40 text-amber-300 hover:border-amber-400"
+            ? "bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-300 hover:border-amber-500"
             : isPrimaryStopping || isPrimaryDeleting
-            ? "bg-orange-950/40 border-orange-500/40 text-orange-300 hover:border-orange-400"
-            : "bg-teal-950/40 border-teal-500/40 text-teal-300 hover:border-teal-400"
+            ? "bg-orange-500/10 border-orange-500/30 text-orange-700 dark:text-orange-300 hover:border-orange-500"
+            : "bg-[var(--color-primary-default)]/10 border-[var(--color-primary-default)]/30 text-[var(--color-primary-default)] hover:border-[var(--color-primary-default)]"
         } ${className}`}
         title={`مشاهده جزئیات پیشرفت تولید محتوا: ${primaryItem.documentName}`}
         aria-label="نشانگر وضعیت تولید محتوا"
@@ -143,17 +143,17 @@ export function GlobalGenerationIndicator({
         {/* Status Icon */}
         <div className="flex items-center justify-center shrink-0">
           {isPrimaryCompleted ? (
-            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
           ) : isPrimaryFailed ? (
-            <AlertCircle className="w-4 h-4 text-rose-400" />
+            <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400" />
           ) : isPrimaryStopped ? (
-            <AlertCircle className="w-4 h-4 text-amber-400" />
+            <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400" />
           ) : isPrimaryStopping || isPrimaryDeleting ? (
-            <Loader2 className="w-4 h-4 animate-spin text-orange-400" />
+            <Loader2 className="w-4 h-4 animate-spin text-orange-600 dark:text-orange-400" />
           ) : (
             <div className="relative flex items-center justify-center">
-              <span className="animate-ping absolute inline-flex h-3 w-3 rounded-full bg-teal-400 opacity-50" />
-              <Loader2 className="w-4 h-4 animate-spin text-teal-400 relative" />
+              <span className="animate-ping absolute inline-flex h-3 w-3 rounded-full bg-[var(--color-primary-default)] opacity-50" />
+              <Loader2 className="w-4 h-4 animate-spin text-[var(--color-primary-default)] relative" />
             </div>
           )}
         </div>
@@ -178,7 +178,7 @@ export function GlobalGenerationIndicator({
             </span>
 
             {isPrimaryGenerating && percentage > 0 && (
-              <span className="font-mono font-bold text-[10px] text-teal-400">
+              <span className="font-mono font-bold text-[10px] text-[var(--color-primary-default)]">
                 {percentage}٪
               </span>
             )}
@@ -186,7 +186,7 @@ export function GlobalGenerationIndicator({
 
           {/* Subtitle with Stage Label or Counter */}
           {isPrimaryGenerating && (
-            <div className="flex items-center gap-1 text-[10px] text-slate-400 leading-tight truncate max-w-[140px] sm:max-w-[180px]">
+            <div className="flex items-center gap-1 text-[10px] text-[var(--color-text-muted)] leading-tight truncate max-w-[140px] sm:max-w-[180px]">
               <span>
                 {primaryItem.stageLabel || "در حال پردازش"}
               </span>
@@ -201,15 +201,15 @@ export function GlobalGenerationIndicator({
 
         {/* Micro Progress Bar (Bottom Line) */}
         {isPrimaryGenerating && (
-          <div className="absolute bottom-0 left-3 right-3 h-0.5 bg-slate-800/80 rounded-full overflow-hidden">
+          <div className="absolute bottom-0 start-3 end-3 h-0.5 bg-[var(--color-surface-warm)] rounded-full overflow-hidden">
             <div
-              className="h-full bg-teal-400 transition-all duration-300 rounded-full"
+              className="h-full bg-[var(--color-primary-default)] transition-all duration-300 rounded-full"
               style={{ width: `${Math.min(100, Math.max(5, percentage))}%` }}
             />
           </div>
         )}
 
-        <ChevronLeft className="w-3.5 h-3.5 text-slate-400 group-hover:text-white transition-transform group-hover:-translate-x-0.5" />
+        <ChevronLeft className="w-3.5 h-3.5 text-[var(--color-text-muted)] group-hover:text-[var(--color-text)] transition-transform group-hover:-translate-x-0.5" />
       </button>
 
       {/* Details Slide-over / Modal */}

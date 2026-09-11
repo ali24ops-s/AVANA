@@ -20,30 +20,30 @@ export const AboutHumanMessageSection: React.FC = () => {
         className="relative z-10 flex flex-col items-center"
       >
         {/* Subtle Warm Badge */}
-        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs sm:text-sm font-semibold tracking-wide border mb-6 bg-slate-900/60 border-teal-500/20 text-teal-300 backdrop-blur-md">
-          <Heart className="w-4 h-4 text-rose-400 fill-rose-400/20" />
+        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs sm:text-sm font-semibold tracking-wide border mb-6 bg-[#008080]/10 border-[#008080]/25 text-[#008080]">
+          <Heart className="w-4 h-4 text-rose-500 fill-rose-500/20" />
           <span>همراه مسیر شما</span>
         </div>
 
         {/* Headline */}
-        <h2 className="font-headline text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-black text-white leading-tight mb-8">
+        <h2 className="font-headline text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-black text-[var(--color-text)] leading-tight mb-8">
           برای دانشجو ساخته شده؛{" "}
-          <span className="text-transparent bg-clip-text bg-gradient-to-l from-teal-300 via-teal-400 to-cyan-300">
+          <span className="text-transparent bg-clip-text bg-gradient-to-l from-[#008080] to-[#005f5f]">
             با نگاه به آینده.
           </span>
         </h2>
 
         {/* Central Human Manifesto (Clean, Spacious Typography) */}
-        <div className="rounded-3xl bg-slate-900/40 border border-white/10 p-8 sm:p-12 backdrop-blur-xl max-w-3xl shadow-2xl space-y-6 text-right sm:text-center">
-          <p className="text-base sm:text-lg md:text-xl text-slate-200 font-medium leading-relaxed sm:leading-loose">
+        <div className="rounded-[20px] bg-[var(--color-surface)] border border-[var(--color-border)] p-8 sm:p-12 shadow-xs max-w-3xl space-y-6 text-right sm:text-center">
+          <p className="text-base sm:text-lg md:text-xl text-[var(--color-text)] font-medium leading-relaxed sm:leading-loose">
             «ما قرار نیست مسیر را به جای تو طی کنیم.
             <br />
             ما کمک می‌کنیم انرژی‌ای که برای یادگیری می‌گذاری، در جهت درست حرکت کند.»
           </p>
 
-          <div className="w-16 h-0.5 bg-gradient-to-r from-transparent via-teal-400 to-transparent mx-auto opacity-40" />
+          <div className="w-16 h-0.5 bg-gradient-to-r from-transparent via-[#008080] to-transparent mx-auto opacity-30" />
 
-          <p className="text-xs sm:text-sm md:text-base text-slate-300/90 leading-relaxed max-w-2xl mx-auto">
+          <p className="text-xs sm:text-sm md:text-base text-[var(--color-text-muted)] leading-relaxed max-w-2xl mx-auto">
             ما می‌دانیم شب‌های امتحان، حجم سرسام‌آور مطالب، اضطراب فراموشی مکانیسم‌ها و سردرگمی میان جزوه‌ها چقدر چالش‌برانگیز است.
             آوانا پلتفرمی برای حذف زحمت نیست؛ بلکه ساخته شده تا هیچ تلاشی به هدر نرود و زمان شما صرف ساختن تسلط واقعی شود.
           </p>

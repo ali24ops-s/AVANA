@@ -72,7 +72,7 @@ export function AdminCommerceNavigation() {
   return (
     <nav
       aria-label="ناوبری بخش امور مالی و فروش"
-      className="flex items-center gap-1.5 p-1.5 bg-slate-900/80 border border-slate-800/90 rounded-2xl overflow-x-auto text-xs font-bold shadow-lg no-scrollbar"
+      className="flex items-center gap-1.5 p-1.5 bg-[var(--color-surface-warm)] border border-[var(--color-border)] rounded-2xl overflow-x-auto text-xs font-bold shadow-sm no-scrollbar"
       dir="rtl"
     >
       {COMMERCE_NAV_ITEMS.map((item) => {
@@ -86,8 +86,8 @@ export function AdminCommerceNavigation() {
             aria-current={active ? "page" : undefined}
             className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl transition-all whitespace-nowrap ${
               active
-                ? "bg-teal-600 text-white shadow-md shadow-teal-950/40"
-                : "text-slate-400 hover:text-white hover:bg-slate-800/60"
+                ? "bg-[var(--color-primary-default)] text-[var(--color-primary-contrast)] shadow-sm font-bold"
+                : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)]"
             }`}
           >
             <Icon className="w-4 h-4 shrink-0" />

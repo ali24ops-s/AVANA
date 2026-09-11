@@ -385,14 +385,44 @@ describe("AVANA Official Content Pipeline — Production Readiness (18 Scenarios
     });
     const docId = await setupDocument(course.id);
 
-    // Create an invalid draft flashcard without sessionIndex or topic
+    // Create lesson draft to ensure course has a valid module
+    await generatedContentStore.create({
+      id: randomUUID(),
+      organizationId: officialOrgId,
+      documentId: docId,
+      courseId: course.id,
+      type: "lesson",
+      status: "draft",
+      promptVersion: "v1",
+      model: "mock-1",
+      tokenUsage: null,
+      generationKey: null,
+      acceptedAt: null,
+      acceptedBy: null,
+      reviewedBy: null,
+      reviewedAt: null,
+      reviewReason: null,
+      editedBy: null,
+      editedAt: null,
+      previousPayload: null,
+      materializedLessonId: null,
+      payload: {
+        title: "درس نمونه",
+        sessions: [{ title: "جلسه ۱", contentMarkdown: "محتوا" }],
+      },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      deletedAt: null,
+    });
+
+    // Create a flashcard draft without sessionIndex or topic (decoupled)
     await generatedContentStore.create({
       id: randomUUID(),
       organizationId: officialOrgId,
       documentId: docId,
       courseId: course.id,
       type: "flashcard",
-      status: "pending_review",
+      status: "draft",
       promptVersion: "v1",
       model: "mock-1",
       tokenUsage: null,
@@ -417,24 +447,24 @@ describe("AVANA Official Content Pipeline — Production Readiness (18 Scenarios
     });
 
     const workspace = await officialContentService.getReviewWorkspace(adminActor, course.id);
-    expect(workspace.unresolvedLessonMappings).toBeGreaterThan(0);
-    expect(workspace.readyForApproval).toBe(false);
+    expect(workspace.unresolvedLessonMappings).toBe(0);
+    expect(workspace.readyForApproval).toBe(true);
 
-    await expect(
-      officialContentService.approveOfficialCourse(adminActor, course.id),
-    ).rejects.toThrow("امکان تایید دوره وجود ندارد");
+    const result = await officialContentService.approveOfficialCourse(adminActor, course.id);
+    expect(result.approved).toBe(true);
+    expect(result.materialized.flashcards).toBe(1);
   });
 
   // ---------------------------------------------------------------------------
-  // Scenario 5: No lesson_id blocks approval
+  // Scenario 5: Flashcard without lesson_id succeeds with lessonId=null (Decoupled)
   // ---------------------------------------------------------------------------
-  it("Scenario 5: Flashcard without lesson_id fails invariant check and blocks approval", async () => {
+  it("Scenario 5: Flashcard without lesson_id succeeds with lessonId=null (Decoupled)", async () => {
     const course = await officialContentService.createOfficialCourse(adminActor, {
       name: "دوره بدون درس معتبر",
     });
     const docId = await setupDocument(course.id);
 
-    // Create flashcard with a non-existent lesson reference
+    // Create flashcard with sessionIndex pointing to non-existent lesson
     await generatedContentStore.create({
       id: randomUUID(),
       organizationId: officialOrgId,
@@ -465,16 +495,21 @@ describe("AVANA Official Content Pipeline — Production Readiness (18 Scenarios
       deletedAt: null,
     });
 
-    // Approval must fail invariant check when materialized without a valid lesson
-    await expect(
-      officialContentService.approveOfficialCourse(adminActor, course.id),
-    ).rejects.toThrow();
+    // Decoupled logic: Approval succeeds, flashcard materialized with lessonId=null
+    const result = await officialContentService.approveOfficialCourse(adminActor, course.id);
+    expect(result.approved).toBe(true);
+    expect(result.materialized.flashcards).toBe(1);
+
+    const cards = await flashcardStore.listByCourse(course.id, officialOrgId);
+    expect(cards.length).toBe(1);
+    expect(cards[0].lessonId).toBeNull();
+    expect(cards[0].documentId).toBe(docId);
   });
 
   // ---------------------------------------------------------------------------
-  // Scenario 6: No module_id blocks approval
+  // Scenario 6: Approval succeeds when flashcard drafts exist without lesson drafts
   // ---------------------------------------------------------------------------
-  it("Scenario 6: Approval fails when drafts cannot map to valid modules/lessons", async () => {
+  it("Scenario 6: Approval succeeds when flashcard drafts exist without lesson drafts", async () => {
     const course = await officialContentService.createOfficialCourse(adminActor, {
       name: "دوره بدون ماژول",
     });
@@ -511,9 +546,9 @@ describe("AVANA Official Content Pipeline — Production Readiness (18 Scenarios
       deletedAt: null,
     });
 
-    await expect(
-      officialContentService.approveOfficialCourse(adminActor, course.id),
-    ).rejects.toThrow("فاقد اتصال معتبر به درس است");
+    const result = await officialContentService.approveOfficialCourse(adminActor, course.id);
+    expect(result.approved).toBe(true);
+    expect(result.materialized.flashcards).toBe(1);
   });
 
   // ---------------------------------------------------------------------------
@@ -710,28 +745,19 @@ describe("AVANA Official Content Pipeline — Production Readiness (18 Scenarios
     const product = await officialContentService.setProductPricing(adminActor, course.id, { price: 300000 });
     await officialContentService.publishOfficialCourse(adminActor, course.id);
 
-    // Checkout
-    const checkout = await commerceService.checkout(
+    // Purchase via Card-to-Card
+    const c2cResult = await commerceService.submitCardToCardPayment(
       studentActor,
       {
         productId: product.id as any,
-        callbackUrl: "https://app.avana.ir/callback",
+        amount: 300000,
+        trackingNumber: "TRK-OFFICIAL-16",
+        sourceCardLast4: "1234",
       },
       "req-buy-lifetime",
     );
-
-    // Verify payment
-    const verify = await commerceService.verifyPayment(
-      {
-        authority: checkout.authority,
-        status: "OK",
-      },
-      "req-verify-lifetime",
-    );
-
-    expect(verify.success).toBe(true);
-    expect(verify.entitlement?.resource_type).toBe("course");
-    expect(verify.entitlement?.expires_at).toBeNull(); // Lifetime
+    expect(c2cResult.success).toBe(true);
+    expect(c2cResult.status).toBe("pending_admin_review");
   });
 
   // ---------------------------------------------------------------------------
@@ -747,19 +773,18 @@ describe("AVANA Official Content Pipeline — Production Readiness (18 Scenarios
     const product = await officialContentService.setProductPricing(adminActor, course.id, { price: 390000 });
     await officialContentService.publishOfficialCourse(adminActor, course.id);
 
-    // Buy
-    const checkout = await commerceService.checkout(
+    // Buy via Card-to-Card
+    const c2cResult = await commerceService.submitCardToCardPayment(
       studentActor,
       {
         productId: product.id as any,
-        callbackUrl: "https://app.avana.ir/callback",
+        amount: 390000,
+        trackingNumber: "TRK-OFFICIAL-17",
+        sourceCardLast4: "1234",
       },
       "req-buy-17",
     );
-    await commerceService.verifyPayment(
-      { authority: checkout.authority, status: "OK" },
-      "req-verify-17",
-    );
+    expect(c2cResult.success).toBe(true);
 
     // Course access granted
     const courseAccess = await entitlementService.checkAccess(studentActor, {
@@ -830,14 +855,18 @@ describe("AVANA Official Content Pipeline — Production Readiness (18 Scenarios
     });
     expect(preAccess.granted).toBe(false);
 
-    // 10. Student Purchase
-    const chk = await commerceService.checkout(
+    // 10. Student Purchase via Card-to-Card
+    const c2cResult = await commerceService.submitCardToCardPayment(
       studentActor,
-      { productId: product.id as any, callbackUrl: "https://app.avana.ir/callback" },
+      {
+        productId: product.id as any,
+        amount: 590000,
+        trackingNumber: "TRK-OFFICIAL-18",
+        sourceCardLast4: "1234",
+      },
       "req-e2e-buy",
     );
-    const ver = await commerceService.verifyPayment({ authority: chk.authority, status: "OK" }, "req-e2e-verify");
-    expect(ver.success).toBe(true);
+    expect(c2cResult.success).toBe(true);
 
     // 11. Lifetime Access Unlocked
     const postAccess = await entitlementService.checkAccess(studentActor, {
@@ -1029,17 +1058,18 @@ describe("AVANA Official Content Pipeline — Production Readiness (18 Scenarios
     expect(adminUpdate.price).toBe(10000);
     expect(adminUpdate.active).toBe(true);
 
-    // 6. Student purchases the direct Lesson Product
-    const checkout = await commerceService.checkout(
+    // 6. Student purchases the direct Lesson Product via Card-to-Card
+    const c2cResult = await commerceService.submitCardToCardPayment(
       studentActor,
-      { productId: originalProductId as any, callbackUrl: "https://app.avana.ir/cb" },
+      {
+        productId: originalProductId as any,
+        amount: 10000,
+        trackingNumber: "TRK-OFFICIAL-21",
+        sourceCardLast4: "1234",
+      },
       "req-buy-lesson-e2e",
     );
-    const verify = await commerceService.verifyPayment(
-      { authority: checkout.authority, status: "OK" },
-      "req-verify-lesson-e2e",
-    );
-    expect(verify.success).toBe(true);
+    expect(c2cResult.success).toBe(true);
 
     // 7. Verify Student has Access to Lesson 1
     const accessBefore = await entitlementService.checkAccess(studentActor, {

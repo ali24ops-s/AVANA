@@ -89,7 +89,7 @@ describe("StudyAssistantModal Component", () => {
     expect(onClose).not.toHaveBeenCalled();
 
     // Click on backdrop overlay (div with aria-hidden="true")
-    const backdrop = document.querySelector(".bg-slate-950\\/65");
+    const backdrop = document.querySelector('div[aria-hidden="true"]');
     expect(backdrop).toBeInTheDocument();
     if (backdrop) {
       fireEvent.click(backdrop);

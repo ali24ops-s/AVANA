@@ -30,7 +30,7 @@ export const AboutPage: React.FC = () => {
   }, []);
 
   return (
-    <div className="landing-page min-h-screen relative font-body bg-[#0b1120] text-slate-100 selection:bg-teal-500/30 selection:text-teal-200">
+    <div className="landing-page min-h-screen relative font-body bg-[var(--color-background)] text-[var(--color-text)] selection:bg-[#008080]/15 selection:text-[#008080]">
       {/* Unified Navigation with Scroll Progress */}
       <AboutNavbar />
 

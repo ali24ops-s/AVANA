@@ -11,7 +11,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { useParams, Link, useSearchParams } from "react-router-dom";
+import { useParams, Link, useSearchParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   BookOpen,
@@ -38,6 +38,7 @@ import {
   Lock,
   ShoppingBag,
 } from "lucide-react";
+import { Button, Badge } from "@avana/ui";
 import { MarkdownRenderer } from "../components/markdown/MarkdownRenderer.js";
 import { FlashcardExperience } from "../components/flashcards/FlashcardExperience.js";
 import { QuizListView } from "../components/quiz/QuizListView.js";
@@ -54,7 +55,13 @@ import { createOrganizationApi } from "../lib/api/organizations.js";
 import { createReviewApi } from "../lib/api/review.js";
 import { StudyAssistantChat } from "../components/ai/StudyAssistantChat.js";
 import { useStudySessionTracker } from "../hooks/useStudySessionTracker.js";
+import { ComingSoonGenerationModal } from "../components/generation/ComingSoonGenerationModal.js";
+import {
+  canUserGenerateContent,
+  isContentManagerOrAdmin,
+} from "../utils/generationPermissions.js";
 import type { CourseLearnResponse } from "@avana/contracts";
+import { toPersianDigits, formatPersianOf } from "@avana/domain";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -117,7 +124,11 @@ export function LearningPage() {
   ];
   const activeTab: LearningTab = validTabs.includes(rawTab) ? rawTab : "lessons";
 
-  const { memberships } = useAuth();
+  const { user, memberships } = useAuth();
+  const isGenerationPermitted = canUserGenerateContent(user, memberships);
+  const isManagerOrAdmin = isContentManagerOrAdmin(user, memberships);
+  const [isComingSoonOpen, setIsComingSoonOpen] = useState(false);
+  const [isCoursePaywallOpen, setIsCoursePaywallOpen] = useState(false);
   const orgQuery = useOrganization();
   const organization =
     orgQuery.data?.items?.[0] ||
@@ -131,11 +142,11 @@ export function LearningPage() {
   const learningApi = createLearningApi(apiClient);
   const reviewApi = createReviewApi(apiClient);
 
-  // Review queue query for badge count
+  // Review queue query for badge count (only polled if generation is permitted)
   const reviewQueueQuery = useQuery({
     queryKey: ["review-queue", organization?.id, courseId],
     queryFn: () => reviewApi.getReviewQueue(organization!.id, courseId!),
-    enabled: !!organization?.id && !!courseId,
+    enabled: !!organization?.id && !!courseId && isGenerationPermitted,
     refetchInterval: 5000,
   });
   const pendingReviewCount = reviewQueueQuery.data?.pending?.length ?? 0;
@@ -175,8 +186,13 @@ export function LearningPage() {
       module.lessons.some((lesson) => lesson.id === selectedLessonId),
     );
     if (!selectionExists && firstModule) {
-      setSelectedLessonId(firstModule.lessons[0].id);
-      setExpandedModules(new Set([firstModule.id]));
+      const defaultLessonId =
+        (data as any).preview?.preview_lesson_id ?? firstModule.lessons[0].id;
+      setSelectedLessonId(defaultLessonId);
+      const containingMod = data.modules.find((m) =>
+        m.lessons.some((l) => l.id === defaultLessonId),
+      );
+      setExpandedModules(new Set([containingMod ? containingMod.id : firstModule.id]));
     }
   }, [data, rawLessonId, selectedLessonId]);
 
@@ -269,7 +285,7 @@ export function LearningPage() {
   if (isLoading || orgQuery.isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <Loader2 className="w-8 h-8 animate-spin text-[#008080]" />
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
       </div>
     );
   }
@@ -286,16 +302,16 @@ export function LearningPage() {
           {(error as Error)?.message ?? "خطایی در دریافت اطلاعات رخ داد."}
         </p>
         <div className="flex items-center gap-3 mt-5">
-          <button
-            type="button"
+          <Button
+            variant="primary"
+            size="sm"
             onClick={() => {
               void refetch();
               void orgQuery.refetch();
             }}
-            className="px-5 py-2.5 bg-[#008080] hover:bg-[#006666] text-white rounded-xl text-xs font-bold transition-all shadow-sm"
           >
             تلاش مجدد
-          </button>
+          </Button>
           <Link
             to="/courses"
             className="px-5 py-2.5 bg-[var(--color-surface-warm)] hover:bg-[var(--color-border)] text-[var(--color-text)] border border-[var(--color-border)] rounded-xl text-xs font-bold transition-all"
@@ -344,10 +360,19 @@ export function LearningPage() {
 
   return (
     <div className="space-y-6">
+      {/* Course Paywall Modal for Flashcard/Quiz preview unlocks */}
+      <PaywallModal
+        isOpen={isCoursePaywallOpen}
+        onClose={() => setIsCoursePaywallOpen(false)}
+        resourceTitle={course.title}
+        resourceType="course"
+        availablePurchaseOptions={(data as any).access?.availablePurchaseOptions ?? []}
+      />
+
       {/* Back link */}
       <Link
         to="/courses"
-        className="inline-flex items-center gap-2 text-xs font-semibold text-[var(--color-text-muted)] hover:text-[#008080] transition-colors"
+        className="inline-flex items-center gap-2 text-xs font-semibold text-[var(--color-text-muted)] hover:text-primary transition-colors"
       >
         <ArrowRight className="w-4 h-4" />
         <span>بازگشت به دوره‌ها</span>
@@ -360,10 +385,10 @@ export function LearningPage() {
         access={(data as any).access}
         availablePurchaseOptions={(data as any).access?.availablePurchaseOptions}
         manageLink={
-          courseId ? (
+          courseId && isManagerOrAdmin ? (
             <Link
               to={`/courses/${courseId}/manage`}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-[#008080] border border-[#008080]/30 hover:bg-[#008080]/10 transition-colors flex-shrink-0"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-primary border border-primary/30 hover:bg-primary/10 transition-colors flex-shrink-0"
             >
               <Sparkles className="w-3.5 h-3.5" />
               <span>مدیریت محتوا و سرفصل‌ها</span>
@@ -411,18 +436,34 @@ export function LearningPage() {
         <TabButton
           icon={UploadCloud}
           label="منابع و اسناد (PDF)"
+          badge={!isGenerationPermitted ? "به‌زودی" : undefined}
           active={activeTab === "documents"}
-          onClick={() => setTab("documents")}
+          onClick={() => {
+            if (!isGenerationPermitted) {
+              setIsComingSoonOpen(true);
+              return;
+            }
+            setTab("documents");
+          }}
         />
         <TabButton
           icon={Sparkles}
           label={
-            pendingReviewCount > 0
-              ? `صف بررسی محتوا (${pendingReviewCount})`
-              : "صف بررسی محتوا (AI)"
+            !isGenerationPermitted
+              ? "صف بررسی محتوا"
+              : pendingReviewCount > 0
+                ? `صف بررسی محتوا (${pendingReviewCount})`
+                : "صف بررسی محتوا (AI)"
           }
+          badge={!isGenerationPermitted ? "به‌زودی" : undefined}
           active={activeTab === "review"}
-          onClick={() => setTab("review")}
+          onClick={() => {
+            if (!isGenerationPermitted) {
+              setIsComingSoonOpen(true);
+              return;
+            }
+            setTab("review");
+          }}
         />
       </div>
 
@@ -445,7 +486,7 @@ export function LearningPage() {
             </span>
             <Link
               to={`/flashcards?courses=${courseId}`}
-              className="px-4 py-2 bg-[#008080]/10 hover:bg-[#008080]/20 text-[#008080] rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
+              className="px-4 py-2 bg-primary/10 hover:bg-primary/20 text-primary rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
             >
               <span>تنظیم هدف مطالعه و انتخاب سرفصل‌ها</span>
               <ChevronRight className="w-3.5 h-3.5" />
@@ -456,6 +497,8 @@ export function LearningPage() {
             organizationId={((data?.course as any)?.organization_id) || organization.id}
             courseId={courseId!}
             onBack={() => setTab("lessons")}
+            isPreview={(data?.course as any)?.locked === true}
+            onUnlock={() => setIsCoursePaywallOpen(true)}
           />
         </div>
       )}
@@ -464,6 +507,8 @@ export function LearningPage() {
         <QuizListView
           organizationId={((data?.course as any)?.organization_id) || organization.id}
           courseId={courseId!}
+          isPreview={(data?.course as any)?.locked === true}
+          onUnlock={() => setIsCoursePaywallOpen(true)}
         />
       )}
 
@@ -476,42 +521,116 @@ export function LearningPage() {
       )}
 
       {activeTab === "documents" && (
-        <CourseDocumentsView
-          organizationId={organization.id}
-          courseId={courseId!}
-          onNavigateToReview={() => setTab("review")}
-        />
+        isGenerationPermitted ? (
+          <CourseDocumentsView
+            organizationId={organization.id}
+            courseId={courseId!}
+            onNavigateToReview={() => setTab("review")}
+          />
+        ) : (
+          <div className="bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] p-12 text-center space-y-4 shadow-sm" dir="rtl">
+            <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-500 flex items-center justify-center mx-auto shadow-inner">
+              <Clock className="w-8 h-8" />
+            </div>
+            <div className="space-y-2 max-w-md mx-auto">
+              <div className="flex items-center justify-center gap-2">
+                <h3 className="text-base font-bold text-[var(--color-text)]">
+                  اسناد و منابع (به‌زودی)
+                </h3>
+                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                  به‌زودی
+                </span>
+              </div>
+              <p className="text-xs text-[var(--color-text-muted)] leading-relaxed">
+                قابلیت تولید محتوای هوشمند به‌زودی در آوانا فعال خواهد شد. بارگذاری اسناد و استخراج خودکار سرفصل‌ها در فاز بعدی در دسترس قرار می‌گیرد.
+              </p>
+            </div>
+            <div className="pt-2 flex items-center justify-center gap-3">
+              <Button
+                variant="outline"
+                size="md"
+                onClick={() => setTab("lessons")}
+              >
+                بازگشت به درس‌های دوره
+              </Button>
+              <Button
+                variant="primary"
+                size="md"
+                onClick={() => setIsComingSoonOpen(true)}
+              >
+                اطلاعات بیشتر
+              </Button>
+            </div>
+          </div>
+        )
       )}
 
       {activeTab === "review" && (
-        <div className="space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-[var(--color-surface)] p-6 rounded-3xl border border-[var(--color-border)] shadow-sm">
-            <div className="space-y-1">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-lg bg-[#a7d0e6]/30 text-[#008080] text-xs font-bold">
-                <Sparkles className="w-4 h-4" />
-                <span>بررسی و تایید پیش‌نویس‌های هوش مصنوعی</span>
+        isGenerationPermitted ? (
+          <div className="space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-[var(--color-surface)] p-6 rounded-card border border-[var(--color-border)] shadow-sm">
+              <div className="space-y-1">
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-button bg-secondary/30 text-primary text-xs font-bold">
+                  <Sparkles className="w-4 h-4" />
+                  <span>بررسی و تایید پیش‌نویس‌های هوش مصنوعی</span>
+                </div>
+                <h2 className="text-lg font-bold text-[var(--color-text)]">
+                  صف بررسی و انتشار محتوای تولیدشده
+                </h2>
+                <p className="text-xs text-[var(--color-text-muted)]">
+                  پیش‌نویس درس‌ها، فلش‌کارت‌ها و آزمون‌های استخراج‌شده از منابع درسی را بررسی، ویرایش یا تایید کنید.
+                </p>
               </div>
-              <h2 className="text-lg font-bold text-[var(--color-text)]">
-                صف بررسی و انتشار محتوای تولیدشده
-              </h2>
-              <p className="text-xs text-[var(--color-text-muted)]">
-                پیش‌نویس درس‌ها، فلش‌کارت‌ها و آزمون‌های استخراج‌شده از منابع درسی را بررسی، ویرایش یا تایید کنید.
+              <Link
+                to={`/courses/${courseId}/manage?tab=review`}
+                className="inline-flex items-center gap-2 px-4 py-2.5 bg-primary text-white text-xs font-bold rounded-button hover:bg-primary-hover transition-all shadow-sm flex-shrink-0"
+              >
+                <span>مدیریت کامل محتوا و سرفصل‌ها</span>
+                <ChevronLeft className="w-4 h-4" />
+              </Link>
+            </div>
+
+            <ReviewQueueList
+              organizationId={organization.id}
+              courseId={courseId!}
+            />
+          </div>
+        ) : (
+          <div className="bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] p-12 text-center space-y-4 shadow-sm" dir="rtl">
+            <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-500 flex items-center justify-center mx-auto shadow-inner">
+              <Clock className="w-8 h-8" />
+            </div>
+            <div className="space-y-2 max-w-md mx-auto">
+              <div className="flex items-center justify-center gap-2">
+                <h3 className="text-base font-bold text-[var(--color-text)]">
+                  صف بازبینی محتوا (به‌زودی)
+                </h3>
+                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                  به‌زودی
+                </span>
+              </div>
+              <p className="text-xs text-[var(--color-text-muted)] leading-relaxed">
+                قابلیت تولید محتوای هوشمند به‌زودی در آوانا فعال خواهد شد. محیط بازبینی پیش‌نویس‌های هوش مصنوعی در حال حاضر برای کاربران عادی غیرفعال است.
               </p>
             </div>
-            <Link
-              to={`/courses/${courseId}/manage?tab=review`}
-              className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#008080] text-white text-xs font-bold rounded-xl hover:bg-[#006666] transition-all shadow-sm flex-shrink-0"
-            >
-              <span>مدیریت کامل محتوا و سرفصل‌ها</span>
-              <ChevronLeft className="w-4 h-4" />
-            </Link>
+            <div className="pt-2 flex items-center justify-center gap-3">
+              <Button
+                variant="outline"
+                size="md"
+                onClick={() => setTab("lessons")}
+              >
+                بازگشت به درس‌های دوره
+              </Button>
+              <Button
+                variant="primary"
+                size="md"
+                onClick={() => setIsComingSoonOpen(true)}
+              >
+                اطلاعات بیشتر
+              </Button>
+            </div>
           </div>
-
-          <ReviewQueueList
-            organizationId={organization.id}
-            courseId={courseId!}
-          />
-        </div>
+        )
       )}
 
       {activeTab === "lessons" && (
@@ -519,8 +638,8 @@ export function LearningPage() {
           <SubscriptionBanner className="mb-6" />
           {totalLessonsCount === 0 ? (
             <div className="w-full">
-              <div className="bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] p-10 text-center space-y-4 shadow-sm">
-                <div className="w-16 h-16 rounded-2xl bg-[#008080]/10 text-[#008080] border border-[#008080]/20 flex items-center justify-center mx-auto shadow-inner">
+              <div className="bg-[var(--color-surface)] rounded-card border border-[var(--color-border)] p-10 text-center space-y-4 shadow-sm">
+                <div className="w-16 h-16 rounded-button bg-primary/10 text-primary border border-primary/20 flex items-center justify-center mx-auto shadow-inner">
                   <BookOpen className="w-8 h-8" />
                 </div>
                 <div className="space-y-1.5 max-w-md mx-auto">
@@ -532,14 +651,20 @@ export function LearningPage() {
                   </p>
                 </div>
                 <div className="pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setTab("documents")}
-                    className="inline-flex items-center gap-2 px-6 py-3 bg-[#008080] hover:bg-[#006666] text-white rounded-2xl text-xs font-bold transition-all shadow-md active:scale-95 cursor-pointer"
+                  <Button
+                    variant="primary"
+                    size="lg"
+                    onClick={() => {
+                      if (!isGenerationPermitted) {
+                        setIsComingSoonOpen(true);
+                        return;
+                      }
+                      setTab("documents");
+                    }}
+                    leftIcon={<UploadCloud className="w-4 h-4" />}
                   >
-                    <UploadCloud className="w-4 h-4" />
-                    <span>افزودن فایل PDF</span>
-                  </button>
+                    {!isGenerationPermitted ? "افزودن فایل PDF (به‌زودی)" : "افزودن فایل PDF"}
+                  </Button>
                 </div>
               </div>
             </div>
@@ -563,7 +688,7 @@ export function LearningPage() {
                           سرفصل‌های دوره
                         </h2>
                         <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
-                          {totalLessonsCount} درس
+                          {toPersianDigits(totalLessonsCount)} درس
                         </p>
                       </div>
                       <button
@@ -614,25 +739,25 @@ export function LearningPage() {
               {/* Desktop Collapsible Sidebar */}
               {isSidebarOpen && (
                 <aside className="hidden lg:block w-72 xl:w-80 flex-shrink-0 sticky top-24 z-20">
-                  <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] overflow-hidden shadow-sm flex flex-col max-h-[calc(100vh-8rem)]">
+                  <div className="bg-[var(--color-surface)] rounded-card border border-[var(--color-border)] overflow-hidden shadow-sm flex flex-col max-h-[calc(100vh-8rem)]">
                     <div className="p-4 border-b border-[var(--color-border)] bg-[var(--color-surface-warm)] flex items-center justify-between">
                       <div>
                         <h2 className="font-bold text-sm text-[var(--color-text)]">
                           سرفصل‌های دوره
                         </h2>
                         <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
-                          {totalLessonsCount} درس
+                          {toPersianDigits(totalLessonsCount)} درس
                         </p>
                       </div>
-                      <button
-                        type="button"
+                      <Button
+                        variant="ghost"
+                        size="sm"
                         onClick={() => setIsSidebarOpen(false)}
                         title="بستن سرفصل‌ها"
                         aria-label="بستن پنل سرفصل‌ها"
-                        className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
-                      >
-                        <PanelRightClose className="w-4 h-4" />
-                      </button>
+                        leftIcon={<PanelRightClose className="w-4 h-4" />}
+                        className="!p-1.5 !h-auto text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+                      />
                     </div>
                     <nav className="p-2 space-y-1 overflow-y-auto flex-1 custom-scrollbar">
                       {modules.map((mod) => (
@@ -710,6 +835,10 @@ export function LearningPage() {
           )}
         </div>
       )}
+      <ComingSoonGenerationModal
+        isOpen={isComingSoonOpen}
+        onClose={() => setIsComingSoonOpen(false)}
+      />
     </div>
   );
 }
@@ -721,11 +850,13 @@ export function LearningPage() {
 function TabButton({
   icon: Icon,
   label,
+  badge,
   active,
   onClick,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
+  badge?: string;
   active: boolean;
   onClick: () => void;
 }) {
@@ -735,14 +866,19 @@ function TabButton({
       role="tab"
       aria-selected={active}
       onClick={onClick}
-      className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
+      className={`flex items-center gap-2 px-4 py-2.5 rounded-button text-xs font-bold transition-all whitespace-nowrap ${
         active
-          ? "bg-[#008080] text-white shadow-sm"
+          ? "bg-primary text-white shadow-sm"
           : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)]"
       }`}
     >
       <Icon className="w-4 h-4" />
       <span>{label}</span>
+      {badge && (
+        <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+          {badge}
+        </span>
+      )}
     </button>
   );
 }
@@ -764,7 +900,7 @@ function CourseHeader({
   availablePurchaseOptions?: any[];
   manageLink?: React.ReactNode;
 }) {
-  const checkoutMutation = useCheckout();
+  const navigate = useNavigate();
   const courseOption = availablePurchaseOptions?.find(
     (opt) => opt.type === "course",
   );
@@ -779,10 +915,10 @@ function CourseHeader({
     : null;
 
   return (
-    <div className="bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] p-5 sm:p-6 shadow-sm">
+    <div className="bg-[var(--color-surface)] rounded-card border border-[var(--color-border)] p-5 sm:p-6 shadow-sm">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3.5 min-w-0">
-          <div className="w-11 h-11 rounded-2xl bg-teal-600/20 text-teal-400 border border-teal-500/20 flex items-center justify-center flex-shrink-0 shadow-inner">
+          <div className="w-11 h-11 rounded-button bg-primary/10 text-primary border border-primary/20 flex items-center justify-center flex-shrink-0 shadow-inner">
             <BookOpen className="w-5 h-5" />
           </div>
           <div className="flex-1 min-w-0">
@@ -798,31 +934,22 @@ function CourseHeader({
         <div className="flex items-center gap-2.5 flex-wrap sm:flex-nowrap flex-shrink-0">
           {/* Course Purchase CTA for paid unpurchased courses */}
           {isCourseLocked && courseOption && courseOption.price > 0 && (
-            <button
-              type="button"
+            <Button
+              variant="primary"
+              size="sm"
               onClick={() => {
-                checkoutMutation.mutate({
-                  product_id: courseOption.productId,
-                  callback_url: `${window.location.origin}/checkout/callback`,
-                });
+                navigate(`/checkout/card-to-card?productId=${encodeURIComponent(courseOption.productId)}`);
               }}
-              disabled={checkoutMutation.isPending}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-teal-600 to-indigo-600 hover:from-teal-500 hover:to-indigo-500 shadow-md shadow-teal-950/20 transition-all cursor-pointer disabled:opacity-60 flex-shrink-0"
+              leftIcon={<ShoppingBag className="w-3.5 h-3.5" />}
+              className="flex-shrink-0"
             >
-              {checkoutMutation.isPending ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <ShoppingBag className="w-3.5 h-3.5" />
-              )}
-              <span>
-                خرید کل دوره — {courseOption.price.toLocaleString("fa-IR")} تومان
-              </span>
-            </button>
+              خرید کل دوره — {courseOption.price.toLocaleString("fa-IR")} تومان
+            </Button>
           )}
 
           {examDate && (
-            <div className="flex items-center gap-1.5 text-xs text-[var(--color-text-muted)] bg-[var(--color-surface-warm)] px-3 py-1.5 rounded-xl border border-[var(--color-border)]">
-              <FileText className="w-3.5 h-3.5 text-teal-400" />
+            <div className="flex items-center gap-1.5 text-xs text-[var(--color-text-muted)] bg-[var(--color-surface-warm)] px-3 py-1.5 rounded-button border border-[var(--color-border)]">
+              <FileText className="w-3.5 h-3.5 text-primary" />
               <span>آزمون: {examDate}</span>
             </div>
           )}
@@ -835,12 +962,12 @@ function CourseHeader({
         <div className="mt-4 pt-3.5 border-t border-[var(--color-border)]">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2 text-xs font-semibold text-[var(--color-text-muted)]">
-              <Trophy className="w-3.5 h-3.5 text-amber-400" />
+              <Trophy className="w-3.5 h-3.5 text-amber-500" />
               <span>
-                {progress.completed_lessons} از {progress.total_lessons} درس تکمیل شده
+                {formatPersianOf(progress.completed_lessons, progress.total_lessons, { suffix: "درس تکمیل شده" })}
               </span>
             </div>
-            <span className="text-xs font-bold text-teal-400" dir="ltr">
+            <span className="text-xs font-bold text-primary" dir="ltr">
               {progress.progress_percent}%
             </span>
           </div>
@@ -853,7 +980,7 @@ function CourseHeader({
             aria-valuenow={progress.progress_percent}
           >
             <div
-              className="h-full bg-teal-500 rounded-full transition-all duration-500"
+              className="h-full bg-primary rounded-full transition-all duration-500"
               style={{ width: `${progress.progress_percent}%` }}
             />
           </div>
@@ -885,30 +1012,30 @@ function ModuleSection({
     module.lessons.length > 0 && completedCount === module.lessons.length;
 
   return (
-    <div className="rounded-xl overflow-hidden mb-1">
+    <div className="rounded-button overflow-hidden mb-1">
       {/* Module header (clickable to expand/collapse) */}
       <button
         type="button"
         onClick={onToggle}
         aria-expanded={isExpanded}
         aria-label={`${isExpanded ? "بستن" : "باز کردن"} فصل ${module.title}`}
-        className={`w-full flex items-center gap-2 px-3 py-2.5 text-right rounded-xl transition-all cursor-pointer ${
+        className={`w-full flex items-center gap-2 px-3 py-2.5 text-right rounded-button transition-all cursor-pointer ${
           isExpanded
-            ? "bg-teal-900/20 text-teal-400 font-semibold"
-            : "hover:bg-white/5 text-slate-200"
+            ? "bg-primary/10 text-primary font-semibold"
+            : "hover:bg-[var(--color-surface-warm)] text-[var(--color-text)]"
         }`}
       >
         {isExpanded ? (
-          <ChevronDown className="w-4 h-4 text-teal-400 flex-shrink-0 transition-transform duration-200" />
+          <ChevronDown className="w-4 h-4 text-primary flex-shrink-0 transition-transform duration-200" />
         ) : (
-          <ChevronLeft className="w-4 h-4 text-slate-400 flex-shrink-0 transition-transform duration-200" />
+          <ChevronLeft className="w-4 h-4 text-[var(--color-text-muted)] flex-shrink-0 transition-transform duration-200" />
         )}
         <div className="flex-1 min-w-0">
           <span className="text-xs font-bold block truncate">
             {module.title}
           </span>
           {module.description && (
-            <span className="text-[11px] text-slate-400 block truncate mt-0.5">
+            <span className="text-[11px] text-[var(--color-text-muted)] block truncate mt-0.5">
               {module.description}
             </span>
           )}
@@ -917,10 +1044,10 @@ function ModuleSection({
           <span
             className={`text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${
               isAllCompleted
-                ? "bg-teal-500/20 text-teal-300 border border-teal-500/30"
+                ? "bg-primary/15 text-primary border border-primary/30"
                 : completedCount > 0
-                  ? "bg-white/5 text-slate-300"
-                  : "text-slate-400"
+                  ? "bg-[var(--color-surface-warm)] text-[var(--color-text-secondary)]"
+                  : "text-[var(--color-text-muted)]"
             }`}
             dir="ltr"
           >
@@ -931,7 +1058,7 @@ function ModuleSection({
 
       {/* Lesson list (visible when expanded) */}
       {isExpanded && (
-        <div className="mr-2 mt-1 space-y-0.5 pb-1 pr-2.5 border-r border-teal-500/20">
+        <div className="mr-2 mt-1 space-y-0.5 pb-1 pr-2.5 border-r border-primary/20">
           {module.lessons.map((lesson) => (
             <LessonNavItem
               key={lesson.id}
@@ -964,37 +1091,42 @@ function LessonNavItem({
       type="button"
       onClick={onSelect}
       aria-current={isSelected ? "true" : undefined}
-      className={`w-full flex items-center gap-2.5 px-3 py-2 text-right rounded-xl text-xs transition-all cursor-pointer ${
+      className={`w-full flex items-center gap-2.5 px-3 py-2 text-right rounded-button text-xs transition-all cursor-pointer ${
         isSelected
-          ? "bg-teal-500/20 text-white font-bold border-r-2 border-teal-400 shadow-xs"
-          : "text-slate-300 hover:text-white hover:bg-white/5"
+          ? "bg-primary/15 text-primary dark:text-teal-300 font-bold border-r-2 border-primary shadow-xs"
+          : "text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-warm)]"
       }`}
     >
       {lesson.completed ? (
         <CheckCircle2
           className={`w-4 h-4 flex-shrink-0 ${
-            isSelected ? "text-teal-300" : "text-teal-400/90"
+            isSelected ? "text-primary" : "text-primary/90"
           }`}
         />
       ) : (
         <span
           className={`w-2 h-2 rounded-full flex-shrink-0 transition-colors ${
             isSelected
-              ? "bg-teal-400 ring-2 ring-teal-400/30"
-              : "border border-slate-500/60 bg-transparent"
+              ? "bg-primary ring-2 ring-primary/30"
+              : "border border-[var(--color-text-muted)] bg-transparent"
           }`}
         />
       )}
       <span className="truncate flex-1 text-[13px] flex items-center gap-1.5">
         <span>{lesson.title}</span>
         {(lesson as any).locked && (
-          <Lock className="w-3 h-3 text-amber-400 shrink-0" />
+          <Lock className="w-3 h-3 text-amber-500 shrink-0" />
+        )}
+        {lesson.is_preview && (
+          <Badge variant="info" size="sm">
+            پیش‌نمایش رایگان
+          </Badge>
         )}
       </span>
       {lesson.estimated_minutes && (
         <span
           className={`text-[10px] flex-shrink-0 flex items-center gap-1 ${
-            isSelected ? "text-teal-200/90" : "text-slate-400"
+            isSelected ? "text-primary font-semibold" : "text-[var(--color-text-muted)]"
           }`}
         >
           <Clock className="w-3 h-3" />
@@ -1055,7 +1187,7 @@ function LessonViewer({
   const contentOption = rawOptions.find((opt: any) => opt.type === "content");
 
   return (
-    <article className="bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] overflow-hidden shadow-ambient">
+    <article className="bg-[var(--color-surface)] rounded-card border border-[var(--color-border)] overflow-hidden shadow-ambient">
       {/* Paywall Modal */}
       <PaywallModal
         isOpen={isPaywallOpen}
@@ -1074,67 +1206,67 @@ function LessonViewer({
               <span className="truncate max-w-[200px] hidden sm:inline">{courseTitle}</span>
             )}
             {courseTitle && moduleTitle && <span className="hidden sm:inline text-slate-600">/</span>}
-            <span className="inline-block text-[11px] font-bold text-teal-300 bg-teal-950/40 border border-teal-500/20 px-2.5 py-0.5 rounded-lg truncate">
+            <span className="inline-block text-[11px] font-bold text-primary dark:text-teal-300 bg-primary/10 border border-primary/20 px-2.5 py-0.5 rounded-button truncate">
               {moduleTitle}
             </span>
+            {lesson.is_preview && (
+              <Badge variant="info" size="sm" icon={<Sparkles className="w-3 h-3" />}>
+                پیش‌نمایش رایگان
+              </Badge>
+            )}
           </div>
 
           <div className="flex items-center gap-2 flex-shrink-0">
             {/* Mobile Drawer Trigger Button */}
             {onOpenMobileDrawer && (
-              <button
-                type="button"
+              <Button
+                variant="tertiary"
+                size="sm"
                 onClick={onOpenMobileDrawer}
-                className="lg:hidden inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-200 bg-white/5 hover:bg-white/10 border border-white/10 transition-colors"
                 aria-label="سرفصل‌های دوره"
+                leftIcon={<ListOrdered className="w-3.5 h-3.5 text-primary" />}
+                className="lg:hidden"
               >
-                <ListOrdered className="w-3.5 h-3.5 text-teal-400" />
-                <span>سرفصل‌ها</span>
-              </button>
+                سرفصل‌ها
+              </Button>
             )}
 
             {/* Desktop Sidebar Toggle Button */}
             {onToggleSidebar && (
-              <button
-                type="button"
+              <Button
+                variant="tertiary"
+                size="sm"
                 onClick={onToggleSidebar}
-                className="hidden lg:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-300 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 transition-colors cursor-pointer"
                 title={isSidebarOpen ? "بستن سرفصل‌ها برای تمرکز بر مطالعه" : "نمایش سرفصل‌های دوره"}
                 aria-label={isSidebarOpen ? "بستن سرفصل‌ها" : "نمایش سرفصل‌ها"}
+                leftIcon={
+                  isSidebarOpen ? (
+                    <PanelRightClose className="w-3.5 h-3.5 text-primary" />
+                  ) : (
+                    <PanelRightOpen className="w-3.5 h-3.5 text-primary" />
+                  )
+                }
+                className="hidden lg:inline-flex"
               >
-                {isSidebarOpen ? (
-                  <>
-                    <PanelRightClose className="w-3.5 h-3.5 text-teal-400" />
-                    <span>تمرکز مطالعه</span>
-                  </>
-                ) : (
-                  <>
-                    <PanelRightOpen className="w-3.5 h-3.5 text-teal-400" />
-                    <span>سرفصل‌ها</span>
-                  </>
-                )}
-              </button>
+                {isSidebarOpen ? "تمرکز مطالعه" : "سرفصل‌ها"}
+              </Button>
             )}
 
             {lesson.estimated_minutes && (
-              <div className="hidden md:flex items-center gap-1.5 text-xs text-slate-400 bg-white/5 px-2.5 py-1.5 rounded-xl border border-white/10 flex-shrink-0">
-                <Clock className="w-3.5 h-3.5 text-teal-400" />
+              <div className="hidden md:flex items-center gap-1.5 text-xs text-[var(--color-text-muted)] bg-[var(--color-surface)] px-2.5 py-1.5 rounded-button border border-[var(--color-border)] flex-shrink-0">
+                <Clock className="w-3.5 h-3.5 text-primary" />
                 <span>{lesson.estimated_minutes} دقیقه</span>
               </div>
             )}
 
-            <button
-              type="button"
+            <Button
+              variant={isAssistantOpen ? "secondary-purple" : "outline"}
+              size="sm"
               onClick={() => setIsAssistantOpen(!isAssistantOpen)}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer ${
-                isAssistantOpen
-                  ? "bg-purple-600 text-white shadow-purple-600/30 shadow-md"
-                  : "bg-purple-500/15 hover:bg-purple-500/25 text-purple-300 border border-purple-500/30"
-              }`}
+              leftIcon={<Sparkles className="w-3.5 h-3.5" />}
             >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>{isAssistantOpen ? "بستن دستیار" : "از آوانا بپرس"}</span>
-            </button>
+              {isAssistantOpen ? "بستن دستیار" : "از آوانا بپرس"}
+            </Button>
           </div>
         </div>
       </div>
@@ -1155,6 +1287,33 @@ function LessonViewer({
         </div>
       )}
 
+      {/* Free Preview Banner */}
+      {(lesson as any).is_preview && (
+        <div className="mx-6 sm:mx-8 lg:mx-10 mt-6 p-4 rounded-xl bg-teal-500/10 border border-teal-500/30 flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-3">
+            <span className="p-2 rounded-lg bg-teal-500/20 text-teal-600 dark:text-teal-400">
+              <Sparkles className="w-5 h-5" />
+            </span>
+            <div>
+              <h4 className="font-bold text-sm text-[var(--color-text)]">
+                پیش‌نمایش رایگان این دوره آموزشی
+              </h4>
+              <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">
+                شما در حال مطالعه جلسه نمونه رایگان هستید. برای دسترسی به همه سرفصل‌ها و آزمون‌ها، دوره را تهیه کنید.
+              </p>
+            </div>
+          </div>
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={() => setIsPaywallOpen(true)}
+            leftIcon={<Zap className="w-3.5 h-3.5 fill-current text-amber-300" />}
+          >
+            خرید و فعال‌سازی دوره
+          </Button>
+        </div>
+      )}
+
       {/* Lesson content rendered as markdown with optimal Persian reading measure */}
       <div className="p-6 sm:p-8 lg:p-10">
         <div className="max-w-4xl mx-auto prose prose-sm sm:prose-base">
@@ -1168,13 +1327,13 @@ function LessonViewer({
       {/* Completion button or Paywall CTA */}
       <div className="px-6 pb-6 pt-2 max-w-4xl mx-auto w-full space-y-3">
         {isError && (
-          <div className="p-3.5 bg-red-950/40 rounded-xl border border-red-500/30 text-xs text-red-300 flex items-center gap-2 justify-center">
+          <div className="p-3.5 bg-red-950/40 rounded-button border border-red-500/30 text-xs text-red-300 flex items-center gap-2 justify-center">
             <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
             <span>خطا در ثبت وضعیت تکمیل: {errorMessage || "لطفاً دوباره تلاش کنید."}</span>
           </div>
         )}
         {isLocked ? (
-          <div className="p-5 sm:p-6 rounded-2xl bg-gradient-to-r from-amber-500/10 via-indigo-500/10 to-purple-500/10 border border-amber-400/30 text-center space-y-3.5">
+          <div className="p-5 sm:p-6 rounded-card bg-gradient-to-r from-amber-500/10 via-indigo-500/10 to-purple-500/10 border border-amber-400/30 text-center space-y-3.5">
             <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-400/20 text-amber-300 text-xs font-bold">
               <Lock className="w-3.5 h-3.5" />
               <span>محتوای ویژه آوانا پلاس</span>
@@ -1183,76 +1342,94 @@ function LessonViewer({
               برای دسترسی به متن کامل این درسنامه، اشتراک تهیه کرده یا این محتوا را مستقلاً خریداری کنید
             </h4>
             <div className="flex items-center justify-center gap-2.5 flex-wrap pt-1">
-              <button
-                type="button"
+              <Button
+                variant="primary"
+                size="md"
                 onClick={() => setIsPaywallOpen(true)}
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-bold shadow-md transition-all cursor-pointer"
+                leftIcon={<Zap className="w-4 h-4 fill-current text-amber-300" />}
               >
-                <Zap className="w-4 h-4 fill-current text-amber-300" />
-                <span>مشاهده گزینه‌های خرید و دسترسی</span>
-              </button>
+                مشاهده گزینه‌های خرید و دسترسی
+              </Button>
               {contentOption && (
-                <button
-                  type="button"
+                <Button
+                  variant="secondary"
+                  size="md"
                   onClick={() => setIsPaywallOpen(true)}
-                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold shadow-md transition-all cursor-pointer"
+                  leftIcon={<FileText className="w-4 h-4" />}
                 >
-                  <FileText className="w-4 h-4" />
-                  <span>خرید تکی درسنامه ({contentOption.price.toLocaleString("fa-IR")} تومان)</span>
-                </button>
+                  خرید تکی درسنامه ({contentOption.price.toLocaleString("fa-IR")} تومان)
+                </Button>
               )}
             </div>
           </div>
         ) : lesson.completed ? (
-          <div className="flex items-center justify-center gap-2.5 w-full py-3.5 rounded-2xl bg-teal-950/30 border border-teal-500/30 text-teal-300 text-sm font-bold shadow-xs">
-            <CheckCircle2 className="w-5 h-5 text-teal-400" />
+          <div className="flex items-center justify-center gap-2.5 w-full py-3.5 rounded-button bg-primary/10 border border-primary/25 text-primary dark:text-teal-300 text-sm font-bold shadow-xs">
+            <CheckCircle2 className="w-5 h-5 text-primary" />
             <span>تکمیل شده</span>
           </div>
         ) : (
-          <button
-            type="button"
+          <Button
+            variant="primary"
+            size="lg"
+            fullWidth
             onClick={onComplete}
             disabled={isCompleting}
-            className="w-full py-3.5 rounded-2xl bg-[#008080] hover:bg-[#006666] disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-bold transition-all shadow-sm flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99]"
+            isLoading={isCompleting}
+            leftIcon={<CheckCircle2 className="w-5 h-5" />}
           >
-            {isCompleting ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                <span>در حال ذخیره...</span>
-              </>
-            ) : (
-              <>
-                <CheckCircle2 className="w-5 h-5" />
-                <span>ثبت به عنوان خوانده‌شده</span>
-              </>
-            )}
-          </button>
+            ثبت به عنوان خوانده‌شده
+          </Button>
+        )}
+
+        {(lesson as any).is_preview && (
+          <div className="p-6 sm:p-7 rounded-2xl bg-gradient-to-br from-teal-500/15 via-indigo-500/10 to-purple-500/15 border border-teal-500/30 text-center space-y-4 shadow-sm mt-4">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-teal-400/20 text-teal-600 dark:text-teal-300 text-xs font-bold">
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>پایان جلسه نمونه رایگان</span>
+            </div>
+            <h4 className="text-base sm:text-lg font-bold text-[var(--color-text)]">
+              از این مبحث لذت بردید؟ کل این دوره آموزشی را آزاد کنید!
+            </h4>
+            <p className="text-xs sm:text-sm text-[var(--color-text-secondary)] max-w-xl mx-auto leading-relaxed">
+              با تهیه این دوره به تمام درسنامه‌های تخصصی، فلش‌کارت‌های هوشمند لایتنر، آزمون‌های آزمایشی استاندارد و دستیار هوش مصنوعی آوانا دسترسی نامحدود پیدا می‌کنید.
+            </p>
+            <div className="pt-2 flex items-center justify-center gap-3 flex-wrap">
+              <Button
+                variant="primary"
+                size="md"
+                onClick={() => setIsPaywallOpen(true)}
+                leftIcon={<Zap className="w-4 h-4 fill-current text-amber-300" />}
+              >
+                مشاهده گزینه‌های خرید و ثبت‌نام
+              </Button>
+            </div>
+          </div>
         )}
       </div>
 
       {/* Navigation footer */}
       <div className="px-6 py-4 bg-[var(--color-surface-warm)] border-t border-[var(--color-border)] flex items-center justify-between gap-4">
         {prevLessonId ? (
-          <button
-            type="button"
+          <Button
+            variant="tertiary"
+            size="sm"
             onClick={() => onSelectLesson(prevLessonId)}
-            className="px-4 py-2 bg-[var(--color-surface)] hover:bg-white/10 border border-[var(--color-border)] text-[var(--color-text)] rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+            leftIcon={<ChevronRight className="w-4 h-4" />}
           >
-            <ChevronRight className="w-4 h-4" />
-            <span>درس قبلی</span>
-          </button>
+            درس قبلی
+          </Button>
         ) : (
           <div />
         )}
         {nextLessonId ? (
-          <button
-            type="button"
+          <Button
+            variant="tertiary"
+            size="sm"
             onClick={() => onSelectLesson(nextLessonId)}
-            className="px-4 py-2 bg-[var(--color-surface)] hover:bg-white/10 border border-[var(--color-border)] text-[var(--color-text)] rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+            rightIcon={<ChevronLeft className="w-4 h-4" />}
           >
-            <span>درس بعدی</span>
-            <ChevronLeft className="w-4 h-4" />
-          </button>
+            درس بعدی
+          </Button>
         ) : (
           <div />
         )}

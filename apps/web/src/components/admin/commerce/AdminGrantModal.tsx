@@ -153,20 +153,20 @@ export function AdminGrantModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
       <div
-        className="bg-slate-900 border border-slate-700/80 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+        className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl w-full max-w-lg shadow-xl overflow-hidden flex flex-col max-h-[90vh]"
         dir="rtl"
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 bg-slate-800/40">
-          <div className="flex items-center gap-2 text-teal-400 font-bold text-lg">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--color-border)] bg-[var(--color-surface-warm)]">
+          <div className="flex items-center gap-2 text-[var(--color-primary-default)] font-bold text-lg">
             <Sparkles className="w-5 h-5" />
             <span>اعطای دسترسی مستقیم ادمین (Admin Grant)</span>
           </div>
           <button
             onClick={onClose}
-            className="text-slate-400 hover:text-white p-1 rounded-lg transition-colors"
+            className="text-[var(--color-text-muted)] hover:text-[var(--color-text)] p-1 rounded-lg transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -175,14 +175,14 @@ export function AdminGrantModal({
         {/* Body */}
         <form onSubmit={handleSubmit} className="p-6 space-y-5 overflow-y-auto">
           {errorMsg && (
-            <div className="flex items-center gap-2 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-sm">
+            <div className="flex items-center gap-2 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-500 text-sm">
               <AlertCircle className="w-4 h-4 shrink-0" />
               <span>{errorMsg}</span>
             </div>
           )}
 
           {successMsg && (
-            <div className="flex items-center gap-2 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-sm">
+            <div className="flex items-center gap-2 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-sm">
               <CheckCircle2 className="w-4 h-4 shrink-0" />
               <span>{successMsg}</span>
             </div>
@@ -190,12 +190,12 @@ export function AdminGrantModal({
 
           {/* 1. Target User */}
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">
-              کاربر هدف <span className="text-teal-400">*</span>
+            <label className="block text-sm font-medium text-[var(--color-text)] mb-2">
+              کاربر هدف <span className="text-[var(--color-primary-default)]">*</span>
             </label>
             {defaultUserId ? (
-              <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-slate-800/60 border border-slate-700 text-slate-200 text-sm">
-                <User className="w-4 h-4 text-teal-400" />
+              <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-[var(--color-text)] text-sm">
+                <User className="w-4 h-4 text-[var(--color-primary-default)]" />
                 <span>{defaultUserEmail || defaultUserId}</span>
               </div>
             ) : (
@@ -208,15 +208,15 @@ export function AdminGrantModal({
                     setUserSearchQuery(e.target.value);
                     setSelectedUserId("");
                   }}
-                  className="w-full bg-slate-800/60 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-teal-500"
+                  className="w-full bg-[var(--color-surface-warm)] border border-[var(--color-border)] rounded-xl px-4 py-2.5 text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:border-[var(--color-primary-default)]"
                 />
                 {isSearchingUsers && (
-                  <span className="absolute left-3 top-3 text-xs text-slate-400">
+                  <span className="absolute start-3 top-3 text-xs text-[var(--color-text-muted)]">
                     در حال جستجو...
                   </span>
                 )}
                 {userSearchResults.length > 0 && !selectedUserId && (
-                  <div className="absolute z-20 top-full mt-1 w-full bg-slate-800 border border-slate-700 rounded-xl shadow-xl overflow-hidden divide-y divide-white/5">
+                  <div className="absolute z-20 top-full mt-1 w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl shadow-xl overflow-hidden divide-y divide-[var(--color-border)]">
                     {userSearchResults.map((u) => (
                       <button
                         type="button"
@@ -226,10 +226,10 @@ export function AdminGrantModal({
                           setUserSearchQuery(u.email);
                           setUserSearchResults([]);
                         }}
-                        className="w-full text-right px-4 py-2.5 text-sm text-slate-200 hover:bg-slate-700/60 flex items-center justify-between"
+                        className="w-full text-right px-4 py-2.5 text-sm text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] flex items-center justify-between cursor-pointer"
                       >
                         <span>{u.email}</span>
-                        {u.name && <span className="text-xs text-slate-400">{u.name}</span>}
+                        {u.name && <span className="text-xs text-[var(--color-text-muted)]">{u.name}</span>}
                       </button>
                     ))}
                   </div>
@@ -240,17 +240,17 @@ export function AdminGrantModal({
 
           {/* 2. Grant Resource Type */}
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">
-              نوع دسترسی <span className="text-teal-400">*</span>
+            <label className="block text-sm font-medium text-[var(--color-text)] mb-2">
+              نوع دسترسی <span className="text-[var(--color-primary-default)]">*</span>
             </label>
             <div className="grid grid-cols-3 gap-2">
               <button
                 type="button"
                 onClick={() => setResourceType("subscription")}
-                className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border text-xs font-medium transition-all ${
+                className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border text-xs font-medium transition-all cursor-pointer ${
                   resourceType === "subscription"
-                    ? "border-teal-500 bg-teal-500/10 text-teal-300"
-                    : "border-slate-700 bg-slate-800/40 text-slate-400 hover:bg-slate-800"
+                    ? "border-[var(--color-primary-default)] bg-[var(--color-primary-default)]/10 text-[var(--color-primary-default)]"
+                    : "border-[var(--color-border)] bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)]"
                 }`}
               >
                 <Sparkles className="w-5 h-5" />
@@ -260,10 +260,10 @@ export function AdminGrantModal({
               <button
                 type="button"
                 onClick={() => setResourceType("course")}
-                className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border text-xs font-medium transition-all ${
+                className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border text-xs font-medium transition-all cursor-pointer ${
                   resourceType === "course"
-                    ? "border-teal-500 bg-teal-500/10 text-teal-300"
-                    : "border-slate-700 bg-slate-800/40 text-slate-400 hover:bg-slate-800"
+                    ? "border-[var(--color-primary-default)] bg-[var(--color-primary-default)]/10 text-[var(--color-primary-default)]"
+                    : "border-[var(--color-border)] bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)]"
                 }`}
               >
                 <BookOpen className="w-5 h-5" />
@@ -273,10 +273,10 @@ export function AdminGrantModal({
               <button
                 type="button"
                 onClick={() => setResourceType("content_pack")}
-                className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border text-xs font-medium transition-all ${
+                className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border text-xs font-medium transition-all cursor-pointer ${
                   resourceType === "content_pack"
-                    ? "border-teal-500 bg-teal-500/10 text-teal-300"
-                    : "border-slate-700 bg-slate-800/40 text-slate-400 hover:bg-slate-800"
+                    ? "border-[var(--color-primary-default)] bg-[var(--color-primary-default)]/10 text-[var(--color-primary-default)]"
+                    : "border-[var(--color-border)] bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)]"
                 }`}
               >
                 <FolderTree className="w-5 h-5" />
@@ -288,13 +288,13 @@ export function AdminGrantModal({
           {/* 3. Resource Selector (if Course or Pack) */}
           {resourceType === "course" && (
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">
-                انتخاب دوره آموزشی <span className="text-teal-400">*</span>
+              <label className="block text-sm font-medium text-[var(--color-text)] mb-2">
+                انتخاب دوره آموزشی <span className="text-[var(--color-primary-default)]">*</span>
               </label>
               <select
                 value={selectedResourceId}
                 onChange={(e) => setSelectedResourceId(e.target.value)}
-                className="w-full bg-slate-800/60 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-teal-500"
+                className="w-full bg-[var(--color-surface-warm)] border border-[var(--color-border)] rounded-xl px-3 py-2.5 text-sm text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary-default)]"
               >
                 <option value="">-- انتخاب دوره --</option>
                 {availableCourses.map((c) => (
@@ -303,8 +303,8 @@ export function AdminGrantModal({
                   </option>
                 ))}
               </select>
-              <p className="text-xs text-slate-400 mt-1.5 flex items-center gap-1">
-                <InfinityIcon className="w-3.5 h-3.5 text-purple-400" />
+              <p className="text-xs text-[var(--color-text-muted)] mt-1.5 flex items-center gap-1">
+                <InfinityIcon className="w-3.5 h-3.5 text-[var(--color-primary-default)]" />
                 <span>دسترسی به دوره‌ها به صورت دائمی (مادام‌العمر) اعطا می‌شود.</span>
               </p>
             </div>
@@ -312,13 +312,13 @@ export function AdminGrantModal({
 
           {resourceType === "content_pack" && (
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">
-                انتخاب بسته آموزشی <span className="text-teal-400">*</span>
+              <label className="block text-sm font-medium text-[var(--color-text)] mb-2">
+                انتخاب بسته آموزشی <span className="text-[var(--color-primary-default)]">*</span>
               </label>
               <select
                 value={selectedResourceId}
                 onChange={(e) => setSelectedResourceId(e.target.value)}
-                className="w-full bg-slate-800/60 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-teal-500"
+                className="w-full bg-[var(--color-surface-warm)] border border-[var(--color-border)] rounded-xl px-3 py-2.5 text-sm text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary-default)]"
               >
                 <option value="">-- انتخاب بسته --</option>
                 {availablePacks.map((p) => (
@@ -327,8 +327,8 @@ export function AdminGrantModal({
                   </option>
                 ))}
               </select>
-              <p className="text-xs text-slate-400 mt-1.5 flex items-center gap-1">
-                <InfinityIcon className="w-3.5 h-3.5 text-purple-400" />
+              <p className="text-xs text-[var(--color-text-muted)] mt-1.5 flex items-center gap-1">
+                <InfinityIcon className="w-3.5 h-3.5 text-[var(--color-primary-default)]" />
                 <span>دسترسی به بسته‌ها به صورت دائمی (مادام‌العمر) اعطا می‌شود.</span>
               </p>
             </div>
@@ -337,8 +337,8 @@ export function AdminGrantModal({
           {/* 4. Duration Selector (if Subscription) */}
           {resourceType === "subscription" && (
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">
-                مدت زمان اشتراک <span className="text-teal-400">*</span>
+              <label className="block text-sm font-medium text-[var(--color-text)] mb-2">
+                مدت زمان اشتراک <span className="text-[var(--color-primary-default)]">*</span>
               </label>
               <div className="grid grid-cols-4 gap-2 mb-2.5">
                 {[
@@ -354,10 +354,10 @@ export function AdminGrantModal({
                       setDurationDays(item.days);
                       setCustomDuration("");
                     }}
-                    className={`py-2 rounded-xl border text-xs font-medium transition-colors ${
+                    className={`py-2 rounded-xl border text-xs font-medium transition-colors cursor-pointer ${
                       durationDays === item.days && !customDuration
-                        ? "border-teal-500 bg-teal-500/10 text-teal-300"
-                        : "border-slate-700 bg-slate-800/40 text-slate-400 hover:bg-slate-800"
+                        ? "border-[var(--color-primary-default)] bg-[var(--color-primary-default)]/10 text-[var(--color-primary-default)]"
+                        : "border-[var(--color-border)] bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)]"
                     }`}
                   >
                     {item.label}
@@ -371,31 +371,31 @@ export function AdminGrantModal({
                   placeholder="مدت دلخواه (تعداد روز)"
                   value={customDuration}
                   onChange={(e) => setCustomDuration(e.target.value)}
-                  className="w-full bg-slate-800/60 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-teal-500"
+                  className="w-full bg-[var(--color-surface-warm)] border border-[var(--color-border)] rounded-xl px-3 py-2 text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:border-[var(--color-primary-default)]"
                 />
-                <span className="text-xs text-slate-400 whitespace-nowrap">روز</span>
+                <span className="text-xs text-[var(--color-text-muted)] whitespace-nowrap">روز</span>
               </div>
-              <p className="text-xs text-slate-400 mt-1.5 flex items-center gap-1">
-                <Clock className="w-3.5 h-3.5 text-teal-400" />
+              <p className="text-xs text-[var(--color-text-muted)] mt-1.5 flex items-center gap-1">
+                <Clock className="w-3.5 h-3.5 text-[var(--color-primary-default)]" />
                 <span>در صورت داشتن اشتراک فعال قبلی، مدت زمان جدید به انقضای فعلی اضافه خواهد شد.</span>
               </p>
             </div>
           )}
 
           {/* Footer Actions */}
-          <div className="flex justify-end gap-3 pt-4 border-t border-white/5">
+          <div className="flex justify-end gap-3 pt-4 border-t border-[var(--color-border)]">
             <button
               type="button"
               onClick={onClose}
               disabled={isSubmitting}
-              className="px-4 py-2.5 rounded-xl text-sm font-medium text-slate-300 hover:bg-slate-800 transition-colors"
+              className="px-4 py-2.5 rounded-xl text-sm font-medium text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] transition-colors cursor-pointer"
             >
               انصراف
             </button>
             <button
               type="submit"
               disabled={isSubmitting || isLoadingResources}
-              className="px-5 py-2.5 rounded-xl text-sm font-medium text-white bg-teal-600 hover:bg-teal-500 disabled:opacity-50 transition-colors flex items-center gap-2"
+              className="px-5 py-2.5 rounded-xl text-sm font-medium text-[var(--color-primary-contrast)] bg-[var(--color-primary-default)] hover:bg-[var(--color-primary-dark)] disabled:opacity-50 transition-colors flex items-center gap-2 cursor-pointer shadow-sm"
             >
               {isSubmitting ? "در حال اعطا..." : "اعطای دسترسی"}
             </button>

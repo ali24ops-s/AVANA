@@ -14,7 +14,6 @@ import {
   Lock,
   Eye,
   EyeOff,
-  ArrowLeft,
   RefreshCw,
   Edit3,
 } from "lucide-react";
@@ -22,6 +21,7 @@ import { BrandLogo } from "../brand/BrandLogo.js";
 import { useAuth } from "../../providers/AuthProvider.js";
 import { ApiError } from "../../lib/api/errors.js";
 import { validateAndNormalizeIranPhone } from "@avana/domain";
+import { Button } from "@avana/ui";
 
 type LoginMethod = "email" | "phone";
 
@@ -192,52 +192,52 @@ export function SignInPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0b1120] text-slate-200 flex flex-col font-sans" dir="rtl">
+    <div className="min-h-screen bg-[var(--color-bg-default)] text-[var(--color-text)] flex flex-col font-sans" dir="rtl">
       {/* Header */}
-      <header className="px-6 py-5 flex items-center justify-between border-b border-white/10 glass-panel">
+      <header className="px-6 py-5 flex items-center justify-between border-b border-[var(--color-border)] bg-[var(--color-surface)] shadow-xs">
         <BrandLogo
           linkTo="/"
           variant="logo-only"
           size="md"
         />
-        <span className="text-xs font-medium text-slate-400">
+        <span className="text-xs font-medium text-[var(--color-text-muted)]">
           سامانه هوشمند آموزش و یادگیری
         </span>
       </header>
 
       {/* Sign-in form */}
-      <div className="flex-1 flex items-center justify-center p-6">
+      <div className="flex-1 flex items-center justify-center p-4 sm:p-6">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4 }}
+          transition={{ duration: 0.3 }}
           className="w-full max-w-md"
         >
-          <div className="glass-panel rounded-xl card-inner-border p-8 sm:p-10 shadow-ambient-lg">
+          <div className="bg-[var(--color-surface)] rounded-card border border-[var(--color-border)] p-6 sm:p-8 shadow-card">
             <div className="text-center mb-6">
               <div className="mx-auto mb-4 flex justify-center">
                 <BrandLogo variant="logo-only" size="lg" />
               </div>
-              <h1 className="text-2xl font-bold text-white">
+              <h1 className="text-xl sm:text-2xl font-bold text-[var(--color-text)]">
                 ورود به آوانا
               </h1>
-              <p className="text-slate-400 mt-2 text-sm">
+              <p className="text-[var(--color-text-muted)] mt-1.5 text-xs sm:text-sm">
                 روش موردنظر خود را برای ورود به حساب کاربری انتخاب کنید.
               </p>
             </div>
 
             {/* Login Method Selector */}
-            <div className="flex rounded-xl bg-slate-900/80 p-1 mb-6 border border-white/10">
+            <div className="flex rounded-button bg-[var(--color-surface-warm)] p-1 mb-6 border border-[var(--color-border)]">
               <button
                 type="button"
                 onClick={() => {
                   setMethod("email");
                   setError(null);
                 }}
-                className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-bold transition-all ${
+                className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-button text-xs font-bold transition-all cursor-pointer ${
                   method === "email"
-                    ? "bg-teal-600 text-white shadow-md shadow-teal-950/50"
-                    : "text-slate-400 hover:text-slate-200"
+                    ? "bg-[var(--color-surface)] text-primary shadow-xs border border-[var(--color-border)]"
+                    : "text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
                 }`}
               >
                 <Mail className="w-4 h-4" />
@@ -249,10 +249,10 @@ export function SignInPage() {
                   setMethod("phone");
                   setError(null);
                 }}
-                className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-bold transition-all ${
+                className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-button text-xs font-bold transition-all cursor-pointer ${
                   method === "phone"
-                    ? "bg-teal-600 text-white shadow-md shadow-teal-950/50"
-                    : "text-slate-400 hover:text-slate-200"
+                    ? "bg-[var(--color-surface)] text-primary shadow-xs border border-[var(--color-border)]"
+                    : "text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
                 }`}
               >
                 <Phone className="w-4 h-4" />
@@ -261,23 +261,23 @@ export function SignInPage() {
             </div>
 
             {error && (
-              <div className="mb-6 p-3.5 rounded-xl bg-red-950/40 border border-red-500/30 text-red-300 text-xs font-medium leading-relaxed">
+              <div className="mb-6 p-3.5 rounded-card bg-[var(--avana-error-bg)] border border-[var(--avana-error-border)] text-[var(--avana-error)] text-xs font-medium leading-relaxed">
                 {error}
               </div>
             )}
 
             {method === "email" ? (
               /* Method 1: Email + Password */
-              <form onSubmit={handleEmailSubmit} className="space-y-5">
+              <form onSubmit={handleEmailSubmit} className="space-y-4">
                 <div>
                   <label
                     htmlFor="email"
-                    className="block text-xs font-semibold text-slate-300 mb-2"
+                    className="block text-xs font-semibold text-[var(--color-text)] mb-1.5"
                   >
                     نشانی ایمیل
                   </label>
                   <div className="relative">
-                    <Mail className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                    <Mail className="absolute start-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-muted)] pointer-events-none" />
                     <input
                       id="email"
                       type="email"
@@ -288,28 +288,28 @@ export function SignInPage() {
                       autoComplete="email"
                       disabled={isSubmitting}
                       dir="ltr"
-                      className="w-full pr-11 pl-4 py-3 rounded-xl border border-white/10 bg-slate-900/60 text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent text-left font-mono text-sm disabled:opacity-50 transition-all"
+                      className="w-full ps-10 pe-4 py-2.5 rounded-input border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary text-start font-mono text-xs sm:text-sm disabled:opacity-50 transition-all"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center justify-between mb-1.5">
                     <label
                       htmlFor="password"
-                      className="block text-xs font-semibold text-slate-300"
+                      className="block text-xs font-semibold text-[var(--color-text)]"
                     >
                       رمز عبور
                     </label>
                     <span
-                      className="text-xs text-slate-500 cursor-not-allowed"
+                      className="text-xs text-[var(--color-text-muted)] opacity-60 cursor-not-allowed"
                       title="بازیابی رمز عبور فعال نیست"
                     >
                       رمز عبور را فراموش کرده‌اید؟
                     </span>
                   </div>
                   <div className="relative">
-                    <Lock className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                    <Lock className="absolute start-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-muted)] pointer-events-none" />
                     <input
                       id="password"
                       type={showPassword ? "text" : "password"}
@@ -320,12 +320,12 @@ export function SignInPage() {
                       autoComplete="current-password"
                       disabled={isSubmitting}
                       dir="ltr"
-                      className="w-full pr-11 pl-11 py-3 rounded-xl border border-white/10 bg-slate-900/60 text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent text-left font-mono text-sm disabled:opacity-50 transition-all"
+                      className="w-full ps-10 pe-10 py-2.5 rounded-input border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary text-start font-mono text-xs sm:text-sm disabled:opacity-50 transition-all"
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 transition-colors"
+                      className="absolute end-3.5 top-1/2 -translate-y-1/2 text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors cursor-pointer"
                       title={showPassword ? "مخفی کردن رمز عبور" : "نمایش رمز عبور"}
                     >
                       {showPassword ? (
@@ -337,182 +337,168 @@ export function SignInPage() {
                   </div>
                 </div>
 
-                <motion.button
-                  type="submit"
-                  disabled={isSubmitting || !email.trim() || !password}
-                  whileHover={{ scale: 1.01 }}
-                  whileTap={{ scale: 0.99 }}
-                  className="w-full flex items-center justify-center gap-2 px-5 py-3.5 bg-teal-600 text-white rounded-xl font-bold text-sm hover:bg-teal-500 transition-all shadow-lg shadow-teal-900/50 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isSubmitting ? (
-                    <>
-                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                      <span>در حال ورود...</span>
-                    </>
-                  ) : (
-                    <>
-                      <span>ورود به حساب</span>
-                      <ArrowLeft className="w-4 h-4" />
-                    </>
-                  )}
-                </motion.button>
+                <div className="pt-2">
+                  <Button
+                    type="submit"
+                    disabled={isSubmitting || !email.trim() || !password}
+                    isLoading={isSubmitting}
+                    variant="primary"
+                    fullWidth
+                    size="md"
+                  >
+                    ورود به سیستم
+                  </Button>
+                </div>
+              </form>
+            ) : phoneStep === "enter_phone" ? (
+              /* Method 2 - Step 1: Enter Phone */
+              <form onSubmit={handleSendPhoneOtp} className="space-y-4">
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label
+                      htmlFor="phoneNumber"
+                      className="block text-xs font-semibold text-[var(--color-text)]"
+                    >
+                      شماره موبایل
+                    </label>
+                    <span className="text-[11px] text-[var(--color-text-muted)] font-mono" dir="ltr">
+                      مثال: 09123456789
+                    </span>
+                  </div>
+                  <div className="relative">
+                    <Phone className="absolute start-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-muted)] pointer-events-none" />
+                    <input
+                      id="phoneNumber"
+                      type="tel"
+                      value={phoneNumber}
+                      onChange={(e) => setPhoneNumber(e.target.value)}
+                      placeholder="09123456789"
+                      required
+                      autoComplete="tel"
+                      disabled={isSubmitting}
+                      dir="ltr"
+                      className="w-full ps-10 pe-4 py-2.5 rounded-input border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary text-start font-mono text-xs sm:text-sm disabled:opacity-50 transition-all"
+                    />
+                  </div>
+                </div>
+
+                <div className="pt-2">
+                  <Button
+                    type="submit"
+                    disabled={isSubmitting || !phoneNumber.trim()}
+                    isLoading={isSubmitting}
+                    variant="primary"
+                    fullWidth
+                    size="md"
+                  >
+                    دریافت کد ورود
+                  </Button>
+                </div>
               </form>
             ) : (
-              /* Method 2: Phone + SMS OTP */
-              <div>
-                {phoneStep === "enter_phone" ? (
-                  /* Step 1: Input Phone Number */
-                  <form onSubmit={handleSendPhoneOtp} className="space-y-5">
-                    <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <label
-                          htmlFor="phoneNumber"
-                          className="block text-xs font-semibold text-slate-300"
-                        >
-                          شماره موبایل
-                        </label>
-                        <span className="text-[11px] text-slate-500 font-mono" dir="ltr">
-                          مثال: 09123456789
-                        </span>
-                      </div>
-                      <div className="relative">
-                        <Phone className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
-                        <input
-                          id="phoneNumber"
-                          type="tel"
-                          value={phoneNumber}
-                          onChange={(e) => setPhoneNumber(e.target.value)}
-                          placeholder="09123456789"
-                          required
-                          autoComplete="tel"
-                          disabled={isSubmitting}
-                          dir="ltr"
-                          className="w-full pr-11 pl-4 py-3 rounded-xl border border-white/10 bg-slate-900/60 text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent text-left font-mono text-sm disabled:opacity-50 transition-all"
-                        />
-                      </div>
-                    </div>
-
-                    <motion.button
-                      type="submit"
-                      disabled={isSubmitting || !phoneNumber.trim()}
-                      whileHover={{ scale: 1.01 }}
-                      whileTap={{ scale: 0.99 }}
-                      className="w-full flex items-center justify-center gap-2 px-5 py-3.5 bg-teal-600 text-white rounded-xl font-bold text-sm hover:bg-teal-500 transition-all shadow-lg shadow-teal-900/50 disabled:opacity-50 disabled:cursor-not-allowed"
+              /* Method 2 - Step 2: Enter OTP Code */
+              <form onSubmit={handleVerifyPhoneOtp} className="space-y-4">
+                <div className="text-center p-3 rounded-card bg-[var(--color-surface-warm)] border border-[var(--color-border)] mb-4">
+                  <div className="text-xs text-[var(--color-text-muted)] mb-1">
+                    کد تأیید ۶ رقمی به شماره زیر پیامک شد:
+                  </div>
+                  <div className="flex items-center justify-center gap-2">
+                    <span className="font-mono text-sm font-bold text-[var(--color-text)]" dir="ltr">
+                      {maskPhone(phoneNumber)}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPhoneStep("enter_phone");
+                        setOtpCode("");
+                        setError(null);
+                      }}
+                      className="text-xs text-primary hover:underline flex items-center gap-1 cursor-pointer font-medium"
+                      title="ویرایش شماره"
                     >
-                      {isSubmitting ? (
-                        <>
-                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                          <span>در حال ارسال کد...</span>
-                        </>
-                      ) : (
-                        <>
-                          <span>دریافت کد ورود</span>
-                          <ArrowLeft className="w-4 h-4" />
-                        </>
-                      )}
-                    </motion.button>
-                  </form>
-                ) : (
-                  /* Step 2: Input 6-Digit OTP */
-                  <form onSubmit={handleVerifyPhoneOtp} className="space-y-5">
-                    <div className="text-center mb-4">
-                      <p className="text-slate-400 text-xs leading-relaxed">
-                        کد ۶ رقمی ارسال‌شده به شماره{" "}
-                        <span className="font-mono text-teal-300 font-semibold dir-ltr inline-block">
-                          {maskPhone(phoneNumber)}
-                        </span>{" "}
-                        را وارد نمایید.
-                      </p>
-                    </div>
+                      <Edit3 className="w-3 h-3" />
+                      <span>ویرایش</span>
+                    </button>
+                  </div>
+                </div>
 
-                    <div>
-                      <label
-                        htmlFor="login-otp-code"
-                        className="block text-xs font-semibold text-slate-300 mb-2 text-center"
-                      >
-                        کد تأیید ۶ رقمی
-                      </label>
-                      <input
-                        id="login-otp-code"
-                        type="text"
-                        inputMode="numeric"
-                        pattern="[0-9]*"
-                        maxLength={6}
-                        value={otpCode}
-                        onChange={(e) =>
-                          setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))
-                        }
-                        placeholder="123456"
-                        required
-                        autoFocus
-                        disabled={isSubmitting}
-                        dir="ltr"
-                        className="w-full tracking-[0.5em] text-center text-2xl font-mono font-bold py-3 px-4 rounded-xl border border-white/10 bg-slate-900/80 text-teal-300 placeholder:text-slate-600 placeholder:tracking-normal focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent disabled:opacity-50 transition-all"
-                      />
-                    </div>
+                <div>
+                  <label
+                    htmlFor="otpCode"
+                    className="block text-xs font-semibold text-[var(--color-text)] mb-1.5 text-center"
+                  >
+                    کد تأیید پیامک‌شده
+                  </label>
+                  <input
+                    id="otpCode"
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    maxLength={6}
+                    value={otpCode}
+                    onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ""))}
+                    placeholder="— — — — — —"
+                    required
+                    autoFocus
+                    disabled={isSubmitting}
+                    dir="ltr"
+                    className="w-full text-center py-3 rounded-input border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary font-mono text-xl tracking-[0.5em] disabled:opacity-50 transition-all font-bold"
+                  />
+                </div>
 
-                    <motion.button
-                      type="submit"
-                      disabled={isSubmitting || otpCode.trim().length !== 6}
-                      whileHover={{ scale: 1.01 }}
-                      whileTap={{ scale: 0.99 }}
-                      className="w-full flex items-center justify-center gap-2 px-5 py-3.5 bg-teal-600 text-white rounded-xl font-bold text-sm hover:bg-teal-500 transition-all shadow-lg shadow-teal-900/50 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {isSubmitting ? (
-                        <>
-                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                          <span>در حال بررسی...</span>
-                        </>
-                      ) : (
-                        <>
-                          <span>ورود به حساب</span>
-                          <ArrowLeft className="w-4 h-4" />
-                        </>
-                      )}
-                    </motion.button>
+                <div className="pt-2">
+                  <Button
+                    type="submit"
+                    disabled={isSubmitting || otpCode.trim().length !== 6}
+                    isLoading={isSubmitting}
+                    variant="primary"
+                    fullWidth
+                    size="md"
+                  >
+                    ورود به حساب
+                  </Button>
+                </div>
 
-                    <div className="pt-4 border-t border-white/10 flex flex-col items-center gap-2.5">
-                      <button
-                        type="button"
-                        onClick={() => void handleResendOtp()}
-                        disabled={cooldown > 0 || isSubmitting}
-                        className="flex items-center gap-2 text-xs font-semibold text-teal-400 hover:text-teal-300 disabled:text-slate-500 disabled:cursor-not-allowed transition-colors"
-                      >
-                        <RefreshCw
-                          className={`w-3.5 h-3.5 ${isSubmitting ? "animate-spin" : ""}`}
-                        />
-                        <span>
-                          {cooldown > 0
-                            ? `ارسال مجدد تا ${cooldown} ثانیه دیگر`
-                            : "ارسال مجدد کد ورود"}
-                        </span>
-                      </button>
+                <div className="pt-4 border-t border-[var(--color-border)] flex flex-col items-center gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => void handleResendOtp()}
+                    disabled={cooldown > 0 || isSubmitting}
+                    className="flex items-center gap-2 text-xs font-semibold text-primary hover:underline disabled:text-[var(--color-text-muted)] disabled:no-underline disabled:cursor-not-allowed transition-colors cursor-pointer"
+                  >
+                    <RefreshCw
+                      className={`w-3.5 h-3.5 ${isSubmitting ? "animate-spin" : ""}`}
+                    />
+                    <span>
+                      {cooldown > 0
+                        ? `ارسال مجدد تا ${cooldown} ثانیه دیگر`
+                        : "ارسال مجدد کد ورود"}
+                    </span>
+                  </button>
 
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setPhoneStep("enter_phone");
-                          setOtpCode("");
-                          setError(null);
-                        }}
-                        className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors"
-                      >
-                        <Edit3 className="w-3.5 h-3.5" />
-                        <span>ویرایش شماره موبایل</span>
-                      </button>
-                    </div>
-                  </form>
-                )}
-              </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPhoneStep("enter_phone");
+                      setOtpCode("");
+                      setError(null);
+                    }}
+                    className="flex items-center gap-1.5 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors cursor-pointer"
+                  >
+                    <Edit3 className="w-3.5 h-3.5" />
+                    <span>ویرایش شماره موبایل</span>
+                  </button>
+                </div>
+              </form>
             )}
 
-            <div className="mt-8 pt-6 border-t border-white/10 text-center">
-              <span className="text-xs text-slate-400">
+            <div className="mt-8 pt-6 border-t border-[var(--color-border)] text-center">
+              <span className="text-xs text-[var(--color-text-muted)]">
                 حساب کاربری ندارید؟{" "}
               </span>
               <Link
                 to="/register"
-                className="text-xs font-bold text-teal-400 hover:text-teal-300 transition-colors"
+                className="text-xs font-bold text-primary hover:underline transition-colors"
               >
                 ثبت‌نام کنید
               </Link>

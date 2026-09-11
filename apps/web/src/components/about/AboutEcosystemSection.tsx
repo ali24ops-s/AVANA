@@ -131,16 +131,16 @@ export const AboutEcosystemSection: React.FC = () => {
       />
 
       {/* System Flow Diagram & Interactive Orbit Map */}
-      <div className="max-w-5xl mx-auto rounded-3xl bg-slate-900/80 border border-white/15 p-5 sm:p-8 backdrop-blur-2xl shadow-2xl">
+      <div className="max-w-5xl mx-auto rounded-[20px] bg-[var(--color-surface)] border border-[var(--color-border)] p-5 sm:p-8 shadow-xs">
         {/* Pipeline Navigation Bar */}
-        <div className="flex items-center justify-between flex-wrap gap-2 mb-6 pb-4 border-b border-white/10">
+        <div className="flex items-center justify-between flex-wrap gap-2 mb-6 pb-4 border-b border-[var(--color-border)]">
           <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-teal-400" />
-            <span className="text-xs sm:text-sm font-bold text-white">
+            <Sparkles className="w-4 h-4 text-[#008080]" />
+            <span className="text-xs sm:text-sm font-bold text-[var(--color-text)]">
               روی هر بخش کلیک کنید تا ارتباط آن را با کل اکوسیستم ببینید:
             </span>
           </div>
-          <span className="text-xs text-slate-400">
+          <span className="text-xs text-[var(--color-text-muted)]">
             {activeNode.connectedTo.length} اتصال فعال سیستمی
           </span>
         </div>
@@ -158,28 +158,28 @@ export const AboutEcosystemSection: React.FC = () => {
                 role="tab"
                 aria-selected={isSelected}
                 onClick={() => setSelectedNodeId(node.id)}
-                className={`p-3 rounded-2xl border flex flex-col items-center gap-2 text-center transition-all duration-300 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-400 ${
+                className={`p-3 rounded-[12px] border flex flex-col items-center gap-2 text-center transition-all duration-300 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#008080] ${
                   isSelected
-                    ? "bg-teal-950/80 border-teal-400 shadow-[0_0_20px_rgba(45,212,191,0.35)] scale-105 z-10"
+                    ? "bg-[#008080]/15 border-[#008080] shadow-xs scale-105 z-10"
                     : isConnected
-                    ? "bg-slate-800/90 border-teal-500/40 text-teal-200 opacity-95"
-                    : "bg-slate-900/60 border-white/10 text-slate-400 opacity-55 hover:opacity-90 hover:border-white/20"
+                    ? "bg-teal-50 border-teal-300 text-teal-800"
+                    : "bg-[var(--color-surface-warm)] border-[var(--color-border)] text-[var(--color-text-muted)] hover:border-[#008080]/40 hover:text-[var(--color-text)]"
                 }`}
               >
                 <div
-                  className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${
+                  className={`w-10 h-10 rounded-[8px] flex items-center justify-center transition-all ${
                     isSelected
-                      ? "bg-teal-500 text-slate-950 font-bold shadow-md"
+                      ? "bg-[#008080] text-white font-bold shadow-xs"
                       : isConnected
-                      ? "bg-teal-950 text-teal-300 border border-teal-500/40"
-                      : "bg-slate-800 text-slate-400"
+                      ? "bg-[#008080]/15 text-[#008080] border border-[#008080]/30"
+                      : "bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text-muted)]"
                   }`}
                 >
                   <Icon className="w-5 h-5" />
                 </div>
                 <span
                   className={`text-xs font-bold leading-tight ${
-                    isSelected ? "text-teal-200" : isConnected ? "text-teal-300" : "text-slate-300"
+                    isSelected ? "text-[#008080]" : isConnected ? "text-teal-800" : "text-[var(--color-text-muted)]"
                   }`}
                 >
                   {node.title}
@@ -197,23 +197,23 @@ export const AboutEcosystemSection: React.FC = () => {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -15 }}
             transition={{ duration: 0.3 }}
-            className="rounded-2xl bg-gradient-to-br from-slate-800/90 via-slate-900/95 to-[#0b1120] border border-teal-500/30 p-6 sm:p-8 relative overflow-hidden"
+            className="rounded-[16px] bg-[var(--color-surface-warm)] border border-[var(--color-border)] p-6 sm:p-8 relative overflow-hidden shadow-xs"
           >
-            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-4 pb-4 border-b border-white/10">
+            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-4 pb-4 border-b border-[var(--color-border)]">
               <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-2xl bg-teal-500/20 border border-teal-500/30 text-teal-300 flex items-center justify-center shrink-0 shadow-lg">
+                <div className="w-12 h-12 rounded-[10px] bg-[#008080]/10 border border-[#008080]/25 text-[#008080] flex items-center justify-center shrink-0 shadow-xs">
                   <activeNode.icon className="w-6 h-6" />
                 </div>
                 <div>
-                  <h3 className="text-xl font-black text-white">{activeNode.title}</h3>
-                  <span className="text-xs text-teal-400 font-sans">{activeNode.enTitle}</span>
+                  <h3 className="text-xl font-black text-[var(--color-text)]">{activeNode.title}</h3>
+                  <span className="text-xs text-[#008080] font-sans">{activeNode.enTitle}</span>
                 </div>
               </div>
 
               {/* Interconnection Chips */}
               <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="text-xs text-slate-400 flex items-center gap-1">
-                  <LinkIcon className="w-3 h-3 text-teal-400" />
+                <span className="text-xs text-[var(--color-text-muted)] flex items-center gap-1">
+                  <LinkIcon className="w-3 h-3 text-[#008080]" />
                   <span>متصل به:</span>
                 </span>
                 {activeNode.connectedTo.map((targetId) => {
@@ -222,7 +222,7 @@ export const AboutEcosystemSection: React.FC = () => {
                   return (
                     <span
                       key={targetId}
-                      className="px-2.5 py-1 rounded-lg text-xs font-bold bg-teal-950/70 text-teal-300 border border-teal-500/30"
+                      className="px-2.5 py-1 rounded-[6px] text-xs font-bold bg-[#008080]/10 text-[#008080] border border-[#008080]/25"
                     >
                       {target.title}
                     </span>
@@ -232,12 +232,12 @@ export const AboutEcosystemSection: React.FC = () => {
             </div>
 
             <div className="space-y-4">
-              <div className="p-3.5 rounded-xl bg-teal-950/40 border border-teal-500/20 text-xs sm:text-sm text-teal-200">
-                <strong className="text-white font-bold ml-1.5">نقش در سیستم آوانا:</strong>
+              <div className="p-3.5 rounded-[10px] bg-[#008080]/10 border border-[#008080]/20 text-xs sm:text-sm text-[#008080]">
+                <strong className="text-[var(--color-text)] font-bold ml-1.5">نقش در سیستم آوانا:</strong>
                 {activeNode.roleInSystem}
               </div>
 
-              <p className="text-sm sm:text-base text-slate-300 leading-relaxed">
+              <p className="text-sm sm:text-base text-[var(--color-text-muted)] leading-relaxed">
                 {activeNode.description}
               </p>
             </div>

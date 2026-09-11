@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { X, Download, Loader2, CheckSquare, Square, Layers, BookOpen } from "lucide-react";
 import { downloadContentExport, type AdminExportScope } from "../../../lib/api/admin";
+import { AvanaSelect } from "@avana/ui";
 
 interface CourseItem {
   id: string;
@@ -84,24 +85,25 @@ export function ContentExportModal({ isOpen, onClose, courses }: ContentExportMo
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="relative w-full max-w-2xl bg-slate-900 border border-slate-700/60 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200" dir="rtl">
+      <div className="relative w-full max-w-2xl bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
         {/* Header */}
-        <div className="flex items-center justify-between p-5 border-b border-slate-800 bg-slate-800/40">
+        <div className="flex items-center justify-between p-5 border-b border-[var(--color-border)] bg-[var(--color-surface-warm)]/60">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-teal-500/10 text-teal-400 rounded-xl">
+            <div className="p-2 bg-[var(--color-primary-default)]/10 text-[var(--color-primary-default)] rounded-xl">
               <Download className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-slate-100">خروجی محتوا (Export Package)</h2>
-              <p className="text-xs text-slate-400 mt-0.5">
+              <h2 className="text-lg font-bold text-[var(--color-text)]">خروجی محتوا (Export Package)</h2>
+              <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
                 تولید بسته استاندارد و مستقل از ID جهت انتقال به محیط‌های دیگر
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-lg transition-colors"
+            aria-label="بستن پنجره"
+            className="p-1.5 text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] rounded-lg transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -110,51 +112,47 @@ export function ContentExportModal({ isOpen, onClose, courses }: ContentExportMo
         {/* Body */}
         <div className="p-6 overflow-y-auto space-y-6">
           {error && (
-            <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
+            <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400 text-sm">
               {error}
             </div>
           )}
 
           {/* Scope selection: Course */}
           <div className="space-y-2">
-            <label className="block text-sm font-medium text-slate-200">
-              <BookOpen className="w-4 h-4 inline ml-2 text-teal-400" />
+            <label className="block text-sm font-medium text-[var(--color-text)]">
+              <BookOpen className="w-4 h-4 inline me-2 text-[var(--color-primary-default)]" />
               محدوده دوره
             </label>
-            <select
+            <AvanaSelect
               value={selectedCourseId}
-              onChange={(e) => setSelectedCourseId(e.target.value)}
-              className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500/50"
-            >
-              <option value="">همه دوره‌ها (تمام محتوای آموزشی موجود)</option>
-              {courses.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
+              onChange={(val) => setSelectedCourseId(typeof val === "string" ? val : val[0] || "")}
+              options={[
+                { value: "", label: "همه دوره‌ها (تمام محتوای آموزشی موجود)" },
+                ...courses.map((c) => ({ value: c.id, label: c.name })),
+              ]}
+            />
           </div>
 
           {/* Entities Scope Checkboxes */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <label className="text-sm font-medium text-slate-200">
-                <Layers className="w-4 h-4 inline ml-2 text-teal-400" />
+              <label className="text-sm font-medium text-[var(--color-text)]">
+                <Layers className="w-4 h-4 inline me-2 text-[var(--color-primary-default)]" />
                 موجودیت‌های شامل در بسته
               </label>
               <div className="flex items-center gap-2 text-xs">
                 <button
                   type="button"
                   onClick={() => selectAllScope(true)}
-                  className="text-teal-400 hover:underline"
+                  className="text-[var(--color-primary-default)] hover:underline"
                 >
                   انتخاب همه
                 </button>
-                <span className="text-slate-600">|</span>
+                <span className="text-[var(--color-border)]">|</span>
                 <button
                   type="button"
                   onClick={() => selectAllScope(false)}
-                  className="text-slate-400 hover:underline"
+                  className="text-[var(--color-text-muted)] hover:underline"
                 >
                   لغو همه
                 </button>
@@ -169,20 +167,20 @@ export function ContentExportModal({ isOpen, onClose, courses }: ContentExportMo
                   onClick={() => toggleScope(key)}
                   className={`flex items-start gap-3 p-3 rounded-xl border text-right transition-colors ${
                     scope[key]
-                      ? "bg-slate-800/80 border-teal-500/40 text-slate-200"
-                      : "bg-slate-800/20 border-slate-800 text-slate-400 hover:border-slate-700"
+                      ? "bg-[var(--color-primary-default)]/5 border-[var(--color-primary-default)]/40 text-[var(--color-text)]"
+                      : "bg-[var(--color-surface-warm)]/40 border-[var(--color-border)] text-[var(--color-text-muted)] hover:border-[var(--color-border)]"
                   }`}
                 >
-                  <div className="mt-0.5 text-teal-400">
+                  <div className="mt-0.5 text-[var(--color-primary-default)]">
                     {scope[key] ? (
                       <CheckSquare className="w-4 h-4" />
                     ) : (
-                      <Square className="w-4 h-4 text-slate-600" />
+                      <Square className="w-4 h-4 text-[var(--color-text-muted)]" />
                     )}
                   </div>
                   <div>
-                    <div className="text-sm font-medium">{label}</div>
-                    <div className="text-xs text-slate-500 mt-0.5">{desc}</div>
+                    <div className="text-sm font-medium text-[var(--color-text)]">{label}</div>
+                    <div className="text-xs text-[var(--color-text-muted)] mt-0.5">{desc}</div>
                   </div>
                 </button>
               ))}
@@ -191,12 +189,12 @@ export function ContentExportModal({ isOpen, onClose, courses }: ContentExportMo
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-3 p-5 border-t border-slate-800 bg-slate-800/30">
+        <div className="flex items-center justify-end gap-3 p-5 border-t border-[var(--color-border)] bg-[var(--color-surface-warm)]/40">
           <button
             type="button"
             onClick={onClose}
             disabled={exporting}
-            className="px-4 py-2 text-sm text-slate-300 hover:bg-slate-800 rounded-xl transition-colors disabled:opacity-50"
+            className="px-4 py-2 text-sm text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] border border-[var(--color-border)] rounded-xl transition-colors disabled:opacity-50"
           >
             انصراف
           </button>
@@ -204,7 +202,7 @@ export function ContentExportModal({ isOpen, onClose, courses }: ContentExportMo
             type="button"
             onClick={handleExport}
             disabled={exporting}
-            className="flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-white bg-teal-600 hover:bg-teal-500 rounded-xl transition-colors shadow-lg shadow-teal-500/20 disabled:opacity-50"
+            className="flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-[var(--color-primary-contrast)] bg-[var(--color-primary-default)] hover:bg-[var(--color-primary-dark)] rounded-xl transition-colors shadow-sm disabled:opacity-50"
           >
             {exporting ? (
               <>

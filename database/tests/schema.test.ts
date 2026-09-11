@@ -436,17 +436,13 @@ describe("PR-6 database schema", () => {
     expect(cols).toHaveProperty("updatedAt");
   });
 
-  test("flashcard_study_session_cards table is defined and has required columns", () => {
-    expect(schema.flashcardStudySessionCards).toBeDefined();
-    const cols = getTableColumns(schema.flashcardStudySessionCards);
+  test("modules table is defined and has preview_lesson_id column", () => {
+    expect(schema.modules).toBeDefined();
+    const cols = getTableColumns(schema.modules);
     expect(cols).toHaveProperty("id");
-    expect(cols).toHaveProperty("sessionId");
-    expect(cols).toHaveProperty("flashcardId");
-    expect(cols).toHaveProperty("sortOrder");
-    expect(cols).toHaveProperty("status");
-    expect(cols).toHaveProperty("rating");
-    expect(cols).toHaveProperty("reviewedAt");
-    expect(cols).toHaveProperty("createdAt");
+    expect(cols).toHaveProperty("courseId");
+    expect(cols).toHaveProperty("title");
+    expect(cols).toHaveProperty("previewLessonId");
   });
 });
 

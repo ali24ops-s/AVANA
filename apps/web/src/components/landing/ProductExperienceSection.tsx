@@ -22,6 +22,7 @@ import {
   BookOpen,
   Brain,
 } from "lucide-react";
+import { Badge, Tabs } from "@avana/ui";
 
 type ExperienceTab = "flashcard" | "ai" | "hierarchy" | "quiz";
 
@@ -89,90 +90,62 @@ export function ProductExperienceSection() {
   return (
     <section
       id="experience"
-      className="snap-section relative py-10 lg:py-0 lg:h-[calc(100dvh-80px)] lg:min-h-[calc(100dvh-80px)] flex flex-col justify-center px-6 max-w-[1280px] mx-auto overflow-hidden text-right scroll-mt-20"
+      className="snap-section relative py-10 lg:py-0 lg:h-[calc(100dvh-80px)] lg:min-h-[calc(100dvh-80px)] flex flex-col justify-center px-6 max-w-[1280px] mx-auto overflow-hidden text-right scroll-mt-20 border-y border-[var(--avana-border-default)] bg-white"
       aria-label="بخش تجربه تعاملی امکانات آوانا"
     >
-      {/* Background Glow */}
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[550px] bg-teal-500/10 rounded-full blur-3xl pointer-events-none -z-10" />
-
       {/* Section Header */}
       <div className="text-center max-w-3xl mx-auto mb-3 lg:mb-4">
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold tracking-wide border mb-2 bg-teal-950/60 text-teal-300 border-teal-500/40 shadow-sm">
-          <Sparkles className="w-3.5 h-3.5 text-teal-300 animate-pulse" />
-          <span>تست درایو و تجربه زنده</span>
+        <div className="mb-2 flex justify-center">
+          <Badge
+            variant="primary"
+            size="md"
+            icon={<Sparkles className="w-3.5 h-3.5 text-[#008080]" />}
+            className="px-3 py-1 shadow-xs"
+          >
+            تست درایو و تجربه زنده
+          </Badge>
         </div>
 
-        <h2 className="font-headline text-2xl sm:text-3xl md:text-4xl font-black mb-1.5 text-white leading-tight">
+        <h2 className="font-headline text-2xl sm:text-3xl md:text-4xl font-black mb-1.5 text-[var(--avana-text-primary)] leading-tight">
           آوانا را تجربه کن
         </h2>
-        <p className="text-xs sm:text-sm md:text-base leading-relaxed text-slate-300">
+        <p className="text-xs sm:text-sm md:text-base leading-relaxed text-[var(--avana-text-secondary)]">
           قبل از شروع، بخشی از سیستم را همین‌جا لمس کن و تفاوت یادگیری هوشمند را ببین.
         </p>
       </div>
 
       {/* Main Experience Container */}
-      <div className="max-w-4xl mx-auto rounded-3xl bg-slate-900/85 border border-teal-500/30 p-3.5 sm:p-5 md:p-5 backdrop-blur-2xl shadow-[0_0_40px_rgba(0,128,128,0.15)] w-full">
+      <div className="max-w-4xl mx-auto rounded-[16px] bg-[var(--avana-bg-default)] border border-[var(--avana-border-default)] p-3.5 sm:p-5 md:p-5 shadow-xs w-full">
         {/* Navigation Tabs Bar */}
-        <div
-          className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 mb-4 p-1 bg-slate-950/70 border border-white/10 rounded-2xl"
-          role="tablist"
-          aria-label="انتخاب تجربه زنده محصول"
-        >
-          <button
-            role="tab"
-            aria-selected={activeTab === "flashcard"}
-            onClick={() => setActiveTab("flashcard")}
-            className={`py-3 px-3 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all cursor-pointer ${
-              activeTab === "flashcard"
-                ? "bg-teal-500 text-slate-950 shadow-lg font-black"
-                : "text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            <CreditCard className="w-4 h-4" />
-            <span>فلش‌کارت SRS</span>
-          </button>
-
-          <button
-            role="tab"
-            aria-selected={activeTab === "ai"}
-            onClick={() => setActiveTab("ai")}
-            className={`py-3 px-3 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all cursor-pointer ${
-              activeTab === "ai"
-                ? "bg-teal-500 text-slate-950 shadow-lg font-black"
-                : "text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            <Bot className="w-4 h-4" />
-            <span>دستیار هوشمند AI</span>
-          </button>
-
-          <button
-            role="tab"
-            aria-selected={activeTab === "hierarchy"}
-            onClick={() => setActiveTab("hierarchy")}
-            className={`py-3 px-3 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all cursor-pointer ${
-              activeTab === "hierarchy"
-                ? "bg-teal-500 text-slate-950 shadow-lg font-black"
-                : "text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            <Layers className="w-4 h-4" />
-            <span>مسیر یادگیری</span>
-          </button>
-
-          <button
-            role="tab"
-            aria-selected={activeTab === "quiz"}
-            onClick={() => setActiveTab("quiz")}
-            className={`py-3 px-3 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all cursor-pointer ${
-              activeTab === "quiz"
-                ? "bg-teal-500 text-slate-950 shadow-lg font-black"
-                : "text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            <Award className="w-4 h-4" />
-            <span>آزمون خودسنجی</span>
-          </button>
+        <div className="mb-4">
+          <Tabs
+            items={[
+              {
+                id: "flashcard",
+                label: "فلش‌کارت SRS",
+                icon: <CreditCard className="w-4 h-4" />,
+              },
+              {
+                id: "ai",
+                label: "دستیار هوشمند AI",
+                icon: <Bot className="w-4 h-4" />,
+              },
+              {
+                id: "hierarchy",
+                label: "مسیر یادگیری",
+                icon: <Layers className="w-4 h-4" />,
+              },
+              {
+                id: "quiz",
+                label: "آزمون خودسنجی",
+                icon: <Award className="w-4 h-4" />,
+              },
+            ]}
+            activeTabId={activeTab}
+            onChange={(id) => setActiveTab(id as ExperienceTab)}
+            variant="pill"
+            className="gap-0"
+          />
         </div>
 
         {/* Dynamic Interactive Stage */}
@@ -188,14 +161,14 @@ export function ProductExperienceSection() {
               className="flex flex-col items-center"
             >
               {/* Header explanation */}
-              <div className="w-full flex items-center justify-between flex-wrap gap-2 mb-6 pb-3 border-b border-white/10 text-xs">
-                <span className="text-teal-300 font-bold flex items-center gap-1.5">
+              <div className="w-full flex items-center justify-between flex-wrap gap-2 mb-6 pb-3 border-b border-[var(--avana-border-default)] text-xs">
+                <span className="text-[#008080] font-bold flex items-center gap-1.5">
                   <RotateCw className="w-3.5 h-3.5" />
                   روی کارت کلیک کنید تا پاسخ ظاهر شود؛ سپس میزان تسلط را انتخاب نمایید:
                 </span>
-                <span className="text-slate-400 bg-slate-800/80 px-2.5 py-1 rounded-full border border-white/10">
+                <Badge variant="neutral" size="sm">
                   پیش‌نمایش تعاملی (Demo)
-                </span>
+                </Badge>
               </div>
 
               {/* 3D Flippable Flashcard Container */}
@@ -212,10 +185,10 @@ export function ProductExperienceSection() {
                 className="w-full max-w-md h-52 sm:h-56 cursor-pointer perspective-1000 select-none group"
               >
                 <div
-                  className={`relative w-full h-full rounded-2xl transition-transform duration-500 transform-style-3d border shadow-2xl ${
+                  className={`relative w-full h-full rounded-[16px] transition-transform duration-500 transform-style-3d border ${
                     isFlipped
-                      ? "rotate-y-180 bg-gradient-to-br from-teal-950/90 via-slate-900 to-slate-950 border-teal-500/50"
-                      : "bg-gradient-to-br from-slate-900/90 via-slate-800/80 to-slate-900 border-white/15 group-hover:border-teal-400/40"
+                      ? "rotate-y-180 bg-white border-[#008080]/50 shadow-elevated"
+                      : "bg-white border-[var(--avana-border-default)] group-hover:border-[#008080]/40 shadow-card"
                   }`}
                   style={{
                     transformStyle: "preserve-3d",
@@ -227,18 +200,18 @@ export function ProductExperienceSection() {
                     className="absolute inset-0 p-6 flex flex-col justify-between items-center text-center backface-hidden"
                     style={{ backfaceVisibility: "hidden" }}
                   >
-                    <div className="w-full flex justify-between items-center text-xs text-slate-400">
-                      <span className="text-teal-400 font-bold bg-teal-950/60 px-2 py-0.5 rounded border border-teal-500/30">
+                    <div className="w-full flex justify-between items-center text-xs text-[var(--avana-text-muted)]">
+                      <span className="text-[#008080] font-bold bg-[#008080]/10 px-2 py-0.5 rounded-[6px] border border-[#008080]/20">
                         فارماکولوژی سیستم عصبی
                       </span>
                       <span>روی کارت کلیک کنید 👆</span>
                     </div>
 
-                    <p className="text-sm sm:text-base font-bold text-white leading-relaxed my-auto">
+                    <p className="text-sm sm:text-base font-bold text-[var(--avana-text-primary)] leading-relaxed my-auto">
                       گیرنده اصلی استیل‌کولین در صفحه محرکه عضلانی چیست و توسط چه کلاسی از داروها مهار می‌شود؟
                     </p>
 
-                    <div className="text-[11px] text-teal-300 font-semibold flex items-center gap-1">
+                    <div className="text-[11px] text-[#008080] font-semibold flex items-center gap-1">
                       <span>مشاهده پاسخ</span>
                       <ArrowLeft className="w-3.5 h-3.5" />
                     </div>
@@ -252,18 +225,18 @@ export function ProductExperienceSection() {
                       transform: "rotateY(180deg)",
                     }}
                   >
-                    <div className="w-full flex justify-between items-center text-xs text-teal-300">
-                      <span className="font-bold bg-teal-950 px-2 py-0.5 rounded border border-teal-500/30">
+                    <div className="w-full flex justify-between items-center text-xs text-[#008080]">
+                      <span className="font-bold bg-[#008080]/10 px-2 py-0.5 rounded-[6px] border border-[#008080]/20">
                         پاسخ علمی و بالینی
                       </span>
                       <span>بازگشت به سوال ↩</span>
                     </div>
 
-                    <p className="text-xs sm:text-sm font-bold text-slate-100 leading-relaxed my-auto">
+                    <p className="text-xs sm:text-sm font-bold text-[var(--avana-text-primary)] leading-relaxed my-auto">
                       گیرنده نیکوتینی نوع عضلانی (Nm). توسط داروهای بلاک‌کننده عصبی-عضلانی (مانند آتراکوریوم و سوکسینیل‌کولین) مهار یا فلج می‌شود.
                     </p>
 
-                    <div className="text-[11px] text-teal-400 font-mono">
+                    <div className="text-[11px] text-[#008080] font-mono">
                       [مبحث: اتصالات نوروماسکولار]
                     </div>
                   </div>
@@ -272,34 +245,34 @@ export function ProductExperienceSection() {
 
               {/* 4 SRS Action Buttons */}
               <div className="w-full max-w-md mt-6">
-                <p className="text-xs text-slate-400 text-center mb-3">
+                <p className="text-xs text-[var(--avana-text-muted)] text-center mb-3">
                   درجه سختی این کارت را مشخص کنید تا هوش مصنوعی زمان مرور بعدی را تنظیم نماید:
                 </p>
                 <div className="grid grid-cols-4 gap-2 text-xs font-bold text-center">
                   <button
                     onClick={() => setSrsScheduledDays(1)}
-                    className="p-2.5 rounded-xl bg-rose-500/15 border border-rose-500/40 text-rose-300 hover:bg-rose-500/25 transition-colors active:scale-95"
+                    className="p-2.5 rounded-[10px] bg-rose-50 border border-rose-200 text-rose-700 hover:bg-rose-100 transition-colors active:scale-[0.98] shadow-xs"
                   >
                     <span>مجدداً</span>
                     <span className="block text-[10px] opacity-75 mt-0.5">۱ روز بعد</span>
                   </button>
                   <button
                     onClick={() => setSrsScheduledDays(3)}
-                    className="p-2.5 rounded-xl bg-amber-500/15 border border-amber-500/40 text-amber-300 hover:bg-amber-500/25 transition-colors active:scale-95"
+                    className="p-2.5 rounded-[10px] bg-amber-50 border border-amber-200 text-amber-700 hover:bg-amber-100 transition-colors active:scale-[0.98] shadow-xs"
                   >
                     <span>سخت</span>
                     <span className="block text-[10px] opacity-75 mt-0.5">۳ روز بعد</span>
                   </button>
                   <button
                     onClick={() => setSrsScheduledDays(7)}
-                    className="p-2.5 rounded-xl bg-teal-500/15 border border-teal-500/40 text-teal-300 hover:bg-teal-500/25 transition-colors active:scale-95"
+                    className="p-2.5 rounded-[10px] bg-teal-50 border border-teal-200 text-teal-700 hover:bg-teal-100 transition-colors active:scale-[0.98] shadow-xs"
                   >
                     <span>خوب</span>
                     <span className="block text-[10px] opacity-75 mt-0.5">۷ روز بعد</span>
                   </button>
                   <button
                     onClick={() => setSrsScheduledDays(14)}
-                    className="p-2.5 rounded-xl bg-blue-500/15 border border-blue-500/40 text-blue-300 hover:bg-blue-500/25 transition-colors active:scale-95"
+                    className="p-2.5 rounded-[10px] bg-sky-50 border border-sky-200 text-sky-700 hover:bg-sky-100 transition-colors active:scale-[0.98] shadow-xs"
                   >
                     <span>آسان</span>
                     <span className="block text-[10px] opacity-75 mt-0.5">۱۴ روز بعد</span>
@@ -312,9 +285,9 @@ export function ProductExperienceSection() {
                 <motion.div
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="mt-5 p-3 rounded-xl bg-teal-950/80 border border-teal-500/40 text-teal-200 text-xs flex items-center gap-2"
+                  className="mt-5 p-3 rounded-[10px] bg-teal-50 border border-teal-200 text-teal-900 text-xs flex items-center gap-2 shadow-xs"
                 >
-                  <CheckCircle2 className="w-4 h-4 text-teal-400 shrink-0" />
+                  <CheckCircle2 className="w-4 h-4 text-[#008080] shrink-0" />
                   <span>
                     الگوریتم مرور فاصله‌دار (SRS): این کارت برای <strong>{srsScheduledDays} روز دیگر</strong> در نوبت یادآوری هوشمند قرار گرفت.
                   </span>
@@ -333,14 +306,14 @@ export function ProductExperienceSection() {
               transition={{ duration: 0.3 }}
               className="space-y-6"
             >
-              <div className="flex items-center justify-between flex-wrap gap-2 pb-3 border-b border-white/10 text-xs">
-                <span className="text-teal-300 font-bold flex items-center gap-1.5">
-                  <Bot className="w-4 h-4 text-purple-400" />
+              <div className="flex items-center justify-between flex-wrap gap-2 pb-3 border-b border-[var(--avana-border-default)] text-xs">
+                <span className="text-[#008080] font-bold flex items-center gap-1.5">
+                  <Bot className="w-4 h-4 text-[#008080]" />
                   یک سوال نمونه انتخاب کنید تا فرآیند استدلال هوش مصنوعی آوانا را مشاهده نمایید:
                 </span>
-                <span className="text-slate-400 bg-slate-800/80 px-2.5 py-1 rounded-full border border-white/10">
+                <Badge variant="neutral" size="sm">
                   شبیه‌ساز هوش مصنوعی (Demo)
-                </span>
+                </Badge>
               </div>
 
               {/* Sample Question Chips */}
@@ -351,10 +324,10 @@ export function ProductExperienceSection() {
                     onClick={() => {
                       setSelectedAiQuestion(idx);
                     }}
-                    className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all text-right border ${
+                    className={`px-3.5 py-2 rounded-[10px] text-xs font-bold transition-all text-right border ${
                       selectedAiQuestion === idx
-                        ? "bg-purple-500/20 text-purple-200 border-purple-400/60 shadow-md"
-                        : "bg-slate-800/60 text-slate-300 border-white/10 hover:border-white/20"
+                        ? "bg-[#008080]/10 text-[#008080] border-[#008080]/40 shadow-xs"
+                        : "bg-white text-[var(--avana-text-secondary)] border-[var(--avana-border-default)] hover:border-[#008080]/30 shadow-xs"
                     }`}
                   >
                     <span>💬 {item.q}</span>
@@ -363,9 +336,9 @@ export function ProductExperienceSection() {
               </div>
 
               {/* AI Reasoning Pipeline Box */}
-              <div className="p-5 sm:p-6 rounded-2xl bg-slate-950/80 border border-purple-500/30 space-y-4">
-                <div className="flex items-center gap-2 text-xs font-bold text-purple-300">
-                  <Brain className="w-4 h-4 text-purple-400 animate-pulse" />
+              <div className="p-5 sm:p-6 rounded-[16px] bg-white border border-[var(--avana-border-default)] shadow-xs space-y-4">
+                <div className="flex items-center gap-2 text-xs font-bold text-[#008080]">
+                  <Brain className="w-4 h-4 text-[#008080]" />
                   <span>مراحل استدلال شناختی دستیار هوشمند:</span>
                 </div>
 
@@ -373,9 +346,9 @@ export function ProductExperienceSection() {
                   {aiQuestions[selectedAiQuestion].steps.map((step, sIdx) => (
                     <div
                       key={sIdx}
-                      className="p-2.5 rounded-xl bg-slate-900/90 border border-white/10 text-xs text-slate-300 flex items-start gap-2.5"
+                      className="p-2.5 rounded-[10px] bg-[var(--avana-bg-default)] border border-[var(--avana-border-default)] text-xs text-[var(--avana-text-secondary)] flex items-start gap-2.5"
                     >
-                      <span className="w-5 h-5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30 flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
+                      <span className="w-5 h-5 rounded-full bg-[#008080]/10 text-[#008080] border border-[#008080]/20 flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
                         {sIdx + 1}
                       </span>
                       <p className="leading-relaxed">{step}</p>
@@ -384,15 +357,15 @@ export function ProductExperienceSection() {
                 </div>
 
                 {/* Final Structured Answer */}
-                <div className="p-4 rounded-xl bg-teal-950/40 border border-teal-500/30 space-y-2">
-                  <div className="flex items-center gap-2 text-xs font-bold text-teal-300">
-                    <Sparkles className="w-4 h-4 text-teal-400" />
+                <div className="p-4 rounded-[10px] bg-[var(--avana-bg-default)] border border-[var(--avana-border-default)] space-y-2">
+                  <div className="flex items-center gap-2 text-xs font-bold text-[#008080]">
+                    <Sparkles className="w-4 h-4 text-[#008080]" />
                     <span>پاسخ تشریحی دستیار آوانا:</span>
                   </div>
-                  <p className="text-xs sm:text-sm text-slate-100 leading-relaxed font-body">
+                  <p className="text-xs sm:text-sm text-[var(--avana-text-primary)] leading-relaxed font-body">
                     {aiQuestions[selectedAiQuestion].answer}
                   </p>
-                  <div className="p-2 rounded bg-purple-950/40 border border-purple-500/30 text-[11px] text-purple-200 mt-2">
+                  <div className="p-2 rounded-[8px] bg-white border border-[var(--avana-border-default)] text-[11px] text-[#006060] mt-2 font-medium">
                     {aiQuestions[selectedAiQuestion].examTip}
                   </div>
                 </div>
@@ -410,55 +383,55 @@ export function ProductExperienceSection() {
               transition={{ duration: 0.3 }}
               className="space-y-6"
             >
-              <div className="flex items-center justify-between flex-wrap gap-2 pb-3 border-b border-white/10 text-xs">
-                <span className="text-teal-300 font-bold flex items-center gap-1.5">
-                  <Layers className="w-4 h-4 text-teal-400" />
+              <div className="flex items-center justify-between flex-wrap gap-2 pb-3 border-b border-[var(--avana-border-default)] text-xs">
+                <span className="text-[#008080] font-bold flex items-center gap-1.5">
+                  <Layers className="w-4 h-4 text-[#008080]" />
                   معماری ساختاریافته یادگیری: تبدیل جزوات سنگین به قطعات شناختی قابل هضم
                 </span>
-                <span className="text-slate-400 bg-slate-800/80 px-2.5 py-1 rounded-full border border-white/10">
+                <Badge variant="neutral" size="sm">
                   سلسله‌مراتب دروس
-                </span>
+                </Badge>
               </div>
 
               {/* 4-Level Interactive Flow Tree */}
               <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                <div className="p-4 rounded-2xl bg-teal-950/40 border border-teal-500/30 flex flex-col justify-between">
-                  <span className="text-[10px] text-teal-400 font-bold mb-1">سطح ۱: دوره آموزشی</span>
-                  <h4 className="font-bold text-sm text-white">فارماکولوژی پزشکی</h4>
-                  <p className="text-[11px] text-slate-300 mt-2">دسته‌بندی جامع مباحث علوم پایه و بالینی</p>
+                <div className="p-4 rounded-[16px] bg-white border border-[var(--avana-border-default)] shadow-xs flex flex-col justify-between hover:bg-[var(--avana-surface-2)] transition-colors">
+                  <span className="text-[10px] text-[#008080] font-bold mb-1">سطح ۱: دوره آموزشی</span>
+                  <h4 className="font-bold text-sm text-[var(--avana-text-primary)]">فارماکولوژی پزشکی</h4>
+                  <p className="text-[11px] text-[var(--avana-text-secondary)] mt-2">دسته‌بندی جامع مباحث علوم پایه و بالینی</p>
                 </div>
 
-                <div className="p-4 rounded-2xl bg-cyan-950/40 border border-cyan-500/30 flex flex-col justify-between">
-                  <span className="text-[10px] text-cyan-400 font-bold mb-1">سطح ۲: سرفصل / فصل</span>
-                  <h4 className="font-bold text-sm text-white">فصل ۴: سیستم خودمختار</h4>
-                  <p className="text-[11px] text-slate-300 mt-2">تفکیک مباحث آناتومی و فیزیولوژی مرتبط</p>
+                <div className="p-4 rounded-[16px] bg-white border border-[var(--avana-border-default)] shadow-xs flex flex-col justify-between hover:bg-[var(--avana-surface-2)] transition-colors">
+                  <span className="text-[10px] text-[#006666] font-bold mb-1">سطح ۲: سرفصل / فصل</span>
+                  <h4 className="font-bold text-sm text-[var(--avana-text-primary)]">فصل ۴: سیستم خودمختار</h4>
+                  <p className="text-[11px] text-[var(--avana-text-secondary)] mt-2">تفکیک مباحث آناتومی و فیزیولوژی مرتبط</p>
                 </div>
 
-                <div className="p-4 rounded-2xl bg-purple-950/40 border border-purple-500/30 flex flex-col justify-between">
-                  <span className="text-[10px] text-purple-400 font-bold mb-1">سطح ۳: درسنامه عمیق</span>
-                  <h4 className="font-bold text-sm text-white">درس ۴.۲: مهارکننده‌های بتا</h4>
-                  <p className="text-[11px] text-slate-300 mt-2">خلاصه‌های کاربردی و محیط مطالعه تیره</p>
+                <div className="p-4 rounded-[16px] bg-white border border-[var(--avana-border-default)] shadow-xs flex flex-col justify-between hover:bg-[var(--avana-surface-2)] transition-colors">
+                  <span className="text-[10px] text-[#008080] font-bold mb-1">سطح ۳: درسنامه عمیق</span>
+                  <h4 className="font-bold text-sm text-[var(--avana-text-primary)]">درس ۴.۲: مهارکننده‌های بتا</h4>
+                  <p className="text-[11px] text-[var(--avana-text-secondary)] mt-2">خلاصه‌های کاربردی و محیط مطالعه ساختاریافته</p>
                 </div>
 
-                <div className="p-4 rounded-2xl bg-emerald-950/40 border border-emerald-500/30 flex flex-col justify-between">
-                  <span className="text-[10px] text-emerald-400 font-bold mb-1">سطح ۴: تثبیت و سنجش</span>
-                  <h4 className="font-bold text-sm text-white">فلش‌کارت و آزمون آزمایشی</h4>
-                  <p className="text-[11px] text-slate-300 mt-2">انتقال مفاهیم به حافظه دائم با تحلیل کارنامه</p>
+                <div className="p-4 rounded-[16px] bg-white border border-[var(--avana-border-default)] shadow-xs flex flex-col justify-between hover:bg-[var(--avana-surface-2)] transition-colors">
+                  <span className="text-[10px] text-[#007952] font-bold mb-1">سطح ۴: تثبیت و سنجش</span>
+                  <h4 className="font-bold text-sm text-[var(--avana-text-primary)]">فلش‌کارت و آزمون آزمایشی</h4>
+                  <p className="text-[11px] text-[var(--avana-text-secondary)] mt-2">انتقال مفاهیم به حافظه دائم با تحلیل کارنامه</p>
                 </div>
               </div>
 
               {/* Mock Lesson Viewer Box */}
-              <div className="p-5 rounded-2xl bg-slate-950/80 border border-white/10 space-y-3">
-                <div className="flex justify-between items-center text-xs pb-2 border-b border-white/10">
-                  <div className="flex items-center gap-2 font-bold text-white">
-                    <BookOpen className="w-4 h-4 text-teal-400" />
+              <div className="p-5 rounded-[16px] bg-white border border-[var(--avana-border-default)] shadow-xs space-y-3">
+                <div className="flex justify-between items-center text-xs pb-2 border-b border-[var(--avana-border-default)]">
+                  <div className="flex items-center gap-2 font-bold text-[var(--avana-text-primary)]">
+                    <BookOpen className="w-4 h-4 text-[#008080]" />
                     <span>محیط مطالعه ساختاریافته آوانا (نمونه زنده درسنامه)</span>
                   </div>
-                  <span className="text-teal-300 text-[11px] bg-teal-950 px-2 py-0.5 rounded border border-teal-500/30">
+                  <span className="text-[#008080] text-[11px] bg-[#008080]/10 px-2 py-0.5 rounded-[6px] border border-[#008080]/20 font-bold">
                     پیشرفت: ۱۰۰٪ ✓
                   </span>
                 </div>
-                <p className="text-xs text-slate-300 leading-relaxed">
+                <p className="text-xs text-[var(--avana-text-secondary)] leading-relaxed">
                   داروهای مسدودکننده گیرنده بتا (Beta-blockers) با کاهش ضربان قلب و فشار خون شریانی، اکسیژن مورد نیاز میوکارد را تعدیل می‌کنند. در آوانا هر نکته با ارجاع به گیرنده‌ها، عوارض و تداخلات به شکل ماژولار طبقه‌بندی می‌شود.
                 </p>
               </div>
@@ -475,20 +448,20 @@ export function ProductExperienceSection() {
               transition={{ duration: 0.3 }}
               className="space-y-6"
             >
-              <div className="flex items-center justify-between flex-wrap gap-2 pb-3 border-b border-white/10 text-xs">
-                <span className="text-teal-300 font-bold flex items-center gap-1.5">
-                  <Award className="w-4 h-4 text-amber-400" />
+              <div className="flex items-center justify-between flex-wrap gap-2 pb-3 border-b border-[var(--avana-border-default)] text-xs">
+                <span className="text-[#008080] font-bold flex items-center gap-1.5">
+                  <Award className="w-4 h-4 text-[#008080]" />
                   یک گزینه را انتخاب کنید تا نحوه سنجش و کارنامه تحلیلی آوانا را بررسی نمایید:
                 </span>
-                <span className="text-slate-400 bg-slate-800/80 px-2.5 py-1 rounded-full border border-white/10">
+                <Badge variant="neutral" size="sm">
                   شبیه‌ساز سوال استاندارد
-                </span>
+                </Badge>
               </div>
 
               {/* Question Text */}
-              <div className="p-4 sm:p-5 rounded-2xl bg-slate-950/80 border border-white/10">
-                <span className="text-[11px] text-amber-400 font-bold block mb-1.5">سوال ۱ از ۱ — فارماکولوژی</span>
-                <p className="text-xs sm:text-sm font-bold text-white leading-relaxed">
+              <div className="p-4 sm:p-5 rounded-[16px] bg-white border border-[var(--avana-border-default)] shadow-xs">
+                <span className="text-[11px] text-amber-700 font-bold block mb-1.5">سوال ۱ از ۱ — فارماکولوژی</span>
+                <p className="text-xs sm:text-sm font-bold text-[var(--avana-text-primary)] leading-relaxed">
                   {quizQuestion.text}
                 </p>
               </div>
@@ -501,12 +474,12 @@ export function ProductExperienceSection() {
                     <button
                       key={option.id}
                       onClick={() => setSelectedQuizOption(option.id)}
-                      className={`p-3.5 rounded-xl text-xs font-bold text-right transition-all border cursor-pointer ${
+                      className={`p-3.5 rounded-[10px] text-xs font-bold text-right transition-all border cursor-pointer ${
                         isSelected
                           ? option.correct
-                            ? "bg-teal-500/20 text-teal-200 border-teal-400 shadow-lg"
-                            : "bg-rose-500/20 text-rose-200 border-rose-400 shadow-lg"
-                          : "bg-slate-900/80 text-slate-300 border-white/10 hover:border-white/25"
+                            ? "bg-teal-50 text-teal-900 border-teal-500 ring-1 ring-teal-500 shadow-xs"
+                            : "bg-rose-50 text-rose-900 border-rose-500 ring-1 ring-rose-500 shadow-xs"
+                          : "bg-white text-[var(--avana-text-secondary)] border border-[var(--avana-border-default)] hover:border-[#008080]/40 shadow-xs"
                       }`}
                     >
                       <div className="flex items-center justify-between">
@@ -525,13 +498,13 @@ export function ProductExperienceSection() {
                 <motion.div
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="p-4 rounded-xl bg-slate-950/90 border border-teal-500/40 space-y-1.5"
+                  className="p-4 rounded-[10px] bg-teal-50 border border-teal-200 space-y-1.5 shadow-xs"
                 >
-                  <div className="flex items-center gap-2 text-xs font-bold text-teal-300">
-                    <CheckCircle2 className="w-4 h-4 text-teal-400" />
+                  <div className="flex items-center gap-2 text-xs font-bold text-[#008080]">
+                    <CheckCircle2 className="w-4 h-4 text-[#008080]" />
                     <span>تحلیل و پاسخ تشریحی طراح سوال:</span>
                   </div>
-                  <p className="text-xs text-slate-200 leading-relaxed">
+                  <p className="text-xs text-[var(--avana-text-secondary)] leading-relaxed">
                     {quizQuestion.explanation}
                   </p>
                 </motion.div>

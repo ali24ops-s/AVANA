@@ -77,12 +77,12 @@ export function AdminUsersPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-2">
-        <h1 className="text-2xl font-bold text-slate-200">مدیریت کاربران</h1>
-        <p className="text-sm text-slate-400">جستجو، فیلتر و مدیریت نقش کاربران پلتفرم</p>
+        <h1 className="text-2xl font-bold text-[var(--color-text)]">مدیریت کاربران</h1>
+        <p className="text-sm text-[var(--color-text-muted)]">جستجو، فیلتر و مدیریت نقش کاربران پلتفرم</p>
       </div>
       
       {/* Search & Filters */}
-      <div className="glass-panel border border-white/5 rounded-2xl p-4 flex flex-col md:flex-row gap-4">
+      <div className="border border-[var(--color-border)] rounded-2xl p-4 bg-[var(--color-surface)] shadow-sm flex flex-col md:flex-row gap-4">
         <div className="relative flex-grow">
           <input
             type="text"
@@ -93,9 +93,9 @@ export function AdminUsersPage() {
               setPage(1);
             }}
             aria-label="جستجوی کاربران"
-            className="w-full bg-slate-900/50 border border-slate-700 rounded-xl pl-4 pr-10 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-teal-500 transition-colors placeholder:text-slate-500"
+            className="w-full bg-[var(--color-surface-warm)] border border-[var(--color-border)] rounded-xl ps-10 pe-4 py-2.5 text-sm text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary-default)] transition-colors placeholder:text-[var(--color-text-muted)]"
           />
-          <Search className="w-4 h-4 text-slate-500 absolute right-3 top-3.5" aria-hidden="true" />
+          <Search className="w-4 h-4 text-[var(--color-text-muted)] absolute start-3 top-3.5" aria-hidden="true" />
         </div>
         
         <div className="flex flex-wrap sm:flex-nowrap gap-3">
@@ -107,7 +107,7 @@ export function AdminUsersPage() {
                 setRoleFilter(e.target.value);
                 setPage(1);
               }}
-              className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-300 focus:outline-none focus:border-teal-500 transition-colors"
+              className="w-full bg-[var(--color-surface-warm)] border border-[var(--color-border)] rounded-xl px-3 py-2.5 text-sm text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary-default)] transition-colors"
             >
               {ROLES.map(r => (
                 <option key={r.value} value={r.value}>{r.label}</option>
@@ -123,7 +123,7 @@ export function AdminUsersPage() {
                 setStatusFilter(e.target.value);
                 setPage(1);
               }}
-              className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-300 focus:outline-none focus:border-teal-500 transition-colors"
+              className="w-full bg-[var(--color-surface-warm)] border border-[var(--color-border)] rounded-xl px-3 py-2.5 text-sm text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary-default)] transition-colors"
             >
               {STATUSES.map(s => (
                 <option key={s.value} value={s.value}>{s.label}</option>
@@ -135,7 +135,7 @@ export function AdminUsersPage() {
             <button
               onClick={clearFilters}
               aria-label="پاک کردن فیلترها"
-              className="px-4 py-2.5 text-sm font-medium text-slate-400 bg-slate-800/50 hover:bg-slate-700 rounded-xl transition-colors whitespace-nowrap"
+              className="px-4 py-2.5 text-sm font-medium text-[var(--color-text-muted)] bg-[var(--color-surface-warm)] hover:bg-[var(--color-surface-muted)] border border-[var(--color-border)] rounded-xl transition-colors whitespace-nowrap cursor-pointer"
             >
               پاک کردن
             </button>
@@ -144,10 +144,10 @@ export function AdminUsersPage() {
       </div>
 
       {/* Main Table Content */}
-      <div className="glass-panel border border-white/5 rounded-2xl overflow-hidden">
+      <div className="border border-[var(--color-border)] rounded-2xl overflow-hidden bg-[var(--color-surface)] shadow-sm">
         <div className="overflow-x-auto">
           <table className="w-full text-right text-sm">
-            <thead className="bg-slate-800/50 text-slate-400 border-b border-white/5">
+            <thead className="bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] border-b border-[var(--color-border)]">
               <tr>
                 <th className="px-6 py-4 font-medium whitespace-nowrap">کاربر</th>
                 <th className="px-6 py-4 font-medium">نقش</th>
@@ -156,12 +156,12 @@ export function AdminUsersPage() {
                 <th className="px-6 py-4 font-medium w-40 text-center">عملیات</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/5">
+            <tbody className="divide-y divide-[var(--color-border)]">
               {isLoading ? (
                 <tr>
                   <td colSpan={5} className="px-6 py-16 text-center">
-                    <div className="flex flex-col items-center justify-center gap-3 text-slate-400">
-                      <Loader2 className="w-8 h-8 animate-spin text-teal-500" />
+                    <div className="flex flex-col items-center justify-center gap-3 text-[var(--color-text-muted)]">
+                      <Loader2 className="w-8 h-8 animate-spin text-[var(--color-primary-default)]" />
                       <p>در حال بارگذاری کاربران...</p>
                     </div>
                   </td>
@@ -169,19 +169,19 @@ export function AdminUsersPage() {
               ) : isError ? (
                 <tr>
                   <td colSpan={5} className="px-6 py-16 text-center">
-                    <div className="flex flex-col items-center justify-center gap-3 text-red-400">
+                    <div className="flex flex-col items-center justify-center gap-3 text-red-500">
                       <AlertCircle className="w-8 h-8 opacity-80" />
                       <p>خطا در دریافت لیست کاربران.</p>
-                      <button onClick={() => setPage(1)} className="mt-2 text-sm text-slate-300 underline hover:text-white">تلاش مجدد</button>
+                      <button onClick={() => setPage(1)} className="mt-2 text-sm text-[var(--color-text)] underline hover:text-[var(--color-primary-default)] cursor-pointer">تلاش مجدد</button>
                     </div>
                   </td>
                 </tr>
               ) : data?.users.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-16 text-center text-slate-400">
+                  <td colSpan={5} className="px-6 py-16 text-center text-[var(--color-text-muted)]">
                     <div className="flex flex-col items-center justify-center gap-3">
                       <UserX className="w-10 h-10 opacity-30" />
-                      <p className="text-base font-medium">کاربری یافت نشد</p>
+                      <p className="text-base font-medium text-[var(--color-text)]">کاربری یافت نشد</p>
                       {hasActiveFilters && (
                         <p className="text-sm opacity-80">هیچ کاربری با فیلترهای فعلی مطابقت ندارد.</p>
                       )}
@@ -190,39 +190,39 @@ export function AdminUsersPage() {
                 </tr>
               ) : (
                 data?.users.map((user: AdminUserRecord) => (
-                  <tr key={user.id} className="hover:bg-slate-800/40 transition-colors group">
+                  <tr key={user.id} className="hover:bg-[var(--color-surface-warm)]/60 transition-colors group">
                     <td className="px-6 py-4">
                       <div className="flex flex-col">
-                        <span className="text-slate-200 font-medium" dir="ltr">{user.email}</span>
-                        {user.name && <span className="text-xs text-slate-400 mt-1">{user.name}</span>}
+                        <span className="text-[var(--color-text)] font-medium" dir="ltr">{user.email}</span>
+                        {user.name && <span className="text-xs text-[var(--color-text-muted)] mt-1">{user.name}</span>}
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-slate-800 text-slate-300 border border-slate-700">
+                      <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-[var(--color-surface-warm)] text-[var(--color-text)] border border-[var(--color-border)]">
                         {ROLES.find(r => r.value === user.role)?.label || user.role}
                       </span>
                     </td>
                     <td className="px-6 py-4">
                       {user.emailVerified ? (
-                        <span className="inline-flex items-center gap-1.5 text-teal-400 text-xs font-medium">
-                          <span className="w-1.5 h-1.5 rounded-full bg-teal-400"></span>
+                        <span className="inline-flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 text-xs font-medium">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
                           تأیید شده
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-1.5 text-slate-400 text-xs font-medium">
-                          <span className="w-1.5 h-1.5 rounded-full bg-slate-500"></span>
+                        <span className="inline-flex items-center gap-1.5 text-[var(--color-text-muted)] text-xs font-medium">
+                          <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-text-muted)]"></span>
                           در انتظار
                         </span>
                       )}
                     </td>
-                    <td className="px-6 py-4 text-slate-400 text-xs hidden sm:table-cell">
+                    <td className="px-6 py-4 text-[var(--color-text-muted)] text-xs hidden sm:table-cell">
                       {new Date(user.createdAt).toLocaleDateString("fa-IR")}
                     </td>
                     <td className="px-6 py-4 text-center">
                       <div className="flex items-center justify-center gap-2">
                         <button
                           onClick={() => setSelectedCommerceUserId(user.id)}
-                          className="text-xs font-medium text-purple-400 hover:text-purple-300 bg-purple-400/10 hover:bg-purple-400/20 px-2.5 py-1.5 rounded-lg transition-colors flex items-center gap-1"
+                          className="text-xs font-medium text-[var(--color-primary-default)] hover:text-[var(--color-primary-dark)] bg-[var(--color-surface-warm)] hover:bg-[var(--color-surface-muted)] border border-[var(--color-border)] px-2.5 py-1.5 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
                           title="سوابق مالی و دسترسی"
                           aria-label={`سوابق مالی کاربر ${user.email}`}
                         >
@@ -231,7 +231,7 @@ export function AdminUsersPage() {
                         </button>
                         <button
                           onClick={() => setSelectedDeviceUserId(user.id)}
-                          className="text-xs font-medium text-indigo-400 hover:text-indigo-300 bg-indigo-400/10 hover:bg-indigo-400/20 px-2.5 py-1.5 rounded-lg transition-colors flex items-center gap-1"
+                          className="text-xs font-medium text-[var(--color-primary-default)] hover:text-[var(--color-primary-dark)] bg-[var(--color-surface-warm)] hover:bg-[var(--color-surface-muted)] border border-[var(--color-border)] px-2.5 py-1.5 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
                           title="مدیریت دستگاه‌ها و سشن‌ها"
                           aria-label={`دستگاه‌های کاربر ${user.email}`}
                         >
@@ -240,7 +240,7 @@ export function AdminUsersPage() {
                         </button>
                         <button 
                           onClick={() => handleRoleChangeClick(user)}
-                          className="text-xs font-medium text-teal-400 hover:text-teal-300 bg-teal-400/10 hover:bg-teal-400/20 px-2.5 py-1.5 rounded-lg transition-colors"
+                          className="text-xs font-medium text-[var(--color-primary-default)] hover:text-[var(--color-primary-dark)] bg-[var(--color-primary-default)]/10 hover:bg-[var(--color-primary-default)]/20 px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer"
                           title="تغییر نقش"
                           aria-label={`تغییر نقش کاربر ${user.email}`}
                         >
@@ -256,8 +256,8 @@ export function AdminUsersPage() {
         </div>
         
         {/* Pagination */}
-        <div className="flex flex-col sm:flex-row items-center justify-between px-6 py-4 border-t border-white/5 bg-slate-800/30 gap-4">
-          <span className="text-sm text-slate-400">
+        <div className="flex flex-col sm:flex-row items-center justify-between px-6 py-4 border-t border-[var(--color-border)] bg-[var(--color-surface-warm)] gap-4">
+          <span className="text-sm text-[var(--color-text-muted)]">
             مجموع: {data?.totalCount || 0} کاربر
           </span>
           
@@ -267,12 +267,12 @@ export function AdminUsersPage() {
                 disabled={page === 1 || isLoading}
                 onClick={() => setPage(p => Math.max(1, p - 1))}
                 aria-label="صفحه قبل"
-                className="p-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-300 disabled:opacity-50 hover:bg-slate-700 transition-colors"
+                className="p-1.5 rounded-md bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)] disabled:opacity-50 hover:bg-[var(--color-surface-muted)] transition-colors cursor-pointer"
               >
                 <ChevronRight className="w-4 h-4" />
               </button>
               
-              <span className="text-sm text-slate-300 px-3 font-medium min-w-[5rem] text-center" aria-current="page">
+              <span className="text-sm text-[var(--color-text)] px-3 font-medium min-w-[5rem] text-center" aria-current="page">
                 {page} / {totalPages}
               </span>
               
@@ -280,7 +280,7 @@ export function AdminUsersPage() {
                 disabled={page >= totalPages || isLoading}
                 onClick={() => setPage(p => Math.min(totalPages, p + 1))}
                 aria-label="صفحه بعد"
-                className="p-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-300 disabled:opacity-50 hover:bg-slate-700 transition-colors"
+                className="p-1.5 rounded-md bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)] disabled:opacity-50 hover:bg-[var(--color-surface-muted)] transition-colors cursor-pointer"
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
@@ -305,30 +305,30 @@ export function AdminUsersPage() {
 
       {/* Role Change Modal */}
       {selectedUser && isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="modal-title">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden" dir="rtl">
-            <div className="p-6 border-b border-white/5 space-y-2">
-              <h3 id="modal-title" className="text-xl font-bold text-white">تغییر نقش کاربر</h3>
-              <p className="text-sm text-slate-400">
-                در حال تغییر نقش برای <span className="text-slate-200 font-medium break-all" dir="ltr">{selectedUser.email}</span>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+          <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl w-full max-w-md shadow-xl overflow-hidden" dir="rtl">
+            <div className="p-6 border-b border-[var(--color-border)] bg-[var(--color-surface-warm)] space-y-2">
+              <h3 id="modal-title" className="text-xl font-bold text-[var(--color-text)]">تغییر نقش کاربر</h3>
+              <p className="text-sm text-[var(--color-text-muted)]">
+                در حال تغییر نقش برای <span className="text-[var(--color-text)] font-medium break-all" dir="ltr">{selectedUser.email}</span>
               </p>
             </div>
             
             <div className="p-6 space-y-5">
-              <div className="flex justify-between items-center bg-slate-800/80 p-3.5 rounded-xl border border-slate-700/50">
-                <span className="text-sm text-slate-400">نقش فعلی</span>
-                <span className="text-sm font-medium text-slate-200 bg-slate-700 px-2.5 py-1 rounded-md">
+              <div className="flex justify-between items-center bg-[var(--color-surface-warm)] p-3.5 rounded-xl border border-[var(--color-border)]">
+                <span className="text-sm text-[var(--color-text-muted)]">نقش فعلی</span>
+                <span className="text-sm font-medium text-[var(--color-text)] bg-[var(--color-surface)] border border-[var(--color-border)] px-2.5 py-1 rounded-md">
                   {ROLES.find(r => r.value === selectedUser.role)?.label || selectedUser.role}
                 </span>
               </div>
               
               <div>
-                <label htmlFor="newRoleSelect" className="block text-sm font-medium text-slate-300 mb-2">انتخاب نقش جدید</label>
+                <label htmlFor="newRoleSelect" className="block text-sm font-medium text-[var(--color-text)] mb-2">انتخاب نقش جدید</label>
                 <select 
                   id="newRoleSelect"
                   value={newRole} 
                   onChange={(e) => setNewRole(e.target.value)}
-                  className="w-full bg-slate-800 border border-slate-600 text-slate-200 text-sm rounded-xl p-3 focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500 transition-shadow outline-none"
+                  className="w-full bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-[var(--color-text)] text-sm rounded-xl p-3 focus:ring-1 focus:ring-[var(--color-primary-default)] focus:border-[var(--color-primary-default)] transition-shadow outline-none"
                 >
                   {ROLES.filter(r => r.value !== "all").map(r => (
                     <option key={r.value} value={r.value}>{r.label}</option>
@@ -338,24 +338,24 @@ export function AdminUsersPage() {
               
               <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-4 flex gap-3 items-start">
                 <ShieldAlert className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" aria-hidden="true" />
-                <p className="text-xs text-amber-200/90 leading-relaxed font-medium">
+                <p className="text-xs text-amber-700 dark:text-amber-200/90 leading-relaxed font-medium">
                   تغییر نقش، دسترسی‌های کاربر را در کل پلتفرم تحت تأثیر قرار می‌دهد. این تغییر بلافاصله اعمال می‌شود.
                 </p>
               </div>
             </div>
             
-            <div className="p-5 border-t border-white/5 flex justify-end gap-3 bg-slate-800/30">
+            <div className="p-5 border-t border-[var(--color-border)] flex justify-end gap-3 bg-[var(--color-surface-warm)]">
               <button 
                 onClick={() => setIsModalOpen(false)}
                 disabled={roleMutation.isPending}
-                className="px-4 py-2.5 text-sm font-medium text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl transition-colors"
+                className="px-4 py-2.5 text-sm font-medium text-[var(--color-text-muted)] hover:text-[var(--color-text)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-muted)] border border-[var(--color-border)] rounded-xl transition-colors cursor-pointer"
               >
                 انصراف
               </button>
               <button 
                 onClick={() => roleMutation.mutate({ userId: selectedUser.id, role: newRole })}
                 disabled={roleMutation.isPending || newRole === selectedUser.role}
-                className="px-5 py-2.5 text-sm font-medium text-white bg-teal-600 hover:bg-teal-500 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shadow-lg shadow-teal-500/20 active:scale-95"
+                className="px-5 py-2.5 text-sm font-medium text-[var(--color-primary-contrast)] bg-[var(--color-primary-default)] hover:bg-[var(--color-primary-dark)] rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 cursor-pointer shadow-sm active:scale-95"
               >
                 {roleMutation.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
                 {roleMutation.isPending ? "در حال اعمال..." : "تأیید و اعمال"}

@@ -35,7 +35,9 @@ export class InMemoryCourseStore implements CourseStore {
     }
 
     this.courses.set(records.course.id, { ...records.course });
-    this.auditEvents.push(...records.auditEvents);
+    if (records.auditEvents) {
+      this.auditEvents.push(...records.auditEvents);
+    }
     return records.course;
   }
 

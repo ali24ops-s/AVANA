@@ -72,6 +72,7 @@ export type CourseLearnResponse = {
       completed: boolean;
       completed_at: string | null;
       locked?: boolean;
+      is_preview?: boolean;
       access_reason?: string;
       purchase_options?: Array<{
         type: "subscription" | "content_pack" | "course" | "content";
@@ -88,6 +89,11 @@ export type CourseLearnResponse = {
     total_lessons: number;
     completed_lessons: number;
     progress_percent: number;
+  };
+  preview?: {
+    preview_lesson_id: string | null;
+    preview_flashcard_limit: number;
+    preview_quiz_limit: number;
   };
   access?: ResourceAccessResult;
 };
@@ -139,6 +145,7 @@ export class LearningService {
     actor: Actor,
     courseId: CourseId,
     requestId: string,
+    options?: { moduleId?: string; previewSessionId?: string },
   ): Promise<CourseLearnResponse> {
     // 1. Look up the course
     const course = await this.courseStore.findByIdForUser(
@@ -186,9 +193,18 @@ export class LearningService {
 
     // 4. Load modules (ordered by sort_order)
     const modules = await this.moduleStore.listByCourse(courseId);
-    const activeModules = modules.filter((m) => m.deletedAt === null);
+    let activeModules = modules.filter((m) => m.deletedAt === null);
 
-    // 5. Load lessons for all modules (batch) — exclude drafts for learners
+    // Scope check: If scoped to a specific chapter package / module, filter strictly
+    if (options?.moduleId) {
+      const targetModule = activeModules.find((m) => m.id === options.moduleId);
+      if (!targetModule) {
+        throw new DomainError("not_found", "Module not found in this course");
+      }
+      activeModules = [targetModule];
+    }
+
+    // 5. Load lessons for active modules (batch) — exclude drafts for learners
     const moduleIds = activeModules.map((m) => m.id);
     const allLessons = await this.lessonStore.listByModules(moduleIds);
     const activeLessons = allLessons.filter(
@@ -208,11 +224,29 @@ export class LearningService {
     // 7. Check entitlement & access
     let accessResult: ResourceAccessResult | undefined;
     if (this.entitlementService) {
-      accessResult = await this.entitlementService.checkAccess(actor, {
-        userId: actor.userId,
-        resourceType: "course",
-        resourceId: courseId,
-      });
+      if (options?.moduleId) {
+        const modAccess = await this.entitlementService.checkAccess(actor, {
+          userId: actor.userId,
+          resourceType: "module",
+          resourceId: options.moduleId,
+          courseId,
+        });
+        if (modAccess.granted && modAccess.reason !== "free_preview") {
+          accessResult = modAccess;
+        } else {
+          accessResult = await this.entitlementService.checkAccess(actor, {
+            userId: actor.userId,
+            resourceType: "course",
+            resourceId: courseId,
+          });
+        }
+      } else {
+        accessResult = await this.entitlementService.checkAccess(actor, {
+          userId: actor.userId,
+          resourceType: "course",
+          resourceId: courseId,
+        });
+      }
     }
 
     const isCourseLocked = accessResult ? !accessResult.granted : false;
@@ -249,16 +283,20 @@ export class LearningService {
             const progress = progressByLessonId.get(lesson.id);
 
             let isLessonLocked = isCourseLocked;
+            let isPreview = false;
             let lessonReason = accessResult?.reason ?? "free";
             let lessonPurchaseOptions = accessResult?.availablePurchaseOptions ?? [];
 
             // Evaluate individual lesson access against entitlement engine
+            // Architecture: PreviewResolver -> EntitlementService -> Service/Route
             if (this.entitlementService) {
               const lessonAccess = await this.entitlementService.checkAccess(actor, {
                 userId: actor.userId,
                 resourceType: "lesson",
                 resourceId: lesson.id,
+                moduleId: (options?.moduleId ? mod.id : undefined) as any,
                 courseId,
+                previewSessionId: options?.previewSessionId,
               });
 
               if (!lessonAccess.granted) {
@@ -268,6 +306,7 @@ export class LearningService {
               } else {
                 isLessonLocked = false;
                 lessonReason = lessonAccess.reason;
+                isPreview = lessonAccess.reason === "free_preview";
               }
             }
 
@@ -286,6 +325,7 @@ export class LearningService {
               completed: progress?.completed ?? false,
               completed_at: progress?.completedAt ?? null,
               locked: isLessonLocked,
+              is_preview: isPreview,
               access_reason: lessonReason,
               purchase_options: isLessonLocked ? lessonPurchaseOptions : undefined,
             };
@@ -323,6 +363,14 @@ export class LearningService {
             ? Math.round((completedLessons / totalLessons) * 100)
             : 0,
       },
+      preview: {
+        preview_lesson_id:
+          moduleResources
+            .flatMap((m) => m.lessons)
+            .find((l) => l.is_preview)?.id ?? null,
+        preview_flashcard_limit: 5,
+        preview_quiz_limit: 5,
+      },
       access: accessResult,
     };
   }
@@ -354,7 +402,7 @@ export class LearningService {
       if (!access.granted) {
         throw new DomainError(
           "forbidden",
-          "برای ثبت پیشرفت این درس، فعال‌سازی اشتراک، خرید محتوا یا خرید دوره الزامی است.",
+          "برای ثبت پیشرفت این درس، فعال‌سازی اشتراک، خرید محتوا یا خرید دوره الزامی است. جهت ثبت پیشرفت، محتوا یا دوره باید خریداری شود.",
         );
       }
     }
@@ -412,6 +460,23 @@ export class LearningService {
     const scopedActor = { ...actor, role };
     const context: AuthContext = { organizationId, courseId, lessonId };
     this.policy.require("progress:write", scopedActor, context);
+
+    // Check entitlement: locked lessons cannot be marked as completed
+    if (this.entitlementService) {
+      const lessonAccess = await this.entitlementService.checkAccess(actor, {
+        userId: actor.userId,
+        resourceType: "lesson",
+        resourceId: lessonId,
+        courseId,
+      });
+
+      if (!lessonAccess.granted) {
+        throw new DomainError(
+          "forbidden",
+          "برای ثبت پیشرفت این درس، فعال‌سازی اشتراک، خرید محتوا یا خرید دوره الزامی است. جهت ثبت پیشرفت، این محتوا باید خریداری شود.",
+        );
+      }
+    }
 
     // 6. Keep completion idempotent so repeated requests do not change the
     // timestamp or emit duplicate audit events.

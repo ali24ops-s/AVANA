@@ -3,20 +3,23 @@ import { useQuery } from "@tanstack/react-query";
 import {
   HelpCircle,
   ChevronLeft,
-  Loader2,
   AlertCircle,
 } from "lucide-react";
+import { Card, Badge, Button, LoadingState, EmptyState } from "@avana/ui";
 import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
 import { createStudyApi } from "../../lib/api/study.js";
 import { QuizExperience } from "./QuizExperience.js";
 import type { QuizResource } from "@avana/contracts";
+import { toPersianDigits } from "@avana/domain";
 
 export interface QuizListViewProps {
   organizationId: string;
   courseId: string;
+  isPreview?: boolean;
+  onUnlock?: () => void;
 }
 
-export function QuizListView({ organizationId, courseId }: QuizListViewProps) {
+export function QuizListView({ organizationId, courseId, isPreview = false, onUnlock }: QuizListViewProps) {
   const [activeQuizId, setActiveQuizId] = useState<string | null>(null);
 
   const apiClient = createApiClient({ baseUrl: getApiBaseUrl() });
@@ -27,12 +30,16 @@ export function QuizListView({ organizationId, courseId }: QuizListViewProps) {
     queryFn: () => studyApi.listQuizzes(organizationId, courseId),
   });
 
+  const effectiveIsPreview = isPreview || (quizzesQuery.data as any)?.is_preview === true;
+
   if (activeQuizId) {
     return (
       <QuizExperience
         organizationId={organizationId}
         courseId={courseId}
         quizId={activeQuizId}
+        isPreview={effectiveIsPreview}
+        onUnlock={onUnlock}
         onBack={() => setActiveQuizId(null)}
       />
     );
@@ -40,30 +47,33 @@ export function QuizListView({ organizationId, courseId }: QuizListViewProps) {
 
   if (quizzesQuery.isLoading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 className="w-8 h-8 animate-spin text-[#008080]" />
+      <div className="py-16">
+        <LoadingState message="در حال بارگذاری آزمون‌ها..." />
       </div>
     );
   }
 
   if (quizzesQuery.isError) {
     return (
-      <div className="bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] p-12 text-center space-y-4">
-        <AlertCircle className="w-10 h-10 text-red-500 mx-auto" />
+      <Card className="p-8 sm:p-12 text-center space-y-4 max-w-md mx-auto">
+        <AlertCircle className="w-10 h-10 text-[#b84c4c] mx-auto" />
         <h3 className="text-base font-bold text-[var(--color-text)]">
           خطا در بارگذاری آزمون‌ها
         </h3>
         <p className="text-xs text-[var(--color-text-muted)]">
           {quizzesQuery.error?.message || "خطایی در دریافت آزمون‌ها رخ داد."}
         </p>
-        <button
-          type="button"
-          onClick={() => void quizzesQuery.refetch()}
-          className="px-4 py-2 bg-[#008080] hover:bg-[#006666] text-white rounded-xl text-xs font-bold"
-        >
-          تلاش مجدد
-        </button>
-      </div>
+        <div className="pt-2">
+          <Button
+            type="button"
+            onClick={() => void quizzesQuery.refetch()}
+            variant="primary"
+            size="sm"
+          >
+            تلاش مجدد
+          </Button>
+        </div>
+      </Card>
     );
   }
 
@@ -71,7 +81,7 @@ export function QuizListView({ organizationId, courseId }: QuizListViewProps) {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-4">
         <div>
           <h3 className="text-base font-bold text-[var(--color-text)]">
             آزمون‌های خودسنجی دوره
@@ -80,21 +90,17 @@ export function QuizListView({ organizationId, courseId }: QuizListViewProps) {
             میزان تسلط و درک مفاهیم درسی خود را با آزمون‌های تعاملی بسنجید.
           </p>
         </div>
-        <span className="text-xs font-semibold text-[var(--color-text-muted)] bg-[var(--color-surface)] px-3 py-1.5 rounded-xl border border-[var(--color-border)]">
-          {quizzes.length} آزمون در دسترس
-        </span>
+        <Badge variant="neutral" size="md">
+          {toPersianDigits(quizzes.length)} آزمون در دسترس
+        </Badge>
       </div>
 
       {quizzes.length === 0 ? (
-        <div className="bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] p-12 text-center space-y-3">
-          <HelpCircle className="w-10 h-10 text-[var(--color-text-muted)] mx-auto" />
-          <h4 className="text-sm font-bold text-[var(--color-text)]">
-            هنوز آزمونی منتشر نشده است
-          </h4>
-          <p className="text-xs text-[var(--color-text-muted)] max-w-sm mx-auto leading-relaxed">
-            آزمون‌های ایجادشده از محتوای آموزشی پس از انتشار توسط مدیر دوره در اینجا قرار می‌گیرند.
-          </p>
-        </div>
+        <EmptyState
+          icon={<HelpCircle className="w-8 h-8 text-[var(--color-text-muted)]" />}
+          title="هنوز آزمونی منتشر نشده است"
+          description="آزمون‌های ایجادشده از محتوای آموزشی پس از انتشار توسط مدیر دوره در اینجا قرار می‌گیرند."
+        />
       ) : (
         <div className="grid gap-4 sm:grid-cols-2">
           {quizzes.map((quiz: QuizResource) => (
@@ -103,16 +109,16 @@ export function QuizListView({ organizationId, courseId }: QuizListViewProps) {
               key={quiz.id}
               onClick={() => setActiveQuizId(quiz.id)}
               aria-label={`شرکت در آزمون: ${quiz.title}`}
-              className="w-full text-right group bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] rounded-3xl border border-[var(--color-border)] hover:border-[#008080] p-6 transition-all cursor-pointer flex flex-col justify-between space-y-4 focus:outline-none focus:ring-2 focus:ring-[#008080]"
+              className="w-full text-start group bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] rounded-[16px] border border-[var(--color-border)] hover:border-[#008080] p-5 sm:p-6 transition-all duration-150 cursor-pointer flex flex-col justify-between space-y-4 shadow-[var(--shadow-subtle)] hover:shadow-[var(--shadow-card)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#008080]"
             >
               <div className="space-y-3">
                 <div className="flex items-start justify-between gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-[#a7d0e6]/30 text-[#008080] flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
+                  <div className="w-10 h-10 rounded-[10px] bg-[#e0f2f2] text-[#008080] flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
                     <HelpCircle className="w-5 h-5" />
                   </div>
-                  <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-md bg-[#008080]/10 text-[#008080]">
-                    {quiz.status === "published" ? "منتشر شده" : quiz.status}
-                  </span>
+                  <Badge variant={effectiveIsPreview ? "info" : "primary"} size="sm">
+                    {effectiveIsPreview ? "پیش‌نمایش رایگان (۵ سوال)" : (quiz.status === "published" ? "منتشر شده" : quiz.status)}
+                  </Badge>
                 </div>
                 <h4 className="text-sm font-bold text-[var(--color-text)] group-hover:text-[#008080] transition-colors">
                   {quiz.title}

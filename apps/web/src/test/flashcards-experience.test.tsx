@@ -228,8 +228,8 @@ describe("Flashcard Experience Flow", () => {
 
     // Assert that counters show: unseen: 6, finished: 4
     expect(screen.getByText("دیده‌نشده:")).toBeDefined();
-    expect(screen.getByText("6")).toBeDefined();
+    expect(screen.getByText(/^[6۶]$/)).toBeDefined();
     expect(screen.getByText("پایان‌یافته:")).toBeDefined();
-    expect(screen.getByText("4")).toBeDefined();
+    expect(screen.getByText(/^[4۴]$/)).toBeDefined();
   });
 });

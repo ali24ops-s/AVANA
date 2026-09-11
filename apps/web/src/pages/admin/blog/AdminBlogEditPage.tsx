@@ -74,8 +74,8 @@ export function AdminBlogEditPage() {
 
   if (isEditing && isLoadingPost) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[400px] text-slate-400 gap-3">
-        <Loader2 className="w-8 h-8 animate-spin text-teal-400" />
+      <div className="flex flex-col items-center justify-center min-h-[400px] text-[var(--color-text-muted)] gap-3" dir="rtl">
+        <Loader2 className="w-8 h-8 animate-spin text-[var(--color-primary-default)]" />
         <p className="text-sm font-medium">در حال بارگذاری اطلاعات مقاله...</p>
       </div>
     );

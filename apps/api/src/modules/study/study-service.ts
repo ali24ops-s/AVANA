@@ -20,6 +20,7 @@ import {
   type QuizAttemptId,
   type QuizId,
   type QuizQuestionId,
+  type ResourceAccessResult,
   type StudySessionRecord,
   type StartStudySessionInput,
   type WeeklyStudyTimeSummary,
@@ -35,12 +36,16 @@ import {
   getPersianWeekDates,
   calculateWeeklyStudyTimeSummary,
   calculateStreakSummary,
+  evaluateQuestionAnswer,
+  type QuestionEvaluationResult,
+  seededRandomShuffle,
 } from "@avana/domain";
 import type {
   FlashcardRating,
   QuizAttemptInput,
   QuizAttemptResult,
   QuizAttemptRecord,
+  ExamHistoryItem,
   StudyAnalytics,
   StudyRecommendation,
   FlashcardStudySessionRecord,
@@ -156,7 +161,9 @@ export class StudyService {
     organizationId: OrganizationId,
     action: "study:read" | "flashcard:review" | "quiz:attempt",
   ): Promise<void> {
-    if (this.organizationStore) {
+    const isSystemOrg =
+      !!this.systemOrganizationId && organizationId === this.systemOrganizationId;
+    if (this.organizationStore && !isSystemOrg) {
       const membership = await this.organizationStore.findMembership(
         organizationId,
         actor.userId,
@@ -181,6 +188,72 @@ export class StudyService {
     await this.authorize(actor, organizationId, "quiz:attempt");
   }
 
+  public getEntitlementService(): EntitlementService | undefined {
+    return this.entitlementService;
+  }
+
+  /**
+   * Get preview flashcards for a course.
+   * Prioritizes flashcards from the resolved preview lesson / first module,
+   * returning up to limit (default 5) real flashcards without leaking the full deck.
+   */
+  async getPreviewFlashcards(
+    actor: Actor,
+    organizationId: OrganizationId,
+    courseId: CourseId,
+    options?: { moduleId?: string; previewLessonId?: string; previewSessionId?: string; limit?: number },
+  ): Promise<{
+    flashcards: FlashcardRecord[];
+    total_count: number;
+    is_preview: true;
+    preview_lesson_id?: string;
+  }> {
+    await this.authorizeRead(actor, organizationId);
+    const limit = options?.limit ?? (options?.moduleId ? 15 : 5);
+
+    let targetOrgId = organizationId;
+    if (this.courseStore) {
+      const course = await this.courseStore.findByIdForUser(
+        courseId,
+        actor.userId,
+        this.systemOrganizationId,
+      );
+      if (!course) {
+        throw new DomainError("not_found", "Course not found");
+      }
+      targetOrgId = (course.organizationId || (course as { organization_id?: OrganizationId }).organization_id) as OrganizationId;
+    }
+
+    let selectedCards: FlashcardRecord[] = [];
+    if (this.entitlementService) {
+      selectedCards = await this.entitlementService
+        .getPreviewResolver()
+        .resolvePreviewFlashcards(courseId, targetOrgId, limit, {
+          moduleId: options?.moduleId,
+          previewLessonId: options?.previewLessonId,
+          previewSessionId: options?.previewSessionId,
+        });
+    } else {
+      const allCards = await this.flashcardStore.listByCourse(courseId, targetOrgId);
+      selectedCards = allCards.filter((c) => c.deletedAt === null).slice(0, limit);
+    }
+
+    let resolvedPreviewLessonId = options?.previewLessonId;
+    if (this.entitlementService && options?.moduleId && !resolvedPreviewLessonId) {
+      const canonicalLesson = await this.entitlementService.getPreviewResolver().resolvePreviewLesson(options.moduleId);
+      resolvedPreviewLessonId = canonicalLesson?.id;
+    } else if (!resolvedPreviewLessonId && selectedCards.length > 0 && selectedCards[0].lessonId) {
+      resolvedPreviewLessonId = selectedCards[0].lessonId;
+    }
+
+    return {
+      flashcards: selectedCards,
+      total_count: selectedCards.length,
+      is_preview: true,
+      preview_lesson_id: resolvedPreviewLessonId,
+    };
+  }
+
   // -------------------------------------------------------------------------
   // Flashcards
   // -------------------------------------------------------------------------
@@ -189,6 +262,7 @@ export class StudyService {
    * List flashcards that are due for review for the current student in a course.
    * Filters by user per-user schedule AND due_at column: only cards reviewed at least once
    * by the user where due_at <= now are returned. Unread cards are never returned.
+   * For unentitled users, seamlessly returns the preview flashcards.
    */
   async listFlashcardsForReview(
     actor: Actor,
@@ -204,10 +278,8 @@ export class StudyService {
         resourceId: courseId,
       });
       if (!access.granted) {
-        throw new DomainError(
-          "forbidden",
-          "برای دسترسی به سیستم مرور فلش‌کارت‌ها، فعال‌سازی اشتراک آوانا پلاس یا خرید دوره الزامی است.",
-        );
+        const preview = await this.getPreviewFlashcards(actor, organizationId, courseId);
+        return preview.flashcards;
       }
     }
 
@@ -425,6 +497,78 @@ export class StudyService {
   }
 
   /**
+   * Restrict candidate flashcards across courses to respect entitlements.
+   * If a user is not entitled to a course, only the deterministic preview subset (max 5 cards)
+   * is allowed for that course.
+   */
+  private async filterFlashcardsByEntitlement(
+    actor: Actor,
+    organizationId: OrganizationId,
+    flashcards: FlashcardRecord[],
+  ): Promise<{
+    allowedCards: FlashcardRecord[];
+    unentitledCourseIds: Set<CourseId>;
+    previewCardIds: Set<string>;
+  }> {
+    if (!this.entitlementService) {
+      return {
+        allowedCards: flashcards,
+        unentitledCourseIds: new Set(),
+        previewCardIds: new Set(),
+      };
+    }
+
+    const uniqueCourseIds = Array.from(new Set(flashcards.map((f) => f.courseId)));
+    if (uniqueCourseIds.length === 0) {
+      return {
+        allowedCards: flashcards,
+        unentitledCourseIds: new Set(),
+        previewCardIds: new Set(),
+      };
+    }
+
+    const unentitledCourseIds = new Set<CourseId>();
+    const previewCardIds = new Set<string>();
+    const allowedCardIds = new Set<string>();
+
+    await Promise.all(
+      uniqueCourseIds.map(async (courseId) => {
+        try {
+          const access = await this.entitlementService!.checkAccess(actor, {
+            userId: actor.userId,
+            resourceType: "course",
+            resourceId: courseId,
+          });
+
+          if (access.granted) {
+            for (const card of flashcards) {
+              if (card.courseId === courseId) {
+                allowedCardIds.add(card.id);
+              }
+            }
+          } else {
+            unentitledCourseIds.add(courseId);
+            const preview = await this.getPreviewFlashcards(actor, organizationId, courseId, { limit: 5 });
+            for (const pCard of preview.flashcards) {
+              previewCardIds.add(pCard.id);
+              allowedCardIds.add(pCard.id);
+            }
+          }
+        } catch {
+          unentitledCourseIds.add(courseId);
+        }
+      }),
+    );
+
+    const allowedCards = flashcards.filter((f) => allowedCardIds.has(f.id));
+    return {
+      allowedCards,
+      unentitledCourseIds,
+      previewCardIds,
+    };
+  }
+
+  /**
    * List flashcards for normal review across multiple courses.
    */
   async listFlashcardsForReviewMulti(
@@ -442,15 +586,21 @@ export class StudyService {
         : Promise.resolve([]),
     ]);
 
+    const { allowedCards, unentitledCourseIds, previewCardIds } =
+      await this.filterFlashcardsByEntitlement(actor, organizationId, allFlashcards);
+
     const scheduleMap = new Map(userSchedules.map((s) => [s.flashcardId, s]));
     const now = new Date();
     const courseSet = courseIds && courseIds.length > 0 ? new Set(courseIds) : null;
     const docSet = documentIds && documentIds.length > 0 ? new Set(documentIds) : null;
 
-    return allFlashcards
+    return allowedCards
       .filter((f) => {
         if (courseSet && !courseSet.has(f.courseId)) return false;
         if (docSet && (!f.documentId || !docSet.has(f.documentId))) return false;
+        if (unentitledCourseIds.has(f.courseId)) {
+          return previewCardIds.has(f.id);
+        }
         const schedule = scheduleMap.get(f.id);
         const rawDueAt = schedule ? schedule.dueAt : f.dueAt;
         if (!rawDueAt) return false;
@@ -489,12 +639,15 @@ export class StudyService {
         : Promise.resolve([]),
     ]);
 
+    const { allowedCards } =
+      await this.filterFlashcardsByEntitlement(actor, organizationId, allFlashcards);
+
     const scheduleMap = new Map(userSchedules.map((s) => [s.flashcardId, s]));
     const now = new Date();
     const courseSet = courseIds && courseIds.length > 0 ? new Set(courseIds) : null;
     const docSet = documentIds && documentIds.length > 0 ? new Set(documentIds) : null;
 
-    let filtered = allFlashcards.map((f) => {
+    let filtered = allowedCards.map((f) => {
       const schedule = scheduleMap.get(f.id);
       if (!schedule) return f;
       return {
@@ -567,13 +720,16 @@ export class StudyService {
       this.flashcardReviewStore.listByUser(actor.userId),
     ]);
 
+    const { allowedCards } =
+      await this.filterFlashcardsByEntitlement(actor, organizationId, allFlashcards);
+
     const scheduleMap = new Map(userSchedules.map((s) => [s.flashcardId, s]));
     const reviewedCardIds = new Set(userReviews.map((r) => r.flashcardId));
     const now = new Date();
     const courseSet = courseIds && courseIds.length > 0 ? new Set(courseIds) : null;
     const docSet = documentIds && documentIds.length > 0 ? new Set(documentIds) : null;
 
-    const mapped = allFlashcards.map((f) => {
+    const mapped = allowedCards.map((f) => {
       const schedule = scheduleMap.get(f.id);
       if (!schedule) return f;
       return {
@@ -1027,18 +1183,140 @@ export class StudyService {
       if (!course) {
         throw new DomainError("not_found", "Course not found");
       }
-      targetOrgId = (course.organizationId || (course as any).organization_id) as OrganizationId;
+      targetOrgId = (course.organizationId || (course as { organization_id?: OrganizationId }).organization_id) as OrganizationId;
     }
     const quizzes = await this.quizStore.listByCourse(courseId, targetOrgId);
     return quizzes.filter((q) => q.status === "published");
   }
 
-  /** Get a published quiz with its questions for attempt. */
+  /**
+   * Get preview quiz for a course.
+   * Returns a published quiz with at most limit (default 5) real questions
+   * prioritizing questions from the preview lesson, with secret answer keys stripped.
+   */
+  async getPreviewQuiz(
+    actor: Actor,
+    organizationId: OrganizationId,
+    courseId: CourseId,
+    options?: { quizId?: QuizId; moduleId?: string; previewLessonId?: string; previewSessionId?: string; limit?: number },
+  ): Promise<{
+    quiz: (QuizRecord & {
+      questions: Array<Omit<QuizQuestionRecord, "correctAnswer" | "explanation">>;
+    }) | null;
+    total_questions: number;
+    is_preview: true;
+    preview_lesson_id?: string;
+  }> {
+    await this.authorizeRead(actor, organizationId);
+    const limit = options?.limit ?? 5;
+
+    let targetOrgId = organizationId;
+    if (this.courseStore) {
+      const course = await this.courseStore.findByIdForUser(
+        courseId,
+        actor.userId,
+        this.systemOrganizationId,
+      );
+      if (!course) {
+        throw new DomainError("not_found", "Course not found");
+      }
+      targetOrgId = (course.organizationId || (course as { organization_id?: OrganizationId }).organization_id) as OrganizationId;
+    }
+
+    const quizzes = await this.quizStore.listByCourse(courseId, targetOrgId);
+    const publishedQuizzes = quizzes.filter((q) => q.status === "published");
+    if (publishedQuizzes.length === 0) {
+      return {
+        quiz: null,
+        total_questions: 0,
+        is_preview: true,
+      };
+    }
+
+    const selectedQuiz = options?.quizId
+      ? (publishedQuizzes.find((q) => q.id === options.quizId) ?? publishedQuizzes[0])
+      : publishedQuizzes[0];
+
+    const allQuestions = await this.quizQuestionStore.listByQuiz(selectedQuiz.id);
+
+    // Resolve allowed lessons for the module or previewLessonId
+    let previewLessonId = options?.previewLessonId;
+
+    if (options?.moduleId && this.entitlementService) {
+      const canonicalPreview = await this.entitlementService
+        .getPreviewResolver()
+        .resolvePreviewLesson(options.moduleId);
+      // Security: canonical preview lesson of this module always takes precedence
+      previewLessonId = canonicalPreview?.id;
+    } else if (options?.moduleId && this.lessonStore && !previewLessonId) {
+      const modLessons = await this.lessonStore.listByModule(options.moduleId as ModuleId);
+      const activeLessons = modLessons.filter(
+        (l) => l.deletedAt === null && (!l.publicationStatus || l.publicationStatus === "published"),
+      );
+      if (activeLessons.length > 0) {
+        previewLessonId = activeLessons[0].id;
+      }
+    }
+
+    if (!previewLessonId && !options?.moduleId && this.entitlementService && this.moduleStore && this.lessonStore) {
+      const modules = await this.moduleStore.listByCourse(courseId);
+      const activeModules = modules.filter((m) => m.deletedAt === null).sort((a, b) => a.sortOrder - b.sortOrder);
+      const allLessons = await this.lessonStore.listByModules(activeModules.map((m) => m.id));
+      const activeLessons = allLessons.filter(
+        (l) => l.deletedAt === null && l.publicationStatus === "published",
+      ).sort((a, b) => a.sortOrder - b.sortOrder);
+      previewLessonId = (await this.entitlementService.resolveCoursePreviewLessonId(courseId, activeLessons)) ?? undefined;
+    }
+
+    // Filter questions: strictly from the canonical preview lesson when scoped to module
+    let eligibleQuestions: QuizQuestionRecord[] = [];
+    if (options?.moduleId) {
+      if (previewLessonId) {
+        eligibleQuestions = allQuestions.filter((q) => q.lessonId === previewLessonId);
+      }
+    } else {
+      if (previewLessonId) {
+        const matchingQuestions = allQuestions.filter((q) => q.lessonId === previewLessonId);
+        const otherQuestions = allQuestions.filter((q) => q.lessonId !== previewLessonId);
+        eligibleQuestions = [...matchingQuestions, ...otherQuestions];
+      } else {
+        eligibleQuestions = allQuestions;
+      }
+    }
+
+    // Shuffle deterministically
+    const seed = `${options?.previewSessionId || options?.moduleId || previewLessonId || selectedQuiz.id}:quiz`;
+    const shuffled = seededRandomShuffle(eligibleQuestions, seed);
+    const selectedQuestions = shuffled.slice(0, Math.min(limit, eligibleQuestions.length));
+
+    // Strip correctAnswer prior to submission
+    const sanitized = selectedQuestions.map(
+      ({ correctAnswer: _ca, explanation: _exp, ...q }) => q,
+    );
+
+    return {
+      quiz: {
+        ...selectedQuiz,
+        questions: sanitized,
+      },
+      total_questions: eligibleQuestions.length,
+      is_preview: true,
+      preview_lesson_id: previewLessonId,
+    };
+  }
+
+  /** Get a published quiz with its questions for attempt. Supports preview mode for prospective students. */
   async getQuizForAttempt(
     actor: Actor,
     organizationId: OrganizationId,
     quizId: QuizId,
-  ): Promise<QuizRecord & { questions: Array<Omit<QuizQuestionRecord, "correctAnswer">> }> {
+    options?: { moduleId?: string; previewSessionId?: string },
+  ): Promise<
+    QuizRecord & {
+      questions: Array<Omit<QuizQuestionRecord, "correctAnswer" | "explanation">>;
+      is_preview?: boolean;
+    }
+  > {
     await this.authorizeRead(actor, organizationId);
     const quiz = await this.quizStore.findByIdForOrganization(
       quizId,
@@ -1048,12 +1326,15 @@ export class StudyService {
     if (!quiz) throw new DomainError("not_found", "Quiz not found");
     if (quiz.status !== "published") throw new DomainError("not_found", "Quiz not found");
 
+    let access: ResourceAccessResult | undefined;
     if (this.entitlementService) {
-      const access = await this.entitlementService.checkAccess(actor, {
+      access = await this.entitlementService.checkAccess(actor, {
         userId: actor.userId,
         resourceType: "quiz",
         resourceId: quizId,
         courseId: quiz.courseId ?? undefined,
+        moduleId: (options?.moduleId as ModuleId) ?? undefined,
+        previewSessionId: options?.previewSessionId,
       });
       if (!access.granted) {
         throw new DomainError(
@@ -1074,10 +1355,35 @@ export class StudyService {
       }
     }
 
-    const questions = await this.quizQuestionStore.listByQuiz(quizId);
-    // Security: strip correctAnswer from questions response prior to submission
-    const sanitized = questions.map(({ correctAnswer: _correctAnswer, ...q }) => q);
-    return { ...quiz, questions: sanitized };
+    let questions = await this.quizQuestionStore.listByQuiz(quizId);
+    if (access?.reason === "free_preview") {
+      try {
+        const preview = await this.getPreviewQuiz(
+          actor,
+          organizationId,
+          (quiz.courseId ?? (quiz as any).course_id) as CourseId,
+          {
+            quizId,
+            moduleId: options?.moduleId,
+            previewSessionId: options?.previewSessionId,
+            limit: 5,
+          },
+        );
+        if (preview.quiz && preview.quiz.questions.length > 0) {
+          const previewIds = new Set(preview.quiz.questions.map((q) => q.id));
+          questions = questions.filter((q) => previewIds.has(q.id));
+        } else {
+          questions = questions.slice(0, 5);
+        }
+      } catch {
+        questions = questions.slice(0, 5);
+      }
+    }
+    // Security: strip correctAnswer and explanation from questions response prior to submission
+    const sanitized = questions.map(
+      ({ correctAnswer: _correctAnswer, explanation: _explanation, ...q }) => q,
+    );
+    return { ...quiz, questions: sanitized, is_preview: access?.reason === "free_preview" };
   }
   /**
    * Get dynamic topic & section/chapter hierarchy summary with question counts from DB.
@@ -1909,6 +2215,7 @@ export class StudyService {
       score: 0,
       answers: {},
       questionIds,
+      questionSnapshot: selectedQuestions,
       topic: safeTopic,
       difficulty,
       status: "in_progress",
@@ -1918,8 +2225,10 @@ export class StudyService {
 
     await this.quizAttemptStore.create(attempt);
 
-    // Security: return questions with correctAnswer hidden
-    const sanitizedQuestions = selectedQuestions.map(({ correctAnswer: _correctAnswer, ...q }) => q);
+    // Security: return questions with correctAnswer and explanation hidden during attempt
+    const sanitizedQuestions = selectedQuestions.map(
+      ({ correctAnswer: _correctAnswer, explanation: _explanation, ...q }) => q,
+    );
 
     return {
       attemptId,
@@ -1975,7 +2284,7 @@ export class StudyService {
 
   /**
    * Retrieve an attempt and its locked question snapshot.
-   * If in_progress, strips correctAnswer. If completed, returns full answers & explanations.
+   * If in_progress, strips correctAnswer and explanation. If completed, returns full answers & explanations.
    * Resolves Course -> Module coverage hierarchy for active or completed attempt.
    */
   async getExamAttempt(
@@ -1989,20 +2298,26 @@ export class StudyService {
       throw new DomainError("not_found", "Quiz attempt not found");
     }
 
-    const questionIds = (attempt.questionIds as QuizQuestionId[]) || [];
     let questions: QuizQuestionRecord[] = [];
-    if (questionIds.length > 0) {
-      questions = await this.quizQuestionStore.listByIds(questionIds);
-    } else if (attempt.quizId) {
-      questions = await this.quizQuestionStore.listByQuiz(attempt.quizId as QuizId);
+    if (attempt.questionSnapshot && Array.isArray(attempt.questionSnapshot) && attempt.questionSnapshot.length > 0) {
+      questions = attempt.questionSnapshot as QuizQuestionRecord[];
+    } else {
+      const questionIds = (attempt.questionIds as QuizQuestionId[]) || [];
+      if (questionIds.length > 0) {
+        questions = await this.quizQuestionStore.listByIds(questionIds);
+      } else if (attempt.quizId) {
+        questions = await this.quizQuestionStore.listByQuiz(attempt.quizId as QuizId);
+      }
     }
 
     const isCompleted = attempt.status === "completed" || attempt.completedAt != null;
     const coverage = await this.resolveExamCoverage(questions, organizationId);
 
     if (!isCompleted) {
-      // In-progress: security mask correctAnswer
-      const sanitizedQuestions = questions.map(({ correctAnswer: _correctAnswer, ...q }) => q);
+      // In-progress: security mask correctAnswer and explanation
+      const sanitizedQuestions = questions.map(
+        ({ correctAnswer: _correctAnswer, explanation: _explanation, ...q }) => q,
+      );
       return {
         attempt,
         questions: sanitizedQuestions,
@@ -2011,10 +2326,33 @@ export class StudyService {
       };
     }
 
-    // Completed: return full questions with answers & explanations
+    // Completed: return full questions with answers, explanations, and canonical evaluations
+    const answersMap = (attempt.answers as Record<string, unknown>) || {};
+    const questionResults: Record<string, QuestionEvaluationResult> = {};
+    let correctCount = 0;
+    let incorrectCount = 0;
+    let unansweredCount = 0;
+    let partialCount = 0;
+
+    for (const q of questions) {
+      const val = answersMap[q.id] ?? null;
+      const evaluation = evaluateQuestionAnswer(val, q);
+      questionResults[q.id] = evaluation;
+      if (evaluation.status === "correct") correctCount++;
+      else if (evaluation.status === "partial") partialCount++;
+      else if (evaluation.status === "unanswered") unansweredCount++;
+      else incorrectCount++;
+    }
+
     return {
       attempt,
       questions,
+      answers: answersMap,
+      questionResults,
+      correct: correctCount,
+      incorrect: incorrectCount,
+      unanswered: unansweredCount,
+      partial: partialCount,
       coverage,
       isCompleted: true,
     };
@@ -2030,7 +2368,7 @@ export class StudyService {
     organizationId: OrganizationId,
     attemptId: QuizAttemptId,
     inputAnswers: Array<{ questionId: string; answer: unknown }>,
-  ): Promise<QuizAttemptResult & { questions?: QuizQuestionRecord[] }> {
+  ): Promise<QuizAttemptResult & { questions?: QuizQuestionRecord[]; questionResults?: Record<string, QuestionEvaluationResult> }> {
     await this.authorizeQuizAttempt(actor, organizationId);
 
     const attempt = await this.quizAttemptStore.findById(attemptId);
@@ -2038,12 +2376,16 @@ export class StudyService {
       throw new DomainError("not_found", "Quiz attempt not found");
     }
 
-    const questionIds = (attempt.questionIds as QuizQuestionId[]) || [];
     let questions: QuizQuestionRecord[] = [];
-    if (questionIds.length > 0) {
-      questions = await this.quizQuestionStore.listByIds(questionIds);
-    } else if (attempt.quizId) {
-      questions = await this.quizQuestionStore.listByQuiz(attempt.quizId as QuizId);
+    if (attempt.questionSnapshot && Array.isArray(attempt.questionSnapshot) && attempt.questionSnapshot.length > 0) {
+      questions = attempt.questionSnapshot as QuizQuestionRecord[];
+    } else {
+      const questionIds = (attempt.questionIds as QuizQuestionId[]) || [];
+      if (questionIds.length > 0) {
+        questions = await this.quizQuestionStore.listByIds(questionIds);
+      } else if (attempt.quizId) {
+        questions = await this.quizQuestionStore.listByQuiz(attempt.quizId as QuizId);
+      }
     }
 
     if (questions.length === 0) {
@@ -2051,30 +2393,52 @@ export class StudyService {
     }
 
     let correctCount = 0;
+    let incorrectCount = 0;
+    let unansweredCount = 0;
+    let partialCount = 0;
+    let earnedPoints = 0;
+
     const answersMap: Record<string, unknown> = {};
+    const questionResults: Record<string, QuestionEvaluationResult> = {};
 
     for (const q of questions) {
       const studentAns = inputAnswers.find((a) => a.questionId === q.id);
       const val = studentAns?.answer ?? null;
       answersMap[q.id] = val;
 
-      if (val !== null && val !== undefined) {
-        if (
-          JSON.stringify(val) === JSON.stringify(q.correctAnswer) ||
-          String(val) === String(q.correctAnswer)
-        ) {
-          correctCount++;
-        }
+      const evaluation = evaluateQuestionAnswer(val, q);
+      questionResults[q.id] = evaluation;
+
+      if (evaluation.status === "correct") {
+        correctCount++;
+        earnedPoints += 1;
+      } else if (evaluation.status === "partial") {
+        partialCount++;
+        earnedPoints += evaluation.scoreRatio;
+      } else if (evaluation.status === "unanswered") {
+        unansweredCount++;
+      } else {
+        incorrectCount++;
       }
     }
 
-    const score = Math.round((correctCount / questions.length) * 100 * 100) / 100;
+    const score = Math.round((earnedPoints / questions.length) * 100 * 100) / 100;
     const now = new Date().toISOString();
+
+    const metrics = {
+      correct: correctCount,
+      incorrect: incorrectCount,
+      unanswered: unansweredCount,
+      partial: partialCount,
+      total: questions.length,
+    };
 
     const updatedAttempt: QuizAttemptRecord = {
       ...attempt,
       score,
       answers: answersMap,
+      questionSnapshot: questions,
+      metrics,
       status: "completed",
       completedAt: now,
     };
@@ -2098,11 +2462,75 @@ export class StudyService {
       quizId: attempt.quizId || "configured-exam",
       score,
       correct: correctCount,
+      incorrect: incorrectCount,
+      unanswered: unansweredCount,
+      partial: partialCount,
       total: questions.length,
       answers: answersMap,
+      questionResults,
       completedAt: now,
       questions,
     };
+  }
+
+  /**
+   * Retrieve list of past exam attempts for the authenticated student.
+   * Returns metadata including topic, score, question counts, status, and timestamps.
+   */
+  async listExamHistory(
+    actor: Actor,
+    organizationId: OrganizationId,
+    limit = 50,
+  ): Promise<{ items: ExamHistoryItem[] }> {
+    await this.authorizeRead(actor, organizationId);
+
+    const attempts = await this.quizAttemptStore.listByUser(actor.userId);
+    const sortedAttempts = attempts.slice(0, limit);
+
+    const items: ExamHistoryItem[] = sortedAttempts.map((a) => {
+      const metrics = (a.metrics as {
+        correct?: number;
+        incorrect?: number;
+        unanswered?: number;
+        partial?: number;
+        total?: number;
+      }) || {};
+
+      const snapshotLen = Array.isArray(a.questionSnapshot) ? a.questionSnapshot.length : 0;
+      const idsLen = Array.isArray(a.questionIds) ? a.questionIds.length : 0;
+      const answersKeys = Object.keys((a.answers as Record<string, unknown>) || {});
+      const totalQuestions = metrics.total ?? (snapshotLen || idsLen || answersKeys.length || 0);
+
+      const isCompleted = a.status === "completed" || a.completedAt != null;
+
+      let correct = metrics.correct ?? 0;
+      let incorrect = metrics.incorrect ?? 0;
+      const unanswered = metrics.unanswered ?? 0;
+      const partial = metrics.partial ?? 0;
+
+      if (isCompleted && metrics.correct === undefined && totalQuestions > 0) {
+        correct = Math.round((a.score / 100) * totalQuestions);
+        incorrect = Math.max(0, totalQuestions - correct);
+      }
+
+      return {
+        attemptId: a.id,
+        quizId: a.quizId ?? null,
+        topic: a.topic ?? (a.quizId ? "آزمون دوره" : "آزمون جامع"),
+        difficulty: a.difficulty ?? null,
+        score: a.score,
+        totalQuestions,
+        correct,
+        incorrect,
+        unanswered,
+        partial,
+        status: a.status ?? (isCompleted ? "completed" : "in_progress"),
+        startedAt: a.startedAt,
+        completedAt: a.completedAt ?? null,
+      };
+    });
+
+    return { items };
   }
 
   /** Submit a quiz attempt. Scores the answers and persists the result. */
@@ -2113,17 +2541,15 @@ export class StudyService {
   ): Promise<QuizAttemptResult> {
     await this.authorizeQuizAttempt(actor, organizationId);
 
+    let isPreviewAttempt = false;
     if (this.entitlementService) {
       const access = await this.entitlementService.checkAccess(actor, {
         userId: actor.userId,
         resourceType: "quiz",
         resourceId: input.quizId,
       });
-      if (!access.granted) {
-        throw new DomainError(
-          "forbidden",
-          "برای شرکت در این آزمون، فعال‌سازی اشتراک یا خرید دوره الزامی است.",
-        );
+      if (!access.granted || access.reason === "free_preview") {
+        isPreviewAttempt = true;
       }
     }
 
@@ -2145,25 +2571,98 @@ export class StudyService {
       }
     }
 
-    const questions = await this.quizQuestionStore.listByQuiz(input.quizId as QuizId);
+    let questions = await this.quizQuestionStore.listByQuiz(input.quizId as QuizId);
     if (questions.length === 0) {
       throw new DomainError("unprocessable", "Quiz has no questions");
     }
 
-    let correctCount = 0;
-    const answersMap: Record<string, unknown> = {};
-
-    for (const q of questions) {
-      const studentAnswer = input.answers.find((a: { questionId: string }) => a.questionId === q.id);
-      answersMap[q.id] = studentAnswer?.answer ?? null;
-      if (JSON.stringify(studentAnswer?.answer) === JSON.stringify(q.correctAnswer)) {
-        correctCount++;
+    if (isPreviewAttempt) {
+      // In preview mode, restrict attempt strictly to the preview questions
+      const preview = await this.getPreviewQuiz(actor, organizationId, quiz.courseId as CourseId, { quizId: input.quizId as QuizId });
+      const previewIds = new Set(preview.quiz?.questions.map((q) => q.id) ?? []);
+      questions = questions.filter((q) => previewIds.has(q.id));
+      for (const a of input.answers) {
+        if (!previewIds.has(a.questionId)) {
+          throw new DomainError(
+            "forbidden",
+            "برای شرکت در آزمون کامل، فعال‌سازی اشتراک یا خرید دوره الزامی است.",
+          );
+        }
       }
     }
 
-    const score = Math.round((correctCount / questions.length) * 100 * 100) / 100;
+    let correctCount = 0;
+    let incorrectCount = 0;
+    let unansweredCount = 0;
+    let partialCount = 0;
+    let earnedPoints = 0;
+
+    const answersMap: Record<string, unknown> = {};
+    const questionResults: Record<string, QuestionEvaluationResult> = {};
+
+    for (const q of questions) {
+      const studentAnswer = input.answers.find((a: { questionId: string }) => a.questionId === q.id);
+      const val = studentAnswer?.answer ?? null;
+      answersMap[q.id] = val;
+
+      const evaluation = evaluateQuestionAnswer(val, q);
+      questionResults[q.id] = evaluation;
+
+      if (evaluation.status === "correct") {
+        correctCount++;
+        earnedPoints += 1;
+      } else if (evaluation.status === "partial") {
+        partialCount++;
+        earnedPoints += evaluation.scoreRatio;
+      } else if (evaluation.status === "unanswered") {
+        unansweredCount++;
+      } else {
+        incorrectCount++;
+      }
+    }
+
+    const score = Math.round((earnedPoints / questions.length) * 100 * 100) / 100;
     const attemptId = randomUUID();
     const now = new Date().toISOString();
+
+    const questionSnapshot = questions.map((q) => ({
+      id: q.id,
+      quizId: q.quizId,
+      question: q.question,
+      choices: q.choices,
+      correctAnswer: q.correctAnswer,
+      explanation: q.explanation,
+      topic: q.topic,
+      difficulty: q.difficulty,
+      questionType: q.questionType,
+      sortOrder: q.sortOrder,
+    }));
+
+    const metrics = {
+      correct: correctCount,
+      incorrect: incorrectCount,
+      unanswered: unansweredCount,
+      partial: partialCount,
+      total: questions.length,
+    };
+
+    if (isPreviewAttempt) {
+      return {
+        attemptId,
+        quizId: input.quizId,
+        score,
+        correct: correctCount,
+        incorrect: incorrectCount,
+        unanswered: unansweredCount,
+        partial: partialCount,
+        total: questions.length,
+        answers: answersMap,
+        questionResults,
+        completedAt: now,
+        questions,
+        is_preview: true,
+      } as any;
+    }
 
     const attempt: QuizAttemptRecord = {
       id: attemptId,
@@ -2171,6 +2670,10 @@ export class StudyService {
       userId: actor.userId,
       score,
       answers: answersMap,
+      questionSnapshot,
+      metrics,
+      topic: quiz.title ?? (questions[0]?.topic ?? "آزمون دوره"),
+      status: "completed",
       startedAt: now,
       completedAt: now,
     };
@@ -2194,9 +2697,14 @@ export class StudyService {
       quizId: input.quizId,
       score,
       correct: correctCount,
+      incorrect: incorrectCount,
+      unanswered: unansweredCount,
+      partial: partialCount,
       total: questions.length,
       answers: answersMap,
+      questionResults,
       completedAt: now,
+      questions,
     };
   }
 
@@ -2205,13 +2713,31 @@ export class StudyService {
     actor: Actor,
     organizationId: OrganizationId,
     attemptId: QuizAttemptId,
-  ): Promise<QuizAttemptRecord> {
+  ): Promise<QuizAttemptRecord & { questions?: QuizQuestionRecord[]; questionResults?: Record<string, QuestionEvaluationResult> }> {
     await this.authorizeRead(actor, organizationId);
     const attempt = await this.quizAttemptStore.findById(attemptId);
     if (!attempt || attempt.userId !== actor.userId) {
       throw new DomainError("not_found", "Quiz attempt not found");
     }
-    return attempt;
+
+    let questions: QuizQuestionRecord[] = [];
+    if (attempt.questionSnapshot && Array.isArray(attempt.questionSnapshot) && attempt.questionSnapshot.length > 0) {
+      questions = attempt.questionSnapshot as QuizQuestionRecord[];
+    } else if (attempt.quizId) {
+      questions = await this.quizQuestionStore.listByQuiz(attempt.quizId as QuizId);
+    }
+    const answersMap = (attempt.answers as Record<string, unknown>) || {};
+    const questionResults: Record<string, QuestionEvaluationResult> = {};
+    for (const q of questions) {
+      const val = answersMap[q.id] ?? null;
+      questionResults[q.id] = evaluateQuestionAnswer(val, q);
+    }
+
+    return {
+      ...attempt,
+      questions,
+      questionResults,
+    };
   }
 
   // -------------------------------------------------------------------------
@@ -2230,12 +2756,27 @@ export class StudyService {
     await this.authorizeRead(actor, organizationId);
 
     // Fetch all data in parallel.
-    const [modules, flashcards, attempts, progressRecords] = await Promise.all([
+    const [modules, flashcards, courseAttempts, progressRecords, allUserAttempts, course] = await Promise.all([
       this.moduleStore.listByCourse(courseId),
       this.flashcardStore.listByCourse(courseId, organizationId),
       this.quizAttemptStore.listByUserAndCourse(actor.userId, courseId),
       this.progressStore.listByUserAndCourse(actor.userId, courseId),
+      this.quizAttemptStore.listByUser(actor.userId),
+      this.courseStore ? this.courseStore.findById(courseId).catch(() => undefined) : Promise.resolve(undefined),
     ]);
+
+    // Include completed configured exam attempts (quizId = null) alongside course quizzes
+    const courseTitle = course?.name?.trim().toLowerCase();
+    const configuredAttempts = allUserAttempts.filter((a) => {
+      if (a.quizId !== null) return false;
+      const isCompleted = a.status === "completed" || a.completedAt != null;
+      if (!isCompleted) return false;
+      if (!courseTitle) return true;
+      const topic = (a.topic || "").toLowerCase();
+      return topic.includes(courseTitle) || topic.includes("آزمون جامع") || topic.includes("جامع");
+    });
+
+    const attempts = [...courseAttempts, ...configuredAttempts];
 
     // Batch-load lessons for all modules.
     const moduleIds = modules.map((m: ModuleRecord) => m.id);

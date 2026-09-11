@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { ChevronDown } from "lucide-react";
 import type { ExamCoverageCourse } from "@avana/domain";
 import { isInternalIdentifier } from "../../lib/utils/exam-title-formatter.js";
 
@@ -69,11 +70,11 @@ export function ExamHierarchyHeader({
         : "آزمون جامع";
 
     return (
-      <nav aria-label="مسیر آزمون" className="hidden md:flex items-center gap-2 text-[#94a3b8] font-body-md text-sm">
+      <nav aria-label="مسیر آزمون" className="hidden md:flex items-center gap-2 text-[var(--color-text-muted)] font-body-md text-sm">
         <span className="material-symbols-outlined text-[18px]">menu_book</span>
-        <span className="text-slate-400">آزمون</span>
-        <span className="text-slate-600 text-xs">←</span>
-        <span className="text-slate-200 font-medium">{cleanFallback}</span>
+        <span className="text-[var(--color-text-muted)]">آزمون</span>
+        <span className="text-[var(--color-text-muted)] text-xs">←</span>
+        <span className="text-[var(--color-text)] font-medium">{cleanFallback}</span>
       </nav>
     );
   }
@@ -84,10 +85,10 @@ export function ExamHierarchyHeader({
       aria-label="مسیر آزمون"
       className="hidden md:flex items-center gap-2.5 flex-wrap text-sm"
     >
-      <div className="flex items-center gap-1.5 text-slate-400 font-medium">
-        <span className="material-symbols-outlined text-[18px] text-teal-400">menu_book</span>
+      <div className="flex items-center gap-1.5 text-[var(--color-text-muted)] font-medium">
+        <span className="material-symbols-outlined text-[18px] text-[var(--color-primary)]">menu_book</span>
         <span>آزمون</span>
-        <span className="text-slate-600 text-xs">←</span>
+        <span className="text-[var(--color-text-muted)] text-xs">←</span>
       </div>
 
       <div className="flex items-center gap-2 flex-wrap">
@@ -108,20 +109,19 @@ export function ExamHierarchyHeader({
                 onClick={() => toggleCourse(course.id)}
                 aria-expanded={isExpanded}
                 aria-label={`نمایش فصل‌های دوره ${course.title}`}
-                className={`group flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs md:text-sm font-medium transition-all shadow-sm ${
+                className={`group flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs md:text-sm font-medium transition-all shadow-xs ${
                   isExpanded
-                    ? "bg-[#1e293b] border-teal-500/60 text-teal-300 shadow-teal-950/20"
-                    : "bg-[#111c2a] hover:bg-[#1e293b] border-[#1e293b] hover:border-slate-600 text-slate-200"
+                    ? "bg-[var(--color-primary-soft)] border-[var(--color-primary)] text-[var(--color-primary-dark)]"
+                    : "bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] border-[var(--color-border)] hover:border-[var(--color-primary)]/40 text-[var(--color-text)]"
                 }`}
               >
                 <span className="font-semibold">{course.title}</span>
-                <span
-                  className={`material-symbols-outlined text-[16px] transition-transform duration-200 ${
-                    isExpanded ? "text-teal-400 rotate-180" : "text-slate-400 group-hover:text-slate-200"
+                <ChevronDown
+                  className={`w-4 h-4 transition-transform duration-200 ${
+                    isExpanded ? "text-[var(--color-primary)] rotate-180" : "text-[var(--color-text-muted)] group-hover:text-[var(--color-text)]"
                   }`}
-                >
-                  expand_more
-                </span>
+                  aria-hidden="true"
+                />
               </button>
 
               {/* Expanded Modules Dropdown Popover */}
@@ -129,11 +129,11 @@ export function ExamHierarchyHeader({
                 <div
                   role="region"
                   aria-label={`فصل‌های دوره ${course.title}`}
-                  className="absolute top-full right-0 mt-2 z-50 min-w-[220px] max-w-sm bg-[#0f1722] border border-[#1e293b] rounded-xl p-3.5 shadow-2xl space-y-2 backdrop-blur-md"
+                  className="absolute top-full right-0 mt-2 z-50 min-w-[220px] max-w-sm bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl p-3.5 shadow-elevated space-y-2"
                 >
-                  <div className="text-[11px] font-semibold text-slate-400 border-b border-[#1e293b] pb-2 mb-2 flex items-center justify-between">
+                  <div className="text-[11px] font-semibold text-[var(--color-text-muted)] border-b border-[var(--color-border)] pb-2 mb-2 flex items-center justify-between">
                     <span>فصل‌های شامل سؤال:</span>
-                    <span className="text-teal-400/90 font-mono text-[10px]">
+                    <span className="text-[var(--color-primary)] font-mono text-[10px]">
                       {validModules.length} فصل
                     </span>
                   </div>
@@ -143,15 +143,15 @@ export function ExamHierarchyHeader({
                       {validModules.map((module) => (
                         <li
                           key={module.id}
-                          className="text-xs text-slate-200 flex items-start gap-2 pr-1"
+                          className="text-xs text-[var(--color-text)] flex items-start gap-2 pr-1"
                         >
-                          <span className="text-teal-400 font-bold leading-none mt-1">•</span>
+                          <span className="text-[var(--color-primary)] font-bold leading-none mt-1">•</span>
                           <span className="font-medium leading-relaxed">{module.title}</span>
                         </li>
                       ))}
                     </ul>
                   ) : (
-                    <p className="text-xs text-slate-400">سرفصل پیش‌فرض</p>
+                    <p className="text-xs text-[var(--color-text-muted)]">سرفصل پیش‌فرض</p>
                   )}
                 </div>
               )}

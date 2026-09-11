@@ -27,6 +27,7 @@ import {
   ArrowRight,
   Lightbulb,
 } from "lucide-react";
+import { Badge } from "@avana/ui";
 
 interface Step {
   id: number;
@@ -120,10 +121,6 @@ export function HowItWorksSection() {
       className="snap-section relative py-10 lg:py-0 lg:h-[calc(100dvh-80px)] lg:min-h-[calc(100dvh-80px)] flex flex-col justify-center px-6 max-w-[1280px] mx-auto overflow-hidden text-right scroll-mt-20"
       aria-label="بخش راهنمای مراحل یادگیری با آوانا"
     >
-      {/* Background Glow */}
-      <div className="absolute top-1/3 right-0 w-96 h-96 bg-teal-900/10 rounded-full blur-3xl pointer-events-none -z-10" />
-      <div className="absolute bottom-1/4 left-0 w-96 h-96 bg-purple-900/10 rounded-full blur-3xl pointer-events-none -z-10" />
-
       {/* Section Header */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
@@ -132,19 +129,25 @@ export function HowItWorksSection() {
         transition={{ duration: 0.6 }}
         className="text-center mb-3 lg:mb-4 max-w-3xl mx-auto"
       >
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold tracking-wide border mb-2 bg-teal-950/60 text-teal-300 border-teal-500/40 shadow-sm">
-          <Sparkles className="w-3.5 h-3.5 text-teal-300 animate-pulse" />
-          <span>فرایند یادگیری</span>
+        <div className="mb-2 flex justify-center">
+          <Badge
+            variant="primary"
+            size="md"
+            icon={<Sparkles className="w-3.5 h-3.5 text-teal-300 animate-pulse" />}
+            className="px-3 py-1 shadow-sm"
+          >
+            فرایند یادگیری
+          </Badge>
         </div>
 
-        <h2 className="font-headline text-2xl sm:text-3xl md:text-4xl font-black text-white leading-tight">
+        <h2 className="font-headline text-2xl sm:text-3xl md:text-4xl font-black text-[var(--avana-text-primary)] leading-tight">
           آوانا را در ۴ مرحله یاد بگیر
         </h2>
       </motion.div>
 
       {/* Interactive 4-Step Tab Bar */}
       <div
-        className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 mb-3 max-w-4xl mx-auto w-full p-1 bg-slate-950/70 border border-white/10 rounded-2xl"
+        className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 mb-3 max-w-4xl mx-auto w-full p-1 bg-white border border-[var(--avana-border-default)] rounded-[10px]"
         role="tablist"
         aria-label="مراحل ۴ گانه یادگیری با آوانا"
       >
@@ -157,14 +160,14 @@ export function HowItWorksSection() {
               aria-selected={isActive}
               aria-controls={`step-panel-${step.id}`}
               onClick={() => setActiveStep(step.id)}
-              className={`py-2 px-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all cursor-pointer ${
+              className={`py-2 px-2.5 rounded-[8px] font-semibold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all cursor-pointer ${
                 isActive
-                  ? "bg-teal-500 text-slate-950 shadow-lg font-black"
-                  : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
+                  ? "bg-[#008080] text-white shadow-xs font-bold"
+                  : "text-[var(--avana-text-muted)] hover:text-[var(--avana-text-primary)] hover:bg-[var(--avana-surface-2)]"
               }`}
             >
               <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black shrink-0 ${
-                isActive ? "bg-slate-950 text-teal-300" : "bg-slate-800 text-slate-300"
+                isActive ? "bg-white text-[#008080]" : "bg-[var(--avana-bg-default)] text-[var(--avana-text-muted)]"
               }`}>
                 ۰{step.id}
               </span>
@@ -175,7 +178,7 @@ export function HowItWorksSection() {
       </div>
 
       {/* Active Step Presentation Stage */}
-      <div className="max-w-5xl mx-auto w-full bg-slate-900/80 border border-white/10 rounded-3xl p-3.5 sm:p-5 md:p-6 backdrop-blur-2xl shadow-2xl">
+      <div className="max-w-5xl mx-auto w-full bg-white border border-[var(--avana-border-default)] rounded-[16px] p-3.5 sm:p-5 md:p-6 shadow-card">
         <div className="flex flex-col lg:flex-row items-center gap-8 lg:gap-12">
           {/* Text Area */}
           <div className="lg:w-1/2 text-right w-full flex flex-col justify-between">
@@ -189,21 +192,15 @@ export function HowItWorksSection() {
                 className="space-y-4"
               >
                 <div className="flex items-center gap-3">
-                  <div
-                    className="inline-flex items-center justify-center w-10 h-10 rounded-xl font-black text-lg text-white shadow-lg border border-white/20 shrink-0"
-                    style={{
-                      backgroundColor: currentStep.color,
-                      boxShadow: `0 0 15px ${currentStep.shadowColor}`,
-                    }}
-                  >
+                  <div className="inline-flex items-center justify-center w-10 h-10 rounded-[10px] font-black text-lg text-white bg-[#008080] shadow-xs shrink-0">
                     {currentStep.id}
                   </div>
-                  <h3 className="font-headline text-xl sm:text-2xl font-extrabold text-white leading-tight">
+                  <h3 className="font-headline text-xl sm:text-2xl font-extrabold text-[var(--avana-text-primary)] leading-tight">
                     {currentStep.title}
                   </h3>
                 </div>
 
-                <p className="text-xs sm:text-sm leading-relaxed text-slate-300 font-body">
+                <p className="text-xs sm:text-sm leading-relaxed text-[var(--avana-text-secondary)] font-body">
                   {currentStep.description}
                 </p>
 
@@ -212,9 +209,9 @@ export function HowItWorksSection() {
                   {currentStep.highlights.map((item, idx) => (
                     <li
                       key={idx}
-                      className="flex items-start gap-2.5 text-xs sm:text-sm font-medium text-slate-200"
+                      className="flex items-start gap-2.5 text-xs sm:text-sm font-medium text-[var(--avana-text-primary)]"
                     >
-                      <span className="w-4 h-4 rounded-full bg-teal-500/20 border border-teal-500/40 text-teal-300 flex items-center justify-center text-[10px] shrink-0 mt-0.5 shadow-sm">
+                      <span className="w-4 h-4 rounded-full bg-[#008080]/10 border border-[#008080]/20 text-[#008080] flex items-center justify-center text-[10px] shrink-0 mt-0.5 shadow-xs font-bold">
                         ✓
                       </span>
                       <span className="leading-relaxed">{item}</span>
@@ -225,10 +222,10 @@ export function HowItWorksSection() {
             </AnimatePresence>
 
             {/* Stepper Navigation Controls */}
-            <div className="flex items-center justify-between pt-5 mt-5 border-t border-white/10">
+            <div className="flex items-center justify-between pt-5 mt-5 border-t border-[var(--avana-border-default)]">
               <button
                 onClick={() => setActiveStep((prev) => (prev > 1 ? prev - 1 : 4))}
-                className="px-3.5 py-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-200 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer border border-white/10"
+                className="px-3.5 py-2 rounded-[10px] bg-white hover:bg-[var(--avana-surface-2)] text-[var(--avana-text-secondary)] text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer border border-[var(--avana-border-default)] shadow-xs"
               >
                 <ChevronRight className="w-4 h-4" />
                 <span>گام قبلی</span>
@@ -242,8 +239,8 @@ export function HowItWorksSection() {
                     aria-label={`رفتن به گام ${s.id}`}
                     className={`h-2 rounded-full transition-all cursor-pointer ${
                       activeStep === s.id
-                        ? "w-6 bg-teal-400"
-                        : "w-2 bg-slate-700 hover:bg-slate-500"
+                        ? "w-6 bg-[#008080]"
+                        : "w-2 bg-[var(--avana-border-default)] hover:bg-[var(--avana-text-muted)]"
                     }`}
                   />
                 ))}
@@ -251,7 +248,7 @@ export function HowItWorksSection() {
 
               <button
                 onClick={() => setActiveStep((prev) => (prev < 4 ? prev + 1 : 1))}
-                className="px-3.5 py-2 rounded-xl bg-teal-500/20 hover:bg-teal-500/30 text-teal-300 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer border border-teal-500/40"
+                className="px-3.5 py-2 rounded-[10px] bg-[#008080] hover:bg-[#007575] active:bg-[#006060] text-white text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer border border-transparent shadow-xs"
               >
                 <span>گام بعدی</span>
                 <ChevronLeft className="w-4 h-4" />
@@ -261,7 +258,7 @@ export function HowItWorksSection() {
 
           {/* Miniature Product Mockup Area */}
           <div className="lg:w-1/2 w-full">
-            <div className="rounded-2xl overflow-hidden shadow-2xl relative aspect-[4/3] bg-[#0b1120] border border-white/15">
+            <div className="rounded-[16px] overflow-hidden shadow-card relative aspect-[4/3] bg-[var(--avana-bg-default)] border border-[var(--avana-border-default)]">
               <AnimatePresence mode="wait">
                 <motion.div
                   key={currentStep.id}
@@ -277,9 +274,6 @@ export function HowItWorksSection() {
                   {currentStep.id === 4 && <ExamTakingMiniature />}
                 </motion.div>
               </AnimatePresence>
-
-              {/* Ambient Bottom Gradient */}
-              <div className="absolute inset-0 bg-gradient-to-t from-[#0b1120]/30 via-transparent to-transparent pointer-events-none" />
             </div>
           </div>
         </div>
@@ -306,28 +300,28 @@ export function HowItWorksSection() {
 }
 
 // ---------------------------------------------------------------------------
-// Miniature Product Screen 1: Course Selection & Roadmap (CourseListPage Replica)
+// Miniature 1: Modern Course Selection & Roadmap
 // ---------------------------------------------------------------------------
 function CourseSelectionMiniature() {
   return (
-    <div className="absolute inset-0 flex flex-col p-3 sm:p-4 bg-[#0b1120] text-slate-100 text-right dir-rtl pointer-events-none select-none overflow-hidden text-[9px] sm:text-[10px]">
+    <div className="absolute inset-0 flex flex-col p-3 sm:p-4 bg-[var(--avana-bg-default)] text-[var(--avana-text-primary)] text-right dir-rtl pointer-events-none select-none overflow-hidden text-[9px] sm:text-[10px]">
       {/* Chrome Header */}
-      <div className="flex items-center justify-between border-b border-white/10 pb-2.5 mb-2.5">
+      <div className="flex items-center justify-between border-b border-[var(--avana-border-default)] pb-2.5 mb-2.5">
         <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded-lg bg-teal-950/70 border border-teal-500/40 text-teal-300 flex items-center justify-center">
+          <div className="w-6 h-6 rounded-[8px] bg-[#008080]/10 border border-[#008080]/20 text-[#008080] flex items-center justify-center shadow-xs">
             <GraduationCap className="w-3.5 h-3.5" />
           </div>
           <div>
-            <h4 className="text-xs font-black text-white">دوره‌های من</h4>
-            <p className="text-[8px] sm:text-[9px] text-slate-400">سازمان یادگیری آوانا</p>
+            <h4 className="text-xs font-black text-[var(--avana-text-primary)]">دوره‌های من</h4>
+            <p className="text-[8px] sm:text-[9px] text-[var(--avana-text-muted)]">سازمان یادگیری آوانا</p>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
-          <span className="text-[8px] sm:text-[9px] font-bold text-teal-300 bg-teal-950/70 border border-teal-500/30 px-2 py-0.5 rounded-full">
+          <span className="text-[8px] sm:text-[9px] font-bold text-[#008080] bg-[#008080]/10 border border-[#008080]/20 px-2 py-0.5 rounded-full">
             ۳ دوره فعال
           </span>
-          <div className="px-2 py-1 rounded-lg bg-[#008080] text-white font-bold text-[8px] flex items-center gap-1 shadow-sm">
+          <div className="px-2 py-1 rounded-[8px] bg-[#008080] text-white font-bold text-[8px] flex items-center gap-1 shadow-xs">
             <Plus className="w-3 h-3" />
             <span>افزودن دوره</span>
           </div>
@@ -337,38 +331,37 @@ function CourseSelectionMiniature() {
       {/* Courses Cards Grid */}
       <div className="grid grid-cols-2 gap-2 sm:gap-2.5 flex-1 overflow-hidden">
         {/* Card 1: Pharmacology (Active & Highlighted) */}
-        <div className="rounded-xl bg-gradient-to-br from-slate-800/90 via-slate-900 to-slate-900/90 border border-teal-500/40 p-2.5 flex flex-col justify-between shadow-lg relative overflow-hidden group">
-          <div className="absolute top-0 right-0 w-24 h-24 bg-teal-500/10 rounded-full blur-xl pointer-events-none" />
+        <div className="rounded-[12px] bg-white border border-[#008080]/40 p-2.5 flex flex-col justify-between shadow-xs relative overflow-hidden group">
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <span className="px-1.5 py-0.5 rounded text-[8px] font-bold bg-teal-950 text-teal-300 border border-teal-500/30">
+              <span className="px-1.5 py-0.5 rounded-[6px] text-[8px] font-bold bg-[#008080]/10 text-[#008080] border border-[#008080]/20">
                 داروشناسی تخصصی
               </span>
-              <span className="text-[8px] text-emerald-400 font-bold">خریداری شده</span>
+              <span className="text-[8px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1 py-0.5 rounded-[4px] font-bold">خریداری شده</span>
             </div>
-            <h5 className="font-extrabold text-white text-[10px] sm:text-[11px] leading-tight line-clamp-1">
+            <h5 className="font-extrabold text-[var(--avana-text-primary)] text-[10px] sm:text-[11px] leading-tight line-clamp-1">
               فارماکولوژی پایه و سیستم عصبی
             </h5>
-            <p className="text-[8px] text-slate-400 mt-0.5">فصل ۴: گیرنده‌های خودمختار</p>
+            <p className="text-[8px] text-[var(--avana-text-muted)] mt-0.5">فصل ۴: گیرنده‌های خودمختار</p>
           </div>
 
           <div className="mt-2 space-y-1">
             <div className="flex items-center justify-between text-[8px]">
-              <span className="text-slate-400">پیشرفت مطالعه</span>
-              <span className="font-bold text-teal-400">۶۸٪</span>
+              <span className="text-[var(--avana-text-muted)]">پیشرفت مطالعه</span>
+              <span className="font-bold text-[#008080]">۶۸٪</span>
             </div>
-            <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden border border-white/5">
+            <div className="h-1.5 w-full bg-[var(--avana-border-subtle)] rounded-full overflow-hidden border border-[var(--avana-border-default)]">
               <motion.div
                 initial={{ width: "0%" }}
                 whileInView={{ width: "68%" }}
                 viewport={{ once: true }}
                 transition={{ duration: 1.2, ease: "easeOut" }}
-                className="h-full bg-gradient-to-l from-teal-400 to-[#008080] rounded-full"
+                className="h-full bg-[#008080] rounded-full"
               />
             </div>
-            <div className="flex items-center justify-between pt-1 border-t border-white/10 text-[8px]">
-              <span className="text-slate-400">۱۲ درس</span>
-              <span className="text-teal-300 font-bold flex items-center gap-0.5">
+            <div className="flex items-center justify-between pt-1 border-t border-[var(--avana-border-subtle)] text-[8px]">
+              <span className="text-[var(--avana-text-muted)]">۱۲ درس</span>
+              <span className="text-[#008080] font-bold flex items-center gap-0.5">
                 <span>ورود به دوره</span>
                 <ChevronLeft className="w-3 h-3" />
               </span>
@@ -377,37 +370,37 @@ function CourseSelectionMiniature() {
         </div>
 
         {/* Card 2: Cellular Physiology */}
-        <div className="rounded-xl bg-slate-800/60 border border-white/10 p-2.5 flex flex-col justify-between">
+        <div className="rounded-[12px] bg-white border border-[var(--avana-border-default)] p-2.5 flex flex-col justify-between shadow-xs">
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <span className="px-1.5 py-0.5 rounded text-[8px] font-bold bg-purple-950 text-purple-300 border border-purple-500/30">
+              <span className="px-1.5 py-0.5 rounded-[6px] text-[8px] font-bold bg-[#008080]/10 text-[#008080] border border-[#008080]/20">
                 فیزیولوژی پزشکی
               </span>
-              <span className="text-[8px] text-teal-400 font-semibold">اشتراک فعال</span>
+              <span className="text-[8px] text-[#008080] font-semibold">اشتراک فعال</span>
             </div>
-            <h5 className="font-extrabold text-white text-[10px] sm:text-[11px] leading-tight line-clamp-1">
+            <h5 className="font-extrabold text-[var(--avana-text-primary)] text-[10px] sm:text-[11px] leading-tight line-clamp-1">
               فیزیولوژی سلولی و غدد
             </h5>
-            <p className="text-[8px] text-slate-400 mt-0.5">پتانسیل غشا و پیام‌رسانی</p>
+            <p className="text-[8px] text-[var(--avana-text-muted)] mt-0.5">پتانسیل غشا و پیام‌رسانی</p>
           </div>
 
           <div className="mt-2 space-y-1">
             <div className="flex items-center justify-between text-[8px]">
-              <span className="text-slate-400">پیشرفت مطالعه</span>
-              <span className="font-bold text-purple-300">۴۵٪</span>
+              <span className="text-[var(--avana-text-muted)]">پیشرفت مطالعه</span>
+              <span className="font-bold text-[#008080]">۴۵٪</span>
             </div>
-            <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden border border-white/5">
+            <div className="h-1.5 w-full bg-[var(--avana-border-subtle)] rounded-full overflow-hidden border border-[var(--avana-border-default)]">
               <motion.div
                 initial={{ width: "0%" }}
                 whileInView={{ width: "45%" }}
                 viewport={{ once: true }}
                 transition={{ duration: 1.2, ease: "easeOut" }}
-                className="h-full bg-gradient-to-l from-purple-400 to-purple-600 rounded-full"
+                className="h-full bg-[#008080] rounded-full"
               />
             </div>
-            <div className="flex items-center justify-between pt-1 border-t border-white/10 text-[8px]">
-              <span className="text-slate-400">۱۸ درس</span>
-              <span className="text-purple-300 font-bold flex items-center gap-0.5">
+            <div className="flex items-center justify-between pt-1 border-t border-[var(--avana-border-subtle)] text-[8px]">
+              <span className="text-[var(--avana-text-muted)]">۱۸ درس</span>
+              <span className="text-[#008080] font-bold flex items-center gap-0.5">
                 <span>ورود</span>
                 <ChevronLeft className="w-3 h-3" />
               </span>
@@ -417,14 +410,14 @@ function CourseSelectionMiniature() {
       </div>
 
       {/* Bottom Source Upload Banner */}
-      <div className="mt-2 p-2 rounded-lg bg-teal-950/30 border border-teal-500/20 flex items-center justify-between">
+      <div className="mt-2 p-2 rounded-[8px] bg-white border border-[var(--avana-border-default)] flex items-center justify-between shadow-xs">
         <div className="flex items-center gap-1.5">
-          <UploadCloud className="w-3.5 h-3.5 text-teal-400" />
-          <span className="text-[8px] sm:text-[9px] text-slate-300">
+          <UploadCloud className="w-3.5 h-3.5 text-[#008080]" />
+          <span className="text-[8px] sm:text-[9px] text-[var(--avana-text-secondary)]">
             بارگذاری منابع درسی PDF • استخراج خودکار سرفصل‌ها
           </span>
         </div>
-        <span className="text-[8px] font-bold text-teal-400">آماده یادگیری ✔</span>
+        <span className="text-[8px] font-bold text-[#008080]">آماده یادگیری ✔</span>
       </div>
     </div>
   );
@@ -435,38 +428,38 @@ function CourseSelectionMiniature() {
 // ---------------------------------------------------------------------------
 function LessonStudyMiniature() {
   return (
-    <div className="absolute inset-0 flex flex-col p-2.5 sm:p-3.5 bg-[#0b1120] text-slate-100 text-right dir-rtl pointer-events-none select-none overflow-hidden text-[8px] sm:text-[9px]">
+    <div className="absolute inset-0 flex flex-col p-2.5 sm:p-3.5 bg-[var(--avana-bg-default)] text-[var(--avana-text-primary)] text-right dir-rtl pointer-events-none select-none overflow-hidden text-[8px] sm:text-[9px]">
       {/* Top Breadcrumb & Course Header */}
-      <div className="border-b border-white/10 pb-2 mb-2">
+      <div className="border-b border-[var(--avana-border-default)] pb-2 mb-2">
         <div className="flex items-center justify-between mb-1">
-          <div className="flex items-center gap-1 text-[8px] text-slate-400 font-semibold">
+          <div className="flex items-center gap-1 text-[8px] text-[var(--avana-text-muted)] font-semibold">
             <span>دوره‌های من</span>
             <span>/</span>
-            <span className="text-teal-300 font-bold">فارماکولوژی عمومی</span>
+            <span className="text-[#008080] font-bold">فارماکولوژی عمومی</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="text-[8px] text-teal-300 font-bold">۶۸٪ تکمیل شده</span>
-            <div className="w-12 h-1 bg-slate-800 rounded-full overflow-hidden">
-              <div className="h-full bg-teal-400 w-[68%]" />
+            <span className="text-[8px] text-[#008080] font-bold">۶۸٪ تکمیل شده</span>
+            <div className="w-12 h-1 bg-[var(--avana-border-subtle)] rounded-full overflow-hidden">
+              <div className="h-full bg-[#008080] w-[68%]" />
             </div>
           </div>
         </div>
 
         {/* Study Navigation Tabs */}
         <div className="flex items-center gap-1 text-[8px]">
-          <span className="px-2 py-0.5 rounded-t bg-[#008080] text-white font-bold flex items-center gap-1 shadow-sm">
+          <span className="px-2 py-0.5 rounded-t-[6px] bg-[#008080] text-white font-bold flex items-center gap-1 shadow-xs">
             <BookOpen className="w-2.5 h-2.5" />
             <span>درس‌ها</span>
           </span>
-          <span className="px-2 py-0.5 text-slate-400 flex items-center gap-1">
+          <span className="px-2 py-0.5 text-[var(--avana-text-muted)] flex items-center gap-1">
             <Layers className="w-2.5 h-2.5" />
             <span>فلش‌کارت‌ها</span>
           </span>
-          <span className="px-2 py-0.5 text-slate-400 flex items-center gap-1">
+          <span className="px-2 py-0.5 text-[var(--avana-text-muted)] flex items-center gap-1">
             <HelpCircle className="w-2.5 h-2.5" />
             <span>آزمون‌ها</span>
           </span>
-          <span className="px-2 py-0.5 text-slate-400 flex items-center gap-1">
+          <span className="px-2 py-0.5 text-[var(--avana-text-muted)] flex items-center gap-1">
             <BarChart3 className="w-2.5 h-2.5" />
             <span>تحلیل</span>
           </span>
@@ -476,55 +469,55 @@ function LessonStudyMiniature() {
       {/* 2-Column Split: Curriculum Sidebar + Lesson Content */}
       <div className="flex flex-1 gap-2 overflow-hidden">
         {/* Right Sidebar: Chapters & Lessons */}
-        <div className="w-[36%] border-l border-white/10 bg-[#0f172a]/70 rounded-lg p-1.5 flex flex-col gap-1 overflow-hidden">
-          <div className="flex items-center justify-between pb-1 border-b border-white/10 text-[8px] font-bold text-slate-400">
+        <div className="w-[36%] border-l border-[var(--avana-border-default)] bg-white rounded-[8px] p-1.5 flex flex-col gap-1 overflow-hidden shadow-xs">
+          <div className="flex items-center justify-between pb-1 border-b border-[var(--avana-border-default)] text-[8px] font-bold text-[var(--avana-text-muted)]">
             <span>سرفصل‌های دوره</span>
-            <span className="text-teal-400">۱۴ درس</span>
+            <span className="text-[#008080]">۱۴ درس</span>
           </div>
 
           {/* Module 1 */}
           <div className="space-y-0.5 mt-0.5">
-            <div className="p-1 rounded bg-white/5 text-slate-300 flex justify-between items-center text-[7.5px] font-bold">
+            <div className="p-1 rounded-[4px] bg-[var(--avana-bg-default)] text-[var(--avana-text-secondary)] flex justify-between items-center text-[7.5px] font-bold">
               <span className="truncate">فصل ۱: کلیات فارماکوکینتیک</span>
-              <span className="text-teal-400">✓</span>
+              <span className="text-[#008080]">✓</span>
             </div>
-            <div className="p-1 rounded bg-[#008080]/20 border border-teal-500/40 text-teal-300 font-bold flex justify-between items-center text-[7.5px] shadow-sm">
+            <div className="p-1 rounded-[4px] bg-[#008080]/10 border border-[#008080]/30 text-[#008080] font-bold flex justify-between items-center text-[7.5px] shadow-xs">
               <span className="truncate">▶ ۱.۲: متابولیسم کبدی (CYP450)</span>
-              <span className="w-1.5 h-1.5 rounded-full bg-teal-400 animate-pulse" />
+              <span className="w-1.5 h-1.5 rounded-full bg-[#008080] animate-pulse" />
             </div>
-            <div className="p-1 rounded bg-white/5 text-slate-400 truncate text-[7.5px]">
+            <div className="p-1 rounded-[4px] bg-[var(--avana-bg-default)] text-[var(--avana-text-muted)] truncate text-[7.5px]">
               ○ ۱.۳: کلیرانس و دفع کلیوی
             </div>
-            <div className="p-1 rounded bg-white/5 text-slate-400 truncate text-[7.5px]">
+            <div className="p-1 rounded-[4px] bg-[var(--avana-bg-default)] text-[var(--avana-text-muted)] truncate text-[7.5px]">
               ○ ۱.۴: فارماکودینامیک و گیرنده‌ها
             </div>
           </div>
         </div>
 
         {/* Left Reader Panel: Rich Lesson Content */}
-        <div className="flex-1 bg-slate-900/70 rounded-lg p-2 sm:p-2.5 flex flex-col justify-between border border-white/5 overflow-hidden">
+        <div className="flex-1 bg-white rounded-[8px] p-2 sm:p-2.5 flex flex-col justify-between border border-[var(--avana-border-default)] overflow-hidden shadow-xs">
           <div className="space-y-1.5">
-            <div className="flex items-center justify-between border-b border-white/10 pb-1">
-              <h5 className="font-black text-white text-[9px] sm:text-[10px]">
+            <div className="flex items-center justify-between border-b border-[var(--avana-border-default)] pb-1">
+              <h5 className="font-black text-[var(--avana-text-primary)] text-[9px] sm:text-[10px]">
                 درس ۱.۲: متابولیسم کبدی و سیستم آنزیمی P450
               </h5>
-              <span className="px-1.5 py-0.5 rounded text-[7px] font-bold bg-teal-950 text-teal-300 border border-teal-500/30">
+              <span className="px-1.5 py-0.5 rounded-[4px] text-[7px] font-bold bg-[#008080]/10 text-[#008080] border border-[#008080]/20">
                 در حال مطالعه
               </span>
             </div>
 
-            <p className="text-[7.5px] sm:text-[8px] text-slate-300 leading-relaxed line-clamp-2">
+            <p className="text-[7.5px] sm:text-[8px] text-[var(--avana-text-secondary)] leading-relaxed line-clamp-2">
               واکنش‌های فاز I بیوترانسفورماسیون توسط ایزوآنزیم‌های خانواده CYP3A4 و CYP2D6 هدایت شده و قطبیت مولکول را جهت دفع کلیوی افزایش می‌دهند.
             </p>
 
             {/* Important Exam Tip Callout Box */}
-            <div className="rounded-lg bg-purple-950/40 border border-purple-500/30 p-1.5 flex items-start gap-1.5">
-              <Lightbulb className="w-3.5 h-3.5 text-purple-400 shrink-0 mt-0.5" />
+            <div className="rounded-[8px] bg-purple-50 border border-purple-200 p-1.5 flex items-start gap-1.5">
+              <Lightbulb className="w-3.5 h-3.5 text-purple-700 shrink-0 mt-0.5" />
               <div>
-                <span className="font-bold text-purple-200 block text-[7.5px] sm:text-[8px]">
+                <span className="font-bold text-purple-900 block text-[7.5px] sm:text-[8px]">
                   نکته کلیدی کنکور جامع:
                 </span>
-                <span className="text-[7px] sm:text-[7.5px] text-purple-300/90 leading-tight block">
+                <span className="text-[7px] sm:text-[7.5px] text-purple-800 leading-tight block">
                   داروهای مهارکننده سیتوکروم مانند اریترومایسین و سایمتیدین باعث افزایش غلظت پلاسمایی داروهای هم‌زمان می‌شوند.
                 </span>
               </div>
@@ -532,15 +525,15 @@ function LessonStudyMiniature() {
           </div>
 
           {/* Bottom Actions Bar */}
-          <div className="flex items-center justify-between border-t border-white/10 pt-1.5 text-[7.5px] sm:text-[8px] text-slate-400">
+          <div className="flex items-center justify-between border-t border-[var(--avana-border-default)] pt-1.5 text-[7.5px] sm:text-[8px] text-[var(--avana-text-muted)]">
             <span className="flex items-center gap-0.5">
               <ArrowRight className="w-2.5 h-2.5" />
               <span>درس قبلی</span>
             </span>
-            <span className="px-2 py-0.5 rounded bg-teal-950 text-teal-300 border border-teal-500/30 font-bold">
+            <span className="px-2 py-0.5 rounded-[4px] bg-[#008080]/10 text-[#008080] border border-[#008080]/20 font-bold">
               تیک تکمیل درس ✓
             </span>
-            <span className="text-teal-400 font-bold flex items-center gap-0.5">
+            <span className="text-[#008080] font-bold flex items-center gap-0.5">
               <span>درس بعدی</span>
               <ArrowLeft className="w-2.5 h-2.5" />
             </span>
@@ -556,64 +549,64 @@ function LessonStudyMiniature() {
 // ---------------------------------------------------------------------------
 function FlashcardSRSMiniature() {
   return (
-    <div className="absolute inset-0 flex flex-col p-3 sm:p-4 bg-[radial-gradient(ellipse_at_center,_rgba(0,121,82,0.18),_#0b1120)] text-slate-100 text-right dir-rtl pointer-events-none select-none overflow-hidden text-[9px] sm:text-[10px]">
+    <div className="absolute inset-0 flex flex-col p-3 sm:p-4 bg-[var(--avana-bg-default)] text-[var(--avana-text-primary)] text-right dir-rtl pointer-events-none select-none overflow-hidden text-[9px] sm:text-[10px]">
       {/* Session Header */}
-      <div className="flex items-center justify-between border-b border-white/10 pb-2 mb-2">
+      <div className="flex items-center justify-between border-b border-[var(--avana-border-default)] pb-2 mb-2">
         <div className="flex items-center gap-1.5">
-          <span className="font-bold text-white text-[10px]">فارماکولوژی قلب و عروق</span>
-          <span className="text-[8px] px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30 font-semibold">
+          <span className="font-bold text-[var(--avana-text-primary)] text-[10px]">فارماکولوژی قلب و عروق</span>
+          <span className="text-[8px] px-2 py-0.5 rounded-full bg-[#008080]/10 text-[#008080] border border-[#008080]/20 font-semibold">
             الگوریتم هوشمند SRS
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-[8px] text-slate-300">کارت ۱۲ از ۴۵</span>
-          <div className="w-10 h-1.5 bg-slate-800 rounded-full overflow-hidden">
-            <div className="h-full bg-teal-400 w-[27%]" />
+          <span className="text-[8px] text-[var(--avana-text-muted)]">کارت ۱۲ از ۴۵</span>
+          <div className="w-10 h-1.5 bg-[var(--avana-border-subtle)] rounded-full overflow-hidden border border-[var(--avana-border-default)]">
+            <div className="h-full bg-[#008080] w-[27%]" />
           </div>
         </div>
       </div>
 
       {/* Realistic Double-Sided Flashcard Container */}
-      <div className="flex-1 flex flex-col justify-between max-w-sm mx-auto w-full rounded-2xl bg-gradient-to-br from-slate-800/95 via-slate-900 to-[#0f172a] border border-teal-500/30 p-3 sm:p-3.5 shadow-2xl relative overflow-hidden">
+      <div className="flex-1 flex flex-col justify-between max-w-sm mx-auto w-full rounded-[16px] bg-white border border-[var(--avana-border-default)] p-3 sm:p-3.5 shadow-card relative overflow-hidden">
         {/* Card Header */}
-        <div className="flex items-center justify-between border-b border-white/10 pb-1.5">
-          <span className="text-[8px] font-bold text-teal-300 bg-teal-950/80 px-2 py-0.5 rounded-md border border-teal-500/30">
+        <div className="flex items-center justify-between border-b border-[var(--avana-border-default)] pb-1.5">
+          <span className="text-[8px] font-bold text-[#008080] bg-[#008080]/10 px-2 py-0.5 rounded-[4px] border border-[#008080]/20">
             ❓ سوال فلش‌کارت
           </span>
-          <span className="text-[8px] text-slate-400 font-mono">بتابلاکرهای غیرانتخابی (β1/β2)</span>
+          <span className="text-[8px] text-[var(--avana-text-muted)] font-mono">بتابلاکرهای غیرانتخابی (β1/β2)</span>
         </div>
 
         {/* Question Prompt */}
         <div className="my-auto py-1">
-          <p className="text-[9.5px] sm:text-[10.5px] font-extrabold text-white leading-relaxed text-center">
+          <p className="text-[9.5px] sm:text-[10.5px] font-extrabold text-[var(--avana-text-primary)] leading-relaxed text-center">
             چرا پروپرانولول در بیماران مبتلا به آسم و COPD منع مصرف مطلق دارد؟
           </p>
 
           {/* Answer Reveal Area */}
-          <div className="mt-2 p-2 rounded-xl bg-teal-950/40 border border-teal-500/30 text-center">
-            <span className="text-[8px] font-bold text-teal-400 block mb-0.5">پاسخ علمی:</span>
-            <p className="text-[8.5px] sm:text-[9px] text-teal-200 leading-snug">
+          <div className="mt-2 p-2 rounded-[8px] bg-[#008080]/8 border border-[#008080]/20 text-center">
+            <span className="text-[8px] font-bold text-[#008080] block mb-0.5">پاسخ علمی:</span>
+            <p className="text-[8.5px] sm:text-[9px] text-[var(--avana-text-secondary)] leading-snug">
               به دلیل مهار گیرنده‌های β2 در عضلات صاف برونش و تحریک برونکواسپاسم شدید.
             </p>
           </div>
         </div>
 
         {/* 4-Button SRS Rating Bar (Spaced Repetition Exact Reproduction) */}
-        <div className="pt-1.5 border-t border-white/10">
+        <div className="pt-1.5 border-t border-[var(--avana-border-default)]">
           <div className="grid grid-cols-4 gap-1 sm:gap-1.5 text-center">
-            <div className="p-1 rounded-lg bg-rose-500/20 border border-rose-500/40 text-rose-300">
+            <div className="p-1 rounded-[6px] bg-rose-50 border border-rose-200 text-rose-700">
               <span className="font-bold text-[8px] block">مجدداً</span>
               <span className="text-[7px] opacity-75 font-mono">&lt; ۱۰ دقیقه</span>
             </div>
-            <div className="p-1 rounded-lg bg-orange-500/20 border border-orange-500/40 text-orange-300">
+            <div className="p-1 rounded-[6px] bg-amber-50 border border-amber-200 text-amber-700">
               <span className="font-bold text-[8px] block">سخت</span>
               <span className="text-[7px] opacity-75 font-mono">۱ روز</span>
             </div>
-            <div className="p-1 rounded-lg bg-teal-500/30 border border-teal-400 text-teal-200 font-extrabold ring-1 ring-teal-400/50 shadow-sm">
+            <div className="p-1 rounded-[6px] bg-teal-50 border border-[#008080] text-teal-900 font-extrabold ring-1 ring-[#008080]/30 shadow-xs">
               <span className="text-[8px] block">خوب ✓</span>
               <span className="text-[7px] opacity-90 font-mono">۳ روز</span>
             </div>
-            <div className="p-1 rounded-lg bg-blue-500/20 border border-blue-500/40 text-blue-300">
+            <div className="p-1 rounded-[6px] bg-sky-50 border border-sky-200 text-sky-700">
               <span className="font-bold text-[8px] block">آسان</span>
               <span className="text-[7px] opacity-75 font-mono">۷ روز</span>
             </div>
@@ -629,78 +622,78 @@ function FlashcardSRSMiniature() {
 // ---------------------------------------------------------------------------
 function ExamTakingMiniature() {
   return (
-    <div className="absolute inset-0 flex flex-col p-3 sm:p-4 bg-[radial-gradient(ellipse_at_bottom_left,_rgba(0,92,85,0.2),_#0b1120)] text-slate-100 text-right dir-rtl pointer-events-none select-none overflow-hidden text-[9px] sm:text-[10px]">
+    <div className="absolute inset-0 flex flex-col p-3 sm:p-4 bg-[var(--avana-bg-default)] text-[var(--avana-text-primary)] text-right dir-rtl pointer-events-none select-none overflow-hidden text-[9px] sm:text-[10px]">
       {/* Top Exam Header */}
-      <div className="flex items-center justify-between border-b border-white/10 pb-2 mb-2">
+      <div className="flex items-center justify-between border-b border-[var(--avana-border-default)] pb-2 mb-2">
         <div className="flex items-center gap-1.5">
-          <span className="font-black text-white text-[10px]">آزمون جامع فارماکولوژی بالینی</span>
+          <span className="font-black text-[var(--avana-text-primary)] text-[10px]">آزمون جامع فارماکولوژی بالینی</span>
         </div>
 
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1 bg-slate-800/90 px-2 py-0.5 rounded-lg border border-white/10 text-teal-300 font-mono text-[8px]">
+          <div className="flex items-center gap-1 bg-white px-2 py-0.5 rounded-[6px] border border-[var(--avana-border-default)] text-[#008080] font-mono text-[8px] shadow-xs">
             <Clock className="w-2.5 h-2.5" />
             <span>۱۲:۴۵</span>
           </div>
-          <span className="text-[8px] font-bold text-slate-300">سوال ۵ از ۲۰</span>
-          <span className="px-2 py-0.5 rounded-lg bg-teal-900/60 border border-teal-500/40 text-teal-300 font-bold text-[8px]">
+          <span className="text-[8px] font-bold text-[var(--avana-text-muted)]">سوال ۵ از ۲۰</span>
+          <span className="px-2 py-0.5 rounded-[6px] bg-[#008080]/10 border border-[#008080]/20 text-[#008080] font-bold text-[8px]">
             پایان آزمون
           </span>
         </div>
       </div>
 
       {/* Question Card & 4 Options */}
-      <div className="flex-1 flex flex-col justify-between max-w-md mx-auto w-full rounded-2xl bg-slate-900/90 border border-white/15 p-2.5 sm:p-3 shadow-2xl overflow-hidden">
+      <div className="flex-1 flex flex-col justify-between max-w-md mx-auto w-full rounded-[16px] bg-white border border-[var(--avana-border-default)] p-2.5 sm:p-3 shadow-card overflow-hidden">
         <div>
           {/* Question Tag */}
-          <div className="flex items-center justify-between mb-1 text-[8px] text-slate-400">
-            <span className="px-1.5 py-0.5 rounded bg-teal-950 text-teal-300 border border-teal-500/30 font-bold">
+          <div className="flex items-center justify-between mb-1 text-[8px] text-[var(--avana-text-muted)]">
+            <span className="px-1.5 py-0.5 rounded-[4px] bg-[#008080]/10 text-[#008080] border border-[#008080]/20 font-bold">
               سوال ۵ • تک‌انتخابی (علوم پایه)
             </span>
             <span>ضریب: ۲</span>
           </div>
 
           {/* Question Text */}
-          <p className="font-extrabold text-white text-[9px] sm:text-[10px] leading-tight mb-2">
+          <p className="font-extrabold text-[var(--avana-text-primary)] text-[9px] sm:text-[10px] leading-tight mb-2">
             کدام‌یک از داروهای زیر بتابلاکر غیراختصاصی با خاصیت چربی‌دوست (Lipophilic) بالا بوده و از سد خونی-مغزی (BBB) عبور می‌کند؟
           </p>
 
           {/* 4 Choices */}
           <div className="space-y-1 text-[8px] sm:text-[8.5px]">
-            <div className="p-1.5 rounded-lg bg-slate-800/60 border border-white/10 flex items-center justify-between text-slate-300">
+            <div className="p-1.5 rounded-[6px] bg-[var(--avana-bg-default)] border border-[var(--avana-border-default)] flex items-center justify-between text-[var(--avana-text-secondary)]">
               <span>الف) آتنولول (Atenolol)</span>
-              <span className="w-3 h-3 rounded-full border border-slate-600" />
+              <span className="w-3 h-3 rounded-full border border-[var(--avana-border-default)]" />
             </div>
             {/* Selected Option */}
-            <div className="p-1.5 rounded-lg bg-teal-950/80 border border-teal-400 text-teal-200 font-bold flex items-center justify-between shadow-sm">
+            <div className="p-1.5 rounded-[6px] bg-teal-50 border border-[#008080] text-teal-950 font-bold flex items-center justify-between shadow-xs ring-1 ring-[#008080]/30">
               <span>ب) پروپرانولول (Propranolol)</span>
-              <span className="w-3 h-3 rounded-full bg-teal-500 text-slate-950 flex items-center justify-center text-[7px] font-black">
+              <span className="w-3 h-3 rounded-full bg-[#008080] text-white flex items-center justify-center text-[7px] font-black">
                 ✓
               </span>
             </div>
-            <div className="p-1.5 rounded-lg bg-slate-800/60 border border-white/10 flex items-center justify-between text-slate-300">
+            <div className="p-1.5 rounded-[6px] bg-[var(--avana-bg-default)] border border-[var(--avana-border-default)] flex items-center justify-between text-[var(--avana-text-secondary)]">
               <span>ج) اسمولول (Esmolol)</span>
-              <span className="w-3 h-3 rounded-full border border-slate-600" />
+              <span className="w-3 h-3 rounded-full border border-[var(--avana-border-default)]" />
             </div>
-            <div className="p-1.5 rounded-lg bg-slate-800/60 border border-white/10 flex items-center justify-between text-slate-300">
+            <div className="p-1.5 rounded-[6px] bg-[var(--avana-bg-default)] border border-[var(--avana-border-default)] flex items-center justify-between text-[var(--avana-text-secondary)]">
               <span>د) متوپرولول (Metoprolol)</span>
-              <span className="w-3 h-3 rounded-full border border-slate-600" />
+              <span className="w-3 h-3 rounded-full border border-[var(--avana-border-default)]" />
             </div>
           </div>
         </div>
 
         {/* Bottom Exam Toolbar */}
-        <div className="flex items-center justify-between border-t border-white/10 pt-1.5 mt-1.5 text-[8px]">
-          <span className="text-slate-400 flex items-center gap-0.5">
+        <div className="flex items-center justify-between border-t border-[var(--avana-border-default)] pt-1.5 mt-1.5 text-[8px]">
+          <span className="text-[var(--avana-text-muted)] flex items-center gap-0.5">
             <ArrowRight className="w-2.5 h-2.5" />
             <span>سوال قبلی</span>
           </span>
 
-          <div className="flex items-center gap-1 text-purple-300 bg-purple-950/70 border border-purple-500/30 px-2 py-0.5 rounded-lg font-bold">
+          <div className="flex items-center gap-1 text-purple-900 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded-[6px] font-bold">
             <Bot className="w-2.5 h-2.5" />
             <span>راهنمایی هوش مصنوعی</span>
           </div>
 
-          <span className="px-2.5 py-0.5 rounded-lg bg-[#008080] text-white font-bold flex items-center gap-0.5 shadow-sm">
+          <span className="px-2.5 py-0.5 rounded-[6px] bg-[#008080] text-white font-bold flex items-center gap-0.5 shadow-xs">
             <span>سوال بعدی</span>
             <ArrowLeft className="w-2.5 h-2.5" />
           </span>

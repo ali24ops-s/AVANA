@@ -20,6 +20,7 @@ import {
 import {
   type ReviewSummaryPayload,
   flattenReviewSummarySections,
+  toPersianDigits,
 } from "@avana/domain";
 import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
 import { createReviewApi } from "../../lib/api/review.js";
@@ -127,15 +128,15 @@ export function ContentReviewDetail({
   if (detailQuery.isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <Loader2 className="w-8 h-8 animate-spin text-[#008080]" />
+        <Loader2 className="w-8 h-8 animate-spin text-[var(--color-primary-default)]" />
       </div>
     );
   }
 
   if (detailQuery.isError || !detailQuery.data) {
     return (
-      <div className="bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] p-12 text-center space-y-4">
-        <AlertCircle className="w-10 h-10 text-red-500 mx-auto" />
+      <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-12 text-center space-y-4">
+        <AlertCircle className="w-10 h-10 text-rose-500 mx-auto" />
         <h3 className="text-base font-bold text-[var(--color-text)]">
           خطا در بارگذاری محتوای بازبینی
         </h3>
@@ -145,7 +146,7 @@ export function ContentReviewDetail({
         <button
           type="button"
           onClick={onBack}
-          className="px-4 py-2 bg-[#008080] text-white rounded-xl text-xs font-bold"
+          className="px-4 py-2 bg-[var(--color-primary-default)] hover:bg-[var(--color-primary-hover)] text-[var(--color-primary-contrast)] rounded-xl text-xs font-bold transition-colors"
         >
           بازگشت به صف بازبینی
         </button>
@@ -175,9 +176,9 @@ export function ContentReviewDetail({
             type="button"
             onClick={() => setIsEditDialogOpen(true)}
             disabled={anyMutationPending}
-            className="px-3.5 py-2 bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] text-[var(--color-text)] rounded-xl text-xs font-bold border-2 border-[var(--color-border)] shadow-xs flex items-center gap-1.5 disabled:opacity-50 disabled:pointer-events-none"
+            className="px-3.5 py-2 bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] text-[var(--color-text)] rounded-xl text-xs font-bold border border-[var(--color-border)] shadow-xs flex items-center gap-1.5 disabled:opacity-50 disabled:pointer-events-none transition-colors"
           >
-            <Pencil className="w-3.5 h-3.5 text-[#007a7a]" />
+            <Pencil className="w-3.5 h-3.5 text-[var(--color-primary-default)]" />
             <span>ویرایش پیش‌نویس</span>
           </button>
 
@@ -185,12 +186,12 @@ export function ContentReviewDetail({
             type="button"
             onClick={() => regenerateMutation.mutate()}
             disabled={anyMutationPending}
-            className="px-3.5 py-2 bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] text-[var(--color-text)] rounded-xl text-xs font-bold border-2 border-[var(--color-border)] shadow-xs flex items-center gap-1.5 disabled:opacity-50 disabled:pointer-events-none"
+            className="px-3.5 py-2 bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] text-[var(--color-text)] rounded-xl text-xs font-bold border border-[var(--color-border)] shadow-xs flex items-center gap-1.5 disabled:opacity-50 disabled:pointer-events-none transition-colors"
           >
             {regenerateMutation.isPending ? (
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
             ) : (
-              <RotateCcw className="w-3.5 h-3.5 text-[#007a7a]" />
+              <RotateCcw className="w-3.5 h-3.5 text-[var(--color-primary-default)]" />
             )}
             <span>{regenerateMutation.isPending ? "در حال بازتولید..." : "تولید مجدد"}</span>
           </button>
@@ -199,7 +200,7 @@ export function ContentReviewDetail({
             type="button"
             onClick={() => setIsRejectDialogOpen(true)}
             disabled={anyMutationPending}
-            className="px-3.5 py-2 bg-red-100 hover:bg-red-200 text-red-900 dark:bg-red-950/80 dark:hover:bg-red-900 dark:text-red-100 rounded-xl text-xs font-bold border-2 border-red-300 dark:border-red-700 shadow-xs flex items-center gap-1.5 disabled:opacity-50 disabled:pointer-events-none"
+            className="px-3.5 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-700 dark:text-rose-400 rounded-xl text-xs font-bold border border-rose-500/20 shadow-xs flex items-center gap-1.5 disabled:opacity-50 disabled:pointer-events-none transition-colors"
           >
             <XCircle className="w-3.5 h-3.5" />
             <span>رد کردن</span>
@@ -212,7 +213,7 @@ export function ContentReviewDetail({
               acceptMutation.mutate();
             }}
             disabled={anyMutationPending}
-            className="px-4 py-2 bg-[#007a7a] hover:bg-[#005a5a] text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md disabled:opacity-50"
+            className="px-4 py-2 bg-[var(--color-primary-default)] hover:bg-[var(--color-primary-hover)] text-[var(--color-primary-contrast)] rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md disabled:opacity-50 transition-colors"
           >
             {acceptMutation.isPending ? (
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -226,27 +227,27 @@ export function ContentReviewDetail({
 
       {/* Mutation error banners */}
       {acceptError && (
-        <div className="flex items-center gap-2 p-3.5 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-2xl text-red-700 dark:text-red-400 text-xs font-medium">
+        <div className="flex items-center gap-2 p-3.5 bg-rose-500/10 border border-rose-500/20 rounded-2xl text-rose-700 dark:text-rose-400 text-xs font-medium">
           <AlertCircle className="w-4 h-4 flex-shrink-0" />
           <span>{acceptError}</span>
         </div>
       )}
       {regenerateError && (
-        <div className="flex items-center gap-2 p-3.5 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-2xl text-red-700 dark:text-red-400 text-xs font-medium">
+        <div className="flex items-center gap-2 p-3.5 bg-rose-500/10 border border-rose-500/20 rounded-2xl text-rose-700 dark:text-rose-400 text-xs font-medium">
           <AlertCircle className="w-4 h-4 flex-shrink-0" />
           <span>{regenerateError}</span>
         </div>
       )}
 
       {/* Metadata Overview Card */}
-      <div className="bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] p-6 shadow-sm">
+      <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-6 shadow-sm">
         <div className="flex items-start gap-4">
-          <div className="w-10 h-10 rounded-2xl bg-[#a7d0e6]/30 text-[#008080] flex items-center justify-center flex-shrink-0">
+          <div className="w-10 h-10 rounded-2xl bg-[var(--color-primary-default)]/10 text-[var(--color-primary-default)] flex items-center justify-center flex-shrink-0">
             <Sparkles className="w-5 h-5" />
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
-              <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-md bg-[#008080]/10 text-[#008080]">
+              <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-md bg-[var(--color-primary-default)]/10 text-[var(--color-primary-default)]">
                 {content.type === "lesson"
                   ? "درس"
                   : content.type === "flashcard"
@@ -279,7 +280,7 @@ export function ContentReviewDetail({
         <EvidenceSummary sourceChunks={sourceChunks} payload={payload} />
 
         {/* Bottom: Full Width Generated Content Preview */}
-        <div className="bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] p-6 space-y-4 shadow-sm w-full">
+        <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-6 space-y-4 shadow-sm w-full">
           <h3 className="text-sm font-bold text-[var(--color-text)] pb-3 border-b border-[var(--color-border)]">
             پیش‌نمایش محتوای تولیدشده
           </h3>
@@ -303,15 +304,15 @@ export function ContentReviewDetail({
 
                   {Array.isArray(payload.outline) && payload.outline.length > 0 && (
                     <div className="space-y-2 pt-2 border-t border-[var(--color-border)]">
-                      <span className="text-[11px] font-bold text-[#007a7a] block">
+                      <span className="text-[11px] font-bold text-[var(--color-primary-default)] block">
                         فهرست سرفصل‌ها و جلسات استخراج‌شده از جزوه:
                       </span>
-                      <ul className="space-y-1.5 text-xs text-[var(--color-text)] pr-3 list-disc">
+                      <ul className="space-y-1.5 text-xs text-[var(--color-text)] ps-3 list-disc">
                         {payload.outline.map((item: { title?: string; description?: string }, idx: number) => (
                           <li key={idx} className="leading-relaxed">
-                            <strong>{item.title || `جلسه ${idx + 1}`}</strong>
+                            <strong>{item.title || `جلسه ${toPersianDigits(idx + 1)}`}</strong>
                             {item.description ? (
-                              <span className="text-[var(--color-text-muted)] text-[11px] mr-1.5">
+                              <span className="text-[var(--color-text-muted)] text-[11px] me-1.5">
                                 — {item.description}
                               </span>
                             ) : null}
@@ -323,36 +324,36 @@ export function ContentReviewDetail({
                 </div>
               )}
 
-              {/* Session Selector Chips (if sessions array is present) */}
+              {/* Sessions Tabs if Multiple */}
               {Array.isArray(payload.sessions) && payload.sessions.length > 1 && (
                 <div className="space-y-2">
-                  <span className="text-[11px] font-bold text-[var(--color-text-muted)] block">
-                    مشاهده جلسه:
+                  <span className="text-xs font-semibold text-[var(--color-text-muted)] block">
+                    جلسات درسنامه ({toPersianDigits(payload.sessions.length)} جلسه):
                   </span>
-                  <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                  <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
                       onClick={() => setSelectedSessionIndex("all")}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors whitespace-nowrap ${
+                      className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors cursor-pointer ${
                         selectedSessionIndex === "all"
-                          ? "bg-[#007a7a] text-white shadow-sm"
+                          ? "bg-[var(--color-primary-default)] text-[var(--color-primary-contrast)] shadow-sm"
                           : "bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] border border-[var(--color-border)]"
                       }`}
                     >
-                      همه جلسات (متن کامل)
+                      کل درسنامه
                     </button>
                     {payload.sessions.map((sess: { title?: string }, idx: number) => (
                       <button
                         key={idx}
                         type="button"
                         onClick={() => setSelectedSessionIndex(idx)}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors whitespace-nowrap ${
+                        className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors cursor-pointer ${
                           selectedSessionIndex === idx
-                            ? "bg-[#007a7a] text-white shadow-sm"
+                            ? "bg-[var(--color-primary-default)] text-[var(--color-primary-contrast)] shadow-sm"
                             : "bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] border border-[var(--color-border)]"
                         }`}
                       >
-                        {sess.title || `جلسه ${idx + 1}`}
+                        {sess.title || `جلسه ${toPersianDigits(idx + 1)}`}
                       </button>
                     ))}
                   </div>
@@ -381,8 +382,8 @@ export function ContentReviewDetail({
               {Array.isArray(payload.cards) && payload.cards.length > 0 ? (
                 <div className="space-y-4">
                   <div className="flex items-center justify-between text-xs text-[var(--color-text-muted)] font-semibold">
-                    <span>تعداد فلش‌کارت‌های استخراج‌شده: {payload.cards.length} کارت</span>
-                    <span className="text-[#007a7a] font-bold">مرور فاصله‌دار اتمیک</span>
+                    <span>تعداد فلش‌کارت‌های استخراج‌شده: {toPersianDigits(payload.cards.length)} کارت</span>
+                    <span className="text-[var(--color-primary-default)] font-bold">مرور فاصله‌دار اتمیک</span>
                   </div>
                   {payload.cards.map((c: { question?: string; answer?: string; explanation?: string; cardType?: string; difficulty?: string }, idx: number) => (
                     <div
@@ -390,8 +391,8 @@ export function ContentReviewDetail({
                       className="p-4 bg-[var(--color-surface-warm)] rounded-2xl border border-[var(--color-border)] space-y-2.5"
                     >
                       <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-bold text-[#007a7a]">
-                          کارت {idx + 1} {c.cardType ? `• نوع: ${c.cardType}` : ""}
+                        <span className="text-[10px] font-bold text-[var(--color-primary-default)]">
+                          کارت {toPersianDigits(idx + 1)} {c.cardType ? `• نوع: ${c.cardType}` : ""}
                         </span>
                         {c.difficulty && (
                           <span className="text-[10px] font-semibold text-zinc-500 bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded">
@@ -422,7 +423,7 @@ export function ContentReviewDetail({
               ) : (
                 <div className="space-y-3">
                   <div className="p-4 bg-[var(--color-surface-warm)] rounded-2xl border border-[var(--color-border)] space-y-2">
-                    <span className="text-[10px] font-bold text-[#007a7a]">
+                    <span className="text-[10px] font-bold text-[var(--color-primary-default)]">
                       روی کارت / سوال:
                     </span>
                     <div className="text-sm font-bold text-[var(--color-text)]">
@@ -456,7 +457,7 @@ export function ContentReviewDetail({
                   <div className="flex items-center justify-between text-xs text-[var(--color-text-muted)] font-semibold">
                     <span>عنوان آزمون: {String(payload.title || "آزمون ارزیابی")}</span>
                     <span className="text-purple-600 font-bold">
-                      {payload.questions.length} سوال تستی
+                      {toPersianDigits(payload.questions.length)} سوال تستی
                     </span>
                   </div>
                   {payload.questions.map((q: { question?: string; choices?: unknown[]; correctAnswer?: unknown; explanation?: string }, qIdx: number) => (
@@ -465,8 +466,8 @@ export function ContentReviewDetail({
                       className="p-4 bg-[var(--color-surface-warm)] rounded-2xl border border-[var(--color-border)] space-y-3"
                     >
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-[#007a7a]">
-                          سوال {qIdx + 1}
+                        <span className="text-xs font-bold text-[var(--color-primary-default)]">
+                          سوال {toPersianDigits(qIdx + 1)}
                         </span>
                       </div>
                       <div className="text-sm font-bold text-[var(--color-text)] leading-relaxed">
@@ -568,7 +569,7 @@ export function ContentReviewDetail({
                 {/* Header info */}
                 <div className="flex flex-wrap items-center justify-between gap-3 p-4 bg-[var(--color-surface-warm)] rounded-2xl border border-[var(--color-border)]">
                   <div className="flex items-center gap-2">
-                    <Zap className="w-4 h-4 text-[#007a7a]" />
+                    <Zap className="w-4 h-4 text-[var(--color-primary-default)]" />
                     <h4 className="text-xs font-bold text-[var(--color-text)]">
                       {summaryPayload.title || "خلاصه مروری مبحث"}
                     </h4>
@@ -586,7 +587,7 @@ export function ContentReviewDetail({
                 {/* Overview */}
                 {Boolean(summaryPayload.overview) && (
                   <div className="p-4 bg-[var(--color-surface-warm)] rounded-2xl border border-[var(--color-border)] space-y-2">
-                    <div className="flex items-center gap-2 text-[#007a7a]">
+                    <div className="flex items-center gap-2 text-[var(--color-primary-default)]">
                       <Sparkles className="w-4 h-4" />
                       <h4 className="text-xs font-bold">چکیده یک‌دقیقه‌ای</h4>
                     </div>
@@ -601,7 +602,7 @@ export function ContentReviewDetail({
                 {hasKeyPoints && (
                   <div className="p-5 bg-[var(--color-surface-warm)] rounded-2xl border border-[var(--color-border)] space-y-3">
                     <div className="flex items-center justify-between pb-2 border-b border-[var(--color-border)]">
-                      <div className="flex items-center gap-2 text-[#007a7a]">
+                      <div className="flex items-center gap-2 text-[var(--color-primary-default)]">
                         <CheckCircle2 className="w-4 h-4" />
                         <h4 className="text-xs font-bold">نکات کلیدی و مفاهیم اصلی</h4>
                       </div>
@@ -609,7 +610,7 @@ export function ContentReviewDetail({
                         {categories.keyPoints.length} نکته
                       </span>
                     </div>
-                    <ul className="space-y-1.5 text-xs text-[var(--color-text)] pr-3 list-disc">
+                    <ul className="space-y-1.5 text-xs text-[var(--color-text)] ps-3 list-disc">
                       {categories.keyPoints.map((point, pIdx) => (
                         <li key={pIdx} className="leading-relaxed">
                           {point}
@@ -633,7 +634,7 @@ export function ContentReviewDetail({
                             {categories.mechanisms.length} مورد
                           </span>
                         </div>
-                        <ul className="space-y-1 text-xs text-[var(--color-text)] pr-3 list-disc">
+                        <ul className="space-y-1 text-xs text-[var(--color-text)] ps-3 list-disc">
                           {categories.mechanisms.map((m, mIdx) => (
                             <li key={mIdx} className="leading-relaxed">
                               {m}
@@ -653,7 +654,7 @@ export function ContentReviewDetail({
                             {categories.classifications.length} دسته
                           </span>
                         </div>
-                        <ul className="space-y-1 text-xs text-[var(--color-text)] pr-3 list-disc">
+                        <ul className="space-y-1 text-xs text-[var(--color-text)] ps-3 list-disc">
                           {categories.classifications.map((c, cIdx) => (
                             <li key={cIdx} className="leading-relaxed">
                               {c}
@@ -725,7 +726,7 @@ export function ContentReviewDetail({
                             {categories.memorizationPoints.length} نکته
                           </span>
                         </div>
-                        <ul className="space-y-1 text-xs text-[var(--color-text)] pr-3 list-disc">
+                        <ul className="space-y-1 text-xs text-[var(--color-text)] ps-3 list-disc">
                           {categories.memorizationPoints.map((item, idx) => (
                             <li key={idx} className="leading-relaxed">
                               {item}
@@ -745,7 +746,7 @@ export function ContentReviewDetail({
                             {categories.examPoints.length} نکته
                           </span>
                         </div>
-                        <ul className="space-y-1 text-xs text-[var(--color-text)] pr-3 list-disc">
+                        <ul className="space-y-1 text-xs text-[var(--color-text)] ps-3 list-disc">
                           {categories.examPoints.map((item, idx) => (
                             <li key={idx} className="leading-relaxed">
                               {item}
@@ -764,7 +765,7 @@ export function ContentReviewDetail({
                       <Bookmark className="w-4 h-4" />
                       <h4 className="text-xs font-bold">جمع‌بندی نهایی</h4>
                     </div>
-                    <ul className="space-y-1.5 text-xs text-[var(--color-text)] pr-3 list-disc">
+                    <ul className="space-y-1.5 text-xs text-[var(--color-text)] ps-3 list-disc">
                       {finalTakeaways.map((takeaway, tIdx) => (
                         <li key={tIdx} className="leading-relaxed">
                           {takeaway}

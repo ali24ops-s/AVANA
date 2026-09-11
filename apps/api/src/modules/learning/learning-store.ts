@@ -29,6 +29,7 @@ export type ModuleRecord = {
   title: string;
   description: string | null;
   sortOrder: number;
+  previewLessonId?: LessonId | null;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
@@ -140,6 +141,12 @@ export interface ModuleStore {
 
   /** Soft-delete (archive) a module. */
   delete(moduleId: ModuleId): Promise<void>;
+
+  /** Update or clear the preview lesson for a module. */
+  updatePreviewLessonId?(moduleId: ModuleId, previewLessonId: LessonId | null): Promise<void>;
+
+  /** Idempotently set the preview lesson if currently null. Returns the canonical previewLessonId. */
+  setPreviewLessonIdIfNull?(moduleId: ModuleId, previewLessonId: LessonId): Promise<LessonId>;
 }
 
 export interface LessonStore {

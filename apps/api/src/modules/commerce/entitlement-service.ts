@@ -33,6 +33,7 @@ import type {
 import type { FlashcardStore, QuizStore } from "../study/study-store.js";
 import type { ContentPackStore } from "../library/library-store.js";
 import type { OrganizationStore } from "../organizations/organization-store.js";
+import { PreviewResolver } from "./preview-resolver.js";
 
 export interface EntitlementServiceDeps {
   commerceStore: CommerceStore;
@@ -44,10 +45,28 @@ export interface EntitlementServiceDeps {
   quizStore?: QuizStore;
   contentPackStore?: ContentPackStore;
   organizationStore?: OrganizationStore;
+  previewResolver?: PreviewResolver;
 }
 
 export class EntitlementService {
-  constructor(private readonly deps: EntitlementServiceDeps) {}
+  private readonly previewResolver: PreviewResolver;
+
+  constructor(private readonly deps: EntitlementServiceDeps) {
+    this.previewResolver =
+      deps.previewResolver ??
+      new PreviewResolver({
+        commerceStore: deps.commerceStore,
+        lessonStore: deps.lessonStore,
+        moduleStore: deps.moduleStore,
+        quizStore: deps.quizStore,
+        flashcardStore: deps.flashcardStore,
+        courseStore: deps.courseStore,
+      });
+  }
+
+  public getPreviewResolver(): PreviewResolver {
+    return this.previewResolver;
+  }
 
   /**
    * Evaluates resource access for a user and returns a structured decision.
@@ -326,6 +345,9 @@ export class EntitlementService {
     }
 
     // 5.3 If resource is Content / Lesson (or child of Module, Document, Flashcard, Quiz, AI Assistant)
+    let isExplicitlyFree = false;
+    let isExplicitlyPaid = false;
+
     if (
       input.resourceType === "lesson" ||
       input.resourceType === "content" ||
@@ -335,9 +357,6 @@ export class EntitlementService {
       input.resourceType === "quiz" ||
       input.resourceType === "ai_assistant"
     ) {
-      let isExplicitlyFree = false;
-      let isExplicitlyPaid = false;
-
       // Check 1: Direct Lesson active product (ONLY explicitlyFree === true allows free)
       if (effectiveLessonId) {
         const lessonProduct = await commerceStore.findActiveProductByTarget(
@@ -348,6 +367,21 @@ export class EntitlementService {
           if (lessonProduct.price === 0 && (lessonProduct.metadata as any)?.explicitlyFree === true) {
             isExplicitlyFree = true;
           } else if (lessonProduct.price > 0) {
+            isExplicitlyPaid = true;
+          }
+        }
+      }
+
+      // Check 1.5: Direct non-lesson resource active product (quiz, flashcard, etc.)
+      if (!isExplicitlyFree && !isExplicitlyPaid && input.resourceId && input.resourceType !== "content" && input.resourceType !== "lesson") {
+        const directProduct = await commerceStore.findActiveProductByTarget(
+          input.resourceType as any,
+          input.resourceId,
+        );
+        if (directProduct && directProduct.active) {
+          if (directProduct.price === 0 && (directProduct.metadata as any)?.explicitlyFree === true) {
+            isExplicitlyFree = true;
+          } else if (directProduct.price > 0) {
             isExplicitlyPaid = true;
           }
         }
@@ -391,6 +425,62 @@ export class EntitlementService {
     }
 
     // -----------------------------------------------------------------------
+    // 5.4 Controlled Free Preview Evaluation via PreviewResolver
+    // Architecture: PreviewResolver -> EntitlementService -> Service/Route
+    // Free Preview applies ONLY to commercial paid content/courses.
+    // -----------------------------------------------------------------------
+    if (this.previewResolver && isExplicitlyPaid) {
+      if (
+        (input.resourceType === "lesson" || input.resourceType === "content") &&
+        effectiveLessonId
+      ) {
+        const isPreview = await this.previewResolver.isLessonPreview(
+          effectiveLessonId,
+          input.moduleId,
+          effectiveCourseId,
+          input.previewSessionId,
+        );
+        if (isPreview) {
+          return {
+            granted: true,
+            reason: "free_preview",
+            accessSource: "free_preview",
+            expiresAt: null,
+            availablePurchaseOptions: [],
+          };
+        }
+      } else if (input.resourceType === "quiz" && input.resourceId) {
+        const isPreview = await this.previewResolver.isQuizPreview(
+          input.resourceId,
+          effectiveCourseId,
+        );
+        if (isPreview) {
+          return {
+            granted: true,
+            reason: "free_preview",
+            accessSource: "free_preview",
+            expiresAt: null,
+            availablePurchaseOptions: [],
+          };
+        }
+      } else if (input.resourceType === "flashcard" && input.resourceId) {
+        const isPreview = await this.previewResolver.isFlashcardPreview(
+          input.resourceId,
+          effectiveCourseId,
+        );
+        if (isPreview) {
+          return {
+            granted: true,
+            reason: "free_preview",
+            accessSource: "free_preview",
+            expiresAt: null,
+            availablePurchaseOptions: [],
+          };
+        }
+      }
+    }
+
+    // -----------------------------------------------------------------------
     // 6. Access Denied / Locked — Build Purchase Options
     // -----------------------------------------------------------------------
     const availablePurchaseOptions = await this.getPurchaseOptions({
@@ -405,6 +495,24 @@ export class EntitlementService {
       expiresAt: null,
       availablePurchaseOptions,
     };
+  }
+
+  /**
+   * Resolves the designated preview lesson ID for a course.
+   * Priority:
+   * 1. courseProduct.metadata.previewLessonId (if configured)
+   * 2. lessonProduct with metadata.isPreview === true or metadata.explicitlyFree === true
+   * 3. Deterministic preview lesson from candidateLessons (fallback)
+   */
+  public async resolveCoursePreviewLessonId(
+    courseId: CourseId,
+    _candidateLessons?: Array<{ id: string; sortOrder: number; publicationStatus?: string }>,
+  ): Promise<string | null> {
+    if (this.previewResolver) {
+      const lesson = await this.previewResolver.resolveCoursePreviewLesson(courseId);
+      return lesson ? lesson.id : null;
+    }
+    return null;
   }
 
   /**
@@ -478,9 +586,15 @@ export class EntitlementService {
         }
       } else if (input.resourceType === "flashcard") {
         if (flashcardStore) {
-          const fc = typeof (flashcardStore as any).findById === "function"
+          let fc: any = typeof (flashcardStore as any).findById === "function"
             ? await (flashcardStore as any).findById(input.resourceId)
             : undefined;
+          if (!fc && typeof (flashcardStore as any).findByIdForOrganization === "function") {
+            fc = await (flashcardStore as any).findByIdForOrganization(input.resourceId);
+          }
+          if (!fc && (flashcardStore as any).flashcards instanceof Map) {
+            fc = (flashcardStore as any).flashcards.get(input.resourceId);
+          }
           if (fc) {
             courseId = fc.courseId as CourseId;
             if (fc.documentId && contentPackStore) {
@@ -495,9 +609,15 @@ export class EntitlementService {
         }
       } else if (input.resourceType === "quiz") {
         if (quizStore) {
-          const qz = typeof (quizStore as any).findById === "function"
+          let qz: any = typeof (quizStore as any).findById === "function"
             ? await (quizStore as any).findById(input.resourceId)
             : undefined;
+          if (!qz && typeof (quizStore as any).findByIdForOrganization === "function") {
+            qz = await (quizStore as any).findByIdForOrganization(input.resourceId);
+          }
+          if (!qz && (quizStore as any).quizzes instanceof Map) {
+            qz = (quizStore as any).quizzes.get(input.resourceId);
+          }
           if (qz) {
             courseId = qz.courseId as CourseId;
             if (qz.documentId && contentPackStore) {

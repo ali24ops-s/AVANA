@@ -106,6 +106,8 @@ export type ApiConfig = {
   };
   commerce: {
     provider: string;
+    onlinePaymentEnabled: boolean;
+    mockPaymentEnabled: boolean;
     zarinpalMerchantId?: string;
     zarinpalSandbox: boolean;
     cardToCard: {
@@ -395,7 +397,9 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
       arvancloudAuthScheme: env.ARVANCLOUD_AUTH_SCHEME,
     },
     commerce: {
-      provider: getOptionalString(env, "PAYMENT_PROVIDER", "mock"),
+      provider: getOptionalString(env, "PAYMENT_PROVIDER", "disabled"),
+      onlinePaymentEnabled: env.ONLINE_PAYMENT_ENABLED === "true",
+      mockPaymentEnabled: env.MOCK_PAYMENT_ENABLED === "true",
       zarinpalMerchantId: env.ZARINPAL_MERCHANT_ID,
       zarinpalSandbox: env.ZARINPAL_SANDBOX !== "false",
       cardToCard: {
@@ -403,10 +407,10 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
         destinationCardNumber:
           env.CARD_TO_CARD_DESTINATION_NUMBER || "5894631131738239",
         cardholderName:
-          env.CARD_TO_CARD_CARDHOLDER_NAME || "علی محمدلو",
+          env.CARD_TO_CARD_CARDHOLDER_NAME || "",
         instructions:
           env.CARD_TO_CARD_INSTRUCTIONS ||
-          "لطفاً مبلغ دقیق اشتراک را به شماره کارت فوق واریز کرده و سپس اطلاعات پرداخت را ثبت نمایید. اشتراک شما بلافاصله فعال خواهد شد.",
+          "لطفاً مبلغ دقیق را به شماره کارت فوق واریز کرده و سپس اطلاعات پرداخت را ثبت نمایید. سفارش شما پس از بررسی و تأیید نهایی فعال خواهد شد.",
       },
     },
   };

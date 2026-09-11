@@ -74,11 +74,11 @@ export function AdminOrdersPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-2.5">
-            <Receipt className="w-7 h-7 text-blue-400" />
+          <h1 className="text-2xl font-bold text-[var(--color-text)] flex items-center gap-2.5">
+            <Receipt className="w-7 h-7 text-[var(--color-primary-default)]" />
             مدیریت سفارش‌ها (Orders)
           </h1>
-          <p className="text-sm text-slate-400 mt-1">
+          <p className="text-sm text-[var(--color-text-muted)] mt-1">
             سفارش‌های ثبت شده برای خرید اشتراک‌ها، دوره‌ها و بسته‌های آموزشی
           </p>
         </div>
@@ -88,28 +88,28 @@ export function AdminOrdersPage() {
       <AdminCommerceNavigation />
 
       {/* Filter and Search Bar */}
-      <div className="glass-panel border border-white/5 rounded-2xl p-4 bg-slate-800/40 flex flex-col sm:flex-row items-center justify-between gap-4">
+      <div className="border border-[var(--color-border)] rounded-2xl p-4 bg-[var(--color-surface)] shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
         <form onSubmit={handleSearchSubmit} className="relative w-full sm:w-80">
           <input
             type="text"
             placeholder="جستجو با شماره سفارش، ایمیل یا نام محصول..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full bg-slate-900/60 border border-slate-700 rounded-xl pl-4 pr-10 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-teal-500"
+            className="w-full bg-[var(--color-surface-warm)] border border-[var(--color-border)] rounded-xl ps-10 pe-4 py-2.5 text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:border-[var(--color-primary-default)]"
           />
-          <Search className="w-4 h-4 text-slate-400 absolute right-3 top-3.5" />
+          <Search className="w-4 h-4 text-[var(--color-text-muted)] absolute start-3 top-3.5" />
         </form>
 
         <div className="flex items-center gap-3 w-full sm:w-auto">
           <div className="flex items-center gap-2">
-            <Filter className="w-4 h-4 text-slate-400" />
+            <Filter className="w-4 h-4 text-[var(--color-text-muted)]" />
             <select
               value={statusFilter}
               onChange={(e) => {
                 setStatusFilter(e.target.value);
                 setPage(1);
               }}
-              className="bg-slate-900/60 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-teal-500"
+              className="bg-[var(--color-surface-warm)] border border-[var(--color-border)] rounded-xl px-3 py-2 text-sm text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary-default)]"
             >
               <option value="all">همه وضعیت‌ها</option>
               <option value="paid">پرداخت شده (Paid)</option>
@@ -148,25 +148,25 @@ export function AdminOrdersPage() {
               : null;
 
             return (
-              <tr key={order.id} className="hover:bg-slate-800/30 transition-colors">
-                <td className="px-6 py-4 font-mono text-xs text-slate-300 font-semibold">
+              <tr key={order.id} className="hover:bg-[var(--color-surface-warm)]/60 transition-colors">
+                <td className="px-6 py-4 font-mono text-xs text-[var(--color-text)] font-semibold">
                   {order.orderNumber}
                 </td>
                 <td className="px-6 py-4">
                   <div className="flex flex-col">
-                    <span className="text-sm font-medium text-slate-200">
+                    <span className="text-sm font-medium text-[var(--color-text)]">
                       {order.userName || order.userEmail}
                     </span>
-                    <span className="text-xs text-slate-400 font-mono mt-0.5">
+                    <span className="text-xs text-[var(--color-text-muted)] font-mono mt-0.5">
                       {order.userEmail}
                     </span>
                   </div>
                 </td>
                 <td className="px-6 py-4">
-                  <span className="text-sm text-slate-200 font-medium block">
+                  <span className="text-sm text-[var(--color-text)] font-medium block">
                     {order.productTitle}
                   </span>
-                  <span className="text-[11px] text-slate-400 block mt-0.5">
+                  <span className="text-[11px] text-[var(--color-text-muted)] block mt-0.5">
                     {order.productType === "subscription"
                       ? "اشتراک سراسری"
                       : order.productType === "course"
@@ -174,7 +174,7 @@ export function AdminOrdersPage() {
                       : "بسته محتوایی"}
                   </span>
                 </td>
-                <td className="px-6 py-4 font-bold text-teal-400 whitespace-nowrap">
+                <td className="px-6 py-4 font-bold text-[var(--color-primary-default)] whitespace-nowrap">
                   {formatToman(order.amount)}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
@@ -188,16 +188,16 @@ export function AdminOrdersPage() {
                       {payBadge.label} {order.paymentGateway ? `(${order.paymentGateway})` : ""}
                     </span>
                   ) : (
-                    <span className="text-xs text-slate-500">—</span>
+                    <span className="text-xs text-[var(--color-text-muted)]">—</span>
                   )}
                 </td>
-                <td className="px-6 py-4 text-xs text-slate-400 whitespace-nowrap">
+                <td className="px-6 py-4 text-xs text-[var(--color-text-muted)] whitespace-nowrap">
                   {formatPersianDate(order.createdAt)}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <button
                     onClick={() => setSelectedDrawerUserId(order.userId)}
-                    className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-teal-400 hover:text-teal-300 transition-colors flex items-center gap-1 text-xs"
+                    className="p-1.5 rounded-lg bg-[var(--color-surface-warm)] hover:bg-[var(--color-surface-muted)] text-[var(--color-primary-default)] hover:text-[var(--color-primary-dark)] border border-[var(--color-border)] transition-colors flex items-center gap-1 text-xs"
                     title="مشاهده سوابق مالی کاربر"
                   >
                     <User className="w-3.5 h-3.5" />

@@ -103,6 +103,26 @@ export class InMemoryModuleStore implements ModuleStore {
     }
   }
 
+  async updatePreviewLessonId(moduleId: ModuleId, previewLessonId: LessonId | null): Promise<void> {
+    const existing = this.modules.get(moduleId);
+    if (existing) {
+      existing.previewLessonId = previewLessonId;
+      existing.updatedAt = new Date().toISOString();
+      this.modules.set(moduleId, { ...existing });
+    }
+  }
+
+  async setPreviewLessonIdIfNull(moduleId: ModuleId, previewLessonId: LessonId): Promise<LessonId> {
+    const existing = this.modules.get(moduleId);
+    if (!existing) return previewLessonId;
+    if (!existing.previewLessonId) {
+      existing.previewLessonId = previewLessonId;
+      existing.updatedAt = new Date().toISOString();
+      this.modules.set(moduleId, { ...existing });
+    }
+    return existing.previewLessonId;
+  }
+
   getAll(): ModuleRecord[] {
     return Array.from(this.modules.values()).map((m) => ({ ...m }));
   }

@@ -29,6 +29,7 @@ import { FlashcardsPage } from "../pages/FlashcardsPage.js";
 import { ReviewPage } from "../pages/ReviewPage.js";
 import { ExamsPage } from "../pages/ExamsPage.js";
 import { FilesPage } from "../pages/FilesPage.js";
+import { FILES_ENABLED } from "../config/features.js";
 import { LibraryPage } from "../pages/LibraryPage.js";
 import { CheckoutCallbackPage } from "../pages/CheckoutCallbackPage.js";
 import { EmailVerificationPage } from "../components/shell/EmailVerificationPage.js";
@@ -192,7 +193,11 @@ export const router = createBrowserRouter(
             },
             {
               path: "files",
-              element: <FilesPage />,
+              element: FILES_ENABLED ? (
+                <FilesPage />
+              ) : (
+                <Navigate to="/library" replace />
+              ),
             },
             {
               path: "library",

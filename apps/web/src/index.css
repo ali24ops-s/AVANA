@@ -1,52 +1,306 @@
 @import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+@source "../../../packages/ui";
 @import "katex/dist/katex.min.css";
 
+@font-face {
+  font-family: "Estedad";
+  src:
+    url("./assets/fonts/Estedad-v5.0-Fontjo.com/Estedad[wght,kshd].woff2") format("woff2-supports-variations"),
+    url("./assets/fonts/Estedad-v5.0-Fontjo.com/Estedad[wght,kshd].woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
 
 @theme {
-  --font-sans: "Vazirmatn", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
-  --font-body: "Vazirmatn", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  --font-headline: "Vazirmatn", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  --font-vazirmatn: "Vazirmatn", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-sans: "Estedad", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-body: "Estedad", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-headline: "Estedad", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-estedad: "Estedad", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+
+  --color-primary: #008080;
+  --color-primary-hover: #007575;
+  --color-primary-active: #006060;
+  --color-primary-dark: #006666;
+  --color-primary-light: #e0f2f2;
+  --color-primary-soft: #f0fafa;
+  --color-primary-muted: #b3d9d9;
+  --color-primary-foreground: #ffffff;
+
+  --color-secondary: #A7D0E6;
+  --color-secondary-dark: #5ba0c4;
+  --color-secondary-light: #e8f4fb;
+  --color-warm: #F0E6D2;
+
+  --color-bg-default: var(--avana-bg-default);
+  --color-bg-subtle: var(--avana-bg-subtle);
+  --color-surface-1: var(--avana-surface-1);
+  --color-surface-2: var(--avana-surface-2);
+  --color-surface-3: var(--avana-surface-3);
+  --color-surface-glass: var(--avana-surface-glass);
+
+  --color-text-primary: var(--avana-text-primary);
+  --color-text-secondary: var(--avana-text-secondary);
+  --color-text-muted: var(--avana-text-muted);
+
+  --color-border-default: var(--avana-border-default);
+  --color-border-subtle: var(--avana-border-subtle);
+
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-btn: 10px;
+  --radius-input: 10px;
+  --radius-card: 16px;
+  --radius-dialog: 20px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-2xl: 24px;
+  --radius-3xl: 32px;
+
+  --shadow-subtle: 0 1px 3px rgba(0, 0, 0, 0.06);
+  --shadow-card: 0 1px 6px rgba(0, 0, 0, 0.08);
+  --shadow-elevated: 0 4px 16px rgba(0, 0, 0, 0.1);
+  --shadow-modal: 0 8px 40px rgba(0, 0, 0, 0.16);
+  --shadow-xs: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 
 :root {
+  --default-font-family: "Estedad", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+
   /* Layout Dimensions */
   --header-height: 5rem;
 
-  /* Stitch Dark Glassmorphic Palette Specification */
-  --color-primary: #008080;
-  --color-primary-dark: #005a5a;
-  --color-primary-light: rgba(45, 212, 191, 0.15);
-  --color-secondary: #8b5cf6;
-  --color-secondary-dark: #7c3aed;
-  --color-secondary-light: rgba(139, 92, 246, 0.15);
-  --color-background: #0b1120;
-  --color-surface: rgba(30, 41, 59, 0.6);
-  --color-surface-warm: rgba(15, 23, 42, 0.8);
-  --color-text: #f8fafc;
-  --color-text-muted: #94a3b8;
-  --color-border: rgba(255, 255, 255, 0.1);
-  --color-border-subtle: rgba(255, 255, 255, 0.05);
+  /* Canonical AVANA Light Mode CSS Custom Variables (Default) — Figma Make Source of Truth */
+  --avana-bg-default: #F7F9FA;
+  --avana-bg-subtle: #EEF1F3;
+  --avana-surface-1: #FFFFFF;
+  --avana-surface-2: #F7F9FA;
+  --avana-surface-3: #EEF1F3;
+  --avana-surface-glass: rgba(255, 255, 255, 0.92);
+  --avana-text-primary: #1a2226;
+  --avana-text-secondary: #3d4f55;
+  --avana-text-muted: #5B6268;
+  --avana-border-default: #E2E7EA;
+  --avana-border-subtle: #EEF1F3;
+  --avana-warm: #F0E6D2;
+  --avana-blue: #A7D0E6;
+  --avana-blue-dark: #5ba0c4;
 
-  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 4px 20px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.6);
-  --shadow-xl: 0 20px 40px rgba(0, 0, 0, 0.8);
+  /* Semantic Feedback Tokens */
+  --avana-success: #3d8f6e;
+  --avana-success-bg: #e4f4ec;
+  --avana-success-border: #9ed4bb;
+  --avana-success-text: #2a624b;
+  --avana-warning: #c2853f;
+  --avana-warning-bg: #fdf2e4;
+  --avana-warning-border: #e8c18a;
+  --avana-warning-text: #8f5e27;
+  --avana-error: #b84c4c;
+  --avana-error-bg: #fde8e8;
+  --avana-error-border: #e8a0a0;
+  --avana-error-text: #7f3131;
+  --avana-info: #5ba0c4;
+  --avana-info-bg: #e8f4fb;
+  --avana-info-border: #a7d0e6;
+  --avana-info-text: #2b6d8f;
+
+  /* Backward Compatibility Token Maps */
+  --color-primary: #008080;
+  --color-primary-default: var(--color-primary);
+  --color-primary-contrast: #ffffff;
+  --color-primary-foreground: #ffffff;
+  --color-primary-dark: #006666;
+  --color-primary-light: #e0f2f2;
+  --color-secondary: #A7D0E6;
+  --color-secondary-dark: #5ba0c4;
+  --color-secondary-light: #e8f4fb;
+  --color-background: var(--avana-bg-default);
+  --color-surface: var(--avana-surface-1);
+  --color-surface-warm: var(--avana-surface-2);
+  --color-text: var(--avana-text-primary);
+  --color-text-muted: var(--avana-text-muted);
+  --color-border: var(--avana-border-default);
+  --color-border-subtle: var(--avana-border-subtle);
+  --color-border-hover: var(--color-primary-muted);
+
+  --color-bg: var(--avana-bg-default);
+  --color-surface-subtle: var(--avana-surface-2);
+  --color-surface-muted: var(--avana-surface-3);
+  --color-surface-hover: var(--avana-surface-2);
+  --color-surface-card: var(--avana-surface-1);
+
+  --color-success: var(--avana-success-text);
+  --color-success-soft: var(--avana-success-bg);
+  --color-success-muted: var(--avana-success-border);
+
+  --color-warning: var(--avana-warning-text);
+  --color-warning-soft: var(--avana-warning-bg);
+  --color-warning-muted: var(--avana-warning-border);
+
+  --color-error: var(--avana-error-text);
+  --color-error-soft: var(--avana-error-bg);
+  --color-error-muted: var(--avana-error-border);
+
+  --avana-accent-soft: rgba(0, 128, 128, 0.08);
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 1px 6px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.1);
+  --shadow-xl: 0 8px 40px rgba(0, 0, 0, 0.16);
+}
+
+.light {
+  --avana-bg-default: #F7F9FA;
+  --avana-bg-subtle: #EEF1F3;
+  --avana-surface-1: #FFFFFF;
+  --avana-surface-2: #F7F9FA;
+  --avana-surface-3: #EEF1F3;
+  --avana-surface-glass: rgba(255, 255, 255, 0.92);
+  --avana-text-primary: #1a2226;
+  --avana-text-secondary: #3d4f55;
+  --avana-text-muted: #5B6268;
+  --avana-border-default: #E2E7EA;
+  --avana-border-subtle: #EEF1F3;
 }
 
 .dark {
-  --color-surface: rgba(30, 41, 59, 0.6);
-  --color-surface-warm: rgba(15, 23, 42, 0.8);
-  --color-background: #0b1120;
-  --color-text: #f8fafc;
-  --color-text-muted: #94a3b8;
-  --color-border: rgba(255, 255, 255, 0.1);
-  --color-border-subtle: rgba(255, 255, 255, 0.05);
+  --avana-bg-default: #0D1719;
+  --avana-bg-subtle: #080f10;
+  --avana-surface-1: #142124;
+  --avana-surface-2: #192A2D;
+  --avana-surface-3: #203438;
+  --avana-surface-glass: rgba(20, 33, 36, 0.85);
+  --avana-text-primary: #F2F7F7;
+  --avana-text-secondary: #c8d8da;
+  --avana-text-muted: #9AAEB0;
+  --avana-border-default: #1e3235;
+  --avana-border-subtle: #142528;
+
+  --color-primary-default: var(--color-primary);
+  --color-primary-contrast: #ffffff;
+  --color-primary-foreground: #ffffff;
+
+  --color-bg: var(--avana-bg-default);
+  --color-surface-subtle: var(--avana-surface-2);
+  --color-surface-muted: var(--avana-surface-3);
+  --color-surface-hover: var(--avana-surface-2);
+  --color-surface-card: var(--avana-surface-1);
+  --color-border-hover: #2dd4bf;
+
+  --color-success: #34d399;
+  --color-success-soft: rgba(52, 211, 153, 0.15);
+  --color-success-muted: rgba(52, 211, 153, 0.3);
+
+  --color-warning: #fbbf24;
+  --color-warning-soft: rgba(251, 191, 36, 0.15);
+  --color-warning-muted: rgba(251, 191, 36, 0.3);
+
+  --color-error: #f87171;
+  --color-error-soft: rgba(248, 113, 113, 0.15);
+  --color-error-muted: rgba(248, 113, 113, 0.3);
+
+  --avana-accent-soft: rgba(45, 212, 191, 0.15);
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.55);
+  --shadow-xl: 0 16px 48px rgba(0, 0, 0, 0.7);
+}
+
+/* AVANA Canonical Typography Scale Utility Classes — Figma Make */
+.text-display {
+  font-size: 2.25rem;
+  line-height: 2.75rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.text-h1 {
+  font-size: 1.875rem;
+  line-height: 2.5rem;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+
+.text-h2 {
+  font-size: 1.5rem;
+  line-height: 2rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.text-h3 {
+  font-size: 1.25rem;
+  line-height: 1.75rem;
+  font-weight: 600;
+}
+
+.text-h4 {
+  font-size: 1.0625rem;
+  line-height: 1.625rem;
+  font-weight: 600;
+}
+
+.text-body-lg {
+  font-size: 1rem;
+  line-height: 1.75rem;
+  font-weight: 400;
+}
+
+.text-body {
+  font-size: 0.9375rem;
+  line-height: 1.625rem;
+  font-weight: 400;
+}
+
+.text-body-sm {
+  font-size: 0.8125rem;
+  line-height: 1.375rem;
+  font-weight: 400;
+}
+
+.text-label {
+  font-size: 0.8125rem;
+  line-height: 1.25rem;
+  font-weight: 500;
+}
+
+.text-caption {
+  font-size: 0.75rem;
+  line-height: 1.125rem;
+  font-weight: 400;
+}
+
+.text-overline {
+  font-size: 0.6875rem;
+  line-height: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* ======================================================================
+   Transitional Compatibility Classes (Scheduled for full removal in Phase 2/3)
+   - rounded-button: 105 legacy usages across apps/web. Target: migrate to
+     Button component or rounded-btn / rounded-[10px] in Phase 2.
+   - font-title-md: 12 legacy usages in ExamTakingView. Target: migrate to
+     canonical .text-h3 / text-sm font-semibold in Phase 3.
+   ====================================================================== */
+@utility rounded-button {
+  border-radius: var(--radius-btn, 10px);
+}
+
+@utility font-title-md {
+  font-weight: 600;
 }
 
 * {
   font-family:
-    "Vazirmatn",
+    "Estedad",
+    "Vazirmatn Variable",
+    system-ui,
     -apple-system,
     BlinkMacSystemFont,
     "Segoe UI",
@@ -58,7 +312,9 @@
 
 body {
   font-family:
-    "Vazirmatn",
+    "Estedad",
+    "Vazirmatn Variable",
+    system-ui,
     -apple-system,
     BlinkMacSystemFont,
     "Segoe UI",
@@ -79,7 +335,8 @@ input,
 button,
 textarea,
 select,
-optgroup {
+optgroup,
+::placeholder {
   font-family: inherit;
 }
 
@@ -217,55 +474,14 @@ a {
 }
 
 /* ======================================================================
-   Landing Page — Stitch Design Tokens & Utilities
-   Scoped under .landing-page to avoid affecting the authenticated app.
+   Landing Page — Canonical AVANA Design System Theme & Utilities
+   Uses canonical light tokens (#F7F9FA page, #FFFFFF surface, #E2E7EA border)
    ====================================================================== */
 
 .landing-page {
-  /* AVANA Dark Mode Palette (Stitch M3 Dark Color Tokens) */
-  --lp-primary: #008080;
-  --lp-primary-container: #005a5a;
-  --lp-on-primary: #ffffff;
-  --lp-on-primary-container: #ccfbf1;
-  --lp-secondary: #8b5cf6;
-  --lp-secondary-container: #7c3aed;
-  --lp-on-secondary: #ffffff;
-  --lp-tertiary: #0ea5e9;
-  --lp-tertiary-container: #0284c7;
-  --lp-on-tertiary: #ffffff;
-  
-  /* Dark surfaces */
-  --lp-surface: #0b1120;
-  --lp-surface-bright: rgba(30, 41, 59, 0.6);
-  --lp-surface-container: rgba(15, 23, 42, 0.8);
-  --lp-surface-container-low: #0b1120;
-  --lp-surface-container-lowest: #0b1120;
-  --lp-surface-container-high: rgba(30, 41, 59, 0.8);
-  --lp-surface-dim: #020617;
-  
-  /* Dark text */
-  --lp-on-surface: #f8fafc;
-  --lp-on-surface-variant: #94a3b8;
-  
-  /* Dark borders */
-  --lp-outline: rgba(255, 255, 255, 0.2);
-  --lp-outline-variant: rgba(255, 255, 255, 0.1);
-  
-  --lp-error: #ef4444;
-  --lp-error-container: #7f1d1d;
-
-  /* Override body colors within landing scope */
-  background-color: var(--lp-surface);
-  color: var(--lp-on-surface);
-  font-family:
-    "Vazirmatn",
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    Roboto,
-    Helvetica,
-    Arial,
-    sans-serif;
+  background-color: var(--avana-bg-default);
+  color: var(--avana-text-primary);
+  font-family: var(--default-font-family);
   direction: rtl;
   text-align: right;
   -webkit-font-smoothing: antialiased;
@@ -273,10 +489,10 @@ a {
   overflow-x: clip;
 }
 
-/* Presentation Mode styling for Landing Page */
+/* Presentation Mode selection for Landing Page using canonical teal */
 .landing-page ::selection {
-  background-color: var(--lp-primary-container);
-  color: var(--lp-on-primary-container);
+  background-color: rgba(0, 128, 128, 0.15);
+  color: #006060;
 }
 
 /* Material Symbols config */
@@ -293,16 +509,18 @@ a {
 
 /* Shadow utilities */
 .landing-page .soft-shadow {
-  box-shadow: 0px 4px 20px rgba(15, 118, 110, 0.04);
+  box-shadow: 0px 1px 3px rgba(0, 0, 0, 0.05), 0px 1px 2px rgba(0, 0, 0, 0.03);
 }
 .landing-page .deep-shadow {
-  box-shadow: 0px 12px 32px rgba(15, 118, 110, 0.08);
+  box-shadow: 0px 4px 16px rgba(0, 0, 0, 0.08), 0px 1px 3px rgba(0, 0, 0, 0.04);
 }
 
 /* Headline font */
 .landing-page .font-headline {
   font-family:
-    "Vazirmatn",
+    "Estedad",
+    "Vazirmatn Variable",
+    system-ui,
     -apple-system,
     BlinkMacSystemFont,
     "Segoe UI",
@@ -382,8 +600,8 @@ a {
   overflow-x: auto;
   overflow-y: hidden;
   padding: 0.75rem 1rem;
-  background: rgba(15, 23, 42, 0.6);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--avana-surface-2);
+  border: 1px solid var(--avana-border-default);
   border-radius: 0.75rem;
   color: currentColor;
 }

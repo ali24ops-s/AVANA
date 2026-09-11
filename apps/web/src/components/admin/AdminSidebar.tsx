@@ -13,6 +13,7 @@ import {
   isNavItemActive,
 } from "./adminNavigation.js";
 import { useAuth } from "../../providers/AuthProvider.js";
+import { Button } from "../ui/index.js";
 
 export interface AdminSidebarProps {
   isCollapsed?: boolean;
@@ -50,7 +51,7 @@ export function AdminSidebar({
     return (
       <div className="space-y-1.5">
         {(!isCollapsed || isMobile) && (
-          <div className="px-3 pb-1 text-[11px] font-semibold tracking-wider text-slate-400 select-none">
+          <div className="px-3 pb-1 text-[11px] font-semibold tracking-wider text-[var(--color-text-muted)] select-none">
             فضاهای کاری مدیریت
           </div>
         )}
@@ -73,8 +74,8 @@ export function AdminSidebar({
                 aria-label={item.name}
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
                   isActive
-                    ? "bg-teal-500/15 text-teal-300 border border-teal-500/30 shadow-sm"
-                    : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
+                    ? "bg-[var(--color-primary-default)]/15 text-[var(--color-primary-default)] border border-[var(--color-primary-default)]/30 shadow-sm font-bold"
+                    : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-warm)]"
                 } ${isCollapsed && !isMobile ? "justify-center px-2" : ""}`}
               >
                 <Icon className="w-5 h-5 shrink-0" />
@@ -94,101 +95,99 @@ export function AdminSidebar({
       {/* Mobile Drawer Backdrop */}
       {mobileOpen && (
         <div
-          className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-50 lg:hidden transition-opacity"
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 lg:hidden transition-opacity"
           onClick={onCloseMobile}
           aria-hidden="true"
         />
       )}
 
-      {/* Mobile Slide-over Drawer */}
+      {/* Mobile Drawer */}
       <aside
-        aria-label="ناوبری مدیریت موبایل"
-        className={`fixed inset-y-0 right-0 z-50 w-72 sm:w-80 bg-[#0b1120] border-l border-white/10 flex flex-col font-sans text-slate-200 shadow-2xl transition-transform duration-300 ease-in-out lg:hidden ${
+        className={`fixed inset-y-0 start-0 z-50 w-72 sm:w-80 bg-[var(--color-surface-warm)] border-e border-[var(--color-border)] flex flex-col font-sans text-[var(--color-text)] shadow-2xl transition-transform duration-300 ease-in-out lg:hidden ${
           mobileOpen ? "translate-x-0" : "translate-x-full"
         }`}
         dir="rtl"
+        aria-label="ناوبری مدیریت موبایل"
       >
-        {/* Mobile Header */}
-        <div className="h-16 flex items-center justify-between px-5 border-b border-white/10 shrink-0 bg-white/5">
-          <div className="flex items-center gap-2.5">
-            <BrandLogo variant="logo-only" size="sm" />
-            <div>
-              <span className="font-bold text-sm text-teal-400">آوانا ادمین</span>
-              <span className="text-[10px] text-slate-400 block -mt-0.5">
-                کنسول مدیریت
-              </span>
-            </div>
-          </div>
-          <button
-            type="button"
+        {/* Drawer Header */}
+        <div className="h-16 px-4 flex items-center justify-between border-b border-[var(--color-border)] shrink-0">
+          <BrandLogo
+            linkTo="/admin"
+            variant="logo-only"
+            size="sm"
+          />
+
+          <Button
+            size="sm"
+            variant="ghost"
             onClick={onCloseMobile}
-            className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-white/5 transition-colors"
-            aria-label="بستن منوی مدیریت"
+            aria-label="بستن منو"
           >
             <X className="w-5 h-5" />
-          </button>
+          </Button>
         </div>
 
-        {/* Mobile Navigation List */}
-        <nav
-          className="flex-1 overflow-y-auto p-4"
-          aria-label="منوی اصلی مدیریت"
-        >
-          {renderNavList(true)}
-        </nav>
+        {/* Drawer Navigation */}
+        <nav className="flex-1 overflow-y-auto p-4">{renderNavList(true)}</nav>
 
-        {/* Mobile Footer */}
-        <div className="p-4 border-t border-white/10 space-y-1 bg-white/5 shrink-0">
+        {/* Drawer Footer */}
+        <div className="p-4 border-t border-[var(--color-border)] space-y-2 shrink-0">
           <Link
             to="/home"
             onClick={onCloseMobile}
-            className="flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-slate-200 hover:bg-white/5 transition-colors"
+            className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)] transition-colors"
           >
-            <Home className="w-4 h-4 shrink-0" />
+            <Home className="w-5 h-5 shrink-0" />
             <span>بازگشت به اپلیکیشن</span>
           </Link>
           <button
             type="button"
             onClick={() => void signOut()}
-            className="flex w-full items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium text-red-400 hover:bg-red-500/10 transition-colors"
+            className="flex w-full items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-red-500 hover:bg-red-500/10 transition-colors"
           >
-            <LogOut className="w-4 h-4 shrink-0" />
+            <LogOut className="w-5 h-5 shrink-0" />
             <span>خروج از حساب</span>
           </button>
         </div>
       </aside>
 
-      {/* Desktop / Tablet Persistent Sidebar */}
+      {/* Desktop Sidebar */}
       <aside
-        aria-label="ناوبری مدیریت"
-        className={`hidden lg:flex flex-col shrink-0 bg-[#0b1120]/80 glass-panel border-l border-white/10 transition-[width] duration-200 ease-in-out h-screen sticky top-0 ${
+        className={`hidden lg:flex flex-col bg-[var(--color-surface-warm)] border-e border-[var(--color-border)] font-sans text-[var(--color-text)] transition-[width] duration-300 ease-in-out shrink-0 sticky top-0 h-screen z-30 ${
           isCollapsed ? "w-20" : "w-64"
         }`}
         dir="rtl"
+        aria-label="ناوبری مدیریت"
       >
-        {/* Brand & Collapse Header */}
-        <div className="h-16 flex items-center justify-between px-4 border-b border-white/10 shrink-0">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <BrandLogo variant="logo-only" size="sm" />
-            {!isCollapsed && (
-              <div className="min-w-0">
-                <span className="font-bold text-sm text-teal-400 block truncate">
-                  آوانا ادمین
-                </span>
-                <span className="text-[10px] text-slate-400 block -mt-0.5 truncate">
-                  کنسول مدیریت سیستم
-                </span>
-              </div>
-            )}
-          </div>
+        {/* Desktop Header */}
+        <div className="h-16 px-4 flex items-center justify-between border-b border-[var(--color-border)] shrink-0">
+          {!isCollapsed && (
+            <div className="flex items-center gap-2">
+              <BrandLogo
+                linkTo="/admin"
+                variant="logo-only"
+                size="sm"
+              />
+              <span className="text-sm font-bold text-[var(--color-text)]">آوانا ادمین</span>
+            </div>
+          )}
+
+          {isCollapsed && (
+            <div className="mx-auto">
+              <BrandLogo
+                linkTo="/admin"
+                variant="logo-only"
+                size="sm"
+              />
+            </div>
+          )}
+
           {onToggleCollapse && (
-            <button
-              type="button"
+            <Button
+              size="sm"
+              variant="ghost"
               onClick={onToggleCollapse}
-              className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-white/5 transition-colors"
-              aria-label={
-                isCollapsed ? "گسترش نوار کناری" : "جمع کردن نوار کناری"
-              }
+              aria-label={isCollapsed ? "گسترش نوار کناری" : "جمع کردن نوار کناری"}
               title={isCollapsed ? "گسترش نوار کناری" : "جمع کردن نوار کناری"}
             >
               {isCollapsed ? (
@@ -196,7 +195,7 @@ export function AdminSidebar({
               ) : (
                 <ChevronRight className="w-4 h-4" />
               )}
-            </button>
+            </Button>
           )}
         </div>
 
@@ -209,12 +208,12 @@ export function AdminSidebar({
         </nav>
 
         {/* Desktop Footer */}
-        <div className="p-3 border-t border-white/10 space-y-1 shrink-0 bg-black/10">
+        <div className="p-3 border-t border-[var(--color-border)] space-y-1 shrink-0">
           <Link
             to="/home"
             title={isCollapsed ? "بازگشت به اپلیکیشن" : undefined}
             aria-label="بازگشت به اپلیکیشن"
-            className={`flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-slate-200 hover:bg-white/5 transition-colors ${
+            className={`flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] transition-colors ${
               isCollapsed ? "justify-center px-2" : ""
             }`}
           >
@@ -226,7 +225,7 @@ export function AdminSidebar({
             onClick={() => void signOut()}
             title={isCollapsed ? "خروج" : undefined}
             aria-label="خروج"
-            className={`flex w-full items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium text-red-400 hover:bg-red-500/10 transition-colors ${
+            className={`flex w-full items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium text-red-500 hover:bg-red-500/10 transition-colors ${
               isCollapsed ? "justify-center px-2" : ""
             }`}
           >

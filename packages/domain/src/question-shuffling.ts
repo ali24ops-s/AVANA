@@ -1062,81 +1062,255 @@ export function canonicalizeAndShuffleQuestion<T extends QuestionOptionInput>(
   };
 }
 
+export type QuestionEvaluationStatus =
+  | "correct"
+  | "incorrect"
+  | "unanswered"
+  | "partial";
+
+export interface QuestionEvaluationResult {
+  status: QuestionEvaluationStatus;
+  scoreRatio: number;
+  selectedValues: string[];
+  correctValues: string[];
+}
+
+const LETTER_INDEX_MAP: Record<string, number> = {
+  a: 0,
+  b: 1,
+  c: 2,
+  d: 3,
+  e: 4,
+  f: 5,
+  "الف": 0,
+  "ب": 1,
+  "ج": 2,
+  "د": 3,
+  "گزینه ۱": 0,
+  "گزینه 1": 0,
+  "گزینه ۲": 1,
+  "گزینه 2": 1,
+  "گزینه ۳": 2,
+  "گزینه 3": 2,
+  "گزینه ۴": 3,
+  "گزینه 4": 3,
+};
+
+function parseBooleanValue(val: unknown): boolean | null {
+  if (typeof val === "boolean") return val;
+  if (typeof val === "string") {
+    const s = val.trim().toLowerCase();
+    if (s === "true" || s === "درست" || s === "صحیح" || s === "yes" || s === "بله") return true;
+    if (s === "false" || s === "نادرست" || s === "غلط" || s === "no" || s === "خیر") return false;
+  }
+  return null;
+}
+
 /**
- * Evaluates whether a student's submitted answer matches the question's correct answer.
- * Handles:
- * - Direct string / JSON equality
- * - Letter selection (A, B, C, D / الف, ب, ج, د) resolved against question.choices
- * - Index selection (0, 1, 2, 3) resolved against question.choices
+ * Resolves a single answer token (text, numeric index, letter, or boolean)
+ * to its authoritative choice string from the question's choices list.
  */
-export function isStudentAnswerCorrect(
-  studentAnswer: unknown,
-  question: { choices?: string[] | null; correctAnswer?: unknown },
-): boolean {
-  if (studentAnswer === null || studentAnswer === undefined) {
-    return false;
+export function resolveChoiceText(
+  value: unknown,
+  choices?: string[] | null,
+): string | null {
+  if (value === null || value === undefined || value === "") {
+    return null;
   }
 
-  const correctVal = question.correctAnswer;
-  if (correctVal === null || correctVal === undefined) {
-    return false;
-  }
+  const trimmedChoices = Array.isArray(choices)
+    ? choices.map((c) => String(c).trim())
+    : [];
 
-  // 1. Exact string / JSON equality
-  if (
-    JSON.stringify(studentAnswer) === JSON.stringify(correctVal) ||
-    String(studentAnswer).trim() === String(correctVal).trim()
-  ) {
-    return true;
-  }
-
-  // 2. If choices exist, check if studentAnswer is an index (0..3) or letter (A..D / الف..د)
-  const choices = question.choices;
-  if (Array.isArray(choices) && choices.length > 0) {
-    const trimmedChoices = choices.map((c) => String(c).trim());
-    const correctIdx = trimmedChoices.findIndex(
-      (c) => c === String(correctVal).trim(),
-    );
-
-    if (correctIdx !== -1) {
-      // Check numeric index
-      if (
-        studentAnswer === correctIdx ||
-        String(studentAnswer).trim() === String(correctIdx)
-      ) {
-        return true;
-      }
-
-      // Check letter selection
-      if (typeof studentAnswer === "string") {
-        const studentNorm = studentAnswer.trim().toLowerCase();
-        const letterMap: Record<string, number> = {
-          a: 0,
-          b: 1,
-          c: 2,
-          d: 3,
-          "الف": 0,
-          "ب": 1,
-          "ج": 2,
-          "د": 3,
-          "گزینه ۱": 0,
-          "گزینه 1": 0,
-          "گزینه ۲": 1,
-          "گزینه 2": 1,
-          "گزینه ۳": 2,
-          "گزینه 3": 2,
-          "گزینه ۴": 3,
-          "گزینه 4": 3,
-        };
-
-        if (letterMap[studentNorm] === correctIdx) {
-          return true;
-        }
+  // 1. Check if value is boolean
+  const boolVal = parseBooleanValue(value);
+  if (boolVal !== null && trimmedChoices.length > 0) {
+    for (const c of trimmedChoices) {
+      if (parseBooleanValue(c) === boolVal) {
+        return c;
       }
     }
   }
 
-  return false;
+  // 2. Check if numeric index (e.g. 0, 1, 2 or "0", "1", "2")
+  if (typeof value === "number" && Number.isInteger(value)) {
+    if (value >= 0 && value < trimmedChoices.length) {
+      return trimmedChoices[value];
+    }
+  }
+
+  if (typeof value === "string") {
+    const s = value.trim();
+    if (/^\d+$/.test(s)) {
+      const idx = parseInt(s, 10);
+      if (idx >= 0 && idx < trimmedChoices.length) {
+        return trimmedChoices[idx];
+      }
+    }
+
+    // 3. Check letter map (A..D, الف..د, گزینه ۱..۴)
+    const norm = s.toLowerCase();
+    if (norm in LETTER_INDEX_MAP) {
+      const idx = LETTER_INDEX_MAP[norm];
+      if (idx >= 0 && idx < trimmedChoices.length) {
+        return trimmedChoices[idx];
+      }
+    }
+
+    // 4. Check direct match in choices
+    if (trimmedChoices.length > 0) {
+      const found = trimmedChoices.find((c) => c === s || c.toLowerCase() === norm);
+      if (found) return found;
+    }
+
+    return s;
+  }
+
+  return String(value).trim();
+}
+
+/**
+ * Normalizes an answer input (which might be a scalar or an array) into a string array of choice texts.
+ */
+function normalizeAnswerTokens(
+  rawAnswer: unknown,
+  choices?: string[] | null,
+): string[] {
+  if (rawAnswer === null || rawAnswer === undefined || rawAnswer === "") {
+    return [];
+  }
+
+  const rawList = Array.isArray(rawAnswer) ? rawAnswer : [rawAnswer];
+  const results: string[] = [];
+
+  for (const item of rawList) {
+    const resolved = resolveChoiceText(item, choices);
+    if (resolved && !results.includes(resolved)) {
+      results.push(resolved);
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Canonical source of truth for question evaluation across the AVANA platform.
+ * Evaluates single-select, multi-select, and true/false deterministically.
+ *
+ * Statuses:
+ * - correct: All required correct choices (and only them) were selected.
+ * - partial: For multi-select, a subset of the correct choices was selected with no wrong choices.
+ * - incorrect: A wrong choice was selected.
+ * - unanswered: Student did not provide any answer.
+ */
+export function evaluateQuestionAnswer(
+  studentAnswer: unknown,
+  question: {
+    choices?: string[] | null;
+    correctAnswer?: unknown;
+    questionType?: string;
+  },
+): QuestionEvaluationResult {
+  const choices = question.choices;
+  const isMultiSelect =
+    question.questionType === "multi_select" ||
+    Array.isArray(question.correctAnswer) ||
+    (Array.isArray(studentAnswer) && studentAnswer.length > 1);
+
+  const correctValues = normalizeAnswerTokens(question.correctAnswer, choices);
+  const selectedValues = normalizeAnswerTokens(studentAnswer, choices);
+
+  // 1. Unanswered check
+  if (
+    studentAnswer === null ||
+    studentAnswer === undefined ||
+    studentAnswer === "" ||
+    selectedValues.length === 0
+  ) {
+    return {
+      status: "unanswered",
+      scoreRatio: 0,
+      selectedValues: [],
+      correctValues,
+    };
+  }
+
+  // 2. True / False deterministic boolean comparison
+  const studentBool = parseBooleanValue(studentAnswer);
+  const correctBool = parseBooleanValue(question.correctAnswer);
+  if (
+    (question.questionType === "true_false" || (studentBool !== null && correctBool !== null)) &&
+    studentBool !== null &&
+    correctBool !== null
+  ) {
+    const isBoolCorrect = studentBool === correctBool;
+    return {
+      status: isBoolCorrect ? "correct" : "incorrect",
+      scoreRatio: isBoolCorrect ? 1 : 0,
+      selectedValues: [studentBool ? "درست" : "نادرست"],
+      correctValues: [correctBool ? "درست" : "نادرست"],
+    };
+  }
+
+  // 3. Multi-select evaluation
+  if (isMultiSelect) {
+    const correctSet = new Set(correctValues);
+
+    const truePositives = selectedValues.filter((v) => correctSet.has(v));
+    const falsePositives = selectedValues.filter((v) => !correctSet.has(v));
+
+    if (falsePositives.length === 0 && truePositives.length === correctSet.size) {
+      return {
+        status: "correct",
+        scoreRatio: 1,
+        selectedValues,
+        correctValues,
+      };
+    }
+
+    if (falsePositives.length === 0 && truePositives.length > 0) {
+      return {
+        status: "partial",
+        scoreRatio: Math.round((truePositives.length / Math.max(1, correctSet.size)) * 100) / 100,
+        selectedValues,
+        correctValues,
+      };
+    }
+
+    return {
+      status: "incorrect",
+      scoreRatio: 0,
+      selectedValues,
+      correctValues,
+    };
+  }
+
+  // 4. Single-choice evaluation
+  const primarySelected = selectedValues[0];
+  const primaryCorrect = correctValues[0];
+
+  const isMatch =
+    primarySelected === primaryCorrect ||
+    JSON.stringify(studentAnswer) === JSON.stringify(question.correctAnswer) ||
+    String(studentAnswer).trim() === String(question.correctAnswer).trim();
+
+  return {
+    status: isMatch ? "correct" : "incorrect",
+    scoreRatio: isMatch ? 1 : 0,
+    selectedValues,
+    correctValues,
+  };
+}
+
+/**
+ * Evaluates whether a student's submitted answer matches the question's correct answer.
+ * Delegates to canonical evaluateQuestionAnswer.
+ */
+export function isStudentAnswerCorrect(
+  studentAnswer: unknown,
+  question: { choices?: string[] | null; correctAnswer?: unknown; questionType?: string },
+): boolean {
+  return evaluateQuestionAnswer(studentAnswer, question).status === "correct";
 }
 
 /**

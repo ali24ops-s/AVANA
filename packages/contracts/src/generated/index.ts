@@ -240,6 +240,10 @@ export type LessonResource = {
   estimated_minutes: number | null;
   completed: boolean;
   completed_at: string | null;
+  locked?: boolean;
+  is_preview?: boolean;
+  access_reason?: string;
+  purchase_options?: unknown[];
 };
 
 export type ModuleResource = {
@@ -263,9 +267,16 @@ export type CourseLearnResponse = {
     title: string;
     subject: string | null;
     exam_at: string | null;
+    locked?: boolean;
+    access_reason?: string;
   };
   modules: ModuleResource[];
   progress: CourseLearnProgress;
+  preview?: {
+    preview_lesson_id: string | null;
+    preview_flashcard_limit: number;
+    preview_quiz_limit: number;
+  };
 };
 
 // ---------------------------------------------------------------------------

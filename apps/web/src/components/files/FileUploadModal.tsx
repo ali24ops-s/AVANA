@@ -164,7 +164,7 @@ export function FileUploadModal({
     <>
       {/* Backdrop */}
       <div
-        className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-50 transition-opacity"
+        className="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 transition-opacity"
         onClick={() => !isUploading && onClose()}
       />
 
@@ -173,18 +173,18 @@ export function FileUploadModal({
         className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 overflow-y-auto"
         dir="rtl"
       >
-        <div className="bg-[#0f172a] border border-white/15 rounded-3xl max-w-xl w-full p-6 shadow-2xl space-y-6 text-slate-200 font-sans">
+        <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-3xl max-w-xl w-full p-6 shadow-xl space-y-6 text-[var(--color-text)] font-sans">
           {/* Header */}
-          <div className="flex items-center justify-between border-b border-white/10 pb-4">
+          <div className="flex items-center justify-between border-b border-[var(--color-border)] pb-4">
             <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-2xl bg-teal-500/10 text-teal-400 border border-teal-500/20">
+              <div className="p-2.5 rounded-2xl bg-teal-50 text-[#008080] border border-teal-200">
                 <UploadCloud className="w-6 h-6" />
               </div>
               <div>
-                <h2 className="text-base sm:text-lg font-bold text-white">
+                <h2 className="text-base sm:text-lg font-bold text-[var(--color-text)]">
                   آپلود فایل‌ها و منابع آموزشی
                 </h2>
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-[var(--color-text-muted)]">
                   فرمت‌های PDF, DOCX, PPTX, TXT تا سقف ۵۰ مگابایت
                 </p>
               </div>
@@ -194,25 +194,25 @@ export function FileUploadModal({
               type="button"
               onClick={onClose}
               disabled={isUploading}
-              className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/10 transition-colors disabled:opacity-50"
+              className="p-2 rounded-xl text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-slate-100 transition-colors disabled:opacity-50"
             >
               <X className="w-5 h-5" />
             </button>
           </div>
 
           {/* Hierarchical Tagging: Course & Module Selector */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 rounded-2xl bg-white/5 border border-white/5 text-xs">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 rounded-2xl bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-xs">
             {/* Course Selector */}
             <div className="space-y-1.5">
-              <label className="text-slate-400 flex items-center gap-1.5 font-medium">
-                <BookOpen className="w-3.5 h-3.5 text-teal-400" />
+              <label className="text-[var(--color-text-muted)] flex items-center gap-1.5 font-medium">
+                <BookOpen className="w-3.5 h-3.5 text-[#008080]" />
                 <span>انتخاب دوره (اختیاری)</span>
               </label>
               <select
                 value={selectedCourseId}
                 onChange={(e) => void handleCourseChange(e.target.value)}
                 disabled={isUploading}
-                className="w-full bg-[#131d31] border border-white/10 rounded-xl px-3 py-2 text-slate-200 text-xs focus:outline-none focus:ring-1 focus:ring-teal-500"
+                className="w-full bg-white border border-[var(--color-border)] rounded-xl px-3 py-2 text-[var(--color-text)] text-xs focus:outline-none focus:ring-1 focus:ring-[#008080]"
               >
                 <option value="">بدون اتصال به دوره (فایل آزاد)</option>
                 {courses.map((c) => (
@@ -225,15 +225,15 @@ export function FileUploadModal({
 
             {/* Module Selector */}
             <div className="space-y-1.5">
-              <label className="text-slate-400 flex items-center gap-1.5 font-medium">
-                <FolderOpen className="w-3.5 h-3.5 text-purple-400" />
+              <label className="text-[var(--color-text-muted)] flex items-center gap-1.5 font-medium">
+                <FolderOpen className="w-3.5 h-3.5 text-purple-600" />
                 <span>سرفصل / ماژول</span>
               </label>
               <select
                 value={selectedModuleId}
                 onChange={(e) => setSelectedModuleId(e.target.value)}
                 disabled={!selectedCourseId || isUploading || loadingModules}
-                className="w-full bg-[#131d31] border border-white/10 rounded-xl px-3 py-2 text-slate-200 text-xs focus:outline-none focus:ring-1 focus:ring-teal-500 disabled:opacity-50"
+                className="w-full bg-white border border-[var(--color-border)] rounded-xl px-3 py-2 text-[var(--color-text)] text-xs focus:outline-none focus:ring-1 focus:ring-[#008080] disabled:opacity-50"
               >
                 <option value="">
                   {loadingModules ? "در حال بارگذاری سرفصل‌ها..." : "انتخاب سرفصل (اختیاری)"}
@@ -262,8 +262,8 @@ export function FileUploadModal({
             onClick={() => fileInputRef.current?.click()}
             className={`border-2 border-dashed rounded-3xl p-8 text-center cursor-pointer transition-all ${
               isDragOver
-                ? "border-teal-400 bg-teal-500/10 scale-[1.01]"
-                : "border-white/15 hover:border-teal-500/40 bg-white/[0.02]"
+                ? "border-[#008080] bg-teal-50/50 scale-[1.01]"
+                : "border-[var(--color-border)] hover:border-[#008080] bg-slate-50/50"
             }`}
           >
             <input
@@ -274,11 +274,11 @@ export function FileUploadModal({
               onChange={(e) => handleFilesAdded(e.target.files)}
               className="hidden"
             />
-            <UploadCloud className="w-10 h-10 text-teal-400 mx-auto mb-3 animate-bounce" />
-            <h3 className="text-sm font-bold text-white">
+            <UploadCloud className="w-10 h-10 text-[#008080] mx-auto mb-3 animate-bounce" />
+            <h3 className="text-sm font-bold text-[var(--color-text)]">
               فایل‌ها را به این قسمت بکشید یا برای انتخاب کلیک کنید
             </h3>
-            <p className="text-xs text-slate-400 mt-1">
+            <p className="text-xs text-[var(--color-text-muted)] mt-1">
               امکان انتخاب همزمان چند فایل وجود دارد
             </p>
           </div>
@@ -286,13 +286,13 @@ export function FileUploadModal({
           {/* Queued Files List */}
           {queue.length > 0 && (
             <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-              <div className="flex items-center justify-between text-xs text-slate-400 px-1">
+              <div className="flex items-center justify-between text-xs text-[var(--color-text-muted)] px-1">
                 <span>فایل‌های انتخاب‌شده ({queue.length.toLocaleString("fa-IR")})</span>
                 {!isUploading && (
                   <button
                     type="button"
                     onClick={() => setQueue([])}
-                    className="text-rose-400 hover:underline"
+                    className="text-rose-600 hover:underline"
                   >
                     حذف همه
                   </button>
@@ -302,17 +302,17 @@ export function FileUploadModal({
               {queue.map((item) => (
                 <div
                   key={item.id}
-                  className="p-3 rounded-2xl bg-white/5 border border-white/5 flex items-center justify-between gap-3 text-xs"
+                  className="p-3 rounded-2xl bg-[var(--color-surface-warm)] border border-[var(--color-border)] flex items-center justify-between gap-3 text-xs"
                 >
                   <div className="flex items-center gap-3 min-w-0">
-                    <div className="p-2 rounded-xl bg-white/5 border border-white/10 shrink-0">
+                    <div className="p-2 rounded-xl bg-white border border-[var(--color-border)] shrink-0">
                       {getFileIcon(item.file.type, item.file.name)}
                     </div>
                     <div className="min-w-0">
-                      <p className="font-semibold text-white truncate max-w-xs">
+                      <p className="font-semibold text-[var(--color-text)] truncate max-w-xs">
                         {item.file.name}
                       </p>
-                      <p className="text-[10px] text-slate-400 font-mono" dir="ltr">
+                      <p className="text-[10px] text-[var(--color-text-muted)] font-mono" dir="ltr">
                         {formatBytes(item.file.size)}
                       </p>
                     </div>
@@ -321,19 +321,19 @@ export function FileUploadModal({
                   {/* Status Indicator */}
                   <div className="flex items-center gap-2 shrink-0">
                     {item.status === "uploading" && (
-                      <div className="flex items-center gap-1.5 text-teal-400 font-semibold">
+                      <div className="flex items-center gap-1.5 text-[#008080] font-semibold">
                         <Loader2 className="w-4 h-4 animate-spin" />
                         <span>در حال آپلود...</span>
                       </div>
                     )}
                     {item.status === "success" && (
-                      <div className="flex items-center gap-1 text-emerald-400 font-semibold">
+                      <div className="flex items-center gap-1 text-emerald-700 font-semibold">
                         <CheckCircle2 className="w-4 h-4" />
                         <span>آماده</span>
                       </div>
                     )}
                     {item.status === "error" && (
-                      <div className="flex items-center gap-1 text-rose-400 font-semibold">
+                      <div className="flex items-center gap-1 text-rose-700 font-semibold">
                         <AlertTriangle className="w-4 h-4" />
                         <span title={item.errorMessage}>خطا</span>
                       </div>
@@ -342,7 +342,7 @@ export function FileUploadModal({
                       <button
                         type="button"
                         onClick={() => handleRemoveFromQueue(item.id)}
-                        className="p-1 text-slate-400 hover:text-rose-400 rounded-lg hover:bg-white/10 transition-colors"
+                        className="p-1 text-[var(--color-text-muted)] hover:text-rose-600 rounded-lg hover:bg-slate-100 transition-colors"
                         title="حذف از لیست"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -355,12 +355,12 @@ export function FileUploadModal({
           )}
 
           {/* Modal Footer */}
-          <div className="flex items-center justify-end gap-3 pt-4 border-t border-white/10">
+          <div className="flex items-center justify-end gap-3 pt-4 border-t border-[var(--color-border)]">
             <button
               type="button"
               onClick={onClose}
               disabled={isUploading}
-              className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-300 hover:bg-white/10 transition-colors disabled:opacity-50"
+              className="px-4 py-2 rounded-xl text-xs font-semibold text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-slate-100 transition-colors disabled:opacity-50"
             >
               {hasSuccess ? "پایان و بستن" : "انصراف"}
             </button>
@@ -370,7 +370,7 @@ export function FileUploadModal({
                 type="button"
                 onClick={handleStartUpload}
                 disabled={isUploading}
-                className="flex items-center gap-2 px-5 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold transition-colors shadow-lg shadow-teal-900/40 disabled:opacity-50"
+                className="flex items-center gap-2 px-5 py-2 rounded-xl bg-[#008080] hover:bg-[#006666] text-white text-xs font-bold transition-colors shadow-xs disabled:opacity-50"
               >
                 {isUploading ? (
                   <>

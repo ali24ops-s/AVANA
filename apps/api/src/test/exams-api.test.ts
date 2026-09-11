@@ -699,4 +699,221 @@ describe("Exams API Integration", () => {
 
     await app.close();
   });
+
+  it("should list exam history and support review of past attempts without creating new attempts", async () => {
+    const app = await buildTestApp();
+    const { token } = await signIn(app, "student-hist@example.com");
+    const orgId = await createOrg(app, token, "Hist Org");
+
+    const q1Id = randomUUID() as QuizQuestionId;
+    const q2Id = randomUUID() as QuizQuestionId;
+
+    quizStore.insert({
+      id: "quiz-hist" as QuizId,
+      organizationId: orgId,
+      courseId,
+      documentId: null,
+      title: "Hist Quiz",
+      topic: "Cardiology",
+      difficulty: "medium",
+      status: "published",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      deletedAt: null,
+    });
+
+    quizQuestionStore.insert({
+      id: q1Id,
+      quizId: "quiz-hist" as QuizId,
+      generatedContentId: null,
+      question: "Q1 Hist: First choice?",
+      topic: "Cardiology",
+      difficulty: "medium",
+      questionType: "multiple_choice",
+      choices: ["Choice A", "Choice B", "Choice C", "Choice D"],
+      correctAnswer: "Choice A",
+      explanation: "Explanation 1",
+      sortOrder: 1,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    quizQuestionStore.insert({
+      id: q2Id,
+      quizId: "quiz-hist" as QuizId,
+      generatedContentId: null,
+      question: "Q2 Hist: Second choice?",
+      topic: "Cardiology",
+      difficulty: "medium",
+      questionType: "multiple_choice",
+      choices: ["Choice A", "Choice B", "Choice C", "Choice D"],
+      correctAnswer: "Choice B",
+      explanation: "Explanation 2",
+      sortOrder: 2,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    // 1. Start exam
+    const startRes = await app.inject({
+      method: "POST",
+      url: `/v1/organizations/${orgId}/study/exams/start`,
+      headers: { cookie: `avana_session=${token}` },
+      payload: { questionCount: 2, difficulty: "medium" },
+    });
+    expect(startRes.statusCode).toBe(200);
+    const { attemptId } = JSON.parse(startRes.body);
+
+    // 2. Anti-leak test: in-progress attempt MUST NOT leak correctAnswer or explanation
+    const inProgressRes = await app.inject({
+      method: "GET",
+      url: `/v1/organizations/${orgId}/study/exams/attempts/${attemptId}`,
+      headers: { cookie: `avana_session=${token}` },
+    });
+    expect(inProgressRes.statusCode).toBe(200);
+    const inProgressBody = JSON.parse(inProgressRes.body);
+    expect(inProgressBody.isCompleted).toBe(false);
+    for (const q of inProgressBody.questions) {
+      expect(q.correctAnswer).toBeUndefined();
+      expect(q.explanation).toBeUndefined();
+    }
+
+    // 3. Submit exam answers (q1 correct: Choice A, q2 incorrect: Choice C)
+    const submitRes = await app.inject({
+      method: "POST",
+      url: `/v1/organizations/${orgId}/study/exams/attempts/${attemptId}/submit`,
+      headers: { cookie: `avana_session=${token}` },
+      payload: {
+        answers: [
+          { questionId: q1Id, answer: "Choice A" },
+          { questionId: q2Id, answer: "Choice C" },
+        ],
+      },
+    });
+    expect(submitRes.statusCode).toBe(200);
+    const submitBody = JSON.parse(submitRes.body);
+    expect(submitBody.score).toBe(50);
+    expect(submitBody.correct).toBe(1);
+    expect(submitBody.incorrect).toBe(1);
+    expect(submitBody.unanswered).toBe(0);
+    expect(submitBody.answers[q1Id]).toBe("Choice A");
+    expect(submitBody.answers[q2Id]).toBe("Choice C");
+    expect(submitBody.questionResults[q1Id].status).toBe("correct");
+    expect(submitBody.questionResults[q2Id].status).toBe("incorrect");
+
+    // 4. Test GET /study/exams/history
+    const historyRes = await app.inject({
+      method: "GET",
+      url: `/v1/organizations/${orgId}/study/exams/history`,
+      headers: { cookie: `avana_session=${token}` },
+    });
+    expect(historyRes.statusCode).toBe(200);
+    const historyBody = JSON.parse(historyRes.body);
+    expect(historyBody.items).toBeDefined();
+    expect(historyBody.items.length).toBeGreaterThanOrEqual(1);
+
+    const historyEntry = historyBody.items.find((i: { attemptId: string }) => i.attemptId === attemptId);
+    expect(historyEntry).toBeDefined();
+    expect(historyEntry.score).toBe(50);
+    expect(historyEntry.totalQuestions).toBe(2);
+    expect(historyEntry.correct).toBe(1);
+    expect(historyEntry.incorrect).toBe(1);
+    expect(historyEntry.status).toBe("completed");
+    expect(historyEntry.completedAt).toBeDefined();
+
+    // 5. Test direct review of past attempt without creating new attempt
+    const reviewRes = await app.inject({
+      method: "GET",
+      url: `/v1/organizations/${orgId}/study/exams/attempts/${attemptId}`,
+      headers: { cookie: `avana_session=${token}` },
+    });
+    expect(reviewRes.statusCode).toBe(200);
+    const reviewBody = JSON.parse(reviewRes.body);
+    expect(reviewBody.isCompleted).toBe(true);
+    expect(reviewBody.answers[q1Id]).toBe("Choice A");
+    expect(reviewBody.answers[q2Id]).toBe("Choice C");
+    expect(reviewBody.correct).toBe(1);
+    expect(reviewBody.incorrect).toBe(1);
+    expect(reviewBody.questionResults[q1Id].status).toBe("correct");
+    expect(reviewBody.questionResults[q2Id].status).toBe("incorrect");
+
+    // Verify explanations and correctAnswers ARE revealed in completed review mode
+    const reviewQ1 = reviewBody.questions.find((q: { id: string }) => q.id === q1Id);
+    expect(reviewQ1.correctAnswer).toBe("Choice A");
+    expect(reviewQ1.explanation).toBe("Explanation 1");
+
+    await app.close();
+  });
+
+  it("should preserve question snapshot on completed attempt even if original questions are mutated", async () => {
+    const app = await buildTestApp();
+    const { token } = await signIn(app, "student-snap@example.com");
+    const orgId = await createOrg(app, token, "Snap Org");
+
+    const q1Id = randomUUID() as QuizQuestionId;
+
+    quizStore.insert({
+      id: "quiz-snap" as QuizId,
+      organizationId: orgId,
+      courseId,
+      documentId: null,
+      title: "Snap Quiz",
+      topic: "Cardiology",
+      difficulty: "medium",
+      status: "published",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      deletedAt: null,
+    });
+
+    quizQuestionStore.insert({
+      id: q1Id,
+      quizId: "quiz-snap" as QuizId,
+      generatedContentId: null,
+      question: "Original Question 1?",
+      topic: "Cardiology",
+      difficulty: "medium",
+      questionType: "multiple_choice",
+      choices: ["Choice A", "Choice B", "Choice C", "Choice D"],
+      correctAnswer: "Choice A",
+      explanation: "Original Explanation",
+      sortOrder: 1,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    // Start and submit exam
+    const startRes = await app.inject({
+      method: "POST",
+      url: `/v1/organizations/${orgId}/study/exams/start`,
+      headers: { cookie: `avana_session=${token}` },
+      payload: { questionCount: 1, difficulty: "medium" },
+    });
+    const { attemptId } = JSON.parse(startRes.body);
+
+    await app.inject({
+      method: "POST",
+      url: `/v1/organizations/${orgId}/study/exams/attempts/${attemptId}/submit`,
+      headers: { cookie: `avana_session=${token}` },
+      payload: { answers: [{ questionId: q1Id, answer: "Choice A" }] },
+    });
+
+    // Clear/delete all questions from the database store
+    quizQuestionStore.clear();
+
+    // Review past attempt - snapshot should preserve the original question state
+    const reviewRes = await app.inject({
+      method: "GET",
+      url: `/v1/organizations/${orgId}/study/exams/attempts/${attemptId}`,
+      headers: { cookie: `avana_session=${token}` },
+    });
+    expect(reviewRes.statusCode).toBe(200);
+    const reviewBody = JSON.parse(reviewRes.body);
+    const qSnapshot = reviewBody.questions[0];
+
+    expect(qSnapshot.question).toBe("Original Question 1?");
+    expect(qSnapshot.correctAnswer).toBe("Choice A");
+
+    await app.close();
+  });
 });

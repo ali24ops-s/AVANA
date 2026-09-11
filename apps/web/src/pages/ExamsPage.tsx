@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { AlertCircle } from "lucide-react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { ExamConfigView } from "../components/quiz/ExamConfigView.js";
@@ -8,6 +9,7 @@ import { createApiClient, getApiBaseUrl } from "../lib/api/client.js";
 import { createOrganizationApi } from "../lib/api/organizations.js";
 import { createStudyApi } from "../lib/api/study.js";
 import { useAuth } from "../providers/AuthProvider.js";
+import { Button, LoadingState, Card } from "../components/ui/index.js";
 import type { OrganizationResource } from "@avana/contracts";
 
 export function ExamsPage() {
@@ -42,25 +44,22 @@ export function ExamsPage() {
 
   if (isAuthLoading || orgsQuery.isLoading) {
     return (
-      <div className="min-h-screen bg-[#0b1219] text-slate-200 flex items-center justify-center py-20 font-sans" dir="rtl">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-10 h-10 border-4 border-teal-500 border-t-transparent rounded-full animate-spin" />
-          <p className="text-slate-400 text-sm font-medium">در حال دریافت اطلاعات کاربر و سازمان...</p>
-        </div>
+      <div className="w-full py-20 flex items-center justify-center font-sans" dir="rtl">
+        <LoadingState message="در حال دریافت اطلاعات کاربر و سازمان..." />
       </div>
     );
   }
 
   if (!organizationId) {
     return (
-      <div className="min-h-screen bg-[#0b1219] text-slate-200 flex items-center justify-center p-4 font-sans" dir="rtl">
-        <div className="max-w-md w-full bg-[#0f1722] border border-[#1e293b] rounded-2xl p-8 text-center shadow-2xl">
-          <span className="material-symbols-outlined text-amber-400 text-5xl mb-4">domain_disabled</span>
-          <h3 className="text-xl font-bold text-white mb-2">سازمانی یافت نشد</h3>
-          <p className="text-slate-400 text-sm mb-6">
+      <div className="w-full py-16 px-4 flex items-center justify-center font-sans" dir="rtl">
+        <Card className="max-w-md w-full text-center p-8 shadow-xs border border-[var(--color-border)]">
+          <span className="material-symbols-outlined text-[var(--avana-warning)] text-5xl mb-4">domain_disabled</span>
+          <h3 className="text-xl font-bold text-[var(--color-text)] mb-2">سازمانی یافت نشد</h3>
+          <p className="text-[var(--color-text-muted)] text-sm mb-6">
             هیچ سازمان فعالی برای حساب کاربری شما یافت نشد. لطفاً وارد حساب کاربری خود شوید یا با پشتیبانی تماس بگیرید.
           </p>
-        </div>
+        </Card>
       </div>
     );
   }
@@ -95,32 +94,29 @@ export function ExamsPage() {
   if (attemptId) {
     if (attemptQuery.isLoading) {
       return (
-        <div className="min-h-screen bg-[#0b1219] text-slate-200 flex items-center justify-center py-20 font-sans" dir="rtl">
-          <div className="flex flex-col items-center gap-4">
-            <div className="w-10 h-10 border-4 border-teal-500 border-t-transparent rounded-full animate-spin" />
-            <p className="text-slate-400 text-sm font-medium">در حال بازیابی اطلاعات و سؤالات آزمون...</p>
-          </div>
+        <div className="w-full py-20 flex items-center justify-center font-sans" dir="rtl">
+          <LoadingState message="در حال بازیابی اطلاعات و سؤالات آزمون..." />
         </div>
       );
     }
 
     if (attemptQuery.isError || !attemptQuery.data) {
       return (
-        <div className="min-h-screen bg-[#0b1219] text-slate-200 flex items-center justify-center p-4 font-sans" dir="rtl">
-          <div className="max-w-md w-full bg-[#0f1722] border border-[#1e293b] rounded-2xl p-8 text-center shadow-2xl">
-            <span className="material-symbols-outlined text-red-400 text-5xl mb-4">error</span>
-            <h3 className="text-xl font-bold text-white mb-2">آزمون مورد نظر یافت نشد</h3>
-            <p className="text-slate-400 text-sm mb-6">
+        <div className="w-full py-16 px-4 flex items-center justify-center font-sans" dir="rtl">
+          <Card className="max-w-md w-full text-center p-8 shadow-xs border border-[var(--color-border)]">
+            <AlertCircle className="w-12 h-12 text-[var(--avana-error)] mb-4 mx-auto" aria-hidden="true" />
+            <h3 className="text-xl font-bold text-[var(--color-text)] mb-2">آزمون مورد نظر یافت نشد</h3>
+            <p className="text-[var(--color-text-muted)] text-sm mb-6">
               ممکن است این آزمون حذف شده باشد یا دسترسی به آن امکان‌پذیر نباشد.
             </p>
-            <button
-              type="button"
+            <Button
+              variant="primary"
+              fullWidth
               onClick={handleReturnToConfig}
-              className="w-full py-3 bg-primary-container hover:bg-opacity-90 text-white rounded-xl font-title-md text-sm transition-all"
             >
               بازگشت به تنظیمات آزمون
-            </button>
-          </div>
+            </Button>
+          </Card>
         </div>
       );
     }
@@ -129,18 +125,23 @@ export function ExamsPage() {
 
     // If completed or submitted, show Result View
     if (isCompleted || resultData) {
-      const activeResult = resultData || {
+      const activeResult: ExamResultViewProps["result"] = resultData || {
         attemptId: attempt.id,
         score: attempt.score,
-        correct: Math.round((attempt.score / 100) * (questions?.length || 10)),
+        correct: attemptQuery.data.correct ?? Math.round((attempt.score / 100) * (questions?.length || 10)),
+        incorrect: attemptQuery.data.incorrect,
+        unanswered: attemptQuery.data.unanswered,
+        partial: attemptQuery.data.partial,
         total: questions?.length || 10,
         passed: attempt.score >= 60,
         completedAt: attempt.completedAt,
+        answers: attemptQuery.data.answers || (attempt.answers as Record<string, unknown>) || {},
+        questionResults: attemptQuery.data.questionResults,
         questions,
       };
 
       return (
-        <div className="w-full min-h-screen bg-[#0b1219] text-[#f8f9ff] selection:bg-teal-700/50 selection:text-white font-sans overflow-x-hidden" dir="rtl">
+        <div className="w-full min-h-screen bg-[var(--color-bg-default)] text-[var(--color-text)] font-sans overflow-x-hidden" dir="rtl">
           <ExamResultView
             result={activeResult}
             onRetry={handleRetry}
@@ -168,10 +169,11 @@ export function ExamsPage() {
 
   // Default: Exam Configuration View
   return (
-    <div className="min-h-screen bg-[#0b1219] text-[#f8f9ff] selection:bg-teal-700/50 selection:text-white font-sans" dir="rtl">
+    <div className="w-full bg-[var(--color-bg-default)] text-[var(--color-text)] font-sans" dir="rtl">
       <ExamConfigView
         organizationId={organizationId}
         onStartExam={handleStartExam}
+        onSelectAttempt={(attId) => navigate(`/exams/attempt/${attId}`)}
       />
     </div>
   );

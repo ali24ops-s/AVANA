@@ -17,8 +17,21 @@ export function createLearningApi(client: ApiClient) {
      * GET /v1/courses/:courseId/learn — Get full course learning structure
      * with modules, lessons, and user progress.
      */
-    getCourseLearning(courseId: string): Promise<CourseLearnResponse> {
-      return client.get<CourseLearnResponse>(`/v1/courses/${courseId}/learn`);
+    getCourseLearning(
+      courseId: string,
+      options?: { moduleId?: string; previewSessionId?: string },
+    ): Promise<CourseLearnResponse> {
+      const params = new URLSearchParams();
+      if (options?.moduleId) {
+        params.set("moduleId", options.moduleId);
+      }
+      if (options?.previewSessionId) {
+        params.set("previewSessionId", options.previewSessionId);
+      }
+      const query = params.toString();
+      return client.get<CourseLearnResponse>(
+        `/v1/courses/${courseId}/learn${query ? `?${query}` : ""}`,
+      );
     },
 
     /**

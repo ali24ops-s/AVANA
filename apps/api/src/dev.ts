@@ -84,6 +84,16 @@ async function main(): Promise<void> {
         defaultPolicy,
         v1Options.auditService,
         v1Options.organizationStore,
+        v1Options.moduleStore,
+        v1Options.lessonStore,
+        v1Options.flashcardStore,
+        v1Options.quizStore,
+        v1Options.quizQuestionStore,
+        v1Options.courseStore,
+        v1Options.config.systemOrganizationId as any,
+        v1Options.generationChunkStore,
+        v1Options.generationJobStore,
+        v1Options.generationProgressService,
       );
 
       worker = createGenerationWorker(

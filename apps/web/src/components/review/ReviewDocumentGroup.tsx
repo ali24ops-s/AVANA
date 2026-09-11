@@ -79,9 +79,9 @@ export function ReviewDocumentGroup({
       case "quiz":
         return <HelpCircle className="w-4 h-4 text-purple-500" />;
       case "review_summary":
-        return <Sparkles className="w-4 h-4 text-teal-500" />;
+        return <Sparkles className="w-4 h-4 text-[var(--color-primary-default)]" />;
       default:
-        return <Sparkles className="w-4 h-4 text-[#008080]" />;
+        return <Sparkles className="w-4 h-4 text-[var(--color-primary-default)]" />;
     }
   };
 
@@ -160,14 +160,14 @@ export function ReviewDocumentGroup({
               }
             }
           }}
-          className="w-full text-right p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-[var(--color-surface-warm)]/60 transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#008080] focus:ring-inset"
+          className="w-full text-right p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-[var(--color-surface-warm)]/60 transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-default)] focus:ring-inset"
         >
           <div className="flex items-start sm:items-center gap-3.5 min-w-0">
             <div
               className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 border ${
                 isUnknown
                   ? "bg-amber-500/10 border-amber-500/20 text-amber-500"
-                  : "bg-teal-500/10 border-teal-500/20 text-teal-600 dark:text-teal-400"
+                  : "bg-[var(--color-primary-default)]/10 border-[var(--color-primary-default)]/20 text-[var(--color-primary-default)]"
               }`}
             >
               {isUnknown ? (
@@ -232,7 +232,7 @@ export function ReviewDocumentGroup({
                       setShowConfirmModal(true);
                     }}
                     disabled={isApprovingAll}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#008080] hover:bg-[#006666] text-white font-bold text-xs shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-[#008080]"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[var(--color-primary-default)] hover:bg-[var(--color-primary-hover)] text-[var(--color-primary-contrast)] font-bold text-xs shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-default)]"
                     aria-label={`تأیید همه پیش‌نویس‌های ${filename}`}
                   >
                     {isApprovingAll ? (
@@ -280,7 +280,7 @@ export function ReviewDocumentGroup({
                   key={item.id}
                   onClick={() => onSelectItem(item.id)}
                   aria-label={`بازبینی پیش‌نویس ${item.type}: ${item.title}`}
-                  className="w-full text-right group bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] rounded-xl border border-[var(--color-border)] hover:border-[#008080] p-3.5 transition-all cursor-pointer flex items-center justify-between gap-4 focus:outline-none focus:ring-2 focus:ring-[#008080]"
+                  className="w-full text-right group bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] rounded-xl border border-[var(--color-border)] hover:border-[var(--color-primary-default)] p-3.5 transition-all cursor-pointer flex items-center justify-between gap-4 focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-default)]"
                 >
                   <div className="flex items-center gap-3 min-w-0">
                     <div className="w-8 h-8 rounded-lg bg-[var(--color-surface-warm)] border border-[var(--color-border)] flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
@@ -288,7 +288,7 @@ export function ReviewDocumentGroup({
                     </div>
                     <div className="min-w-0 space-y-1">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-[#008080]/10 text-[#008080]">
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-[var(--color-primary-default)]/10 text-[var(--color-primary-default)]">
                           {getTypeName(item.type)}
                         </span>
                         {getStatusBadge(item.status)}
@@ -296,13 +296,13 @@ export function ReviewDocumentGroup({
                           {new Date(item.updated_at).toLocaleDateString("fa-IR")}
                         </span>
                       </div>
-                      <h5 className="text-sm font-bold text-[var(--color-text)] truncate group-hover:text-[#008080] transition-colors">
+                      <h5 className="text-sm font-bold text-[var(--color-text)] truncate group-hover:text-[var(--color-primary-default)] transition-colors">
                         {item.title}
                       </h5>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-1 text-xs font-bold text-[#008080] flex-shrink-0 group-hover:-translate-x-0.5 transition-transform">
+                  <div className="flex items-center gap-1 text-xs font-bold text-[var(--color-primary-default)] flex-shrink-0 group-hover:-translate-x-0.5 transition-transform">
                     <span>بازبینی پیش‌نویس</span>
                     <ChevronLeft className="w-4 h-4" />
                   </div>
@@ -328,7 +328,7 @@ export function ReviewDocumentGroup({
           }}
         >
           <div
-            className="bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] w-full max-w-md overflow-hidden shadow-2xl"
+            className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] w-full max-w-md overflow-hidden shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between p-5 border-b border-[var(--color-border)]">
@@ -336,7 +336,7 @@ export function ReviewDocumentGroup({
                 id="confirm-bulk-approve-title"
                 className="font-bold text-base text-[var(--color-text)] flex items-center gap-2"
               >
-                <CheckCheck className="w-5 h-5 text-[#008080]" />
+                <CheckCheck className="w-5 h-5 text-[var(--color-primary-default)]" />
                 <span>تأیید یکجای محتوای بسته</span>
               </h3>
               <button
@@ -367,7 +367,7 @@ export function ReviewDocumentGroup({
               </p>
 
               {modalError && (
-                <div className="flex items-center gap-2 p-3 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-xl text-red-700 dark:text-red-400 text-xs">
+                <div className="flex items-center gap-2 p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-rose-700 dark:text-rose-400 text-xs">
                   <AlertCircle className="w-4 h-4 flex-shrink-0" />
                   <span>{modalError}</span>
                 </div>
@@ -387,7 +387,7 @@ export function ReviewDocumentGroup({
                 type="button"
                 onClick={handleConfirmApproveAll}
                 disabled={isApprovingAll}
-                className="px-5 py-2.5 bg-[#008080] hover:bg-[#006666] disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-[#008080]"
+                className="px-5 py-2.5 bg-[var(--color-primary-default)] hover:bg-[var(--color-primary-hover)] disabled:opacity-50 text-[var(--color-primary-contrast)] rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-default)]"
               >
                 {isApprovingAll ? (
                   <>

@@ -20,6 +20,7 @@ import {
   type ProductId,
   type ProductRecord,
   type UserId,
+  type UserSubscriptionId,
   type UserEntitlementRecord,
   type UserSubscriptionRecord,
   type CardToCardPaymentInput,
@@ -77,6 +78,11 @@ export interface VerifyPaymentResponse {
   };
 }
 
+export interface CommercePaymentOptions {
+  onlinePaymentEnabled?: boolean;
+  mockPaymentEnabled?: boolean;
+}
+
 export class CommerceService {
   constructor(
     private readonly store: CommerceStore,
@@ -86,6 +92,7 @@ export class CommerceService {
     private readonly contentPackStore?: ContentPackStore,
     private readonly cardToCardConfig?: CardToCardInfoResponse,
     private readonly lessonStore?: LessonStore,
+    private readonly paymentOptions?: CommercePaymentOptions,
   ) {}
 
   /**
@@ -114,6 +121,24 @@ export class CommerceService {
     input: CheckoutInput,
     requestId: string,
   ): Promise<CheckoutResponse> {
+    // 0. Enforce Payment Method Availability & Globally Disable Mock Gateway
+    const requestedGateway = input.gateway ?? this.gateway.gatewayName;
+    if (requestedGateway === "mock" && !this.paymentOptions?.mockPaymentEnabled) {
+      throw new DomainError(
+        "bad_request",
+        "درگاه پرداخت آزمایشی (Mock) غیرفعال است.",
+      );
+    }
+    if (
+      !this.paymentOptions?.onlinePaymentEnabled ||
+      this.gateway.enabled === false
+    ) {
+      throw new DomainError(
+        "bad_request",
+        "درگاه پرداخت آنلاین در حال حاضر در دسترس نیست (به‌زودی). لطفاً از روش کارت‌به‌کارت استفاده کنید.",
+      );
+    }
+
     // 1. Fetch & validate product
     const product = await this.getProduct(input.productId);
     if (!product.active || product.price <= 0) {
@@ -271,6 +296,45 @@ export class CommerceService {
     const order = await this.store.findOrderById(payment.orderId);
     if (!order) {
       throw new DomainError("not_found", "سفارش مرتبط یافت نشد.");
+    }
+
+    // 1.5 Enforce Mock Gateway & Online Payment Disablement
+    const isMockAuthority = input.authority.startsWith("mock_");
+    const isMockGateway =
+      payment.gateway === "mock" || this.gateway.gatewayName === "mock";
+    if (
+      (isMockAuthority || isMockGateway) &&
+      !this.paymentOptions?.mockPaymentEnabled
+    ) {
+      await this.store.updatePayment(payment.id, {
+        status: "failed",
+        rawCallbackMetadata: { reason: "mock_gateway_disabled" },
+      });
+      await this.store.updateOrderStatus(order.id, "failed");
+      return {
+        success: false,
+        order_id: order.id,
+        payment_id: payment.id,
+        error_message: "درگاه پرداخت آزمایشی (Mock) غیرفعال است.",
+      };
+    }
+
+    if (
+      !this.paymentOptions?.onlinePaymentEnabled ||
+      this.gateway.enabled === false
+    ) {
+      await this.store.updatePayment(payment.id, {
+        status: "failed",
+        rawCallbackMetadata: { reason: "online_gateway_disabled" },
+      });
+      await this.store.updateOrderStatus(order.id, "failed");
+      return {
+        success: false,
+        order_id: order.id,
+        payment_id: payment.id,
+        error_message:
+          "درگاه پرداخت آنلاین در حال حاضر در دسترس نیست (به‌زودی).",
+      };
     }
 
     // 2. Check Idempotency: If already paid, return existing state immediately
@@ -461,10 +525,13 @@ export class CommerceService {
    */
   getCardToCardInfo(): CardToCardInfoResponse {
     return {
-      enabled: this.cardToCardConfig?.enabled ?? false,
-      destinationCardNumber: this.cardToCardConfig?.destinationCardNumber,
-      cardholderName: this.cardToCardConfig?.cardholderName,
-      instructions: this.cardToCardConfig?.instructions,
+      enabled: this.cardToCardConfig?.enabled ?? true,
+      destinationCardNumber:
+        this.cardToCardConfig?.destinationCardNumber ?? "5894631131738239",
+      cardholderName: this.cardToCardConfig?.cardholderName ?? "",
+      instructions:
+        this.cardToCardConfig?.instructions ??
+        "لطفاً مبلغ دقیق را به شماره کارت فوق واریز کرده و سپس اطلاعات پرداخت را ثبت نمایید. سفارش شما پس از بررسی و تأیید نهایی فعال خواهد شد.",
     };
   }
 
@@ -485,13 +552,38 @@ export class CommerceService {
       );
     }
 
-    // 2. Fetch & validate subscription product
+    // 2. Fetch & validate product
     const product = await this.getProduct(input.productId);
-    if (product.type !== "subscription") {
-      throw new DomainError(
-        "bad_request",
-        "پرداخت کارت‌به‌کارت فقط برای پلن‌های اشتراک امکان‌پذیر است.",
-      );
+
+    // 2.1 Validate target Content Pack if product targets a content pack
+    if (product.targetType === "content_pack" && product.targetId && this.contentPackStore) {
+      const pack = await this.contentPackStore.findById(product.targetId as any);
+      if (
+        !pack ||
+        pack.status !== "published" ||
+        pack.deletedAt !== null ||
+        pack.metadata.accessType !== "paid"
+      ) {
+        throw new DomainError(
+          "bad_request",
+          "این بسته آموزشی در حال حاضر منتشر نشده یا قابل خرید نیست.",
+        );
+      }
+    }
+
+    // 2.2 Validate target Content/Lesson if product targets a lesson
+    if (product.targetType === "content" && product.targetId && this.lessonStore) {
+      const lesson = await this.lessonStore.findById(product.targetId as any);
+      if (
+        !lesson ||
+        lesson.publicationStatus !== "published" ||
+        lesson.deletedAt !== null
+      ) {
+        throw new DomainError(
+          "bad_request",
+          "این محتوای آموزشی در حال حاضر منتشر نشده یا قابل خرید نیست.",
+        );
+      }
     }
 
     // 3. Validate Amount
@@ -572,23 +664,57 @@ export class CommerceService {
     const nowIso = now.toISOString();
     const orderId = asOrderId(randomUUID());
     const paymentId = asPaymentId(randomUUID());
-    const subscriptionId = asUserSubscriptionId(randomUUID());
     const entitlementId = asUserEntitlementId(randomUUID());
     const orderNumber = generateOrderNumber("C2C");
 
-    const durationDays = product.durationDays ?? 30;
-    const existingSub = await this.store.findActiveSubscription(
-      actor.userId,
-      now,
-    );
-    const baseDate =
-      existingSub && new Date(existingSub.expiresAt).getTime() > now.getTime()
-        ? new Date(existingSub.expiresAt)
-        : now;
-    const expiryDate = calculateSubscriptionExpiry(
-      baseDate,
-      durationDays,
-    ).toISOString();
+    let subscriptionRecord: UserSubscriptionRecord | undefined;
+    let entitlementResourceType: EntitlementResourceType = "subscription";
+    let entitlementResourceId: string | null = null;
+    let entitlementExpiresAt: string | null = null;
+    let subscriptionId: UserSubscriptionId | undefined;
+
+    if (product.type === "subscription") {
+      subscriptionId = asUserSubscriptionId(randomUUID());
+      const durationDays = product.durationDays ?? 30;
+      const existingSub = await this.store.findActiveSubscription(
+        actor.userId,
+        now,
+      );
+      const baseDate =
+        existingSub && new Date(existingSub.expiresAt).getTime() > now.getTime()
+          ? new Date(existingSub.expiresAt)
+          : now;
+      entitlementExpiresAt = calculateSubscriptionExpiry(
+        baseDate,
+        durationDays,
+      ).toISOString();
+
+      subscriptionRecord = {
+        id: subscriptionId,
+        userId: actor.userId,
+        productId: product.id,
+        orderId,
+        status: "active_pending_payment_review",
+        startedAt: nowIso,
+        expiresAt: entitlementExpiresAt,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      };
+      entitlementResourceType = "subscription";
+      entitlementResourceId = null;
+    } else if (product.type === "content_pack") {
+      entitlementResourceType = "content_pack";
+      entitlementResourceId = product.targetId;
+      entitlementExpiresAt = null;
+    } else if (product.type === "course") {
+      entitlementResourceType = "course";
+      entitlementResourceId = product.targetId;
+      entitlementExpiresAt = null;
+    } else if (product.type === "content") {
+      entitlementResourceType = "content";
+      entitlementResourceId = product.targetId;
+      entitlementExpiresAt = null;
+    }
 
     const orderRecord: OrderRecord = {
       id: orderId,
@@ -649,32 +775,20 @@ export class CommerceService {
       updatedAt: nowIso,
     };
 
-    const subscriptionRecord: UserSubscriptionRecord = {
-      id: subscriptionId,
-      userId: actor.userId,
-      productId: product.id,
-      orderId,
-      status: "active_pending_payment_review",
-      startedAt: nowIso,
-      expiresAt: expiryDate,
-      createdAt: nowIso,
-      updatedAt: nowIso,
-    };
-
     const entitlementRecord: UserEntitlementRecord = {
       id: entitlementId,
       userId: actor.userId,
-      resourceType: "subscription",
-      resourceId: null,
+      resourceType: entitlementResourceType,
+      resourceId: entitlementResourceId,
       sourceType: "purchase",
       orderId,
       startsAt: nowIso,
-      expiresAt: expiryDate,
+      expiresAt: entitlementExpiresAt,
       createdAt: nowIso,
       updatedAt: nowIso,
     };
 
-    // 9. Execute Atomic Transaction (Order + Payment + Sub + Entitlement)
+    // 9. Execute Atomic Transaction (Order + Payment + Sub? + Entitlement)
     const result = await this.store.submitCardToCardTransaction({
       order: orderRecord,
       payment: paymentRecord,
@@ -698,7 +812,7 @@ export class CommerceService {
             amount: product.price,
             trackingNumber,
             sourceCardLast4,
-            expiresAt: expiryDate,
+            expiresAt: entitlementExpiresAt,
             requestId,
           },
         },
@@ -709,12 +823,15 @@ export class CommerceService {
       success: true,
       orderId: result.order.id,
       paymentId: result.payment.id,
-      subscriptionId: result.subscription.id,
+      subscriptionId: result.subscription?.id,
       status: result.payment.status,
-      subscriptionStatus: result.subscription.status,
-      expiresAt: result.subscription.expiresAt,
+      subscriptionStatus: result.subscription?.status,
+      expiresAt: result.subscription?.expiresAt ?? entitlementExpiresAt ?? undefined,
+      entitlementId: result.entitlement.id,
       message:
-        "پرداخت شما ثبت شد و اشتراک شما فعال شده است. اطلاعات پرداخت برای بررسی نهایی ارسال شد.",
+        product.type === "subscription"
+          ? "پرداخت شما ثبت شد و اشتراک شما فعال شده است. اطلاعات پرداخت برای بررسی نهایی ارسال شد."
+          : "پرداخت شما ثبت شد و دسترسی فعال گردید. اطلاعات پرداخت برای بررسی نهایی ارسال شد.",
     };
   }
 

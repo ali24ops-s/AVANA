@@ -16,6 +16,9 @@ import { createDocumentsApi } from "../../lib/api/documents.js";
 import { createGenerationApi } from "../../lib/api/generation.js";
 import { GenerateContentModal } from "./GenerateContentModal.js";
 import { PublishPackModal } from "../library/PublishPackModal.js";
+import { useAuth } from "../../providers/AuthProvider.js";
+import { canUserGenerateContent } from "../../utils/generationPermissions.js";
+import { ComingSoonGenerationModal } from "../generation/ComingSoonGenerationModal.js";
 import type { DocumentResource, DocumentStatus } from "@avana/contracts";
 
 export interface DocumentStatusCardProps {
@@ -23,6 +26,7 @@ export interface DocumentStatusCardProps {
   organizationId: string;
   courseId?: string | null;
   onNavigateToReview?: () => void;
+  canGenerate?: boolean;
 }
 
 const TRANSIENT_STATUSES: ReadonlySet<DocumentStatus> = new Set<DocumentStatus>([
@@ -70,10 +74,24 @@ export function DocumentStatusCard({
   organizationId,
   courseId,
   onNavigateToReview,
+  canGenerate: canGenerateProp,
 }: DocumentStatusCardProps) {
+  const { user, memberships } = useAuth();
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isComingSoonOpen, setIsComingSoonOpen] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
+
+  // Content generation permission:
+  // - If explicitly passed via props, respect it.
+  // - If authenticated user exists, check permission helper (admin/manager or CONTENT_GENERATION_ENABLED).
+  // - If user is null (isolated unit tests), default to true to preserve existing tests.
+  const isGenerationPermitted =
+    canGenerateProp !== undefined
+      ? canGenerateProp
+      : user
+      ? canUserGenerateContent(user, memberships)
+      : true;
   const [extractError, setExtractError] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -311,17 +329,17 @@ export function DocumentStatusCard({
   );
 
   return (
-    <div className="glass-panel rounded-xl card-inner-border p-5 space-y-4 shadow-ambient">
+    <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-5 space-y-4 shadow-xs">
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-start gap-3 min-w-0">
-          <div className="w-10 h-10 rounded-xl bg-teal-900/40 border border-teal-500/30 text-teal-400 flex items-center justify-center flex-shrink-0">
+          <div className="w-10 h-10 rounded-xl bg-teal-50 border border-teal-200 text-[#008080] flex items-center justify-center flex-shrink-0">
             <FileText className="w-5 h-5" />
           </div>
           <div className="min-w-0">
-            <h4 className="font-bold text-sm text-white truncate" dir="ltr">
+            <h4 className="font-bold text-sm text-[var(--color-text)] truncate" dir="ltr">
               {document.original_name}
             </h4>
-            <p className="text-xs text-slate-400 mt-0.5">
+            <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
               {(document.size_bytes / (1024 * 1024)).toFixed(2)} MB • تاریخ بارگذاری:{" "}
               {new Date(document.created_at).toLocaleDateString("fa-IR")}
             </p>
@@ -426,23 +444,23 @@ export function DocumentStatusCard({
 
         {/* Real-time Incremental Generation Progress Bar */}
         {currentProgress && currentProgress.total > 0 && (isGenerating || isPartial || (currentProgress.completed > 0 && !isAllGenerated)) && (
-          <div className="p-3 bg-teal-950/30 border border-teal-500/20 rounded-xl space-y-1.5">
+          <div className="p-3 bg-teal-50 border border-teal-200 rounded-xl space-y-1.5">
             <div className="flex items-center justify-between text-[11px]">
-              <span className="text-teal-300 font-semibold flex items-center gap-1.5">
-                {isGenerating ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3 text-teal-400" />}
+              <span className="text-teal-900 font-semibold flex items-center gap-1.5">
+                {isGenerating ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3 text-[#008080]" />}
                 {isGenerating
                   ? "در حال پیشروی مرحله‌به‌مرحله تولید هوشمند..."
                   : isPartial
                   ? "تولید مرحله‌ای تا کنون ذخیره شده است (قابل ادامه)"
                   : "پیشرفت ذخیره‌شده در دیتابیس:"}
               </span>
-              <span className="text-teal-400 font-mono font-bold">
+              <span className="text-[#008080] font-mono font-bold">
                 {currentProgress.completed} / {currentProgress.total} مورد ({Math.round((currentProgress.completed / currentProgress.total) * 100)}٪)
               </span>
             </div>
-            <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+            <div className="w-full h-1.5 bg-teal-100 rounded-full overflow-hidden">
               <div
-                className="h-full bg-teal-500 transition-all duration-500 rounded-full"
+                className="h-full bg-[#008080] transition-all duration-500 rounded-full"
                 style={{
                   width: `${Math.min(100, Math.max(5, Math.round((currentProgress.completed / currentProgress.total) * 100)))}%`,
                 }}
@@ -540,57 +558,69 @@ export function DocumentStatusCard({
           </button>
         ) : isExtracted ? (
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full justify-between">
-            <button
-              type="button"
-              onClick={() => {
-                if (!isAllGenerated) {
-                  setIsModalOpen(true);
+            {!isGenerationPermitted ? (
+              <button
+                type="button"
+                onClick={() => setIsComingSoonOpen(true)}
+                className="px-5 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all bg-gradient-to-r from-amber-500/10 to-teal-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 hover:bg-amber-500/15 cursor-pointer shadow-sm"
+                title="قابلیت تولید محتوای هوشمند به‌زودی در آوانا فعال خواهد شد."
+              >
+                <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                <span>تولید محتوا (به‌زودی)</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  if (!isAllGenerated) {
+                    setIsModalOpen(true);
+                  }
+                }}
+                disabled={Boolean(isGenerating) || !resolvedCourseId || isAllGenerated}
+                title={
+                  isAllGenerated
+                    ? "درس، فلش‌کارت و آزمون این فایل قبلاً تولید شده‌اند."
+                    : !resolvedCourseId
+                    ? "لطفاً ابتدا یک دوره آموزشی انتخاب کنید"
+                    : undefined
                 }
-              }}
-              disabled={Boolean(isGenerating) || !resolvedCourseId || isAllGenerated}
-              title={
-                isAllGenerated
-                  ? "درس، فلش‌کارت و آزمون این فایل قبلاً تولید شده‌اند."
-                  : !resolvedCourseId
-                  ? "لطفاً ابتدا یک دوره آموزشی انتخاب کنید"
-                  : undefined
-              }
-              className={`px-5 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-sm ${
-                isAllGenerated
-                  ? "bg-slate-800 text-teal-400/80 border border-teal-500/30 cursor-not-allowed opacity-90"
-                  : "bg-[#008080] hover:bg-[#006666] disabled:opacity-50 text-white"
-              }`}
-            >
-              {isGenerating ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>
-                    در حال تولید هوشمند محتوا... {currentProgress ? `(${currentProgress.completed}/${currentProgress.total})` : ""}
-                  </span>
-                </>
-              ) : isAllGenerated ? (
-                <>
-                  <CheckCircle2 className="w-3.5 h-3.5 text-teal-400" />
-                  <span>تمام محتوای این فایل تولید شده است</span>
-                </>
-              ) : isPartial ? (
-                <>
-                  <RefreshCw className="w-3.5 h-3.5 text-amber-300" />
-                  <span>ادامه تولید هوشمند محتوا ({currentProgress?.completed}/{currentProgress?.total})</span>
-                </>
-              ) : (
-                <>
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>تولید هوشمند محتوای آموزشی</span>
-                </>
-              )}
-            </button>
+                className={`px-5 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-xs ${
+                  isAllGenerated
+                    ? "bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] border border-[var(--color-border)] cursor-not-allowed opacity-90"
+                    : "bg-[#008080] hover:bg-[#006666] disabled:opacity-50 text-white"
+                }`}
+              >
+                {isGenerating ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>
+                      در حال تولید هوشمند محتوا... {currentProgress ? `(${currentProgress.completed}/${currentProgress.total})` : ""}
+                    </span>
+                  </>
+                ) : isAllGenerated ? (
+                  <>
+                    <CheckCircle2 className="w-3.5 h-3.5 text-[#008080]" />
+                    <span>تمام محتوای این فایل تولید شده است</span>
+                  </>
+                ) : isPartial ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 text-amber-600" />
+                    <span>ادامه تولید هوشمند محتوا ({currentProgress?.completed}/{currentProgress?.total})</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>تولید هوشمند محتوای آموزشی</span>
+                  </>
+                )}
+              </button>
+            )}
 
-            {onNavigateToReview && (
+            {onNavigateToReview && isGenerationPermitted && (
               <button
                 type="button"
                 onClick={onNavigateToReview}
-                className="px-3.5 py-2 text-[#008080] hover:bg-[#008080]/10 rounded-xl text-xs font-bold flex items-center justify-center gap-1 transition-colors"
+                className="px-3.5 py-2 text-[#008080] hover:bg-teal-50 rounded-xl text-xs font-bold flex items-center justify-center gap-1 transition-colors"
               >
                 <span>صف بازبینی محتوا</span>
                 <ChevronLeft className="w-3.5 h-3.5" />
@@ -602,7 +632,7 @@ export function DocumentStatusCard({
             type="button"
             onClick={() => extractMutation.mutate()}
             disabled={extractMutation.isPending}
-            className="px-4 py-2 bg-[#a7d0e6]/30 hover:bg-[#a7d0e6]/50 text-[#008080] rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all"
+            className="px-4 py-2 bg-teal-50 hover:bg-teal-100 text-[#008080] border border-teal-200 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all"
           >
             {extractMutation.isPending ? (
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -616,18 +646,24 @@ export function DocumentStatusCard({
 
       {/* Generation success alert */}
       {jobQuery.data?.job?.status === "succeeded" && (
-        <div className="flex items-center justify-between p-3.5 bg-[#008080]/10 border border-[#008080]/30 rounded-2xl text-[#008080] text-xs font-bold">
+        <div className="flex items-center justify-between p-3.5 bg-teal-50 border border-teal-200 rounded-2xl text-teal-900 text-xs font-bold">
           <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4" />
+            <Sparkles className="w-4 h-4 text-[#008080]" />
             <span>پیش‌نویس درس‌ها، فلش‌کارت‌ها و آزمون‌ها با موفقیت تولید شد.</span>
           </div>
           {onNavigateToReview && (
             <button
               type="button"
-              onClick={onNavigateToReview}
-              className="underline hover:text-[#006666] mr-2"
+              onClick={() => {
+                if (!isGenerationPermitted) {
+                  setIsComingSoonOpen(true);
+                  return;
+                }
+                onNavigateToReview();
+              }}
+              className="underline hover:text-[#006666] mr-2 text-[#008080]"
             >
-              مشاهده صف بازبینی
+              {isGenerationPermitted ? "مشاهده صف بازبینی" : "صف بازبینی (به‌زودی)"}
             </button>
           )}
         </div>
@@ -635,14 +671,14 @@ export function DocumentStatusCard({
 
       {/* Publish to Public Library CTA */}
       {hasPublishableContent && (
-        <div className="flex items-center justify-between p-3.5 bg-teal-500/10 border border-teal-500/20 rounded-2xl">
-          <div className="flex items-center gap-2 text-xs font-bold text-teal-300">
-            <LibraryIcon className="w-4 h-4 text-teal-400" />
+        <div className="flex items-center justify-between p-3.5 bg-teal-50 border border-teal-200 rounded-2xl">
+          <div className="flex items-center gap-2 text-xs font-bold text-teal-900">
+            <LibraryIcon className="w-4 h-4 text-[#008080]" />
             <span>آماده انتشار در کتابخانه عمومی آوانا</span>
           </div>
 
           {isPublished ? (
-            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-teal-500/20 text-teal-300 border border-teal-500/30 text-xs font-bold">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-teal-100 text-teal-800 border border-teal-200 text-xs font-bold">
               <CheckCircle2 className="w-3.5 h-3.5" />
               <span>منتشر شده در کتابخانه</span>
             </span>
@@ -650,7 +686,7 @@ export function DocumentStatusCard({
             <button
               type="button"
               onClick={() => setIsPublishModalOpen(true)}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold shadow-md shadow-teal-900/30 transition-all"
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-[#008080] hover:bg-[#006666] text-white text-xs font-bold shadow-xs transition-all"
             >
               <Sparkles className="w-3.5 h-3.5" />
               <span>انتشار در کتابخانه آوانا</span>
@@ -658,6 +694,12 @@ export function DocumentStatusCard({
           )}
         </div>
       )}
+
+      {/* Coming Soon Generation Modal for regular users */}
+      <ComingSoonGenerationModal
+        isOpen={isComingSoonOpen}
+        onClose={() => setIsComingSoonOpen(false)}
+      />
 
       {/* Selective Content Generation Modal */}
       <GenerateContentModal

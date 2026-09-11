@@ -321,34 +321,30 @@ describe("AVANA Content and Course Independent Pricing Architecture", () => {
 
   describe("2. Independent Content Purchase & Lifetime Access", () => {
     it("allows purchasing an individual lesson creating a permanent content entitlement", async () => {
-      // 1. Checkout lesson product
-      const checkoutRes = await commerceService.checkout(
+      // 1. Submit Card-to-Card payment for lesson product
+      const c2cRes = await commerceService.submitCardToCardPayment(
         studentUser,
         {
           productId: lesson1ProductId,
-          gateway: "mock",
-          callbackUrl: "https://avana.ir/callback",
+          amount: 60000,
+          trackingNumber: "TRK-C2C-LESSON-1",
+          sourceCardLast4: "1234",
         },
-        "req-checkout-lesson-1",
+        "req-c2c-lesson-1",
       );
 
-      expect(checkoutRes.order_id).toBeDefined();
-      expect(checkoutRes.authority).toBeDefined();
+      expect(c2cRes.success).toBe(true);
+      expect(c2cRes.orderId).toBeDefined();
 
-      // 2. Verify payment
-      const verifyRes = await commerceService.verifyPayment(
-        {
-          authority: checkoutRes.authority,
-          status: "OK",
-        },
-        "req-verify-lesson-1",
+      const ent = await commerceStore.findActiveEntitlement(
+        studentUser.userId,
+        "content",
+        lesson1Id,
       );
-
-      expect(verifyRes.success).toBe(true);
-      expect(verifyRes.entitlement).toBeDefined();
-      expect(verifyRes.entitlement!.resource_type).toBe("content");
-      expect(verifyRes.entitlement!.resource_id).toBe(lesson1Id);
-      expect(verifyRes.entitlement!.expires_at).toBeNull(); // Lifetime Ownership
+      expect(ent).toBeDefined();
+      expect(ent!.resourceType).toBe("content");
+      expect(ent!.resourceId).toBe(lesson1Id);
+      expect(ent!.expiresAt).toBeNull();
 
       // 3. Check access for lesson 1 -> GRANTED (content_purchase)
       const lesson1Access = await entitlementService.checkAccess(studentUser, {
@@ -383,29 +379,29 @@ describe("AVANA Content and Course Independent Pricing Architecture", () => {
 
   describe("3. Full Course Purchase & Hierarchical Unlocking", () => {
     it("purchasing the course unlocks ALL lessons within the course dynamically without duplicate rows", async () => {
-      // 1. Checkout Course product
-      const checkoutRes = await commerceService.checkout(
+      // 1. Submit Card-to-Card payment for Course product
+      const c2cRes = await commerceService.submitCardToCardPayment(
         studentUser,
         {
           productId: courseProductId,
-          gateway: "mock",
-          callbackUrl: "https://avana.ir/callback",
+          amount: 150000,
+          trackingNumber: "TRK-C2C-COURSE-1",
+          sourceCardLast4: "5678",
         },
-        "req-checkout-course",
+        "req-c2c-course-1",
       );
 
-      // 2. Verify payment
-      const verifyRes = await commerceService.verifyPayment(
-        {
-          authority: checkoutRes.authority,
-          status: "OK",
-        },
-        "req-verify-course",
-      );
+      expect(c2cRes.success).toBe(true);
+      expect(c2cRes.orderId).toBeDefined();
 
-      expect(verifyRes.success).toBe(true);
-      expect(verifyRes.entitlement!.resource_type).toBe("course");
-      expect(verifyRes.entitlement!.resource_id).toBe(courseId);
+      const ent = await commerceStore.findActiveEntitlement(
+        studentUser.userId,
+        "course",
+        courseId,
+      );
+      expect(ent).toBeDefined();
+      expect(ent!.resourceType).toBe("course");
+      expect(ent!.resourceId).toBe(courseId);
 
       // 3. Course access -> GRANTED (course_purchase)
       const courseAccess = await entitlementService.checkAccess(studentUser, {

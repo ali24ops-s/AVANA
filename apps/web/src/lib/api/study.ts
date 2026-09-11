@@ -316,6 +316,37 @@ export function createStudyApi(client: ApiClient) {
     },
 
     /**
+     * GET /v1/organizations/:organizationId/study/exams/history
+     * Retrieves recent exam and quiz attempts for the student.
+     */
+    getExamHistory(
+      organizationId: string,
+      limit?: number,
+    ): Promise<{
+      request_id: string;
+      items: Array<{
+        attemptId: string;
+        quizId?: string | null;
+        topic?: string | null;
+        difficulty?: string | null;
+        score: number;
+        totalQuestions: number;
+        correct: number;
+        incorrect: number;
+        unanswered: number;
+        partial: number;
+        status: string;
+        startedAt: string;
+        completedAt?: string | null;
+      }>;
+    }> {
+      const url = limit
+        ? `/v1/organizations/${organizationId}/study/exams/history?limit=${limit}`
+        : `/v1/organizations/${organizationId}/study/exams/history`;
+      return client.get(url);
+    },
+
+    /**
      * GET /v1/organizations/:organizationId/study/exams/attempts/:attemptId
      * Gets a locked exam attempt and its questions.
      */
@@ -350,6 +381,17 @@ export function createStudyApi(client: ApiClient) {
       }>;
       coverage?: ExamCoverageCourse[];
       isCompleted: boolean;
+      answers?: Record<string, unknown>;
+      questionResults?: Record<string, {
+        status: "correct" | "incorrect" | "unanswered" | "partial";
+        scoreRatio: number;
+        selectedValues: string[];
+        correctValues: string[];
+      }>;
+      correct?: number;
+      incorrect?: number;
+      unanswered?: number;
+      partial?: number;
     }> {
       return client.get(
         `/v1/organizations/${organizationId}/study/exams/attempts/${attemptId}`,
@@ -396,8 +438,18 @@ export function createStudyApi(client: ApiClient) {
       attemptId: string;
       score: number;
       correct: number;
+      incorrect?: number;
+      unanswered?: number;
+      partial?: number;
       total: number;
       passed: boolean;
+      answers?: Record<string, unknown>;
+      questionResults?: Record<string, {
+        status: "correct" | "incorrect" | "unanswered" | "partial";
+        scoreRatio: number;
+        selectedValues: string[];
+        correctValues: string[];
+      }>;
       questions?: Array<{
         id: string;
         question: string;
@@ -467,6 +519,77 @@ export function createStudyApi(client: ApiClient) {
     ): Promise<QuizAttemptResponse> {
       return client.get<QuizAttemptResponse>(
         `/v1/organizations/${organizationId}/courses/${courseId}/quizzes/${quizId}/attempts/${attemptId}`,
+      );
+    },
+
+    /**
+     * GET /v1/courses/:courseId/flashcards — Direct course flashcards (auto-resolves preview for non-buyers).
+     */
+    getCourseFlashcards(
+      courseId: string,
+      options?: { moduleId?: string; previewLessonId?: string; previewSessionId?: string; limit?: number },
+    ): Promise<FlashcardListResponse> {
+      const params = new URLSearchParams();
+      if (options?.moduleId) {
+        params.set("moduleId", options.moduleId);
+      }
+      if (options?.previewLessonId) {
+        params.set("previewLessonId", options.previewLessonId);
+      }
+      if (options?.previewSessionId) {
+        params.set("previewSessionId", options.previewSessionId);
+      }
+      if (options?.limit) {
+        params.set("limit", String(options.limit));
+      }
+      const query = params.toString();
+      return client.get<FlashcardListResponse>(
+        `/v1/courses/${courseId}/flashcards${query ? `?${query}` : ""}`,
+      );
+    },
+
+    /**
+     * GET /v1/courses/:courseId/quizzes — Direct course quizzes.
+     */
+    getCourseQuizzes(courseId: string): Promise<QuizListResponse> {
+      return client.get<QuizListResponse>(`/v1/courses/${courseId}/quizzes`);
+    },
+
+    /**
+     * GET /v1/courses/:courseId/quizzes/:quizId — Direct course quiz for attempt (auto-strips secret keys in preview).
+     */
+    getCourseQuiz(
+      courseId: string,
+      quizId: string,
+      options?: { moduleId?: string; previewLessonId?: string; previewSessionId?: string },
+    ): Promise<QuizResponse> {
+      const params = new URLSearchParams();
+      if (options?.moduleId) {
+        params.set("moduleId", options.moduleId);
+      }
+      if (options?.previewLessonId) {
+        params.set("previewLessonId", options.previewLessonId);
+      }
+      if (options?.previewSessionId) {
+        params.set("previewSessionId", options.previewSessionId);
+      }
+      const query = params.toString();
+      return client.get<QuizResponse>(
+        `/v1/courses/${courseId}/quizzes/${quizId}${query ? `?${query}` : ""}`,
+      );
+    },
+
+    /**
+     * POST /v1/courses/:courseId/quizzes/:quizId/attempts — Direct submit quiz attempt.
+     */
+    submitCourseQuizAttempt(
+      courseId: string,
+      quizId: string,
+      data: SubmitQuizAttemptRequest,
+    ): Promise<SubmitQuizAttemptResponse> {
+      return client.post<SubmitQuizAttemptResponse>(
+        `/v1/courses/${courseId}/quizzes/${quizId}/attempts`,
+        data,
       );
     },
 

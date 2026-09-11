@@ -96,11 +96,17 @@ export type WeeklyStudyTimeSummary = {
 // Persian Formatting Helpers
 // ---------------------------------------------------------------------------
 
-const PERSIAN_DIGITS = ["۰", "۱", "۲", "۳", "۴", "۵", "۶", "۷", "۸", "۹"];
+import {
+  toPersianDigits,
+  formatPersianOf,
+  type FormatPersianOfOptions,
+} from "./persian-numbers.js";
 
-export function toPersianDigits(value: string | number): string {
-  return String(value).replace(/\d/g, (d) => PERSIAN_DIGITS[Number(d)] ?? d);
-}
+export {
+  toPersianDigits,
+  formatPersianOf,
+  type FormatPersianOfOptions,
+};
 
 /**
  * Formats a duration in seconds into a friendly Persian string.

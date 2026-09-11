@@ -5,7 +5,6 @@ import {
   Mail,
   Phone,
   ShieldCheck,
-  ArrowLeft,
   RefreshCw,
   LogOut,
   CheckCircle2,
@@ -14,6 +13,7 @@ import { BrandLogo } from "../brand/BrandLogo.js";
 import { useAuth } from "../../providers/AuthProvider.js";
 import { ApiError } from "../../lib/api/errors.js";
 import type { VerificationChannel } from "@avana/contracts";
+import { Button } from "@avana/ui";
 
 function maskEmail(email?: string): string {
   if (!email || !email.includes("@")) return "ایمیل شما";
@@ -143,14 +143,14 @@ export function EmailVerificationPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0b1120] text-slate-200 flex flex-col font-sans" dir="rtl">
+    <div className="min-h-screen bg-[var(--color-bg-default)] text-[var(--color-text)] flex flex-col font-sans" dir="rtl">
       {/* Header */}
-      <header className="px-6 py-5 flex items-center justify-between border-b border-white/10 glass-panel">
+      <header className="px-6 py-5 flex items-center justify-between border-b border-[var(--color-border)] bg-[var(--color-surface)] shadow-xs">
         <BrandLogo linkTo="/" variant="logo-only" size="md" />
         <button
           type="button"
           onClick={() => void signOut()}
-          className="flex items-center gap-2 text-xs font-medium text-slate-400 hover:text-slate-200 transition-colors"
+          className="flex items-center gap-2 text-xs font-medium text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors cursor-pointer"
         >
           <LogOut className="w-4 h-4" />
           <span>خروج</span>
@@ -158,23 +158,23 @@ export function EmailVerificationPage() {
       </header>
 
       {/* Main Container */}
-      <div className="flex-1 flex items-center justify-center p-6">
+      <div className="flex-1 flex items-center justify-center p-4 sm:p-6">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4 }}
+          transition={{ duration: 0.3 }}
           className="w-full max-w-md"
         >
-          <div className="glass-panel rounded-xl card-inner-border p-8 sm:p-10 shadow-ambient-lg">
+          <div className="bg-[var(--color-surface)] rounded-card border border-[var(--color-border)] p-6 sm:p-8 shadow-card">
             {error && (
-              <div className="mb-6 p-3.5 rounded-xl bg-red-950/40 border border-red-500/30 text-red-300 text-xs font-medium leading-relaxed">
+              <div className="mb-6 p-3.5 rounded-card bg-[var(--avana-error-bg)] border border-[var(--avana-error-border)] text-[var(--avana-error)] text-xs font-medium leading-relaxed">
                 {error}
               </div>
             )}
 
             {successMessage && (
-              <div className="mb-6 p-3.5 rounded-xl bg-teal-950/40 border border-teal-500/30 text-teal-300 text-xs font-medium leading-relaxed flex items-center gap-2">
-                <ShieldCheck className="w-4 h-4 text-teal-400 shrink-0" />
+              <div className="mb-6 p-3.5 rounded-card bg-[var(--avana-accent-soft)] border border-primary/20 text-primary text-xs font-medium leading-relaxed flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-primary shrink-0" />
                 <span>{successMessage}</span>
               </div>
             )}
@@ -182,12 +182,12 @@ export function EmailVerificationPage() {
             {step === "select_channel" ? (
               /* Step 1: Channel Selection */
               <div>
-                <div className="text-center mb-8">
-                  <div className="w-14 h-14 rounded-2xl bg-teal-900/40 border border-teal-500/30 text-teal-400 flex items-center justify-center mx-auto mb-4 shadow-lg shadow-teal-950/50">
-                    <ShieldCheck className="w-7 h-7" />
+                <div className="text-center mb-6">
+                  <div className="w-12 h-12 rounded-card bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-primary flex items-center justify-center mx-auto mb-4 shadow-xs">
+                    <ShieldCheck className="w-6 h-6" />
                   </div>
-                  <h1 className="text-2xl font-bold text-white">تأیید حساب کاربری</h1>
-                  <p className="text-slate-400 mt-2 text-sm leading-relaxed">
+                  <h1 className="text-xl sm:text-2xl font-bold text-[var(--color-text)]">تأیید حساب کاربری</h1>
+                  <p className="text-[var(--color-text-muted)] mt-1.5 text-xs sm:text-sm leading-relaxed">
                     کد تأیید را چگونه دریافت می‌کنید؟
                   </p>
                 </div>
@@ -197,31 +197,31 @@ export function EmailVerificationPage() {
                   <button
                     type="button"
                     onClick={() => setChannel("email")}
-                    className={`w-full p-4 rounded-xl border text-right transition-all flex items-center justify-between ${
+                    className={`w-full p-4 rounded-card border text-start transition-all flex items-center justify-between cursor-pointer ${
                       channel === "email"
-                        ? "bg-teal-950/50 border-teal-500/80 shadow-md shadow-teal-950/40"
-                        : "bg-slate-900/50 border-white/10 hover:border-white/20"
+                        ? "bg-[var(--avana-accent-soft)] border-primary shadow-xs"
+                        : "bg-[var(--color-surface)] border-[var(--color-border)] hover:bg-[var(--color-surface-warm)]"
                     }`}
                   >
                     <div className="flex items-center gap-3">
                       <div
-                        className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                        className={`w-10 h-10 rounded-card flex items-center justify-center ${
                           channel === "email"
-                            ? "bg-teal-500/20 text-teal-300"
-                            : "bg-slate-800 text-slate-400"
+                            ? "bg-primary/10 text-primary"
+                            : "bg-[var(--color-surface-warm)] text-[var(--color-text-muted)]"
                         }`}
                       >
                         <Mail className="w-5 h-5" />
                       </div>
                       <div>
-                        <div className="text-sm font-bold text-white">تأیید با ایمیل</div>
-                        <div className="text-xs text-slate-400 font-mono" dir="ltr">
+                        <div className="text-sm font-bold text-[var(--color-text)]">تأیید با ایمیل</div>
+                        <div className="text-xs text-[var(--color-text-muted)] font-mono" dir="ltr">
                           {maskEmail(user?.email)}
                         </div>
                       </div>
                     </div>
                     {channel === "email" && (
-                      <CheckCircle2 className="w-5 h-5 text-teal-400" />
+                      <CheckCircle2 className="w-5 h-5 text-primary" />
                     )}
                   </button>
 
@@ -230,86 +230,79 @@ export function EmailVerificationPage() {
                     type="button"
                     disabled={!hasPhone}
                     onClick={() => setChannel("phone")}
-                    className={`w-full p-4 rounded-xl border text-right transition-all flex items-center justify-between ${
+                    className={`w-full p-4 rounded-card border text-start transition-all flex items-center justify-between ${
                       !hasPhone
-                        ? "opacity-50 cursor-not-allowed bg-slate-900/30 border-white/5"
+                        ? "opacity-50 cursor-not-allowed bg-[var(--color-surface-warm)] border-[var(--color-border)]"
                         : channel === "phone"
-                          ? "bg-teal-950/50 border-teal-500/80 shadow-md shadow-teal-950/40"
-                          : "bg-slate-900/50 border-white/10 hover:border-white/20"
+                          ? "bg-[var(--avana-accent-soft)] border-primary shadow-xs cursor-pointer"
+                          : "bg-[var(--color-surface)] border-[var(--color-border)] hover:bg-[var(--color-surface-warm)] cursor-pointer"
                     }`}
                   >
                     <div className="flex items-center gap-3">
                       <div
-                        className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                        className={`w-10 h-10 rounded-card flex items-center justify-center ${
                           channel === "phone"
-                            ? "bg-teal-500/20 text-teal-300"
-                            : "bg-slate-800 text-slate-400"
+                            ? "bg-primary/10 text-primary"
+                            : "bg-[var(--color-surface-warm)] text-[var(--color-text-muted)]"
                         }`}
                       >
                         <Phone className="w-5 h-5" />
                       </div>
                       <div>
-                        <div className="text-sm font-bold text-white">
+                        <div className="text-sm font-bold text-[var(--color-text)]">
                           تأیید با پیامک
                         </div>
-                        <div className="text-xs text-slate-400 font-mono" dir="ltr">
+                        <div className="text-xs text-[var(--color-text-muted)] font-mono" dir="ltr">
                           {hasPhone ? maskPhone(user?.phoneNumber) : "شماره‌ای ثبت نشده است"}
                         </div>
                       </div>
                     </div>
                     {channel === "phone" && (
-                      <CheckCircle2 className="w-5 h-5 text-teal-400" />
+                      <CheckCircle2 className="w-5 h-5 text-primary" />
                     )}
                   </button>
                 </div>
 
-                <motion.button
-                  type="button"
-                  onClick={() => void handleSendCode(channel)}
-                  disabled={isSendingCode || (channel === "phone" && !hasPhone)}
-                  whileHover={{ scale: 1.01 }}
-                  whileTap={{ scale: 0.99 }}
-                  className="w-full flex items-center justify-center gap-2 px-5 py-3.5 bg-teal-600 text-white rounded-xl font-bold text-sm hover:bg-teal-500 transition-all shadow-lg shadow-teal-900/50 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isSendingCode ? (
-                    <>
-                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                      <span>در حال ارسال کد...</span>
-                    </>
-                  ) : (
-                    <>
-                      <span>ارسال کد تأیید و ادامه</span>
-                      <ArrowLeft className="w-4 h-4" />
-                    </>
-                  )}
-                </motion.button>
+                <div className="pt-2">
+                  <Button
+                    type="button"
+                    onClick={() => void handleSendCode(channel)}
+                    disabled={isSendingCode || (channel === "phone" && !hasPhone)}
+                    isLoading={isSendingCode}
+                    variant="primary"
+                    fullWidth
+                    size="md"
+                  >
+                    ارسال کد تأیید و ادامه
+                  </Button>
+                </div>
               </div>
             ) : (
               /* Step 2: Enter 6-digit OTP */
               <div>
-                <div className="text-center mb-8">
-                  <div className="w-14 h-14 rounded-2xl bg-teal-900/40 border border-teal-500/30 text-teal-400 flex items-center justify-center mx-auto mb-4 shadow-lg shadow-teal-950/50">
+                <div className="text-center mb-6">
+                  <div className="w-12 h-12 rounded-card bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-primary flex items-center justify-center mx-auto mb-4 shadow-xs">
                     {channel === "phone" ? (
-                      <Phone className="w-7 h-7" />
+                      <Phone className="w-6 h-6" />
                     ) : (
-                      <Mail className="w-7 h-7" />
+                      <Mail className="w-6 h-6" />
                     )}
                   </div>
-                  <h1 className="text-2xl font-bold text-white">کد تأیید را وارد کنید</h1>
-                  <p className="text-slate-400 mt-2 text-sm leading-relaxed">
+                  <h1 className="text-xl sm:text-2xl font-bold text-[var(--color-text)]">کد تأیید را وارد کنید</h1>
+                  <p className="text-[var(--color-text-muted)] mt-1.5 text-xs sm:text-sm leading-relaxed">
                     کد ۶ رقمی ارسال‌شده به{" "}
-                    <span className="font-mono text-teal-300 font-semibold dir-ltr inline-block">
+                    <span className="font-mono text-primary font-semibold dir-ltr inline-block">
                       {channel === "phone" ? maskPhone(user?.phoneNumber) : maskEmail(user?.email)}
                     </span>{" "}
                     را وارد نمایید.
                   </p>
                 </div>
 
-                <form onSubmit={handleVerify} className="space-y-6">
+                <form onSubmit={handleVerify} className="space-y-4">
                   <div>
                     <label
                       htmlFor="verification-code"
-                      className="block text-xs font-semibold text-slate-300 mb-2 text-center"
+                      className="block text-xs font-semibold text-[var(--color-text)] mb-2 text-center"
                     >
                       کد تأیید ۶ رقمی
                     </label>
@@ -326,37 +319,30 @@ export function EmailVerificationPage() {
                       autoFocus
                       disabled={isSubmitting}
                       dir="ltr"
-                      className="w-full tracking-[0.5em] text-center text-2xl font-mono font-bold py-3.5 px-4 rounded-xl border border-white/10 bg-slate-900/80 text-teal-300 placeholder:text-slate-600 placeholder:tracking-normal focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent disabled:opacity-50 transition-all"
+                      className="w-full tracking-[0.5em] text-center text-2xl font-mono font-bold py-3.5 px-4 rounded-input border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary disabled:opacity-50 transition-all"
                     />
                   </div>
 
-                  <motion.button
-                    type="submit"
-                    disabled={isSubmitting || code.trim().length !== 6}
-                    whileHover={{ scale: 1.01 }}
-                    whileTap={{ scale: 0.99 }}
-                    className="w-full flex items-center justify-center gap-2 px-5 py-3.5 bg-teal-600 text-white rounded-xl font-bold text-sm hover:bg-teal-500 transition-all shadow-lg shadow-teal-900/50 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {isSubmitting ? (
-                      <>
-                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                        <span>در حال بررسی...</span>
-                      </>
-                    ) : (
-                      <>
-                        <span>تأیید و ادامه</span>
-                        <ArrowLeft className="w-4 h-4" />
-                      </>
-                    )}
-                  </motion.button>
+                  <div className="pt-2">
+                    <Button
+                      type="submit"
+                      disabled={isSubmitting || code.trim().length !== 6}
+                      isLoading={isSubmitting}
+                      variant="primary"
+                      fullWidth
+                      size="md"
+                    >
+                      تأیید و ادامه
+                    </Button>
+                  </div>
                 </form>
 
-                <div className="mt-8 pt-6 border-t border-white/10 flex flex-col items-center gap-3">
+                <div className="mt-8 pt-6 border-t border-[var(--color-border)] flex flex-col items-center gap-3">
                   <button
                     type="button"
                     onClick={() => void handleResend()}
                     disabled={cooldown > 0 || isSendingCode}
-                    className="flex items-center gap-2 text-xs font-semibold text-teal-400 hover:text-teal-300 disabled:text-slate-500 disabled:cursor-not-allowed transition-colors"
+                    className="flex items-center gap-2 text-xs font-semibold text-primary hover:underline disabled:text-[var(--color-text-muted)] disabled:no-underline disabled:cursor-not-allowed transition-colors cursor-pointer"
                   >
                     <RefreshCw className={`w-3.5 h-3.5 ${isSendingCode ? "animate-spin" : ""}`} />
                     <span>
@@ -373,7 +359,7 @@ export function EmailVerificationPage() {
                       setCode("");
                       setError(null);
                     }}
-                    className="text-xs text-slate-400 hover:text-slate-200 transition-colors"
+                    className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors cursor-pointer"
                   >
                     تغییر روش دریافت کد (ایمیل / پیامک)
                   </button>

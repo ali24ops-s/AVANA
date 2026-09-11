@@ -6,6 +6,7 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { DomainError } from "@avana/domain";
 import type {
   PaymentGateway,
   PaymentRequestInput,
@@ -16,14 +17,26 @@ import type {
 
 export class MockPaymentGateway implements PaymentGateway {
   readonly gatewayName = "mock";
+  readonly enabled: boolean;
   public authorities = new Map<
     string,
     { amount: number; paid: boolean; shouldFail?: boolean }
   >();
 
+  constructor(options?: { enabled?: boolean }) {
+    this.enabled = options?.enabled ?? false;
+  }
+
   async requestPayment(
     input: PaymentRequestInput,
   ): Promise<PaymentRequestResult> {
+    if (!this.enabled) {
+      throw new DomainError(
+        "bad_request",
+        "درگاه پرداخت آزمایشی (Mock) غیرفعال است.",
+      );
+    }
+
     const authority = `mock_auth_${randomUUID().replace(/-/g, "")}`;
     const shouldFail = input.order.metadata?.mockShouldFail === true;
 
@@ -44,6 +57,17 @@ export class MockPaymentGateway implements PaymentGateway {
   }
 
   async verifyPayment(input: PaymentVerifyInput): Promise<PaymentVerifyResult> {
+    if (!this.enabled) {
+      return {
+        success: false,
+        errorMessage: "درگاه پرداخت آزمایشی (Mock) غیرفعال است.",
+        rawResponse: {
+          code: -99,
+          message: "Mock payment gateway is globally disabled",
+        },
+      };
+    }
+
     const authData = this.authorities.get(input.authority);
 
     if (input.authority.startsWith("mock_fail_") || authData?.shouldFail) {

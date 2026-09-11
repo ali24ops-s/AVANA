@@ -13,8 +13,8 @@ export interface BrandLogoProps {
 
   /**
    * Size presets or height control
-   * sm: h-7 logo
-   * md: h-9 logo (standard header)
+   * sm: h-6 logo
+   * md: h-20 sm:h-[88px] md:h-24 logo (doubled standard header: 80px mobile, 88px tablet, 96px desktop)
    * lg: h-12 logo (auth cards)
    * xl: h-16 logo
    */
@@ -69,9 +69,9 @@ const SIZE_MAP = {
     gap: "gap-2",
   },
   md: {
-    logo: "h-9 w-auto",
-    wordmark: "h-6 w-auto",
-    gap: "gap-2.5",
+    logo: "h-20 sm:h-[88px] md:h-24 w-auto",
+    wordmark: "h-12 sm:h-14 md:h-16 w-auto",
+    gap: "gap-3",
   },
   lg: {
     logo: "h-12 w-auto",

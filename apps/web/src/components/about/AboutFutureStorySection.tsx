@@ -2,6 +2,7 @@ import React from "react";
 import { motion } from "framer-motion";
 import { SectionHeading } from "./shared/SectionHeading.js";
 import { Sparkles, User, Lightbulb, Trophy, ArrowLeft } from "lucide-react";
+import { toPersianDigits } from "@avana/domain";
 
 export const AboutFutureStorySection: React.FC = () => {
   const milestones = [
@@ -58,7 +59,7 @@ export const AboutFutureStorySection: React.FC = () => {
       {/* 3-Milestone Progressive Roadmap */}
       <div className="max-w-4xl mx-auto relative">
         {/* Connecting Track Line for Desktop */}
-        <div className="hidden md:block absolute top-1/2 right-12 left-12 h-1 bg-gradient-to-l from-sky-500/40 via-teal-400 to-purple-500/50 -translate-y-1/2 z-0" />
+        <div className="hidden md:block absolute top-1/2 right-12 left-12 h-1 bg-gradient-to-l from-sky-300/40 via-teal-400/60 to-purple-300/40 -translate-y-1/2 z-0" />
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 relative z-10">
           {milestones.map((item, index) => {
@@ -71,31 +72,31 @@ export const AboutFutureStorySection: React.FC = () => {
                 viewport={{ once: true }}
                 transition={{ duration: 0.5, delay: index * 0.15 }}
                 whileHover={{ y: -4 }}
-                className={`rounded-2xl bg-gradient-to-b ${item.color} border ${item.border} p-6 backdrop-blur-xl flex flex-col justify-between shadow-xl`}
+                className="rounded-[16px] bg-[var(--color-surface)] border border-[var(--color-border)] p-6 flex flex-col justify-between shadow-xs"
               >
                 <div>
                   <div className="flex items-center justify-between mb-4">
-                    <div className="w-12 h-12 rounded-2xl bg-slate-900/80 border border-white/10 flex items-center justify-center shadow-md">
+                    <div className="w-12 h-12 rounded-[12px] bg-[var(--color-surface-warm)] border border-[var(--color-border)] flex items-center justify-center shadow-xs">
                       <Icon className={`w-6 h-6 ${item.iconColor}`} />
                     </div>
-                    <span className="text-xs font-mono font-bold px-2.5 py-1 rounded-full bg-slate-900/60 border border-white/10 text-slate-300">
-                      مرحله {item.step}
+                    <span className="text-xs font-mono font-bold px-2.5 py-1 rounded-full bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-[var(--color-text-muted)]">
+                      مرحله {toPersianDigits(item.step)}
                     </span>
                   </div>
 
-                  <h3 className="text-base sm:text-lg font-black text-white mb-1">
+                  <h3 className="text-base sm:text-lg font-black text-[var(--color-text)] mb-1">
                     {item.title}
                   </h3>
-                  <span className="text-[11px] text-slate-400 font-sans block mb-3">
+                  <span className="text-[11px] text-[var(--color-text-muted)] font-sans block mb-3">
                     {item.enTitle}
                   </span>
 
-                  <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+                  <p className="text-xs sm:text-sm text-[var(--color-text-muted)] leading-relaxed">
                     {item.description}
                   </p>
                 </div>
 
-                <div className="mt-6 pt-3 border-t border-white/10 flex items-center gap-1 text-xs text-teal-300 font-semibold">
+                <div className="mt-6 pt-3 border-t border-[var(--color-border)] flex items-center gap-1 text-xs text-[#008080] font-semibold">
                   <span>سفر به سوی تسلط</span>
                   <ArrowLeft className="w-3.5 h-3.5" />
                 </div>

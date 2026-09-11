@@ -50,6 +50,7 @@ function toModuleRecord(row: {
   title: string;
   description: string | null;
   sortOrder: number;
+  previewLessonId?: string | null;
   createdAt: Date;
   updatedAt: Date;
   deletedAt: Date | null;
@@ -61,6 +62,7 @@ function toModuleRecord(row: {
     title: row.title,
     description: row.description,
     sortOrder: row.sortOrder,
+    previewLessonId: (row.previewLessonId as LessonId) ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     deletedAt: row.deletedAt?.toISOString() ?? null,
@@ -244,6 +246,7 @@ export class DrizzleModuleStore implements ModuleStore {
         title: module.title,
         description: module.description,
         sortOrder: module.sortOrder,
+        previewLessonId: module.previewLessonId ?? null,
         createdAt: new Date(module.createdAt),
         updatedAt: new Date(module.updatedAt),
       })
@@ -260,6 +263,7 @@ export class DrizzleModuleStore implements ModuleStore {
         title: module.title,
         description: module.description,
         sortOrder: module.sortOrder,
+        previewLessonId: module.previewLessonId !== undefined ? (module.previewLessonId ?? null) : undefined,
         updatedAt: new Date(module.updatedAt),
         deletedAt: module.deletedAt ? new Date(module.deletedAt) : null,
       })
@@ -274,6 +278,26 @@ export class DrizzleModuleStore implements ModuleStore {
       .update(modules)
       .set({ deletedAt: new Date() })
       .where(eq(modules.id, moduleId));
+  }
+
+  async updatePreviewLessonId(moduleId: ModuleId, previewLessonId: LessonId | null): Promise<void> {
+    await this.db
+      .update(modules)
+      .set({ previewLessonId: previewLessonId ?? null, updatedAt: new Date() })
+      .where(and(eq(modules.id, moduleId), isNull(modules.deletedAt)));
+  }
+
+  async setPreviewLessonIdIfNull(moduleId: ModuleId, previewLessonId: LessonId): Promise<LessonId> {
+    const res = await this.db
+      .update(modules)
+      .set({ previewLessonId, updatedAt: new Date() })
+      .where(and(eq(modules.id, moduleId), isNull(modules.previewLessonId), isNull(modules.deletedAt)))
+      .returning();
+    if (res.length > 0 && res[0].previewLessonId) {
+      return res[0].previewLessonId as LessonId;
+    }
+    const current = await this.findById(moduleId);
+    return (current?.previewLessonId as LessonId) || previewLessonId;
   }
 }
 

@@ -9,6 +9,7 @@ import {
   User,
   X,
 } from "lucide-react";
+import { Badge } from "@avana/ui";
 import { MarkdownRenderer } from "../markdown/MarkdownRenderer.js";
 import { createApiClient, getApiBaseUrl, generateUUID } from "../../lib/api/client.js";
 import { createAiAssistantApi } from "../../lib/api/ai.js";
@@ -185,13 +186,13 @@ export function StudyAssistantChat({
 
   return (
     <div
-      className={`flex flex-col bg-[var(--color-surface)] border border-[var(--color-border)] rounded-3xl overflow-hidden shadow-2xl backdrop-blur-xl transition-all ${className}`}
+      className={`flex flex-col bg-[var(--color-surface)] border border-[var(--color-border)] rounded-card overflow-hidden shadow-card transition-all ${className}`}
       dir="rtl"
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-5 py-3.5 border-b border-[var(--color-border)] bg-[var(--color-surface-warm)] flex-shrink-0">
+      <div className="flex items-center justify-between px-5 py-3.5 border-b border-[var(--color-border)] bg-[var(--color-surface-warm)] shrink-0">
         <div className="flex items-center gap-2.5 min-w-0">
-          <div className="w-8 h-8 rounded-xl bg-purple-500/20 border border-purple-500/30 flex items-center justify-center text-purple-400 flex-shrink-0 shadow-inner">
+          <div className="w-8 h-8 rounded-button bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shrink-0 shadow-xs">
             <Sparkles className="w-4 h-4" />
           </div>
           <div className="min-w-0">
@@ -199,17 +200,17 @@ export function StudyAssistantChat({
               <h3 className="text-xs sm:text-sm font-extrabold text-[var(--color-text)] truncate">
                 از آوانا بپرس
               </h3>
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-300 border border-purple-500/20 font-bold flex-shrink-0">
+              <Badge variant="primary" size="sm" className="font-bold shrink-0">
                 Cloudflare AI
-              </span>
+              </Badge>
             </div>
             {contextType === "lesson" && lessonTitle ? (
-              <p className="text-[11px] text-[#008080] truncate font-medium flex items-center gap-1 mt-0.5">
-                <BookOpen className="w-3 h-3 flex-shrink-0" />
+              <p className="text-[11px] text-primary truncate font-medium flex items-center gap-1 mt-0.5">
+                <BookOpen className="w-3 h-3 shrink-0" />
                 <span>درس: {lessonTitle}{moduleTitle ? ` (${moduleTitle})` : ""}</span>
               </p>
             ) : contextType === "lesson" && courseTitle ? (
-              <p className="text-[11px] text-[#008080] truncate mt-0.5 font-medium">
+              <p className="text-[11px] text-primary truncate mt-0.5 font-medium">
                 دوره: {courseTitle}
               </p>
             ) : (
@@ -220,14 +221,14 @@ export function StudyAssistantChat({
           </div>
         </div>
 
-        <div className="flex items-center gap-1 flex-shrink-0">
+        <div className="flex items-center gap-1 shrink-0">
           {messages.length > 0 && (
             <button
               type="button"
               onClick={handleNewConversation}
               title="مکالمه جدید"
               aria-label="مکالمه جدید"
-              className="p-1.5 rounded-lg text-[var(--color-text-muted)] hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+              className="p-1.5 rounded-button text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)] transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             >
               <RotateCcw className="w-4 h-4" />
             </button>
@@ -238,7 +239,7 @@ export function StudyAssistantChat({
               onClick={onClose}
               title="بستن"
               aria-label="بستن دستیار"
-              className="p-1.5 rounded-lg text-[var(--color-text-muted)] hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+              className="p-1.5 rounded-button text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)] transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             >
               <X className="w-4 h-4" />
             </button>
@@ -253,7 +254,7 @@ export function StudyAssistantChat({
       >
         {messages.length === 0 ? (
           <div className="h-full flex flex-col justify-center items-center text-center p-4 space-y-4 my-auto">
-            <div className="w-12 h-12 rounded-2xl bg-purple-500/15 border border-purple-500/30 flex items-center justify-center text-purple-300 shadow-sm">
+            <div className="w-12 h-12 rounded-card bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shadow-xs">
               <Sparkles className="w-6 h-6 animate-pulse" />
             </div>
             <div className="space-y-1.5 max-w-sm">
@@ -271,7 +272,7 @@ export function StudyAssistantChat({
 
             {/* Quick Suggestions */}
             <div className="w-full pt-2 flex flex-col gap-2 max-w-md">
-              <span className="text-[11px] font-bold text-[var(--color-text-muted)] text-right">
+              <span className="text-[11px] font-bold text-[var(--color-text-muted)] text-start">
                 پیشنهادهای سریع:
               </span>
               <div className="flex flex-wrap gap-1.5">
@@ -281,7 +282,7 @@ export function StudyAssistantChat({
                     type="button"
                     onClick={() => void handleSend(prompt)}
                     disabled={isLoading}
-                    className="text-right text-xs bg-[var(--color-surface-warm)] hover:bg-[#008080]/15 text-[var(--color-text)] hover:text-[#008080] border border-[var(--color-border)] hover:border-[#008080]/40 px-3 py-1.5 rounded-xl transition-all active:scale-98"
+                    className="text-start text-xs bg-[var(--color-surface)] hover:bg-primary/10 text-[var(--color-text)] hover:text-primary border border-[var(--color-border)] hover:border-primary/40 px-3 py-1.5 rounded-button transition-all duration-150 active:scale-[0.98] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {prompt}
                   </button>
@@ -299,10 +300,10 @@ export function StudyAssistantChat({
             >
               {/* Avatar */}
               <div
-                className={`w-7 h-7 rounded-xl flex items-center justify-center flex-shrink-0 text-xs shadow-sm mt-0.5 ${
+                className={`w-7 h-7 rounded-button flex items-center justify-center shrink-0 text-xs shadow-xs mt-0.5 ${
                   msg.role === "user"
-                    ? "bg-[#008080] text-white"
-                    : "bg-purple-600/30 text-purple-300 border border-purple-500/40"
+                    ? "bg-primary text-white"
+                    : "bg-primary/10 text-primary border border-primary/20"
                 }`}
               >
                 {msg.role === "user" ? (
@@ -314,9 +315,9 @@ export function StudyAssistantChat({
 
               {/* Message Bubble */}
               <div
-                className={`max-w-[85%] sm:max-w-[80%] rounded-2xl p-3.5 sm:p-4 text-xs sm:text-sm leading-relaxed shadow-sm ${
+                className={`max-w-[85%] sm:max-w-[80%] rounded-card p-3.5 sm:p-4 text-xs sm:text-sm leading-relaxed shadow-xs ${
                   msg.role === "user"
-                    ? "bg-[#008080]/20 border border-[#008080]/40 text-white rounded-tr-none font-medium"
+                    ? "bg-primary text-white rounded-tr-none font-medium"
                     : "bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-[var(--color-text)] rounded-tl-none"
                 }`}
               >
@@ -327,8 +328,8 @@ export function StudyAssistantChat({
                     </div>
 
                     {msg.sources && (
-                      <div className="pt-2 mt-2 border-t border-white/5 flex items-center gap-1.5 text-[10px] text-teal-400/90 font-medium">
-                        <BookOpen className="w-3 h-3 flex-shrink-0" />
+                      <div className="pt-2 mt-2 border-t border-[var(--color-border)] flex items-center gap-1.5 text-[10px] text-primary font-medium">
+                        <BookOpen className="w-3 h-3 shrink-0" />
                         <span>پاسخ مستند بر درس: {msg.sources.lessonTitle}</span>
                       </div>
                     )}
@@ -344,11 +345,11 @@ export function StudyAssistantChat({
         {/* Loading Bubble */}
         {isLoading && (
           <div className="flex gap-3">
-            <div className="w-7 h-7 rounded-xl bg-purple-600/30 text-purple-300 border border-purple-500/40 flex items-center justify-center flex-shrink-0 shadow-sm mt-0.5">
+            <div className="w-7 h-7 rounded-button bg-primary/10 text-primary border border-primary/20 flex items-center justify-center shrink-0 shadow-xs mt-0.5">
               <Loader2 className="w-4 h-4 animate-spin" />
             </div>
-            <div className="bg-[var(--color-surface-warm)] border border-[var(--color-border)] rounded-2xl rounded-tl-none p-3.5 text-xs text-[var(--color-text-muted)] flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-purple-400 animate-ping" />
+            <div className="bg-[var(--color-surface-warm)] border border-[var(--color-border)] rounded-card rounded-tl-none p-3.5 text-xs text-[var(--color-text-muted)] flex items-center gap-2 shadow-xs">
+              <span className="w-2 h-2 rounded-full bg-primary animate-ping shrink-0" />
               <span>آوانا در حال اندیشیدن و جستجوی نکات آموزشی...</span>
             </div>
           </div>
@@ -356,15 +357,15 @@ export function StudyAssistantChat({
 
         {/* Error Banner */}
         {error && (
-          <div className="p-3 rounded-2xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-center justify-between gap-3">
+          <div className="p-3 rounded-card bg-[var(--avana-error-bg)] border border-[var(--avana-error-border)] text-[var(--avana-error)] text-xs flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+              <AlertCircle className="w-4 h-4 shrink-0" />
               <span>{error}</span>
             </div>
             <button
               type="button"
               onClick={() => void handleSend()}
-              className="text-[11px] font-bold underline hover:text-white flex-shrink-0"
+              className="text-[11px] font-bold underline hover:opacity-80 transition-opacity shrink-0 cursor-pointer"
             >
               تلاش دوباره
             </button>
@@ -373,7 +374,7 @@ export function StudyAssistantChat({
       </div>
 
       {/* Input Area */}
-      <div className="p-3 sm:p-4 border-t border-[var(--color-border)] bg-[var(--color-surface-warm)] flex-shrink-0">
+      <div className="p-3 sm:p-4 border-t border-[var(--color-border)] bg-[var(--color-surface-warm)] shrink-0">
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -395,7 +396,7 @@ export function StudyAssistantChat({
               }
               rows={compact ? 1 : 2}
               maxLength={4000}
-              className="w-full min-h-[50px] bg-[var(--color-surface)] border border-[var(--color-border)] focus:border-purple-500/60 focus:ring-1 focus:ring-purple-500/40 rounded-2xl pr-4 pl-12 py-3 text-xs sm:text-sm text-[var(--color-text)] placeholder-[var(--color-text-muted)] resize-none outline-none transition-all leading-relaxed"
+              className="w-full min-h-[50px] bg-[var(--color-surface)] border border-[var(--color-border)] focus:border-primary focus:ring-1 focus:ring-primary rounded-input pe-12 ps-4 py-3 text-xs sm:text-sm text-[var(--color-text)] placeholder-[var(--color-text-muted)] resize-none outline-none transition-all leading-relaxed"
             />
 
             <button
@@ -403,14 +404,14 @@ export function StudyAssistantChat({
               disabled={!inputMessage.trim() || isLoading}
               aria-label="ارسال پیام"
               title="ارسال پیام"
-              className={`absolute left-2.5 top-1/2 -translate-y-1/2 w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center transition-all duration-200 ${
+              className={`absolute end-2.5 top-1/2 -translate-y-1/2 w-8 h-8 sm:w-9 sm:h-9 rounded-button flex items-center justify-center transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
                 inputMessage.trim() && !isLoading
-                  ? "bg-gradient-to-l from-purple-600 to-[#008080] hover:from-purple-500 hover:to-[#006666] text-white shadow-md active:scale-95 cursor-pointer opacity-100"
-                  : "bg-white/5 text-slate-500 opacity-40 cursor-not-allowed"
+                  ? "bg-primary hover:bg-primary-hover text-white shadow-sm active:scale-95 cursor-pointer opacity-100"
+                  : "bg-[var(--color-surface-hover)] text-[var(--color-text-muted)] opacity-40 cursor-not-allowed"
               }`}
             >
               {isLoading ? (
-                <Loader2 className="w-4 h-4 animate-spin text-purple-300" />
+                <Loader2 className="w-4 h-4 animate-spin text-white" />
               ) : (
                 <Send className="w-4 h-4 -scale-x-100" />
               )}
@@ -421,3 +422,4 @@ export function StudyAssistantChat({
     </div>
   );
 }
+

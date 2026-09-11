@@ -674,6 +674,7 @@ export class LibraryService {
             ? "free"
             : null;
 
+          let isPreview = false;
           if (actor && this.entitlementService) {
             const accessResult = await this.entitlementService.checkAccess(
               actor,
@@ -681,6 +682,7 @@ export class LibraryService {
                 userId: actor.userId,
                 resourceType: "lesson",
                 resourceId: lessonId,
+                moduleId: cnt.moduleId,
                 courseId: cnt.courseId,
               },
             );
@@ -688,12 +690,17 @@ export class LibraryService {
             isPurchased =
               accessResult.reason === "content_purchase" ||
               accessResult.reason === "course_purchase";
+            isPreview = accessResult.reason === "free_preview";
             accessSource = accessResult.granted
               ? (accessResult.reason as any)
               : null;
             if (hasAccess) {
               canPurchase = false;
             }
+          } else if (this.entitlementService) {
+            isPreview = await this.entitlementService
+              .getPreviewResolver()
+              .isLessonPreview(lessonId, cnt.moduleId, cnt.courseId);
           }
 
           return {
@@ -708,6 +715,7 @@ export class LibraryService {
             estimated_minutes: cnt.estimatedMinutes,
             completed: cnt.completed,
             completed_at: cnt.completedAt,
+            is_preview: isPreview,
             access: {
               isFree,
               isPurchased,
@@ -961,7 +969,7 @@ export class LibraryService {
                 });
               }
 
-              if (accessRes && accessRes.granted) {
+              if (accessRes && accessRes.granted && accessRes.reason !== "free_preview") {
                 hasPkgAccess = true;
                 isPkgPurchased =
                   accessRes.reason === "content_pack_purchase" ||
@@ -969,6 +977,20 @@ export class LibraryService {
                   accessRes.reason === "content_purchase";
                 pkgAccessSource = accessRes.reason as any;
                 canPurchasePkg = false;
+              }
+            }
+
+            let previewMeta: import("@avana/domain").ContentPreviewMetadata | undefined;
+            if (this.entitlementService) {
+              previewMeta = await this.entitlementService
+                .getPreviewResolver()
+                .resolvePackagePreviewMetadata({
+                  courseId: c.id,
+                  moduleId: pkg.moduleId,
+                  organizationId: this.systemOrganizationId,
+                });
+              if (pkg.contents.quiz.exists && previewMeta.quiz) {
+                previewMeta.quiz.questionCount = pkg.stats.quizQuestionCount;
               }
             }
 
@@ -986,6 +1008,7 @@ export class LibraryService {
                 canPurchase: canPurchasePkg,
                 productId: pkgProductId,
               },
+              preview: previewMeta,
             };
           }),
         );

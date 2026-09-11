@@ -354,17 +354,17 @@ export function FilesPage() {
       )}
 
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/10 pb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[var(--color-border)] pb-6">
         <div>
           <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-2xl bg-teal-500/10 text-teal-400 border border-teal-500/20 shadow-sm">
+            <div className="p-2.5 rounded-2xl bg-teal-500/10 text-teal-600 dark:text-teal-400 border border-teal-500/20 shadow-sm">
               <FolderOpen className="w-6 h-6" />
             </div>
             <div>
-              <h1 className="text-xl sm:text-2xl font-black text-white">
+              <h1 className="text-h1 text-[var(--color-text)]">
                 فایل‌ها و منابع آموزشی
               </h1>
-              <p className="text-xs sm:text-sm text-slate-400 mt-0.5">
+              <p className="text-xs sm:text-sm text-[var(--color-text-muted)] mt-0.5">
                 مدیریت، بررسی و سازماندهی تمام فایل‌های بارگذاری‌شده در سیستم
               </p>
             </div>
@@ -420,15 +420,15 @@ export function FilesPage() {
 
       {/* Empty States */}
       {!docsQuery.isLoading && documentsList.length === 0 && !isSearchActive && (
-        <div className="glass-panel border border-white/10 rounded-3xl p-12 text-center space-y-4 shadow-ambient">
-          <div className="w-16 h-16 rounded-3xl bg-teal-500/10 border border-teal-500/20 text-teal-400 mx-auto flex items-center justify-center">
+        <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-3xl p-12 text-center space-y-4 shadow-ambient">
+          <div className="w-16 h-16 rounded-3xl bg-teal-500/10 border border-teal-500/20 text-teal-600 dark:text-teal-400 mx-auto flex items-center justify-center">
             <UploadCloud className="w-8 h-8" />
           </div>
           <div>
-            <h3 className="text-base font-bold text-white">
+            <h3 className="text-base font-bold text-[var(--color-text)]">
               هنوز فایلی آپلود نشده است
             </h3>
-            <p className="text-xs sm:text-sm text-slate-400 mt-1 max-w-md mx-auto">
+            <p className="text-xs sm:text-sm text-[var(--color-text-muted)] mt-1 max-w-md mx-auto">
               فایل‌های آموزشی خود را آپلود کنید تا بتوانید از آنها برای ساخت دوره، درس و محتوای هوشمند استفاده کنید.
             </p>
           </div>
@@ -444,15 +444,15 @@ export function FilesPage() {
       )}
 
       {!docsQuery.isLoading && documentsList.length === 0 && isSearchActive && (
-        <div className="glass-panel border border-white/10 rounded-3xl p-12 text-center space-y-4 shadow-ambient">
-          <div className="w-16 h-16 rounded-3xl bg-white/5 border border-white/10 text-slate-400 mx-auto flex items-center justify-center">
+        <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-3xl p-12 text-center space-y-4 shadow-ambient">
+          <div className="w-16 h-16 rounded-3xl bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-[var(--color-text-muted)] mx-auto flex items-center justify-center">
             <Search className="w-8 h-8" />
           </div>
           <div>
-            <h3 className="text-base font-bold text-white">
+            <h3 className="text-base font-bold text-[var(--color-text)]">
               فایلی مطابق جستجوی شما پیدا نشد
             </h3>
-            <p className="text-xs text-slate-400 mt-1">
+            <p className="text-xs text-[var(--color-text-muted)] mt-1">
               لطفاً کلمه کلیدی دیگری جستجو کنید یا فیلترهای اعمال‌شده را پاک نمایید.
             </p>
           </div>

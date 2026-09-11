@@ -147,7 +147,7 @@ describe("Course Lesson Study Page UI/UX Refinements", () => {
     });
 
     // Verify progress
-    expect(screen.getByText(/1 از 3 درس تکمیل شده/i)).toBeDefined();
+    expect(screen.getByText(/۱ از ۳ درس تکمیل شده/i)).toBeDefined();
     expect(screen.getByText("33%")).toBeDefined();
 
     // Verify markdown rendered

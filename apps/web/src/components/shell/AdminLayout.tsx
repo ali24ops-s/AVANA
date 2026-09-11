@@ -1,17 +1,9 @@
-/**
- * Admin Layout & Shell.
- *
- * Provides a dedicated, standalone Shell for the AVANA Admin Console,
- * decoupled from the Student/User shell.
- *
- * Reuses Phase 1 AuthProvider / role resolution for access control.
- */
-
 import { useState, useCallback } from "react";
 import { Outlet, Navigate } from "react-router-dom";
 import { useAuth } from "../../providers/AuthProvider.js";
 import { AdminSidebar } from "../admin/AdminSidebar.js";
 import { AdminHeader } from "../admin/AdminHeader.js";
+import { LoadingState } from "../ui/index.js";
 
 export function AdminLayout() {
   const { user, isLoading } = useAuth();
@@ -33,15 +25,10 @@ export function AdminLayout() {
   if (isLoading) {
     return (
       <div
-        className="min-h-screen bg-[#0b1120] text-slate-200 flex items-center justify-center font-sans"
+        className="min-h-screen bg-[var(--color-bg-default)] text-[var(--color-text)] flex items-center justify-center font-sans"
         dir="rtl"
       >
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-10 h-10 border-4 border-teal-500 border-t-transparent rounded-full animate-spin" />
-          <p className="text-slate-400 text-sm font-medium">
-            در حال بارگذاری پنل مدیریت...
-          </p>
-        </div>
+        <LoadingState message="در حال بارگذاری پنل مدیریت..." />
       </div>
     );
   }
@@ -53,7 +40,7 @@ export function AdminLayout() {
 
   return (
     <div
-      className="min-h-screen flex bg-[#0b1120] text-slate-200 font-sans selection:bg-teal-700/50 selection:text-teal-200"
+      className="min-h-screen flex bg-[var(--color-bg-default)] text-[var(--color-text)] font-sans transition-colors duration-200"
       dir="rtl"
     >
       {/* Admin Dedicated Sidebar */}

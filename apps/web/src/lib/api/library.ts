@@ -57,6 +57,7 @@ export interface LibraryCourseItem {
   };
   access?: ResourceAccessSummary;
   purchase?: ResourcePurchaseSummary;
+  preview?: import("@avana/domain").ContentPreviewMetadata;
   href: string;
   created_at: string;
   updated_at: string;
@@ -74,6 +75,7 @@ export interface LibraryContentItem {
   estimated_minutes?: number | null;
   completed?: boolean;
   completed_at?: string | null;
+  is_preview?: boolean;
   access?: ResourceAccessSummary;
   purchase?: ResourcePurchaseSummary;
   href: string;

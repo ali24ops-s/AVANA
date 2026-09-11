@@ -1601,10 +1601,6 @@ export class ReviewService {
             : null;
           cLessonId = match ? match.id : null;
         }
-
-        if (!cLessonId && lessons.length === 1) {
-          cLessonId = lessons[0].id;
-        }
       }
 
       const qText = c.front ?? c.question ?? "سوال Flashcard";

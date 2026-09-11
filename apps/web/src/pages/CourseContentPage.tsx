@@ -40,6 +40,8 @@ import { NewLessonDialog } from "../components/content/NewLessonDialog.js";
 import { NewModuleDialog } from "../components/content/NewModuleDialog.js";
 import { CourseDocumentsView } from "../components/documents/CourseDocumentsView.js";
 import { ReviewQueueList } from "../components/review/ReviewQueueList.js";
+import { Button } from "@avana/ui";
+import { toPersianDigits } from "@avana/domain";
 import type {
   ContentLessonResource,
   ContentModuleResource,
@@ -327,7 +329,7 @@ export function CourseContentPage() {
   if (orgQuery.isLoading || contentQuery.isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <Loader2 className="w-8 h-8 animate-spin text-[#008080]" />
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
       </div>
     );
   }
@@ -345,7 +347,7 @@ export function CourseContentPage() {
         </p>
         <Link
           to="/courses"
-          className="mt-4 px-4 py-2 bg-[#008080] text-white rounded-xl text-xs font-bold"
+          className="mt-4 px-4 py-2 bg-primary hover:bg-primary-hover text-white rounded-button text-xs font-bold"
         >
           بازگشت به دوره‌ها
         </Link>
@@ -366,7 +368,7 @@ export function CourseContentPage() {
         </p>
         <Link
           to="/courses"
-          className="mt-4 px-4 py-2 bg-[#008080] text-white rounded-xl text-xs font-bold"
+          className="mt-4 px-4 py-2 bg-primary hover:bg-primary-hover text-white rounded-button text-xs font-bold"
         >
           بازگشت به دوره‌ها
         </Link>
@@ -387,7 +389,7 @@ export function CourseContentPage() {
         </p>
         <Link
           to="/courses"
-          className="mt-4 px-4 py-2 bg-[#008080] text-white rounded-xl text-xs font-bold"
+          className="mt-4 px-4 py-2 bg-primary hover:bg-primary-hover text-white rounded-button text-xs font-bold"
         >
           بازگشت به دوره‌ها
         </Link>
@@ -410,7 +412,7 @@ export function CourseContentPage() {
         </p>
         <Link
           to="/courses"
-          className="mt-4 px-4 py-2 bg-[#008080] text-white rounded-xl text-xs font-bold"
+          className="mt-4 px-4 py-2 bg-primary hover:bg-primary-hover text-white rounded-button text-xs font-bold"
         >
           بازگشت به دوره‌ها
         </Link>
@@ -453,9 +455,9 @@ export function CourseContentPage() {
       </Link>
 
       {/* Course header */}
-      <div className="bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] p-6 shadow-sm">
+      <div className="bg-[var(--color-surface)] rounded-card border border-[var(--color-border)] p-6 shadow-sm">
         <div className="flex items-start gap-4">
-          <div className="w-12 h-12 rounded-2xl bg-[#a7d0e6]/40 text-[#008080] flex items-center justify-center flex-shrink-0">
+          <div className="w-12 h-12 rounded-button bg-secondary/40 text-primary flex items-center justify-center flex-shrink-0">
             <Eye className="w-6 h-6" />
           </div>
           <div className="flex-1 min-w-0">
@@ -463,7 +465,7 @@ export function CourseContentPage() {
               <h1 className="text-lg sm:text-xl font-bold text-[var(--color-text)] truncate">
                 {course.title}
               </h1>
-              <span className="text-xs px-2.5 py-0.5 rounded-full bg-[#008080]/10 text-[#008080] font-bold flex-shrink-0">
+              <span className="text-xs px-2.5 py-0.5 rounded-full bg-primary/10 text-primary font-bold flex-shrink-0">
                 مدیریت محتوا
               </span>
             </div>
@@ -478,9 +480,9 @@ export function CourseContentPage() {
       <div className="flex items-center gap-2 border-b border-[var(--color-border)] pb-2 overflow-x-auto">
         <button
           onClick={() => setTab("curriculum")}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all whitespace-nowrap ${
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-button text-xs font-bold transition-all whitespace-nowrap ${
             activeTab === "curriculum"
-              ? "bg-[#008080] text-white shadow-sm"
+              ? "bg-primary text-white shadow-sm"
               : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)]"
           }`}
         >
@@ -490,9 +492,9 @@ export function CourseContentPage() {
 
         <button
           onClick={() => setTab("documents")}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all whitespace-nowrap ${
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-button text-xs font-bold transition-all whitespace-nowrap ${
             activeTab === "documents"
-              ? "bg-[#008080] text-white shadow-sm"
+              ? "bg-primary text-white shadow-sm"
               : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)]"
           }`}
         >
@@ -502,9 +504,9 @@ export function CourseContentPage() {
 
         <button
           onClick={() => setTab("review")}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all whitespace-nowrap ${
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-button text-xs font-bold transition-all whitespace-nowrap ${
             activeTab === "review"
-              ? "bg-[#008080] text-white shadow-sm"
+              ? "bg-primary text-white shadow-sm"
               : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)]"
           }`}
         >
@@ -540,26 +542,26 @@ export function CourseContentPage() {
         <div className="flex flex-col lg:flex-row gap-6">
           {/* Sidebar: Module accordion + lesson navigation */}
           <aside className="w-full lg:w-80 xl:w-96 flex-shrink-0">
-            <div className="bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] overflow-hidden sticky top-24 shadow-sm">
+            <div className="bg-[var(--color-surface)] rounded-card border border-[var(--color-border)] overflow-hidden sticky top-24 shadow-sm">
               <div className="p-4 border-b border-[var(--color-border)]">
                 <div className="flex items-center justify-between gap-2">
                   <h2 className="font-bold text-sm text-[var(--color-text)]">
                     ساختار آموزشی دوره
                   </h2>
-                  <button
-                    type="button"
+                  <Button
+                    variant="secondary"
+                    size="sm"
                     onClick={() => {
                       setCreateModuleError(null);
                       setNewModuleOpen(true);
                     }}
-                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold text-[#008080] border border-[#008080]/30 hover:bg-[#008080]/10 transition-colors flex-shrink-0"
+                    leftIcon={<FolderPlus className="w-3.5 h-3.5" />}
                   >
-                    <FolderPlus className="w-3.5 h-3.5" />
-                    <span>فصل جدید</span>
-                  </button>
+                    فصل جدید
+                  </Button>
                 </div>
                 <p className="text-xs text-[var(--color-text-muted)] mt-1">
-                  {totalLessons} درس در {modules.length} فصل
+                  {toPersianDigits(totalLessons)} درس در {toPersianDigits(modules.length)} فصل
                 </p>
               </div>
 
@@ -651,8 +653,8 @@ export function CourseContentPage() {
                 onDelete={() => setSelectedLessonId(null)}
               />
             ) : modules.length === 0 ? (
-              <div className="bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] p-10 text-center space-y-4 shadow-sm">
-                <div className="w-16 h-16 rounded-2xl bg-[#008080]/10 text-[#008080] border border-[#008080]/20 flex items-center justify-center mx-auto shadow-inner">
+              <div className="bg-[var(--color-surface)] rounded-card border border-[var(--color-border)] p-10 text-center space-y-4 shadow-sm">
+                <div className="w-16 h-16 rounded-button bg-primary/10 text-primary border border-primary/20 flex items-center justify-center mx-auto shadow-inner">
                   <BookOpen className="w-8 h-8" />
                 </div>
                 <div className="space-y-1.5 max-w-md mx-auto">
@@ -664,18 +666,18 @@ export function CourseContentPage() {
                   </p>
                 </div>
                 <div className="pt-2 flex items-center justify-center gap-3">
-                  <button
-                    type="button"
+                  <Button
+                    variant="primary"
+                    size="md"
                     onClick={() => setTab("documents")}
-                    className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#008080] hover:bg-[#006666] text-white rounded-2xl text-xs font-bold transition-all shadow-md active:scale-95 cursor-pointer"
+                    leftIcon={<FileText className="w-4 h-4" />}
                   >
-                    <FileText className="w-4 h-4" />
-                    <span>افزودن فایل PDF</span>
-                  </button>
+                    افزودن فایل PDF
+                  </Button>
                 </div>
               </div>
             ) : (
-              <div className="bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] p-12 text-center shadow-sm">
+              <div className="bg-[var(--color-surface)] rounded-card border border-[var(--color-border)] p-12 text-center shadow-sm">
                 <Eye className="w-12 h-12 text-[var(--color-text-muted)] mx-auto mb-4" />
                 <h2 className="text-base font-bold text-[var(--color-text)]">
                   یک درس را برای ویرایش انتخاب کنید
@@ -798,10 +800,10 @@ function ModuleSection({
   ).length;
 
   return (
-    <div className="rounded-2xl overflow-hidden">
+    <div className="rounded-button overflow-hidden">
       {/* Delete confirmation banner */}
       {isDeleting ? (
-        <div className="p-3.5 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-2xl space-y-2">
+        <div className="p-3.5 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-button space-y-2">
           <p className="text-xs font-bold text-red-900 dark:text-red-200">
             آیا از حذف فصل «{module.title}» اطمینان دارید؟
           </p>
@@ -810,7 +812,7 @@ function ModuleSection({
               type="button"
               onClick={onConfirmDelete}
               disabled={isDeletingModule}
-              className="px-3 py-1 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold"
+              className="px-3 py-1 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white rounded-button text-xs font-bold"
             >
               {isDeletingModule ? "در حال حذف..." : "تایید حذف"}
             </button>
@@ -818,7 +820,7 @@ function ModuleSection({
               type="button"
               onClick={onCancelDelete}
               disabled={isDeletingModule}
-              className="px-3 py-1 bg-white dark:bg-zinc-800 hover:bg-zinc-100 border border-zinc-200 rounded-xl text-xs font-bold"
+              className="px-3 py-1 bg-white dark:bg-zinc-800 hover:bg-zinc-100 border border-zinc-200 rounded-button text-xs font-bold"
             >
               انصراف
             </button>
@@ -826,9 +828,9 @@ function ModuleSection({
         </div>
       ) : isEditing ? (
         /* Inline edit form */
-        <div className="p-3 bg-[#008080]/10 border border-[#008080]/30 rounded-2xl space-y-2">
+        <div className="p-3 bg-primary/10 border border-primary/30 rounded-button space-y-2">
           {moduleEditError && (
-            <div className="p-2 rounded-xl bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 text-xs font-medium">
+            <div className="p-2 rounded-button bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 text-xs font-medium">
               {moduleEditError}
             </div>
           )}
@@ -838,7 +840,7 @@ function ModuleSection({
             onChange={(e) => setEditTitle(e.target.value)}
             placeholder="عنوان فصل"
             aria-label="عنوان فصل"
-            className="w-full px-3 py-1.5 text-xs bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)] focus:outline-none focus:ring-2 focus:ring-[#008080]"
+            className="w-full px-3 py-1.5 text-xs bg-[var(--color-surface)] rounded-input border border-[var(--color-border)] focus:outline-none focus:ring-2 focus:ring-primary"
           />
           <input
             type="text"
@@ -846,34 +848,35 @@ function ModuleSection({
             onChange={(e) => setEditDescription(e.target.value)}
             placeholder="توضیحات (اختیاری)"
             aria-label="توضیحات فصل"
-            className="w-full px-3 py-1.5 text-xs bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)] focus:outline-none focus:ring-2 focus:ring-[#008080]"
+            className="w-full px-3 py-1.5 text-xs bg-[var(--color-surface)] rounded-input border border-[var(--color-border)] focus:outline-none focus:ring-2 focus:ring-primary"
           />
           <div className="flex items-center justify-end gap-2 pt-1">
             <button
               type="button"
               onClick={onCancelEdit}
               disabled={isUpdating}
-              className="px-2.5 py-1 rounded-xl text-xs font-bold text-[var(--color-text-muted)] hover:bg-[var(--color-surface)]"
+              className="px-2.5 py-1 rounded-button text-xs font-bold text-[var(--color-text-muted)] hover:bg-[var(--color-surface)]"
             >
               انصراف
             </button>
-            <button
-              type="button"
+            <Button
+              variant="primary"
+              size="sm"
               onClick={() => onSaveEdit(editTitle, editDescription)}
               disabled={isUpdating || !editTitle.trim()}
-              className="px-3 py-1 bg-[#008080] hover:bg-[#006666] disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-1"
+              leftIcon={<Save className="w-3 h-3" />}
+              className="!h-7 !px-3"
             >
-              <Save className="w-3 h-3" />
-              <span>ذخیره</span>
-            </button>
+              ذخیره
+            </Button>
           </div>
         </div>
       ) : (
         /* Normal module header row */
         <div
-          className={`w-full flex items-center gap-1.5 px-3 py-2 text-right rounded-2xl transition-colors ${
+          className={`w-full flex items-center gap-1.5 px-3 py-2 text-right rounded-button transition-colors ${
             isExpanded
-              ? "bg-[#008080]/10"
+              ? "bg-primary/10"
               : "hover:bg-[var(--color-surface-warm)]"
           }`}
         >
@@ -913,7 +916,7 @@ function ModuleSection({
               }}
               title="ویرایش فصل"
               aria-label={`ویرایش فصل ${module.title}`}
-              className="p-1 rounded-lg text-[var(--color-text-muted)] hover:text-[#008080] hover:bg-[#008080]/10"
+              className="p-1 rounded-button text-[var(--color-text-muted)] hover:text-primary hover:bg-primary/10"
             >
               <Pencil className="w-3.5 h-3.5" />
             </button>
@@ -925,7 +928,7 @@ function ModuleSection({
               }}
               title="حذف فصل"
               aria-label={`حذف فصل ${module.title}`}
-              className="p-1 rounded-lg text-[var(--color-text-muted)] hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40"
+              className="p-1 rounded-button text-[var(--color-text-muted)] hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40"
             >
               <Trash2 className="w-3.5 h-3.5" />
             </button>
@@ -953,7 +956,7 @@ function ModuleSection({
           <button
             type="button"
             onClick={onOpenNewLesson}
-            className="w-full flex items-center gap-1.5 px-3 py-1.5 text-right rounded-xl text-xs font-bold text-[#008080] hover:bg-[#008080]/10 transition-colors"
+            className="w-full flex items-center gap-1.5 px-3 py-1.5 text-right rounded-button text-xs font-bold text-primary hover:bg-primary/10 transition-colors"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>افزودن درس</span>
@@ -987,7 +990,7 @@ function LessonNavItem({
 
   if (isDeleting) {
     return (
-      <div className="p-2 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-xl flex items-center justify-between gap-1 text-right">
+      <div className="p-2 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-button flex items-center justify-between gap-1 text-right">
         <span className="text-[11px] font-bold text-red-900 dark:text-red-200 truncate flex-1">
           حذف «{lesson.title}»؟
         </span>
@@ -996,7 +999,7 @@ function LessonNavItem({
             type="button"
             onClick={onConfirmDelete}
             disabled={isDeletingLesson}
-            className="px-2 py-0.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-[10px] font-bold disabled:opacity-50"
+            className="px-2 py-0.5 bg-red-600 hover:bg-red-700 text-white rounded-button text-[10px] font-bold disabled:opacity-50"
           >
             {isDeletingLesson ? "حذف..." : "حذف"}
           </button>
@@ -1004,7 +1007,7 @@ function LessonNavItem({
             type="button"
             onClick={onCancelDelete}
             disabled={isDeletingLesson}
-            className="px-2 py-0.5 bg-white dark:bg-zinc-800 border border-zinc-200 text-zinc-700 dark:text-zinc-300 rounded-lg text-[10px] font-bold"
+            className="px-2 py-0.5 bg-white dark:bg-zinc-800 border border-zinc-200 text-zinc-700 dark:text-zinc-300 rounded-button text-[10px] font-bold"
           >
             انصراف
           </button>
@@ -1015,9 +1018,9 @@ function LessonNavItem({
 
   return (
     <div
-      className={`group w-full flex items-center justify-between gap-1.5 px-3 py-1 text-right rounded-xl text-xs transition-colors ${
+      className={`group w-full flex items-center justify-between gap-1.5 px-3 py-1 text-right rounded-button text-xs transition-colors ${
         isSelected
-          ? "bg-[#008080]/15 text-[#008080] font-bold"
+          ? "bg-primary/15 text-primary font-bold"
           : "text-[var(--color-text)] hover:bg-[var(--color-surface-warm)]"
       }`}
     >
@@ -1052,7 +1055,7 @@ function LessonNavItem({
         }}
         title="حذف درس"
         aria-label={`حذف درس ${lesson.title}`}
-        className="opacity-0 group-hover:opacity-100 focus:opacity-100 p-1 rounded-lg text-[var(--color-text-muted)] hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 transition-opacity flex-shrink-0"
+        className="opacity-0 group-hover:opacity-100 focus:opacity-100 p-1 rounded-button text-[var(--color-text-muted)] hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 transition-opacity flex-shrink-0"
       >
         <Trash2 className="w-3.5 h-3.5" />
       </button>

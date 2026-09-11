@@ -128,7 +128,7 @@ describe("PricingModal & PaywallModal Components", () => {
       expect(screen.getByText("ارتقا به آوانا پلاس (اشتراک ویژه)")).toBeDefined();
       expect(screen.getAllByText("اشتراک ۱ ماهه").length).toBeGreaterThanOrEqual(1);
       expect(screen.getAllByText("اشتراک ۱ ساله").length).toBeGreaterThanOrEqual(1);
-      expect(screen.getByText("پرداخت آنلاین و فعال‌سازی")).toBeDefined();
+      expect(screen.getByText("ادامه جهت پرداخت کارت‌به‌کارت")).toBeDefined();
     });
 
     it("does NOT display destination card number, cardholder name or tracking inputs inside PricingModal", () => {
@@ -171,37 +171,22 @@ describe("PricingModal & PaywallModal Components", () => {
       expect(onCloseMock).toHaveBeenCalledTimes(1);
     });
 
-    it("handles product selection and calls online checkout mutation", () => {
+    it("displays online payment switcher as disabled with coming soon badge", () => {
       renderWithProviders(<PricingModal isOpen={true} onClose={vi.fn()} />);
 
-      // Click on monthly product
-      const monthlyCard = screen.getAllByText("اشتراک ۱ ماهه")[0];
-      fireEvent.click(monthlyCard);
-
-      // Click checkout button
-      const checkoutBtn = screen.getByText("پرداخت آنلاین و فعال‌سازی");
-      fireEvent.click(checkoutBtn);
-
-      expect(mockMutate).toHaveBeenCalledWith(
-        expect.objectContaining({
-          product_id: "prod-sub-monthly",
-        }),
-        expect.any(Object),
-      );
+      expect(screen.getByText("به‌زودی")).toBeDefined();
+      const onlineBtn = screen.getByText("پرداخت آنلاین").closest("button");
+      expect(onlineBtn).toBeDisabled();
     });
 
-    it("allows switching to Card-to-Card and navigates to dedicated Card-to-Card page on Continue", () => {
+    it("navigates to dedicated Card-to-Card page on Continue", () => {
       renderWithProviders(<PricingModal isOpen={true} onClose={vi.fn()} />);
-
-      // Switch to Card-to-Card tab
-      const c2cTab = screen.getByText("کارت‌به‌کارت (فعال‌سازی فوری)");
-      fireEvent.click(c2cTab);
 
       // Select monthly product
       const monthlyCard = screen.getAllByText("اشتراک ۱ ماهه")[0];
       fireEvent.click(monthlyCard);
 
-      // CTA button changes to continue to card-to-card
+      // CTA button continues to card-to-card
       const continueBtn = screen.getByText("ادامه جهت پرداخت کارت‌به‌کارت");
       expect(continueBtn).toBeDefined();
 

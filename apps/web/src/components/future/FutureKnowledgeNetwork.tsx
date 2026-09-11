@@ -195,19 +195,19 @@ export function FutureKnowledgeNetwork() {
       aria-label="بخش شبکه دانش یکپارچه آوانا"
     >
       {/* Background Lighting */}
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[750px] h-[550px] bg-cyan-600/10 rounded-full blur-3xl pointer-events-none -z-10" />
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[750px] h-[550px] bg-[#008080]/10 rounded-full blur-3xl pointer-events-none -z-10" />
 
       {/* Section Header */}
       <div className="text-center max-w-3xl mx-auto mb-12">
-        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold tracking-wide border mb-4 bg-teal-950/60 text-teal-300 border-teal-500/40 shadow-sm">
-          <Sparkles className="w-3.5 h-3.5 text-teal-300 animate-pulse" />
+        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold tracking-wide border mb-4 bg-[#008080]/15 text-[#00a8a8] border-[#008080]/30 shadow-sm">
+          <Sparkles className="w-3.5 h-3.5 text-[#00a8a8] animate-pulse" />
           <span>معماری شبکه دانش</span>
         </div>
 
-        <h2 className="font-headline text-3xl sm:text-4xl md:text-5xl font-black mb-4 text-white leading-tight">
+        <h2 className="font-headline text-3xl sm:text-4xl md:text-5xl font-black mb-4 text-[#F2F7F7] leading-tight">
           یک مفهوم، یک شبکه یادگیری
         </h2>
-        <p className="text-sm sm:text-base md:text-lg leading-relaxed text-slate-300">
+        <p className="text-sm sm:text-base md:text-lg leading-relaxed text-[#c8d8da]">
           در آوانا هیچ مفهومی یک صفحه جداگانه نیست؛ مولکول دارو در تمام چرخه درس، فلش‌کارت، آزمون و بالین به هم متصل است.
         </p>
       </div>
@@ -225,13 +225,13 @@ export function FutureKnowledgeNetwork() {
                 setSelectedDrugId(drug.id);
                 setActiveNodeId("mechanism");
               }}
-              className={`px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all duration-300 flex items-center gap-2 border cursor-pointer ${
+              className={`px-5 py-2.5 rounded-[10px] font-bold text-xs sm:text-sm transition-all duration-300 flex items-center gap-2 border cursor-pointer ${
                 isSelected
-                  ? "bg-teal-500/25 text-teal-200 border-teal-400 shadow-[0_0_20px_rgba(45,212,191,0.25)] scale-105"
-                  : "bg-slate-900/70 text-slate-400 border-white/10 hover:text-slate-200 hover:border-white/20"
+                  ? "bg-[#008080]/20 text-[#00a8a8] border-[#008080] shadow-[0_0_20px_rgba(0,128,128,0.25)] scale-105"
+                  : "bg-[#142124] text-[#9AAEB0] border-[#1e3235] hover:text-[#F2F7F7] hover:border-[#1e3235]/80"
               }`}
             >
-              <Pill className={`w-4 h-4 ${isSelected ? "text-teal-300" : "text-slate-500"}`} />
+              <Pill className={`w-4 h-4 ${isSelected ? "text-[#00a8a8]" : "text-[#9AAEB0]"}`} />
               <span>{drug.name}</span>
               <span className="text-[10px] font-sans opacity-75">({drug.enName})</span>
             </button>
@@ -240,26 +240,26 @@ export function FutureKnowledgeNetwork() {
       </div>
 
       {/* Drug Header Summary Banner */}
-      <div className="max-w-4xl mx-auto mb-6 p-4 sm:p-5 rounded-2xl bg-slate-900/80 border border-white/15 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 backdrop-blur-md">
+      <div className="max-w-4xl mx-auto mb-6 p-4 sm:p-5 rounded-[16px] bg-[#142124] border border-[#1e3235] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 backdrop-blur-md">
         <div>
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-base font-extrabold text-white">{currentDrug.name}</span>
-            <span className="text-xs text-teal-400 font-mono">[{currentDrug.enName}]</span>
-            <span className="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-300 border border-white/10">
+            <span className="text-base font-extrabold text-[#F2F7F7]">{currentDrug.name}</span>
+            <span className="text-xs text-[#00a8a8] font-mono">[{currentDrug.enName}]</span>
+            <span className="px-2 py-0.5 rounded-[6px] text-[10px] bg-[#192A2D] text-[#c8d8da] border border-[#1e3235]">
               {currentDrug.category}
             </span>
           </div>
-          <p className="text-xs text-slate-400 mt-1">{currentDrug.centralSummary}</p>
+          <p className="text-xs text-[#9AAEB0] mt-1">{currentDrug.centralSummary}</p>
         </div>
 
-        <div className="flex items-center gap-1.5 text-xs text-teal-300 bg-teal-950/70 border border-teal-500/30 px-3 py-1.5 rounded-xl shrink-0">
+        <div className="flex items-center gap-1.5 text-xs text-[#00a8a8] bg-[#008080]/15 border border-[#008080]/30 px-3 py-1.5 rounded-[10px] shrink-0">
           <CheckCircle2 className="w-3.5 h-3.5" />
           <span>شبکه یکپارچه ۶ بعدی</span>
         </div>
       </div>
 
       {/* Network Interactive Orbit Grid & Detail Box */}
-      <div className="max-w-4xl mx-auto rounded-3xl bg-slate-900/90 border border-white/15 p-5 sm:p-8 backdrop-blur-2xl shadow-2xl">
+      <div className="max-w-4xl mx-auto rounded-[20px] bg-[#142124] border border-[#1e3235] p-5 sm:p-8 backdrop-blur-2xl shadow-2xl">
         {/* Nodes Grid */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 mb-8" role="tablist" aria-label="لایه‌های شبکه دانش">
           {NETWORK_NODES.map((node) => {
@@ -271,24 +271,24 @@ export function FutureKnowledgeNetwork() {
                 role="tab"
                 aria-selected={isSelected}
                 onClick={() => setActiveNodeId(node.id)}
-                className={`p-3 rounded-2xl border flex flex-col items-center gap-2 text-center transition-all duration-300 cursor-pointer ${
+                className={`p-3 rounded-[12px] border flex flex-col items-center gap-2 text-center transition-all duration-300 cursor-pointer ${
                   isSelected
-                    ? "bg-teal-950/80 border-teal-400 shadow-[0_0_20px_rgba(45,212,191,0.35)] scale-105 z-10"
-                    : "bg-slate-900/60 border-white/10 text-slate-400 opacity-70 hover:opacity-100 hover:border-white/20"
+                    ? "bg-[#008080]/20 border-[#008080] shadow-[0_0_20px_rgba(0,128,128,0.35)] scale-105 z-10"
+                    : "bg-[#0D1719] border-[#1e3235] text-[#9AAEB0] opacity-80 hover:opacity-100 hover:border-[#008080]/40"
                 }`}
               >
                 <div
-                  className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${
+                  className={`w-10 h-10 rounded-[8px] flex items-center justify-center transition-all ${
                     isSelected
-                      ? "bg-teal-500 text-slate-950 font-bold shadow-md"
-                      : "bg-slate-800 text-slate-400"
+                      ? "bg-[#008080] text-white font-bold shadow-md"
+                      : "bg-[#192A2D] text-[#9AAEB0]"
                   }`}
                 >
                   <Icon className="w-5 h-5" />
                 </div>
                 <span
                   className={`text-xs font-bold leading-tight ${
-                    isSelected ? "text-teal-200" : "text-slate-300"
+                    isSelected ? "text-[#00a8a8]" : "text-[#c8d8da]"
                   }`}
                 >
                   {node.label}
@@ -306,25 +306,25 @@ export function FutureKnowledgeNetwork() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -15 }}
             transition={{ duration: 0.3 }}
-            className="rounded-2xl bg-gradient-to-br from-slate-800/90 via-slate-900/95 to-[#0b1120] border border-teal-500/30 p-5 sm:p-7 relative overflow-hidden"
+            className="rounded-[16px] bg-gradient-to-br from-[#192A2D] via-[#142124] to-[#0D1719] border border-[#008080]/30 p-5 sm:p-7 relative overflow-hidden"
           >
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4 pb-4 border-b border-white/10">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4 pb-4 border-b border-[#1e3235]">
               <div className="flex items-center gap-3">
-                <div className="w-11 h-11 rounded-2xl bg-teal-500/20 border border-teal-500/30 text-teal-300 flex items-center justify-center shrink-0 shadow-lg">
+                <div className="w-11 h-11 rounded-[10px] bg-[#008080]/20 border border-[#008080]/30 text-[#00a8a8] flex items-center justify-center shrink-0 shadow-lg">
                   <activeNodeMeta.icon className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-base sm:text-lg font-black text-white">{activeNodeData.title}</h3>
-                  <span className="text-[11px] text-teal-400 font-sans">{activeNodeMeta.enLabel}</span>
+                  <h3 className="text-base sm:text-lg font-black text-[#F2F7F7]">{activeNodeData.title}</h3>
+                  <span className="text-[11px] text-[#00a8a8] font-sans">{activeNodeMeta.enLabel}</span>
                 </div>
               </div>
 
-              <div className="px-3 py-1 rounded-xl text-xs font-bold bg-teal-950/70 text-teal-300 border border-teal-500/30">
+              <div className="px-3 py-1 rounded-[8px] text-xs font-bold bg-[#008080]/15 text-[#00a8a8] border border-[#008080]/30">
                 <span>ماژول در آوانا: {activeNodeData.avanaModule}</span>
               </div>
             </div>
 
-            <p className="text-xs sm:text-sm text-slate-300 leading-relaxed font-body">
+            <p className="text-xs sm:text-sm text-[#c8d8da] leading-relaxed font-body">
               {activeNodeData.description}
             </p>
           </motion.div>

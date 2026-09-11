@@ -1,10 +1,13 @@
 import { useState, useCallback } from "react";
 import { motion } from "framer-motion";
 import { Upload, FileText, X, ArrowLeft, Sparkles } from "lucide-react";
+import { CONTENT_GENERATION_ENABLED } from "../../config/features.js";
+import { ComingSoonGenerationModal } from "../generation/ComingSoonGenerationModal.js";
 
 export function StepUpload() {
   const [isDragOver, setIsDragOver] = useState(false);
   const [files, setFiles] = useState<string[]>([]);
+  const [isComingSoonOpen, setIsComingSoonOpen] = useState(false);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -198,22 +201,37 @@ export function StepUpload() {
           scale: 1.01,
         }}
         whileTap={{ scale: 0.99 }}
-        disabled={files.length === 0}
+        onClick={() => {
+          if (!CONTENT_GENERATION_ENABLED) {
+            setIsComingSoonOpen(true);
+          }
+        }}
         className={`w-full py-4 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-md transition-all ${
           files.length > 0
-            ? "bg-[#008080] hover:bg-[#006666] text-white cursor-pointer"
+            ? !CONTENT_GENERATION_ENABLED
+              ? "bg-gradient-to-r from-amber-500/15 to-teal-500/15 border border-amber-500/30 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 cursor-pointer"
+              : "bg-[#008080] hover:bg-[#006666] text-white cursor-pointer"
             : "bg-[var(--color-border)] text-[var(--color-text-muted)] cursor-not-allowed"
         }`}
       >
         {files.length > 0 ? (
           <>
-            <span>تولید محتوای آموزشی و شروع یادگیری</span>
+            <span>
+              {!CONTENT_GENERATION_ENABLED
+                ? "تولید محتوای آموزشی (به‌زودی)"
+                : "تولید محتوای آموزشی و شروع یادگیری"}
+            </span>
             <ArrowLeft className="w-4 h-4" />
           </>
         ) : (
           "برای ادامه یک فایل انتخاب کنید"
         )}
       </motion.button>
+
+      <ComingSoonGenerationModal
+        isOpen={isComingSoonOpen}
+        onClose={() => setIsComingSoonOpen(false)}
+      />
     </div>
   );
 }

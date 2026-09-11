@@ -177,7 +177,7 @@ export function AddToCourseModal({
 
   return (
     <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center p-4 sm:p-6 bg-slate-950/85 backdrop-blur-xl overflow-y-auto"
+      className="fixed inset-0 z-[9999] flex items-center justify-center p-4 sm:p-6 bg-black/50 backdrop-blur-xs overflow-y-auto"
       dir="rtl"
       role="dialog"
       aria-modal="true"
@@ -188,19 +188,19 @@ export function AddToCourseModal({
         }
       }}
     >
-      <div className="relative w-full max-w-lg bg-slate-900 border border-white/10 rounded-2xl shadow-2xl overflow-hidden glass-panel flex flex-col">
+      <div className="relative w-full max-w-lg bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl shadow-xl overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="p-5 sm:p-6 border-b border-white/10 flex items-start justify-between gap-4 bg-slate-900/80">
+        <div className="p-5 sm:p-6 border-b border-[var(--color-border)] flex items-start justify-between gap-4 bg-[var(--color-surface)]">
           <div className="min-w-0">
             <h2
               id="add-to-course-title"
-              className="text-lg font-bold text-white flex items-center gap-2"
+              className="text-lg font-bold text-[var(--color-text)] flex items-center gap-2"
             >
-              <GraduationCap className="w-5 h-5 text-teal-400" />
+              <GraduationCap className="w-5 h-5 text-[#008080]" />
               <span>افزودن بسته به دوره آموزشی</span>
             </h2>
-            <p className="text-xs text-slate-400 mt-1 truncate">
-              بسته: <span className="text-slate-200 font-semibold">{pack.title}</span>
+            <p className="text-xs text-[var(--color-text-muted)] mt-1 truncate">
+              بسته: <span className="text-[var(--color-text)] font-semibold">{pack.title}</span>
             </p>
           </div>
 
@@ -208,7 +208,7 @@ export function AddToCourseModal({
             type="button"
             onClick={onClose}
             aria-label="بستن"
-            className="text-slate-400 hover:text-white p-2 rounded-xl hover:bg-white/10 transition-colors"
+            className="text-[var(--color-text-muted)] hover:text-[var(--color-text)] p-2 rounded-xl hover:bg-slate-100 transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -218,10 +218,10 @@ export function AddToCourseModal({
         <div className="p-5 sm:p-6 space-y-5">
           {/* 0. Unauthenticated Guard */}
           {!isAuthenticated ? (
-            <div className="p-6 text-center rounded-2xl bg-white/[0.02] border border-white/5 space-y-4">
-              <GraduationCap className="w-10 h-10 text-teal-400 mx-auto" />
-              <h4 className="text-sm font-bold text-white">برای افزودن به دوره وارد شوید</h4>
-              <p className="text-xs text-slate-400">
+            <div className="p-6 text-center rounded-2xl bg-[var(--color-surface-warm)] border border-[var(--color-border)] space-y-4">
+              <GraduationCap className="w-10 h-10 text-[#008080] mx-auto" />
+              <h4 className="text-sm font-bold text-[var(--color-text)]">برای افزودن به دوره وارد شوید</h4>
+              <p className="text-xs text-[var(--color-text-muted)]">
                 جهت افزودن این بسته آموزشی به دوره‌های خود، لطفاً ابتدا وارد حساب کاربری شوید.
               </p>
               <button
@@ -230,7 +230,7 @@ export function AddToCourseModal({
                   onClose();
                   navigate("/sign-in");
                 }}
-                className="px-5 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold shadow-md shadow-teal-900/30 transition-all"
+                className="px-5 py-2.5 rounded-xl bg-[#008080] hover:bg-[#006666] text-white text-xs font-bold shadow-xs transition-all"
               >
                 ورود به حساب کاربری
               </button>
@@ -238,29 +238,29 @@ export function AddToCourseModal({
           ) : result ? (
             <div className="space-y-4">
               {result.already_installed ? (
-                <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-200 text-xs flex items-start gap-3">
-                  <Info className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-start gap-3">
+                  <Info className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
                   <div>
-                    <h4 className="font-bold text-sm text-white mb-1">
+                    <h4 className="font-bold text-sm text-[var(--color-text)] mb-1">
                       این بسته قبلاً به این دوره اضافه شده است.
                     </h4>
-                    <p className="text-slate-300 leading-relaxed">
+                    <p className="text-[var(--color-text-muted)] leading-relaxed">
                       محتوای آموزشی، جلسات درس، فلش‌کارت‌ها و آزمون‌های این بسته از قبل در دوره «
                       {selectedCourse?.title || "انتخاب‌شده"}» قرار دارند.
                     </p>
                   </div>
                 </div>
               ) : (
-                <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-200 text-xs flex items-start gap-3">
-                  <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+                <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs flex items-start gap-3">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
                   <div>
-                    <h4 className="font-bold text-sm text-white mb-1">
+                    <h4 className="font-bold text-sm text-[var(--color-text)] mb-1">
                       این بسته با موفقیت به دوره شما اضافه شد.
                     </h4>
-                    <p className="text-slate-300 leading-relaxed">
+                    <p className="text-[var(--color-text-muted)] leading-relaxed">
                       یک فصل آموزشی جدید با مشخصات زیر به دوره شما افزوده شد:
                     </p>
-                    <ul className="mt-2 space-y-1 text-slate-300 font-medium list-disc list-inside">
+                    <ul className="mt-2 space-y-1 text-[var(--color-text-muted)] font-medium list-disc list-inside">
                       {result.materialized.lessons_created > 0 && (
                         <li>{result.materialized.lessons_created} جلسه درسنامه اختصاصی</li>
                       )}
@@ -282,7 +282,7 @@ export function AddToCourseModal({
                 <button
                   type="button"
                   onClick={() => handleGoToCourse(selectedCourseId!)}
-                  className="w-full flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold shadow-lg shadow-teal-900/30 transition-all"
+                  className="w-full flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-[#008080] hover:bg-[#006666] text-white text-xs font-bold shadow-xs transition-all"
                 >
                   <span>رفتن به دوره</span>
                   <ArrowRight className="w-4 h-4" />
@@ -294,14 +294,14 @@ export function AddToCourseModal({
               {/* 2. Loading Courses */}
               {coursesQuery.isLoading && (
                 <div className="flex flex-col items-center justify-center py-10 gap-3">
-                  <Loader2 className="w-6 h-6 text-teal-400 animate-spin" />
-                  <p className="text-xs text-slate-400">در حال دریافت دوره‌های شما...</p>
+                  <Loader2 className="w-6 h-6 text-[#008080] animate-spin" />
+                  <p className="text-xs text-[var(--color-text-muted)]">در حال دریافت دوره‌های شما...</p>
                 </div>
               )}
 
               {/* 3. Error Alert */}
               {(customError || coursesQuery.isError) && (
-                <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs flex items-center gap-2">
+                <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 shrink-0" />
                   <span>
                     {customError || coursesQuery.error?.message || "خطا در دریافت دوره‌ها"}
@@ -311,10 +311,10 @@ export function AddToCourseModal({
 
               {/* 4. No Courses Available */}
               {!coursesQuery.isLoading && courses.length === 0 && (
-                <div className="p-6 text-center rounded-2xl bg-white/[0.02] border border-white/5 space-y-3">
-                  <BookOpen className="w-8 h-8 text-slate-400 mx-auto" />
-                  <h4 className="text-sm font-bold text-white">شما هنوز دوره‌ای ندارید</h4>
-                  <p className="text-xs text-slate-400">
+                <div className="p-6 text-center rounded-2xl bg-[var(--color-surface-warm)] border border-[var(--color-border)] space-y-3">
+                  <BookOpen className="w-8 h-8 text-[var(--color-text-muted)] mx-auto" />
+                  <h4 className="text-sm font-bold text-[var(--color-text)]">شما هنوز دوره‌ای ندارید</h4>
+                  <p className="text-xs text-[var(--color-text-muted)]">
                     برای افزودن محتوای کتابخانه، ابتدا باید حداقل یک دوره آموزشی در داشبورد خود انتخاب یا ایجاد کنید.
                   </p>
                   <button
@@ -323,7 +323,7 @@ export function AddToCourseModal({
                       onClose();
                       navigate("/courses");
                     }}
-                    className="px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold"
+                    className="px-4 py-2 rounded-xl bg-[#008080] hover:bg-[#006666] text-white text-xs font-bold"
                   >
                     مدیریت و ایجاد دوره
                   </button>
@@ -333,7 +333,7 @@ export function AddToCourseModal({
               {/* 5. Course Selector List */}
               {courses.length > 0 && (
                 <div className="space-y-3">
-                  <label className="block text-xs font-bold text-slate-300">
+                  <label className="block text-xs font-bold text-[var(--color-text)]">
                     دوره مقصد را انتخاب کنید:
                   </label>
 
@@ -346,31 +346,31 @@ export function AddToCourseModal({
                           onClick={() => setSelectedCourseId(course.id)}
                           className={`flex items-center justify-between p-3.5 rounded-xl border cursor-pointer transition-all ${
                             isSelected
-                              ? "bg-teal-500/15 border-teal-500/50 text-white shadow-sm"
-                              : "bg-white/[0.02] border-white/5 hover:bg-white/5 text-slate-300"
+                              ? "bg-teal-50 border-teal-300 text-[var(--color-text)] shadow-xs"
+                              : "bg-[var(--color-surface-warm)] border-[var(--color-border)] hover:bg-slate-100 text-[var(--color-text)]"
                           }`}
                         >
                           <div className="flex items-center gap-3 min-w-0">
                             <div
                               className={`w-4 h-4 rounded-full border flex items-center justify-center ${
                                 isSelected
-                                  ? "border-teal-400 bg-teal-500"
-                                  : "border-slate-500 bg-transparent"
+                                  ? "border-[#008080] bg-[#008080]"
+                                  : "border-slate-300 bg-white"
                               }`}
                             >
-                              {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-slate-950" />}
+                              {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
                             </div>
 
                             <div className="min-w-0">
                               <h4 className="text-xs font-bold truncate">{course.title}</h4>
-                              <p className="text-[10px] text-slate-400 mt-0.5">
+                              <p className="text-[10px] text-[var(--color-text-muted)] mt-0.5">
                                 موضوع: {course.subject || "عمومی"}
                               </p>
                             </div>
                           </div>
 
                           {isSelected && (
-                            <span className="text-[10px] font-semibold text-teal-400 bg-teal-500/10 px-2 py-0.5 rounded-full border border-teal-500/20">
+                            <span className="text-[10px] font-semibold text-teal-800 bg-teal-100 px-2 py-0.5 rounded-full border border-teal-200">
                               انتخاب‌شده
                             </span>
                           )}
@@ -383,12 +383,12 @@ export function AddToCourseModal({
 
               {/* Action Buttons */}
               {courses.length > 0 && (
-                <div className="pt-3 border-t border-white/10 flex items-center justify-between gap-3">
+                <div className="pt-3 border-t border-[var(--color-border)] flex items-center justify-between gap-3">
                   <button
                     type="button"
                     onClick={onClose}
                     disabled={addPackMutation.isPending}
-                    className="px-4 py-2 rounded-xl text-xs font-bold text-slate-400 hover:text-white hover:bg-white/5 transition-colors disabled:opacity-50"
+                    className="px-4 py-2 rounded-xl text-xs font-bold text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-slate-100 transition-colors disabled:opacity-50"
                   >
                     انصراف
                   </button>
@@ -397,7 +397,7 @@ export function AddToCourseModal({
                     type="button"
                     onClick={handleAdd}
                     disabled={!selectedCourseId || addPackMutation.isPending}
-                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-teal-600 hover:bg-teal-500 disabled:opacity-50 shadow-md shadow-teal-900/30 transition-all"
+                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-[#008080] hover:bg-[#006666] disabled:opacity-50 shadow-xs transition-all"
                   >
                     {addPackMutation.isPending ? (
                       <>

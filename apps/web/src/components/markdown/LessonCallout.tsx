@@ -159,7 +159,7 @@ export function LessonCallout({
           {displayTitle}
         </span>
       </div>
-      <div className="text-[13.5px] sm:text-[14.5px] text-slate-200 leading-[1.8] space-y-2 break-words [&>p]:!mb-0 [&>ul]:!mb-0 [&>ol]:!mb-0 [&>blockquote]:!my-1.5 [&>pre]:!my-1.5 [&>*:first-child]:!mt-0 [&>*:last-child]:!mb-0 [&_p:last-child]:!mb-0 [&>ul]:pr-4 [&>ol]:pr-4 [&>ul]:my-1.5 [&>ol]:my-1.5 [&>li]:leading-[1.8]">
+      <div className="text-[13.5px] sm:text-[14.5px] text-[var(--color-text-secondary)] dark:text-slate-200 leading-[1.8] space-y-2 break-words [&>p]:!mb-0 [&>ul]:!mb-0 [&>ol]:!mb-0 [&>blockquote]:!my-1.5 [&>pre]:!my-1.5 [&>*:first-child]:!mt-0 [&>*:last-child]:!mb-0 [&_p:last-child]:!mb-0 [&>ul]:pr-4 [&>ol]:pr-4 [&>ul]:my-1.5 [&>ol]:my-1.5 [&>li]:leading-[1.8]">
         {children}
       </div>
     </div>

@@ -1,16 +1,67 @@
 /**
- * Landing page hero section — AVANA Narrative & Interactive Experience.
+ * Hero Section — AVANA Reference Design Redesign.
  *
- * Preserves 100% of existing content, headlines, CTAs, social proof, and dashboard replica.
- * Enhanced with dynamic knowledge particle constellation canvas, floating concept badges,
- * and high-fidelity glassmorphism.
+ * Core Narrative:
+ * "جزوهات را بده به آوانا. یادگیریش با آوانا."
+ * "آوانا منابع درسی‌ات را به درسنامه، فلش‌کارت، آزمون و مرور سریع تبدیل می‌کند."
+ *
+ * Visual Transformation:
+ * Raw sources (PDF/جزوه) -> AVANA Core -> [درسنامه, فلش‌کارت, آزمون, مرور]
+ * Fully responsive: elegant horizontal layout on desktop, stacked vertical flow on mobile.
  */
 
 import { motion } from "framer-motion";
-import { ArrowLeft, Sparkles } from "lucide-react";
+import {
+  ArrowLeft,
+  Play,
+  BookOpen,
+  Layers,
+  FileCheck2,
+  Clock,
+  FileText,
+  Heart,
+} from "lucide-react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../../providers/AuthProvider.js";
-import { LandingHeroCanvas } from "./canvas/LandingHeroCanvas.js";
+
+const outputCards = [
+  {
+    id: "lecture",
+    title: "درسنامه",
+    desc: "خلاصه مفهومی و ساختاریافته",
+    icon: BookOpen,
+    accent: "#008080",
+    bg: "bg-teal-50/80",
+    border: "border-teal-200/80",
+  },
+  {
+    id: "flashcard",
+    title: "فلش‌کارت",
+    desc: "مرور فاصله‌دار هوشمند",
+    icon: Layers,
+    accent: "#0284c7",
+    bg: "bg-sky-50/80",
+    border: "border-sky-200/80",
+  },
+  {
+    id: "quiz",
+    title: "آزمون",
+    desc: "سنجش و تثبیت آموخته‌ها",
+    icon: FileCheck2,
+    accent: "#0f766e",
+    bg: "bg-emerald-50/80",
+    border: "border-emerald-200/80",
+  },
+  {
+    id: "review",
+    title: "مرور",
+    desc: "جمع‌بندی نکات کلیدی آزمونی",
+    icon: Clock,
+    accent: "#0d9488",
+    bg: "bg-teal-50/80",
+    border: "border-teal-200/80",
+  },
+];
 
 export function HeroSection() {
   const { isAuthenticated } = useAuth();
@@ -19,281 +70,278 @@ export function HeroSection() {
   return (
     <section
       id="hero"
-      className="snap-section relative py-10 lg:py-0 lg:h-[calc(100dvh-80px)] lg:min-h-[calc(100dvh-80px)] flex flex-col justify-center px-6 max-w-[1280px] mx-auto overflow-hidden scroll-mt-20"
+      className="relative pt-12 pb-16 lg:pt-16 lg:pb-24 px-4 sm:px-6 max-w-[1280px] mx-auto overflow-hidden text-right"
       aria-label="بخش آغازین معرفی پلتفرم آوانا"
     >
-      {/* Dynamic Background Constellation Canvas */}
-      <div className="absolute inset-0 -z-10">
-        <LandingHeroCanvas />
-        {/* Soft Radial Ambient Lighting */}
-        <div
-          className="absolute top-1/4 right-1/4 w-[600px] h-[600px] rounded-full blur-3xl pointer-events-none -z-10"
-          style={{
-            background:
-              "radial-gradient(circle, rgba(15,118,110,0.2) 0%, rgba(139,92,246,0.12) 50%, transparent 70%)",
-          }}
-        />
-        <div
-          className="absolute bottom-10 left-10 w-[500px] h-[500px] rounded-full blur-3xl pointer-events-none -z-10"
-          style={{
-            background:
-              "radial-gradient(circle, rgba(56,189,248,0.15) 0%, rgba(0,128,128,0.1) 60%, transparent 75%)",
-          }}
-        />
-      </div>
+      {/* Subtle background ambient glow (Warm ivory & Pale blue, Light-first) */}
+      <div className="absolute top-10 right-1/4 w-96 h-96 bg-[#A7D0E6]/20 rounded-full blur-3xl pointer-events-none -z-10" />
+      <div className="absolute top-20 left-10 w-80 h-80 bg-[#F0E6D2]/35 rounded-full blur-3xl pointer-events-none -z-10" />
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-center">
-        {/* Text Content */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-8 items-center">
+        {/* RIGHT COLUMN (RTL): Headline, Subtitle, CTAs */}
         <motion.div
-          initial={{ opacity: 0, y: 30 }}
+          initial={{ opacity: 0, y: 24 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8, ease: "easeOut" }}
-          className="flex flex-col gap-6 text-right order-2 lg:order-1 z-10"
+          transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
+          className="lg:col-span-5 flex flex-col gap-6 z-10"
         >
-          {/* Badge */}
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.15 }}
-            className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full w-max text-xs sm:text-sm font-semibold tracking-wide border shadow-md backdrop-blur-md transition-all duration-300 bg-teal-950/60 text-teal-300 border-teal-500/40 hover:border-teal-400 hover:shadow-[0_0_20px_rgba(45,212,191,0.25)]"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-teal-300 animate-pulse" />
-            <span>پلتفرم نوین آموزش پزشکی</span>
-          </motion.div>
-
           {/* Headline */}
-          <h1
-            className="font-headline text-3xl sm:text-4xl md:text-5xl lg:text-6xl leading-[1.25] sm:leading-[1.3] font-black text-white tracking-tight"
-          >
-            درس بخون، مرور کن، <br />
-            خودت رو بسنج؛ <br />
-            <span
-              className="text-transparent bg-clip-text bg-gradient-to-l from-teal-300 via-teal-400 to-cyan-300 drop-shadow-[0_0_35px_rgba(45,212,191,0.3)]"
-            >
-              همه‌چیز با آوانا
-            </span>
+          <h1 className="font-headline text-3xl sm:text-4xl md:text-5xl lg:text-[50px] leading-[1.22] font-black text-[#1a2226] tracking-tight">
+            جزوهات را بده به آوانا.
+            <br />
+            <span className="text-[#008080]">یادگیریش با آوانا.</span>
           </h1>
 
           {/* Subtitle */}
-          <p
-            className="text-sm sm:text-base md:text-lg leading-relaxed max-w-xl text-slate-300"
-          >
-            تجربه‌ای متفاوت از یادگیری با خلاصه‌سازی هوشمند، فلش‌کارت‌های
-            یکپارچه و سیستم آزمون‌ساز. مسیر موفقیت در تحصیلات پزشکی از اینجا
-            آغاز می‌شود.
+          <p className="text-base sm:text-lg leading-relaxed text-[#3d4f55] max-w-xl font-normal">
+            آوانا منابع درسی‌ات را به درسنامه، فلش‌کارت، آزمون و مرور سریع تبدیل می‌کند.
           </p>
 
-          {/* CTA Buttons */}
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.3 }}
-            className="flex flex-col sm:flex-row-reverse gap-4 pt-2"
-          >
+          {/* CTAs */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 pt-2">
             <Link
               to={ctaHref}
-              className="h-14 px-8 rounded-xl font-bold text-base flex items-center justify-center gap-2.5 cursor-pointer active:scale-95 transition-all duration-300 bg-[#008080] hover:bg-[#005a5a] text-white shadow-[0_0_25px_rgba(0,128,128,0.4)] hover:shadow-[0_0_35px_rgba(45,212,191,0.5)] hover:-translate-y-1"
+              className="h-12 px-7 rounded-xl font-bold text-sm sm:text-base flex items-center justify-center gap-2.5 cursor-pointer active:scale-[0.98] transition-all duration-200 bg-[#008080] hover:bg-[#007575] active:bg-[#006060] text-white shadow-md shadow-[#008080]/20 hover:-translate-y-0.5"
             >
-              <span>شروع یادگیری</span>
-              <ArrowLeft className="w-5 h-5" />
+              <span>شروع با آوانا</span>
+              <ArrowLeft className="w-4 h-4" />
             </Link>
+
             <a
-              href="#how-it-works"
-              className="h-14 px-7 rounded-xl font-bold text-base flex items-center justify-center gap-2 cursor-pointer active:scale-95 transition-all duration-300 bg-slate-900/80 hover:bg-slate-800 text-slate-200 border border-white/20 hover:border-teal-500/50 hover:-translate-y-1 backdrop-blur-md"
+              href="#transformation"
+              className="h-12 px-5 rounded-xl font-medium text-sm sm:text-base flex items-center justify-center gap-2 cursor-pointer transition-colors duration-200 text-[#3d4f55] hover:text-[#008080]"
             >
+              <div className="w-7 h-7 rounded-full bg-white border border-[#E2E7EA] flex items-center justify-center shadow-xs text-[#008080]">
+                <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+              </div>
               <span>آوانا چطور کار می‌کند؟</span>
             </a>
-          </motion.div>
-
-          {/* Social Proof */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.45 }}
-            className="flex items-center gap-4 mt-2 pt-6 border-t border-white/10"
-          >
-            <div className="flex -space-x-3 rtl:space-x-reverse">
-              {["آ", "م", "س"].map((initial, i) => (
-                <div
-                  key={i}
-                  className="w-9 h-9 rounded-full border-2 border-[#0b1120] flex items-center justify-center text-white text-xs font-bold shadow-md hover:scale-110 hover:z-10 transition-transform duration-300"
-                  style={{
-                    background: [
-                      "linear-gradient(135deg, #0f766e, #005c55)",
-                      "linear-gradient(135deg, #6b38d4, #8455ef)",
-                      "linear-gradient(135deg, #007952, #005e3f)",
-                    ][i],
-                  }}
-                >
-                  {initial}
-                </div>
-              ))}
-            </div>
-            <div className="text-xs sm:text-sm text-slate-300">
-              <span className="font-extrabold text-white block">
-                بیش از ۱۰,۰۰۰+
-              </span>
-              دانشجوی پزشکی و داروسازی
-            </div>
-          </motion.div>
+          </div>
         </motion.div>
 
-        {/* Hero Image / High Fidelity HTML Mockup */}
+        {/* LEFT COLUMN (RTL): Transformation Visual (Raw Sources -> AVANA Core -> 4 Outputs) */}
         <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
+          initial={{ opacity: 0, scale: 0.96 }}
           animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.8, delay: 0.2, ease: "easeOut" }}
-          className="relative order-1 lg:order-2"
+          transition={{ duration: 0.8, delay: 0.15, ease: [0.16, 1, 0.3, 1] }}
+          className="lg:col-span-7 relative flex items-center justify-center"
         >
-          {/* Ambient Glow underneath mockup */}
-          <div className="absolute -inset-2 bg-gradient-to-r from-teal-500/20 via-cyan-500/20 to-purple-500/20 rounded-3xl blur-2xl opacity-75 pointer-events-none" />
-
+          {/* DESKTOP/TABLET COMPOSITION (LTR flow: Raw Sources (Left) -> AVANA Core (Center) -> 4 Outputs (Right)) */}
           <div
-            className="relative w-full aspect-[4/3] rounded-2xl overflow-hidden shadow-2xl transition-all duration-500 hover:shadow-[0_20px_50px_rgba(0,128,128,0.25)] border border-white/15 bg-[#0b1120]"
+            dir="ltr"
+            className="hidden sm:flex items-center justify-between w-full max-w-[720px] relative py-8 px-2"
           >
-            {/* HTML Mockup of AVANA Dashboard (Exact Replica of HomePage /home) */}
-            <div className="absolute inset-0 flex flex-col bg-[#0b1120] text-right dir-rtl pointer-events-none select-none text-slate-100 p-3 sm:p-4 overflow-hidden text-[10px]">
-              {/* 1. Header Greeting */}
-              <div className="flex justify-between items-center mb-2.5 pb-2 border-b border-white/10">
-                <div>
-                  <h4 className="text-xs sm:text-sm font-black text-white">سلام علی 👋</h4>
-                  <p className="text-[9px] sm:text-[10px] text-slate-400">امروز آماده‌ای ادامه بدی؟</p>
-                </div>
-                <div className="bg-slate-800/90 px-2.5 py-1 rounded-full border border-white/10 text-[9px] sm:text-[10px] text-slate-300 flex items-center gap-1">
-                  <span className="text-purple-300 font-bold">📅 ۱۲ مهر ۱۴۰۳</span>
-                </div>
-              </div>
+            {/* SVG Connecting Flow Lines (Left to Right) */}
+            <svg
+              className="absolute inset-0 w-full h-full pointer-events-none z-0"
+              viewBox="0 0 720 360"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <defs>
+                <linearGradient id="hero-flow-grad-1" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stopColor="#008080" stopOpacity="0.25" />
+                  <stop offset="100%" stopColor="#008080" stopOpacity="0.75" />
+                </linearGradient>
+                <linearGradient id="hero-flow-grad-2" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stopColor="#008080" stopOpacity="0.75" />
+                  <stop offset="100%" stopColor="#008080" stopOpacity="0.3" />
+                </linearGradient>
+              </defs>
 
-              {/* 2. Main Layout (Hero + Stats + Courses) */}
-              <div className="grid grid-cols-12 gap-2 sm:gap-2.5 flex-1 overflow-hidden">
-                {/* Left/Main Area (8 cols) */}
-                <div className="col-span-8 flex flex-col gap-2">
-                  {/* Hero Card */}
-                  <div className="rounded-xl bg-gradient-to-br from-slate-800/90 to-slate-900/90 border border-teal-500/30 p-2.5 flex justify-between items-center relative overflow-hidden shadow-lg">
-                    <div className="absolute -left-6 -top-6 w-16 h-16 bg-[#008080]/30 rounded-full blur-xl" />
-                    <div className="space-y-1 z-10 w-3/4">
-                      <span className="inline-block px-1.5 py-0.5 bg-purple-500/20 text-purple-300 text-[8px] font-bold rounded-full border border-purple-500/30">
-                        فارماکولوژی پایه
+              {/* Flow 1: From Source Stack (approx x:200, y:180) to AVANA Core (x:320, y:180) */}
+              <path
+                d="M 200 180 C 245 180, 275 180, 320 180"
+                stroke="url(#hero-flow-grad-1)"
+                strokeWidth="2.5"
+                strokeDasharray="5 5"
+                className="opacity-60"
+              />
+
+              {/* Flow 2: From AVANA Core (x:400, y:180) to 4 Pillars (x:520) */}
+              {/* Curve to Lesson (y:60) */}
+              <path
+                d="M 400 160 C 445 140, 475 75, 520 60"
+                stroke="url(#hero-flow-grad-2)"
+                strokeWidth="2"
+                strokeDasharray="4 4"
+                className="opacity-50"
+              />
+              {/* Curve to Flashcard (y:140) */}
+              <path
+                d="M 400 170 C 445 165, 475 145, 520 140"
+                stroke="url(#hero-flow-grad-2)"
+                strokeWidth="2"
+                strokeDasharray="4 4"
+                className="opacity-50"
+              />
+              {/* Curve to Quiz (y:220) */}
+              <path
+                d="M 400 190 C 445 195, 475 215, 520 220"
+                stroke="url(#hero-flow-grad-2)"
+                strokeWidth="2"
+                strokeDasharray="4 4"
+                className="opacity-50"
+              />
+              {/* Curve to Review (y:300) */}
+              <path
+                d="M 400 200 C 445 220, 475 285, 520 300"
+                stroke="url(#hero-flow-grad-2)"
+                strokeWidth="2"
+                strokeDasharray="4 4"
+                className="opacity-50"
+              />
+            </svg>
+
+            {/* 1. Raw Source Material Stack (Left side of visual) */}
+            <div dir="rtl" className="relative z-10 flex flex-col items-center">
+              <motion.div
+                animate={{ y: [0, -6, 0] }}
+                transition={{ duration: 6, repeat: Infinity, ease: "easeInOut" }}
+                className="relative"
+              >
+                {/* Background tilted card (Notebook/Handwritten page) */}
+                <div className="absolute -inset-1.5 bg-[#F0E6D2] rounded-2xl rotate-[-5deg] border border-[#E2E7EA] shadow-xs" />
+
+                {/* Secondary card (Lecture slide) */}
+                <div className="absolute -inset-0.5 bg-white rounded-2xl rotate-[3deg] border border-[#E2E7EA] shadow-xs" />
+
+                {/* Main Foreground Document (Pharmacology Lecture PDF) */}
+                <div className="relative w-44 sm:w-48 bg-white rounded-2xl p-4 border border-[#E2E7EA] shadow-card">
+                  {/* Document Header */}
+                  <div className="flex items-center justify-between pb-2 mb-2 border-b border-[#EEF1F3]">
+                    <div className="flex items-center gap-1.5">
+                      <span className="px-1.5 py-0.5 rounded bg-rose-50 border border-rose-200 text-rose-600 text-[9px] font-bold">
+                        PDF
                       </span>
-                      <h5 className="text-[11px] font-extrabold text-white">فصل ۴ — سیستم عصبی خودمختار</h5>
-                      <p className="text-[8px] text-teal-300 font-bold">آوانا؛ همراه هوشمند یادگیری شما</p>
-
-                      {/* Progress bar */}
-                      <div className="pt-1">
-                        <div className="flex justify-between text-[8px] mb-0.5">
-                          <span className="text-slate-300">پیشرفت</span>
-                          <span className="text-teal-400 font-bold">۶۸٪</span>
-                        </div>
-                        <div className="h-1.5 w-full bg-slate-700/60 rounded-full overflow-hidden">
-                          <div className="h-full bg-gradient-to-l from-teal-400 to-[#008080] rounded-full w-[68%]" />
-                        </div>
-                      </div>
-                    </div>
-                    {/* Glowing Brain Icon */}
-                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-teal-900/50 via-slate-800 to-purple-900/40 border border-teal-500/40 flex items-center justify-center text-teal-300 text-sm font-bold z-10 shadow-md">
-                      🧠
-                    </div>
-                  </div>
-
-                  {/* 4-Stats Grid */}
-                  <div className="grid grid-cols-4 gap-1.5 text-center">
-                    <div className="rounded-lg bg-slate-800/60 border border-white/10 p-1.5">
-                      <p className="text-[8px] text-slate-400">زمان مطالعه</p>
-                      <p className="text-[10px] font-bold text-purple-300 mt-0.5">۱۲ ساعت</p>
-                    </div>
-                    <div className="rounded-lg bg-slate-800/60 border border-white/10 p-1.5">
-                      <p className="text-[8px] text-slate-400">تکمیل شده</p>
-                      <p className="text-[10px] font-bold text-teal-300 mt-0.5">۸ درس</p>
-                    </div>
-                    <div className="rounded-lg bg-slate-800/60 border border-white/10 p-1.5">
-                      <p className="text-[8px] text-slate-400">آزمون‌ها</p>
-                      <p className="text-[10px] font-bold text-cyan-300 mt-0.5">۳ آزمون</p>
-                    </div>
-                    <div className="rounded-lg bg-slate-800/60 border border-white/10 p-1.5">
-                      <p className="text-[8px] text-slate-400">Streak</p>
-                      <p className="text-[10px] font-bold text-amber-300 mt-0.5">۵ روز 🔥</p>
-                    </div>
-                  </div>
-
-                  {/* My Courses */}
-                  <div className="space-y-1">
-                    <div className="flex justify-between items-center text-[9px]">
-                      <span className="font-bold text-white">دوره‌های من</span>
-                      <span className="text-teal-400 font-semibold">مشاهده همه</span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-1.5">
-                      <div className="rounded-lg bg-slate-800/50 border border-white/10 p-1.5 flex gap-1.5 items-center">
-                        <div className="w-6 h-6 rounded bg-rose-950/60 border border-rose-500/30 flex items-center justify-center text-[10px] shrink-0">
-                          📖
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="text-[9px] font-bold text-white truncate">آناتومی قلبی</p>
-                          <div className="h-1 w-full bg-slate-700/50 rounded-full mt-1 overflow-hidden">
-                            <div className="h-full bg-teal-500 w-[45%]" />
-                          </div>
-                        </div>
-                      </div>
-                      <div className="rounded-lg bg-slate-800/50 border border-white/10 p-1.5 flex gap-1.5 items-center">
-                        <div className="w-6 h-6 rounded bg-teal-950/60 border border-teal-500/30 flex items-center justify-center text-[10px] shrink-0">
-                          🎓
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="text-[9px] font-bold text-white truncate">فیزیولوژی سلولی</p>
-                          <div className="h-1 w-full bg-slate-700/50 rounded-full mt-1 overflow-hidden">
-                            <div className="h-full bg-teal-400 w-[90%]" />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Right Side Cards (4 cols) */}
-                <div className="col-span-4 flex flex-col gap-2">
-                  {/* AI Mentor Card */}
-                  <div className="rounded-xl bg-gradient-to-br from-slate-800/90 to-slate-900 border-t-2 border-t-purple-500 border-white/10 p-2 space-y-1 text-[8px] shadow-sm">
-                    <div className="flex items-center gap-1">
-                      <span className="w-4 h-4 rounded-full bg-purple-500/30 flex items-center justify-center text-purple-300">
-                        🤖
+                      <span className="text-[11px] font-bold text-[#1a2226]">
+                        فارماکولوژی ۱
                       </span>
-                      <span className="font-bold text-white text-[9px]">دستیار آوانا</span>
                     </div>
-                    <p className="text-slate-300 text-[8px] line-clamp-2">
-                      سوالت رو بپرس تا با هم رفع اشکال کنیم.
-                    </p>
-                    <div className="bg-purple-500/20 text-purple-300 text-[8px] py-0.5 rounded text-center font-bold border border-purple-500/30">
-                      از آوانا بپرس
-                    </div>
+                    <FileText className="w-3.5 h-3.5 text-[#5B6268]" />
                   </div>
 
-                  {/* Today's Study Plan */}
-                  <div className="rounded-xl bg-slate-800/50 border border-white/10 p-2 space-y-1 text-[8px] flex-1">
-                    <p className="font-bold text-white text-[9px] mb-1">📅 برنامه امروز</p>
-                    <div className="p-1 rounded bg-white/5 text-slate-200 truncate">مرور فلش‌کارت آناتومی</div>
-                    <div className="p-1 rounded bg-teal-900/30 border border-teal-500/30 text-teal-300 font-bold truncate">
-                      کوییز فیزیولوژی ✔
+                  {/* Document Body preview */}
+                  <div className="space-y-1.5">
+                    <div className="h-2 bg-[#EEF1F3] rounded-full w-4/5" />
+                    <div className="h-2 bg-teal-100 rounded-full w-full" />
+                    <div className="h-2 bg-[#EEF1F3] rounded-full w-3/4" />
+
+                    {/* Miniature anatomical illustration */}
+                    <div className="h-14 my-2 rounded-lg bg-teal-50/60 border border-teal-100 flex items-center justify-center p-1">
+                      <div className="flex items-center gap-2">
+                        <Heart className="w-5 h-5 text-rose-500 fill-rose-100" />
+                        <div className="text-right">
+                          <p className="text-[8px] font-bold text-[#008080]">گیرنده‌های β1</p>
+                          <p className="text-[7px] text-[#5B6268]">گره سینوسی قلب</p>
+                        </div>
+                      </div>
                     </div>
-                    <div className="p-1 rounded bg-white/5 text-slate-200 truncate">فصل ۵ فارماکولوژی</div>
+
+                    <div className="h-2 bg-[#EEF1F3] rounded-full w-5/6" />
+                    <div className="h-2 bg-amber-100 rounded-full w-2/3" />
                   </div>
                 </div>
-              </div>
+              </motion.div>
+
+              {/* Source Label */}
+              <span className="mt-3 text-[11px] font-semibold text-[#5B6268] bg-white/90 px-2.5 py-1 rounded-full border border-[#E2E7EA] shadow-xs">
+                جزوه + PDF + عکس + نمونه سؤال
+              </span>
+            </div>
+
+            {/* 2. Central AVANA Transformation Engine (Center) */}
+            <div dir="rtl" className="relative z-10 flex flex-col items-center mx-4">
+              <motion.div
+                whileHover={{ scale: 1.05 }}
+                className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-gradient-to-br from-[#008080] to-[#006060] flex items-center justify-center text-white shadow-lg shadow-[#008080]/30 border-2 border-white relative cursor-pointer"
+              >
+                <div className="text-2xl sm:text-3xl font-black tracking-tight select-none">
+                  A
+                </div>
+                {/* Subtle pulse ring */}
+                <div className="absolute -inset-1 rounded-2xl border-2 border-[#008080]/30 animate-ping pointer-events-none opacity-40" />
+              </motion.div>
+              <span className="mt-2 text-[10px] font-bold text-[#008080] bg-teal-50 px-2 py-0.5 rounded-full border border-teal-200">
+                موتور هوشمند
+              </span>
+            </div>
+
+            {/* 3. Output 4-Pillars (Right side of visual) */}
+            <div dir="rtl" className="relative z-10 flex flex-col gap-3">
+              {outputCards.map((card, i) => {
+                const Icon = card.icon;
+                return (
+                  <motion.div
+                    key={card.id}
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ duration: 0.5, delay: 0.3 + i * 0.1 }}
+                    whileHover={{ x: 4 }}
+                    className="flex items-center gap-3 py-2 px-3.5 rounded-xl bg-white border border-[#E2E7EA] shadow-card hover:border-[#008080]/40 transition-all duration-200 w-44 sm:w-48"
+                  >
+                    <div
+                      className={`w-8 h-8 rounded-lg ${card.bg} ${card.border} border flex items-center justify-center shrink-0`}
+                    >
+                      <Icon className="w-4 h-4 text-[#008080]" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-[#1a2226] truncate">
+                        {card.title}
+                      </p>
+                      <p className="text-[10px] text-[#5B6268] truncate">
+                        {card.desc}
+                      </p>
+                    </div>
+                  </motion.div>
+                );
+              })}
             </div>
           </div>
 
-          {/* Floating Study Hours Card */}
-          <div
-            className="absolute -bottom-5 -left-4 z-20 p-3.5 sm:p-4 rounded-2xl shadow-2xl flex items-center gap-3 sm:gap-4 backdrop-blur-xl border border-teal-500/30 bg-slate-900/90 text-right dir-rtl hover:scale-105 transition-all duration-300"
-          >
-            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center bg-purple-500/20 text-purple-300 border border-purple-500/40 shrink-0 shadow-inner">
-              <span className="material-symbols-outlined text-xl sm:text-2xl">schedule</span>
+          {/* MOBILE COMPOSITION (Graceful Vertical Flow / Timeline) */}
+          <div className="sm:hidden flex flex-col items-center gap-5 w-full max-w-sm py-4">
+            {/* 1. Source preview on mobile */}
+            <div className="w-full bg-white rounded-2xl p-4 border border-[#E2E7EA] shadow-card">
+              <div className="flex items-center justify-between pb-2 mb-2 border-b border-[#EEF1F3]">
+                <span className="px-2 py-0.5 rounded bg-rose-50 border border-rose-200 text-rose-600 text-[10px] font-bold">
+                  PDF جزوه پزشکی
+                </span>
+                <span className="text-xs text-[#5B6268]">ورودی خام</span>
+              </div>
+              <p className="text-xs font-semibold text-[#1a2226] mb-1">
+                فارماکولوژی — سیستم اتونومیک و بتا بلاکرها
+              </p>
+              <p className="text-[11px] text-[#5B6268]">
+                شامل متن، تصاویر بافت‌شناسی، فرمول‌ها و نکات استاد
+              </p>
             </div>
-            <div>
-              <p className="text-[11px] sm:text-xs font-semibold text-slate-300">
-                ساعت مطالعه این هفته
-              </p>
-              <p className="font-extrabold text-base sm:text-lg text-white">
-                ۱۲.۵ ساعت
-              </p>
+
+            {/* 2. Arrow to AVANA */}
+            <div className="flex flex-col items-center gap-1">
+              <div className="w-12 h-12 rounded-xl bg-[#008080] text-white flex items-center justify-center font-black text-xl shadow-md shadow-[#008080]/20">
+                A
+              </div>
+              <span className="text-[10px] font-bold text-[#008080]">تبدیل هوشمند آوانا</span>
+            </div>
+
+            {/* 3. Outputs in a 2x2 grid on mobile */}
+            <div className="grid grid-cols-2 gap-2.5 w-full">
+              {outputCards.map((card) => {
+                const Icon = card.icon;
+                return (
+                  <div
+                    key={card.id}
+                    className="p-3 rounded-xl bg-white border border-[#E2E7EA] shadow-xs flex flex-col gap-1.5"
+                  >
+                    <div className="w-7 h-7 rounded-lg bg-teal-50 border border-teal-200 flex items-center justify-center text-[#008080]">
+                      <Icon className="w-4 h-4" />
+                    </div>
+                    <span className="text-xs font-bold text-[#1a2226]">{card.title}</span>
+                    <span className="text-[10px] text-[#5B6268]">{card.desc}</span>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </motion.div>

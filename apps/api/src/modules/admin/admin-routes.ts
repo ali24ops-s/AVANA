@@ -72,8 +72,11 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
     const rawPath = request.url.split("?")[0];
     const isWorkerAllowed =
       rawPath.endsWith("/content/export") ||
+      rawPath.endsWith("/content/import/validate") ||
+      rawPath.endsWith("/content/import") ||
       rawPath.endsWith("/courses") ||
-      (rawPath.includes("/courses/") && rawPath.endsWith("/hierarchy"));
+      (rawPath.includes("/courses/") && rawPath.endsWith("/hierarchy")) ||
+      rawPath.includes("/content-studio/");
 
     if (isWorkerAllowed) {
       const user = (request as any).user;
@@ -428,6 +431,20 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
         opts.systemOrganizationId ||
         "00000000-0000-0000-0000-000000000001";
 
+      const isPlatformAdmin =
+        (user as any)?.globalRole === Roles.platform_admin || (user as any)?.role === Roles.platform_admin;
+
+      if (!isPlatformAdmin && (user as any)?.userId && opts.organizationStore) {
+        const memberships = await opts.organizationStore.listMembershipsByUserId((user as any).userId);
+        const hasAccess = memberships.some((m) => m.organizationId === targetOrgId);
+        if (!hasAccess) {
+          return reply.status(403).send({
+            code: "forbidden",
+            message: "دسترسی به این سازمان برای حساب کاربری شما مجاز نیست.",
+          });
+        }
+      }
+
       const plan = await opts.contentImportService.validatePackage(
         zipBuffer,
         actorId,
@@ -467,6 +484,20 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
         query.organizationId ||
         opts.systemOrganizationId ||
         "00000000-0000-0000-0000-000000000001";
+
+      const isPlatformAdmin =
+        (user as any)?.globalRole === Roles.platform_admin || (user as any)?.role === Roles.platform_admin;
+
+      if (!isPlatformAdmin && (user as any)?.userId && opts.organizationStore) {
+        const memberships = await opts.organizationStore.listMembershipsByUserId((user as any).userId);
+        const hasAccess = memberships.some((m) => m.organizationId === targetOrgId);
+        if (!hasAccess) {
+          return reply.status(403).send({
+            code: "forbidden",
+            message: "دسترسی به این سازمان برای حساب کاربری شما مجاز نیست.",
+          });
+        }
+      }
 
       if (!body.planId) {
         return reply.status(400).send({

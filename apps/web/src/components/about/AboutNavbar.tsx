@@ -40,14 +40,14 @@ export const AboutNavbar: React.FC = () => {
     <nav
       className={`fixed top-0 w-full z-50 transition-all duration-300 ${
         isScrolled
-          ? "shadow-lg backdrop-blur-xl bg-[#0b1120]/90 border-b border-white/10"
-          : "bg-[#0b1120]/60 backdrop-blur-md border-b border-white/5"
+          ? "shadow-xs backdrop-blur-xl bg-[var(--color-surface)]/90 border-b border-[var(--color-border)]"
+          : "bg-[var(--color-surface)]/70 backdrop-blur-md border-b border-[var(--color-border)]/60"
       }`}
       aria-label="ناوبری اصلی درباره ما"
     >
       {/* Subtle Scroll Progress Indicator */}
       <motion.div
-        className="absolute bottom-0 left-0 right-0 h-[2px] bg-gradient-to-r from-teal-400 via-cyan-400 to-teal-500 origin-right"
+        className="absolute bottom-0 left-0 right-0 h-[2px] bg-gradient-to-r from-teal-400 via-cyan-400 to-[#008080] origin-right"
         style={{ scaleX }}
       />
 
@@ -60,7 +60,7 @@ export const AboutNavbar: React.FC = () => {
             size="md"
             className="hover:scale-105 transition-transform duration-300"
           />
-          <span className="hidden sm:inline-block text-xs text-teal-400 font-semibold px-2 py-0.5 rounded-full bg-teal-950/60 border border-teal-500/30">
+          <span className="hidden sm:inline-block text-xs text-[#008080] font-semibold px-2 py-0.5 rounded-full bg-[#008080]/10 border border-[#008080]/25">
             داستان آوانا
           </span>
         </div>
@@ -72,14 +72,14 @@ export const AboutNavbar: React.FC = () => {
               {item.href.startsWith("/") ? (
                 <Link
                   to={item.href}
-                  className="text-slate-300 hover:text-teal-300 transition-colors duration-200"
+                  className="text-[var(--color-text-muted)] hover:text-[#008080] transition-colors duration-200"
                 >
                   {item.label}
                 </Link>
               ) : (
                 <a
                   href={item.href}
-                  className="text-slate-300 hover:text-teal-300 transition-colors duration-200"
+                  className="text-[var(--color-text-muted)] hover:text-[#008080] transition-colors duration-200"
                 >
                   {item.label}
                 </a>
@@ -92,7 +92,7 @@ export const AboutNavbar: React.FC = () => {
         <div className="flex items-center gap-4">
           <Link
             to={ctaHref}
-            className="hidden md:inline-flex items-center justify-center gap-2 h-11 px-5 rounded-xl font-bold text-sm cursor-pointer active:scale-95 transition-all duration-300 bg-[#008080] hover:bg-[#005a5a] text-white shadow-[0_0_20px_rgba(0,128,128,0.3)] hover:shadow-[0_0_25px_rgba(45,212,191,0.4)] hover:-translate-y-0.5"
+            className="hidden md:inline-flex items-center justify-center gap-2 h-11 px-5 rounded-[10px] font-bold text-sm cursor-pointer active:scale-95 transition-all duration-300 bg-[#008080] hover:bg-[#007575] active:bg-[#006060] text-white shadow-xs hover:-translate-y-0.5"
           >
             <span>شروع یادگیری</span>
             <ArrowLeft className="w-4 h-4" />
@@ -101,7 +101,7 @@ export const AboutNavbar: React.FC = () => {
           <button
             aria-label={mobileMenuOpen ? "بستن منو" : "باز کردن منو"}
             aria-expanded={mobileMenuOpen}
-            className="lg:hidden p-2 text-slate-200 hover:text-teal-300 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-400 rounded-lg"
+            className="lg:hidden p-2 text-[var(--color-text)] hover:text-[#008080] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#008080] rounded-[8px]"
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
           >
             {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
@@ -115,14 +115,14 @@ export const AboutNavbar: React.FC = () => {
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -10 }}
-          className="lg:hidden absolute top-20 left-0 w-full bg-[#0b1120]/95 backdrop-blur-2xl border-b border-white/10 shadow-2xl flex flex-col px-6 py-5 gap-3"
+          className="lg:hidden absolute top-20 left-0 w-full bg-[var(--color-surface)]/95 backdrop-blur-2xl border-b border-[var(--color-border)] shadow-xl flex flex-col px-6 py-5 gap-3"
         >
           {navLinks.map((item) => (
             item.href.startsWith("/") ? (
               <Link
                 key={item.href}
                 to={item.href}
-                className="py-2.5 px-3 rounded-lg text-slate-200 hover:text-teal-300 hover:bg-white/5 transition-colors font-medium text-sm"
+                className="py-2.5 px-3 rounded-[8px] text-[var(--color-text)] hover:text-[#008080] hover:bg-[var(--color-surface-warm)] transition-colors font-medium text-sm"
                 onClick={() => setMobileMenuOpen(false)}
               >
                 {item.label}
@@ -131,7 +131,7 @@ export const AboutNavbar: React.FC = () => {
               <a
                 key={item.href}
                 href={item.href}
-                className="py-2.5 px-3 rounded-lg text-slate-200 hover:text-teal-300 hover:bg-white/5 transition-colors font-medium text-sm"
+                className="py-2.5 px-3 rounded-[8px] text-[var(--color-text)] hover:text-[#008080] hover:bg-[var(--color-surface-warm)] transition-colors font-medium text-sm"
                 onClick={() => setMobileMenuOpen(false)}
               >
                 {item.label}
@@ -141,7 +141,7 @@ export const AboutNavbar: React.FC = () => {
           <Link
             to={ctaHref}
             onClick={() => setMobileMenuOpen(false)}
-            className="w-full h-12 mt-2 rounded-xl font-bold text-sm flex items-center justify-center gap-2 bg-[#008080] hover:bg-[#005a5a] text-white shadow-md active:scale-95 transition-all"
+            className="w-full h-12 mt-2 rounded-[10px] font-bold text-sm flex items-center justify-center gap-2 bg-[#008080] hover:bg-[#007575] active:bg-[#006060] text-white shadow-xs active:scale-95 transition-all"
           >
             <span>شروع یادگیری با آوانا</span>
             <ArrowLeft className="w-4 h-4" />

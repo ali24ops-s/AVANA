@@ -80,11 +80,11 @@ export function AdminSubscriptionsPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-2.5">
-            <Sparkles className="w-7 h-7 text-teal-400" />
+          <h1 className="text-2xl font-bold text-[var(--color-text)] flex items-center gap-2.5">
+            <Sparkles className="w-7 h-7 text-[var(--color-primary-default)]" />
             اشتراک‌های کاربران (User Subscriptions)
           </h1>
-          <p className="text-sm text-slate-400 mt-1">
+          <p className="text-sm text-[var(--color-text-muted)] mt-1">
             مشاهده وضعیت اشتراک‌های سراسری کاربران، تمدیدها و تاریخ انقضا
           </p>
         </div>
@@ -92,15 +92,15 @@ export function AdminSubscriptionsPage() {
         <div className="flex items-center gap-3">
           <Link
             to="/admin/commerce/products"
-            className="flex items-center gap-2 px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-teal-300 border border-teal-500/30 rounded-xl text-sm font-medium transition-colors"
+            className="flex items-center gap-2 px-4 py-2.5 bg-[var(--color-surface-warm)] hover:bg-[var(--color-surface-muted)] text-[var(--color-primary-default)] hover:text-[var(--color-primary-dark)] border border-[var(--color-border)] rounded-xl text-sm font-medium transition-colors"
           >
-            <ShoppingBag className="w-4 h-4 text-teal-400" />
+            <ShoppingBag className="w-4 h-4 text-[var(--color-primary-default)]" />
             <span>مدیریت قیمت پلن‌ها</span>
           </Link>
 
           <button
             onClick={() => setIsGrantModalOpen(true)}
-            className="flex items-center gap-2 px-4 py-2.5 bg-teal-600 hover:bg-teal-500 text-white rounded-xl text-sm font-medium transition-colors shadow-lg shadow-teal-900/20"
+            className="flex items-center gap-2 px-4 py-2.5 bg-[var(--color-primary-default)] hover:bg-[var(--color-primary-dark)] text-[var(--color-primary-contrast)] rounded-xl text-sm font-medium transition-colors shadow-sm"
           >
             <PlusCircle className="w-4 h-4" />
             <span>اعطای اشتراک به کاربر</span>
@@ -112,27 +112,27 @@ export function AdminSubscriptionsPage() {
       <AdminCommerceNavigation />
 
       {/* Filter and Search Bar */}
-      <div className="glass-panel border border-white/5 rounded-2xl p-4 bg-slate-800/40 flex flex-col sm:flex-row items-center justify-between gap-4">
+      <div className="border border-[var(--color-border)] rounded-2xl p-4 bg-[var(--color-surface)] shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
         <form onSubmit={handleSearchSubmit} className="relative w-full sm:w-80">
           <input
             type="text"
             placeholder="جستجو با ایمیل یا پلن اشتراک..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full bg-slate-900/60 border border-slate-700 rounded-xl pl-4 pr-10 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-teal-500"
+            className="w-full bg-[var(--color-surface-warm)] border border-[var(--color-border)] rounded-xl ps-10 pe-4 py-2.5 text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:border-[var(--color-primary-default)]"
           />
-          <Search className="w-4 h-4 text-slate-400 absolute right-3 top-3.5" />
+          <Search className="w-4 h-4 text-[var(--color-text-muted)] absolute start-3 top-3.5" />
         </form>
 
         <div className="flex items-center gap-2 w-full sm:w-auto">
-          <Filter className="w-4 h-4 text-slate-400" />
+          <Filter className="w-4 h-4 text-[var(--color-text-muted)]" />
           <select
             value={statusFilter}
             onChange={(e) => {
               setStatusFilter(e.target.value);
               setPage(1);
             }}
-            className="bg-slate-900/60 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-teal-500"
+            className="bg-[var(--color-surface-warm)] border border-[var(--color-border)] rounded-xl px-3 py-2 text-sm text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary-default)]"
           >
             <option value="all">همه وضعیت‌ها</option>
             <option value="active">اشتراک فعال (Active)</option>
@@ -165,22 +165,22 @@ export function AdminSubscriptionsPage() {
             const statusBadge = getSubscriptionStatusBadge(sub.status);
 
             return (
-              <tr key={sub.id} className="hover:bg-slate-800/30 transition-colors">
+              <tr key={sub.id} className="hover:bg-[var(--color-surface-warm)]/60 transition-colors">
                 <td className="px-6 py-4">
                   <div className="flex flex-col">
-                    <span className="text-sm font-medium text-slate-200">
+                    <span className="text-sm font-medium text-[var(--color-text)]">
                       {sub.userName || sub.userEmail}
                     </span>
-                    <span className="text-xs text-slate-400 font-mono mt-0.5">
+                    <span className="text-xs text-[var(--color-text-muted)] font-mono mt-0.5">
                       {sub.userEmail}
                     </span>
                   </div>
                 </td>
                 <td className="px-6 py-4">
-                  <span className="text-sm text-slate-200 font-medium block">
+                  <span className="text-sm text-[var(--color-text)] font-medium block">
                     {sub.productTitle}
                   </span>
-                  <span className="text-[11px] text-slate-400 font-mono block mt-0.5">
+                  <span className="text-[11px] text-[var(--color-text-muted)] font-mono block mt-0.5">
                     {sub.plan}
                   </span>
                 </td>
@@ -189,20 +189,20 @@ export function AdminSubscriptionsPage() {
                     {statusBadge.label}
                   </span>
                 </td>
-                <td className="px-6 py-4 text-xs text-slate-400 whitespace-nowrap">
+                <td className="px-6 py-4 text-xs text-[var(--color-text-muted)] whitespace-nowrap">
                   {formatPersianDate(sub.startedAt, false)}
                 </td>
-                <td className="px-6 py-4 text-xs font-medium text-teal-300 whitespace-nowrap">
+                <td className="px-6 py-4 text-xs font-medium text-[var(--color-primary-default)] whitespace-nowrap">
                   {formatPersianDate(sub.expiresAt)}
                 </td>
-                <td className="px-6 py-4 text-xs font-mono text-slate-400 whitespace-nowrap">
+                <td className="px-6 py-4 text-xs font-mono text-[var(--color-text-muted)] whitespace-nowrap">
                   {sub.orderId ? sub.orderId.substring(0, 8) + "..." : "اعطای ادمین"}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => setSelectedDrawerUserId(sub.userId)}
-                      className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-teal-400 hover:text-teal-300 transition-colors flex items-center gap-1 text-xs"
+                      className="p-1.5 rounded-lg bg-[var(--color-surface-warm)] hover:bg-[var(--color-surface-muted)] text-[var(--color-primary-default)] hover:text-[var(--color-primary-dark)] border border-[var(--color-border)] transition-colors flex items-center gap-1 text-xs"
                       title="مشاهده سوابق مالی کاربر"
                     >
                       <User className="w-3.5 h-3.5" />
@@ -211,7 +211,7 @@ export function AdminSubscriptionsPage() {
                     {sub.status === "active" && (
                       <button
                         onClick={() => setSelectedSubscriptionToCancel(sub)}
-                        className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/20 transition-colors flex items-center gap-1 text-xs"
+                        className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300 border border-rose-500/20 transition-colors flex items-center gap-1 text-xs"
                         title="لغو فوری اشتراک کاربر"
                       >
                         <ShieldOff className="w-3.5 h-3.5" />

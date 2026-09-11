@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import { api, type AdminAuditRecord, type AdminAuditList } from "../../lib/api/admin";
-import { AdminTable, AdminPagination, AdminLoadingState, AdminEmptyState, AdminErrorState } from "../../components/admin/AdminUI";
+import { AdminTable, AdminPagination } from "../../components/admin/AdminUI";
+import { TableLoadingState, TableErrorState, TableEmptyState } from "@avana/ui";
+import { Input } from "../../components/ui/index.js";
+import { ShieldCheck } from "lucide-react";
 
 export function AdminAuditLogPage() {
   const [logs, setLogs] = useState<AdminAuditRecord[]>([]);
@@ -39,53 +42,69 @@ export function AdminAuditLogPage() {
   }, [page, search, actionFilter, entityFilter, adminEmail]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" dir="rtl">
       <div>
-        <h1 className="text-2xl font-bold text-slate-100">گزارش حسابرسی (Audit Log)</h1>
-        <p className="text-sm text-slate-400 mt-1">رهگیری عملیات حساس در سیستم</p>
+        <h1 className="text-2xl font-bold text-[var(--color-text)] flex items-center gap-3">
+          <ShieldCheck className="w-6 h-6 text-[var(--color-primary-default)]" />
+          گزارش حسابرسی (Audit Log)
+        </h1>
+        <p className="text-sm text-[var(--color-text-muted)] mt-1">رهگیری و بازرسی عملیات حساس در سیستم</p>
       </div>
 
-      <div className="flex flex-wrap gap-4 glass-panel p-4 rounded-2xl border border-white/5">
-        <input 
+      <div className="flex flex-wrap items-center gap-3 bg-[var(--color-surface)] p-4 rounded-2xl border border-[var(--color-border)] shadow-sm">
+        <Input 
           type="text" 
           placeholder="جستجوی کلی (متن، جزئیات)..." 
-          className="bg-slate-900/50 border border-white/10 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-teal-500/50 flex-1 min-w-[200px]"
+          aria-label="جستجوی کلی در گزارش حسابرسی"
+          containerClassName="flex-1 min-w-[200px]"
           value={search}
           onChange={(e) => { setSearch(e.target.value); setPage(1); }}
         />
-        <input 
+        <Input 
           type="text" 
           placeholder="فیلتر ادمین (Email)..." 
-          className="bg-slate-900/50 border border-white/10 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-teal-500/50 w-full sm:w-auto"
+          aria-label="فیلتر بر اساس ایمیل ادمین"
+          dir="ltr"
+          containerClassName="w-full sm:w-auto min-w-[170px]"
           value={adminEmail}
           onChange={(e) => { setAdminEmail(e.target.value); setPage(1); }}
         />
-        <input 
+        <Input 
           type="text" 
           placeholder="فیلتر عملیات (Action)..." 
-          className="bg-slate-900/50 border border-white/10 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-teal-500/50 w-full sm:w-auto"
+          aria-label="فیلتر بر اساس نوع عملیات"
+          dir="ltr"
+          containerClassName="w-full sm:w-auto min-w-[170px]"
           value={actionFilter}
           onChange={(e) => { setActionFilter(e.target.value); setPage(1); }}
         />
-        <input 
+        <Input 
           type="text" 
           placeholder="فیلتر موجودیت (Entity)..." 
-          className="bg-slate-900/50 border border-white/10 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-teal-500/50 w-full sm:w-auto"
+          aria-label="فیلتر بر اساس نوع موجودیت"
+          dir="ltr"
+          containerClassName="w-full sm:w-auto min-w-[170px]"
           value={entityFilter}
           onChange={(e) => { setEntityFilter(e.target.value); setPage(1); }}
         />
       </div>
 
       <AdminTable headers={["زمان", "ادمین", "عملیات", "موجودیت", "شناسه", "جزئیات"]}>
-        {loading ? <AdminLoadingState colSpan={6} /> : error ? <AdminErrorState message={error} colSpan={6} /> : logs.length === 0 ? <AdminEmptyState message="رکوردی یافت نشد." /> : (
+        {loading ? <TableLoadingState colSpan={6} /> : error ? <TableErrorState message={error} colSpan={6} /> : logs.length === 0 ? <TableEmptyState message="رکوردی یافت نشد." colSpan={6} /> : (
           logs.map(log => (
-            <tr key={log.id} className="hover:bg-white/5 text-sm">
-              <td className="px-6 py-4 text-slate-400" dir="ltr">{new Date(log.timestamp).toLocaleString("fa-IR")}</td>
-              <td className="px-6 py-4">{log.adminEmail}</td>
-              <td className="px-6 py-4"><span className="px-2 py-1 bg-slate-800 rounded">{log.action}</span></td>
-              <td className="px-6 py-4 text-slate-400">{log.entity}</td>
-              <td className="px-6 py-4 text-slate-400">{log.entityId}</td>
-              <td className="px-6 py-4 text-slate-400 font-mono text-xs max-w-xs truncate">{JSON.stringify(log.metadata)}</td>
+            <tr key={log.id} className="hover:bg-[var(--color-surface-subtle)] transition-colors text-sm">
+              <td className="px-6 py-4 text-xs font-mono text-[var(--color-text-muted)] whitespace-nowrap" dir="ltr">{new Date(log.timestamp).toLocaleString("fa-IR")}</td>
+              <td className="px-6 py-4 font-mono text-xs text-[var(--color-text)]" dir="ltr">{log.adminEmail}</td>
+              <td className="px-6 py-4">
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-mono font-medium bg-[var(--color-surface-subtle)] border border-[var(--color-border)] text-[var(--color-primary-default)]" dir="ltr">
+                  {log.action}
+                </span>
+              </td>
+              <td className="px-6 py-4 text-xs font-medium text-[var(--color-text-muted)]" dir="ltr">{log.entity}</td>
+              <td className="px-6 py-4 text-xs font-mono text-[var(--color-text-muted)]" dir="ltr">{log.entityId}</td>
+              <td className="px-6 py-4 text-[var(--color-text-muted)] font-mono text-xs max-w-xs truncate" dir="ltr" title={JSON.stringify(log.metadata)}>
+                {JSON.stringify(log.metadata)}
+              </td>
             </tr>
           ))
         )}

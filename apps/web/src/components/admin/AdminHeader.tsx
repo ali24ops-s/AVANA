@@ -10,6 +10,7 @@ import {
 import { getAdminPageInfo } from "./adminNavigation.js";
 import { useAuth } from "../../providers/AuthProvider.js";
 import { GlobalGenerationIndicator } from "../generation/GlobalGenerationIndicator.js";
+import { Button, Badge } from "../ui/index.js";
 
 export interface AdminHeaderProps {
   onOpenMobileMenu?: () => void;
@@ -22,26 +23,27 @@ export function AdminHeader({ onOpenMobileMenu }: AdminHeaderProps) {
 
   return (
     <header
-      className="h-16 glass-panel border-b border-white/10 flex items-center justify-between px-4 sm:px-6 lg:px-8 shrink-0 z-30 font-sans text-slate-200"
+      className="h-16 bg-[var(--color-surface-glass)] backdrop-blur-xl border-b border-[var(--color-border)] flex items-center justify-between px-4 sm:px-6 lg:px-8 shrink-0 z-30 font-sans text-[var(--color-text)] shadow-sm"
       dir="rtl"
     >
       {/* Right Side (RTL): Mobile Hamburger & Breadcrumb / Title */}
       <div className="flex items-center gap-3 min-w-0">
         {onOpenMobileMenu && (
-          <button
-            type="button"
+          <Button
+            size="sm"
+            variant="ghost"
             onClick={onOpenMobileMenu}
-            className="p-2 text-slate-400 hover:text-white rounded-lg hover:bg-white/5 transition-colors lg:hidden shrink-0"
+            className="lg:hidden shrink-0"
             aria-label="باز کردن منوی مدیریت"
           >
             <Menu className="w-5 h-5" />
-          </button>
+          </Button>
         )}
 
         {/* Breadcrumb Navigation */}
         <nav
           aria-label="مسیر راهنما"
-          className="flex items-center gap-1.5 text-xs text-slate-400 overflow-x-auto no-scrollbar py-1"
+          className="flex items-center gap-1.5 text-xs text-[var(--color-text-muted)] overflow-x-auto no-scrollbar py-1"
         >
           {breadcrumbs.map((crumb, idx) => {
             const isLast = idx === breadcrumbs.length - 1;
@@ -49,19 +51,19 @@ export function AdminHeader({ onOpenMobileMenu }: AdminHeaderProps) {
             return (
               <div key={idx} className="flex items-center gap-1.5 shrink-0">
                 {idx > 0 && (
-                  <ChevronLeft className="w-3.5 h-3.5 text-slate-600 shrink-0" />
+                  <ChevronLeft className="w-3.5 h-3.5 text-[var(--color-text-muted)] shrink-0" />
                 )}
                 {crumb.href && !isLast ? (
                   <Link
                     to={crumb.href}
-                    className="hover:text-slate-200 transition-colors"
+                    className="hover:text-[var(--color-text)] transition-colors"
                   >
                     {crumb.label}
                   </Link>
                 ) : (
                   <span
                     className={`font-semibold ${
-                      isLast ? "text-slate-100" : "text-slate-400"
+                      isLast ? "text-[var(--color-text)]" : "text-[var(--color-text-muted)]"
                     }`}
                   >
                     {crumb.label}
@@ -79,14 +81,15 @@ export function AdminHeader({ onOpenMobileMenu }: AdminHeaderProps) {
         <GlobalGenerationIndicator />
 
         {/* Role Badge */}
-        <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-teal-500/10 border border-teal-500/30 text-teal-300 text-[11px] font-semibold">
-          <ShieldCheck className="w-3.5 h-3.5 text-teal-400" />
-          <span>مدیر ارشد پلتفرم</span>
+        <div className="hidden sm:flex">
+          <Badge variant="primary" icon={<ShieldCheck className="w-3.5 h-3.5" />}>
+            مدیر ارشد پلتفرم
+          </Badge>
         </div>
 
         {/* User Profile Pill */}
-        <div className="flex items-center gap-2 text-xs font-medium text-slate-300 glass-panel px-3 py-1.5 rounded-full border border-white/10">
-          <User className="w-3.5 h-3.5 text-teal-400 shrink-0" />
+        <div className="flex items-center gap-2 text-xs font-medium text-[var(--color-text)] bg-[var(--color-surface)] px-3 py-1.5 rounded-full border border-[var(--color-border)]">
+          <User className="w-3.5 h-3.5 text-[var(--color-primary-default)] shrink-0" />
           <span className="hidden md:inline max-w-[140px] truncate">
             {user?.name && user.name.trim().length > 0
               ? user.name.trim()
@@ -95,27 +98,23 @@ export function AdminHeader({ onOpenMobileMenu }: AdminHeaderProps) {
         </div>
 
         {/* Link to App */}
-        <Link
-          to="/home"
-          title="بازگشت به اپلیکیشن"
-          aria-label="بازگشت به اپلیکیشن"
-          className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs text-slate-400 hover:text-slate-200 hover:bg-white/5 transition-colors border border-transparent hover:border-white/10"
-        >
-          <Home className="w-4 h-4" />
-          <span className="hidden lg:inline">اپلیکیشن</span>
+        <Link to="/home" title="بازگشت به اپلیکیشن">
+          <Button size="sm" variant="ghost" leftIcon={<Home className="w-4 h-4" />}>
+            <span className="hidden lg:inline">اپلیکیشن</span>
+          </Button>
         </Link>
 
         {/* Sign Out Button */}
-        <button
-          type="button"
+        <Button
+          size="sm"
+          variant="ghost"
           onClick={() => void signOut()}
           title="خروج از حساب"
           aria-label="خروج از حساب"
-          className="flex items-center gap-1.5 p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg text-xs text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors border border-transparent hover:border-red-500/30"
+          leftIcon={<LogOut className="w-4 h-4 text-red-500" />}
         >
-          <LogOut className="w-4 h-4" />
-          <span className="hidden sm:inline">خروج</span>
-        </button>
+          <span className="hidden sm:inline text-red-500">خروج</span>
+        </Button>
       </div>
     </header>
   );

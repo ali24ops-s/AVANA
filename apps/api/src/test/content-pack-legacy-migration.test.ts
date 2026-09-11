@@ -374,11 +374,13 @@ describe("Legacy Content Pack Migration to Mandatory Admin Review Workflow", () 
     // 4. Product is deactivated (active = false) -> checkout must fail (404/400)
     const checkoutRes = await app.inject({
       method: "POST",
-      url: "/v1/commerce/checkout",
+      url: "/v1/commerce/card-to-card/submit",
       cookies: { avana_session: studentToken },
       payload: {
-        productId: paidProd!.id,
-        callbackUrl: "https://example.com/callback",
+        product_id: paidProd!.id,
+        amount: 80000,
+        tracking_number: "TRK-LEGACY-1",
+        source_card_last4: "1234",
       },
     });
     expect(checkoutRes.statusCode).toBe(404);
@@ -489,11 +491,13 @@ describe("Legacy Content Pack Migration to Mandatory Admin Review Workflow", () 
     // Checkout succeeds
     const checkoutRes = await app.inject({
       method: "POST",
-      url: "/v1/commerce/checkout",
+      url: "/v1/commerce/card-to-card/submit",
       cookies: { avana_session: studentToken },
       payload: {
-        productId: product!.id,
-        callbackUrl: "https://example.com/callback",
+        product_id: product!.id,
+        amount: 149000,
+        tracking_number: "TRK-LEGACY-2",
+        source_card_last4: "1234",
       },
     });
     expect(checkoutRes.statusCode).toBe(201);

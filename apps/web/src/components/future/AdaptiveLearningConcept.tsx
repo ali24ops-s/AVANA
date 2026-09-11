@@ -43,6 +43,7 @@ import {
   ArrowLeft,
   CheckCircle,
 } from "lucide-react";
+import { toPersianDigits, formatPersianOf } from "@avana/domain";
 
 export interface ChainNode {
   step: number;
@@ -262,7 +263,7 @@ export const AdaptiveLearningConcept: React.FC = () => {
 
         <div className="flex items-center gap-1.5 text-xs text-teal-300 bg-teal-950/60 border border-teal-500/30 px-3 py-1.5 rounded-lg shrink-0">
           <CheckCircle className="w-3.5 h-3.5" />
-          <span>مرحله {activeStepIndex + 1} از ۶</span>
+          <span>{formatPersianOf(activeStepIndex + 1, CHAIN_STAGES.length, { prefix: "مرحله" })}</span>
         </div>
       </div>
 
@@ -335,7 +336,7 @@ export const AdaptiveLearningConcept: React.FC = () => {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -15 }}
             transition={{ duration: 0.3 }}
-            className="rounded-xl bg-gradient-to-br from-slate-800/80 via-slate-900/90 to-[#0b1120] border border-teal-500/30 p-5 sm:p-7 relative overflow-hidden"
+            className="rounded-[16px] bg-[#142124] border border-[#1e3235] p-5 sm:p-7 relative overflow-hidden"
           >
             {/* Ambient Background Watermark Icon */}
             <div className="absolute left-4 -bottom-6 opacity-5 pointer-events-none">
@@ -347,7 +348,7 @@ export const AdaptiveLearningConcept: React.FC = () => {
                 <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-teal-500/10 border border-teal-500/20 text-teal-300 text-xs font-bold">
                   <activeStage.icon className="w-3.5 h-3.5" />
                   <span>
-                    گام {activeStage.step}: {activeStage.label}
+                    گام {toPersianDigits(activeStage.step)}: {activeStage.label}
                   </span>
                 </div>
                 <span className="text-xs text-slate-400 font-sans">{activeStage.enLabel}</span>
@@ -371,7 +372,7 @@ export const AdaptiveLearningConcept: React.FC = () => {
                 <button
                   disabled={activeStepIndex === 0}
                   onClick={() => setActiveStepIndex((prev) => Math.max(0, prev - 1))}
-                  className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+                  className={`px-4 py-2 rounded-[10px] text-xs font-bold transition-all ${
                     activeStepIndex === 0
                       ? "opacity-30 cursor-not-allowed text-slate-500"
                       : "text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700"
@@ -393,10 +394,10 @@ export const AdaptiveLearningConcept: React.FC = () => {
                   onClick={() =>
                     setActiveStepIndex((prev) => Math.min(CHAIN_STAGES.length - 1, prev + 1))
                   }
-                  className={`px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${
+                  className={`px-4 py-2 rounded-[10px] text-xs font-bold flex items-center gap-1.5 transition-all ${
                     activeStepIndex === CHAIN_STAGES.length - 1
                       ? "opacity-30 cursor-not-allowed text-slate-500"
-                      : "bg-[#008080] hover:bg-[#005a5a] text-white shadow-md"
+                      : "bg-[#008080] hover:bg-[#007575] text-white shadow-md"
                   }`}
                 >
                   <span>گام بعدی</span>

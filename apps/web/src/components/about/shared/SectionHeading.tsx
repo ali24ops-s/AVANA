@@ -39,9 +39,9 @@ export const SectionHeading: React.FC<SectionHeadingProps> = ({
           transition={{ duration: 0.5 }}
           className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs sm:text-sm font-semibold tracking-wide border mb-4 shadow-sm"
           style={{
-            backgroundColor: "rgba(0, 128, 128, 0.08)",
-            color: "#2dd4bf",
-            borderColor: "rgba(45, 212, 191, 0.25)",
+            backgroundColor: "rgba(0, 128, 128, 0.1)",
+            color: "#008080",
+            borderColor: "rgba(0, 128, 128, 0.25)",
           }}
         >
           {badgeIcon && <span className="shrink-0">{badgeIcon}</span>}
@@ -50,12 +50,12 @@ export const SectionHeading: React.FC<SectionHeadingProps> = ({
       )}
 
       <HeadingTag
-        className="font-headline text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-black leading-tight text-slate-100"
+        className="font-headline text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-black leading-tight text-[var(--color-text)]"
       >
         {title}{" "}
         {highlightText && (
           <span
-            className="text-transparent bg-clip-text bg-gradient-to-l from-teal-300 via-teal-400 to-cyan-300 inline-block drop-shadow-[0_0_20px_rgba(45,212,191,0.2)]"
+            className="text-transparent bg-clip-text bg-gradient-to-l from-[#008080] to-[#005f5f] inline-block"
           >
             {highlightText}
           </span>
@@ -63,7 +63,7 @@ export const SectionHeading: React.FC<SectionHeadingProps> = ({
       </HeadingTag>
 
       {subtitle && (
-        <p className="mt-4 text-sm sm:text-base md:text-lg text-slate-300/90 leading-relaxed max-w-2xl">
+        <p className="mt-4 text-sm sm:text-base md:text-lg text-[var(--color-text-muted)] leading-relaxed max-w-2xl">
           {subtitle}
         </p>
       )}

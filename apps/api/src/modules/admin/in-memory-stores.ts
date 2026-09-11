@@ -840,7 +840,6 @@ export class InMemoryAdminStore implements AdminStore {
     const ent = this.memoryEntitlements.find(
       (e) =>
         e.userId === payment.userId &&
-        e.resourceType === "subscription" &&
         e.orderId === payment.orderId,
     );
     if (ent) {

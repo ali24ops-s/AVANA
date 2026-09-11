@@ -2,9 +2,10 @@ import React from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Play, Trash2, Clock, BookOpen, Layers, AlertCircle } from "lucide-react";
+import { Card, Badge, Button } from "@avana/ui";
 import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
 import { createStudyApi } from "../../lib/api/study.js";
-import { toPersianDigits } from "@avana/domain";
+import { toPersianDigits, formatPersianOf } from "@avana/domain";
 import type { FlashcardStudySessionSummary } from "@avana/contracts";
 
 interface UnfinishedSessionsListProps {
@@ -75,25 +76,25 @@ export const UnfinishedSessionsList: React.FC<UnfinishedSessionsListProps> = ({
   return (
     <section
       data-testid="unfinished-sessions-section"
-      className={`bg-white/80 dark:bg-slate-900/80 backdrop-blur-md rounded-2xl border border-indigo-100/60 dark:border-indigo-950/40 p-5 md:p-6 shadow-sm ${className}`}
+      className={`bg-[var(--color-surface)] rounded-[16px] border border-[var(--color-border)] p-5 md:p-6 shadow-[var(--shadow-card)] ${className}`}
     >
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
+          <div className="w-8 h-8 rounded-[10px] bg-[var(--color-primary-soft)] flex items-center justify-center text-[var(--color-primary)]">
             <Clock className="w-4 h-4" />
           </div>
           <div>
-            <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <h2 className="text-base font-bold text-[var(--color-text)] flex items-center gap-2">
               مطالعات ناتمام
               {!isLoading && !isError && sessions.length > 0 && (
-                <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 font-medium">
+                <Badge variant="primary" size="sm">
                   {toPersianDigits(sessions.length)}
-                </span>
+                </Badge>
               )}
             </h2>
           </div>
         </div>
-        <p className="text-xs text-slate-500 dark:text-slate-400 hidden sm:block">
+        <p className="text-xs text-[var(--color-text-muted)] hidden sm:block">
           می‌توانید مطالعه‌های قبلی را از همان کارت متوقف‌شده ادامه دهید
         </p>
       </div>
@@ -106,20 +107,20 @@ export const UnfinishedSessionsList: React.FC<UnfinishedSessionsListProps> = ({
           {[1, 2].map((item) => (
             <div
               key={item}
-              className="bg-slate-50/70 dark:bg-slate-800/50 rounded-xl p-4 border border-slate-200/70 dark:border-slate-700/60 animate-pulse space-y-3.5"
+              className="bg-[var(--color-surface-hover)] rounded-[16px] p-4 border border-[var(--color-border)] animate-pulse space-y-3.5"
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-lg bg-slate-200 dark:bg-slate-700" />
-                  <div className="h-4 w-32 bg-slate-200 dark:bg-slate-700 rounded" />
+                  <div className="w-7 h-7 rounded-[8px] bg-[var(--color-border)]" />
+                  <div className="h-4 w-32 bg-[var(--color-border)] rounded-[6px]" />
                 </div>
-                <div className="w-6 h-6 rounded bg-slate-200 dark:bg-slate-700" />
+                <div className="w-6 h-6 rounded-[6px] bg-[var(--color-border)]" />
               </div>
-              <div className="h-3 w-24 bg-slate-200 dark:bg-slate-700 rounded" />
-              <div className="w-full bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full" />
+              <div className="h-3 w-24 bg-[var(--color-border)] rounded-[6px]" />
+              <div className="w-full bg-[var(--color-border)] h-1.5 rounded-full" />
               <div className="flex items-center justify-between pt-1">
-                <div className="h-3 w-16 bg-slate-200 dark:bg-slate-700 rounded" />
-                <div className="h-8 w-24 bg-slate-200 dark:bg-slate-700 rounded-lg" />
+                <div className="h-3 w-16 bg-[var(--color-border)] rounded-[6px]" />
+                <div className="h-8 w-24 bg-[var(--color-border)] rounded-[10px]" />
               </div>
             </div>
           ))}
@@ -127,42 +128,44 @@ export const UnfinishedSessionsList: React.FC<UnfinishedSessionsListProps> = ({
       ) : isError ? (
         <div
           data-testid="unfinished-sessions-error"
-          className="flex flex-col sm:flex-row items-center sm:items-start justify-between gap-4 p-5 rounded-xl bg-rose-50/60 dark:bg-rose-950/20 border border-rose-200/80 dark:border-rose-900/40 text-center sm:text-right"
+          className="flex flex-col sm:flex-row items-center sm:items-start justify-between gap-4 p-5 rounded-[16px] bg-[var(--color-error-soft)] border border-[var(--color-error-muted)] text-center sm:text-right"
         >
           <div className="flex flex-col sm:flex-row items-center sm:items-start gap-3.5">
-            <div className="w-10 h-10 rounded-xl bg-rose-100 dark:bg-rose-900/40 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
+            <div className="w-10 h-10 rounded-[10px] bg-[var(--color-error-muted)] text-[var(--color-error)] flex items-center justify-center shrink-0">
               <AlertCircle className="w-5 h-5" />
             </div>
             <div className="space-y-1">
-              <p className="text-sm font-semibold text-rose-900 dark:text-rose-200">
+              <p className="text-sm font-semibold text-[var(--color-error)]">
                 خطا در بارگذاری مطالعات ناتمام
               </p>
-              <p className="text-xs text-rose-700/80 dark:text-rose-400/80 leading-relaxed">
+              <p className="text-xs text-[var(--color-text-secondary)] leading-relaxed">
                 امکان دریافت اطلاعات مطالعات ناتمام وجود ندارد. لطفا مجددا تلاش نمایید.
               </p>
             </div>
           </div>
-          <button
+          <Button
             type="button"
+            variant="outline"
+            size="sm"
             onClick={() => void refetch()}
-            className="inline-flex items-center justify-center px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-medium transition-colors shrink-0 shadow-sm cursor-pointer"
+            className="shrink-0 rounded-[10px]"
           >
             تلاش مجدد
-          </button>
+          </Button>
         </div>
       ) : sessions.length === 0 ? (
         <div
           data-testid="unfinished-sessions-empty"
-          className="flex flex-col sm:flex-row items-center sm:items-start gap-4 p-5 rounded-xl bg-slate-50/50 dark:bg-slate-800/30 border border-dashed border-slate-200 dark:border-slate-800 text-center sm:text-right"
+          className="flex flex-col sm:flex-row items-center sm:items-start gap-4 p-5 rounded-[16px] bg-[var(--color-surface)] border border-dashed border-[var(--color-border)] text-center sm:text-right"
         >
-          <div className="w-10 h-10 rounded-xl bg-indigo-50/80 dark:bg-indigo-950/40 text-indigo-500 dark:text-indigo-400 flex items-center justify-center shrink-0">
+          <div className="w-10 h-10 rounded-[10px] bg-[var(--color-primary-soft)] text-[var(--color-primary)] flex items-center justify-center shrink-0">
             <Clock className="w-5 h-5" />
           </div>
           <div className="space-y-1">
-            <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+            <p className="text-sm font-semibold text-[var(--color-text)]">
               هنوز مطالعه ناتمامی ندارید.
             </p>
-            <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+            <p className="text-xs text-[var(--color-text-muted)] leading-relaxed">
               مطالعه‌ای که شروع کنید و کامل نکنید، اینجا برای ادامه دادن نمایش داده می‌شود.
             </p>
           </div>
@@ -196,18 +199,19 @@ export const UnfinishedSessionsList: React.FC<UnfinishedSessionsListProps> = ({
               : 0;
 
           return (
-            <div
+            <Card
               key={session.id}
+              variant="bordered"
               data-testid={`unfinished-session-${session.id}`}
-              className="group relative bg-slate-50/70 dark:bg-slate-800/50 hover:bg-white dark:hover:bg-slate-800 rounded-xl p-4 border border-slate-200/70 dark:border-slate-700/60 hover:border-indigo-300 dark:hover:border-indigo-500/40 transition-all duration-200 shadow-sm hover:shadow-md flex flex-col justify-between"
+              className="group relative rounded-[16px] p-4 border border-[var(--color-border)] hover:border-[var(--color-primary)] bg-[var(--color-surface)] transition-all duration-200 shadow-[var(--shadow-subtle)] hover:shadow-[var(--shadow-card)] flex flex-col justify-between"
             >
               <div>
                 <div className="flex items-start justify-between gap-2 mb-2">
                   <div className="flex items-center gap-2 min-w-0">
-                    <div className="w-7 h-7 rounded-lg bg-indigo-100/80 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
+                    <div className="w-7 h-7 rounded-[8px] bg-[var(--color-primary-soft)] text-[var(--color-primary)] flex items-center justify-center shrink-0">
                       <BookOpen className="w-3.5 h-3.5" />
                     </div>
-                    <h3 className="font-semibold text-sm text-slate-900 dark:text-white truncate">
+                    <h3 className="font-semibold text-sm text-[var(--color-text)] truncate">
                       {session.title || "مرور فلش‌کارت‌ها"}
                     </h3>
                   </div>
@@ -226,46 +230,47 @@ export const UnfinishedSessionsList: React.FC<UnfinishedSessionsListProps> = ({
                     }}
                     disabled={cancelMutation.isPending}
                     title="انصراف و حذف مطالعه"
-                    className="text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 p-1 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors shrink-0"
+                    className="text-[var(--color-text-muted)] hover:text-[var(--color-error)] hover:bg-[var(--color-error-soft)] p-1.5 rounded-[8px] transition-colors shrink-0 cursor-pointer"
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
                 </div>
 
-                <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400 mb-3">
+                <div className="flex items-center gap-3 text-xs text-[var(--color-text-muted)] mb-3">
                   <span className="flex items-center gap-1">
-                    <Layers className="w-3.5 h-3.5 text-slate-400" />
-                    {toPersianDigits(completedCards)} از{" "}
-                    {toPersianDigits(totalCards)} کارت
+                    <Layers className="w-3.5 h-3.5 text-[var(--color-text-muted)]" />
+                    {formatPersianOf(completedCards, totalCards, { suffix: " کارت" })}
                   </span>
                   <span>•</span>
                   <span>{formatRelativeTime(lastActivityAt)}</span>
                 </div>
 
                 {/* Progress bar */}
-                <div className="w-full bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden mb-3">
+                <div className="w-full bg-[var(--color-divider)] h-1.5 rounded-full overflow-hidden mb-3">
                   <div
-                    className="bg-indigo-600 dark:bg-indigo-500 h-full rounded-full transition-all duration-300"
+                    className="bg-[var(--color-primary)] h-full rounded-full transition-all duration-300"
                     style={{ width: `${Math.min(100, Math.max(5, progressPercent))}%` }}
                   />
                 </div>
               </div>
 
               <div className="flex items-center justify-between pt-1">
-                <span className="text-xs font-semibold text-indigo-600 dark:text-indigo-400">
+                <span className="text-xs font-semibold text-[var(--color-primary)]">
                   {toPersianDigits(progressPercent)}٪ تکمیل شده
                 </span>
 
-                <button
+                <Button
                   type="button"
+                  variant="primary"
+                  size="sm"
                   onClick={() => handleSessionClick(session.id)}
-                  className="inline-flex items-center justify-center bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-medium px-3.5 py-1.5 h-8 gap-1.5 shadow-sm transition-colors cursor-pointer"
+                  className="rounded-[10px] text-xs font-medium px-3.5 py-1.5 h-8 gap-1.5 shadow-[var(--shadow-subtle)]"
                 >
                   <span>ادامه مطالعه</span>
                   <Play className="w-3.5 h-3.5 fill-current" />
-                </button>
+                </Button>
               </div>
-            </div>
+            </Card>
           );
         })}
         </div>

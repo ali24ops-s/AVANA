@@ -107,20 +107,20 @@ export function AdminDocumentsPage() {
       const showCount = typeof current === "number" && typeof total === "number" && total > 1;
 
       return (
-        <div className="flex flex-col gap-1 min-w-[140px]">
-          <div className="flex items-center gap-1.5 text-xs font-medium text-teal-300">
+        <div className="flex flex-col gap-1.5 min-w-[140px]">
+          <div className="flex items-center gap-1.5 text-xs font-medium text-[var(--color-primary-default)]">
             <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-teal-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-teal-500"></span>
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[var(--color-primary-default)] opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-[var(--color-primary-default)]"></span>
             </span>
             <span className="truncate max-w-[120px]" title={stageName}>{stageName}</span>
             {showCount && (
-              <span className="text-slate-400 text-[11px]" dir="ltr">({current}/{total})</span>
+              <span className="text-[var(--color-text-muted)] text-[11px]" dir="ltr">({current}/{total})</span>
             )}
           </div>
-          <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+          <div className="w-full bg-[var(--color-surface-subtle)] border border-[var(--color-border)] rounded-full h-1.5 overflow-hidden">
             <div
-              className="bg-gradient-to-r from-teal-500 to-cyan-400 h-1.5 rounded-full transition-all duration-300"
+              className="bg-[var(--color-primary-default)] h-1.5 rounded-full transition-all duration-300"
               style={{ width: `${Math.max(5, pct)}%` }}
             />
           </div>
@@ -130,7 +130,7 @@ export function AdminDocumentsPage() {
 
     if (status === "queued") {
       return (
-        <span className="inline-flex items-center gap-1 text-xs text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
+        <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2.5 py-0.5 rounded-full border border-amber-500/20">
           <Clock className="w-3 h-3 animate-spin" />
           در صف انتظار
         </span>
@@ -139,7 +139,7 @@ export function AdminDocumentsPage() {
 
     if (status === "completed" || doc.status === "ready") {
       return (
-        <span className="inline-flex items-center gap-1 text-xs text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+        <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2.5 py-0.5 rounded-full border border-emerald-500/20">
           <CheckCircle className="w-3 h-3" />
           تولید شده
         </span>
@@ -149,7 +149,7 @@ export function AdminDocumentsPage() {
     if (status === "failed") {
       return (
         <span
-          className="inline-flex items-center gap-1 text-xs text-red-400 bg-red-500/10 px-2 py-0.5 rounded-full border border-red-500/20 cursor-help"
+          className="inline-flex items-center gap-1 text-xs font-medium text-rose-600 dark:text-rose-400 bg-rose-500/10 px-2.5 py-0.5 rounded-full border border-rose-500/20 cursor-help"
           title={prog?.error || "خطا در تولید محتوا"}
         >
           <AlertCircle className="w-3 h-3" />
@@ -158,18 +158,18 @@ export function AdminDocumentsPage() {
       );
     }
 
-    return <span className="text-slate-500 text-xs">-</span>;
+    return <span className="text-[var(--color-text-muted)] text-xs">-</span>;
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" dir="rtl">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-100 flex items-center gap-2">
-            <Sparkles className="w-6 h-6 text-teal-400" />
+          <h1 className="text-2xl font-bold text-[var(--color-text)] flex items-center gap-2.5">
+            <Sparkles className="w-6 h-6 text-[var(--color-primary-default)]" />
             فایل‌ها و اسناد
           </h1>
-          <p className="text-sm text-slate-400 mt-1">مدیریت فایل‌ها و نظارت بر خط لوله تولید محتوای هوش مصنوعی</p>
+          <p className="text-sm text-[var(--color-text-muted)] mt-1">مدیریت فایل‌ها و نظارت بر خط لوله تولید محتوای هوش مصنوعی</p>
         </div>
         <div className="flex items-center gap-3 w-full sm:w-auto">
           <AdminFilter
@@ -199,16 +199,16 @@ export function AdminDocumentsPage() {
           <AdminEmptyState message="فایلی یافت نشد." />
         ) : (
           docs.map(doc => (
-            <tr key={doc.id} className="hover:bg-white/5 transition-colors">
-              <td className="px-6 py-4 max-w-xs truncate font-medium text-slate-200" title={doc.originalName}>{doc.originalName}</td>
+            <tr key={doc.id} className="hover:bg-[var(--color-surface-subtle)] transition-colors">
+              <td className="px-6 py-4 max-w-xs truncate font-medium text-[var(--color-text)]" title={doc.originalName}>{doc.originalName}</td>
               <td className="px-6 py-4"><AdminStatusBadge status={doc.status} /></td>
               <td className="px-6 py-4">{renderGenerationProgress(doc)}</td>
-              <td className="px-6 py-4 text-slate-400" dir="ltr">{(doc.sizeBytes / 1024 / 1024).toFixed(2)} MB</td>
-              <td className="px-6 py-4 text-slate-400 max-w-xs truncate">{doc.courseName || "-"}</td>
-              <td className="px-6 py-4 text-slate-400">{doc.ownerEmail || "-"}</td>
-              <td className="px-6 py-4 text-slate-400" dir="ltr">{new Date(doc.createdAt).toLocaleDateString("fa-IR")}</td>
+              <td className="px-6 py-4 text-[var(--color-text-muted)] font-mono text-xs" dir="ltr">{(doc.sizeBytes / 1024 / 1024).toFixed(2)} MB</td>
+              <td className="px-6 py-4 text-[var(--color-text-muted)] max-w-xs truncate">{doc.courseName || "-"}</td>
+              <td className="px-6 py-4 text-[var(--color-text-muted)] font-mono text-xs" dir="ltr">{doc.ownerEmail || "-"}</td>
+              <td className="px-6 py-4 text-[var(--color-text-muted)] text-xs" dir="ltr">{new Date(doc.createdAt).toLocaleDateString("fa-IR")}</td>
               <td className="px-6 py-4">
-                <Link to={`/admin/documents/${doc.id}`} className="text-teal-400 hover:text-teal-300 font-medium">جزئیات</Link>
+                <Link to={`/admin/documents/${doc.id}`} className="text-[var(--color-primary-default)] hover:underline font-medium text-xs sm:text-sm">جزئیات</Link>
               </td>
             </tr>
           ))
@@ -218,3 +218,4 @@ export function AdminDocumentsPage() {
     </div>
   );
 }
+

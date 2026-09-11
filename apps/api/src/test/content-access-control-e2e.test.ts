@@ -101,6 +101,7 @@ describe("Content Access Control End-to-End Suite (Before vs After Purchase)", (
   let courseId: CourseId;
   let moduleId: ModuleId;
   let lessonId: LessonId;
+  let lockedLessonId: LessonId;
   let documentId: DocumentId;
   let quizId: QuizId;
   let courseProductId: ProductId;
@@ -284,7 +285,7 @@ describe("Content Access Control End-to-End Suite (Before vs After Purchase)", (
       deletedAt: null,
     });
 
-    // Setup Lesson with full markdown
+    // Setup Lesson 1 (Preview candidate)
     lessonId = asLessonId(randomUUID());
     await lessonStore.create({
       id: lessonId,
@@ -294,6 +295,22 @@ describe("Content Access Control End-to-End Suite (Before vs After Purchase)", (
       contentMarkdown: SECRET_LESSON_MARKDOWN,
       sortOrder: 1,
       estimatedMinutes: 15,
+      publicationStatus: "published",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      deletedAt: null,
+    });
+
+    // Setup Lesson 2 (Locked with SECRET_LESSON_MARKDOWN)
+    lockedLessonId = asLessonId(randomUUID());
+    await lessonStore.create({
+      id: lockedLessonId,
+      moduleId,
+      title: "درس ۲: متابولیسم دارو",
+      contentType: "lesson",
+      contentMarkdown: SECRET_LESSON_MARKDOWN,
+      sortOrder: 2,
+      estimatedMinutes: 20,
       publicationStatus: "published",
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -403,14 +420,15 @@ describe("Content Access Control End-to-End Suite (Before vs After Purchase)", (
       );
 
       const firstModule = learnRes.modules[0];
-      const firstLesson = firstModule.lessons[0];
+      const lockedLesson = firstModule.lessons.find((l) => l.locked === true)!;
 
-      expect(firstLesson.locked).toBe(true);
+      expect(lockedLesson).toBeDefined();
+      expect(lockedLesson.locked).toBe(true);
       // The secret content must NEVER be exposed
-      expect(firstLesson.content_markdown).not.toContain(SECRET_LESSON_MARKDOWN);
-      expect(firstLesson.content_markdown).toContain("🔒");
-      expect(firstLesson.content_markdown).toContain("آوانا پلاس");
-      expect(firstLesson.purchase_options?.length).toBeGreaterThan(0);
+      expect(lockedLesson.content_markdown).not.toContain(SECRET_LESSON_MARKDOWN);
+      expect(lockedLesson.content_markdown).toContain("🔒");
+      expect(lockedLesson.content_markdown).toContain("آوانا پلاس");
+      expect(lockedLesson.purchase_options?.length).toBeGreaterThan(0);
     });
 
     it("blocks direct document download with 403 forbidden", async () => {
@@ -439,17 +457,34 @@ describe("Content Access Control End-to-End Suite (Before vs After Purchase)", (
       }
     });
 
-    it("blocks direct flashcard study with 403 forbidden", async () => {
-      await expect(
-        studyService.listFlashcardsForReview(studentUser, systemOrgId, courseId),
-      ).rejects.toThrow(DomainError);
+    it("blocks review of non-preview flashcard with 403 forbidden", async () => {
+      const nonPreviewCardId = "card-locked-1" as FlashcardId;
+      await flashcardStore.create({
+        id: nonPreviewCardId,
+        organizationId: systemOrgId,
+        courseId,
+        documentId: null,
+        generatedContentId: null,
+        lessonId: lockedLessonId,
+        question: "سوال غیر پیش‌نمایش؟",
+        answer: "پاسخ",
+        explanation: null,
+        cardType: "standard",
+        difficulty: "medium",
+        dueAt: new Date().toISOString(),
+        intervalDays: 1,
+        easeFactor: 2.5,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
 
-      try {
-        await studyService.listFlashcardsForReview(studentUser, systemOrgId, courseId);
-      } catch (err: any) {
-        expect(err.code).toBe("forbidden");
-        expect(err.message).toContain("دسترسی");
-      }
+      await expect(
+        studyService.submitFlashcardReview(studentUser, systemOrgId, {
+          flashcardId: nonPreviewCardId,
+          rating: "good",
+        }),
+      ).rejects.toThrow(DomainError);
     });
 
     it("renders pricing badges and purchase info in library resource queries", async () => {
@@ -466,37 +501,28 @@ describe("Content Access Control End-to-End Suite (Before vs After Purchase)", (
       expect(courseCard?.purchase?.price).toBe(85000);
       expect(courseCard?.purchase?.productId).toBe(courseProductId);
 
-      const contentCard = libraryRes.contents.find((c) => c.id === lessonId);
-      expect(contentCard).toBeDefined();
-      expect(contentCard?.access?.hasAccess).toBe(false);
-      expect(contentCard?.access?.isFree).toBe(false);
+      const lockedContentCard = libraryRes.contents.find((c) => c.access?.hasAccess === false);
+      expect(lockedContentCard).toBeDefined();
+      expect(lockedContentCard?.access?.hasAccess).toBe(false);
+      expect(lockedContentCard?.access?.isFree).toBe(false);
     });
   });
 
   describe("Phase 2: Direct URL After Purchase (Purchased Student)", () => {
     beforeEach(async () => {
-      // Execute standard checkout and verification flow
-      const checkout = await commerceService.checkout(
+      // Execute Card-to-Card purchase flow
+      const c2cResult = await commerceService.submitCardToCardPayment(
         studentUser,
         {
           productId: courseProductId,
-          callbackUrl: "https://avana.app/callback",
+          amount: 85000,
+          trackingNumber: `TRK-${Date.now()}`,
+          sourceCardLast4: "5678",
         },
         "req-checkout-1",
       );
 
-      expect(checkout.payment_id).toBeDefined();
-
-      const verifyRes = await commerceService.verifyPayment(
-        {
-          paymentId: checkout.payment_id,
-          authority: checkout.authority,
-          status: "OK",
-        },
-        "req-verify-1",
-      );
-
-      expect(verifyRes.success).toBe(true);
+      expect(c2cResult.success).toBe(true);
 
       // Verify entitlement exists in commerce store
       const entitlements = await commerceStore.listActiveEntitlements(

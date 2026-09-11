@@ -29,7 +29,7 @@ export const PresentationNavDots: React.FC<PresentationNavDotsProps> = ({
   return (
     <nav
       aria-label="ناوبری سریع بخش‌های ارائه"
-      className="hidden lg:flex fixed left-6 top-1/2 -translate-y-1/2 z-40 flex-col items-center gap-3.5 p-2 rounded-full bg-slate-950/60 backdrop-blur-xl border border-white/10 shadow-2xl"
+      className="hidden lg:flex fixed left-6 top-1/2 -translate-y-1/2 z-40 flex-col items-center gap-3.5 p-2 rounded-full bg-white/95 backdrop-blur-md border border-[var(--avana-border-default)] shadow-elevated"
     >
       {PRESENTATION_SECTIONS.map((section) => {
         const isActive = activeSection === section.id;
@@ -39,10 +39,10 @@ export const PresentationNavDots: React.FC<PresentationNavDotsProps> = ({
             onClick={() => onSelectSection(section.id)}
             aria-label={`پرش به بخش ${section.label}`}
             aria-current={isActive ? "true" : undefined}
-            className="group relative flex items-center justify-center cursor-pointer p-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-400 rounded-full"
+            className="group relative flex items-center justify-center cursor-pointer p-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded-full"
           >
             {/* Tooltip on hover */}
-            <span className="pointer-events-none absolute left-full ml-3 px-2.5 py-1 rounded-lg bg-slate-900/95 border border-white/15 text-[11px] font-bold text-slate-200 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-200 shadow-xl backdrop-blur-md">
+            <span className="pointer-events-none absolute left-full ml-3 px-2.5 py-1 rounded-[8px] bg-white border border-[var(--avana-border-default)] text-[11px] font-bold text-[var(--avana-text-primary)] whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-200 shadow-elevated">
               {section.label}
             </span>
 
@@ -50,8 +50,8 @@ export const PresentationNavDots: React.FC<PresentationNavDotsProps> = ({
             <span
               className={`block rounded-full transition-all duration-300 ${
                 isActive
-                  ? "w-3 h-3 bg-teal-400 shadow-[0_0_12px_rgba(45,212,191,0.8)] scale-110 ring-2 ring-teal-400/40"
-                  : "w-2 h-2 bg-slate-600 group-hover:bg-slate-300 group-hover:scale-125"
+                  ? "w-3 h-3 bg-primary scale-110 ring-2 ring-primary/30 shadow-xs"
+                  : "w-2 h-2 bg-[var(--avana-border-default)] group-hover:bg-[var(--avana-text-muted)] group-hover:scale-125"
               }`}
             />
           </button>

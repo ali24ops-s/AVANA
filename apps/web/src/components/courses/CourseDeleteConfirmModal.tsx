@@ -5,9 +5,8 @@
  * the user's personal "My Courses" list.
  */
 
-import { useEffect } from "react";
-import { createPortal } from "react-dom";
 import { Trash2, AlertTriangle, Loader2 } from "lucide-react";
+import { Dialog } from "@avana/ui";
 
 export interface CourseDeleteConfirmModalProps {
   open: boolean;
@@ -24,63 +23,44 @@ export function CourseDeleteConfirmModal({
   onConfirm,
   isDeleting = false,
 }: CourseDeleteConfirmModalProps) {
-  useEffect(() => {
-    if (open) {
-      if (typeof document !== "undefined") {
-        document.body.style.overflow = "hidden";
-      }
-    } else {
-      if (typeof document !== "undefined") {
-        document.body.style.overflow = "";
-      }
-    }
-    return () => {
-      if (typeof document !== "undefined") {
-        document.body.style.overflow = "";
-      }
-    };
-  }, [open]);
-
-  if (!open) return null;
-
-  const modalContent = (
-    <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center p-4 sm:p-6 bg-slate-950/85 backdrop-blur-xl overflow-y-auto"
-      dir="rtl"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="course-delete-title"
+  return (
+    <Dialog
+      isOpen={open}
+      onClose={onClose}
+      maxWidth="md"
+      hideHeader
+      ariaLabel="حذف از دوره‌های من"
     >
-      <div className="relative w-full max-w-md bg-slate-900 border border-white/10 rounded-2xl shadow-2xl overflow-hidden glass-panel flex flex-col p-6">
+      <div className="p-6 flex flex-col">
         <div className="flex items-start gap-4">
-          <div className="w-12 h-12 rounded-xl bg-red-950/50 border border-red-500/30 text-red-400 flex items-center justify-center shrink-0">
+          <div className="w-12 h-12 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 text-red-600 dark:text-rose-400 flex items-center justify-center shrink-0">
             <AlertTriangle className="w-6 h-6" />
           </div>
           <div className="flex-1 min-w-0">
             <h3
               id="course-delete-title"
-              className="text-base font-bold text-white leading-tight"
+              className="text-base font-bold text-[var(--color-text)] leading-tight"
             >
               حذف از دوره‌های من
             </h3>
-            <p className="text-xs text-slate-300 mt-2 leading-relaxed">
+            <p className="text-xs text-[var(--color-text-muted)] mt-2 leading-relaxed">
               آیا مطمئن هستید که می‌خواهید دوره{" "}
-              <span className="font-bold text-white">«{courseTitle}»</span> را
+              <span className="font-bold text-[var(--color-text)]">«{courseTitle}»</span> را
               از دوره‌های خود حذف کنید؟
             </p>
-            <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
+            <p className="text-[11px] text-[var(--color-text-muted)] mt-1 leading-relaxed">
               این عمل فقط دوره را از لیست شخصی شما حذف می‌کند و اطلاعات دوره در
               سیستم باقی می‌ماند.
             </p>
           </div>
         </div>
 
-        <div className="mt-6 pt-4 border-t border-white/10 flex items-center justify-end gap-3">
+        <div className="mt-6 pt-4 border-t border-[var(--color-border)] flex items-center justify-end gap-3">
           <button
             type="button"
             onClick={onClose}
             disabled={isDeleting}
-            className="px-4 py-2.5 rounded-xl text-xs font-semibold text-slate-300 hover:text-white hover:bg-white/10 transition-colors disabled:opacity-50"
+            className="px-4 py-2.5 rounded-xl text-xs font-semibold text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] transition-colors disabled:opacity-50 cursor-pointer"
           >
             انصراف
           </button>
@@ -88,7 +68,7 @@ export function CourseDeleteConfirmModal({
             type="button"
             onClick={() => void onConfirm()}
             disabled={isDeleting}
-            className="px-5 py-2.5 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2 shadow-lg shadow-red-950/50 disabled:opacity-50 active:scale-98"
+            className="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2 shadow-xs disabled:opacity-50 active:scale-98 cursor-pointer"
           >
             {isDeleting ? (
               <>
@@ -104,11 +84,7 @@ export function CourseDeleteConfirmModal({
           </button>
         </div>
       </div>
-    </div>
+    </Dialog>
   );
-
-  return typeof document !== "undefined"
-    ? createPortal(modalContent, document.body)
-    : modalContent;
 }
 

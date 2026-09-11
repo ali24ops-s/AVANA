@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
 import { createReviewApi } from "../../lib/api/review.js";
+import { Input } from "@avana/ui";
 import { ContentReviewDetail } from "./ContentReviewDetail.js";
 import { ReviewDocumentGroup } from "./ReviewDocumentGroup.js";
 import type {
@@ -18,6 +19,7 @@ import type {
   ReviewDocumentGroupResource,
   GeneratedContentType,
 } from "@avana/contracts";
+import { toPersianDigits, formatPersianOf } from "@avana/domain";
 
 export interface ReviewQueueListProps {
   organizationId: string;
@@ -157,15 +159,15 @@ export function ReviewQueueList({
   if (queueQuery.isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <Loader2 className="w-8 h-8 animate-spin text-[#008080]" />
+        <Loader2 className="w-8 h-8 animate-spin text-[var(--color-primary-default)]" />
       </div>
     );
   }
 
   if (queueQuery.isError) {
     return (
-      <div className="bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] p-12 text-center space-y-4">
-        <AlertCircle className="w-10 h-10 text-red-500 mx-auto" />
+      <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-12 text-center space-y-4">
+        <AlertCircle className="w-10 h-10 text-rose-500 mx-auto" />
         <h3 className="text-base font-bold text-[var(--color-text)]">
           خطا در بارگذاری صف بازبینی
         </h3>
@@ -175,7 +177,7 @@ export function ReviewQueueList({
         <button
           type="button"
           onClick={() => void queueQuery.refetch()}
-          className="px-4 py-2 bg-[#008080] hover:bg-[#006666] text-white rounded-xl text-xs font-bold"
+          className="px-4 py-2 bg-[var(--color-primary-default)] hover:bg-[var(--color-primary-hover)] text-[var(--color-primary-contrast)] rounded-xl text-xs font-bold transition-colors"
         >
           تلاش مجدد
         </button>
@@ -213,7 +215,7 @@ export function ReviewQueueList({
           </div>
 
           {/* Filter Pills */}
-          <div className="flex items-center gap-1.5 p-1 bg-[var(--color-surface-warm)] border-2 border-[var(--color-border)] rounded-xl text-xs overflow-x-auto">
+          <div className="flex items-center gap-1.5 p-1 bg-[var(--color-surface-warm)] border border-[var(--color-border)] rounded-xl text-xs overflow-x-auto">
             {(["all", "lesson", "flashcard", "quiz"] as const).map((t) => (
               <button
                 type="button"
@@ -225,7 +227,7 @@ export function ReviewQueueList({
                 aria-pressed={typeFilter === t}
                 className={`px-3 py-1.5 rounded-lg font-bold transition-all whitespace-nowrap ${
                   typeFilter === t
-                    ? "bg-[#007a7a] text-white shadow-sm"
+                    ? "bg-[var(--color-primary-default)] text-[var(--color-primary-contrast)] shadow-sm"
                     : "text-[var(--color-text)] hover:bg-[var(--color-surface)] border border-transparent hover:border-[var(--color-border)]"
                 }`}
               >
@@ -236,37 +238,37 @@ export function ReviewQueueList({
         </div>
 
         {/* Search Bar */}
-        <div className="relative">
-          <Search className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-muted)]" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => {
-              setSearchQuery(e.target.value);
-              setPage(1);
-            }}
-            placeholder="جستجو در نام فایل‌ها و عناوین محتوا..."
-            className="w-full pr-10 pl-10 py-2.5 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl text-xs text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:ring-2 focus:ring-[#008080] focus:border-transparent transition-all"
-          />
-          {searchQuery && (
-            <button
-              type="button"
-              onClick={() => {
-                setSearchQuery("");
-                setPage(1);
-              }}
-              className="absolute left-3 top-1/2 -translate-y-1/2 p-1 text-[var(--color-text-muted)] hover:text-[var(--color-text)] rounded-md"
-              aria-label="پاک کردن جستجو"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          )}
-        </div>
+        <Input
+          type="text"
+          value={searchQuery}
+          onChange={(e) => {
+            setSearchQuery(e.target.value);
+            setPage(1);
+          }}
+          placeholder="جستجو در نام فایل‌ها و عناوین محتوا..."
+          aria-label="جستجو در نام فایل‌ها و عناوین محتوا"
+          startIcon={<Search className="w-4 h-4" />}
+          endIcon={
+            searchQuery ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery("");
+                  setPage(1);
+                }}
+                className="p-1 text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors cursor-pointer"
+                aria-label="پاک کردن جستجو"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            ) : undefined
+          }
+        />
       </div>
 
       {/* Grouped Queue Items */}
       {groups.length === 0 ? (
-        <div className="bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] p-12 text-center space-y-3">
+        <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-12 text-center space-y-3">
           <Sparkles className="w-10 h-10 text-[var(--color-text-muted)] mx-auto" />
           <h4 className="text-sm font-bold text-[var(--color-text)]">
             موردی در انتظار بازبینی وجود ندارد
@@ -283,7 +285,9 @@ export function ReviewQueueList({
         <div className="space-y-4">
           {groups.map((group, index) => {
             const groupId = group.document?.id ?? `unknown-group-${index}`;
-            const isOpen = expandedGroupId === groupId;
+            const isOpen =
+              expandedGroupId === groupId ||
+              (expandedGroupId === null && groups.length === 1);
             return (
               <ReviewDocumentGroup
                 key={groupId}
@@ -324,7 +328,7 @@ export function ReviewQueueList({
         return (
           <div className="flex items-center justify-between pt-4 border-t border-[var(--color-border)]">
             <span className="text-xs text-[var(--color-text-muted)]">
-              مجموع: {total} فایل/گروه (صفحه {page} از {totalPages})
+              مجموع: {toPersianDigits(total)} فایل/گروه ({formatPersianOf(page, totalPages, { prefix: "صفحه" })})
             </span>
             <div className="flex items-center gap-2">
               <button

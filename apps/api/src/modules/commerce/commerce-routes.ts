@@ -56,6 +56,8 @@ export interface CommerceRouteOptions {
   contentPackStore?: ContentPackStore;
   auditService?: AuditService;
   cardToCardConfig?: CardToCardInfoResponse;
+  onlinePaymentEnabled?: boolean;
+  mockPaymentEnabled?: boolean;
 }
 
 export const commerceRoutes: FastifyPluginAsync<CommerceRouteOptions> = async (
@@ -76,6 +78,8 @@ export const commerceRoutes: FastifyPluginAsync<CommerceRouteOptions> = async (
     contentPackStore,
     auditService,
     cardToCardConfig,
+    onlinePaymentEnabled,
+    mockPaymentEnabled,
   } = opts;
 
   const { requireAuth } = makeAuthMiddleware({ sessionService, userStore });
@@ -87,6 +91,11 @@ export const commerceRoutes: FastifyPluginAsync<CommerceRouteOptions> = async (
     auditService,
     contentPackStore,
     cardToCardConfig,
+    lessonStore,
+    {
+      onlinePaymentEnabled,
+      mockPaymentEnabled,
+    },
   );
 
   const paymentExtractionService =
@@ -312,13 +321,17 @@ export const commerceRoutes: FastifyPluginAsync<CommerceRouteOptions> = async (
   });
 
   // -------------------------------------------------------------------------
-  // POST /v1/commerce/payments/card-to-card — Submit Card-to-Card Payment
+  // POST /v1/commerce/payments/card-to-card (and alias /v1/commerce/card-to-card/submit)
   // -------------------------------------------------------------------------
-  app.post(
+  for (const routePath of [
     "/v1/commerce/payments/card-to-card",
-    { preHandler: [requireAuth] },
-    async (request, reply) => {
-      const actor = getActor(request);
+    "/v1/commerce/card-to-card/submit",
+  ]) {
+    app.post(
+      routePath,
+      { preHandler: [requireAuth] },
+      async (request, reply) => {
+        const actor = getActor(request);
       const body = (request.body ?? {}) as {
         product_id?: string;
         productId?: string;
@@ -398,6 +411,7 @@ export const commerceRoutes: FastifyPluginAsync<CommerceRouteOptions> = async (
       return result;
     },
   );
+  }
 
   // -------------------------------------------------------------------------
   // GET /v1/commerce/payments/:paymentId — Get Single Payment Details

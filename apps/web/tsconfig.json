@@ -10,11 +10,13 @@
     "noEmit": true,
     "jsx": "react-jsx",
     "types": ["node"],
+    "noUnusedLocals": false,
     "baseUrl": ".",
     "paths": {
       "@/*": ["src/*"],
       "@avana/contracts": ["../../packages/contracts/src/index.ts"],
-      "@avana/domain": ["../../packages/domain/src/index.ts"]
+      "@avana/domain": ["../../packages/domain/src/index.ts"],
+      "@avana/ui": ["../../packages/ui/src/index.ts"]
     }
   },
   "include": ["src", "vite.config.ts"],

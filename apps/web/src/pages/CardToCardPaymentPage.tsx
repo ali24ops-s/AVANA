@@ -57,11 +57,12 @@ export function CardToCardPaymentPage() {
   const c2cMutation = useSubmitCardToCardPayment();
   const extractMutation = useExtractCardToCardPayment();
 
-  // Find product from backend catalog
-  const products = (productsData?.items ?? []).filter((p) => p.type === "subscription");
+  // Find product from backend catalog (subscriptions, courses, packs)
+  const allProducts = productsData?.items ?? [];
   const selectedProduct =
-    products.find((p) => p.id === rawProductId || p.code === rawProductId) ||
-    products[0];
+    allProducts.find((p) => p.id === rawProductId || p.code === rawProductId) ||
+    allProducts.find((p) => p.type === "subscription") ||
+    allProducts[0];
 
   // Extraction & Form states
   const [paymentText, setPaymentText] = useState("");
@@ -100,8 +101,6 @@ export function CardToCardPaymentPage() {
 
   const destinationNumber =
     c2cInfo?.destinationCardNumber || "5894631131738239";
-  const destinationHolder =
-    c2cInfo?.cardholderName || "علی محمدلو";
 
   const handleCopyCard = (cardNum: string) => {
     const cleanNum = cardNum.replace(/-/g, "").replace(/\s/g, "");
@@ -158,7 +157,7 @@ export function CardToCardPaymentPage() {
             setPayerName(res.data.payerName);
           }
         },
-        onError: (err: any) => {
+        onError: (err: { envelope?: { error?: { message?: string } }; response?: { data?: { message?: string } }; message?: string }) => {
           const msg =
             err.envelope?.error?.message ||
             err.response?.data?.message ||
@@ -238,7 +237,7 @@ export function CardToCardPaymentPage() {
           setIsSuccess(true);
           setSuccessMessage(res.message);
         },
-        onError: (err: any) => {
+        onError: (err: { envelope?: { error?: { message?: string } }; response?: { data?: { message?: string } }; message?: string }) => {
           const msg =
             err.envelope?.error?.message ||
             err.response?.data?.message ||
@@ -262,74 +261,74 @@ export function CardToCardPaymentPage() {
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8" dir="rtl">
       {/* 1. Header & Navigation */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-6 border-b border-white/10">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-6 border-b border-[var(--color-border)]">
         <div>
           <Link
             to="/pricing"
-            className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-400 hover:text-teal-400 transition-colors mb-2"
+            className="inline-flex items-center gap-1.5 text-xs font-bold text-[var(--color-text-muted)] hover:text-primary transition-colors mb-2"
           >
             <ArrowRight className="w-3.5 h-3.5" />
             <span>بازگشت به انتخاب پلن‌ها</span>
           </Link>
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-white flex items-center gap-2.5">
-            <Zap className="w-7 h-7 text-amber-400 fill-amber-400" />
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-[var(--color-text)] flex items-center gap-2.5">
+            <Zap className="w-7 h-7 text-amber-500 fill-amber-500" />
             پرداخت کارت‌به‌کارت با استخراج خودکار و فعال‌سازی فوری
           </h1>
-          <p className="text-xs sm:text-sm text-slate-400 mt-1">
+          <p className="text-xs sm:text-sm text-[var(--color-text-muted)] mt-1">
             مبلغ اشتراک را واریز کرده، متن پیامک بانکی را Paste کنید تا دسترسی شما بلافاصله فعال شود.
           </p>
         </div>
 
         {selectedProduct && (
-          <div className="px-4 py-2.5 rounded-2xl bg-slate-900 border border-teal-500/30 text-left">
-            <div className="text-[11px] text-slate-400">پلن انتخابی شما:</div>
-            <div className="text-sm font-bold text-teal-300">{selectedProduct.title}</div>
+          <div className="px-4 py-2.5 rounded-2xl bg-[var(--color-surface)] border border-primary/30 text-left shadow-xs">
+            <div className="text-[11px] text-[var(--color-text-muted)]">پلن انتخابی شما:</div>
+            <div className="text-sm font-bold text-primary">{selectedProduct.title}</div>
           </div>
         )}
       </div>
 
       {isSuccess ? (
         /* 2. Success View with Celebratory Message */
-        <div className="py-12 px-6 sm:px-10 rounded-3xl glass-panel border border-emerald-500/40 bg-gradient-to-br from-slate-900 via-slate-900/90 to-emerald-950/40 text-center space-y-6 animate-in fade-in zoom-in-95 duration-300 shadow-2xl">
-          <div className="w-20 h-20 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center mx-auto shadow-lg shadow-emerald-500/20">
+        <div className="py-12 px-6 sm:px-10 rounded-3xl bg-[var(--color-surface)] border border-emerald-200 dark:border-emerald-800 text-center space-y-6 animate-in fade-in zoom-in-95 duration-300 shadow-xs">
+          <div className="w-20 h-20 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 flex items-center justify-center mx-auto shadow-sm">
             <PartyPopper className="w-10 h-10" />
           </div>
 
           <div className="space-y-2 max-w-lg mx-auto">
-            <h2 className="text-2xl sm:text-3xl font-black text-white">
+            <h2 className="text-2xl sm:text-3xl font-black text-[var(--color-text)]">
               اشتراک شما با موفقیت فعال شد! ⚡
             </h2>
-            <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+            <p className="text-xs sm:text-sm text-[var(--color-text-secondary)] leading-relaxed">
               {successMessage ||
                 "اطلاعات پرداخت شما با موفقیت ثبت شد و اشتراک بلافاصله فعال گردید. اکنون دسترسی کامل به تمام درسنامه‌ها، آزمون‌ها و هوش مصنوعی برای شما برقرار است."}
             </p>
           </div>
 
-          <div className="p-4 rounded-2xl bg-white/5 border border-white/10 max-w-md mx-auto text-xs text-slate-300 space-y-1.5 text-right">
+          <div className="p-4 rounded-2xl bg-[var(--color-surface-warm)] border border-[var(--color-border)] max-w-md mx-auto text-xs text-[var(--color-text-secondary)] space-y-1.5 text-right">
             <div className="flex justify-between">
-              <span className="text-slate-400">پلن فعال‌شده:</span>
-              <span className="font-bold text-white">{selectedProduct?.title}</span>
+              <span className="text-[var(--color-text-muted)]">پلن فعال‌شده:</span>
+              <span className="font-bold text-[var(--color-text)]">{selectedProduct?.title}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-slate-400">شماره پیگیری:</span>
-              <span className="font-mono text-amber-300">{trackingNumber}</span>
+              <span className="text-[var(--color-text-muted)]">شماره پیگیری:</span>
+              <span className="font-mono text-amber-600 dark:text-amber-400 font-bold">{trackingNumber}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-slate-400">وضعیت دسترسی:</span>
-              <span className="text-emerald-400 font-bold">فعال و آماده استفاده</span>
+              <span className="text-[var(--color-text-muted)]">وضعیت دسترسی:</span>
+              <span className="text-emerald-600 dark:text-emerald-400 font-bold">فعال و آماده استفاده</span>
             </div>
           </div>
 
           <div className="pt-4 flex flex-col sm:flex-row items-center justify-center gap-4">
             <button
               onClick={() => navigate("/courses")}
-              className="w-full sm:w-auto px-8 py-3.5 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-sm shadow-lg shadow-emerald-500/25 transition-all cursor-pointer"
+              className="w-full sm:w-auto px-8 py-3.5 rounded-2xl bg-primary hover:bg-primary-hover text-white font-bold text-sm shadow-md shadow-primary/20 transition-all cursor-pointer"
             >
               ورود به دوره‌ها و شروع یادگیری
             </button>
             <Link
               to="/account/subscription"
-              className="w-full sm:w-auto px-6 py-3.5 rounded-2xl bg-white/5 hover:bg-white/10 text-white font-bold text-sm border border-white/10 transition-colors text-center"
+              className="w-full sm:w-auto px-6 py-3.5 rounded-2xl bg-[var(--color-surface-warm)] hover:bg-slate-200/60 dark:hover:bg-slate-800 text-[var(--color-text)] font-bold text-sm border border-[var(--color-border)] transition-colors text-center"
             >
               مشاهده وضعیت اشتراک من
             </Link>
@@ -341,25 +340,25 @@ export function CardToCardPaymentPage() {
           {/* Left Column (Details, Paste Box & Preview Form) */}
           <div className="lg:col-span-7 space-y-6">
             {/* Step 1: Destination Card Info Card */}
-            <div className="rounded-3xl glass-panel border border-indigo-500/40 bg-gradient-to-br from-slate-900 via-indigo-950/40 to-purple-950/40 p-6 sm:p-8 space-y-6 shadow-ambient">
-              <div className="flex items-center justify-between pb-4 border-b border-white/10">
+            <div className="rounded-3xl bg-[var(--color-surface)] border border-[var(--color-border)] p-6 sm:p-8 space-y-6 shadow-xs">
+              <div className="flex items-center justify-between pb-4 border-b border-[var(--color-border)]">
                 <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold text-sm">
+                  <div className="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold text-sm">
                     ۱
                   </div>
-                  <h3 className="text-base sm:text-lg font-bold text-white">
+                  <h3 className="text-base sm:text-lg font-bold text-[var(--color-text)]">
                     اطلاعات کارت مقصد جهت واریز
                   </h3>
                 </div>
-                <span className="text-[11px] text-amber-300 font-medium px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/20">
+                <span className="text-[11px] text-amber-700 dark:text-amber-300 font-medium px-2.5 py-1 rounded-full bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800">
                   کارت بانکی شتاب
                 </span>
               </div>
 
               {/* Bank Card Graphic */}
-              <div className="relative rounded-2xl bg-gradient-to-br from-indigo-900 via-indigo-800 to-purple-900 text-white p-5 sm:p-6 shadow-xl space-y-5 border border-white/15">
+              <div className="relative rounded-2xl bg-gradient-to-br from-teal-700 via-teal-800 to-emerald-900 text-white p-5 sm:p-6 shadow-md space-y-5 border border-white/15">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-indigo-200 font-medium tracking-wide">
+                  <span className="text-xs text-teal-100 font-medium tracking-wide">
                     شماره کارت مقصد:
                   </span>
                   <CreditCard className="w-5 h-5 text-amber-300" />
@@ -391,14 +390,9 @@ export function CardToCardPaymentPage() {
                 </div>
 
                 <div className="flex items-end justify-between pt-2 border-t border-white/10 text-xs">
-                  <div>
-                    <span className="text-indigo-200 block text-[11px]">صاحب حساب:</span>
-                    <strong className="text-sm font-bold text-white mt-0.5 block">
-                      {destinationHolder}
-                    </strong>
-                  </div>
+                  <div />
                   <div className="text-left">
-                    <span className="text-indigo-200 block text-[11px]">مبلغ قابل پرداخت:</span>
+                    <span className="text-teal-100 block text-[11px]">مبلغ قابل پرداخت:</span>
                     <span className="text-base sm:text-lg font-black text-amber-300">
                       {selectedProduct?.price.toLocaleString("fa-IR")} تومان
                     </span>
@@ -407,8 +401,8 @@ export function CardToCardPaymentPage() {
               </div>
 
               {/* Instructions Callout */}
-              <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-200/90 leading-relaxed flex items-start gap-2.5">
-                <HelpCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+              <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-xs text-amber-800 dark:text-amber-300 leading-relaxed flex items-start gap-2.5">
+                <HelpCircle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
                 <span>
                   لطفاً مبلغ فوق را واریز کنید، سپس متن پیامک بانکی یا رسید تراکنش را در کادر زیر Paste کنید.
                 </span>
@@ -416,13 +410,13 @@ export function CardToCardPaymentPage() {
             </div>
 
             {/* Step 2: Main Payment Info Section (Paste Box or Extracted Preview) */}
-            <div className="rounded-3xl glass-panel border border-white/10 bg-slate-900/60 p-6 sm:p-8 space-y-6">
-              <div className="flex items-center justify-between pb-4 border-b border-white/10">
+            <div className="rounded-3xl bg-[var(--color-surface)] border border-[var(--color-border)] p-6 sm:p-8 space-y-6 shadow-xs">
+              <div className="flex items-center justify-between pb-4 border-b border-[var(--color-border)]">
                 <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-xl bg-teal-500/20 text-teal-400 flex items-center justify-center font-bold text-sm">
+                  <div className="w-8 h-8 rounded-xl bg-teal-500/10 text-primary flex items-center justify-center font-bold text-sm">
                     ۲
                   </div>
-                  <h3 className="text-base sm:text-lg font-bold text-white">
+                  <h3 className="text-base sm:text-lg font-bold text-[var(--color-text)]">
                     اطلاعات پرداخت
                   </h3>
                 </div>
@@ -431,7 +425,7 @@ export function CardToCardPaymentPage() {
                   <button
                     type="button"
                     onClick={handleResetExtraction}
-                    className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-teal-400 transition-colors cursor-pointer"
+                    className="inline-flex items-center gap-1 text-xs text-[var(--color-text-muted)] hover:text-primary transition-colors cursor-pointer"
                   >
                     <RotateCcw className="w-3.5 h-3.5" />
                     <span>Paste مجدد متن</span>
@@ -441,15 +435,15 @@ export function CardToCardPaymentPage() {
 
               {/* Error Alerts */}
               {extractError && (
-                <div className="flex items-center gap-2.5 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs animate-in fade-in duration-200">
-                  <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0" />
+                <div className="flex items-center gap-2.5 p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-xs animate-in fade-in duration-200">
+                  <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />
                   <span>{extractError}</span>
                 </div>
               )}
 
               {formError && (
-                <div className="flex items-center gap-2.5 p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs animate-in fade-in duration-200">
-                  <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />
+                <div className="flex items-center gap-2.5 p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-300 text-xs animate-in fade-in duration-200">
+                  <AlertCircle className="w-5 h-5 text-rose-500 shrink-0" />
                   <span>{formError}</span>
                 </div>
               )}
@@ -458,10 +452,10 @@ export function CardToCardPaymentPage() {
                 /* Primary Paste Input View */
                 <div className="space-y-4 animate-in fade-in duration-200">
                   <div>
-                    <label className="block text-xs font-bold text-slate-200 mb-1.5">
+                    <label className="block text-xs font-bold text-[var(--color-text)] mb-1.5">
                       متن پیامک بانک، رسید یا اطلاعات تراکنش خود را در کادر زیر Paste کنید:
                     </label>
-                    <p className="text-[11px] text-slate-400 mb-2 leading-relaxed">
+                    <p className="text-[11px] text-[var(--color-text-muted)] mb-2 leading-relaxed">
                       سیستم به صورت خودکار شماره پیگیری، ۴ رقم آخر کارت، تاریخ و زمان پرداخت را از متن استخراج می‌کند.
                     </p>
                     <textarea
@@ -469,7 +463,7 @@ export function CardToCardPaymentPage() {
                       value={paymentText}
                       onChange={(e) => setPaymentText(e.target.value)}
                       placeholder={`مثال:\nبانک ملت\nبرداشت از: ۶۰۳۷۹۹******۱۲۳۴\nمبلغ: ۲۹۹٬۰۰۰ تومان\nشماره پیگیری: ۱۲۳۴۵۶۷۸۹\nتاریخ: ۱۴۰۴/۱۲/۱۵ - ۱۴:۳۰`}
-                      className="w-full px-4 py-3 rounded-2xl border border-slate-700 bg-slate-950 text-white text-xs sm:text-sm focus:outline-none focus:border-teal-500 font-mono transition-colors resize-none placeholder-slate-600"
+                      className="w-full px-4 py-3 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-warm)] text-[var(--color-text)] text-xs sm:text-sm focus:outline-none focus:border-primary focus:bg-[var(--color-surface)] font-mono transition-colors resize-none placeholder-[var(--color-text-muted)]"
                     />
                   </div>
 
@@ -478,7 +472,7 @@ export function CardToCardPaymentPage() {
                       type="button"
                       disabled={extractMutation.isPending || !paymentText.trim()}
                       onClick={() => handleExtract()}
-                      className="w-full sm:flex-1 py-3.5 px-6 rounded-2xl bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-400 hover:to-emerald-400 text-slate-950 font-black text-sm shadow-lg shadow-teal-500/20 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                      className="w-full sm:flex-1 py-3.5 px-6 rounded-2xl bg-primary hover:bg-primary-hover text-white font-bold text-sm shadow-md shadow-primary/20 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       {extractMutation.isPending ? (
                         <>
@@ -499,7 +493,7 @@ export function CardToCardPaymentPage() {
                         setIsManualMode(true);
                         setHasExtracted(true);
                       }}
-                      className="w-full sm:w-auto px-4 py-3.5 rounded-2xl bg-slate-800/80 hover:bg-slate-800 text-slate-300 text-xs font-bold transition-colors cursor-pointer border border-slate-700"
+                      className="w-full sm:w-auto px-4 py-3.5 rounded-2xl bg-[var(--color-surface-warm)] hover:bg-slate-200/60 dark:hover:bg-slate-800 text-[var(--color-text)] text-xs font-bold transition-colors cursor-pointer border border-[var(--color-border)]"
                     >
                       ورود دستی اطلاعات
                     </button>
@@ -509,41 +503,41 @@ export function CardToCardPaymentPage() {
                 /* Extracted Preview & In-Place Editable Form */
                 <form onSubmit={handleSubmit} className="space-y-5 animate-in fade-in duration-200">
                   {/* Extraction Method Banner */}
-                  <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-800/60 border border-teal-500/20 text-xs">
-                    <div className="flex items-center gap-2 text-teal-300 font-medium">
+                  <div className="flex items-center justify-between p-3 rounded-2xl bg-[var(--color-surface-warm)] border border-primary/20 text-xs">
+                    <div className="flex items-center gap-2 text-primary font-medium">
                       {extractionMethod === "ai" || extractionMethod === "hybrid" ? (
                         <>
-                          <Sparkles className="w-4 h-4 text-amber-400" />
+                          <Sparkles className="w-4 h-4 text-amber-500" />
                           <span>اطلاعات با هوش مصنوعی و الگوهای بانکی استخراج شد ✨</span>
                         </>
                       ) : extractionMethod === "rule" ? (
                         <>
-                          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                           <span>اطلاعات با موفقیت از متن پیامک استخراج شد ⚡</span>
                         </>
                       ) : (
                         <>
-                          <Edit3 className="w-4 h-4 text-slate-400" />
+                          <Edit3 className="w-4 h-4 text-[var(--color-text-muted)]" />
                           <span>حالت ورود دستی اطلاعات پرداخت</span>
                         </>
                       )}
                     </div>
-                    <span className="text-[10px] text-slate-400">
+                    <span className="text-[10px] text-[var(--color-text-muted)]">
                       لطفاً اطلاعات زیر را بررسی یا اصلاح کنید
                     </span>
                   </div>
 
                   {/* Highlight for Missing Required Fields */}
                   {missingFields.includes("trackingNumber") && (
-                    <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-center gap-2">
-                      <AlertTriangle className="w-4 h-4 shrink-0 text-amber-400" />
+                    <div className="p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-xs flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 shrink-0 text-amber-500" />
                       <span>شماره پیگیری در متن پیدا نشد؛ لطفاً آن را به صورت دستی وارد کنید.</span>
                     </div>
                   )}
 
                   {missingFields.includes("sourceCardLast4") && (
-                    <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-center gap-2">
-                      <AlertTriangle className="w-4 h-4 shrink-0 text-amber-400" />
+                    <div className="p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-xs flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 shrink-0 text-amber-500" />
                       <span>۴ رقم آخر کارت مبدأ پیدا نشد؛ لطفاً آن را وارد کنید.</span>
                     </div>
                   )}
@@ -551,12 +545,12 @@ export function CardToCardPaymentPage() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     {/* Tracking Number */}
                     <div>
-                      <label className="block text-xs font-bold text-slate-200 mb-1.5 flex items-center justify-between">
+                      <label className="block text-xs font-bold text-[var(--color-text)] mb-1.5 flex items-center justify-between">
                         <span>
-                          شماره پیگیری / ارجاع بانکی <span className="text-rose-400">*</span>
+                          شماره پیگیری / ارجاع بانکی <span className="text-rose-500">*</span>
                         </span>
                         {fieldConfidence.trackingNumber === "high" && (
-                          <span className="text-[10px] text-emerald-400 font-normal flex items-center gap-0.5">
+                          <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-normal flex items-center gap-0.5">
                             <Check className="w-3 h-3" /> خودکار
                           </span>
                         )}
@@ -567,20 +561,20 @@ export function CardToCardPaymentPage() {
                         value={trackingNumber}
                         onChange={(e) => setTrackingNumber(e.target.value)}
                         placeholder="مثال: ۱۲۳۴۵۶۷۸۹"
-                        className={`w-full px-4 py-3 rounded-2xl border bg-slate-950 text-white text-xs sm:text-sm focus:outline-none focus:border-teal-500 font-mono transition-colors ${
-                          !trackingNumber ? "border-amber-500/60 bg-amber-950/20" : "border-slate-700"
+                        className={`w-full px-4 py-3 rounded-2xl border bg-[var(--color-surface)] text-[var(--color-text)] text-xs sm:text-sm focus:outline-none focus:border-primary font-mono transition-colors ${
+                          !trackingNumber ? "border-amber-500 bg-amber-50/50 dark:bg-amber-950/20" : "border-[var(--color-border)]"
                         }`}
                       />
                     </div>
 
                     {/* Source Card Last 4 */}
                     <div>
-                      <label className="block text-xs font-bold text-slate-200 mb-1.5 flex items-center justify-between">
+                      <label className="block text-xs font-bold text-[var(--color-text)] mb-1.5 flex items-center justify-between">
                         <span>
-                          ۴ رقم آخر کارت مبدأ <span className="text-rose-400">*</span>
+                          ۴ رقم آخر کارت مبدأ <span className="text-rose-500">*</span>
                         </span>
                         {fieldConfidence.sourceCardLast4 === "high" && (
-                          <span className="text-[10px] text-emerald-400 font-normal flex items-center gap-0.5">
+                          <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-normal flex items-center gap-0.5">
                             <Check className="w-3 h-3" /> خودکار
                           </span>
                         )}
@@ -594,8 +588,8 @@ export function CardToCardPaymentPage() {
                           setSourceCardLast4(e.target.value.replace(/\D/g, "").slice(0, 4))
                         }
                         placeholder="مثال: ۵۶۷۸"
-                        className={`w-full px-4 py-3 rounded-2xl border bg-slate-950 text-white text-xs sm:text-sm focus:outline-none focus:border-teal-500 font-mono tracking-widest text-center transition-colors ${
-                          !sourceCardLast4 ? "border-amber-500/60 bg-amber-950/20" : "border-slate-700"
+                        className={`w-full px-4 py-3 rounded-2xl border bg-[var(--color-surface)] text-[var(--color-text)] text-xs sm:text-sm focus:outline-none focus:border-primary font-mono tracking-widest text-center transition-colors ${
+                          !sourceCardLast4 ? "border-amber-500 bg-amber-50/50 dark:bg-amber-950/20" : "border-[var(--color-border)]"
                         }`}
                       />
                     </div>
@@ -604,9 +598,9 @@ export function CardToCardPaymentPage() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     {/* Payment Date */}
                     <div>
-                      <label className="block text-xs font-bold text-slate-200 mb-1.5 flex items-center gap-1.5">
-                        <Calendar className="w-3.5 h-3.5 text-teal-400" />
-                        <span>تاریخ پرداخت <span className="text-rose-400">*</span></span>
+                      <label className="block text-xs font-bold text-[var(--color-text)] mb-1.5 flex items-center gap-1.5">
+                        <Calendar className="w-3.5 h-3.5 text-primary" />
+                        <span>تاریخ پرداخت <span className="text-rose-500">*</span></span>
                       </label>
                       <input
                         type="text"
@@ -614,15 +608,15 @@ export function CardToCardPaymentPage() {
                         value={paymentDate}
                         onChange={(e) => setPaymentDate(e.target.value)}
                         placeholder="مثال: ۱۴۰۴/۱۲/۱۵"
-                        className="w-full px-4 py-3 rounded-2xl border border-slate-700 bg-slate-950 text-white text-xs sm:text-sm focus:outline-none focus:border-teal-500 transition-colors"
+                        className="w-full px-4 py-3 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] text-xs sm:text-sm focus:outline-none focus:border-primary transition-colors"
                       />
                     </div>
 
                     {/* Payment Time */}
                     <div>
-                      <label className="block text-xs font-bold text-slate-200 mb-1.5 flex items-center gap-1.5">
-                        <Clock className="w-3.5 h-3.5 text-teal-400" />
-                        <span>زمان تقریبی پرداخت <span className="text-rose-400">*</span></span>
+                      <label className="block text-xs font-bold text-[var(--color-text)] mb-1.5 flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5 text-primary" />
+                        <span>زمان تقریبی پرداخت <span className="text-rose-500">*</span></span>
                       </label>
                       <input
                         type="text"
@@ -630,14 +624,14 @@ export function CardToCardPaymentPage() {
                         value={paymentTime}
                         onChange={(e) => setPaymentTime(e.target.value)}
                         placeholder="مثال: ۱۴:۳۰"
-                        className="w-full px-4 py-3 rounded-2xl border border-slate-700 bg-slate-950 text-white text-xs sm:text-sm focus:outline-none focus:border-teal-500 font-mono text-center transition-colors"
+                        className="w-full px-4 py-3 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] text-xs sm:text-sm focus:outline-none focus:border-primary font-mono text-center transition-colors"
                       />
                     </div>
                   </div>
 
                   {/* Payer Name (Optional) */}
                   <div>
-                    <label className="block text-xs font-bold text-slate-200 mb-1.5">
+                    <label className="block text-xs font-bold text-[var(--color-text)] mb-1.5">
                       نام صاحب حساب واریزکننده (اختیاری)
                     </label>
                     <input
@@ -645,14 +639,14 @@ export function CardToCardPaymentPage() {
                       value={payerName}
                       onChange={(e) => setPayerName(e.target.value)}
                       placeholder="مثال: علی رضایی"
-                      className="w-full px-4 py-3 rounded-2xl border border-slate-700 bg-slate-950 text-white text-xs sm:text-sm focus:outline-none focus:border-teal-500 transition-colors"
+                      className="w-full px-4 py-3 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] text-xs sm:text-sm focus:outline-none focus:border-primary transition-colors"
                     />
                   </div>
 
                   {/* Step 3: Receipt Image / URL (Optional) */}
-                  <div className="pt-2 border-t border-white/5 space-y-2">
-                    <label className="block text-xs font-bold text-slate-300 flex items-center gap-1.5">
-                      <UploadCloud className="w-3.5 h-3.5 text-slate-400" />
+                  <div className="pt-2 border-t border-[var(--color-border)] space-y-2">
+                    <label className="block text-xs font-bold text-[var(--color-text-secondary)] flex items-center gap-1.5">
+                      <UploadCloud className="w-3.5 h-3.5 text-[var(--color-text-muted)]" />
                       <span>تصویر یا لینک فیش واریزی (اختیاری)</span>
                     </label>
                     <input
@@ -660,13 +654,13 @@ export function CardToCardPaymentPage() {
                       value={receiptUrl}
                       onChange={(e) => setReceiptUrl(e.target.value)}
                       placeholder="در صورت تمایل لینک یا آدرس تصویر فیش را وارد کنید"
-                      className="w-full px-4 py-2.5 rounded-2xl border border-slate-800 bg-slate-950/70 text-white text-xs focus:outline-none focus:border-teal-500 transition-colors"
+                      className="w-full px-4 py-2.5 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] text-xs focus:outline-none focus:border-primary transition-colors"
                     />
                   </div>
 
                   {/* Instant Activation Alert */}
-                  <div className="flex items-center gap-2 p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-xs">
-                    <Zap className="w-4 h-4 text-emerald-400 shrink-0 fill-current" />
+                  <div className="flex items-center gap-2 p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 text-xs">
+                    <Zap className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 fill-current" />
                     <span>
                       <strong>فعال‌سازی فوری:</strong> با کلیک بر روی تأیید، اشتراک شما همان لحظه فعال شده و نیازی به انتظار نیست.
                     </span>
@@ -677,7 +671,7 @@ export function CardToCardPaymentPage() {
                     <button
                       type="submit"
                       disabled={c2cMutation.isPending}
-                      className="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-sm sm:text-base shadow-xl shadow-emerald-500/25 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                      className="w-full py-4 px-6 rounded-2xl bg-primary hover:bg-primary-hover text-white font-bold text-sm sm:text-base shadow-md shadow-primary/20 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
                     >
                       {c2cMutation.isPending ? (
                         <>
@@ -700,32 +694,36 @@ export function CardToCardPaymentPage() {
           {/* Right Column (Plan Summary & Security Highlights) */}
           <div className="lg:col-span-5 space-y-6">
             {/* Plan Summary Card */}
-            <div className="rounded-3xl glass-panel border border-white/10 bg-slate-900/60 p-6 space-y-4">
-              <div className="flex items-center gap-2 pb-3 border-b border-white/10">
-                <Crown className="w-5 h-5 text-amber-400" />
-                <h4 className="text-sm font-bold text-white">خلاصه اشتراک انتخاب‌شده</h4>
+            <div className="rounded-3xl bg-[var(--color-surface)] border border-[var(--color-border)] p-6 space-y-4 shadow-xs">
+              <div className="flex items-center gap-2 pb-3 border-b border-[var(--color-border)]">
+                <Crown className="w-5 h-5 text-amber-500" />
+                <h4 className="text-sm font-bold text-[var(--color-text)]">خلاصه سفارش</h4>
               </div>
 
               <div className="space-y-3 text-xs">
-                <div className="flex justify-between items-center text-slate-300">
-                  <span>نوع پلن:</span>
-                  <span className="font-bold text-white">{selectedProduct?.title}</span>
+                <div className="flex justify-between items-center text-[var(--color-text-secondary)]">
+                  <span>محصول:</span>
+                  <span className="font-bold text-[var(--color-text)]">{selectedProduct?.title}</span>
                 </div>
-                <div className="flex justify-between items-center text-slate-300">
+                <div className="flex justify-between items-center text-[var(--color-text-secondary)]">
                   <span>مدت اعتبار:</span>
-                  <span className="font-bold text-white">{selectedProduct?.duration_days} روز</span>
+                  <span className="font-bold text-[var(--color-text)]">
+                    {selectedProduct?.duration_days
+                      ? `${selectedProduct.duration_days} روز`
+                      : "دسترسی همیشگی"}
+                  </span>
                 </div>
-                <div className="flex justify-between items-center text-slate-300 pt-2 border-t border-white/10">
-                  <span className="font-bold">مبلغ نهایی:</span>
-                  <span className="text-lg font-black text-teal-400">
+                <div className="flex justify-between items-center text-[var(--color-text-secondary)] pt-2 border-t border-[var(--color-border)]">
+                  <span className="font-bold text-[var(--color-text)]">مبلغ نهایی:</span>
+                  <span className="text-lg font-black text-primary">
                     {selectedProduct?.price.toLocaleString("fa-IR")} تومان
                   </span>
                 </div>
               </div>
 
               {/* Benefits */}
-              <div className="pt-3 border-t border-white/10 space-y-2 text-xs text-slate-300">
-                <span className="text-slate-400 block mb-1">مزایای اشتراک آوانا پلاس:</span>
+              <div className="pt-3 border-t border-[var(--color-border)] space-y-2 text-xs text-[var(--color-text-secondary)]">
+                <span className="text-[var(--color-text-muted)] block mb-1">مزایای اشتراک آوانا پلاس:</span>
                 {[
                   "دسترسی نامحدود به تمامی درسنامه‌ها",
                   "مرور هوشمند فلش‌کارت‌ها با الگوریتم FSRS",
@@ -733,7 +731,7 @@ export function CardToCardPaymentPage() {
                   "گفتگوی نامحدود با دستیار هوشمند آموزشی",
                 ].map((b, i) => (
                   <div key={i} className="flex items-center gap-2">
-                    <div className="w-4 h-4 rounded-full bg-teal-500/20 text-teal-400 flex items-center justify-center shrink-0">
+                    <div className="w-4 h-4 rounded-full bg-teal-500/10 text-primary flex items-center justify-center shrink-0">
                       <Check className="w-3 h-3" />
                     </div>
                     <span>{b}</span>
@@ -743,12 +741,12 @@ export function CardToCardPaymentPage() {
             </div>
 
             {/* Security Guarantee */}
-            <div className="rounded-3xl glass-panel border border-white/5 bg-slate-900/40 p-5 space-y-3">
-              <div className="flex items-center gap-2.5 text-emerald-400">
+            <div className="rounded-3xl bg-[var(--color-surface)] border border-[var(--color-border)] p-5 space-y-3 shadow-xs">
+              <div className="flex items-center gap-2.5 text-emerald-600 dark:text-emerald-400">
                 <ShieldCheck className="w-5 h-5" />
-                <span className="text-xs font-bold text-white">ضمانت امنیت و شفافیت</span>
+                <span className="text-xs font-bold text-[var(--color-text)]">ضمانت امنیت و شفافیت</span>
               </div>
-              <p className="text-[11px] text-slate-400 leading-relaxed">
+              <p className="text-[11px] text-[var(--color-text-muted)] leading-relaxed">
                 کلیه تراکنش‌ها به صورت اتمیک ثبت شده و سوابق مالی کاربر در پرونده کاربری با شفافیت کامل حفظ می‌شود.
               </p>
             </div>

@@ -1,4 +1,5 @@
 import { Search, X, Filter, ArrowUpDown, RefreshCw } from "lucide-react";
+import { Input } from "@avana/ui";
 import type { DocumentListFilters } from "../../lib/api/documents.js";
 import type { DocumentStatus } from "@avana/contracts";
 
@@ -72,36 +73,37 @@ export function FileFilterToolbar({
   };
 
   return (
-    <div className="glass-panel border border-white/10 rounded-2xl p-4 mb-6 space-y-4 shadow-ambient">
+    <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl p-4 mb-6 space-y-4 shadow-xs">
       {/* Top row: Search input + Actions */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
         {/* Search Bar */}
-        <div className="relative flex-1">
-          <Search className="w-4 h-4 absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input
-            type="text"
-            value={filters.search ?? ""}
-            onChange={(e) =>
-              onChange({
-                ...filters,
-                search: e.target.value || undefined,
-                page: 1,
-              })
-            }
-            placeholder="جستجوی نام فایل، دوره، درس یا نوع فایل..."
-            className="w-full pl-9 pr-10 py-2 rounded-xl border border-white/10 bg-white/5 text-slate-200 text-xs sm:text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all"
-          />
-          {filters.search && (
-            <button
-              type="button"
-              onClick={() => onChange({ ...filters, search: undefined, page: 1 })}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 p-0.5 rounded-full hover:bg-white/10"
-              aria-label="پاک کردن جستجو"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          )}
-        </div>
+        <Input
+          containerClassName="flex-1"
+          type="text"
+          value={filters.search ?? ""}
+          onChange={(e) =>
+            onChange({
+              ...filters,
+              search: e.target.value || undefined,
+              page: 1,
+            })
+          }
+          placeholder="جستجوی نام فایل، دوره، درس یا نوع فایل..."
+          aria-label="جستجوی نام فایل، دوره، درس یا نوع فایل"
+          startIcon={<Search className="w-4 h-4" />}
+          endIcon={
+            filters.search ? (
+              <button
+                type="button"
+                onClick={() => onChange({ ...filters, search: undefined, page: 1 })}
+                className="p-1 text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors cursor-pointer"
+                aria-label="پاک کردن جستجو"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            ) : undefined
+          }
+        />
 
         {/* Refresh & Reset Controls */}
         <div className="flex items-center gap-2 shrink-0">
@@ -109,7 +111,7 @@ export function FileFilterToolbar({
             <button
               type="button"
               onClick={handleClearFilters}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-rose-400 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition-colors"
             >
               <X className="w-3.5 h-3.5" />
               <span>پاک کردن فیلترها</span>
@@ -121,11 +123,11 @@ export function FileFilterToolbar({
               type="button"
               onClick={onRefresh}
               disabled={isRefreshing}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-slate-300 bg-white/5 hover:bg-white/10 border border-white/10 transition-colors disabled:opacity-50"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-[var(--color-text)] bg-white hover:bg-slate-50 border border-[var(--color-border)] transition-colors disabled:opacity-50"
               aria-label="تازه‌سازی لیست"
             >
               <RefreshCw
-                className={`w-3.5 h-3.5 ${isRefreshing ? "animate-spin text-teal-400" : ""}`}
+                className={`w-3.5 h-3.5 ${isRefreshing ? "animate-spin text-[#008080]" : ""}`}
               />
               <span className="hidden sm:inline">تازه‌سازی</span>
             </button>
@@ -134,11 +136,11 @@ export function FileFilterToolbar({
       </div>
 
       {/* Bottom row: Filter Dropdowns & Type Pills */}
-      <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-white/5 text-xs">
+      <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-[var(--color-border)] text-xs">
         {/* File Type Filter */}
         <div className="flex items-center gap-1.5">
-          <Filter className="w-3.5 h-3.5 text-slate-400" />
-          <span className="text-slate-400 font-medium">نوع فایل:</span>
+          <Filter className="w-3.5 h-3.5 text-[var(--color-text-muted)]" />
+          <span className="text-[var(--color-text-muted)] font-medium">نوع فایل:</span>
           <select
             value={filters.type ?? ""}
             onChange={(e) =>
@@ -148,7 +150,7 @@ export function FileFilterToolbar({
                 page: 1,
               })
             }
-            className="bg-[#131d31] border border-white/10 rounded-xl px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:ring-1 focus:ring-teal-500"
+            className="bg-white border border-[var(--color-border)] rounded-xl px-2.5 py-1.5 text-[var(--color-text)] text-xs focus:outline-none focus:ring-1 focus:ring-[#008080]"
           >
             {FILE_TYPE_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
@@ -160,7 +162,7 @@ export function FileFilterToolbar({
 
         {/* Processing Status Filter */}
         <div className="flex items-center gap-1.5">
-          <span className="text-slate-400 font-medium">وضعیت:</span>
+          <span className="text-[var(--color-text-muted)] font-medium">وضعیت:</span>
           <select
             value={filters.status ?? ""}
             onChange={(e) =>
@@ -170,7 +172,7 @@ export function FileFilterToolbar({
                 page: 1,
               })
             }
-            className="bg-[#131d31] border border-white/10 rounded-xl px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:ring-1 focus:ring-teal-500"
+            className="bg-white border border-[var(--color-border)] rounded-xl px-2.5 py-1.5 text-[var(--color-text)] text-xs focus:outline-none focus:ring-1 focus:ring-[#008080]"
           >
             {STATUS_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
@@ -182,7 +184,7 @@ export function FileFilterToolbar({
 
         {/* Usage Filter */}
         <div className="flex items-center gap-1.5">
-          <span className="text-slate-400 font-medium">محل استفاده:</span>
+          <span className="text-[var(--color-text-muted)] font-medium">محل استفاده:</span>
           <select
             value={filters.used ?? ""}
             onChange={(e) =>
@@ -192,7 +194,7 @@ export function FileFilterToolbar({
                 page: 1,
               })
             }
-            className="bg-[#131d31] border border-white/10 rounded-xl px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:ring-1 focus:ring-teal-500"
+            className="bg-white border border-[var(--color-border)] rounded-xl px-2.5 py-1.5 text-[var(--color-text)] text-xs focus:outline-none focus:ring-1 focus:ring-[#008080]"
           >
             {USAGE_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
@@ -204,8 +206,8 @@ export function FileFilterToolbar({
 
         {/* Sort Selector */}
         <div className="flex items-center gap-1.5 mr-auto">
-          <ArrowUpDown className="w-3.5 h-3.5 text-slate-400" />
-          <span className="text-slate-400 font-medium">مرتب‌سازی:</span>
+          <ArrowUpDown className="w-3.5 h-3.5 text-[var(--color-text-muted)]" />
+          <span className="text-[var(--color-text-muted)] font-medium">مرتب‌سازی:</span>
           <select
             value={filters.sort ?? "newest"}
             onChange={(e) =>
@@ -214,7 +216,7 @@ export function FileFilterToolbar({
                 sort: e.target.value as DocumentListFilters["sort"],
               })
             }
-            className="bg-[#131d31] border border-white/10 rounded-xl px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:ring-1 focus:ring-teal-500"
+            className="bg-white border border-[var(--color-border)] rounded-xl px-2.5 py-1.5 text-[var(--color-text)] text-xs focus:outline-none focus:ring-1 focus:ring-[#008080]"
           >
             {SORT_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
