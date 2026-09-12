@@ -17,6 +17,7 @@ import {
   type ContentPackId,
   type CourseId,
   type ModuleId,
+  type OrganizationId,
   type ProductRecord,
   type ResourceAccessResult,
   type UserId,
@@ -46,6 +47,7 @@ export interface EntitlementServiceDeps {
   contentPackStore?: ContentPackStore;
   organizationStore?: OrganizationStore;
   previewResolver?: PreviewResolver;
+  systemOrganizationId?: OrganizationId;
 }
 
 export class EntitlementService {
@@ -61,6 +63,7 @@ export class EntitlementService {
         quizStore: deps.quizStore,
         flashcardStore: deps.flashcardStore,
         courseStore: deps.courseStore,
+        systemOrganizationId: deps.systemOrganizationId,
       });
   }
 
@@ -272,6 +275,24 @@ export class EntitlementService {
           granted: true,
           reason: "content_pack_purchase",
           expiresAt: packEntitlement.expiresAt,
+          availablePurchaseOptions: [],
+        };
+      }
+    }
+
+    // 4.4 Direct Special Exam Attempt Entitlement
+    if (input.resourceType === "special_exam" && input.resourceId) {
+      const examEntitlement = await commerceStore.findActiveEntitlement(
+        actor.userId,
+        "special_exam",
+        input.resourceId,
+        now,
+      );
+      if (examEntitlement) {
+        return {
+          granted: true,
+          reason: "special_exam_purchase",
+          expiresAt: examEntitlement.expiresAt,
           availablePurchaseOptions: [],
         };
       }
@@ -590,7 +611,11 @@ export class EntitlementService {
             ? await (flashcardStore as any).findById(input.resourceId)
             : undefined;
           if (!fc && typeof (flashcardStore as any).findByIdForOrganization === "function") {
-            fc = await (flashcardStore as any).findByIdForOrganization(input.resourceId);
+            fc = await (flashcardStore as any).findByIdForOrganization(
+              input.resourceId,
+              undefined,
+              this.deps.systemOrganizationId,
+            );
           }
           if (!fc && (flashcardStore as any).flashcards instanceof Map) {
             fc = (flashcardStore as any).flashcards.get(input.resourceId);

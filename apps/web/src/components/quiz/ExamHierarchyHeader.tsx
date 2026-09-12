@@ -70,11 +70,11 @@ export function ExamHierarchyHeader({
         : "آزمون جامع";
 
     return (
-      <nav aria-label="مسیر آزمون" className="hidden md:flex items-center gap-2 text-[var(--color-text-muted)] font-body-md text-sm">
+      <nav aria-label="مسیر آزمون" className="flex items-center gap-2 text-[var(--color-text-muted)] font-body-md text-xs md:text-sm">
         <span className="material-symbols-outlined text-[18px]">menu_book</span>
-        <span className="text-[var(--color-text-muted)]">آزمون</span>
-        <span className="text-[var(--color-text-muted)] text-xs">←</span>
-        <span className="text-[var(--color-text)] font-medium">{cleanFallback}</span>
+        <span className="hidden sm:inline text-[var(--color-text-muted)]">آزمون</span>
+        <span className="hidden sm:inline text-[var(--color-text-muted)] text-xs">←</span>
+        <span className="text-[var(--color-text)] font-medium truncate max-w-[150px] sm:max-w-none">{cleanFallback}</span>
       </nav>
     );
   }
@@ -83,9 +83,9 @@ export function ExamHierarchyHeader({
     <nav
       ref={containerRef}
       aria-label="مسیر آزمون"
-      className="hidden md:flex items-center gap-2.5 flex-wrap text-sm"
+      className="flex items-center gap-2 sm:gap-2.5 flex-wrap text-sm"
     >
-      <div className="flex items-center gap-1.5 text-[var(--color-text-muted)] font-medium">
+      <div className="hidden sm:flex items-center gap-1.5 text-[var(--color-text-muted)] font-medium">
         <span className="material-symbols-outlined text-[18px] text-[var(--color-primary)]">menu_book</span>
         <span>آزمون</span>
         <span className="text-[var(--color-text-muted)] text-xs">←</span>
@@ -115,9 +115,9 @@ export function ExamHierarchyHeader({
                     : "bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] border-[var(--color-border)] hover:border-[var(--color-primary)]/40 text-[var(--color-text)]"
                 }`}
               >
-                <span className="font-semibold">{course.title}</span>
+                <span className="font-semibold truncate max-w-[180px] sm:max-w-xs">{course.title}</span>
                 <ChevronDown
-                  className={`w-4 h-4 transition-transform duration-200 ${
+                  className={`w-4 h-4 shrink-0 transition-transform duration-200 ${
                     isExpanded ? "text-[var(--color-primary)] rotate-180" : "text-[var(--color-text-muted)] group-hover:text-[var(--color-text)]"
                   }`}
                   aria-hidden="true"
@@ -129,7 +129,7 @@ export function ExamHierarchyHeader({
                 <div
                   role="region"
                   aria-label={`فصل‌های دوره ${course.title}`}
-                  className="absolute top-full right-0 mt-2 z-50 min-w-[220px] max-w-sm bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl p-3.5 shadow-elevated space-y-2"
+                  className="max-sm:fixed max-sm:inset-x-3 max-sm:top-14 max-sm:w-auto sm:absolute sm:top-full sm:right-0 sm:w-max mt-2 z-50 min-w-[280px] sm:min-w-[360px] md:min-w-[420px] max-w-[calc(100vw-1.5rem)] sm:max-w-md md:max-w-lg lg:max-w-xl bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl p-3.5 shadow-elevated space-y-2 max-h-[75vh] overflow-y-auto"
                 >
                   <div className="text-[11px] font-semibold text-[var(--color-text-muted)] border-b border-[var(--color-border)] pb-2 mb-2 flex items-center justify-between">
                     <span>فصل‌های شامل سؤال:</span>
@@ -145,8 +145,13 @@ export function ExamHierarchyHeader({
                           key={module.id}
                           className="text-xs text-[var(--color-text)] flex items-start gap-2 pr-1"
                         >
-                          <span className="text-[var(--color-primary)] font-bold leading-none mt-1">•</span>
-                          <span className="font-medium leading-relaxed">{module.title}</span>
+                          <span className="text-[var(--color-primary)] font-bold leading-none mt-1 shrink-0 select-none">•</span>
+                          <span
+                            className="font-medium leading-relaxed line-clamp-2 break-words"
+                            title={module.title}
+                          >
+                            {module.title}
+                          </span>
                         </li>
                       ))}
                     </ul>

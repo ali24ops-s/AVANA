@@ -54,7 +54,7 @@ export function ContentLibraryCard({ content, onBuy }: ContentLibraryCardProps) 
         {/* Top Badges */}
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-2">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-button border border-cyan-500/30 bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 transition-transform group-hover:scale-105">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] border border-cyan-500/30 bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 transition-transform group-hover:scale-105">
               <FileText className="h-4.5 w-4.5" />
             </div>
             <Badge variant="info">
@@ -109,7 +109,7 @@ export function ContentLibraryCard({ content, onBuy }: ContentLibraryCardProps) 
         </h3>
 
         {/* Parent Course & Module Context */}
-        <div className="space-y-1.5 rounded-button border border-[var(--color-border)] bg-[var(--color-surface-warm)] p-2.5 text-xs text-[var(--color-text-muted)]">
+        <div className="space-y-1.5 rounded-[10px] border border-[var(--color-border)] bg-[var(--color-surface-warm)] p-2.5 text-xs text-[var(--color-text-muted)]">
           <div className="flex items-center gap-1.5 truncate font-medium text-[var(--color-text)]" title={content.course_title}>
             <span className="shrink-0 text-[var(--color-text-muted)]">دوره:</span>
             <span className="truncate text-primary font-semibold">{content.course_title}</span>
@@ -133,7 +133,7 @@ export function ContentLibraryCard({ content, onBuy }: ContentLibraryCardProps) 
 
         {/* Free Preview Explanatory Notice */}
         {content.is_preview && (
-          <div className="rounded-button border border-cyan-500/20 bg-cyan-500/5 p-2 text-[11px] text-cyan-700 dark:text-cyan-300">
+          <div className="rounded-[10px] border border-cyan-500/20 bg-cyan-500/5 p-2 text-[11px] text-cyan-700 dark:text-cyan-300">
             این محتوا پولی است، اما برای آشنایی یک بخش از آن رایگان است.
           </div>
         )}
@@ -151,6 +151,7 @@ export function ContentLibraryCard({ content, onBuy }: ContentLibraryCardProps) 
             data-testid={`buy-content-btn-${content.id}`}
             leftIcon={<Lock className="h-3.5 w-3.5" />}
             rightIcon={<ChevronLeft className="h-4 w-4" />}
+            className="rounded-[10px]"
           >
             <span>
               {price > 0
@@ -161,10 +162,10 @@ export function ContentLibraryCard({ content, onBuy }: ContentLibraryCardProps) 
         ) : (
           <Link
             to={content.href || `/courses/${content.course_id}?lessonId=${content.lesson_id || content.id}`}
-            className={`flex w-full items-center justify-between rounded-button px-3.5 py-2 text-xs font-bold transition-all group-hover:shadow-sm ${
+            className={`flex w-full items-center justify-between rounded-[10px] px-3.5 py-2 text-xs font-bold transition-all group-hover:shadow-sm ${
               hasAccess || content.is_preview
                 ? "bg-primary/10 text-primary hover:bg-primary hover:text-white"
-                : "bg-amber-500/10 text-amber-600 dark:text-amber-300 hover:bg-amber-500 hover:text-slate-950 border border-amber-500/20"
+                : "bg-amber-500/10 text-amber-600 dark:text-amber-300 hover:bg-amber-500 hover:text-white border border-amber-500/20"
             }`}
           >
             <div className="flex items-center gap-1.5">

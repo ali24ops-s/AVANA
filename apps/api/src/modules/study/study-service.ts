@@ -51,6 +51,13 @@ import type {
   FlashcardStudySessionRecord,
   FlashcardStudySessionCardRecord,
   ExamCoverageCourse,
+  ProductRecord,
+  SpecialExamMetadata,
+  SpecialExamScope,
+  ExamBlueprintItem,
+  QuestionLessonInfo,
+  QuestionChapterInfo,
+  QuestionCourseInfo,
 } from "@avana/domain";
 import type {
   FlashcardStore,
@@ -148,7 +155,7 @@ export class StudyService {
     private readonly systemOrganizationId?: OrganizationId,
     private readonly studySessionStore?: StudySessionStore,
     private readonly flashcardStudySessionStore?: FlashcardStudySessionStore,
-    private readonly entitlementService?: EntitlementService,
+    private entitlementService?: EntitlementService,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -190,6 +197,10 @@ export class StudyService {
 
   public getEntitlementService(): EntitlementService | undefined {
     return this.entitlementService;
+  }
+
+  public setEntitlementService(service: EntitlementService): void {
+    this.entitlementService = service;
   }
 
   /**
@@ -341,6 +352,7 @@ export class StudyService {
     const flashcard = await this.flashcardStore.findByIdForOrganization(
       input.flashcardId,
       organizationId,
+      this.systemOrganizationId,
     );
     if (!flashcard) {
       throw new DomainError("not_found", "Flashcard not found");
@@ -984,11 +996,32 @@ export class StudyService {
     }
 
     const sessionCards = await this.flashcardStudySessionStore.listSessionCards(sessionId);
-    const allOrgCards = await this.flashcardStore.listByOrganization(
-      organizationId,
-      this.systemOrganizationId,
+    const [allOrgCards, userSchedules] = await Promise.all([
+      this.flashcardStore.listByOrganization(
+        organizationId,
+        this.systemOrganizationId,
+      ),
+      this.userFlashcardScheduleStore
+        ? this.userFlashcardScheduleStore.listByUser(actor.userId)
+        : Promise.resolve([]),
+    ]);
+
+    const scheduleMap = new Map(userSchedules.map((s) => [s.flashcardId, s]));
+    const cardMap = new Map(
+      allOrgCards.map((c) => {
+        const schedule = scheduleMap.get(c.id);
+        if (!schedule) return [c.id, c];
+        return [
+          c.id,
+          {
+            ...c,
+            dueAt: schedule.dueAt,
+            intervalDays: schedule.intervalDays,
+            easeFactor: schedule.easeFactor,
+          },
+        ];
+      }),
     );
-    const cardMap = new Map(allOrgCards.map((c) => [c.id, c]));
 
     // Preserve the snapshotted sortOrder and skip deleted cards safely
     const orderedCards: FlashcardRecord[] = [];
@@ -1289,8 +1322,10 @@ export class StudyService {
     const shuffled = seededRandomShuffle(eligibleQuestions, seed);
     const selectedQuestions = shuffled.slice(0, Math.min(limit, eligibleQuestions.length));
 
+    const enrichedPreview = await this.resolveQuestionHierarchyContext(selectedQuestions);
+
     // Strip correctAnswer prior to submission
-    const sanitized = selectedQuestions.map(
+    const sanitized = enrichedPreview.map(
       ({ correctAnswer: _ca, explanation: _exp, ...q }) => q,
     );
 
@@ -1379,8 +1414,11 @@ export class StudyService {
         questions = questions.slice(0, 5);
       }
     }
+
+    const enriched = await this.resolveQuestionHierarchyContext(questions);
+
     // Security: strip correctAnswer and explanation from questions response prior to submission
-    const sanitized = questions.map(
+    const sanitized = enriched.map(
       ({ correctAnswer: _correctAnswer, explanation: _explanation, ...q }) => q,
     );
     return { ...quiz, questions: sanitized, is_preview: access?.reason === "free_preview" };
@@ -1754,6 +1792,112 @@ export class StudyService {
       sections: legacySections,
       topics: topicsFlatList,
     };
+  }
+
+  /**
+   * Batch resolves lesson, chapter (module), and course hierarchy context for quiz questions.
+   * Completely avoids N+1 queries by executing at most 3 batch queries (lessons, modules, courses).
+   */
+  async resolveQuestionHierarchyContext<
+    T extends {
+      lessonId?: LessonId | null;
+      lesson?: QuestionLessonInfo | null;
+      chapter?: QuestionChapterInfo | null;
+      course?: QuestionCourseInfo | null;
+    },
+  >(questions: T[]): Promise<T[]> {
+    if (!questions || questions.length === 0) return [];
+
+    const lessonIds = Array.from(
+      new Set(
+        questions
+          .map((q) => q.lessonId)
+          .filter((id): id is LessonId => typeof id === "string" && id.trim().length > 0),
+      ),
+    );
+
+    const lessonMap = new Map<string, LessonRecord>();
+    const moduleMap = new Map<string, ModuleRecord>();
+    const courseMap = new Map<string, CourseRecord>();
+
+    if (lessonIds.length > 0 && this.lessonStore) {
+      const fetchedLessons = this.lessonStore.listByIds
+        ? await this.lessonStore.listByIds(lessonIds)
+        : (
+            await Promise.all(
+              lessonIds.map((id) => this.lessonStore.findById(id).catch(() => undefined)),
+            )
+          ).filter((l): l is LessonRecord => l != null);
+
+      for (const les of fetchedLessons) {
+        if (les) lessonMap.set(les.id, les);
+      }
+
+      const moduleIds = Array.from(
+        new Set(
+          fetchedLessons
+            .map((l) => l.moduleId)
+            .filter((id): id is ModuleId => typeof id === "string" && id.trim().length > 0),
+        ),
+      );
+
+      if (moduleIds.length > 0 && this.moduleStore) {
+        const fetchedModules = this.moduleStore.listByIds
+          ? await this.moduleStore.listByIds(moduleIds)
+          : (
+              await Promise.all(
+                moduleIds.map((id) => this.moduleStore.findById(id).catch(() => undefined)),
+              )
+            ).filter((m): m is ModuleRecord => m != null);
+
+        for (const mod of fetchedModules) {
+          if (mod) moduleMap.set(mod.id, mod);
+        }
+
+        const courseIds = Array.from(
+          new Set(
+            fetchedModules
+              .map((m) => m.courseId)
+              .filter((id): id is CourseId => typeof id === "string" && id.trim().length > 0),
+          ),
+        );
+
+        if (courseIds.length > 0 && this.courseStore) {
+          const fetchedCourses = (
+            await Promise.all(
+              courseIds.map((id) => this.courseStore!.findById(id).catch(() => undefined)),
+            )
+          ).filter((c): c is CourseRecord => c != null);
+
+          for (const crs of fetchedCourses) {
+            if (crs) courseMap.set(crs.id, crs);
+          }
+        }
+      }
+    }
+
+    return questions.map((q) => {
+      const les = q.lessonId ? lessonMap.get(q.lessonId) : undefined;
+      const mod = les?.moduleId ? moduleMap.get(les.moduleId) : undefined;
+      const crs = mod?.courseId ? courseMap.get(mod.courseId) : undefined;
+
+      const lessonInfo: QuestionLessonInfo | null = les
+        ? { id: les.id, title: les.title }
+        : (q.lesson ?? null);
+      const chapterInfo: QuestionChapterInfo | null = mod
+        ? { id: mod.id, title: mod.title }
+        : (q.chapter ?? null);
+      const courseInfo: QuestionCourseInfo | null = crs
+        ? { id: crs.id, title: (crs as { title?: string }).title || crs.name }
+        : (q.course ?? null);
+
+      return {
+        ...q,
+        lesson: lessonInfo,
+        chapter: chapterInfo,
+        course: courseInfo,
+      };
+    });
   }
 
   /**
@@ -2200,6 +2344,9 @@ export class StudyService {
     const selectedQuestions = shuffled.slice(0, requestedCount);
     const questionIds = selectedQuestions.map((q) => q.id);
 
+    // Enrich questions with lesson, chapter, course hierarchy
+    const enrichedQuestions = await this.resolveQuestionHierarchyContext(selectedQuestions);
+
     const attemptId = randomUUID() as QuizAttemptId;
     const now = new Date().toISOString();
 
@@ -2215,7 +2362,7 @@ export class StudyService {
       score: 0,
       answers: {},
       questionIds,
-      questionSnapshot: selectedQuestions,
+      questionSnapshot: enrichedQuestions,
       topic: safeTopic,
       difficulty,
       status: "in_progress",
@@ -2226,7 +2373,7 @@ export class StudyService {
     await this.quizAttemptStore.create(attempt);
 
     // Security: return questions with correctAnswer and explanation hidden during attempt
-    const sanitizedQuestions = selectedQuestions.map(
+    const sanitizedQuestions = enrichedQuestions.map(
       ({ correctAnswer: _correctAnswer, explanation: _explanation, ...q }) => q,
     );
 
@@ -2243,6 +2390,380 @@ export class StudyService {
   }
 
   /**
+   * Helper to resolve all questions in question bank that match an item criteria:
+   * topic, moduleId, lessonId, courseId, difficulty.
+   */
+  async resolveCandidateQuestionsForPool(
+    organizationId: OrganizationId,
+    item: {
+      topic?: string;
+      moduleId?: string;
+      lessonId?: string;
+      courseId?: string;
+      difficulty?: string;
+    },
+    allQuestionsCache?: QuizQuestionRecord[],
+    allQuizzesCache?: QuizRecord[],
+  ): Promise<QuizQuestionRecord[]> {
+    const allQuestions =
+      allQuestionsCache ??
+      (await this.quizQuestionStore.listByFilter({
+        organizationId,
+        systemOrganizationId: this.systemOrganizationId,
+        difficulty: "all",
+      }));
+
+    const allQuizzes =
+      allQuizzesCache ??
+      (this.quizStore
+        ? await this.quizStore.listByOrganization(
+            organizationId,
+            this.systemOrganizationId,
+          )
+        : []);
+    const quizMap = new Map(allQuizzes.map((q) => [q.id, q]));
+
+    const targetLessonIds = new Set<string>();
+    if (item.lessonId) {
+      targetLessonIds.add(item.lessonId);
+    }
+    let targetModuleDocumentId: string | null = null;
+    if (item.moduleId && this.lessonStore) {
+      const modLessons = await this.lessonStore
+        .listByModule(item.moduleId as any)
+        .catch(() => []);
+      for (const l of modLessons) targetLessonIds.add(l.id);
+    }
+    if (item.moduleId && this.moduleStore) {
+      const mod = await this.moduleStore
+        .findById(item.moduleId as any)
+        .catch(() => null);
+      if (mod?.documentId) {
+        targetModuleDocumentId = mod.documentId;
+      }
+    }
+    if (item.courseId && !item.moduleId && this.moduleStore && this.lessonStore) {
+      const courseModules = await this.moduleStore
+        .listByCourse(item.courseId as any)
+        .catch(() => []);
+      for (const m of courseModules) {
+        const modLessons = await this.lessonStore
+          .listByModule(m.id)
+          .catch(() => []);
+        for (const l of modLessons) targetLessonIds.add(l.id);
+      }
+    }
+
+    const normTopic = item.topic ? item.topic.trim().toLowerCase() : "";
+    const requestedDiff =
+      item.difficulty && item.difficulty !== "all"
+        ? item.difficulty.toLowerCase()
+        : null;
+
+    return allQuestions.filter((q) => {
+      if (requestedDiff) {
+        const qDiff = (q.difficulty || "medium").toLowerCase();
+        const matchesDiff =
+          qDiff === requestedDiff ||
+          qDiff ===
+            (requestedDiff === "easy"
+              ? "آسان"
+              : requestedDiff === "hard"
+                ? "سخت"
+                : "متوسط");
+        if (!matchesDiff) return false;
+      }
+
+      if (item.lessonId || item.moduleId || item.courseId) {
+        let matchesScope = false;
+        if (q.lessonId && targetLessonIds.has(q.lessonId)) {
+          matchesScope = true;
+        } else {
+          const parentQuiz = quizMap.get(q.quizId);
+          if (parentQuiz) {
+            if (
+              item.moduleId &&
+              targetModuleDocumentId &&
+              parentQuiz.documentId === targetModuleDocumentId
+            ) {
+              matchesScope = true;
+            } else if (
+              item.courseId &&
+              !item.moduleId &&
+              !item.lessonId &&
+              parentQuiz.courseId === item.courseId
+            ) {
+              matchesScope = true;
+            }
+          }
+        }
+        if (!matchesScope) {
+          return false;
+        }
+        return true;
+      }
+
+      if (normTopic) {
+        if (q.topic && q.topic.toLowerCase().includes(normTopic)) return true;
+        const parentQuiz = quizMap.get(q.quizId);
+        if (parentQuiz) {
+          if (
+            parentQuiz.topic &&
+            parentQuiz.topic.toLowerCase().includes(normTopic)
+          )
+            return true;
+          if (
+            parentQuiz.title &&
+            parentQuiz.title.toLowerCase().includes(normTopic)
+          )
+            return true;
+        }
+        if (q.question && q.question.toLowerCase().includes(normTopic))
+          return true;
+        return false;
+      }
+
+      return true;
+    });
+  }
+
+  /**
+   * Validate pool sufficiency for a proposed Special Exam blueprint.
+   */
+  async validateExamBlueprintPool(
+    organizationId: OrganizationId,
+    input: {
+      questionCount: number;
+      difficulty?: string;
+      scope?: SpecialExamScope;
+      blueprint?: ExamBlueprintItem[];
+    },
+  ): Promise<{
+    isValid: boolean;
+    totalRequired: number;
+    totalAvailable: number;
+    items: Array<{
+      name: string;
+      required: number;
+      available: number;
+      isSufficient: boolean;
+    }>;
+    errors: string[];
+  }> {
+    const allQuestions = await this.quizQuestionStore.listByFilter({
+      organizationId,
+      systemOrganizationId: this.systemOrganizationId,
+      difficulty: "all",
+    });
+    const allQuizzes = this.quizStore
+      ? await this.quizStore.listByOrganization(
+          organizationId,
+          this.systemOrganizationId,
+        )
+      : [];
+
+    const blueprintItems =
+      input.blueprint && input.blueprint.length > 0
+        ? input.blueprint
+        : [
+            {
+              name: input.scope?.topics?.[0] || "کل مباحث",
+              topic: input.scope?.topics?.[0],
+              moduleId: input.scope?.moduleId,
+              lessonId: input.scope?.lessonId,
+              courseId: input.scope?.courseId,
+              difficulty: input.difficulty,
+              count: input.questionCount,
+            },
+          ];
+
+    const results: Array<{
+      name: string;
+      required: number;
+      available: number;
+      isSufficient: boolean;
+    }> = [];
+    const errors: string[] = [];
+
+    const seenQuestionIds = new Set<string>();
+    const totalRequired = input.questionCount;
+
+    for (const item of blueprintItems) {
+      const candidates = await this.resolveCandidateQuestionsForPool(
+        organizationId,
+        {
+          topic: item.topic,
+          moduleId: item.moduleId,
+          lessonId: item.lessonId,
+          courseId: item.courseId,
+          difficulty: item.difficulty || input.difficulty,
+        },
+        allQuestions,
+        allQuizzes,
+      );
+
+      for (const q of candidates) seenQuestionIds.add(q.id);
+
+      const isSufficient = candidates.length >= item.count;
+      if (!isSufficient) {
+        errors.push(
+          `تعداد سؤال کافی در بانک سؤال برای «${item.name || item.topic || "مبحث انتخاب‌شده"}» وجود ندارد (موجود: ${candidates.length}، موردنیاز: ${item.count}).`,
+        );
+      }
+
+      results.push({
+        name: item.name || item.topic || "مبحث",
+        required: item.count,
+        available: candidates.length,
+        isSufficient,
+      });
+    }
+
+    const blueprintSum = blueprintItems.reduce((acc, it) => acc + it.count, 0);
+    if (blueprintSum !== totalRequired) {
+      errors.push(
+        `مجموع سؤالات Blueprint (${blueprintSum}) با تعداد سؤالات کل آزمون (${totalRequired}) مطابقت ندارد.`,
+      );
+    }
+
+    const isValid = errors.length === 0;
+    return {
+      isValid,
+      totalRequired,
+      totalAvailable: seenQuestionIds.size,
+      items: results,
+      errors,
+    };
+  }
+
+  /**
+   * Create an isolated, frozen Exam Attempt from a Special Exam Product.
+   * Performs dynamic randomized selection from Question Bank respecting blueprint quotas.
+   * Idempotent per orderId.
+   */
+  async createSpecialExamAttempt(
+    actor: Actor,
+    organizationId: OrganizationId,
+    product: ProductRecord,
+    orderId: string,
+  ): Promise<{ attempt: QuizAttemptRecord; questions: QuizQuestionRecord[] }> {
+    // 1. Idempotency Check: if attempt already exists for this orderId, return it directly
+    const existingAttempts = await this.quizAttemptStore.listByUser(actor.userId);
+    const existingAttempt = existingAttempts.find(
+      (a) => (a.metrics as Record<string, unknown> | null)?.orderId === orderId,
+    );
+    if (existingAttempt) {
+      const snapshot = Array.isArray(existingAttempt.questionSnapshot)
+        ? (existingAttempt.questionSnapshot as QuizQuestionRecord[])
+        : [];
+      const enrichedSnapshot = await this.resolveQuestionHierarchyContext(snapshot);
+      return { attempt: existingAttempt, questions: enrichedSnapshot };
+    }
+
+    const metadata = (product.metadata ?? {}) as SpecialExamMetadata;
+    const questionCount = metadata.questionCount ?? 20;
+    const difficulty = metadata.difficulty ?? "medium";
+
+    const allQuestions = await this.quizQuestionStore.listByFilter({
+      organizationId,
+      systemOrganizationId: this.systemOrganizationId,
+      difficulty: "all",
+    });
+    const allQuizzes = this.quizStore
+      ? await this.quizStore.listByOrganization(
+          organizationId,
+          this.systemOrganizationId,
+        )
+      : [];
+
+    const blueprintItems =
+      metadata.blueprint && metadata.blueprint.length > 0
+        ? metadata.blueprint
+        : [
+            {
+              name: metadata.scope?.topics?.[0] || product.title,
+              topic: metadata.scope?.topics?.[0],
+              moduleId: metadata.scope?.moduleId,
+              lessonId: metadata.scope?.lessonId,
+              courseId: metadata.scope?.courseId,
+              difficulty,
+              count: questionCount,
+            },
+          ];
+
+    const selectedQuestions: QuizQuestionRecord[] = [];
+    const usedQuestionIds = new Set<string>();
+
+    for (const item of blueprintItems) {
+      const candidates = await this.resolveCandidateQuestionsForPool(
+        organizationId,
+        {
+          topic: item.topic,
+          moduleId: item.moduleId,
+          lessonId: item.lessonId,
+          courseId: item.courseId,
+          difficulty: item.difficulty || difficulty,
+        },
+        allQuestions,
+        allQuizzes,
+      );
+
+      const availablePool = candidates.filter((q) => !usedQuestionIds.has(q.id));
+      if (availablePool.length < item.count) {
+        throw new DomainError(
+          "bad_request",
+          `تعداد سؤال کافی در بانک سؤال برای «${item.name || item.topic || "مبحث انتخاب‌شده"}» وجود ندارد (موجود: ${availablePool.length}، موردنیاز: ${item.count}).`,
+        );
+      }
+
+      // Dynamic Randomization: shuffle available pool
+      const shuffled = [...availablePool].sort(() => Math.random() - 0.5);
+      const picked = shuffled.slice(0, item.count);
+
+      for (const q of picked) {
+        usedQuestionIds.add(q.id);
+        selectedQuestions.push(q);
+      }
+    }
+
+    if (selectedQuestions.length !== questionCount) {
+      throw new DomainError(
+        "bad_request",
+        `خطا در گزینش سؤالات: تعداد سؤالات انتخاب‌شده (${selectedQuestions.length}) با مشخصات آزمون (${questionCount}) همخوانی ندارد.`,
+      );
+    }
+
+    const enrichedSelected = await this.resolveQuestionHierarchyContext(selectedQuestions);
+
+    const attemptId = randomUUID() as QuizAttemptId;
+    const now = new Date().toISOString();
+
+    const attemptRecord: QuizAttemptRecord = {
+      id: attemptId,
+      quizId: null,
+      userId: actor.userId,
+      score: 0,
+      answers: {},
+      questionIds: enrichedSelected.map((q) => q.id),
+      questionSnapshot: enrichedSelected, // Frozen forever!
+      topic: product.title,
+      difficulty,
+      status: "in_progress",
+      metrics: {
+        isSpecialExam: true,
+        productId: product.id,
+        orderId,
+        total: enrichedSelected.length,
+      },
+      startedAt: now,
+      completedAt: null,
+    };
+
+    await this.quizAttemptStore.create(attemptRecord);
+    return { attempt: attemptRecord, questions: enrichedSelected };
+  }
+
+  /**
    * Save user answers during an in-progress exam attempt.
    * Merges partial or full answers into the attempt record for real-time persistence and refresh resilience.
    */
@@ -2251,12 +2772,32 @@ export class StudyService {
     organizationId: OrganizationId,
     attemptId: QuizAttemptId,
     inputAnswers: Array<{ questionId: string; answer: unknown }>,
+    elapsedSeconds?: number,
   ) {
     await this.authorizeQuizAttempt(actor, organizationId);
 
     const attempt = await this.quizAttemptStore.findById(attemptId);
     if (!attempt || attempt.userId !== actor.userId) {
       throw new DomainError("not_found", "Quiz attempt not found");
+    }
+
+    const metrics = (attempt.metrics ?? {}) as Record<string, unknown>;
+    if (metrics.isSpecialExam && actor.role !== "platform_admin") {
+      let hasEntitlement = false;
+      if (this.entitlementService) {
+        const access = await this.entitlementService.checkAccess(actor, {
+          userId: actor.userId,
+          resourceType: "special_exam",
+          resourceId: attempt.id,
+        });
+        hasEntitlement = access.granted;
+      }
+      if (!hasEntitlement) {
+        throw new DomainError(
+          "forbidden",
+          "دسترسی به این آزمون ویژه نیازمند خرید معتبر است.",
+        );
+      }
     }
 
     if (attempt.status === "completed" || attempt.completedAt != null) {
@@ -2270,15 +2811,148 @@ export class StudyService {
       }
     }
 
+    const updatedMetrics =
+      typeof elapsedSeconds === "number" && elapsedSeconds >= 0
+        ? {
+            ...metrics,
+            elapsedSeconds: Math.max(
+              typeof metrics.elapsedSeconds === "number" ? metrics.elapsedSeconds : 0,
+              elapsedSeconds,
+            ),
+          }
+        : metrics;
+
     const updatedAttempt: QuizAttemptRecord = {
       ...attempt,
       answers: updatedAnswers,
+      metrics: updatedMetrics,
     };
 
     await this.quizAttemptStore.update(updatedAttempt);
     return {
       attemptId,
       answers: updatedAnswers,
+      elapsedSeconds: (updatedMetrics as { elapsedSeconds?: number }).elapsedSeconds,
+    };
+  }
+
+  /**
+   * Retake an exam from an existing attempt.
+   * Creates a brand new, independent attempt in 'in_progress' status with a new UUID,
+   * fresh timestamp, and empty answers, while preserving the previous attempt completely unmodified.
+   */
+  async retakeExamAttempt(
+    actor: Actor,
+    organizationId: OrganizationId,
+    attemptId: QuizAttemptId,
+  ) {
+    await this.authorizeQuizAttempt(actor, organizationId);
+
+    const previousAttempt = await this.quizAttemptStore.findById(attemptId);
+    if (!previousAttempt || (previousAttempt.userId !== actor.userId && actor.role !== "platform_admin")) {
+      throw new DomainError("not_found", "Quiz attempt not found");
+    }
+
+    const previousMetrics = ((previousAttempt.metrics ?? {}) as Record<string, unknown>);
+    if (previousMetrics.isSpecialExam && actor.role !== "platform_admin") {
+      let hasEntitlement = false;
+      if (this.entitlementService) {
+        if (previousMetrics.productId) {
+          const access = await this.entitlementService.checkAccess(actor, {
+            userId: actor.userId,
+            resourceType: "special_exam",
+            resourceId: previousMetrics.productId as string,
+          });
+          hasEntitlement = access.granted;
+        }
+        if (!hasEntitlement) {
+          const accessPrev = await this.entitlementService.checkAccess(actor, {
+            userId: actor.userId,
+            resourceType: "special_exam",
+            resourceId: previousAttempt.id,
+          });
+          hasEntitlement = accessPrev.granted;
+        }
+      }
+      if (!hasEntitlement) {
+        throw new DomainError(
+          "forbidden",
+          "دسترسی به این آزمون ویژه نیازمند خرید معتبر است.",
+        );
+      }
+    }
+
+    // Resolve questions from snapshot or question IDs or quiz
+    let questions: QuizQuestionRecord[] = [];
+    if (
+      previousAttempt.questionSnapshot &&
+      Array.isArray(previousAttempt.questionSnapshot) &&
+      previousAttempt.questionSnapshot.length > 0
+    ) {
+      questions = [...(previousAttempt.questionSnapshot as QuizQuestionRecord[])];
+    } else {
+      const questionIds = (previousAttempt.questionIds as QuizQuestionId[]) || [];
+      if (questionIds.length > 0) {
+        questions = await this.quizQuestionStore.listByIds(questionIds);
+      } else if (previousAttempt.quizId) {
+        questions = await this.quizQuestionStore.listByQuiz(previousAttempt.quizId as QuizId);
+      }
+    }
+
+    if (questions.length === 0) {
+      throw new DomainError("not_found", "سؤالات آزمون مورد نظر یافت نشد.");
+    }
+
+    const enrichedQuestions = await this.resolveQuestionHierarchyContext(questions);
+    const coverage = await this.resolveExamCoverage(questions, organizationId);
+    const courseTitles = coverage.map((c) => c.title).filter((t) => t && !isInternalIdentifier(t));
+    const safeTopic = previousAttempt.topic || (courseTitles.length > 0 ? buildSafeAttemptTopic(courseTitles, 250) : "آزمون جامع");
+    const difficulty = previousAttempt.difficulty || "medium";
+
+    const newAttemptId = randomUUID() as QuizAttemptId;
+    const now = new Date().toISOString();
+
+    // Clone metrics, preserving configuration (such as timeLimitMinutes, isSpecialExam, productId, orderId),
+    // while resetting elapsedSeconds and tagging retake reference
+    const { elapsedSeconds: _prevElapsed, ...cleanMetrics } = previousMetrics;
+    const newMetrics: Record<string, unknown> = {
+      ...cleanMetrics,
+      retakeOfAttemptId: previousAttempt.id,
+      total: enrichedQuestions.length,
+    };
+
+    const newAttempt: QuizAttemptRecord = {
+      id: newAttemptId,
+      quizId: previousAttempt.quizId ?? null,
+      userId: actor.userId,
+      score: 0,
+      answers: {},
+      questionIds: enrichedQuestions.map((q) => q.id),
+      questionSnapshot: enrichedQuestions,
+      metrics: newMetrics,
+      topic: safeTopic,
+      difficulty,
+      status: "in_progress",
+      startedAt: now,
+      completedAt: null,
+    };
+
+    await this.quizAttemptStore.create(newAttempt);
+
+    // Security: sanitize questions for in-progress attempt (hide correctAnswer & explanation)
+    const sanitizedQuestions = enrichedQuestions.map(
+      ({ correctAnswer: _correctAnswer, explanation: _explanation, ...q }) => q,
+    );
+
+    return {
+      attemptId: newAttemptId,
+      topic: safeTopic,
+      topics: courseTitles.length > 0 ? courseTitles : [safeTopic],
+      difficulty,
+      requestedCount: enrichedQuestions.length,
+      questions: sanitizedQuestions,
+      coverage,
+      startedAt: now,
     };
   }
 
@@ -2294,8 +2968,27 @@ export class StudyService {
   ) {
     await this.authorizeRead(actor, organizationId);
     const attempt = await this.quizAttemptStore.findById(attemptId);
-    if (!attempt || attempt.userId !== actor.userId) {
+    if (!attempt || (attempt.userId !== actor.userId && actor.role !== "platform_admin")) {
       throw new DomainError("not_found", "Quiz attempt not found");
+    }
+
+    const metrics = (attempt.metrics ?? {}) as Record<string, unknown>;
+    if (metrics.isSpecialExam && actor.role !== "platform_admin") {
+      let hasEntitlement = false;
+      if (this.entitlementService) {
+        const access = await this.entitlementService.checkAccess(actor, {
+          userId: actor.userId,
+          resourceType: "special_exam",
+          resourceId: attempt.id,
+        });
+        hasEntitlement = access.granted;
+      }
+      if (!hasEntitlement) {
+        throw new DomainError(
+          "forbidden",
+          "دسترسی به این آزمون ویژه نیازمند خرید معتبر است.",
+        );
+      }
     }
 
     let questions: QuizQuestionRecord[] = [];
@@ -2310,12 +3003,14 @@ export class StudyService {
       }
     }
 
+    const enrichedQuestions = await this.resolveQuestionHierarchyContext(questions);
+
     const isCompleted = attempt.status === "completed" || attempt.completedAt != null;
     const coverage = await this.resolveExamCoverage(questions, organizationId);
 
     if (!isCompleted) {
       // In-progress: security mask correctAnswer and explanation
-      const sanitizedQuestions = questions.map(
+      const sanitizedQuestions = enrichedQuestions.map(
         ({ correctAnswer: _correctAnswer, explanation: _explanation, ...q }) => q,
       );
       return {
@@ -2334,7 +3029,7 @@ export class StudyService {
     let unansweredCount = 0;
     let partialCount = 0;
 
-    for (const q of questions) {
+    for (const q of enrichedQuestions) {
       const val = answersMap[q.id] ?? null;
       const evaluation = evaluateQuestionAnswer(val, q);
       questionResults[q.id] = evaluation;
@@ -2346,7 +3041,7 @@ export class StudyService {
 
     return {
       attempt,
-      questions,
+      questions: enrichedQuestions,
       answers: answersMap,
       questionResults,
       correct: correctCount,
@@ -2368,12 +3063,32 @@ export class StudyService {
     organizationId: OrganizationId,
     attemptId: QuizAttemptId,
     inputAnswers: Array<{ questionId: string; answer: unknown }>,
+    elapsedSeconds?: number,
   ): Promise<QuizAttemptResult & { questions?: QuizQuestionRecord[]; questionResults?: Record<string, QuestionEvaluationResult> }> {
     await this.authorizeQuizAttempt(actor, organizationId);
 
     const attempt = await this.quizAttemptStore.findById(attemptId);
     if (!attempt || attempt.userId !== actor.userId) {
       throw new DomainError("not_found", "Quiz attempt not found");
+    }
+
+    const existingMetrics = (attempt.metrics ?? {}) as Record<string, unknown>;
+    if (existingMetrics.isSpecialExam && actor.role !== "platform_admin") {
+      let hasEntitlement = false;
+      if (this.entitlementService) {
+        const access = await this.entitlementService.checkAccess(actor, {
+          userId: actor.userId,
+          resourceType: "special_exam",
+          resourceId: attempt.id,
+        });
+        hasEntitlement = access.granted;
+      }
+      if (!hasEntitlement) {
+        throw new DomainError(
+          "forbidden",
+          "دسترسی به این آزمون ویژه نیازمند خرید معتبر است.",
+        );
+      }
     }
 
     let questions: QuizQuestionRecord[] = [];
@@ -2425,7 +3140,17 @@ export class StudyService {
     const score = Math.round((earnedPoints / questions.length) * 100 * 100) / 100;
     const now = new Date().toISOString();
 
+    const finalElapsedSeconds =
+      typeof elapsedSeconds === "number" && elapsedSeconds >= 0
+        ? Math.max(
+            typeof existingMetrics.elapsedSeconds === "number" ? existingMetrics.elapsedSeconds : 0,
+            elapsedSeconds,
+          )
+        : existingMetrics.elapsedSeconds;
+
     const metrics = {
+      ...existingMetrics,
+      ...(typeof finalElapsedSeconds === "number" ? { elapsedSeconds: finalElapsedSeconds } : {}),
       correct: correctCount,
       incorrect: incorrectCount,
       unanswered: unansweredCount,
@@ -2457,6 +3182,8 @@ export class StudyService {
       ]);
     }
 
+    const enrichedQuestions = await this.resolveQuestionHierarchyContext(questions);
+
     return {
       attemptId: attempt.id,
       quizId: attempt.quizId || "configured-exam",
@@ -2469,7 +3196,7 @@ export class StudyService {
       answers: answersMap,
       questionResults,
       completedAt: now,
-      questions,
+      questions: enrichedQuestions,
     };
   }
 
@@ -2494,6 +3221,7 @@ export class StudyService {
         unanswered?: number;
         partial?: number;
         total?: number;
+        isSpecialExam?: boolean;
       }) || {};
 
       const snapshotLen = Array.isArray(a.questionSnapshot) ? a.questionSnapshot.length : 0;
@@ -2525,6 +3253,7 @@ export class StudyService {
         unanswered,
         partial,
         status: a.status ?? (isCompleted ? "completed" : "in_progress"),
+        isSpecialExam: Boolean(metrics.isSpecialExam),
         startedAt: a.startedAt,
         completedAt: a.completedAt ?? null,
       };
@@ -2628,6 +3357,7 @@ export class StudyService {
     const questionSnapshot = questions.map((q) => ({
       id: q.id,
       quizId: q.quizId,
+      lessonId: q.lessonId ?? null,
       question: q.question,
       choices: q.choices,
       correctAnswer: q.correctAnswer,
@@ -2692,6 +3422,8 @@ export class StudyService {
       ]);
     }
 
+    const enrichedQuestions = await this.resolveQuestionHierarchyContext(questions);
+
     return {
       attemptId,
       quizId: input.quizId,
@@ -2704,7 +3436,7 @@ export class StudyService {
       answers: answersMap,
       questionResults,
       completedAt: now,
-      questions,
+      questions: enrichedQuestions,
     };
   }
 
@@ -2726,16 +3458,17 @@ export class StudyService {
     } else if (attempt.quizId) {
       questions = await this.quizQuestionStore.listByQuiz(attempt.quizId as QuizId);
     }
+    const enrichedQuestions = await this.resolveQuestionHierarchyContext(questions);
     const answersMap = (attempt.answers as Record<string, unknown>) || {};
     const questionResults: Record<string, QuestionEvaluationResult> = {};
-    for (const q of questions) {
+    for (const q of enrichedQuestions) {
       const val = answersMap[q.id] ?? null;
       questionResults[q.id] = evaluateQuestionAnswer(val, q);
     }
 
     return {
       ...attempt,
-      questions,
+      questions: enrichedQuestions,
       questionResults,
     };
   }

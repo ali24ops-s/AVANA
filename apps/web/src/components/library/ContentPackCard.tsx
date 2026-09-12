@@ -123,22 +123,22 @@ export function ContentPackCard({
 
         {/* Educational Content Stats Grid */}
         <div className="grid grid-cols-2 gap-2 mb-5">
-          <div className="flex items-center gap-2 p-2 rounded-xl bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-xs text-[var(--color-text)]">
+          <div className="flex items-center gap-2 p-2 rounded-[10px] bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-xs text-[var(--color-text)]">
             <BookOpen className="w-3.5 h-3.5 text-blue-500 shrink-0" />
             <span className="truncate">{sessionCount} جلسه درس</span>
           </div>
 
-          <div className="flex items-center gap-2 p-2 rounded-xl bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-xs text-[var(--color-text)]">
+          <div className="flex items-center gap-2 p-2 rounded-[10px] bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-xs text-[var(--color-text)]">
             <Layers className="w-3.5 h-3.5 text-amber-500 shrink-0" />
             <span className="truncate">{flashcardCount} فلش‌کارت</span>
           </div>
 
-          <div className="flex items-center gap-2 p-2 rounded-xl bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-xs text-[var(--color-text)]">
+          <div className="flex items-center gap-2 p-2 rounded-[10px] bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-xs text-[var(--color-text)]">
             <HelpCircle className="w-3.5 h-3.5 text-purple-500 shrink-0" />
             <span className="truncate">{quizQuestionCount} سوال آزمون</span>
           </div>
 
-          <div className="flex items-center gap-2 p-2 rounded-xl bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-xs text-[var(--color-text)]">
+          <div className="flex items-center gap-2 p-2 rounded-[10px] bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-xs text-[var(--color-text)]">
             <Clock className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
             <span className="truncate">~{estimatedReadingMinutes} دقیقه</span>
           </div>

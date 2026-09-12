@@ -122,8 +122,9 @@ async function main() {
   // Strict Fail-Closed Check on DATABASE_URL
   try {
     validateDatabaseUrlForWorker(envData.DATABASE_URL);
-  } catch (err: any) {
-    process.stderr.write(`${RED}${err.message}${RESET}\n`);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`${RED}${msg}${RESET}\n`);
     process.exit(1);
   }
 
@@ -137,8 +138,28 @@ async function main() {
   process.stdout.write(`${BOLD}=====================================================${RESET}\n\n`);
 
   // 1. Ensure Docker containers are running
-  const pgRunning = await isPortReachable(5432);
-  const redisRunning = await isPortReachable(6379);
+  let dbPort = Number(envData.DATABASE_PORT || 55432);
+  if (envData.DATABASE_URL) {
+    try {
+      const parsed = new URL(envData.DATABASE_URL);
+      if (parsed.port) dbPort = Number(parsed.port);
+    } catch {
+      // ignore parse error
+    }
+  }
+
+  let redisPort = Number(envData.REDIS_PORT || 56379);
+  if (envData.REDIS_URL) {
+    try {
+      const parsed = new URL(envData.REDIS_URL);
+      if (parsed.port) redisPort = Number(parsed.port);
+    } catch {
+      // ignore parse error
+    }
+  }
+
+  const pgRunning = await isPortReachable(dbPort);
+  const redisRunning = await isPortReachable(redisPort);
 
   if (!pgRunning || !redisRunning) {
     let dockerInstalled = true;
@@ -149,17 +170,24 @@ async function main() {
     }
 
     if (!dockerInstalled) {
-      process.stderr.write(`${RED}Local PostgreSQL (port 5432) and/or Redis (port 6379) are not active, and Docker is not installed.${RESET}\n`);
+      process.stderr.write(`${RED}Local PostgreSQL (port ${dbPort}) and/or Redis (port ${redisPort}) are not active, and Docker is not installed.${RESET}\n`);
       process.exit(1);
     }
 
-    process.stdout.write(`ℹ Starting Docker containers for project ${projectName}...\n`);
+    process.stdout.write(`ℹ Starting Docker containers for project ${projectName} (PostgreSQL: ${dbPort}, Redis: ${redisPort})...\n`);
     try {
       execSync(`docker compose -f "${composePath}" -p "${projectName}" up -d`, {
         stdio: "inherit",
+        env: {
+          ...process.env,
+          ...envData,
+          POSTGRES_PORT: String(dbPort),
+          REDIS_PORT: String(redisPort),
+        },
       });
-    } catch (err: any) {
-      process.stderr.write(`${RED}Failed to start Docker containers: ${err.message}${RESET}\n`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      process.stderr.write(`${RED}Failed to start Docker containers: ${msg}${RESET}\n`);
       process.exit(1);
     }
   }

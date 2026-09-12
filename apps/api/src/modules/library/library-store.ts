@@ -91,7 +91,7 @@ export type ListLibraryResourcesOptions = {
   userId?: UserId;
   systemOrganizationId?: OrganizationId;
   q?: string;
-  type?: "all" | "courses" | "contents";
+  type?: "all" | "courses" | "contents" | "special_exams";
   subject?: string;
   sort?: "popular" | "newest";
   page?: number;

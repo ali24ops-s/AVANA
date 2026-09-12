@@ -846,6 +846,11 @@ export type QuizQuestionResource = {
   id: UUID;
   quiz_id: UUID;
   generated_content_id: UUID | null;
+  lesson_id?: UUID | null;
+  lesson?: { id: string; title: string } | null;
+  chapter?: { id: string; title: string } | null;
+  course?: { id: string; title: string } | null;
+  topic?: string | null;
   question: string;
   question_type: string;
   choices: string[] | null;

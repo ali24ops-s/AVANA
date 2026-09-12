@@ -236,6 +236,17 @@ export class DrizzleModuleStore implements ModuleStore {
     return toModuleRecord(row);
   }
 
+  async listByIds(moduleIds: ModuleId[]): Promise<ModuleRecord[]> {
+    if (moduleIds.length === 0) return [];
+    const rows = await this.db
+      .select()
+      .from(modules)
+      .where(and(inArray(modules.id, moduleIds), isNull(modules.deletedAt)))
+      .orderBy(modules.sortOrder);
+
+    return rows.map(toModuleRecord);
+  }
+
   async create(module: ModuleRecord): Promise<ModuleRecord> {
     const [row] = await this.db
       .insert(modules)
@@ -341,6 +352,17 @@ export class DrizzleLessonStore implements LessonStore {
 
     if (!row) return undefined;
     return toLessonRecord(row);
+  }
+
+  async listByIds(lessonIds: LessonId[]): Promise<LessonRecord[]> {
+    if (lessonIds.length === 0) return [];
+    const rows = await this.db
+      .select()
+      .from(lessons)
+      .where(and(inArray(lessons.id, lessonIds), isNull(lessons.deletedAt)))
+      .orderBy(lessons.sortOrder);
+
+    return rows.map(toLessonRecord);
   }
 
   async create(lesson: LessonRecord): Promise<LessonRecord> {

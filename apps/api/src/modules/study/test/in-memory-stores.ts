@@ -62,17 +62,29 @@ export class InMemoryFlashcardStore implements FlashcardStore {
     }
   }
 
+  async findById(id: FlashcardId): Promise<FlashcardRecord | undefined> {
+    const record = this.flashcards.get(id);
+    if (!record || record.deletedAt !== null) {
+      return undefined;
+    }
+    return { ...record };
+  }
+
   async findByIdForOrganization(
     id: FlashcardId,
-    organizationId: OrganizationId,
+    organizationId?: OrganizationId,
+    systemOrganizationId?: OrganizationId,
   ): Promise<FlashcardRecord | undefined> {
     const record = this.flashcards.get(id);
-    if (
-      !record ||
-      record.organizationId !== organizationId ||
-      record.deletedAt !== null
-    ) {
+    if (!record || record.deletedAt !== null) {
       return undefined;
+    }
+    if (organizationId) {
+      const matchesOrg = record.organizationId === organizationId;
+      const matchesSystem = Boolean(systemOrganizationId && record.organizationId === systemOrganizationId);
+      if (!matchesOrg && !matchesSystem) {
+        return undefined;
+      }
     }
     return { ...record };
   }

@@ -3,20 +3,21 @@
  *
  * Light-first, clean editorial finish matching Reference Design:
  * - Brand wordmark with subtle glow
- * - Slogan ("نگاه دارویی ما، راهنمای سلامت شما")
+ * - Slogan ("هر مسیری برای یادگیری، یک همراه خوب میخواد :)")
  * - Essential navigation links and social icons
  */
 
 import { Link } from "react-router-dom";
 import { BrandLogo } from "../brand/BrandLogo.js";
 import { Send, Mail } from "lucide-react";
+import { AVANA_SOCIAL_LINKS } from "../../config/social.js";
 
 export function Footer() {
   const footerLinks = [
     { title: "درباره آوانا", href: "/about", isInternalRoute: true },
     { title: "قوانین و مقررات", href: "/terms", isInternalRoute: true },
     { title: "قیمت‌گذاری", href: "/pricing", isInternalRoute: true },
-    { title: "پشتیبانی", href: "mailto:support@avana.ir", isInternalRoute: false },
+    { title: "پشتیبانی", href: AVANA_SOCIAL_LINKS.supportEmail.mailto, isInternalRoute: false },
   ];
 
   return (
@@ -35,7 +36,7 @@ export function Footer() {
           />
           <span className="hidden sm:inline text-[#E2E7EA]">|</span>
           <p className="text-xs text-[#5B6268] font-medium">
-            نگاه دارویی ما، راهنمای سلامت شما
+            هر مسیری برای یادگیری، یک همراه خوب میخواد :)
           </p>
         </div>
 
@@ -65,20 +66,20 @@ export function Footer() {
         {/* Social Icons & Contact */}
         <div className="flex items-center gap-4 text-[#5B6268]">
           <a
-            href="https://t.me"
+            href={AVANA_SOCIAL_LINKS.telegram.url}
             target="_blank"
             rel="noopener noreferrer"
-            aria-label="تلگرام آوانا"
+            aria-label={AVANA_SOCIAL_LINKS.telegram.label}
             className="w-8 h-8 rounded-lg bg-[#F7F9FA] border border-[#E2E7EA] flex items-center justify-center hover:text-[#008080] hover:border-[#008080]/50 transition-all"
           >
             <Send className="w-4 h-4" />
           </a>
           {/* Instagram SVG */}
           <a
-            href="https://instagram.com"
+            href={AVANA_SOCIAL_LINKS.instagram.url}
             target="_blank"
             rel="noopener noreferrer"
-            aria-label="اینستاگرام آوانا"
+            aria-label={AVANA_SOCIAL_LINKS.instagram.label}
             className="w-8 h-8 rounded-lg bg-[#F7F9FA] border border-[#E2E7EA] flex items-center justify-center hover:text-[#008080] hover:border-[#008080]/50 transition-all"
           >
             <svg
@@ -93,8 +94,8 @@ export function Footer() {
             </svg>
           </a>
           <a
-            href="mailto:info@avana.ir"
-            aria-label="ایمیل پشتیبانی"
+            href={AVANA_SOCIAL_LINKS.infoEmail.mailto}
+            aria-label={AVANA_SOCIAL_LINKS.infoEmail.label}
             className="w-8 h-8 rounded-lg bg-[#F7F9FA] border border-[#E2E7EA] flex items-center justify-center hover:text-[#008080] hover:border-[#008080]/50 transition-all"
           >
             <Mail className="w-4 h-4" />

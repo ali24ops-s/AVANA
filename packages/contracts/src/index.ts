@@ -6,3 +6,4 @@
  */
 
 export type * from "./generated/index.js";
+export * from "./annotations.js";

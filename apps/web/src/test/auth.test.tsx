@@ -299,4 +299,112 @@ describe("AuthProvider", () => {
     expect(typeof authContext!.sendVerification).toBe("function");
     expect(typeof authContext!.verifyChannel).toBe("function");
   });
+
+  it("automatically logs in worker when /v1/me is 401 and worker-auto-login endpoint succeeds", async () => {
+    sessionStorage.clear();
+
+    const mockFetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes("/v1/me")) {
+        return Promise.resolve({
+          ok: false,
+          status: 401,
+          json: () => Promise.resolve({ error: { code: "unauthorized" } }),
+        });
+      }
+      if (url.includes("/v1/auth/worker-auto-login")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              request_id: "req-auto-1",
+              user: {
+                id: "worker-user-1",
+                email: "worker-worker-001@avana.local",
+                name: "Content Worker (worker-001)",
+                role: "content_worker",
+                isVerified: true,
+              },
+              memberships: [],
+            }),
+        });
+      }
+      return Promise.reject(new Error(`Unexpected url: ${url}`));
+    });
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(mockFetch as unknown as typeof fetch);
+
+    renderWithProviders(
+      <AuthProvider>
+        <TestConsumer />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => {
+      expect(lastElement("authenticated").textContent).toBe("true");
+    });
+
+    expect(lastElement("user-email").textContent).toBe("worker-worker-001@avana.local");
+  });
+
+  it("prevents auto-login loop after manual signOut()", async () => {
+    let authContext: ReturnType<typeof useAuth>;
+    function ConsumerForSignOut() {
+      authContext = useAuth();
+      return (
+        <div>
+          <div data-testid="auth-state">{String(authContext.isAuthenticated)}</div>
+          <button data-testid="sign-out-btn" onClick={() => void authContext.signOut()}>
+            Sign Out
+          </button>
+        </div>
+      );
+    }
+
+    const mockFetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes("/v1/me")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              request_id: "req-1",
+              user: {
+                id: "worker-1",
+                email: "worker@avana.local",
+                role: "content_worker",
+              },
+            }),
+        });
+      }
+      if (url.includes("/v1/auth/sign-out")) {
+        return Promise.resolve({
+          ok: true,
+          status: 204,
+          json: () => Promise.resolve({}),
+        });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+    });
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(mockFetch as unknown as typeof fetch);
+
+    renderWithProviders(
+      <AuthProvider>
+        <ConsumerForSignOut />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => {
+      expect(lastElement("auth-state").textContent).toBe("true");
+    });
+
+    // Perform manual sign-out
+    await authContext!.signOut();
+
+    expect(sessionStorage.getItem("avana_worker_logged_out")).toBe("true");
+    await waitFor(() => {
+      expect(lastElement("auth-state").textContent).toBe("false");
+    });
+  });
 });

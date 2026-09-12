@@ -51,8 +51,25 @@ export function SignInPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const { signIn, sendPhoneLoginOtp, verifyPhoneLoginOtp, isAuthenticated } = useAuth();
+  const { signIn, sendPhoneLoginOtp, verifyPhoneLoginOtp, workerAutoLogin, isAuthenticated } = useAuth();
   const navigate = useNavigate();
+
+  async function handleWorkerAutoLogin() {
+    setError(null);
+    setIsSubmitting(true);
+    try {
+      await workerAutoLogin();
+      navigate("/home", { replace: true });
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setError(err.message);
+      } else {
+        setError("ورود به محیط ورکر با خطا مواجه شد.");
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
 
   // Cooldown countdown timer for OTP resend
   useEffect(() => {
@@ -492,16 +509,26 @@ export function SignInPage() {
               </form>
             )}
 
-            <div className="mt-8 pt-6 border-t border-[var(--color-border)] text-center">
-              <span className="text-xs text-[var(--color-text-muted)]">
+            <div className="mt-8 pt-6 border-t border-[var(--color-border)] text-center space-y-3">
+              <div>
+                <button
+                  type="button"
+                  onClick={handleWorkerAutoLogin}
+                  disabled={isSubmitting}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold text-primary bg-[var(--color-primary-soft)] hover:bg-[var(--color-surface-warm)] border border-[var(--color-border)] transition-colors cursor-pointer"
+                >
+                  <span>⚡ ورود سریع به محیط محلی Worker</span>
+                </button>
+              </div>
+              <div className="text-xs text-[var(--color-text-muted)]">
                 حساب کاربری ندارید؟{" "}
-              </span>
-              <Link
-                to="/register"
-                className="text-xs font-bold text-primary hover:underline transition-colors"
-              >
-                ثبت‌نام کنید
-              </Link>
+                <Link
+                  to="/register"
+                  className="font-bold text-primary hover:underline transition-colors"
+                >
+                  ثبت‌نام کنید
+                </Link>
+              </div>
             </div>
           </div>
         </motion.div>

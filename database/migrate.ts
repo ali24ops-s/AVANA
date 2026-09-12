@@ -42,6 +42,9 @@ import { up as up0038 } from "./migrations/0038_document_generation_progress.js"
 import { up as up0039 } from "./migrations/0039_phone_verification.js";
 import { up as up0040 } from "./migrations/0040_quiz_attempts_snapshot_and_metrics.js";
 import { up as up0041 } from "./migrations/0041_module_preview_lesson_id.js";
+import { up as up0042 } from "./migrations/0042_special_exam_entitlements.js";
+import { up as up0043 } from "./migrations/0043_notifications.js";
+import { up as up0044 } from "./migrations/0044_lesson_annotations_and_reports.js";
 
 function localConnectionString(): string {
   const user = "avana";
@@ -142,6 +145,12 @@ async function runMigrations() {
     await up0040(db);
     console.log("Applying 0041_module_preview_lesson_id...");
     await up0041(db);
+    console.log("Applying 0042_special_exam_entitlements...");
+    await up0042(db);
+    console.log("Applying 0043_notifications...");
+    await up0043(db);
+    console.log("Applying 0044_lesson_annotations_and_reports...");
+    await up0044(db);
 
     console.log("All database migrations applied successfully.");
   } catch (error) {

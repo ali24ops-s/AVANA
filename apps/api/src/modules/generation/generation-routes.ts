@@ -57,6 +57,7 @@ import type { GenerationProgressService } from "./generation-progress-service.js
 import type { ModelGateway } from "./gateway/index.js";
 import type { AuditService } from "../../observability/audit-service.js";
 import type { OrganizationStore } from "../organizations/organization-store.js";
+import type { NotificationService } from "../notifications/notification-service.js";
 
 export interface GenerationRouteOptions {
   sessionService: AuthMiddlewareDeps["sessionService"];
@@ -80,6 +81,7 @@ export interface GenerationRouteOptions {
   generationChunkStore?: GenerationChunkStore;
   generationProgressStore?: GenerationProgressStore;
   generationProgressService?: GenerationProgressService;
+  notificationService?: NotificationService;
 }
 
 const UUID_RE =
@@ -121,6 +123,7 @@ export const generationRoutes: FastifyPluginAsync<
     opts.generationChunkStore,
     generationJobStore,
     opts.generationProgressService,
+    opts.notificationService,
   );
 
   /**

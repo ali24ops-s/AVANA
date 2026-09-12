@@ -39,6 +39,8 @@ import type {
 import type { FlashcardStore, QuizStore } from "../study/study-store.js";
 import type { ContentPackStore } from "../library/library-store.js";
 import type { AuditService } from "../../observability/audit-service.js";
+import type { StudyService } from "../study/study-service.js";
+import type { NotificationService } from "../notifications/notification-service.js";
 
 export interface CommerceRouteOptions {
   sessionService: AuthMiddlewareDeps["sessionService"];
@@ -58,6 +60,8 @@ export interface CommerceRouteOptions {
   cardToCardConfig?: CardToCardInfoResponse;
   onlinePaymentEnabled?: boolean;
   mockPaymentEnabled?: boolean;
+  studyService?: StudyService;
+  notificationService?: NotificationService;
 }
 
 export const commerceRoutes: FastifyPluginAsync<CommerceRouteOptions> = async (
@@ -80,6 +84,8 @@ export const commerceRoutes: FastifyPluginAsync<CommerceRouteOptions> = async (
     cardToCardConfig,
     onlinePaymentEnabled,
     mockPaymentEnabled,
+    studyService,
+    notificationService,
   } = opts;
 
   const { requireAuth } = makeAuthMiddleware({ sessionService, userStore });
@@ -96,6 +102,8 @@ export const commerceRoutes: FastifyPluginAsync<CommerceRouteOptions> = async (
       onlinePaymentEnabled,
       mockPaymentEnabled,
     },
+    studyService,
+    notificationService,
   );
 
   const paymentExtractionService =

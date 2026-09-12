@@ -40,6 +40,7 @@ import {
 } from "lucide-react";
 import { Button, Badge } from "@avana/ui";
 import { MarkdownRenderer } from "../components/markdown/MarkdownRenderer.js";
+import { LessonInteractiveContent } from "../components/study/LessonInteractiveContent.js";
 import { FlashcardExperience } from "../components/flashcards/FlashcardExperience.js";
 import { QuizListView } from "../components/quiz/QuizListView.js";
 import { StudyAnalyticsView } from "../components/analytics/StudyAnalyticsView.js";
@@ -1314,12 +1315,16 @@ function LessonViewer({
         </div>
       )}
 
-      {/* Lesson content rendered as markdown with optimal Persian reading measure */}
+      {/* Lesson content rendered with interactive text selection & annotations */}
       <div className="p-6 sm:p-8 lg:p-10">
         <div className="max-w-4xl mx-auto prose prose-sm sm:prose-base">
-          <MarkdownRenderer
+          <LessonInteractiveContent
+            lessonId={lesson.id}
+            courseId={courseId}
+            lessonTitle={lesson.title}
+            moduleTitle={moduleTitle}
+            courseTitle={courseTitle}
             content={lesson.content_markdown}
-            enableLessonCallouts
           />
         </div>
       </div>

@@ -165,4 +165,42 @@ describe("ExamHierarchyHeader Component", () => {
     expect(screen.queryByText(/93b501bf/)).toBeNull();
     expect(screen.getByText("آزمون جامع")).toBeDefined();
   });
+
+  it("7. dropdown is wider, responsive for mobile, and caps chapter titles to at most 2 lines", () => {
+    const longTitleCoverage: ExamCoverageCourse[] = [
+      {
+        id: "course-cardio",
+        title: "فارماکولوژی قلب و عروق پیشرفته",
+        questionCount: 15,
+        modules: [
+          {
+            id: "mod-very-long-title",
+            title: "مکانیسم‌های فارماکودینامیک و عوارض جانبی داروهای مهارکننده بتا و آنتاگونیست‌های گیرنده آنژیوتانسین در نارسایی قلبی و بیماران پرخطر",
+            questionCount: 8,
+          },
+        ],
+      },
+    ];
+
+    render(<ExamHierarchyHeader coverage={longTitleCoverage} />);
+    const btn = screen.getByRole("button", { name: /نمایش فصل‌های دوره فارماکولوژی قلب و عروق پیشرفته/ });
+    fireEvent.click(btn);
+
+    // Dropdown container should have wide, responsive, and mobile-safe classes
+    const dropdown = screen.getByRole("region", { name: /فصل‌های دوره فارماکولوژی قلب و عروق پیشرفته/ });
+    expect(dropdown.className).toContain("sm:w-max");
+    expect(dropdown.className).toContain("min-w-[280px]");
+    expect(dropdown.className).toContain("sm:min-w-[360px]");
+    expect(dropdown.className).toContain("max-sm:fixed");
+    expect(dropdown.className).toContain("max-sm:inset-x-3");
+    expect(dropdown.className).toContain("max-w-[calc(100vw-1.5rem)]");
+
+    // Chapter title span should have line-clamp-2, break-words, and title attribute
+    const moduleTitleSpan = screen.getByText(/مکانیسم‌های فارماکودینامیک/);
+    expect(moduleTitleSpan.className).toContain("line-clamp-2");
+    expect(moduleTitleSpan.className).toContain("break-words");
+    expect(moduleTitleSpan.getAttribute("title")).toBe(
+      "مکانیسم‌های فارماکودینامیک و عوارض جانبی داروهای مهارکننده بتا و آنتاگونیست‌های گیرنده آنژیوتانسین در نارسایی قلبی و بیماران پرخطر"
+    );
+  });
 });

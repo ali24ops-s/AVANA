@@ -25,6 +25,7 @@ import { ComingSoonGenerationModal } from "../generation/ComingSoonGenerationMod
 import {
   type ReviewSummaryPayload,
   flattenReviewSummarySections,
+  cleanEducationalTitle,
 } from "@avana/domain";
 
 export interface ReviewSummaryViewerProps {
@@ -244,7 +245,7 @@ export function ReviewSummaryViewer({
 
           <div>
             <h1 className="text-xl sm:text-2xl font-black text-[var(--color-text)] tracking-tight">
-              {payload.title || documentTitle || "خلاصه جامع و مروری مبحث"}
+              {cleanEducationalTitle(payload.title, cleanEducationalTitle(documentTitle, "خلاصه جامع و مروری مبحث"))}
             </h1>
             <p className="text-xs text-[var(--color-text-muted)] mt-1">
               برگه مرور یکپارچه (Review Sheet) جهت یادآوری سریع و فعال‌سازی اطلاعات کلیدی

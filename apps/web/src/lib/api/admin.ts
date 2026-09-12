@@ -471,6 +471,50 @@ export function createAdminApi(client: {
       return client.get<{ products: AdminProductRecord[] }>("/v1/admin/commerce/products");
     },
 
+    async createSpecialExamProduct(payload: {
+      code?: string;
+      title: string;
+      description?: string;
+      questionCount: number;
+      difficulty?: string;
+      scope?: any;
+      blueprint?: any[];
+      active?: boolean;
+      publicationStatus?: "draft" | "published" | "archived";
+    }): Promise<{ success: boolean; product: AdminProductRecord }> {
+      return client.post<{ success: boolean; product: AdminProductRecord }>(
+        "/v1/admin/commerce/special-exams",
+        payload,
+      );
+    },
+
+    async validateSpecialExamPool(payload: {
+      questionCount: number;
+      difficulty?: string;
+      scope?: any;
+      blueprint?: any[];
+    }): Promise<{
+      success: boolean;
+      isValid: boolean;
+      totalRequired: number;
+      totalAvailable: number;
+      items: Array<{ name: string; required: number; available: number; isSufficient: boolean }>;
+      errors: string[];
+    }> {
+      return client.post<{
+        success: boolean;
+        isValid: boolean;
+        totalRequired: number;
+        totalAvailable: number;
+        items: Array<{ name: string; required: number; available: number; isSufficient: boolean }>;
+        errors: string[];
+      }>("/v1/admin/commerce/special-exams/validate-pool", payload);
+    },
+
+    async listSpecialExams(): Promise<{ products: any[] }> {
+      return client.get<{ products: any[] }>("/v1/admin/commerce/special-exams");
+    },
+
     async updateCommerceProduct(
       productId: string,
       payload: { active?: boolean; price?: number }

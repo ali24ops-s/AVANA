@@ -58,6 +58,7 @@ describe("Flashcard Study Sessions (Resume & Persistence)", () => {
   let service: StudyService;
 
   const organizationId = "11111111-1111-4111-8111-111111111111" as OrganizationId;
+  const systemOrgId = "00000000-0000-0000-0000-000000000000" as OrganizationId;
   const otherOrgId = "99999999-9999-4999-8999-999999999999" as OrganizationId;
   const courseId = "22222222-2222-4222-8222-222222222222" as CourseId;
   const documentId = "33333333-3333-4333-8333-333333333333" as DocumentId;
@@ -102,7 +103,7 @@ describe("Flashcard Study Sessions (Resume & Persistence)", () => {
       undefined,
       userFlashcardScheduleStore,
       undefined,
-      undefined,
+      systemOrgId,
       undefined,
       flashcardStudySessionStore,
     );
@@ -381,5 +382,120 @@ describe("Flashcard Study Sessions (Resume & Persistence)", () => {
     expect(refreshDetail.session.currentIndex).toBe(4);
     expect(refreshDetail.sessionCards.filter((sc) => sc.status === "reviewed").length).toBe(4);
     expect(refreshDetail.sessionCards.filter((sc) => sc.status === "unseen").length).toBe(6);
+  });
+
+  it("Test A: successfully submits review for flashcard belonging to systemOrganizationId", async () => {
+    const systemOrgId = "00000000-0000-0000-0000-000000000000" as OrganizationId;
+    const systemCard: FlashcardRecord = {
+      id: "card-system-1" as FlashcardId,
+      organizationId: systemOrgId,
+      courseId,
+      documentId,
+      generatedContentId: null,
+      question: "System Flashcard Q",
+      answer: "System Flashcard A",
+      explanation: null,
+      cardType: "definition",
+      difficulty: "medium",
+      dueAt: new Date().toISOString(),
+      intervalDays: 0,
+      easeFactor: 2.5,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      deletedAt: null,
+    };
+    await flashcardStore.create(systemCard);
+
+    // Review the system card from tenant org
+    await service.submitFlashcardReview(student, organizationId, {
+      flashcardId: systemCard.id,
+      rating: "good",
+      reactionMs: 1200,
+    });
+
+    // Verify review record was created
+    const reviews = await flashcardReviewStore.listByUser(studentUserId);
+    expect(reviews.length).toBe(1);
+    expect(reviews[0].flashcardId).toBe(systemCard.id);
+    expect(reviews[0].rating).toBe("good");
+
+    // Verify user schedule was created with updated interval
+    const schedule = await userFlashcardScheduleStore.getByUserAndCard(studentUserId, systemCard.id);
+    expect(schedule).toBeDefined();
+    expect(schedule?.intervalDays).toBe(1);
+  });
+
+  it("Test B: fails review for flashcard belonging to an unauthorized third-party organization", async () => {
+    const unauthorizedCard: FlashcardRecord = {
+      id: "card-unauth-1" as FlashcardId,
+      organizationId: otherOrgId,
+      courseId: "unauthorized-course" as CourseId,
+      documentId,
+      generatedContentId: null,
+      question: "Unauthorized Q",
+      answer: "Unauthorized A",
+      explanation: null,
+      cardType: "definition",
+      difficulty: "medium",
+      dueAt: new Date().toISOString(),
+      intervalDays: 0,
+      easeFactor: 2.5,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      deletedAt: null,
+    };
+    await flashcardStore.create(unauthorizedCard);
+
+    await expect(
+      service.submitFlashcardReview(student, organizationId, {
+        flashcardId: unauthorizedCard.id,
+        rating: "good",
+      }),
+    ).rejects.toThrow("Flashcard not found");
+  });
+
+  it("Test C: getFlashcardStudySession merges per-user schedule (interval_days: 4, ease_factor: 2.5) over base card defaults (0)", async () => {
+    const baseCard: FlashcardRecord = {
+      id: "card-sched-1" as FlashcardId,
+      organizationId,
+      courseId,
+      documentId,
+      generatedContentId: null,
+      question: "Reviewed Card Question",
+      answer: "Reviewed Card Answer",
+      explanation: null,
+      cardType: "definition",
+      difficulty: "medium",
+      dueAt: new Date().toISOString(),
+      intervalDays: 0, // Base default
+      easeFactor: 2.5,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      deletedAt: null,
+    };
+    await flashcardStore.create(baseCard);
+
+    // Seed previous user review schedule
+    await userFlashcardScheduleStore.upsertSchedule({
+      userId: studentUserId,
+      flashcardId: baseCard.id,
+      dueAt: new Date().toISOString(),
+      intervalDays: 4,
+      easeFactor: 2.5,
+      lastReviewedAt: new Date().toISOString(),
+      reviewCount: 3,
+    });
+
+    const session = await service.createFlashcardStudySession(student, organizationId, {
+      courseId,
+      mode: "daily",
+    });
+
+    const sessionDetail = await service.getFlashcardStudySession(student, organizationId, session.id);
+    expect(sessionDetail.cards.length).toBe(1);
+    expect(sessionDetail.cards[0].id).toBe(baseCard.id);
+    // Verified: Merged per-user schedule
+    expect(sessionDetail.cards[0].intervalDays).toBe(4);
+    expect(sessionDetail.cards[0].easeFactor).toBe(2.5);
   });
 });

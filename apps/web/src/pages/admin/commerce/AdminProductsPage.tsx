@@ -11,6 +11,7 @@ import {
   BookOpen,
   FolderTree,
   FileText,
+  HelpCircle,
   Infinity as InfinityIcon,
   Clock,
 } from "lucide-react";
@@ -112,6 +113,7 @@ export function AdminProductsPage() {
             <option value="course">دوره‌های آموزشی (Courses)</option>
             <option value="content_pack">بسته‌های محتوایی (Packs)</option>
             <option value="content">درسنامه‌ها / محتوا (Content)</option>
+            <option value="special_exam">آزمون‌های ویژه (Special Exams)</option>
           </select>
         </div>
       </div>
@@ -159,6 +161,8 @@ export function AdminProductsPage() {
                       <Sparkles className="w-4 h-4 text-[var(--color-primary-default)]" />
                     ) : p.type === "course" ? (
                       <BookOpen className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                    ) : p.type === "special_exam" ? (
+                      <HelpCircle className="w-4 h-4 text-amber-500" />
                     ) : p.type === "content" ? (
                       <FileText className="w-4 h-4 text-[var(--color-primary-default)]" />
                     ) : (

@@ -357,6 +357,10 @@ describe("PR6-7: Study Consumption & Analytics API", () => {
       const body = JSON.parse(res.body);
       expect(body.due_cards.length).toBe(1);
       expect(body.due_cards[0].id).toBe(dueCard);
+      expect(body.due_cards[0].course_id).toBe(courseId);
+      expect(typeof body.due_cards[0].interval_days).toBe("number");
+      expect(typeof body.due_cards[0].ease_factor).toBe("number");
+      expect(body.due_cards[0].due_at).toBeDefined();
     });
 
     it("GET .../flashcards/review-queue excludes unread cards for new user", async () => {

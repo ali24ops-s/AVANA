@@ -27,7 +27,8 @@ export function ReviewPage() {
   const courseIds = searchParams.get("courses")?.split(",").filter(Boolean) || [];
   const documentIds = searchParams.get("documents")?.split(",").filter(Boolean) || [];
   const rawMode = searchParams.get("mode");
-  const mode = rawMode === "exam" ? "exam" : rawMode === "custom" ? "custom" : "normal";
+  // قابلیت شب امتحان (exam) موقتاً غیرفعال است؛ در صورت وجود mode=exam به مرور عادی هدایت می‌شود
+  const mode = rawMode === "custom" ? "custom" : "normal";
   const customMode = (searchParams.get("customMode") || "weak") as "weak" | "forgotten" | "review_ahead" | "new";
   const aheadDays = searchParams.get("aheadDays") ? parseInt(searchParams.get("aheadDays")!, 10) : 3;
   const limit = searchParams.get("limit")

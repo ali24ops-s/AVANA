@@ -308,6 +308,10 @@ export function createStudyApi(client: ApiClient) {
         questionType: string;
         choices: string[] | null;
         explanation?: string | null;
+        lessonId?: string | null;
+        lesson?: { id: string; title: string } | null;
+        chapter?: { id: string; title: string } | null;
+        course?: { id: string; title: string } | null;
       }>;
       coverage?: ExamCoverageCourse[];
       startedAt: string;
@@ -336,6 +340,7 @@ export function createStudyApi(client: ApiClient) {
         unanswered: number;
         partial: number;
         status: string;
+        isSpecialExam?: boolean;
         startedAt: string;
         completedAt?: string | null;
       }>;
@@ -364,6 +369,8 @@ export function createStudyApi(client: ApiClient) {
         questionIds?: string[] | null;
         topic?: string | null;
         difficulty?: string | null;
+        metrics?: Record<string, unknown> | null;
+        timeLimitMinutes?: number | null;
         status?: string;
         startedAt: string;
         completedAt?: string | null;
@@ -376,6 +383,12 @@ export function createStudyApi(client: ApiClient) {
         difficulty?: string | null;
         questionType: string;
         choices: string[] | null;
+        lessonId?: string | null;
+        lesson?: { id: string; title: string } | null;
+        chapter?: { id: string; title: string } | null;
+        course?: { id: string; title: string } | null;
+        keyPoint?: string | null;
+        keyPoints?: string[] | null;
         correctAnswer?: unknown;
         explanation?: string | null;
       }>;
@@ -405,11 +418,15 @@ export function createStudyApi(client: ApiClient) {
     saveExamAnswers(
       organizationId: string,
       attemptId: string,
-      data: { answers: Array<{ questionId: string; answer: unknown }> },
+      data: {
+        answers?: Array<{ questionId: string; answer: unknown }>;
+        elapsedSeconds?: number;
+      },
     ): Promise<{
       request_id: string;
       success: boolean;
       answers: Record<string, unknown>;
+      elapsedSeconds?: number;
     }> {
       return client.post(
         `/v1/organizations/${organizationId}/study/exams/attempts/${attemptId}/answers`,
@@ -424,7 +441,10 @@ export function createStudyApi(client: ApiClient) {
     submitExamAttempt(
       organizationId: string,
       attemptId: string,
-      data: { answers: Array<{ questionId: string; answer: unknown }> },
+      data: {
+        answers: Array<{ questionId: string; answer: unknown }>;
+        elapsedSeconds?: number;
+      },
     ): Promise<{
       request_id: string;
       attempt: {
@@ -461,6 +481,42 @@ export function createStudyApi(client: ApiClient) {
       return client.post(
         `/v1/organizations/${organizationId}/study/exams/attempts/${attemptId}/submit`,
         data,
+      );
+    },
+
+    /**
+     * POST /v1/organizations/:organizationId/study/exams/attempts/:attemptId/retake
+     * Creates a brand new attempt from a previous exam attempt while keeping the previous attempt intact.
+     */
+    retakeExamAttempt(
+      organizationId: string,
+      attemptId: string,
+    ): Promise<{
+      request_id: string;
+      attemptId: string;
+      topics: string[];
+      difficulty: string;
+      requestedCount: number;
+      questions: Array<{
+        id: string;
+        quizId: string;
+        question: string;
+        topic?: string | null;
+        difficulty?: string | null;
+        questionType: string;
+        choices: string[] | null;
+        explanation?: string | null;
+        lessonId?: string | null;
+        lesson?: { id: string; title: string } | null;
+        chapter?: { id: string; title: string } | null;
+        course?: { id: string; title: string } | null;
+      }>;
+      coverage?: ExamCoverageCourse[];
+      startedAt: string;
+    }> {
+      return client.post(
+        `/v1/organizations/${organizationId}/study/exams/attempts/${attemptId}/retake`,
+        {},
       );
     },
 

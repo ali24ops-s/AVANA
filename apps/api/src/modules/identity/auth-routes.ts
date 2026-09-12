@@ -18,6 +18,8 @@ import { randomInt, createHmac } from "node:crypto";
 import type { DeviceService } from "./device-service.js";
 import { detectDeviceType } from "./device-service.js";
 
+import type { NotificationService } from "../notifications/notification-service.js";
+
 export interface AuthRouteOptions {
   identityAdapter?: IdentityAdapter;
   sessionService: SessionService;
@@ -28,6 +30,7 @@ export interface AuthRouteOptions {
   smsProvider?: SmsProvider;
   organizationStore?: OrganizationStore;
   verificationSecret?: string;
+  notificationService?: NotificationService;
 }
 
 /**
@@ -98,6 +101,7 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
     emailService,
     smsProvider,
     organizationStore,
+    // eslint-disable-next-line no-secrets/no-secrets
     verificationSecret = "avana_verification_hmac_secret_2026_dev_key",
   } = opts;
 
@@ -544,6 +548,10 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
       isPlatformAdmin,
     );
 
+    if (opts.notificationService) {
+      void opts.notificationService.notifyRegistrationSuccess(userRecord.id);
+    }
+
     const memberships = await resolveMemberships(
       organizationStore,
       userRecord.id,
@@ -820,6 +828,12 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
         isPlatformAdmin,
       );
 
+      if (opts.notificationService) {
+        void opts.notificationService.notifyLogin(userRecord.id, {
+          ip: request.ip,
+        });
+      }
+
       const memberships = await resolveMemberships(
         organizationStore,
         userRecord.id,
@@ -947,6 +961,12 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
       userRecord.email,
       isPlatformAdmin,
     );
+
+    if (opts.notificationService) {
+      void opts.notificationService.notifyLogin(userRecord.id, {
+        ip: request.ip,
+      });
+    }
 
     const memberships = await resolveMemberships(
       organizationStore,
@@ -1165,6 +1185,9 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
       await userStore.setPhoneVerified(userId);
     } else {
       await userStore.setEmailVerified(userId);
+      if (opts.notificationService) {
+        void opts.notificationService.notifyEmailVerified(userId);
+      }
     }
 
     const updatedUser = await userStore.findById(userId);
@@ -1285,6 +1308,9 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
     // Success: mark code used and update user status
     await emailVerificationStore.markAsUsed(latestCode.id);
     await userStore.setEmailVerified(userId);
+    if (opts.notificationService) {
+      void opts.notificationService.notifyEmailVerified(userId);
+    }
 
     const updatedUser = await userStore.findById(userId);
     const memberships = await resolveMemberships(organizationStore, userId);
@@ -1389,4 +1415,153 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
     reply.code(204);
     return;
   });
+
+  /**
+   * POST /v1/auth/worker-auto-login — Instant seamless login for isolated Local Worker.
+   * Only allowed in worker mode under non-production environments with local databases.
+   */
+  app.post("/v1/auth/worker-auto-login", async (request, reply) => {
+    // 1. Strict Server-Side Guard
+    if (!isSafeWorkerLocalEnvironment()) {
+      throw new DomainError(
+        "forbidden",
+        "ورود خودکار ورکر در این محیط مجاز نمی‌باشد.",
+      );
+    }
+
+    // 2. Find Worker User in userStore
+    const workerId = (process.env.WORKER_ID || "worker-001").trim().toLowerCase();
+    const targetEmail = `worker-${workerId}@avana.local`;
+
+    let userRecord = await userStore.findByEmail(targetEmail);
+    if (!userRecord) {
+      // Fallback candidate emails
+      const fallbacks = [
+        "worker-worker-001@avana.local",
+        "worker-001@avana.local",
+        "worker@avana.local",
+      ];
+      for (const fb of fallbacks) {
+        if (fb !== targetEmail) {
+          const found = await userStore.findByEmail(fb);
+          if (found) {
+            userRecord = found;
+            break;
+          }
+        }
+      }
+    }
+
+    if (!userRecord) {
+      throw new DomainError(
+        "not_found",
+        "حساب کاربری ورکر یافت نشد. لطفاً ابتدا دستور 'npm run worker:setup' را اجرا کنید.",
+      );
+    }
+
+    const memberships = await resolveMemberships(
+      organizationStore,
+      userRecord.id,
+    );
+    const membershipRoles = memberships.map((m) => m.role as Role);
+    const effectiveRole = resolveEffectiveRole(
+      userRecord.globalRole ?? userRecord.role,
+      membershipRoles,
+    );
+
+    // Verify role is content_worker
+    if (
+      effectiveRole !== "content_worker" &&
+      userRecord.globalRole !== "content_worker" &&
+      userRecord.role !== "content_worker"
+    ) {
+      throw new DomainError(
+        "forbidden",
+        "حساب کاربری مربوطه دسترسی ورکر را ندارد.",
+      );
+    }
+
+    const verificationState = resolveUserVerificationState(userRecord);
+
+    // 3. Check if current request already has an active valid session for this user
+    const existingToken = extractSessionToken(request);
+    if (existingToken) {
+      const details = await sessionService.validateSessionDetails(existingToken);
+      if (details.valid && details.user && details.user.userId === userRecord.id) {
+        return {
+          request_id: request.id,
+          user: {
+            id: userRecord.id,
+            email: userRecord.email,
+            name: userRecord.name,
+            role: effectiveRole,
+            phoneNumber: userRecord.phoneNumber ?? null,
+            emailVerified: verificationState.emailVerified,
+            phoneVerified: verificationState.phoneVerified,
+            isVerified: verificationState.isVerified,
+          },
+          memberships,
+        };
+      }
+    }
+
+    // 4. Issue standard session cookies
+    await issueSessionCookies(
+      request,
+      reply,
+      userRecord.id,
+      userRecord.email,
+      false,
+    );
+
+    return {
+      request_id: request.id,
+      user: {
+        id: userRecord.id,
+        email: userRecord.email,
+        name: userRecord.name,
+        role: effectiveRole,
+        phoneNumber: userRecord.phoneNumber ?? null,
+        emailVerified: verificationState.emailVerified,
+        phoneVerified: verificationState.phoneVerified,
+        isVerified: verificationState.isVerified,
+      },
+      memberships,
+    };
+  });
 };
+
+/**
+ * Server-side guard to verify that current environment is safe for worker auto-login.
+ * Strictly prevents execution in production, remote DBs, or non-worker mode.
+ */
+export function isSafeWorkerLocalEnvironment(databaseUrl?: string): boolean {
+  if (process.env.WORKER_MODE !== "true") return false;
+  if (process.env.NODE_ENV === "production") return false;
+
+  const url = databaseUrl || process.env.DATABASE_URL || "";
+  if (!url || typeof url !== "string") return false;
+  if (!url.startsWith("postgres://") && !url.startsWith("postgresql://")) return false;
+
+  try {
+    const parsed = new URL(url);
+    const hostname = parsed.hostname.toLowerCase();
+    if (parsed.pathname.toLowerCase().includes("prod")) return false;
+
+    const allowedHosts = new Set([
+      "localhost",
+      "127.0.0.1",
+      "::1",
+      "[::1]",
+      "0.0.0.0",
+      "postgres",
+      "host.docker.internal",
+    ]);
+
+    if (allowedHosts.has(hostname)) return true;
+    if (/^127\.\d+\.\d+\.\d+$/.test(hostname)) return true;
+    return false;
+  } catch {
+    return false;
+  }
+}

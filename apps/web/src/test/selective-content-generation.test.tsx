@@ -287,7 +287,7 @@ describe("Selective Smart AI Content Generation & Lifecycle (12 Scenarios)", () 
     const lessonCheckbox = (await screen.findByLabelText("انتخاب درس")) as HTMLInputElement;
     expect(lessonCheckbox.disabled).toBe(true);
     expect(lessonCheckbox.checked).toBe(true);
-    expect(screen.getByText(/تولید شده \(2 درس\)/i)).toBeDefined();
+    expect(screen.getByText(/تولید شده \([2۲] درس\)/i)).toBeDefined();
 
     // Verify Flashcards & Exam are enabled
     const flashcardCheckbox = (await screen.findByLabelText("انتخاب فلش‌کارت")) as HTMLInputElement;

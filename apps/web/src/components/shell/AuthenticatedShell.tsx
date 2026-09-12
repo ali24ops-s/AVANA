@@ -30,6 +30,7 @@ import { isUserAdmin } from "../../utils/adminPermissions.js";
 import { GlobalGenerationIndicator } from "../generation/GlobalGenerationIndicator.js";
 import { Button, Badge, LoadingState, Alert, Skeleton } from "../ui/index.js";
 import { FILES_ENABLED } from "../../config/features.js";
+import { NotificationDropdown } from "../notifications/NotificationDropdown.js";
 
 export function AuthenticatedShell() {
   const { user, memberships, isLoading, error, signOut } = useAuth();
@@ -136,14 +137,8 @@ export function AuthenticatedShell() {
             {/* Real Search Bar (Desktop) */}
             <HeaderSearch />
 
-            {/* Notifications Button */}
-            <button
-              type="button"
-              className="text-[var(--color-text-muted)] hover:text-[#008080] transition-colors p-2 rounded-full hover:bg-[var(--color-surface-warm)] cursor-pointer shrink-0"
-              aria-label="اعلانات"
-            >
-              <Bell className="w-5 h-5" />
-            </button>
+            {/* Notifications Dropdown */}
+            <NotificationDropdown />
 
             {/* Admin Badge link if admin */}
             {isAdmin && (

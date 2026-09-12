@@ -718,7 +718,6 @@ export function DocumentStatusCard({
         onClose={() => setIsPublishModalOpen(false)}
         organizationId={organizationId}
         documentId={document.id}
-        defaultTitle={document.original_name.replace(/\.[^/.]+$/, "")}
         contentStatus={contentStatus}
         onSuccess={() => {
           setIsPublished(true);

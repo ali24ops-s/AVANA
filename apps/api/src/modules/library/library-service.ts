@@ -40,6 +40,8 @@ import {
   buildContentPackPreview,
   computeContentPackMetadata,
   defaultPolicy,
+  cleanEducationalTitle,
+  isFilenameLike,
 } from "@avana/domain";
 import type {
   ContentPackStore,
@@ -116,6 +118,29 @@ export type AddPackToCourseResponse = {
   };
 };
 
+export type LibrarySpecialExamResource = {
+  id: string;
+  productId: string;
+  code: string;
+  title: string;
+  description: string | null;
+  question_count: number;
+  difficulty: string | null;
+  scope?: {
+    courseId?: string;
+    moduleId?: string;
+    lessonId?: string;
+    topics?: string[];
+  } | null;
+  blueprint?: any[];
+  price: number;
+  currency: string;
+  access?: ResourceAccessSummary;
+  purchase?: ResourcePurchaseSummary;
+  created_at: string;
+  updated_at: string;
+};
+
 export type LibraryResourcesResponse = {
   request_id: string;
   courses: Array<{
@@ -154,11 +179,13 @@ export type LibraryResourcesResponse = {
     created_at: string;
     updated_at: string;
   }>;
+  special_exams?: LibrarySpecialExamResource[];
   pagination: {
     page: number;
     limit: number;
     total_courses: number;
     total_contents: number;
+    total_special_exams?: number;
   };
 };
 
@@ -346,15 +373,29 @@ export class LibraryService {
     const now = new Date().toISOString();
     const packId = asContentPackId(randomUUID());
 
+    // Resolve candidate title from accepted items or user input (strictly ignoring any filename-like string)
+    const rawInputTitle = input.title?.trim();
+    const candidateInputTitle = rawInputTitle && !isFilenameLike(rawInputTitle) ? cleanEducationalTitle(rawInputTitle) : null;
+
+    const lessonTitle = (lessonItem?.payload as { title?: string } | undefined)?.title;
+    const cleanLessonTitle = lessonTitle && !isFilenameLike(lessonTitle) ? cleanEducationalTitle(lessonTitle) : null;
+
+    const quizTitle = (quizItem?.payload as { title?: string } | undefined)?.title;
+    const cleanQuizTitle = quizTitle && !isFilenameLike(quizTitle) ? cleanEducationalTitle(quizTitle) : null;
+
+    const summaryTitle = (reviewSummaryItem?.payload as { title?: string } | undefined)?.title;
+    const cleanSummaryTitle = summaryTitle && !isFilenameLike(summaryTitle) ? cleanEducationalTitle(summaryTitle) : null;
+
+    const flashcardTitle = (flashcardItem?.payload as { title?: string } | undefined)?.title;
+    const cleanFlashcardTitle = flashcardTitle && !isFilenameLike(flashcardTitle) ? cleanEducationalTitle(flashcardTitle) : null;
+
     const title =
-      input.title && input.title.trim().length > 0
-        ? input.title.trim()
-        : (lessonItem?.payload as { title?: string } | undefined)?.title ||
-          (quizItem?.payload as { title?: string } | undefined)?.title ||
-          (reviewSummaryItem?.payload as { title?: string } | undefined)?.title ||
-          (flashcardItem?.payload as { title?: string } | undefined)?.title ||
-          doc.originalName ||
-          "بسته آموزشی جامع";
+      candidateInputTitle ||
+      cleanLessonTitle ||
+      cleanQuizTitle ||
+      cleanSummaryTitle ||
+      cleanFlashcardTitle ||
+      "بسته آموزشی جامع";
 
     const packRecord: ContentPackRecord = {
       id: packId,
@@ -528,7 +569,7 @@ export class LibraryService {
     actor: Actor | null,
     options: {
       q?: string;
-      type?: "all" | "courses" | "contents";
+      type?: "all" | "courses" | "contents" | "special_exams";
       subject?: string;
       sort?: "popular" | "newest";
       page?: number;
@@ -735,15 +776,87 @@ export class LibraryService {
         }),
       );
 
+      let specialExams: LibrarySpecialExamResource[] = [];
+      let totalSpecialExams = 0;
+
+      if (this.commerceStore && (options.type === "all" || options.type === "special_exams" || !options.type)) {
+        const allActiveProducts = await this.commerceStore.listActiveProducts();
+        const examProducts = allActiveProducts.filter((p) => p.type === "special_exam");
+
+        const filteredExams = examProducts.filter((p) => {
+          if (options.q) {
+            const qLower = options.q.toLowerCase();
+            const matchTitle = p.title.toLowerCase().includes(qLower);
+            const matchDesc = p.description?.toLowerCase().includes(qLower);
+            const meta = (p.metadata || {}) as any;
+            const matchTopic = meta?.scope?.topics?.some((t: string) => t.toLowerCase().includes(qLower));
+            if (!matchTitle && !matchDesc && !matchTopic) return false;
+          }
+          if (options.subject && options.subject !== "all") {
+            const subjLower = options.subject.toLowerCase();
+            const meta = (p.metadata || {}) as any;
+            const matchSubject =
+              meta?.subject?.toLowerCase?.() === subjLower ||
+              meta?.scope?.subject?.toLowerCase?.() === subjLower ||
+              meta?.scope?.topics?.some((t: string) => t.toLowerCase().includes(subjLower));
+            if (!matchSubject) return false;
+          }
+          return true;
+        });
+
+        totalSpecialExams = filteredExams.length;
+
+        if (options.sort === "newest") {
+          filteredExams.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        }
+
+        const startIndex = (page - 1) * limit;
+        const pageExams = filteredExams.slice(startIndex, startIndex + limit);
+
+        specialExams = pageExams.map((p) => {
+          const meta = (p.metadata || {}) as any;
+          const qCount = meta.questionCount || 0;
+          return {
+            id: p.id,
+            productId: p.id,
+            code: p.code,
+            title: p.title,
+            description: p.description,
+            question_count: qCount,
+            difficulty: meta.difficulty || null,
+            scope: meta.scope || null,
+            blueprint: meta.blueprint || [],
+            price: p.price,
+            currency: p.currency || "toman",
+            access: {
+              isFree: p.price === 0,
+              isPurchased: false,
+              hasAccess: true,
+              accessSource: null,
+            },
+            purchase: {
+              price: p.price,
+              currency: p.currency || "toman",
+              canPurchase: true,
+              productId: p.id,
+            },
+            created_at: p.createdAt ? new Date(p.createdAt).toISOString() : new Date().toISOString(),
+            updated_at: p.updatedAt ? new Date(p.updatedAt).toISOString() : new Date().toISOString(),
+          };
+        });
+      }
+
       return {
         request_id: requestId,
-        courses: coursesWithAccess,
-        contents: contentsWithAccess,
+        courses: options.type === "special_exams" ? [] : coursesWithAccess,
+        contents: options.type === "special_exams" ? [] : contentsWithAccess,
+        special_exams: specialExams,
         pagination: {
           page,
           limit,
-          total_courses: result.totalCourses,
-          total_contents: result.totalContents,
+          total_courses: options.type === "special_exams" ? 0 : result.totalCourses,
+          total_contents: options.type === "special_exams" ? 0 : result.totalContents,
+          total_special_exams: totalSpecialExams,
         },
       };
     }
@@ -752,11 +865,13 @@ export class LibraryService {
       request_id: requestId,
       courses: [],
       contents: [],
+      special_exams: [],
       pagination: {
         page,
         limit,
         total_courses: 0,
         total_contents: 0,
+        total_special_exams: 0,
       },
     };
   }

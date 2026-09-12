@@ -208,7 +208,7 @@ export function AddToCourseModal({
             type="button"
             onClick={onClose}
             aria-label="بستن"
-            className="text-[var(--color-text-muted)] hover:text-[var(--color-text)] p-2 rounded-xl hover:bg-slate-100 transition-colors"
+            className="text-[var(--color-text-muted)] hover:text-[var(--color-text)] p-2 rounded-[10px] hover:bg-[var(--color-surface-warm)] transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -344,10 +344,10 @@ export function AddToCourseModal({
                         <div
                           key={course.id}
                           onClick={() => setSelectedCourseId(course.id)}
-                          className={`flex items-center justify-between p-3.5 rounded-xl border cursor-pointer transition-all ${
+                          className={`flex items-center justify-between p-3.5 rounded-[10px] border cursor-pointer transition-all ${
                             isSelected
                               ? "bg-teal-50 border-teal-300 text-[var(--color-text)] shadow-xs"
-                              : "bg-[var(--color-surface-warm)] border-[var(--color-border)] hover:bg-slate-100 text-[var(--color-text)]"
+                              : "bg-[var(--color-surface-warm)] border-[var(--color-border)] hover:bg-[var(--color-surface)] text-[var(--color-text)]"
                           }`}
                         >
                           <div className="flex items-center gap-3 min-w-0">
@@ -355,7 +355,7 @@ export function AddToCourseModal({
                               className={`w-4 h-4 rounded-full border flex items-center justify-center ${
                                 isSelected
                                   ? "border-[#008080] bg-[#008080]"
-                                  : "border-slate-300 bg-white"
+                                  : "border-[var(--color-border)] bg-[var(--color-surface)]"
                               }`}
                             >
                               {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
@@ -370,7 +370,7 @@ export function AddToCourseModal({
                           </div>
 
                           {isSelected && (
-                            <span className="text-[10px] font-semibold text-teal-800 bg-teal-100 px-2 py-0.5 rounded-full border border-teal-200">
+                            <span className="text-[10px] font-semibold text-[#006666] bg-[#e0f2f2] px-2 py-0.5 rounded-full border border-[#b3d9d9]">
                               انتخاب‌شده
                             </span>
                           )}
@@ -388,7 +388,7 @@ export function AddToCourseModal({
                     type="button"
                     onClick={onClose}
                     disabled={addPackMutation.isPending}
-                    className="px-4 py-2 rounded-xl text-xs font-bold text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-slate-100 transition-colors disabled:opacity-50"
+                    className="px-4 py-2 rounded-[10px] text-xs font-bold text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] transition-colors disabled:opacity-50"
                   >
                     انصراف
                   </button>
@@ -397,7 +397,7 @@ export function AddToCourseModal({
                     type="button"
                     onClick={handleAdd}
                     disabled={!selectedCourseId || addPackMutation.isPending}
-                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-[#008080] hover:bg-[#006666] disabled:opacity-50 shadow-xs transition-all"
+                    className="flex items-center gap-2 px-5 py-2.5 rounded-[10px] text-xs font-bold text-white bg-[#008080] hover:bg-[#007575] active:bg-[#006060] disabled:opacity-50 shadow-xs transition-all"
                   >
                     {addPackMutation.isPending ? (
                       <>

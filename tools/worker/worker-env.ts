@@ -247,8 +247,8 @@ export function generateWorkerEnv(options: WorkerEnvOptions): GeneratedWorkerEnv
     `Content Worker (${workerId})`;
 
   const dbName = options.dbName || options.existingEnv?.DATABASE_NAME || "avana";
-  const dbPort = options.dbPort || (options.existingEnv?.DATABASE_PORT ? Number(options.existingEnv.DATABASE_PORT) : 5432);
-  const redisPort = options.redisPort || (options.existingEnv?.REDIS_PORT ? Number(options.existingEnv.REDIS_PORT) : 6379);
+  const dbPort = options.dbPort || (options.existingEnv?.DATABASE_PORT ? Number(options.existingEnv.DATABASE_PORT) : 55432);
+  const redisPort = options.redisPort || (options.existingEnv?.REDIS_PORT ? Number(options.existingEnv.REDIS_PORT) : 56379);
   const redisDbSuffix = options.redisDb !== undefined ? `/${options.redisDb}` : "";
   const apiPort = options.apiPort || (options.existingEnv?.AVANA_API_PORT ? Number(options.existingEnv.AVANA_API_PORT) : 3000);
   const apiHost = options.apiHost || options.existingEnv?.AVANA_API_HOST || "127.0.0.1";
@@ -272,7 +272,9 @@ export function generateWorkerEnv(options: WorkerEnvOptions): GeneratedWorkerEnv
     AVANA_CORS_ORIGIN: `http://localhost:${webPort},http://127.0.0.1:${webPort}`,
     AVANA_SESSION_COOKIE: "avana_session",
     AVANA_CSRF_COOKIE: "avana_csrf",
+    DATABASE_PORT: String(dbPort),
     DATABASE_URL: localDbUrl,
+    REDIS_PORT: String(redisPort),
     REDIS_URL: localRedisUrl,
     SYSTEM_ORGANIZATION_ID:
       options.existingEnv?.SYSTEM_ORGANIZATION_ID ||
@@ -321,7 +323,9 @@ export function generateWorkerEnv(options: WorkerEnvOptions): GeneratedWorkerEnv
     `AVANA_CSRF_COOKIE=${envData.AVANA_CSRF_COOKIE}`,
     "",
     "# Local Isolated Infrastructure (NEVER points to Production DB)",
+    `DATABASE_PORT=${envData.DATABASE_PORT}`,
     `DATABASE_URL=${envData.DATABASE_URL}`,
+    `REDIS_PORT=${envData.REDIS_PORT}`,
     `REDIS_URL=${envData.REDIS_URL}`,
     `AVANA_STORAGE_LOCAL_DIRECTORY=${envData.AVANA_STORAGE_LOCAL_DIRECTORY}`,
     `SYSTEM_ORGANIZATION_ID=${envData.SYSTEM_ORGANIZATION_ID}`,

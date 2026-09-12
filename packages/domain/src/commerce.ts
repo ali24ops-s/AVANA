@@ -54,20 +54,27 @@ export type ProductType =
   | "subscription"
   | "content_pack"
   | "course"
-  | "content";
+  | "content"
+  | "special_exam";
 
 export const PRODUCT_TYPES: readonly ProductType[] = [
   "subscription",
   "content_pack",
   "course",
   "content",
+  "special_exam",
 ];
 
 export function isProductType(v: string): v is ProductType {
   return (PRODUCT_TYPES as readonly string[]).includes(v);
 }
 
-export type ProductTargetType = "plan" | "content_pack" | "course" | "content";
+export type ProductTargetType =
+  | "plan"
+  | "content_pack"
+  | "course"
+  | "content"
+  | "special_exam";
 
 export type ProductRecord = {
   id: ProductId;
@@ -217,6 +224,7 @@ export type CardToCardSubmissionResult = {
   message: string;
   expiresAt?: string | null;
   entitlementId?: UserEntitlementId;
+  attemptId?: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -262,13 +270,15 @@ export type EntitlementResourceType =
   | "subscription"
   | "content_pack"
   | "course"
-  | "content";
+  | "content"
+  | "special_exam";
 
 export const ENTITLEMENT_RESOURCE_TYPES: readonly EntitlementResourceType[] = [
   "subscription",
   "content_pack",
   "course",
   "content",
+  "special_exam",
 ];
 
 export function isEntitlementResourceType(
@@ -298,7 +308,7 @@ export type UserEntitlementRecord = {
   id: UserEntitlementId;
   userId: UserId;
   resourceType: EntitlementResourceType;
-  resourceId: string | null; // null for subscription, contentPackId/courseId/contentId for permanent
+  resourceId: string | null; // null for subscription, contentPackId/courseId/contentId/attemptId for permanent
   sourceType: EntitlementSourceType;
   orderId: OrderId | null;
   startsAt: string;
@@ -320,16 +330,56 @@ export type AccessReason =
   | "content_pack_purchase"
   | "course_purchase"
   | "content_purchase"
+  | "special_exam_purchase"
   | "locked";
 
 export type AvailablePurchaseOption = {
-  type: "subscription" | "content_pack" | "course" | "content";
+  type: "subscription" | "content_pack" | "course" | "content" | "special_exam";
   productId: ProductId;
   code: string;
   title: string;
   price: number;
   currency: string;
   durationDays: number | null;
+};
+
+// ---------------------------------------------------------------------------
+// Special Exam Pricing & Blueprint Primitives
+// ---------------------------------------------------------------------------
+
+export const SPECIAL_EXAM_PRICE_PER_QUESTION = 500;
+
+export function calculateSpecialExamPrice(questionCount: number): number {
+  if (!questionCount || questionCount <= 0 || !Number.isInteger(questionCount)) {
+    return 0;
+  }
+  return questionCount * SPECIAL_EXAM_PRICE_PER_QUESTION;
+}
+
+export type ExamBlueprintItem = {
+  name?: string;
+  topic?: string;
+  moduleId?: string;
+  lessonId?: string;
+  courseId?: string;
+  difficulty?: string;
+  count: number;
+};
+
+export type SpecialExamScope = {
+  courseId?: string;
+  moduleId?: string;
+  lessonId?: string;
+  topics?: string[];
+};
+
+export type SpecialExamMetadata = {
+  questionCount: number;
+  scope?: SpecialExamScope;
+  blueprint?: ExamBlueprintItem[];
+  difficulty?: string;
+  publicationStatus?: "draft" | "published" | "archived";
+  [key: string]: unknown;
 };
 
 export type ResourceAccessResult = {
@@ -340,6 +390,7 @@ export type ResourceAccessResult = {
     | "free_preview"
     | "content_purchase"
     | "course_purchase"
+    | "special_exam_purchase"
     | "subscription"
     | "admin_grant"
     | "creator_access"
@@ -357,6 +408,7 @@ export type ResourceAccessSummary = {
     | "free_preview"
     | "content_purchase"
     | "course_purchase"
+    | "special_exam_purchase"
     | "subscription"
     | "admin_grant"
     | "creator_access"
@@ -382,7 +434,8 @@ export type CheckAccessInput = {
     | "flashcard"
     | "quiz"
     | "ai_assistant"
-    | "document";
+    | "document"
+    | "special_exam";
   resourceId: string;
   courseId?: CourseId;
   contentPackId?: ContentPackId;

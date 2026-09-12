@@ -916,4 +916,272 @@ describe("Exams API Integration", () => {
 
     await app.close();
   });
+
+  describe("Exam Retake (شرکت مجدد در آزمون) Lifecycle", () => {
+    it("should allow retaking a completed attempt: creates fresh independent attempt while preserving previous attempt", async () => {
+      const app = await buildTestApp();
+      const { token } = await signIn(app, "student-retake@example.com");
+      const orgId = await createOrg(app, token, "Retake Org");
+
+      const q1Id = randomUUID() as QuizQuestionId;
+      const q2Id = randomUUID() as QuizQuestionId;
+
+      quizStore.insert({
+        id: "quiz-retake" as QuizId,
+        organizationId: orgId,
+        courseId,
+        documentId: null,
+        title: "Retake Cardiology Quiz",
+        topic: "Cardiology",
+        difficulty: "medium",
+        status: "published",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+
+      quizQuestionStore.insert({
+        id: q1Id,
+        quizId: "quiz-retake" as QuizId,
+        generatedContentId: null,
+        question: "Retake Question 1?",
+        topic: "Cardiology",
+        difficulty: "medium",
+        questionType: "multiple_choice",
+        choices: ["Choice A", "Choice B", "Choice C", "Choice D"],
+        correctAnswer: "Choice A",
+        explanation: "Explanation 1",
+        sortOrder: 1,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+
+      quizQuestionStore.insert({
+        id: q2Id,
+        quizId: "quiz-retake" as QuizId,
+        generatedContentId: null,
+        question: "Retake Question 2?",
+        topic: "Cardiology",
+        difficulty: "medium",
+        questionType: "multiple_choice",
+        choices: ["Choice A", "Choice B", "Choice C", "Choice D"],
+        correctAnswer: "Choice B",
+        explanation: "Explanation 2",
+        sortOrder: 2,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+
+      // 1. Start initial attempt
+      const startRes = await app.inject({
+        method: "POST",
+        url: `/v1/organizations/${orgId}/study/exams/start`,
+        headers: { cookie: `avana_session=${token}` },
+        payload: { questionCount: 2, difficulty: "medium" },
+      });
+      expect(startRes.statusCode).toBe(200);
+      const { attemptId: originalAttemptId, startedAt: originalStartedAt } = JSON.parse(startRes.body);
+
+      // Save interim answers and submit initial attempt
+      await app.inject({
+        method: "POST",
+        url: `/v1/organizations/${orgId}/study/exams/attempts/${originalAttemptId}/answers`,
+        headers: { cookie: `avana_session=${token}` },
+        payload: {
+          answers: [{ questionId: q1Id, answer: "Choice A" }],
+          elapsedSeconds: 120,
+        },
+      });
+
+      const submitRes = await app.inject({
+        method: "POST",
+        url: `/v1/organizations/${orgId}/study/exams/attempts/${originalAttemptId}/submit`,
+        headers: { cookie: `avana_session=${token}` },
+        payload: {
+          answers: [
+            { questionId: q1Id, answer: "Choice A" },
+            { questionId: q2Id, answer: "Choice C" }, // Incorrect
+          ],
+          elapsedSeconds: 150,
+        },
+      });
+      expect(submitRes.statusCode).toBe(200);
+      const submitBody = JSON.parse(submitRes.body);
+      expect(submitBody.score).toBe(50);
+      expect(submitBody.correct).toBe(1);
+
+      // 2. RETAKE: Call POST .../retake endpoint
+      const retakeRes = await app.inject({
+        method: "POST",
+        url: `/v1/organizations/${orgId}/study/exams/attempts/${originalAttemptId}/retake`,
+        headers: { cookie: `avana_session=${token}` },
+      });
+      expect(retakeRes.statusCode).toBe(200);
+      const retakeBody = JSON.parse(retakeRes.body);
+
+      // Verify new attempt properties
+      expect(retakeBody.attemptId).toBeDefined();
+      expect(retakeBody.attemptId).not.toBe(originalAttemptId);
+      const newAttemptId = retakeBody.attemptId;
+      expect(retakeBody.questions).toHaveLength(2);
+      expect(retakeBody.startedAt).toBeDefined();
+
+      // Security check: correctAnswer and explanation are stripped during in-progress retake
+      for (const q of retakeBody.questions) {
+        expect(q.correctAnswer).toBeUndefined();
+        expect(q.explanation).toBeUndefined();
+      }
+
+      // 3. Verify ORIGINAL attempt in DB is completely unchanged
+      const origReviewRes = await app.inject({
+        method: "GET",
+        url: `/v1/organizations/${orgId}/study/exams/attempts/${originalAttemptId}`,
+        headers: { cookie: `avana_session=${token}` },
+      });
+      expect(origReviewRes.statusCode).toBe(200);
+      const origReviewBody = JSON.parse(origReviewRes.body);
+      expect(origReviewBody.isCompleted).toBe(true);
+      expect(origReviewBody.attempt.id).toBe(originalAttemptId);
+      expect(origReviewBody.attempt.score).toBe(50);
+      expect(origReviewBody.attempt.status).toBe("completed");
+      expect(origReviewBody.attempt.completedAt).toBeDefined();
+      expect(origReviewBody.answers[q1Id]).toBe("Choice A");
+      expect(origReviewBody.answers[q2Id]).toBe("Choice C");
+
+      // 4. Verify NEW attempt is in_progress, has empty answers, and has independent timer
+      const newDetailRes = await app.inject({
+        method: "GET",
+        url: `/v1/organizations/${orgId}/study/exams/attempts/${newAttemptId}`,
+        headers: { cookie: `avana_session=${token}` },
+      });
+      expect(newDetailRes.statusCode).toBe(200);
+      const newDetailBody = JSON.parse(newDetailRes.body);
+      expect(newDetailBody.isCompleted).toBe(false);
+      expect(newDetailBody.attempt.id).toBe(newAttemptId);
+      expect(newDetailBody.attempt.status).toBe("in_progress");
+      expect(newDetailBody.attempt.completedAt).toBeNull();
+      expect(newDetailBody.attempt.score).toBe(0);
+      expect(newDetailBody.answers).toEqual({});
+      expect(newDetailBody.attempt.answers).toEqual({});
+      // Ensure elapsedSeconds was not carried over from the original attempt
+      expect((newDetailBody.attempt.metrics ?? {}).elapsedSeconds).toBeUndefined();
+
+      // 5. Test continuing and saving answers in the NEW attempt
+      const saveRes = await app.inject({
+        method: "POST",
+        url: `/v1/organizations/${orgId}/study/exams/attempts/${newAttemptId}/answers`,
+        headers: { cookie: `avana_session=${token}` },
+        payload: {
+          answers: [{ questionId: q1Id, answer: "Choice A" }],
+          elapsedSeconds: 30,
+        },
+      });
+      expect(saveRes.statusCode).toBe(200);
+
+      // Verify original attempt still unaffected after modifying new attempt
+      const origCheckRes = await app.inject({
+        method: "GET",
+        url: `/v1/organizations/${orgId}/study/exams/attempts/${originalAttemptId}`,
+        headers: { cookie: `avana_session=${token}` },
+      });
+      const origCheckBody = JSON.parse(origCheckRes.body);
+      expect(origCheckBody.answers[q2Id]).toBe("Choice C"); // still Choice C in orig attempt
+
+      // 6. Test submitting the NEW attempt with full 100% score
+      const newSubmitRes = await app.inject({
+        method: "POST",
+        url: `/v1/organizations/${orgId}/study/exams/attempts/${newAttemptId}/submit`,
+        headers: { cookie: `avana_session=${token}` },
+        payload: {
+          answers: [
+            { questionId: q1Id, answer: "Choice A" },
+            { questionId: q2Id, answer: "Choice B" }, // Both correct!
+          ],
+          elapsedSeconds: 60,
+        },
+      });
+      expect(newSubmitRes.statusCode).toBe(200);
+      const newSubmitBody = JSON.parse(newSubmitRes.body);
+      expect(newSubmitBody.score).toBe(100);
+      expect(newSubmitBody.correct).toBe(2);
+      expect(newSubmitBody.attempt.id).toBe(newAttemptId);
+
+      // Original attempt is STILL 50%
+      const origFinalRes = await app.inject({
+        method: "GET",
+        url: `/v1/organizations/${orgId}/study/exams/attempts/${originalAttemptId}`,
+        headers: { cookie: `avana_session=${token}` },
+      });
+      expect(JSON.parse(origFinalRes.body).attempt.score).toBe(50);
+
+      // 7. Retaking again creates a 3rd independent attempt
+      const retake3Res = await app.inject({
+        method: "POST",
+        url: `/v1/organizations/${orgId}/study/exams/attempts/${newAttemptId}/retake`,
+        headers: { cookie: `avana_session=${token}` },
+      });
+      expect(retake3Res.statusCode).toBe(200);
+      const retake3Body = JSON.parse(retake3Res.body);
+      expect(retake3Body.attemptId).not.toBe(originalAttemptId);
+      expect(retake3Body.attemptId).not.toBe(newAttemptId);
+
+      await app.close();
+    });
+
+    it("should reject retaking an attempt belonging to another user", async () => {
+      const app = await buildTestApp();
+      const { token: user1Token } = await signIn(app, "user1@example.com");
+      const { token: user2Token } = await signIn(app, "user2@example.com");
+      const orgId = await createOrg(app, user1Token, "Org 1");
+
+      quizStore.insert({
+        id: "quiz-auth" as QuizId,
+        organizationId: orgId,
+        courseId,
+        documentId: null,
+        title: "Auth Quiz",
+        topic: "Auth",
+        difficulty: "medium",
+        status: "published",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+
+      quizQuestionStore.insert({
+        id: randomUUID() as QuizQuestionId,
+        quizId: "quiz-auth" as QuizId,
+        generatedContentId: null,
+        question: "Auth Question?",
+        topic: "Auth",
+        difficulty: "medium",
+        questionType: "multiple_choice",
+        choices: ["A", "B"],
+        correctAnswer: "A",
+        explanation: "Exp",
+        sortOrder: 1,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+
+      // User 1 starts an exam
+      const startRes = await app.inject({
+        method: "POST",
+        url: `/v1/organizations/${orgId}/study/exams/start`,
+        headers: { cookie: `avana_session=${user1Token}` },
+        payload: { questionCount: 1, difficulty: "medium" },
+      });
+      const { attemptId } = JSON.parse(startRes.body);
+
+      // User 2 tries to retake User 1's attempt -> must be 404 (or forbidden)
+      const unauthRetakeRes = await app.inject({
+        method: "POST",
+        url: `/v1/organizations/${orgId}/study/exams/attempts/${attemptId}/retake`,
+        headers: { cookie: `avana_session=${user2Token}` },
+      });
+      expect(unauthRetakeRes.statusCode).toBe(404);
+
+      await app.close();
+    });
+  });
 });

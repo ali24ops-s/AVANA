@@ -115,3 +115,60 @@ export function formatExamDisplayTitle(input: unknown, fallback = "آزمون ج
   }
   return fallback;
 }
+
+/**
+ * Cleans chapter prefix "فصل:" from a title or topic string,
+ * resolving any repetition (e.g. "فصل: فصل: X" -> "X").
+ */
+export function cleanChapterTitle(title: string | null | undefined): string {
+  if (!title) return "";
+  let clean = title.trim();
+  // Strip leading "آزمون فصل:" if present
+  clean = clean.replace(/^آزمون فصل:\s*/, "");
+  // Strip any leading single or repeated "فصل:" prefixes
+  clean = clean.replace(/^(فصل:\s*)+/, "");
+  return clean.trim();
+}
+
+/**
+ * Normalizes a Special Exam title so that it follows the canonical format:
+ * "آزمون فصل: [نام فصل]" without any duplicated "فصل: فصل:".
+ * If the exam is a comprehensive course exam (or has no chapter prefix),
+ * it preserves the comprehensive/clean title.
+ */
+export function formatSpecialExamTitle(rawTitle: string | null | undefined): string {
+  if (!rawTitle) return "آزمون ویژه";
+  const trimmed = rawTitle.trim();
+
+  // If it's already a comprehensive exam or non-chapter special exam without "فصل:"
+  if (!trimmed.includes("فصل:") && !trimmed.startsWith("فصل")) {
+    return trimmed;
+  }
+
+  const cleanChapter = cleanChapterTitle(trimmed);
+  if (cleanChapter.length > 0) {
+    return `آزمون فصل: ${cleanChapter}`;
+  }
+
+  return trimmed;
+}
+
+/**
+ * Normalizes a Special Exam description so that it does not repeat the full chapter name.
+ * Produces clean, concise copy such as:
+ * "آزمون شبیه‌ساز و تخصصی ۲۵ سؤالی از مباحث این فصل"
+ */
+export function formatSpecialExamDescription(
+  _description: string | null | undefined,
+  questionCount: number = 25,
+  isCourseExam: boolean = false,
+): string {
+  const countStr = questionCount.toLocaleString("fa-IR");
+
+  if (isCourseExam) {
+    return `آزمون شبیه‌ساز و تخصصی ${countStr} سؤالی از کلیه مباحث این دوره`;
+  }
+
+  // If description mentions chapter concepts or if default
+  return `آزمون شبیه‌ساز و تخصصی ${countStr} سؤالی از مباحث این فصل`;
+}

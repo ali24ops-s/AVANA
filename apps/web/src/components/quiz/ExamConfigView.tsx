@@ -88,7 +88,29 @@ export function ExamConfigView({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isStarting, setIsStarting] = useState<boolean>(false);
 
-  // Map API response to 3-Level TaxonomyCourse format (Course -> Module -> Lesson)
+  // Map module ID -> array of underlying lesson IDs so question/lesson ownership is preserved
+  const moduleToLessonsMap = useMemo(() => {
+    const rawList = (topicsQuery.data?.courses || topicsQuery.data?.sections) as RawCourseItem[] | undefined;
+    const map = new Map<string, string[]>();
+    if (!rawList) return map;
+    for (const c of rawList) {
+      const rawModules = c.modules || c.chapters || [];
+      for (const m of rawModules) {
+        const modId = m.moduleId || m.id;
+        if (!modId) continue;
+        const lessonIds = (m.lessons || [])
+          .map((l: RawLessonItem) => l.lessonId || l.id)
+          .filter((id): id is string => Boolean(id));
+        if (lessonIds.length > 0) {
+          map.set(modId, lessonIds);
+        }
+      }
+    }
+    return map;
+  }, [topicsQuery.data]);
+
+  // Map API response to Chapter-Level TaxonomyCourse format (Course -> Module)
+  // Questions are grouped at chapter level in Pre-Exam UI, while preserving lesson ownership in data
   const taxonomyCourses: TaxonomyCourse[] = useMemo(() => {
     const rawList = (topicsQuery.data?.courses || topicsQuery.data?.sections) as RawCourseItem[] | undefined;
     if (!rawList) return [];
@@ -106,19 +128,15 @@ export function ExamConfigView({
           )
           .map((m: RawModuleItem) => {
             const rawLessons = m.lessons;
-            const validLessons = (rawLessons || [])
-              .filter((l: RawLessonItem) => (l.questionCount ?? l.itemCount ?? 0) > 0)
-              .map((l: RawLessonItem) => ({
-                id: l.lessonId || l.id || "",
-                title: l.lessonTitle || l.title || "",
-                itemCount: l.questionCount ?? l.itemCount,
-              }));
+            const totalCount =
+              (m.questionCount ?? m.itemCount) ??
+              (rawLessons || []).reduce((acc, l) => acc + (l.questionCount ?? l.itemCount ?? 0), 0);
 
             return {
               id: m.moduleId || m.id || "",
               title: m.moduleTitle || m.title || "",
-              itemCount: m.questionCount ?? m.itemCount,
-              lessons: validLessons.length > 0 ? validLessons : undefined,
+              itemCount: totalCount,
+              lessons: undefined,
             };
           });
         return {
@@ -153,34 +171,25 @@ export function ExamConfigView({
     setSelectedLessons(selection.lessonIds || new Set());
   };
 
-  // Calculate dynamic eligible questions count based on selected lessons & modules
+  // Calculate dynamic eligible questions count based on selected modules
   const availableQuestionsCount = useMemo(() => {
     if (taxonomyCourses.length === 0) return 0;
     let count = 0;
 
     for (const c of taxonomyCourses) {
       for (const m of c.modules) {
-        if (m.lessons && m.lessons.length > 0) {
-          for (const l of m.lessons) {
-            if (selectedLessons.has(l.id)) {
-              count += l.itemCount ?? 0;
-            }
-          }
-        } else if (selectedModules.has(m.id)) {
+        if (selectedModules.has(m.id)) {
           count += m.itemCount ?? 0;
         }
       }
     }
     return count;
-  }, [taxonomyCourses, selectedModules, selectedLessons]);
+  }, [taxonomyCourses, selectedModules]);
 
   // Compute Selection Summary string
   const selectionSummaryText = useMemo(() => {
-    if (selectedLessons.size > 0) {
-      return `${selectedCourses.size} دوره، ${selectedModules.size} بخش، ${selectedLessons.size} درس`;
-    }
     return `${selectedCourses.size} دوره، ${selectedModules.size} بخش`;
-  }, [selectedCourses, selectedModules, selectedLessons]);
+  }, [selectedCourses, selectedModules]);
 
   // Dynamic estimated time calculation (~1.5 minutes per question)
   const estimatedMinutes = Math.max(5, Math.round(questionCount * 1.5));
@@ -189,14 +198,24 @@ export function ExamConfigView({
     setErrorMsg(null);
     setIsStarting(true);
     try {
+      const activeLessonIds = new Set<string>();
+      for (const modId of selectedModules) {
+        const lessonIds = moduleToLessonsMap.get(modId);
+        if (lessonIds) {
+          for (const lId of lessonIds) {
+            activeLessonIds.add(lId);
+          }
+        }
+      }
+
       const activeTopics = [
         ...Array.from(selectedCourses),
         ...Array.from(selectedModules),
-        ...Array.from(selectedLessons),
+        ...Array.from(activeLessonIds),
       ];
       const res = await studyApi.startExamAttempt(organizationId, {
         sections: Array.from(selectedModules),
-        chapters: Array.from(selectedLessons),
+        chapters: Array.from(activeLessonIds),
         topics: activeTopics,
         questionCount,
         difficulty,
@@ -251,7 +270,7 @@ export function ExamConfigView({
                 <div>
                   <h2 className="text-lg font-bold text-[var(--color-text)]">انتخاب دوره‌ها و بخش‌های آزمون</h2>
                   <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
-                    ساختار استاندارد Course → Module → Lesson
+                    ساختار استاندارد Course → Module (دوره → فصل)
                   </p>
                 </div>
               </div>
@@ -268,6 +287,7 @@ export function ExamConfigView({
                 onSelectionChange={handleTaxonomyChange}
                 emptyMessage="برای این دوره هنوز سرفصل یا آزمونی ثبت نشده است."
                 itemLabelSingular="سؤال"
+                hideLessons={true}
               />
             )}
           </section>
@@ -446,13 +466,20 @@ export function ExamConfigView({
                   className="bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] border border-[var(--color-border)] hover:border-[var(--color-primary)]/40 rounded-xl p-5 transition-all flex flex-col justify-between group shadow-xs"
                 >
                   <div>
-                    <div className="flex items-center justify-between gap-2 mb-2">
-                      <Badge
-                        variant={isCompleted ? "success" : "warning"}
-                        size="sm"
-                      >
-                        {isCompleted ? "تکمیل شده" : "در حال انجام"}
-                      </Badge>
+                    <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+                      <div className="flex items-center gap-1.5">
+                        <Badge
+                          variant={isCompleted ? "success" : "warning"}
+                          size="sm"
+                        >
+                          {isCompleted ? "تکمیل شده" : "در حال انجام"}
+                        </Badge>
+                        {item.isSpecialExam && (
+                          <Badge variant="primary" size="sm">
+                            آزمون ویژه
+                          </Badge>
+                        )}
+                      </div>
                       <span className="text-[11px] text-[var(--color-text-muted)] font-mono" dir="ltr">
                         {formattedDate}
                       </span>

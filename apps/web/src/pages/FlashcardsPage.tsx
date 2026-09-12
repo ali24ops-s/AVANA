@@ -13,7 +13,7 @@ import {
   Info,
   Sliders,
 } from "lucide-react";
-import { Card, Button, LoadingState } from "@avana/ui";
+import { Card, Button, LoadingState, Badge } from "@avana/ui";
 import { createApiClient, getApiBaseUrl } from "../lib/api/client.js";
 import { createStudyApi } from "../lib/api/study.js";
 import { createOrganizationApi } from "../lib/api/organizations.js";
@@ -295,8 +295,8 @@ export function FlashcardsPage() {
   };
 
   const startExamMode = () => {
-    const limitNum = typeof examLimit === "number" ? examLimit : undefined;
-    void startStudySession("exam", { limit: limitNum });
+    // قابلیت شب امتحان موقتاً غیرفعال است (حالت به‌زودی)
+    return;
   };
 
   const startCustomStudy = (mode: "weak" | "forgotten" | "review_ahead" | "new") => {
@@ -308,10 +308,9 @@ export function FlashcardsPage() {
 
   const handleStartStudy = () => {
     if (selectedGoal === "exam") {
-      startExamMode();
-    } else {
-      startNormalReview();
+      return;
     }
+    startNormalReview();
   };
 
   if (isLoading) {
@@ -466,43 +465,24 @@ export function FlashcardsPage() {
             </div>
           </label>
 
-          {/* Tile 3: Mode: Exam Tile (Col 4, Row 1) */}
-          <label
-            onClick={() => setSelectedGoal("exam")}
-            className={`rounded-[16px] p-6 md:col-span-1 md:row-span-1 cursor-pointer relative overflow-hidden flex flex-col justify-between transition-all duration-300 border ${
-              selectedGoal === "exam"
-                ? "bg-[var(--color-surface)] border-[var(--color-error)] shadow-[var(--shadow-card)] ring-1 ring-[var(--color-error)]"
-                : "bg-[var(--color-surface)] border-[var(--color-border)] hover:border-[var(--color-error)]"
-            }`}
+          {/* Tile 3: Mode: Exam Tile (Col 4, Row 1) - موقتاً غیرفعال / به‌زودی */}
+          <div
+            aria-disabled="true"
+            className="rounded-[16px] p-6 md:col-span-1 md:row-span-1 relative overflow-hidden flex flex-col justify-between transition-all duration-300 border bg-[var(--color-surface)] border-[var(--color-border)] opacity-75 cursor-not-allowed select-none"
           >
-            <input
-              type="radio"
-              name="study_mode_bento"
-              checked={selectedGoal === "exam"}
-              onChange={() => setSelectedGoal("exam")}
-              className="sr-only"
-            />
             <div className="flex justify-between items-start relative z-10">
-              <div className="w-10 h-10 rounded-[10px] bg-[var(--color-error-soft)] flex items-center justify-center text-[var(--color-error)]">
+              <div className="w-10 h-10 rounded-[10px] bg-[var(--color-error-soft)]/50 flex items-center justify-center text-[var(--color-error)]/70">
                 <Flame className="w-5 h-5" />
               </div>
-              <div
-                className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${
-                  selectedGoal === "exam" ? "border-[var(--color-error)]" : "border-[var(--color-border)]"
-                }`}
-              >
-                <div
-                  className={`w-3 h-3 rounded-full bg-[var(--color-error)] transition-transform ${
-                    selectedGoal === "exam" ? "scale-100" : "scale-0"
-                  }`}
-                />
-              </div>
+              <Badge variant="warning" size="sm" className="font-bold pointer-events-none">
+                به‌زودی
+              </Badge>
             </div>
             <div className="relative z-10 mt-4">
-              <h3 className="text-base font-bold text-[var(--color-text)] mb-1">شب امتحان</h3>
+              <h3 className="text-base font-bold text-[var(--color-text-muted)] mb-1">شب امتحان</h3>
               <p className="text-xs text-[var(--color-text-muted)] line-clamp-2">مطالعه فشرده برای امتحان</p>
             </div>
-          </label>
+          </div>
 
           {/* Tile 4: Topics / Filters Tile (Col 1-2, Row 2-3) */}
           <div className="bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] border border-[var(--color-border)] rounded-[16px] p-6 md:col-span-2 md:row-span-2 flex flex-col transition-all duration-300 shadow-[var(--shadow-card)]">

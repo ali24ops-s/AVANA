@@ -254,9 +254,24 @@ export function QuizExperience({
                 className="p-5 sm:p-6 space-y-3"
               >
                 <div className="flex items-center justify-between gap-2">
-                  <Badge variant="primary" size="sm">
-                    سوال {toPersianDigits(idx + 1)}
-                  </Badge>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="primary" size="sm">
+                      سوال {toPersianDigits(idx + 1)}
+                    </Badge>
+                    {q.lesson?.title ? (
+                      <span className="text-[11px] px-2 py-0.5 rounded bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] border border-[var(--color-border)]">
+                        درس: {q.chapter?.title ? `${q.chapter.title} — ${q.lesson.title}` : q.lesson.title}
+                      </span>
+                    ) : q.topic ? (
+                      <span className="text-[11px] px-2 py-0.5 rounded bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] border border-[var(--color-border)]">
+                        درس: {q.topic}
+                      </span>
+                    ) : (
+                      <span className="text-[11px] px-2 py-0.5 rounded bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] border border-[var(--color-border)]">
+                        درس: نامشخص
+                      </span>
+                    )}
+                  </div>
                   {qStatus === "correct" && (
                     <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 flex items-center gap-1">
                       <CheckCircle2 className="w-3.5 h-3.5" />
@@ -444,9 +459,20 @@ export function QuizExperience({
       {currentQuestion && (
         <Card className="p-6 sm:p-8 space-y-6">
           <div>
-            <Badge variant="primary" size="sm">
-              {currentQuestion.question_type === "multiple_choice" ? "چهارگزینه‌ای" : "پرسش آزمون"}
-            </Badge>
+            <div className="flex items-center gap-2">
+              <Badge variant="primary" size="sm">
+                {currentQuestion.question_type === "multiple_choice" ? "چهارگزینه‌ای" : "پرسش آزمون"}
+              </Badge>
+              {currentQuestion.lesson?.title ? (
+                <span className="text-[11px] px-2 py-0.5 rounded bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] border border-[var(--color-border)]">
+                  درس: {currentQuestion.chapter?.title ? `${currentQuestion.chapter.title} — ${currentQuestion.lesson.title}` : currentQuestion.lesson.title}
+                </span>
+              ) : currentQuestion.topic ? (
+                <span className="text-[11px] px-2 py-0.5 rounded bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] border border-[var(--color-border)]">
+                  درس: {currentQuestion.topic}
+                </span>
+              ) : null}
+            </div>
             <div className="text-base sm:text-lg font-bold text-[var(--color-text)] mt-3 leading-relaxed">
               <RichContent content={currentQuestion.question} />
             </div>

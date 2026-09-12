@@ -40,4 +40,24 @@ export {
   DrizzleAssistantConversationStore,
 } from "./assistant-store.js";
 export { assistantRoutes } from "./assistant-routes.js";
-
+export {
+  SpecialExamAutomationService,
+  COURSE_SPECIAL_EXAM_QUESTION_COUNT,
+  CHAPTER_SPECIAL_EXAM_QUESTION_COUNT,
+  getCourseSpecialExamCode,
+  getChapterSpecialExamCode,
+  type SpecialExamAutomationOptions,
+} from "./special-exam-automation-service.js";
+export { AnnotationService } from "./annotation-service.js";
+export type {
+  LessonAnnotationRecord,
+  ContentReportRecord,
+  LessonAnnotationStore,
+  ContentReportStore,
+} from "./annotation-store.js";
+export {
+  InMemoryLessonAnnotationStore,
+  InMemoryContentReportStore,
+  DrizzleLessonAnnotationStore,
+  DrizzleContentReportStore,
+} from "./annotation-store.js";

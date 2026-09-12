@@ -57,6 +57,10 @@ import {
   calculateContentPricingBreakdown,
   isCompleteReviewSummary,
   asProductId,
+  resolveCanonicalContentTitle,
+  formatModuleTitle,
+  isFilenameLike,
+  isSuspiciousTitle,
 } from "@avana/domain";
 import type { CommerceStore } from "../commerce/commerce-store.js";
 import type {
@@ -94,6 +98,7 @@ import {
 } from "../study/drizzle-stores.js";
 import { DrizzleCommerceStore } from "../commerce/commerce-store.js";
 import { DrizzleAuditStore } from "../../observability/drizzle-stores.js";
+import type { SpecialExamAutomationService } from "../study/special-exam-automation-service.js";
 
 // ---------------------------------------------------------------------------
 // Response contract types
@@ -125,6 +130,7 @@ export type ReviewScopedStores = {
   quizQuestionStore?: QuizQuestionStore;
   commerceStore?: CommerceStore;
   auditService?: AuditService;
+  specialExamAutomationService?: SpecialExamAutomationService;
 };
 
 export type ReviewDocumentResource = {
@@ -244,6 +250,7 @@ export class ReviewService {
     private readonly organizationStore?: OrganizationStore,
     private readonly commerceStore?: CommerceStore,
     private readonly db?: DbClient,
+    private readonly specialExamAutomationService?: SpecialExamAutomationService,
   ) {}
 
   /**
@@ -529,29 +536,10 @@ export class ReviewService {
   private toReviewQueueResource(
     c: GeneratedContentRecord,
   ): ReviewQueueResource {
-    const payload = c.payload as {
-      title?: string;
-      question?: string;
-      cards?: Array<{ question: string }>;
-    };
-    let title = payload.title;
-    if (!title) {
-      if (c.type === "flashcard") {
-        const count = Array.isArray(payload.cards) ? payload.cards.length : 0;
-        title =
-          count > 0
-            ? `مجموعه ${count} فلش‌کارت آموزشی`
-            : "مجموعه فلش‌کارت‌های آموزشی";
-      } else if (c.type === "quiz") {
-        title = payload.question
-          ? `آزمون: ${payload.question.slice(0, 40)}`
-          : "آزمون ارزیابی آموخته‌ها";
-      } else if (c.type === "lesson") {
-        title = "درس آموزشی";
-      } else {
-        title = "محتوای آموزشی";
-      }
-    }
+    const title = resolveCanonicalContentTitle({
+      type: c.type,
+      payload: (c.payload ?? {}) as Record<string, unknown>,
+    });
     return {
       id: c.id,
       document_id: (c.documentId ?? "") as DocumentId,
@@ -907,6 +895,11 @@ export class ReviewService {
   private getAuditService(stores?: ReviewScopedStores): AuditService | undefined {
     return stores?.auditService ?? this.auditService;
   }
+  private getSpecialExamAutomationService(
+    stores?: ReviewScopedStores,
+  ): SpecialExamAutomationService | undefined {
+    return stores?.specialExamAutomationService ?? this.specialExamAutomationService;
+  }
 
   /**
    * Bulk accept all pending generated contents for a document (Content Pack).
@@ -1010,6 +1003,7 @@ export class ReviewService {
           quizQuestionStore: this.quizQuestionStore ? new DrizzleQuizQuestionStore(tx) : undefined,
           commerceStore: this.commerceStore ? new DrizzleCommerceStore(tx) : undefined,
           auditService: this.auditService ? new AuditService(new DrizzleAuditStore(tx)) : undefined,
+          specialExamAutomationService: this.specialExamAutomationService,
         };
         return await this.executeAcceptPackBatch(
           actor,
@@ -1126,6 +1120,18 @@ export class ReviewService {
         materialized_lesson_id: item.materializedLessonId,
       })),
     ];
+
+    const automationService = this.getSpecialExamAutomationService(stores);
+    if (automationService && documentId) {
+      try {
+        await automationService.reconcileForDocument({
+          organizationId,
+          documentId,
+        });
+      } catch (err) {
+        console.warn("[ReviewService] Non-blocking special exam reconciliation error:", err);
+      }
+    }
 
     return {
       document_id: documentId,
@@ -1453,16 +1459,42 @@ export class ReviewService {
     });
 
     // Determine clean extracted title from AI payload
-    type PayloadWithTitle = { title?: string };
+    type PayloadWithTitle = { title?: string; moduleTitle?: string; topic?: string };
     const payloadTitle = (record.payload as PayloadWithTitle | undefined)?.title;
-    const extractedTitle =
+    let extractedTitle =
       payloadModuleTitle?.trim() ||
       payloadTopic?.trim() ||
       (payloadTitle
         ? payloadTitle.replace(/^آزمون (ارزیابی آموخته‌ها: |ارزیابی: |)/, "").trim()
         : null);
 
-    const isFilenameFallback = (t: string) => this.isFilenameFallback(t);
+    if (extractedTitle && this.isFilenameFallback(extractedTitle)) {
+      extractedTitle = null;
+    }
+
+    // If current record lacks a clean educational module title, look up sibling contents for this document
+    if (!extractedTitle && record.documentId && this.generatedContentStore) {
+      try {
+        const siblings = await this.generatedContentStore.listByCourse(
+          record.courseId,
+          record.organizationId,
+        );
+        const docSiblings = siblings.filter((s) => s.documentId === record.documentId);
+        for (const s of docSiblings) {
+          const sp = s.payload as { moduleTitle?: string; title?: string; topic?: string } | undefined;
+          const candidate =
+            sp?.moduleTitle?.trim() ||
+            sp?.topic?.trim() ||
+            (s.type === "lesson" ? sp?.title?.trim() : null);
+          if (candidate && !this.isFilenameFallback(candidate)) {
+            extractedTitle = candidate;
+            break;
+          }
+        }
+      } catch {
+        // Fallback gracefully
+      }
+    }
 
     if (targetModule) {
       let needsUpdate = false;
@@ -1470,8 +1502,8 @@ export class ReviewService {
         targetModule.documentId = record.documentId;
         needsUpdate = true;
       }
-      if (extractedTitle && isFilenameFallback(targetModule.title)) {
-        targetModule.title = extractedTitle.startsWith("فصل") ? extractedTitle : `فصل: ${extractedTitle}`;
+      if (extractedTitle && this.isFilenameFallback(targetModule.title)) {
+        targetModule.title = formatModuleTitle(extractedTitle);
         needsUpdate = true;
       }
       if (needsUpdate) {
@@ -1480,11 +1512,8 @@ export class ReviewService {
       return targetModule;
     }
 
-    // 4. Determine title for new module (Identity is documentId, Title is metadata)
-    const resolvedTitle =
-      extractedTitle
-        ? (extractedTitle.startsWith("فصل") ? extractedTitle : `فصل: ${extractedTitle}`)
-        : (cleanDocName ? `فصل: ${cleanDocName}` : "سرفصل آموزشی استخراج‌شده");
+    // 4. Determine title for new module (Guaranteed educational, never filename)
+    const resolvedTitle = formatModuleTitle(extractedTitle, "فصل آموزشی جامع");
 
     const now = new Date().toISOString();
 
@@ -1495,7 +1524,7 @@ export class ReviewService {
         courseId: record.courseId,
         documentId: record.documentId,
         title: resolvedTitle,
-        description: `مباحث و جلسات آموزشی استخراج‌شده از ${doc?.originalName ?? "جزوه"}`,
+        description: "مباحث و جلسات آموزشی استخراج‌شده",
         sortOrder: modules.length,
         createdAt: now,
         updatedAt: now,
@@ -1761,10 +1790,12 @@ export class ReviewService {
           ? choices[0]
           : "گزینه ۱";
 
-      // Deterministically map question to a specific lesson in the module using sessionIndex, sortOrder, topic or block fallback
+      // Deterministically map question to a specific lesson in the module using explicit lessonId, sessionIndex, sortOrder, topic or block fallback
       let qLessonId: LessonId | null = null;
       if (lessons.length > 0) {
-        if (typeof q.sessionIndex === "number" && !isNaN(q.sessionIndex)) {
+        if ((q as { lessonId?: string }).lessonId && lessons.some((l) => l.id === (q as { lessonId?: string }).lessonId)) {
+          qLessonId = (q as { lessonId?: string }).lessonId as LessonId;
+        } else if (typeof q.sessionIndex === "number" && !isNaN(q.sessionIndex)) {
           const matchBySortOrder = lessons.find((l) => l.sortOrder === q.sessionIndex);
           if (matchBySortOrder) {
             qLessonId = matchBySortOrder.id;
@@ -1836,14 +1867,30 @@ export class ReviewService {
       await quizQuestionStore.createMany(questions);
     }
 
+    // Auto-reconcile special exams for chapter and course
+    const automationService = this.getSpecialExamAutomationService(stores);
+    if (automationService) {
+      try {
+        await automationService.reconcileChapterExam({
+          organizationId: record.organizationId,
+          courseId: record.courseId,
+          moduleId: targetModule.id,
+        });
+        await automationService.reconcileCourseExam({
+          organizationId: record.organizationId,
+          courseId: record.courseId,
+        });
+      } catch (err) {
+        // Non-blocking
+        console.warn("[ReviewService] Non-blocking special exam reconciliation error:", err);
+      }
+    }
+
     return matchedLessonId;
   }
 
   private isFilenameFallback(t: string | null | undefined): boolean {
     if (!t) return true;
-    const c = t.replace(/^فصل:\s*/, "").trim();
-    if (/^\d+$/.test(c)) return true;
-    if (/\.(pdf|docx|pptx|txt)$/i.test(c)) return true;
-    return false;
+    return isFilenameLike(t) || isSuspiciousTitle(t);
   }
 }

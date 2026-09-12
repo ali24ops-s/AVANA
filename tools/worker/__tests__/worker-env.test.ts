@@ -154,9 +154,9 @@ describe("Worker Environment & Security Tests", () => {
 
       // Local Infrastructure
       expect(envData.DATABASE_URL).toBe(
-        "postgres://avana:avana@127.0.0.1:5432/avana?sslmode=disable",
+        "postgres://avana:avana@127.0.0.1:55432/avana?sslmode=disable",
       );
-      expect(envData.REDIS_URL).toBe("redis://127.0.0.1:6379");
+      expect(envData.REDIS_URL).toBe("redis://127.0.0.1:56379");
       expect(envData.AVANA_STORAGE_LOCAL_DIRECTORY).toBe("./storage/uploads");
 
       // Mocks

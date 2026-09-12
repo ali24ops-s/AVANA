@@ -47,11 +47,17 @@ interface ReviewResult {
 
 function getIntervalHint(
   rating: FlashcardRating,
-  card?: { interval_days: number; ease_factor?: number | string },
+  card?: {
+    interval_days?: number;
+    intervalDays?: number;
+    ease_factor?: number | string;
+    easeFactor?: number | string;
+  },
 ): string {
   if (!card) return "";
-  const prevInterval = card.interval_days ?? 0;
-  const prevEase = card.ease_factor ? Number(card.ease_factor) : 2.5;
+  const prevInterval = card.interval_days ?? card.intervalDays ?? 0;
+  const rawEase = card.ease_factor ?? card.easeFactor;
+  const prevEase = rawEase ? Number(rawEase) : 2.5;
 
   const nextState = nextReviewInterval(rating, {
     intervalDays: prevInterval,
@@ -64,7 +70,7 @@ function getIntervalHint(
   if (nextState.intervalDays === 1) {
     return "۱ روز";
   }
-  return `${nextState.intervalDays} روز`;
+  return `${toPersianDigits(nextState.intervalDays)} روز`;
 }
 
 export function FlashcardExperience({
@@ -90,7 +96,6 @@ export function FlashcardExperience({
   const [isCompleted, setIsCompleted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedRating, setSelectedRating] = useState<FlashcardRating | null>(null);
-  const [cardPriorities, setCardPriorities] = useState<Record<string, "high" | "medium" | "low">>({});
 
   const queryClient = useQueryClient();
   const apiClient = createApiClient({ baseUrl: getApiBaseUrl() });
@@ -318,8 +323,11 @@ export function FlashcardExperience({
   }, []);
 
   // Resolve course name if available
+  const resolvedCardCourseId =
+    currentCard?.course_id ||
+    (currentCard as unknown as { courseId?: string })?.courseId;
   const currentCourseInfo = summaryQuery.data?.courses?.find(
-    (c) => c.course_id === currentCard?.course_id,
+    (c) => c.course_id === resolvedCardCourseId,
   );
 
   // Submit review rating mutation
@@ -383,13 +391,19 @@ export function FlashcardExperience({
       setIsSubmitting(true);
       setSelectedRating(rating);
       const reactionMs = flipTimestamp > 0 ? Date.now() - flipTimestamp : 0;
+      const targetCourseId =
+        currentCard.course_id ||
+        (currentCard as unknown as { courseId?: string })?.courseId ||
+        effectiveCourseIds[0] ||
+        courseId ||
+        "";
 
       reviewMutation.mutate(
         {
           cardId: currentCard.id,
           rating,
           reactionMs,
-          targetCourseId: currentCard.course_id,
+          targetCourseId,
         },
         {
           onSuccess: () => {
@@ -461,7 +475,7 @@ export function FlashcardExperience({
   );
 
   const handlePrevCard = useCallback(() => {
-    if (currentIndex > 0) {
+    if (currentIndex > 0 && !isSubmitting && !reviewMutation.isPending) {
       const prevIdx = currentIndex - 1;
       const prevCard = dueCards[prevIdx];
       setCurrentIndex(prevIdx);
@@ -474,9 +488,10 @@ export function FlashcardExperience({
         });
       }
     }
-  }, [currentIndex, dueCards, sessionId, updateSessionProgressMutation]);
+  }, [currentIndex, dueCards, isSubmitting, reviewMutation.isPending, sessionId, updateSessionProgressMutation]);
 
   const handleNextCard = useCallback(() => {
+    if (isSubmitting || reviewMutation.isPending) return;
     if (!isFlipped) {
       handleFlip();
     } else if (currentIndex + 1 < dueCards.length) {
@@ -492,20 +507,12 @@ export function FlashcardExperience({
         });
       }
     }
-  }, [currentIndex, dueCards, isFlipped, handleFlip, sessionId, updateSessionProgressMutation]);
-
-  const togglePriority = (priority: "high" | "medium" | "low") => {
-    if (!currentCard) return;
-    setCardPriorities((prev) => ({
-      ...prev,
-      [currentCard.id]: prev[currentCard.id] === priority ? "low" : priority,
-    }));
-  };
+  }, [currentIndex, dueCards, isFlipped, handleFlip, isSubmitting, reviewMutation.isPending, sessionId, updateSessionProgressMutation]);
 
   // Keyboard shortcuts (Space: Flip, 1: Again, 2: Hard, 3: Good, 4: Easy)
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (isCompleted || !currentCard || isSubmitting) return;
+      if (isCompleted || !currentCard || isSubmitting || isEditing) return;
 
       // Prevent triggering shortcuts when typing in inputs/textareas
       if (
@@ -536,7 +543,7 @@ export function FlashcardExperience({
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [isFlipped, isCompleted, currentCard, isSubmitting, handleFlip, handleRating]);
+  }, [isFlipped, isCompleted, currentCard, isSubmitting, isEditing, handleFlip, handleRating]);
 
   // Dynamic calculations for stats panel
   const totalSessionCards = sessionId
@@ -812,13 +819,13 @@ export function FlashcardExperience({
 
   // Active review session
   return (
-    <div className="relative min-h-screen flex flex-col justify-between overflow-hidden bg-[var(--color-bg)] text-[var(--color-text)] font-sans dir-rtl text-right">
+    <div className="relative h-[100dvh] max-h-[100dvh] flex flex-col justify-between overflow-hidden bg-[var(--color-bg)] text-[var(--color-text)] font-sans dir-rtl text-right select-none">
       {/* Review Header */}
-      <header className="w-full px-4 md:px-16 py-6 z-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-[var(--color-border)]">
-        <div>
+      <header className="w-full px-4 md:px-8 py-3 z-10 flex flex-wrap justify-between items-center gap-3 border-b border-[var(--color-border)] bg-[var(--color-surface)]/80 backdrop-blur-md flex-shrink-0">
+        <div className="flex items-center gap-3">
           <div className="flex items-center gap-2 flex-wrap">
-            <h2 className="font-semibold text-xl md:text-2xl text-[var(--color-text)]">
-              {currentCourseInfo ? currentCourseInfo.title : "Pharmacology - Cardiovascular"}
+            <h2 className="font-bold text-base md:text-lg text-[var(--color-text)] max-w-xs md:max-w-md truncate">
+              {currentCourseInfo ? currentCourseInfo.title : "مرور فلش‌کارت‌ها"}
             </h2>
             {effectiveIsPreview && (
               <Badge variant="info" size="sm" className="gap-1">
@@ -838,420 +845,308 @@ export function FlashcardExperience({
               </Badge>
             )}
           </div>
-          <div className="flex items-center gap-3 mt-1">
-            <p className="text-xs text-[var(--color-text-muted)] font-medium">مرور فلش‌کارت‌ها</p>
-            {onBack && (
-              <button
-                type="button"
-                onClick={onBack}
-                className="inline-flex items-center gap-1 text-[11px] text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors cursor-pointer"
-              >
-                <ArrowRight className="w-3 h-3" />
-                <span>خروج از مرور</span>
-              </button>
-            )}
-          </div>
+          {onBack && (
+            <button
+              type="button"
+              onClick={onBack}
+              className="inline-flex items-center gap-1 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors cursor-pointer border-r border-[var(--color-border)] pr-3"
+            >
+              <ArrowRight className="w-3.5 h-3.5" />
+              <span>خروج از مرور</span>
+            </button>
+          )}
         </div>
 
-        {/* Compact 3-Stats Header Pill (Replaces Today's Progress) */}
-        <div className="inline-flex items-center gap-4 px-4 py-2 bg-[var(--color-surface)] rounded-full border border-[var(--color-border)] shadow-[var(--shadow-subtle)] text-xs">
-          <div className="flex items-center gap-1.5 border-e border-[var(--color-border)] pe-3">
+        {/* Compact 3-Stats Header Pill */}
+        <div className="inline-flex items-center gap-3 px-3.5 py-1.5 bg-[var(--color-surface)] rounded-full border border-[var(--color-border)] shadow-[var(--shadow-subtle)] text-xs">
+          <div className="flex items-center gap-1 border-e border-[var(--color-border)] pe-2.5">
             <span className="text-[var(--color-text-muted)]">دیده‌نشده:</span>
             <span className="font-bold text-[var(--color-primary)]">{toPersianDigits(unseenCount)}</span>
           </div>
-          <div className="flex items-center gap-1.5 border-e border-[var(--color-border)] pe-3">
+          <div className="flex items-center gap-1 border-e border-[var(--color-border)] pe-2.5">
             <span className="text-[var(--color-text-muted)]">مرور مجدد:</span>
             <span className="font-bold text-[var(--color-error)]">{toPersianDigits(reviewCount)}</span>
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1">
             <span className="text-[var(--color-text-muted)]">پایان‌یافته:</span>
             <span className="font-bold text-[var(--color-success)]">{toPersianDigits(finishedCount)}</span>
           </div>
         </div>
       </header>
 
-      {reviewMutation.isError && (
-        <div className="max-w-3xl mx-auto w-full px-4 z-10 mb-3">
-          <div className="p-3 bg-[var(--color-error-soft)] rounded-[10px] border border-[var(--color-error-muted)] text-xs text-[var(--color-error)] flex items-center gap-2 justify-center">
-            <AlertCircle className="w-4 h-4" />
-            <span>خطا در ثبت بازخورد. لطفاً دوباره تلاش کنید.</span>
+      {/* Main Review Area */}
+      <div className="flex-1 flex flex-col items-center justify-center p-3 md:p-6 z-10 w-full max-w-3xl mx-auto overflow-hidden min-h-0">
+        {reviewMutation.isError && (
+          <div className="w-full mb-3 flex-shrink-0">
+            <div className="p-3 bg-[var(--color-error-soft)] rounded-[10px] border border-[var(--color-error-muted)] text-xs text-[var(--color-error)] flex items-center gap-2 justify-center">
+              <AlertCircle className="w-4 h-4" />
+              <span>خطا در ثبت بازخورد مرور. لطفاً دوباره تلاش کنید.</span>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Tier 2 Surface: Review Canvas Container Surface */}
-      <div className="flex-1 flex flex-col items-center justify-center p-4 md:p-6 z-10 w-full max-w-4xl mx-auto">
-        <Card variant="solid" className="w-full p-4 md:p-6 bg-[var(--color-surface)] rounded-[16px] border border-[var(--color-border)] shadow-[var(--shadow-card)] flex flex-col items-center justify-center gap-4">
-          
-          {/* Tier 3 Surface: 3D Perspective Flashcard Container */}
-          {currentCard && (
-            <>
-              <div
-                id="flashcard"
-                role="button"
-                tabIndex={0}
-                aria-label={
-                  isFlipped
-                    ? "پاسخ فلش‌کارت نمایش داده شد"
-                    : "سوال فلش‌کارت. برای چرخش کلیک کنید یا کلید Space را فشار دهید"
-                }
-                onClick={handleFlip}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    handleFlip();
-                  }
-                }}
-                className={`flip-card w-full max-w-3xl min-h-[300px] md:min-h-[360px] lg:min-h-[400px] cursor-pointer group perspective-1000 ${
-                  isFlipped ? "flipped" : ""
-                }`}
-              >
-                <div
-                  className="flip-card-inner relative w-full h-full transition-transform duration-600 ease-in-out"
-                >
-                  {/* Front (Question Side) - Frameless Floating Content */}
-                  <div
-                    className={`flip-card-front absolute inset-0 w-full h-full p-4 md:p-8 flex flex-col justify-between items-center text-center rounded-[16px] bg-[var(--color-surface)] border border-[var(--color-border)] shadow-[var(--shadow-subtle)] transition-opacity duration-300 ${
-                      isFlipped ? "opacity-0 pointer-events-none" : "opacity-100"
-                    }`}
-                  >
-                    {/* Middle Centered Question Content or In-line Editor */}
-                    {isEditing ? (
-                      <div
-                        className="flex-1 flex flex-col justify-center items-center text-center w-full my-auto px-2 py-2 space-y-2.5 z-30"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <div className="w-full text-right space-y-1">
-                          <label className="text-xs text-[var(--color-primary)] font-bold">متن سوال:</label>
-                          <textarea
-                            value={editQuestion}
-                            onChange={(e) => setEditQuestion(e.target.value)}
-                            className="w-full p-2.5 bg-[var(--color-bg)] border border-[var(--color-border)] rounded-[10px] text-xs md:text-sm text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary)] focus:ring-1 focus:ring-[var(--color-primary)] resize-none h-20 leading-relaxed font-sans"
-                            dir="rtl"
-                          />
-                        </div>
-                        <div className="w-full text-right space-y-1">
-                          <label className="text-xs text-[var(--color-primary)] font-bold">متن پاسخ:</label>
-                          <textarea
-                            value={editAnswer}
-                            onChange={(e) => setEditAnswer(e.target.value)}
-                            className="w-full p-2.5 bg-[var(--color-bg)] border border-[var(--color-border)] rounded-[10px] text-xs md:text-sm text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary)] focus:ring-1 focus:ring-[var(--color-primary)] resize-none h-20 leading-relaxed font-sans"
-                            dir="rtl"
-                          />
-                        </div>
-                        <div className="flex items-center justify-center gap-3 pt-1">
-                          <Button
-                            type="button"
-                            variant="primary"
-                            size="sm"
-                            onClick={handleSaveEdit}
-                            className="rounded-[10px] gap-1.5"
-                          >
-                            <Check className="w-3.5 h-3.5" />
-                            <span>ثبت تغییرات</span>
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={handleCancelEdit}
-                            className="rounded-[10px] gap-1.5"
-                          >
-                            <X className="w-3.5 h-3.5" />
-                            <span>انصراف</span>
-                          </Button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex-1 flex flex-col justify-center items-center text-center w-full my-auto px-4 py-4">
-                        <h3 className="text-xl md:text-2xl lg:text-3xl font-bold text-[var(--color-text)] leading-relaxed max-w-2xl text-center">
-                          <RichContent content={currentCard.question} inline />
-                        </h3>
-                      </div>
-                    )}
-
-                    {/* Bottom Touch Prompt Footer */}
-                    <div className="flex justify-center items-center gap-2 text-xs text-[var(--color-text-muted)] pt-2.5 border-t border-[var(--color-border)] w-full flex-shrink-0 opacity-80 group-hover:opacity-100 transition-opacity">
-                      <Pointer className="w-4 h-4 text-[var(--color-primary)]" />
-                      <span>برای مشاهده پاسخ کلیک کنید</span>
-                    </div>
-                  </div>
-
-                  {/* Back (Answer Side) - Frameless Floating Content */}
-                  <div
-                    className={`flip-card-back absolute inset-0 w-full h-full p-4 md:p-8 flex flex-col justify-between items-center text-center rounded-[16px] bg-[var(--color-surface)] border border-[var(--color-border)] shadow-[var(--shadow-subtle)] transition-opacity duration-300 ${
-                      isFlipped ? "opacity-100" : "opacity-0 pointer-events-none"
-                    }`}
-                  >
-                    {/* Middle Centered Answer Content or In-line Editor */}
-                    {isEditing ? (
-                      <div
-                        className="flex-1 flex flex-col justify-center items-center text-center w-full my-auto px-2 py-2 space-y-2.5 z-30"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <div className="w-full text-right space-y-1">
-                          <label className="text-xs text-[var(--color-primary)] font-bold">متن سوال:</label>
-                          <textarea
-                            value={editQuestion}
-                            onChange={(e) => setEditQuestion(e.target.value)}
-                            className="w-full p-2.5 bg-[var(--color-bg)] border border-[var(--color-border)] rounded-[10px] text-xs md:text-sm text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary)] focus:ring-1 focus:ring-[var(--color-primary)] resize-none h-20 leading-relaxed font-sans"
-                            dir="rtl"
-                          />
-                        </div>
-                        <div className="w-full text-right space-y-1">
-                          <label className="text-xs text-[var(--color-primary)] font-bold">متن پاسخ:</label>
-                          <textarea
-                            value={editAnswer}
-                            onChange={(e) => setEditAnswer(e.target.value)}
-                            className="w-full p-2.5 bg-[var(--color-bg)] border border-[var(--color-border)] rounded-[10px] text-xs md:text-sm text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary)] focus:ring-1 focus:ring-[var(--color-primary)] resize-none h-20 leading-relaxed font-sans"
-                            dir="rtl"
-                          />
-                        </div>
-                        <div className="flex items-center justify-center gap-3 pt-1">
-                          <Button
-                            type="button"
-                            variant="primary"
-                            size="sm"
-                            onClick={handleSaveEdit}
-                            className="rounded-[10px] gap-1.5"
-                          >
-                            <Check className="w-3.5 h-3.5" />
-                            <span>ثبت تغییرات</span>
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={handleCancelEdit}
-                            className="rounded-[10px] gap-1.5"
-                          >
-                            <X className="w-3.5 h-3.5" />
-                            <span>انصراف</span>
-                          </Button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex-1 flex flex-col justify-center items-center text-center w-full my-auto px-4 py-4 space-y-3">
-                        <div className="text-base md:text-lg lg:text-xl font-semibold text-[var(--color-text)] leading-relaxed max-w-2xl text-center">
-                          <RichContent content={currentCard.answer} inline />
-                        </div>
-                        {currentCard.explanation && (
-                          <div className="w-full max-w-2xl p-3.5 bg-[var(--color-surface-hover)] rounded-[12px] border border-[var(--color-border)] text-xs md:text-sm text-[var(--color-text-secondary)] space-y-1.5 text-right">
-                            <div className="font-bold text-[var(--color-primary)] flex items-center gap-1.5 justify-start">
-                              <Lightbulb className="w-4 h-4 text-[var(--color-primary)]" />
-                              <span>توضیح تکمیلی:</span>
-                            </div>
-                            <div className="leading-relaxed text-[var(--color-text-secondary)]">
-                              <RichContent content={currentCard.explanation} />
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Bottom Status Hint */}
-                    <div className="flex justify-center items-center gap-2 text-xs text-[var(--color-primary)] pt-2.5 border-t border-[var(--color-primary-muted)] w-full flex-shrink-0 font-medium">
-                      <Sparkles className="w-3.5 h-3.5" />
-                      <span>پاسخ ثبت آماده ارزیابی است</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* External Control Bar Below Flashcard Box */}
-              <div className="w-full max-w-3xl flex items-center justify-between px-2 py-1 flex-shrink-0 gap-2 z-20">
-                <Badge variant="primary" size="sm" className="gap-1.5">
+        {currentCard && (
+          <div
+            id="flashcard"
+            role="button"
+            tabIndex={0}
+            aria-label={
+              isFlipped
+                ? "پاسخ فلش‌کارت نمایش داده شد"
+                : "سوال فلش‌کارت. برای چرخش کلیک کنید یا کلید Space را فشار دهید"
+            }
+            onClick={handleFlip}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                handleFlip();
+              }
+            }}
+            className="w-full flex-1 flex flex-col min-h-0 max-h-[560px] bg-[var(--color-surface)] rounded-[18px] border border-[var(--color-border)] shadow-[var(--shadow-card)] overflow-hidden transition-all duration-300 relative cursor-pointer group focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/40"
+          >
+            {/* Integrated Card Top Bar */}
+            <div
+              className="flex items-center justify-between px-4 md:px-6 py-2.5 border-b border-[var(--color-border)] bg-[var(--color-surface-hover)]/40 flex-shrink-0"
+              onClick={(e) => isEditing && e.stopPropagation()}
+            >
+              <div className="flex items-center gap-2">
+                <Badge variant="primary" size="sm" className="gap-1.5 font-medium">
                   <BookOpen className="w-3.5 h-3.5" />
-                  <span>{currentCourseInfo ? currentCourseInfo.title : "فلش‌کارت"}</span>
+                  <span className="truncate max-w-[200px]">{currentCourseInfo ? currentCourseInfo.title : "فلش‌کارت"}</span>
                 </Badge>
-
-                {/* Edit Card Button */}
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={handleStartEdit}
-                  aria-label="ویرایش کارت"
-                  title="ویرایش کارت"
-                  className="rounded-[10px] gap-1.5 text-xs z-20"
-                >
-                  <Pencil className="w-3.5 h-3.5 text-[var(--color-primary)]" />
-                  <span>ویرایش کارت</span>
-                </Button>
-
-                <span className="text-xs text-[var(--color-text-muted)] font-medium bg-[var(--color-surface-hover)] px-3 py-1 rounded-full border border-[var(--color-border)]">
+                <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-[var(--color-surface-hover)] border border-[var(--color-border)] text-[var(--color-text-secondary)]">
                   {isFlipped ? "پاسخ" : "سوال"}
                 </span>
               </div>
-            </>
-          )}
 
-          {/* Spaced Repetition Controls */}
-          <div className="w-full max-w-3xl flex flex-col gap-3">
-            {/* Priority Markers */}
-            <div className="flex justify-center items-center gap-4 p-3 bg-[var(--color-surface-hover)] rounded-[10px] border border-[var(--color-border)]">
-              <span className="text-xs text-[var(--color-text-muted)] self-center me-2">نشانی‌گذاری اولویت:</span>
-              <button
+              <Button
                 type="button"
-                onClick={() => togglePriority("high")}
-                className={`w-7 h-7 rounded-full border transition-transform hover:scale-110 cursor-pointer ${
-                  currentCard && cardPriorities[currentCard.id] === "high"
-                    ? "bg-[var(--color-error)] border-[var(--color-error)] scale-110"
-                    : "bg-[var(--color-error-soft)] border-[var(--color-error-muted)]"
-                }`}
-                aria-label="اولویت بالا"
-                title="اولویت بالا"
-              />
-              <button
-                type="button"
-                onClick={() => togglePriority("medium")}
-                className={`w-7 h-7 rounded-full border transition-transform hover:scale-110 cursor-pointer ${
-                  currentCard && cardPriorities[currentCard.id] === "medium"
-                    ? "bg-[var(--color-warning)] border-[var(--color-warning)] scale-110"
-                    : "bg-[var(--color-warning-soft)] border-[var(--color-warning-muted)]"
-                }`}
-                aria-label="اولویت متوسط"
-                title="اولویت متوسط"
-              />
-              <button
-                type="button"
-                onClick={() => togglePriority("low")}
-                className={`w-7 h-7 rounded-full border transition-transform hover:scale-110 cursor-pointer ${
-                  currentCard && cardPriorities[currentCard.id] === "low"
-                    ? "bg-[var(--color-secondary-dark)] border-[var(--color-secondary)] scale-110"
-                    : "bg-[var(--color-secondary-light)] border-[var(--color-secondary)]"
-                }`}
-                aria-label="اولویت پایین"
-                title="اولویت پایین"
-              />
+                variant="outline"
+                size="sm"
+                onClick={handleStartEdit}
+                aria-label="ویرایش کارت"
+                title="ویرایش کارت"
+                className="rounded-[8px] gap-1 text-xs py-1 h-7 text-[var(--color-text-muted)] hover:text-[var(--color-primary)]"
+              >
+                <Pencil className="w-3 h-3 text-[var(--color-primary)]" />
+                <span>ویرایش</span>
+              </Button>
             </div>
 
-            {/* Rating & Navigation Row */}
-            <div className="flex items-center gap-3">
-              {/* Previous Button (Icon Only - RTL ChevronRight) */}
-              <Button
-                type="button"
-                variant="outline"
-                size="md"
-                onClick={handlePrevCard}
-                disabled={currentIndex === 0}
-                aria-label="کارت قبلی"
-                title="کارت قبلی"
-                className="flex-shrink-0 w-12 h-12 !p-0 rounded-full"
-              >
-                <ChevronRight className="w-5 h-5 text-[var(--color-text)]" />
-              </Button>
-
-              {/* Spaced Repetition Grid */}
-              <div
-                className={`flex-1 grid grid-cols-4 gap-2 md:gap-4 transition-all duration-300 ${
-                  isFlipped ? "opacity-100" : "opacity-40 pointer-events-none"
-                }`}
-                id="review-controls"
-              >
-                <button
-                  type="button"
-                  onClick={() => handleRating("again")}
-                  disabled={!isFlipped || isSubmitting || reviewMutation.isPending}
-                  aria-label="تکرار"
-                  className="flex flex-col items-center justify-center py-3.5 px-2 rounded-[10px] bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-[var(--color-error)] hover:bg-[var(--color-error-soft)] transition-colors group disabled:opacity-50 cursor-pointer"
+            {/* Central Card Body */}
+            <div className="flex-1 flex flex-col justify-center items-center text-center w-full px-5 md:px-10 py-5 overflow-y-auto min-h-0">
+              {isEditing ? (
+                <div
+                  className="w-full my-auto space-y-3"
+                  onClick={(e) => e.stopPropagation()}
                 >
-                  {selectedRating === "again" && isSubmitting ? (
-                    <Loader2 className="w-4 h-4 animate-spin text-[var(--color-error)]" />
-                  ) : (
-                    <>
-                      <span className="text-xs md:text-sm font-bold text-[var(--color-text)] mb-1">دوباره</span>
-                      <span className="text-[11px] md:text-[12px] font-bold text-[var(--color-error)]">
-                        {getIntervalHint("again", currentCard)}
-                      </span>
-                    </>
-                  )}
-                </button>
+                  <div className="w-full text-right space-y-1">
+                    <label className="text-xs text-[var(--color-primary)] font-bold">متن سوال:</label>
+                    <textarea
+                      value={editQuestion}
+                      onChange={(e) => setEditQuestion(e.target.value)}
+                      className="w-full p-2.5 bg-[var(--color-bg)] border border-[var(--color-border)] rounded-[10px] text-xs md:text-sm text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary)] focus:ring-1 focus:ring-[var(--color-primary)] resize-none h-20 leading-relaxed font-sans"
+                      dir="rtl"
+                    />
+                  </div>
+                  <div className="w-full text-right space-y-1">
+                    <label className="text-xs text-[var(--color-primary)] font-bold">متن پاسخ:</label>
+                    <textarea
+                      value={editAnswer}
+                      onChange={(e) => setEditAnswer(e.target.value)}
+                      className="w-full p-2.5 bg-[var(--color-bg)] border border-[var(--color-border)] rounded-[10px] text-xs md:text-sm text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary)] focus:ring-1 focus:ring-[var(--color-primary)] resize-none h-20 leading-relaxed font-sans"
+                      dir="rtl"
+                    />
+                  </div>
+                  <div className="flex items-center justify-center gap-3 pt-1">
+                    <Button
+                      type="button"
+                      variant="primary"
+                      size="sm"
+                      onClick={handleSaveEdit}
+                      className="rounded-[10px] gap-1.5"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      <span>ثبت تغییرات</span>
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleCancelEdit}
+                      className="rounded-[10px] gap-1.5"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                      <span>انصراف</span>
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {/* Question View */}
+                  <div className={`w-full flex-col items-center justify-center my-auto ${isFlipped ? "hidden" : "flex"}`}>
+                    <h3 className="text-lg md:text-2xl lg:text-3xl font-bold text-[var(--color-text)] leading-relaxed max-w-2xl text-center">
+                      <RichContent content={currentCard.question} inline />
+                    </h3>
+                  </div>
 
-                <button
-                  type="button"
-                  onClick={() => handleRating("hard")}
-                  disabled={!isFlipped || isSubmitting || reviewMutation.isPending}
-                  aria-label="سخت"
-                  className="flex flex-col items-center justify-center py-3.5 px-2 rounded-[10px] bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-[var(--color-warning)] hover:bg-[var(--color-warning-soft)] transition-colors group disabled:opacity-50 cursor-pointer"
-                >
-                  {selectedRating === "hard" && isSubmitting ? (
-                    <Loader2 className="w-4 h-4 animate-spin text-[var(--color-warning)]" />
-                  ) : (
-                    <>
-                      <span className="text-xs md:text-sm font-bold text-[var(--color-text)] mb-1">سخت</span>
-                      <span className="text-[11px] md:text-[12px] font-bold text-[var(--color-warning)]">
-                        {getIntervalHint("hard", currentCard)}
-                      </span>
-                    </>
-                  )}
-                </button>
+                  {/* Answer View */}
+                  <div className={`w-full flex-col items-center justify-center my-auto space-y-4 ${isFlipped ? "flex" : "hidden"}`}>
+                    <div className="text-base md:text-xl lg:text-2xl font-bold text-[var(--color-text)] leading-relaxed max-w-2xl text-center">
+                      <RichContent content={currentCard.answer} inline />
+                    </div>
+                    {currentCard.explanation && (
+                      <div className="w-full max-w-2xl p-3.5 bg-[var(--color-surface-hover)] rounded-[12px] border border-[var(--color-border)] text-xs md:text-sm text-[var(--color-text-secondary)] space-y-1.5 text-right">
+                        <div className="font-bold text-[var(--color-primary)] flex items-center gap-1.5 justify-start">
+                          <Lightbulb className="w-4 h-4 text-[var(--color-primary)]" />
+                          <span>توضیح تکمیلی:</span>
+                        </div>
+                        <div className="leading-relaxed text-[var(--color-text-secondary)]">
+                          <RichContent content={currentCard.explanation} />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
 
-                <button
-                  type="button"
-                  onClick={() => handleRating("good")}
-                  disabled={!isFlipped || isSubmitting || reviewMutation.isPending}
-                  aria-label="خوب"
-                  className="flex flex-col items-center justify-center py-3.5 px-2 rounded-[10px] bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-[var(--color-secondary)] hover:bg-[var(--color-secondary-light)] transition-colors group disabled:opacity-50 cursor-pointer"
-                >
-                  {selectedRating === "good" && isSubmitting ? (
-                    <Loader2 className="w-4 h-4 animate-spin text-[var(--color-secondary-dark)]" />
-                  ) : (
-                    <>
-                      <span className="text-xs md:text-sm font-bold text-[var(--color-text)] mb-1">خوب</span>
-                      <span className="text-[11px] md:text-[12px] font-bold text-[var(--color-secondary-dark)]">
-                        {getIntervalHint("good", currentCard)}
-                      </span>
-                    </>
-                  )}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleRating("easy")}
-                  disabled={!isFlipped || isSubmitting || reviewMutation.isPending}
-                  aria-label="آسان"
-                  className="flex flex-col items-center justify-center py-3.5 px-2 rounded-[10px] bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-[var(--color-success)] hover:bg-[var(--color-success-soft)] transition-colors group disabled:opacity-50 cursor-pointer"
-                >
-                  {selectedRating === "easy" && isSubmitting ? (
-                    <Loader2 className="w-4 h-4 animate-spin text-[var(--color-success)]" />
-                  ) : (
-                    <>
-                      <span className="text-xs md:text-sm font-bold text-[var(--color-text)] mb-1">آسان</span>
-                      <span className="text-[11px] md:text-[12px] font-bold text-[var(--color-success)]">
-                        {getIntervalHint("easy", currentCard)}
-                      </span>
-                    </>
-                  )}
-                </button>
-              </div>
-
-              {/* Next Button (Icon Only - RTL ChevronLeft) */}
-              <Button
-                type="button"
-                variant="outline"
-                size="md"
-                onClick={handleNextCard}
-                disabled={currentIndex >= dueCards.length - 1 && isFlipped}
-                aria-label="کارت بعدی"
-                title="کارت بعدی"
-                className="flex-shrink-0 w-12 h-12 !p-0 rounded-full"
-              >
-                <ChevronLeft className="w-5 h-5 text-[var(--color-text)]" />
-              </Button>
+            {/* Clean Bottom Touch Prompt */}
+            <div className="flex justify-center items-center gap-2 text-xs py-2.5 px-4 bg-[var(--color-surface-hover)]/30 border-t border-[var(--color-border)] w-full flex-shrink-0 text-[var(--color-text-muted)]">
+              {!isFlipped ? (
+                <>
+                  <Pointer className="w-3.5 h-3.5 text-[var(--color-primary)]" />
+                  <span>برای مشاهده پاسخ کلیک کنید یا کلید Space را فشار دهید</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-3.5 h-3.5 text-[var(--color-primary)]" />
+                  <span className="text-[var(--color-primary)] font-medium">پاسخ نمایان شد — سطح یادگیری خود را انتخاب کنید</span>
+                </>
+              )}
             </div>
           </div>
-        </Card>
-      </div>
+        )}
 
-      {/* Floating AI Assistant Button */}
-      <button
-        type="button"
-        aria-label="دستیار هوش مصنوعی"
-        className="fixed bottom-6 left-6 md:bottom-10 md:left-10 w-14 h-14 rounded-full bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary-hover)] shadow-[var(--shadow-card)] flex items-center justify-center z-50 hover:scale-105 transition-transform cursor-pointer"
-      >
-        <span className="text-white text-2xl font-bold leading-none">A</span>
-      </button>
+        {/* Spaced Repetition Review Controls */}
+        <div className="w-full max-w-3xl flex items-center gap-2 md:gap-3 pt-3 flex-shrink-0 z-20">
+          {/* Previous Button */}
+          <Button
+            type="button"
+            variant="outline"
+            size="md"
+            onClick={handlePrevCard}
+            disabled={currentIndex === 0 || isSubmitting || reviewMutation.isPending}
+            aria-label="کارت قبلی"
+            title="کارت قبلی"
+            className="flex-shrink-0 w-11 h-11 md:w-12 md:h-12 !p-0 rounded-full"
+          >
+            <ChevronRight className="w-5 h-5 text-[var(--color-text)]" />
+          </Button>
+
+          {/* 4-Button SRS Rating Grid */}
+          <div
+            className={`flex-1 grid grid-cols-4 gap-2 md:gap-3 transition-opacity duration-300 ${
+              isFlipped ? "opacity-100" : "opacity-40 pointer-events-none"
+            }`}
+            id="review-controls"
+          >
+            {/* 1. Again (دوباره) */}
+            <button
+              type="button"
+              onClick={() => handleRating("again")}
+              disabled={!isFlipped || isSubmitting || reviewMutation.isPending}
+              aria-label="تکرار"
+              className="flex flex-col items-center justify-center py-2.5 md:py-3 px-1 md:px-2 rounded-[12px] bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-[var(--color-error)] hover:bg-[var(--color-error-soft)] transition-all group disabled:opacity-50 cursor-pointer shadow-[var(--shadow-subtle)]"
+            >
+              {selectedRating === "again" && isSubmitting ? (
+                <Loader2 className="w-4 h-4 animate-spin text-[var(--color-error)]" />
+              ) : (
+                <>
+                  <span className="text-xs md:text-sm font-bold text-[var(--color-text)] mb-0.5">دوباره</span>
+                  <span className="text-[11px] md:text-xs font-bold text-[var(--color-error)]">
+                    {getIntervalHint("again", currentCard)}
+                  </span>
+                </>
+              )}
+            </button>
+
+            {/* 2. Hard (سخت) */}
+            <button
+              type="button"
+              onClick={() => handleRating("hard")}
+              disabled={!isFlipped || isSubmitting || reviewMutation.isPending}
+              aria-label="سخت"
+              className="flex flex-col items-center justify-center py-2.5 md:py-3 px-1 md:px-2 rounded-[12px] bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-[var(--color-warning)] hover:bg-[var(--color-warning-soft)] transition-all group disabled:opacity-50 cursor-pointer shadow-[var(--shadow-subtle)]"
+            >
+              {selectedRating === "hard" && isSubmitting ? (
+                <Loader2 className="w-4 h-4 animate-spin text-[var(--color-warning)]" />
+              ) : (
+                <>
+                  <span className="text-xs md:text-sm font-bold text-[var(--color-text)] mb-0.5">سخت</span>
+                  <span className="text-[11px] md:text-xs font-bold text-[var(--color-warning)]">
+                    {getIntervalHint("hard", currentCard)}
+                  </span>
+                </>
+              )}
+            </button>
+
+            {/* 3. Good (خوب) */}
+            <button
+              type="button"
+              onClick={() => handleRating("good")}
+              disabled={!isFlipped || isSubmitting || reviewMutation.isPending}
+              aria-label="خوب"
+              className="flex flex-col items-center justify-center py-2.5 md:py-3 px-1 md:px-2 rounded-[12px] bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-[var(--color-secondary)] hover:bg-[var(--color-secondary-light)] transition-all group disabled:opacity-50 cursor-pointer shadow-[var(--shadow-subtle)]"
+            >
+              {selectedRating === "good" && isSubmitting ? (
+                <Loader2 className="w-4 h-4 animate-spin text-[var(--color-secondary-dark)]" />
+              ) : (
+                <>
+                  <span className="text-xs md:text-sm font-bold text-[var(--color-text)] mb-0.5">خوب</span>
+                  <span className="text-[11px] md:text-xs font-bold text-[var(--color-secondary-dark)]">
+                    {getIntervalHint("good", currentCard)}
+                  </span>
+                </>
+              )}
+            </button>
+
+            {/* 4. Easy (آسان) */}
+            <button
+              type="button"
+              onClick={() => handleRating("easy")}
+              disabled={!isFlipped || isSubmitting || reviewMutation.isPending}
+              aria-label="آسان"
+              className="flex flex-col items-center justify-center py-2.5 md:py-3 px-1 md:px-2 rounded-[12px] bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-[var(--color-success)] hover:bg-[var(--color-success-soft)] transition-all group disabled:opacity-50 cursor-pointer shadow-[var(--shadow-subtle)]"
+            >
+              {selectedRating === "easy" && isSubmitting ? (
+                <Loader2 className="w-4 h-4 animate-spin text-[var(--color-success)]" />
+              ) : (
+                <>
+                  <span className="text-xs md:text-sm font-bold text-[var(--color-text)] mb-0.5">آسان</span>
+                  <span className="text-[11px] md:text-xs font-bold text-[var(--color-success)]">
+                    {getIntervalHint("easy", currentCard)}
+                  </span>
+                </>
+              )}
+            </button>
+          </div>
+
+          {/* Next Button */}
+          <Button
+            type="button"
+            variant="outline"
+            size="md"
+            onClick={handleNextCard}
+            disabled={(currentIndex >= dueCards.length - 1 && isFlipped) || isSubmitting || reviewMutation.isPending}
+            aria-label="کارت بعدی"
+            title="کارت بعدی"
+            className="flex-shrink-0 w-11 h-11 md:w-12 md:h-12 !p-0 rounded-full"
+          >
+            <ChevronLeft className="w-5 h-5 text-[var(--color-text)]" />
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }

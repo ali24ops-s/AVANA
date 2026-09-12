@@ -448,7 +448,7 @@ export function ChapterPackageModal({
                                       {lesson.is_preview ? (
                                         <Sparkles className="w-3.5 h-3.5 text-teal-500 shrink-0" />
                                       ) : isLocked ? (
-                                        <Lock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                        <Lock className="w-3.5 h-3.5 text-[var(--color-text-muted)] shrink-0" />
                                       ) : (
                                         <BookOpen className="w-3.5 h-3.5 text-blue-500 shrink-0" />
                                       )}
@@ -462,7 +462,7 @@ export function ChapterPackageModal({
                                         </span>
                                       )}
                                       {isLocked && (
-                                        <span className="text-[10px] text-slate-400">
+                                        <span className="text-[10px] text-[var(--color-text-muted)]">
                                           قفل
                                         </span>
                                       )}
@@ -511,7 +511,7 @@ export function ChapterPackageModal({
                         <Link
                           to={`/courses/${effectiveCourseId}?lessonId=${currentLesson.id}`}
                           data-testid="btn-view-preview-lesson"
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-button text-xs font-bold bg-primary/10 text-primary hover:bg-primary hover:text-white transition-colors"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] text-xs font-bold bg-primary/10 text-primary hover:bg-primary hover:text-white transition-colors"
                         >
                           <span>مشاهده درسنامه رایگان</span>
                           <ExternalLink className="w-3.5 h-3.5" />
@@ -521,8 +521,8 @@ export function ChapterPackageModal({
 
                     {/* Locked Paywall State vs Full Markdown Rendering */}
                     {((currentLesson as any).is_locked ?? currentLesson.locked ?? false) ? (
-                      <div className="p-8 rounded-2xl bg-gradient-to-br from-amber-500/10 via-slate-800/10 to-purple-500/10 border border-amber-400/30 text-center space-y-4 shadow-sm">
-                        <div className="w-12 h-12 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center mx-auto">
+                      <div className="p-8 rounded-[16px] bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-center space-y-4 shadow-subtle">
+                        <div className="w-12 h-12 rounded-[10px] bg-amber-500/10 text-amber-600 border border-amber-500/20 flex items-center justify-center mx-auto">
                           <Lock className="w-6 h-6" />
                         </div>
                         <div className="space-y-1.5">
@@ -551,8 +551,8 @@ export function ChapterPackageModal({
                       <div className="space-y-6">
                         {/* Free preview introduction banner */}
                         {currentLesson.is_preview && (
-                          <div className="p-3.5 rounded-xl bg-teal-500/10 border border-teal-500/20 flex items-center gap-3 text-xs text-teal-700 dark:text-teal-300">
-                            <Sparkles className="w-4 h-4 text-teal-500 shrink-0" />
+                          <div className="p-3.5 rounded-[10px] bg-[#e0f2f2] border border-[#b3d9d9] flex items-center gap-3 text-xs text-[#006666]">
+                            <Sparkles className="w-4 h-4 text-[#008080] shrink-0" />
                             <span>
                               شما در حال مطالعه جلسه نمونه رایگان هستید. متن کامل درسنامه بدون هیچ کم‌وکاستی در دسترس شماست.
                             </span>
@@ -560,7 +560,7 @@ export function ChapterPackageModal({
                         )}
 
                         {/* Full Lesson Markdown */}
-                        <div className="p-4 sm:p-6 rounded-2xl bg-[var(--color-surface)] border border-[var(--color-border)] leading-relaxed text-sm">
+                        <div className="p-4 sm:p-6 rounded-[16px] bg-[var(--color-surface)] border border-[var(--color-border)] leading-relaxed text-sm">
                           <MarkdownRenderer
                             content={
                               currentLesson.content_markdown ||
@@ -574,8 +574,8 @@ export function ChapterPackageModal({
 
                         {/* End of Preview Lesson High-Converting CTA */}
                         {currentLesson.is_preview && (
-                          <div className="p-6 rounded-2xl bg-gradient-to-br from-teal-500/15 via-indigo-500/10 to-purple-500/15 border border-teal-500/30 text-center space-y-3.5 shadow-sm">
-                            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-teal-400/20 text-teal-600 dark:text-teal-300 text-xs font-bold">
+                          <div className="p-6 rounded-[16px] bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-center space-y-3.5 shadow-subtle">
+                            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-bold border border-primary/20">
                               <Sparkles className="w-3.5 h-3.5" />
                               <span>پایان جلسه نمونه رایگان</span>
                             </div>
@@ -658,8 +658,8 @@ export function ChapterPackageModal({
               </Card>
             ) : isFlashcardCompleted ? (
               /* End of 5 Preview Flashcards Completion Screen */
-              <div className="p-6 sm:p-8 rounded-2xl bg-gradient-to-br from-amber-500/15 via-teal-500/10 to-purple-500/15 border border-amber-400/30 text-center space-y-4 shadow-sm">
-                <div className="w-14 h-14 rounded-2xl bg-amber-500/20 text-amber-500 border border-amber-500/30 flex items-center justify-center mx-auto">
+              <div className="p-6 sm:p-8 rounded-[16px] bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-center space-y-4 shadow-subtle">
+                <div className="w-14 h-14 rounded-[12px] bg-amber-500/10 text-amber-600 border border-amber-500/20 flex items-center justify-center mx-auto">
                   <Sparkles className="w-7 h-7" />
                 </div>
                 <div className="space-y-1.5">
@@ -711,7 +711,7 @@ export function ChapterPackageModal({
                     <Link
                       to={targetModuleId ? `/courses/${effectiveCourseId}/flashcards?moduleId=${targetModuleId}` : `/courses/${effectiveCourseId}/flashcards`}
                       data-testid="btn-view-preview-flashcards"
-                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-button text-xs font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 hover:bg-amber-500 hover:text-white transition-colors"
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-[10px] text-xs font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 hover:bg-amber-500 hover:text-white transition-colors"
                     >
                       <span>مشاهده فلش‌کارت رایگان</span>
                       <ExternalLink className="w-3 h-3" />
@@ -725,7 +725,7 @@ export function ChapterPackageModal({
                   onClick={() => setIsCardFlipped(!isCardFlipped)}
                   role="button"
                   tabIndex={0}
-                  className="w-full min-h-[260px] sm:min-h-[300px] p-6 sm:p-8 rounded-2xl bg-[var(--color-surface)] border-2 border-[var(--color-border)] hover:border-[#008080]/50 transition-all flex flex-col justify-between items-center text-center cursor-pointer shadow-ambient"
+                  className="w-full min-h-[260px] sm:min-h-[300px] p-6 sm:p-8 rounded-[16px] bg-[var(--color-surface)] border-2 border-[var(--color-border)] hover:border-primary/50 transition-all flex flex-col justify-between items-center text-center cursor-pointer shadow-subtle"
                 >
                   <div className="w-full flex justify-between items-center text-xs text-[var(--color-text-muted)]">
                     <span className="font-semibold text-primary">
@@ -837,8 +837,8 @@ export function ChapterPackageModal({
             ) : attemptResult ? (
               /* Quiz Attempt Results Screen */
               <div className="space-y-5 max-w-2xl mx-auto">
-                <div className="p-6 rounded-2xl bg-gradient-to-br from-teal-500/15 via-indigo-500/10 to-purple-500/15 border border-teal-500/30 text-center space-y-3 shadow-sm">
-                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-teal-400/20 text-teal-600 dark:text-teal-300 text-xs font-bold">
+                <div className="p-6 rounded-[16px] bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-center space-y-3 shadow-subtle">
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-bold border border-primary/20">
                     <Sparkles className="w-3.5 h-3.5" />
                     <span>پایان پیش‌نمایش آزمون</span>
                   </div>
@@ -930,7 +930,7 @@ export function ChapterPackageModal({
                       <Link
                         to={targetModuleId ? `/courses/${effectiveCourseId}/quizzes/${activeQuizId}?moduleId=${targetModuleId}` : `/courses/${effectiveCourseId}/quizzes/${activeQuizId}`}
                         data-testid="btn-view-preview-quiz"
-                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-button text-xs font-bold bg-purple-500/15 text-purple-700 dark:text-purple-300 hover:bg-purple-500 hover:text-white transition-colors"
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-[10px] text-xs font-bold bg-purple-500/15 text-purple-700 dark:text-purple-300 hover:bg-purple-500 hover:text-white transition-colors"
                       >
                         <span>شرکت در آزمون رایگان</span>
                         <ExternalLink className="w-3 h-3" />

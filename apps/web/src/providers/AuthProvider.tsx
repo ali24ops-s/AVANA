@@ -44,6 +44,8 @@ export type AuthState = {
   isVerified: boolean;
   /** Sign in with email and password. */
   signIn: (email: string, password: string) => Promise<void>;
+  /** Auto-login for isolated Local Worker 2. */
+  workerAutoLogin: () => Promise<void>;
   /** Request login OTP for phone number. */
   sendPhoneLoginOtp: (phoneNumber: string) => Promise<void>;
   /** Verify login OTP and create session. */
@@ -112,7 +114,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         err instanceof ApiError &&
         (err.code === "unauthorized" || err.code === "not_found")
       ) {
-        // Not signed in or running on static host without auth backend — this is expected, not an error
+        // Not signed in — if in Local Worker environment and not manually logged out, attempt worker auto-login
+        const isManuallyLoggedOut =
+          typeof window !== "undefined" &&
+          window.sessionStorage?.getItem("avana_worker_logged_out") === "true";
+
+        if (!isManuallyLoggedOut) {
+          try {
+            const autoLoginRes = await authApi.workerAutoLogin();
+            if (!isMountedRef.current) return;
+            setUser(autoLoginRes.user);
+            setMemberships(autoLoginRes.memberships ?? []);
+            setError(null);
+            return;
+          } catch {
+            // Auto-login unavailable (e.g. 403 Forbidden in non-worker/production environments)
+          }
+        }
+
         setUser(null);
         setMemberships([]);
         setError(null);
@@ -134,10 +153,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void fetchMe();
   }, [fetchMe]);
 
+  const workerAutoLogin = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    if (typeof window !== "undefined") {
+      window.sessionStorage?.removeItem("avana_worker_logged_out");
+    }
+    try {
+      const response = await authApi.workerAutoLogin();
+      setUser(response.user);
+      setMemberships(response.memberships ?? []);
+    } catch (err) {
+      const message =
+        err instanceof ApiError ? err.message : "ورود خودکار ورکر با خطا مواجه شد.";
+      setError(message);
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [authApi]);
+
   const signIn = useCallback(
     async (email: string, password: string) => {
       setIsLoading(true);
       setError(null);
+      if (typeof window !== "undefined") {
+        window.sessionStorage?.removeItem("avana_worker_logged_out");
+      }
       try {
         const response = await authApi.signIn(email, password);
         setUser(response.user);
@@ -302,6 +344,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const signOut = useCallback(async () => {
+    if (typeof window !== "undefined") {
+      window.sessionStorage?.setItem("avana_worker_logged_out", "true");
+    }
     try {
       await authApi.signOut();
     } catch {
@@ -328,6 +373,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isPhoneVerified,
     isVerified,
     signIn,
+    workerAutoLogin,
     sendPhoneLoginOtp,
     verifyPhoneLoginOtp,
     signUp,
@@ -358,6 +404,7 @@ export function useAuth(): AuthState {
       isPhoneVerified: false,
       isVerified: false,
       signIn: async () => {},
+      workerAutoLogin: async () => {},
       sendPhoneLoginOtp: async () => {},
       verifyPhoneLoginOtp: async () => {},
       signUp: async () => {},

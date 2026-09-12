@@ -83,6 +83,10 @@ import {
   ZarinpalPaymentGateway,
 } from "../modules/commerce/index.js";
 import { DrizzleBlogStore } from "../modules/blog/index.js";
+import {
+  DrizzleNotificationStore,
+  NotificationService,
+} from "../modules/notifications/index.js";
 import { LocalStorageProvider } from "../modules/storage/index.js";
 import { seedLocalDevData } from "../dev/seed.js";
 import type { V1RouteOptions } from "../routes/v1.js";
@@ -251,6 +255,8 @@ export async function composeProduction(
   const userStore = new DrizzleUserStore(db);
   const deviceStore = new DrizzleDeviceStore(db);
   const emailVerificationStore = new DrizzleEmailVerificationStore(db);
+  const notificationStore = new DrizzleNotificationStore(db);
+  const notificationService = new NotificationService(notificationStore);
   let emailService: EmailService;
   if (config.nodeEnv === "production") {
     if (!config.email.resendApiKey) {
@@ -426,6 +432,8 @@ export async function composeProduction(
     config,
     sessionStore,
     userStore,
+    notificationStore,
+    notificationService,
     deviceStore,
     emailVerificationStore,
     emailService,

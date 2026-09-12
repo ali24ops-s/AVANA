@@ -95,6 +95,7 @@ export function CardToCardPaymentPage() {
 
   const [copiedCard, setCopiedCard] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
+  const [createdAttemptId, setCreatedAttemptId] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [extractError, setExtractError] = useState<string | null>(null);
@@ -233,9 +234,12 @@ export function CardToCardPaymentPage() {
         extraction_method: hasExtracted ? extractionMethod : "manual",
       },
       {
-        onSuccess: (res) => {
+        onSuccess: (res: any) => {
           setIsSuccess(true);
           setSuccessMessage(res.message);
+          if (res.attemptId || res.attempt_id) {
+            setCreatedAttemptId(res.attemptId || res.attempt_id);
+          }
         },
         onError: (err: { envelope?: { error?: { message?: string } }; response?: { data?: { message?: string } }; message?: string }) => {
           const msg =
@@ -248,6 +252,8 @@ export function CardToCardPaymentPage() {
       },
     );
   };
+
+  const isSpecialExamProduct = selectedProduct?.type === "special_exam" || Boolean(createdAttemptId);
 
   if (isProdLoading || isC2cLoading) {
     return (
@@ -264,24 +270,30 @@ export function CardToCardPaymentPage() {
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-6 border-b border-[var(--color-border)]">
         <div>
           <Link
-            to="/pricing"
+            to={isSpecialExamProduct ? "/library" : "/pricing"}
             className="inline-flex items-center gap-1.5 text-xs font-bold text-[var(--color-text-muted)] hover:text-primary transition-colors mb-2"
           >
             <ArrowRight className="w-3.5 h-3.5" />
-            <span>بازگشت به انتخاب پلن‌ها</span>
+            <span>{isSpecialExamProduct ? "بازگشت به کتابخانه آزمون‌ها" : "بازگشت به انتخاب پلن‌ها"}</span>
           </Link>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-[var(--color-text)] flex items-center gap-2.5">
             <Zap className="w-7 h-7 text-amber-500 fill-amber-500" />
-            پرداخت کارت‌به‌کارت با استخراج خودکار و فعال‌سازی فوری
+            {isSpecialExamProduct
+              ? "خرید آزمون ویژه و ساخت آزمون اختصاصی"
+              : "پرداخت کارت‌به‌کارت با استخراج خودکار و فعال‌سازی فوری"}
           </h1>
           <p className="text-xs sm:text-sm text-[var(--color-text-muted)] mt-1">
-            مبلغ اشتراک را واریز کرده، متن پیامک بانکی را Paste کنید تا دسترسی شما بلافاصله فعال شود.
+            {isSpecialExamProduct
+              ? "مبلغ آزمون را واریز کرده و مشخصات تراکنش را ثبت کنید تا آزمون با سؤالات تصادفی بلافاصله ایجاد شود."
+              : "مبلغ اشتراک را واریز کرده، متن پیامک بانکی را Paste کنید تا دسترسی شما بلافاصله فعال شود."}
           </p>
         </div>
 
         {selectedProduct && (
           <div className="px-4 py-2.5 rounded-2xl bg-[var(--color-surface)] border border-primary/30 text-left shadow-xs">
-            <div className="text-[11px] text-[var(--color-text-muted)]">پلن انتخابی شما:</div>
+            <div className="text-[11px] text-[var(--color-text-muted)]">
+              {isSpecialExamProduct ? "آزمون انتخابی:" : "پلن انتخابی شما:"}
+            </div>
             <div className="text-sm font-bold text-primary">{selectedProduct.title}</div>
           </div>
         )}
@@ -296,17 +308,23 @@ export function CardToCardPaymentPage() {
 
           <div className="space-y-2 max-w-lg mx-auto">
             <h2 className="text-2xl sm:text-3xl font-black text-[var(--color-text)]">
-              اشتراک شما با موفقیت فعال شد! ⚡
+              {isSpecialExamProduct
+                ? "آزمون ویژه شما با موفقیت ساخته شد! 🎯"
+                : "اشتراک شما با موفقیت فعال شد! ⚡"}
             </h2>
             <p className="text-xs sm:text-sm text-[var(--color-text-secondary)] leading-relaxed">
               {successMessage ||
-                "اطلاعات پرداخت شما با موفقیت ثبت شد و اشتراک بلافاصله فعال گردید. اکنون دسترسی کامل به تمام درسنامه‌ها، آزمون‌ها و هوش مصنوعی برای شما برقرار است."}
+                (isSpecialExamProduct
+                  ? "اطلاعات پرداخت تأیید شد و یک Attempt اختصاصی با سؤالات تصادفی و فریز شده از بانک سؤال برای شما تولید گردید. می‌توانید بلافاصله آزمون را آغاز کنید."
+                  : "اطلاعات پرداخت شما با موفقیت ثبت شد و اشتراک بلافاصله فعال گردید. اکنون دسترسی کامل به تمام درسنامه‌ها، آزمون‌ها و هوش مصنوعی برای شما برقرار است.")}
             </p>
           </div>
 
           <div className="p-4 rounded-2xl bg-[var(--color-surface-warm)] border border-[var(--color-border)] max-w-md mx-auto text-xs text-[var(--color-text-secondary)] space-y-1.5 text-right">
             <div className="flex justify-between">
-              <span className="text-[var(--color-text-muted)]">پلن فعال‌شده:</span>
+              <span className="text-[var(--color-text-muted)]">
+                {isSpecialExamProduct ? "آزمون ایجادشده:" : "پلن فعال‌شده:"}
+              </span>
               <span className="font-bold text-[var(--color-text)]">{selectedProduct?.title}</span>
             </div>
             <div className="flex justify-between">
@@ -315,23 +333,51 @@ export function CardToCardPaymentPage() {
             </div>
             <div className="flex justify-between">
               <span className="text-[var(--color-text-muted)]">وضعیت دسترسی:</span>
-              <span className="text-emerald-600 dark:text-emerald-400 font-bold">فعال و آماده استفاده</span>
+              <span className="text-emerald-600 dark:text-emerald-400 font-bold">
+                {isSpecialExamProduct ? "آماده برگزاری آزمون" : "فعال و آماده استفاده"}
+              </span>
             </div>
           </div>
 
           <div className="pt-4 flex flex-col sm:flex-row items-center justify-center gap-4">
-            <button
-              onClick={() => navigate("/courses")}
-              className="w-full sm:w-auto px-8 py-3.5 rounded-2xl bg-primary hover:bg-primary-hover text-white font-bold text-sm shadow-md shadow-primary/20 transition-all cursor-pointer"
-            >
-              ورود به دوره‌ها و شروع یادگیری
-            </button>
-            <Link
-              to="/account/subscription"
-              className="w-full sm:w-auto px-6 py-3.5 rounded-2xl bg-[var(--color-surface-warm)] hover:bg-slate-200/60 dark:hover:bg-slate-800 text-[var(--color-text)] font-bold text-sm border border-[var(--color-border)] transition-colors text-center"
-            >
-              مشاهده وضعیت اشتراک من
-            </Link>
+            {isSpecialExamProduct ? (
+              <>
+                <button
+                  data-testid="start-special-exam-button"
+                  onClick={() =>
+                    navigate(
+                      createdAttemptId
+                        ? `/exams/attempt/${createdAttemptId}`
+                        : "/exams",
+                    )
+                  }
+                  className="w-full sm:w-auto px-8 py-3.5 rounded-2xl bg-primary hover:bg-primary-hover text-white font-bold text-sm shadow-md shadow-primary/20 transition-all cursor-pointer"
+                >
+                  شروع آزمون
+                </button>
+                <Link
+                  to="/exams"
+                  className="w-full sm:w-auto px-6 py-3.5 rounded-2xl bg-[var(--color-surface-warm)] hover:bg-slate-200/60 dark:hover:bg-slate-800 text-[var(--color-text)] font-bold text-sm border border-[var(--color-border)] transition-colors text-center"
+                >
+                  مشاهده همه آزمون‌های من
+                </Link>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={() => navigate("/courses")}
+                  className="w-full sm:w-auto px-8 py-3.5 rounded-2xl bg-primary hover:bg-primary-hover text-white font-bold text-sm shadow-md shadow-primary/20 transition-all cursor-pointer"
+                >
+                  ورود به دوره‌ها و شروع یادگیری
+                </button>
+                <Link
+                  to="/account/subscription"
+                  className="w-full sm:w-auto px-6 py-3.5 rounded-2xl bg-[var(--color-surface-warm)] hover:bg-slate-200/60 dark:hover:bg-slate-800 text-[var(--color-text)] font-bold text-sm border border-[var(--color-border)] transition-colors text-center"
+                >
+                  مشاهده وضعیت اشتراک من
+                </Link>
+              </>
+            )}
           </div>
         </div>
       ) : (

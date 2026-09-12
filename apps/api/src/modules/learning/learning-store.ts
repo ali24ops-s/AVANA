@@ -142,6 +142,9 @@ export interface ModuleStore {
   /** Soft-delete (archive) a module. */
   delete(moduleId: ModuleId): Promise<void>;
 
+  /** Batch load modules by IDs. */
+  listByIds?(moduleIds: ModuleId[]): Promise<ModuleRecord[]>;
+
   /** Update or clear the preview lesson for a module. */
   updatePreviewLessonId?(moduleId: ModuleId, previewLessonId: LessonId | null): Promise<void>;
 
@@ -155,6 +158,9 @@ export interface LessonStore {
 
   /** Batch load lessons for multiple modules. */
   listByModules(moduleIds: ModuleId[]): Promise<LessonRecord[]>;
+
+  /** Batch load lessons by their IDs. */
+  listByIds?(lessonIds: LessonId[]): Promise<LessonRecord[]>;
 
   /** Find a lesson by ID. */
   findById(lessonId: LessonId): Promise<LessonRecord | undefined>;

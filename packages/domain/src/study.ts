@@ -199,6 +199,7 @@ export interface ExamHistoryItem {
   unanswered: number;
   partial: number;
   status: string;
+  isSpecialExam?: boolean;
   startedAt: string;
   completedAt?: string | null;
 }
@@ -287,3 +288,29 @@ export type FlashcardStudySessionCardRecord = {
   reviewedAt?: string | null;
   createdAt: string;
 };
+
+// ---------------------------------------------------------------------------
+// Question Hierarchy / Lesson Source Info
+// ---------------------------------------------------------------------------
+
+export interface QuestionLessonInfo {
+  id: string;
+  title: string;
+}
+
+export interface QuestionChapterInfo {
+  id: string;
+  title: string;
+}
+
+export interface QuestionCourseInfo {
+  id: string;
+  title: string;
+}
+
+export interface QuestionSourceHierarchy {
+  lesson: QuestionLessonInfo | null;
+  chapter: QuestionChapterInfo | null;
+  course?: QuestionCourseInfo | null;
+}
+

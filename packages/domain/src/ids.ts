@@ -45,6 +45,7 @@ export type OrderId = Brand<UUID, "orderId">;
 export type PaymentId = Brand<UUID, "paymentId">;
 export type UserSubscriptionId = Brand<UUID, "userSubscriptionId">;
 export type UserEntitlementId = Brand<UUID, "userEntitlementId">;
+export type NotificationId = Brand<UUID, "notificationId">;
 
 export function asUserId(id: UUID): UserId {
   return id as UserId;
@@ -339,6 +340,10 @@ export function asUserEntitlementId(id: UUID): UserEntitlementId {
   return id as UserEntitlementId;
 }
 
+export function asNotificationId(id: UUID): NotificationId {
+  return id as NotificationId;
+}
+
 export function isProductId(value: string): value is ProductId {
   return isUUID(value);
 }
@@ -357,6 +362,20 @@ export function isUserSubscriptionId(value: string): value is UserSubscriptionId
 
 export function isUserEntitlementId(value: string): value is UserEntitlementId {
   return isUUID(value);
+}
+
+export function isNotificationId(value: string): value is NotificationId {
+  return isUUID(value);
+}
+
+export function parseNotificationId(
+  value: string,
+  fieldName = "notificationId",
+): NotificationId {
+  if (!isNotificationId(value)) {
+    throw new Error(`Invalid UUID for ${fieldName}`);
+  }
+  return value as NotificationId;
 }
 
 export function parseProductId(

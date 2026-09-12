@@ -44,6 +44,7 @@ export interface TaxonomySelectorProps {
   }) => void;
   emptyMessage?: string;
   itemLabelSingular?: string;
+  hideLessons?: boolean;
 }
 
 export function TaxonomySelector({
@@ -54,6 +55,7 @@ export function TaxonomySelector({
   onSelectionChange,
   emptyMessage = "برای این بخش هنوز سرفصل یا محتوایی ثبت نشده است.",
   itemLabelSingular = "کارت",
+  hideLessons = false,
 }: TaxonomySelectorProps) {
   // Accordion expansion state for Course and Module nodes
   const [expandedCourses, setExpandedCourses] = useState<Set<string>>(
@@ -83,7 +85,7 @@ export function TaxonomySelector({
 
   // Helper to compute module selection state
   const getModuleState = (module: TaxonomyModule) => {
-    if (!module.lessons || module.lessons.length === 0) {
+    if (hideLessons || !module.lessons || module.lessons.length === 0) {
       return selectedModuleIds.has(module.id) ? "checked" : "unchecked";
     }
     let count = 0;
@@ -358,7 +360,7 @@ export function TaxonomySelector({
                 {course.modules.map((module) => {
                   const mState = getModuleState(module);
                   const isMExpanded = expandedModules.has(module.id);
-                  const hasLessons = module.lessons && module.lessons.length > 0;
+                  const hasLessons = !hideLessons && Boolean(module.lessons && module.lessons.length > 0);
 
                   return (
                     <div key={module.id} className="space-y-1">

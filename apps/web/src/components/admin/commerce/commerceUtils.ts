@@ -179,7 +179,9 @@ export function getResourceTypeLabel(resourceType: string) {
     case "content_pack":
       return "بسته محتوایی";
     case "content":
-      return "درسنامه / محتوا";
+      return "محتوای آموزشی";
+    case "special_exam":
+      return "آزمون ویژه";
     default:
       return resourceType;
   }

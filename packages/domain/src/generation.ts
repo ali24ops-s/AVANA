@@ -317,6 +317,8 @@ export type LessonPayload = {
 
 export type FlashcardPayload = {
   kind: "flashcard";
+  title?: string;
+  moduleTitle?: string;
   question?: string;
   answer?: string;
   explanation?: string;

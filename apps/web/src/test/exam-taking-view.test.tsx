@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { ExamTakingView } from "../components/quiz/ExamTakingView.js";
 
 describe("ExamTakingView Component", () => {
@@ -132,7 +132,7 @@ describe("ExamTakingView Component", () => {
     expect(screen.queryByText("ثبت و مشاهده نتایج")).toBeNull();
   });
 
-  it("opens AI Mentor overlay modal when clicking راهنمایی از منتور هوشمند", () => {
+  it("opens AI Mentor inline within Question Card without modal overlay and toggles CTA", () => {
     const handleExit = vi.fn();
     const handleSubmitSuccess = vi.fn();
 
@@ -146,21 +146,74 @@ describe("ExamTakingView Component", () => {
       />
     );
 
-    const mentorBtn = screen.getAllByText("راهنمایی از منتور هوشمند")[0];
+    // Initial state: mentor is closed, CTA says "راهنمایی از منتور هوشمند"
+    const mentorBtn = screen.getByRole("button", { name: /راهنمایی از منتور هوشمند/ });
+    expect(mentorBtn).toBeInTheDocument();
+    expect(document.getElementById("ai-mentor-overlay")).toBeNull();
+    expect(screen.queryByText("تحلیل هوشمند آوانا")).toBeNull();
+
+    // Click CTA to open Popover mentor
     fireEvent.click(mentorBtn);
 
-    // AI Mentor overlay should render
+    // AI Mentor renders as an anchored Popover dialog with a gentle backdrop blur
+    expect(document.getElementById("ai-mentor-overlay")).toBeNull();
+    const popoverDialog = screen.getByRole("dialog", { name: "راهنمای منتور هوشمند" });
+    expect(popoverDialog).toBeInTheDocument();
+    expect(popoverDialog).toHaveClass("sm:w-[560px]");
+    expect(popoverDialog).toHaveClass("sm:h-[650px]");
     expect(screen.getByText("تحلیل هوشمند آوانا")).toBeDefined();
     expect(screen.getByText("راهنمای مفهومی سوال:")).toBeDefined();
+    expect(screen.queryByText(/راهنمای آموزشی سوال/)).toBeNull();
+
+    // Verify gentle backdrop blur overlay exists behind popup
+    const backdrop = document.querySelector(".backdrop-blur-sm");
+    expect(backdrop).toBeInTheDocument();
+    expect(backdrop).toHaveClass("fixed");
+    expect(backdrop).toHaveClass("inset-0");
+
+    // Verify static unwanted sentence is completely absent
+    expect(
+      screen.queryByText(/به تعاریف پایه، مکانیسم‌های دارویی\/پاتوفیزیولوژی و تفاوت‌های اختصاصی هر گزینه با سایرین دقت فرمایید/),
+    ).toBeNull();
+
+    // Question Card and choices remain intact in the document in the background
+    expect(screen.getAllByText("مهار گیرنده‌های آلفا-۱ آدرنرژیک")[0]).toBeInTheDocument();
+
+    // CTA flips to "بستن راهنمایی"
+    expect(screen.getByRole("button", { name: /بستن راهنمایی/ })).toBeInTheDocument();
+
     // When question has no keyPoint, "نکته کلیدی" is NOT rendered
     expect(screen.queryByText("نکته کلیدی:")).toBeNull();
     expect(screen.queryByText(/تخصص فارماکولوژی و پزشکی/)).toBeNull();
 
-    // Dismiss AI Mentor overlay
+    // Clicking the backdrop dismisses the popup
+    fireEvent.click(backdrop!);
+    expect(screen.queryByRole("dialog", { name: "راهنمای منتور هوشمند" })).toBeNull();
+
+    // Clicking CTA again toggles it open
+    fireEvent.click(screen.getByRole("button", { name: /راهنمایی از منتور هوشمند/ }));
+    expect(screen.getByRole("dialog", { name: "راهنمای منتور هوشمند" })).toBeInTheDocument();
+
+    // Dismiss AI Mentor using the "متوجه شدم" button
     const gotItBtn = screen.getByText("متوجه شدم");
     fireEvent.click(gotItBtn);
 
     expect(screen.queryByText("تحلیل هوشمند آوانا")).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "راهنمای منتور هوشمند" })).toBeNull();
+    // CTA reverts back to "راهنمایی از منتور هوشمند"
+    expect(screen.getByRole("button", { name: /راهنمایی از منتور هوشمند/ })).toBeInTheDocument();
+
+    // Clicking CTA again toggles it open and clicking outside closes it
+    fireEvent.click(screen.getByRole("button", { name: /راهنمایی از منتور هوشمند/ }));
+    expect(screen.getByRole("dialog", { name: "راهنمای منتور هوشمند" })).toBeInTheDocument();
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByRole("dialog", { name: "راهنمای منتور هوشمند" })).toBeNull();
+
+    // Opening and pressing Escape key closes it
+    fireEvent.click(screen.getByRole("button", { name: /راهنمایی از منتور هوشمند/ }));
+    expect(screen.getByRole("dialog", { name: "راهنمای منتور هوشمند" })).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "راهنمای منتور هوشمند" })).toBeNull();
   });
 
   it("renders keyPoint in Smart Mentor only when question explicitly provides keyPoint data", () => {
@@ -349,5 +402,394 @@ describe("ExamTakingView Component", () => {
 
     // Assert clean fallback is displayed
     expect(screen.getByText("آزمون جامع")).toBeDefined();
+  });
+
+  it("renders Lesson and Chapter in question source disclosure when question provides hierarchy", () => {
+    const questionWithHierarchy = [
+      {
+        id: "q-hier-1",
+        question: "داروی انتخابی در جذب سریع چیست؟",
+        choices: ["گزینه الف", "گزینه ب"],
+        lesson: {
+          id: "les-101",
+          title: "جذب داروها",
+        },
+        chapter: {
+          id: "mod-201",
+          title: "فارماکوکینتیک",
+        },
+      },
+    ];
+
+    render(
+      <ExamTakingView
+        organizationId="test-org"
+        attemptId="att-123"
+        questions={questionWithHierarchy}
+        onExit={vi.fn()}
+        onSubmitSuccess={vi.fn()}
+      />
+    );
+
+    // Initial state: hidden
+    expect(screen.queryByText(/منبع:/)).toBeNull();
+    const toggleBtn = screen.getByRole("button", { name: /نمایش منبع سوال/ });
+    fireEvent.click(toggleBtn);
+
+    // Source revealed with Chapter — Lesson
+    expect(screen.getByText("منبع: فارماکوکینتیک — جذب داروها")).toBeDefined();
+  });
+
+  it("renders fallback درس: نامشخص when question has neither lesson nor topic", () => {
+    const questionWithoutSource = [
+      {
+        id: "q-no-src-1",
+        question: "سوال بدون منبع مشخص؟",
+        choices: ["الف", "ب"],
+      },
+    ];
+
+    render(
+      <ExamTakingView
+        organizationId="test-org"
+        attemptId="att-123"
+        questions={questionWithoutSource}
+        onExit={vi.fn()}
+        onSubmitSuccess={vi.fn()}
+      />
+    );
+
+    const toggleBtn = screen.getByRole("button", { name: /نمایش منبع سوال/ });
+    fireEvent.click(toggleBtn);
+
+    expect(screen.getByText("منبع: درس نامشخص")).toBeDefined();
+  });
+
+  it("mentor popup in single-chapter exam displays only lesson title without chapter name", () => {
+    const singleChapterQuestions = [
+      {
+        id: "q-single-ch-1",
+        question: "آیا این سوال تک‌فصلی است؟",
+        choices: ["بله", "خیر"],
+        lesson: {
+          id: "les-hpa-1",
+          title: "جلسه ۲: اثرات ارگانی هیستامین و مسمومیت ماهی اسکومبرید",
+        },
+        chapter: {
+          id: "chap-antihistamine",
+          title: "فصل ۲: آنتی‌هیستامین‌ها",
+        },
+      },
+    ];
+
+    const singleChapterCoverage = [
+      {
+        id: "crs-1",
+        title: "فارماکولوژی",
+        questionCount: 1,
+        modules: [
+          {
+            id: "chap-antihistamine",
+            title: "فصل ۲: آنتی‌هیستامین‌ها",
+            questionCount: 1,
+          },
+        ],
+      },
+    ];
+
+    render(
+      <ExamTakingView
+        organizationId="test-org"
+        attemptId="att-123"
+        questions={singleChapterQuestions}
+        coverage={singleChapterCoverage}
+        onExit={vi.fn()}
+        onSubmitSuccess={vi.fn()}
+      />
+    );
+
+    // Open mentor popup
+    const mentorBtn = screen.getByRole("button", { name: /راهنمایی از منتور هوشمند/ });
+    fireEvent.click(mentorBtn);
+
+    // Assert subtitle under header is NOT rendered
+    expect(screen.queryByText(/راهنمای آموزشی سوال/)).toBeNull();
+
+    // Assert single-chapter format: only lesson title is rendered
+    expect(
+      screen.getByText("جلسه ۲: اثرات ارگانی هیستامین و مسمومیت ماهی اسکومبرید"),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/مستند به محتوای آموزشی درسنامه/)).toBeInTheDocument();
+
+    // Chapter name must NOT be rendered in conceptual guidance
+    expect(screen.queryByText("فصل ۲: آنتی‌هیستامین‌ها")).toBeNull();
+  });
+
+  it("mentor popup in multi-chapter exam displays chapter and lesson title in compact format", () => {
+    const multiChapterQuestions = [
+      {
+        id: "q-multi-ch-1",
+        question: "سوال فصل اول؟",
+        choices: ["الف", "ب"],
+        lesson: {
+          id: "les-1",
+          title: "جلسه ۱: مبانی هیستامین",
+        },
+        chapter: {
+          id: "chap-1",
+          title: "فصل ۱: مبانی اتوکوییدها",
+        },
+      },
+      {
+        id: "q-multi-ch-2",
+        question: "سوال فصل دوم؟",
+        choices: ["ج", "د"],
+        lesson: {
+          id: "les-2",
+          title: "جلسه ۲: اثرات ارگانی هیستامین و مسمومیت ماهی اسکومبرید",
+        },
+        chapter: {
+          id: "chap-2",
+          title: "فصل ۲: آنتی‌هیستامین‌ها",
+        },
+      },
+    ];
+
+    const multiChapterCoverage = [
+      {
+        id: "crs-1",
+        title: "فارماکولوژی",
+        questionCount: 2,
+        modules: [
+          { id: "chap-1", title: "فصل ۱: مبانی اتوکوییدها", questionCount: 1 },
+          { id: "chap-2", title: "فصل ۲: آنتی‌هیستامین‌ها", questionCount: 1 },
+        ],
+      },
+    ];
+
+    render(
+      <ExamTakingView
+        organizationId="test-org"
+        attemptId="att-123"
+        questions={multiChapterQuestions}
+        coverage={multiChapterCoverage}
+        onExit={vi.fn()}
+        onSubmitSuccess={vi.fn()}
+      />
+    );
+
+    // Open mentor popup for question 1
+    const mentorBtn = screen.getByRole("button", { name: /راهنمایی از منتور هوشمند/ });
+    fireEvent.click(mentorBtn);
+
+    // Assert subtitle under header is NOT rendered
+    expect(screen.queryByText(/راهنمای آموزشی سوال/)).toBeNull();
+
+    // Assert multi-chapter format: chapter • lesson is rendered
+    const guidanceP = screen.getByText(/این سوال مربوط به/);
+    expect(guidanceP).toHaveTextContent(
+      "این سوال مربوط به فصل ۱: مبانی اتوکوییدها • درس: جلسه ۱: مبانی هیستامین (مستند به محتوای آموزشی درسنامه) است."
+    );
+    expect(screen.getByText("فصل ۱: مبانی اتوکوییدها")).toBeInTheDocument();
+    expect(screen.getByText(/• درس:/)).toBeInTheDocument();
+    expect(screen.getByText("جلسه ۱: مبانی هیستامین")).toBeInTheDocument();
+    expect(screen.getByText(/مستند به محتوای آموزشی درسنامه/)).toBeInTheDocument();
+  });
+
+  it("persists mentor conversation across popup close/open and does not trigger duplicate generation", async () => {
+    let askCallCount = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      if (String(url).includes("/v1/ai/ask")) {
+        askCallCount++;
+        return {
+          ok: true,
+          status: 200,
+          text: () =>
+            Promise.resolve(
+              JSON.stringify({
+                request_id: "req-persist-1",
+                answer: "پاسخ ذخیره‌شده منتور برای سوال اول",
+                conversationId: "conv-persist-1",
+              })
+            ),
+        } as Response;
+      }
+      return { ok: true, status: 200, text: () => Promise.resolve("{}") } as Response;
+    });
+
+    render(
+      <ExamTakingView
+        organizationId="test-org"
+        attemptId="att-123"
+        questions={mockQuestions}
+        onExit={vi.fn()}
+        onSubmitSuccess={vi.fn()}
+      />
+    );
+
+    // 1. First open: triggers initial guidance generation
+    const mentorBtn = screen.getByRole("button", { name: /راهنمایی از منتور هوشمند/ });
+    fireEvent.click(mentorBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText("پاسخ ذخیره‌شده منتور برای سوال اول")).toBeInTheDocument();
+    });
+    expect(askCallCount).toBe(1);
+
+    // 2. Close popup
+    const closeBtn = screen.getByRole("button", { name: /بستن راهنمایی/ });
+    fireEvent.click(closeBtn);
+    expect(screen.queryByRole("dialog", { name: "راهنمای منتور هوشمند" })).toBeNull();
+
+    // 3. Re-open popup on the same question: immediately restores message, does NOT call /v1/ai/ask again
+    fireEvent.click(screen.getByRole("button", { name: /راهنمایی از منتور هوشمند/ }));
+    expect(screen.getByRole("dialog", { name: "راهنمای منتور هوشمند" })).toBeInTheDocument();
+    expect(screen.getByText("پاسخ ذخیره‌شده منتور برای سوال اول")).toBeInTheDocument();
+    expect(askCallCount).toBe(1);
+
+    // 4. Toggle open and closed 3 more times: call count remains strictly 1
+    const gotItBtn = screen.getByText("متوجه شدم");
+    fireEvent.click(gotItBtn);
+    expect(screen.queryByRole("dialog", { name: "راهنمای منتور هوشمند" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /راهنمایی از منتور هوشمند/ }));
+    expect(screen.getByText("پاسخ ذخیره‌شده منتور برای سوال اول")).toBeInTheDocument();
+    expect(askCallCount).toBe(1);
+
+    fireEvent.click(screen.getByRole("button", { name: /بستن راهنمایی/ }));
+    fireEvent.click(screen.getByRole("button", { name: /راهنمایی از منتور هوشمند/ }));
+    expect(screen.getByText("پاسخ ذخیره‌شده منتور برای سوال اول")).toBeInTheDocument();
+    expect(askCallCount).toBe(1);
+  });
+
+  it("isolates mentor conversations per question.id and restores history when navigating back", async () => {
+    let askCallCount = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url, options) => {
+      if (!String(url).includes("/v1/ai/ask")) {
+        return { ok: true, status: 200, text: () => Promise.resolve("{}") } as Response;
+      }
+      askCallCount++;
+      const body = options?.body ? JSON.parse(options.body as string) : {};
+      const isQ2 = body.message?.includes("بتابلاکر");
+      return {
+        ok: true,
+        status: 200,
+        text: () =>
+          Promise.resolve(
+            JSON.stringify({
+              request_id: isQ2 ? "req-q2" : "req-q1",
+              answer: isQ2 ? "پاسخ منتور برای سوال دوم بتابلاکرها" : "پاسخ منتور برای سوال اول آنژیوتانسین",
+              conversationId: isQ2 ? "conv-q2" : "conv-q1",
+            })
+          ),
+      } as Response;
+    });
+
+    render(
+      <ExamTakingView
+        organizationId="test-org"
+        attemptId="att-123"
+        questions={mockQuestions}
+        onExit={vi.fn()}
+        onSubmitSuccess={vi.fn()}
+      />
+    );
+
+    // 1. Open mentor on Question 1 (ACEIs)
+    const mentorBtn1 = screen.getByRole("button", { name: /راهنمایی از منتور هوشمند/ });
+    fireEvent.click(mentorBtn1);
+
+    await waitFor(() => {
+      expect(screen.getByText("پاسخ منتور برای سوال اول آنژیوتانسین")).toBeInTheDocument();
+    });
+    expect(askCallCount).toBe(1);
+
+    // Close mentor
+    fireEvent.click(screen.getByRole("button", { name: /بستن راهنمایی/ }));
+
+    // 2. Navigate to Question 2 (Beta blockers)
+    const nextBtn = screen.getByRole("button", { name: /سوال بعدی/ });
+    fireEvent.click(nextBtn);
+
+    // 3. Open mentor on Question 2
+    const mentorBtn2 = screen.getByRole("button", { name: /راهنمایی از منتور هوشمند/ });
+    fireEvent.click(mentorBtn2);
+
+    // Assert Question 2 does NOT have Question 1's answer
+    expect(screen.queryByText("پاسخ منتور برای سوال اول آنژیوتانسین")).toBeNull();
+
+    await waitFor(() => {
+      expect(screen.getByText("پاسخ منتور برای سوال دوم بتابلاکرها")).toBeInTheDocument();
+    });
+    expect(askCallCount).toBe(2);
+
+    // Close mentor on Question 2
+    fireEvent.click(screen.getByRole("button", { name: /بستن راهنمایی/ }));
+
+    // 4. Navigate back to Question 1
+    const prevBtn = screen.getByRole("button", { name: /سوال قبلی/ });
+    fireEvent.click(prevBtn);
+
+    // 5. Open mentor on Question 1 -> immediately restores Question 1's conversation with NO new request!
+    fireEvent.click(screen.getByRole("button", { name: /راهنمایی از منتور هوشمند/ }));
+    expect(screen.getByText("پاسخ منتور برای سوال اول آنژیوتانسین")).toBeInTheDocument();
+    expect(screen.queryByText("پاسخ منتور برای سوال دوم بتابلاکرها")).toBeNull();
+    // Fetch count must remain strictly 2!
+    expect(askCallCount).toBe(2);
+  });
+
+  it("handles closing popup while request is in-flight and preserves completed response upon reopening without duplicate request", async () => {
+    let resolveAskPromise: (val: Response) => void;
+    let askCallCount = 0;
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      if (String(url).includes("/v1/ai/ask")) {
+        askCallCount++;
+        return new Promise<Response>((resolve) => {
+          resolveAskPromise = resolve;
+        });
+      }
+      return { ok: true, status: 200, text: () => Promise.resolve("{}") } as Response;
+    });
+
+    render(
+      <ExamTakingView
+        organizationId="test-org"
+        attemptId="att-123"
+        questions={mockQuestions}
+        onExit={vi.fn()}
+        onSubmitSuccess={vi.fn()}
+      />
+    );
+
+    // 1. Open mentor: request starts in background
+    fireEvent.click(screen.getByRole("button", { name: /راهنمایی از منتور هوشمند/ }));
+    expect(screen.getByText(/آوانا در حال اندیشیدن/i)).toBeInTheDocument();
+    expect(askCallCount).toBe(1);
+
+    // 2. Close popup while request is still pending
+    fireEvent.click(screen.getByRole("button", { name: /بستن راهنمایی/ }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    // 3. Request finishes in background
+    resolveAskPromise!({
+      ok: true,
+      status: 200,
+      text: () =>
+        Promise.resolve(
+          JSON.stringify({
+            request_id: "req-async-1",
+            answer: "پاسخ کامل‌شده بعد از بسته بودن پاپ‌آپ",
+            conversationId: "conv-async-1",
+          })
+        ),
+    } as Response);
+
+    // 4. Reopen popup: completed answer is immediately rendered with NO new request
+    fireEvent.click(screen.getByRole("button", { name: /راهنمایی از منتور هوشمند/ }));
+    await waitFor(() => {
+      expect(screen.getByText("پاسخ کامل‌شده بعد از بسته بودن پاپ‌آپ")).toBeInTheDocument();
+    });
+    expect(askCallCount).toBe(1);
   });
 });

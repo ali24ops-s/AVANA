@@ -34,13 +34,16 @@ import {
   calculateSubscriptionExpiry,
   generateOrderNumber,
   sanitizePaymentText,
+  calculateSpecialExamPrice,
 } from "@avana/domain";
 import type { CommerceStore } from "./commerce-store.js";
 import type { PaymentGateway } from "./gateway/types.js";
+import type { NotificationService } from "../notifications/notification-service.js";
 import type { UserStore } from "../identity/user-store.js";
 import type { AuditService } from "../../observability/audit-service.js";
 import type { ContentPackStore } from "../library/library-store.js";
 import type { LessonStore } from "../learning/learning-store.js";
+import type { StudyService } from "../study/study-service.js";
 
 export interface CheckoutInput {
   productId: ProductId;
@@ -76,6 +79,7 @@ export interface VerifyPaymentResponse {
     id: string;
     expires_at: string;
   };
+  attempt_id?: string;
 }
 
 export interface CommercePaymentOptions {
@@ -93,6 +97,8 @@ export class CommerceService {
     private readonly cardToCardConfig?: CardToCardInfoResponse,
     private readonly lessonStore?: LessonStore,
     private readonly paymentOptions?: CommercePaymentOptions,
+    private readonly studyService?: StudyService,
+    private readonly notificationService?: NotificationService,
   ) {}
 
   /**
@@ -146,6 +152,18 @@ export class CommerceService {
         "bad_request",
         "این محصول در حال حاضر فعال یا قابل خرید نیست.",
       );
+    }
+
+    // 1.2 Validate special exam pricing (questionCount * 500)
+    if (product.type === "special_exam") {
+      const qCount = Number((product.metadata as any)?.questionCount) || 20;
+      const expectedPrice = calculateSpecialExamPrice(qCount);
+      if (product.price !== expectedPrice) {
+        throw new DomainError(
+          "bad_request",
+          `قیمت آزمون ویژه (${product.price} تومان) با فرمول قیمت‌گذاری (${expectedPrice} تومان برای ${qCount} سؤال) مطابقت ندارد.`,
+        );
+      }
     }
 
     // 1.5 Validate target Content Pack if product targets a content pack
@@ -328,6 +346,13 @@ export class CommerceService {
         rawCallbackMetadata: { reason: "online_gateway_disabled" },
       });
       await this.store.updateOrderStatus(order.id, "failed");
+      if (this.notificationService) {
+        void this.notificationService.notifyPaymentFailed(payment.userId, {
+          paymentId: payment.id,
+          orderId: order.id,
+          reason: "درگاه پرداخت آنلاین در حال حاضر در دسترس نیست.",
+        });
+      }
       return {
         success: false,
         order_id: order.id,
@@ -344,16 +369,25 @@ export class CommerceService {
       );
       const activeSub = await this.store.findActiveSubscription(payment.userId);
 
+      const orderEntitlement =
+        activeEntitlements.find((e) => e.orderId === order.id) ??
+        activeEntitlements[0];
+
+      const attemptId =
+        orderEntitlement?.resourceType === "special_exam"
+          ? (orderEntitlement.resourceId ?? undefined)
+          : undefined;
+
       return {
         success: true,
         order_id: order.id,
         payment_id: payment.id,
         transaction_id: payment.transactionId ?? undefined,
-        entitlement: activeEntitlements[0]
+        entitlement: orderEntitlement
           ? {
-              resource_type: activeEntitlements[0].resourceType,
-              resource_id: activeEntitlements[0].resourceId,
-              expires_at: activeEntitlements[0].expiresAt,
+              resource_type: orderEntitlement.resourceType,
+              resource_id: orderEntitlement.resourceId,
+              expires_at: orderEntitlement.expiresAt,
             }
           : undefined,
         subscription: activeSub
@@ -362,6 +396,7 @@ export class CommerceService {
               expires_at: activeSub.expiresAt,
             }
           : undefined,
+        attempt_id: attemptId,
       };
     }
 
@@ -369,6 +404,13 @@ export class CommerceService {
     if (input.status === "NOK") {
       await this.store.updatePayment(payment.id, { status: "cancelled" });
       await this.store.updateOrderStatus(order.id, "cancelled");
+      if (this.notificationService) {
+        void this.notificationService.notifyPaymentFailed(payment.userId, {
+          paymentId: payment.id,
+          orderId: order.id,
+          reason: "پرداخت توسط کاربر یا درگاه لغو شد.",
+        });
+      }
       return {
         success: false,
         order_id: order.id,
@@ -389,6 +431,14 @@ export class CommerceService {
         rawCallbackMetadata: verifyResult.rawResponse,
       });
       await this.store.updateOrderStatus(order.id, "failed");
+
+      if (this.notificationService) {
+        void this.notificationService.notifyPaymentFailed(payment.userId, {
+          paymentId: payment.id,
+          orderId: order.id,
+          reason: verifyResult.errorMessage || "تایید تراکنش با خطا مواجه شد.",
+        });
+      }
 
       return {
         success: false,
@@ -452,6 +502,18 @@ export class CommerceService {
       entitlementResourceType = "content";
       entitlementResourceId = product.targetId;
       entitlementExpiresAt = null; // Lifetime Ownership
+    } else if (product.type === "special_exam") {
+      entitlementResourceType = "special_exam";
+      if (this.studyService) {
+        const attemptResult = await this.studyService.createSpecialExamAttempt(
+          { userId: order.userId, role: "student" } as Actor,
+          (product.metadata?.organizationId as string) || "00000000-0000-0000-0000-000000000001",
+          product,
+          order.id,
+        );
+        entitlementResourceId = attemptResult.attempt.id;
+      }
+      entitlementExpiresAt = null; // Lifetime Ownership
     }
 
     const entitlementToCreate: UserEntitlementRecord = {
@@ -477,6 +539,16 @@ export class CommerceService {
       subscriptionToCreate,
       entitlementToCreate,
     });
+
+    if (this.notificationService) {
+      void this.notificationService.notifyPurchaseCompleted(order.userId, {
+        paymentId: payment.id,
+        orderId: order.id,
+        productTitle: product.title,
+        productType: product.type,
+        targetId: product.targetId,
+      });
+    }
 
     if (this.auditService) {
       await this.auditService.emit([
@@ -517,6 +589,10 @@ export class CommerceService {
             expires_at: completed.subscription.expiresAt,
           }
         : undefined,
+      attempt_id:
+        completed.entitlement.resourceType === "special_exam"
+          ? (completed.entitlement.resourceId ?? undefined)
+          : undefined,
     };
   }
 
@@ -582,6 +658,18 @@ export class CommerceService {
         throw new DomainError(
           "bad_request",
           "این محتوای آموزشی در حال حاضر منتشر نشده یا قابل خرید نیست.",
+        );
+      }
+    }
+
+    // 2.3 Validate special exam pricing (questionCount * 500)
+    if (product.type === "special_exam") {
+      const qCount = Number((product.metadata as any)?.questionCount) || 20;
+      const expectedPrice = calculateSpecialExamPrice(qCount);
+      if (product.price !== expectedPrice) {
+        throw new DomainError(
+          "bad_request",
+          `قیمت آزمون ویژه (${product.price} تومان) با فرمول قیمت‌گذاری (${expectedPrice} تومان برای ${qCount} سؤال) مطابقت ندارد.`,
         );
       }
     }
@@ -714,6 +802,18 @@ export class CommerceService {
       entitlementResourceType = "content";
       entitlementResourceId = product.targetId;
       entitlementExpiresAt = null;
+    } else if (product.type === "special_exam") {
+      entitlementResourceType = "special_exam";
+      if (this.studyService) {
+        const attemptResult = await this.studyService.createSpecialExamAttempt(
+          actor,
+          (product.metadata?.organizationId as string) || "00000000-0000-0000-0000-000000000001",
+          product,
+          orderId,
+        );
+        entitlementResourceId = attemptResult.attempt.id;
+      }
+      entitlementExpiresAt = null;
     }
 
     const orderRecord: OrderRecord = {
@@ -828,6 +928,10 @@ export class CommerceService {
       subscriptionStatus: result.subscription?.status,
       expiresAt: result.subscription?.expiresAt ?? entitlementExpiresAt ?? undefined,
       entitlementId: result.entitlement.id,
+      attemptId:
+        entitlementResourceType === "special_exam"
+          ? (entitlementResourceId ?? undefined)
+          : undefined,
       message:
         product.type === "subscription"
           ? "پرداخت شما ثبت شد و اشتراک شما فعال شده است. اطلاعات پرداخت برای بررسی نهایی ارسال شد."

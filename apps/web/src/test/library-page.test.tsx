@@ -2397,11 +2397,31 @@ describe("Public Content Library & Content Packs Web UI Suite", () => {
           updated_at: "2026-08-11T10:00:00.000Z",
         },
       ],
+      special_exams: [
+        {
+          id: "exam-prod-1",
+          productId: "exam-prod-1",
+          code: "special-exam-pharma-1",
+          title: "آزمون ویژه جامع فارماکولوژی ۱",
+          description: "شامل مباحث فارماکوکینتیک، فارماکودینامیک و سیستم اتونوم",
+          question_count: 80,
+          difficulty: "medium",
+          scope: {
+            courseId: "crs-live-1",
+            topics: ["فارماکوکینتیک", "فارماکودینامیک"],
+          },
+          price: 40000,
+          currency: "toman",
+          created_at: "2026-08-11T10:00:00.000Z",
+          updated_at: "2026-08-11T10:00:00.000Z",
+        },
+      ],
       pagination: {
         page: 1,
         limit: 12,
         total_courses: 1,
         total_contents: 1,
+        total_special_exams: 1,
       },
     };
 
@@ -2471,13 +2491,13 @@ describe("Public Content Library & Content Packs Web UI Suite", () => {
       });
     }
 
-    it("renders Courses and Contents sections simultaneously in 'All' tab with direct navigation", async () => {
+    it("renders Courses and Special Exams sections simultaneously in 'All' tab with direct navigation", async () => {
       setupMultiResourceFetch();
       renderWithProviders(<LibraryPage />);
 
       await waitFor(() => {
         expect(screen.getByTestId("library-courses-section")).toBeDefined();
-        expect(screen.getByTestId("library-contents-section")).toBeDefined();
+        expect(screen.getByTestId("library-special-exams-section")).toBeDefined();
         expect(screen.getByTestId("public-content-packs-section")).toBeDefined();
       });
 
@@ -2490,13 +2510,11 @@ describe("Public Content Library & Content Packs Web UI Suite", () => {
       const courseLink = screen.getByText("ورود به دوره").closest("a");
       expect(courseLink?.getAttribute("href")).toBe("/courses/crs-live-1");
 
-      // Check Content Card rendering & link
-      expect(screen.getByText("سنتز اسیدهای چرب و بتا اکسیداسیون")).toBeDefined();
-      expect(screen.getByText("متابولیسم لیپیدها")).toBeDefined();
-      expect(screen.getAllByText("تکمیل شده").length).toBeGreaterThan(0);
-
-      const contentLink = screen.getByText("مرور مجدد درس").closest("a");
-      expect(contentLink?.getAttribute("href")).toBe("/courses/crs-live-1?lessonId=lsn-live-101");
+      // Check Special Exam Card rendering & buy CTA
+      expect(screen.getByText("آزمون ویژه جامع فارماکولوژی ۱")).toBeDefined();
+      expect(screen.getAllByText(/سؤال/).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/تومان/).length).toBeGreaterThan(0);
+      expect(screen.getByTestId("buy-special-exam-exam-prod-1")).toBeDefined();
     });
 
     it("switches to 'Courses' tab and displays only courses", async () => {
@@ -2513,25 +2531,25 @@ describe("Public Content Library & Content Packs Web UI Suite", () => {
 
       await waitFor(() => {
         expect(screen.getByTestId("library-courses-section")).toBeDefined();
-        expect(screen.queryByTestId("library-contents-section")).toBeNull();
+        expect(screen.queryByTestId("library-special-exams-section")).toBeNull();
         expect(screen.queryByTestId("public-content-packs-section")).toBeNull();
       });
     });
 
-    it("switches to 'Contents' tab and displays only standalone lesson contents", async () => {
+    it("switches to 'Special Exams' tab and displays only special exams", async () => {
       setupMultiResourceFetch();
       renderWithProviders(<LibraryPage />);
 
       await waitFor(() => {
-        expect(screen.getByText("سنتز اسیدهای چرب و بتا اکسیداسیون")).toBeDefined();
+        expect(screen.getByText("آزمون ویژه جامع فارماکولوژی ۱")).toBeDefined();
       });
 
-      // Click "محتواها و درسنامه‌ها" tab
-      const contentsTab = screen.getByTestId("tab-contents");
-      fireEvent.click(contentsTab);
+      // Click "آزمون‌های ویژه" tab
+      const specialExamsTab = screen.getByTestId("tab-special-exams");
+      fireEvent.click(specialExamsTab);
 
       await waitFor(() => {
-        expect(screen.getByTestId("library-contents-section")).toBeDefined();
+        expect(screen.getByTestId("library-special-exams-section")).toBeDefined();
         expect(screen.queryByTestId("library-courses-section")).toBeNull();
         expect(screen.queryByTestId("public-content-packs-section")).toBeNull();
       });
@@ -2552,7 +2570,7 @@ describe("Public Content Library & Content Packs Web UI Suite", () => {
       await waitFor(() => {
         expect(screen.getByTestId("public-content-packs-section")).toBeDefined();
         expect(screen.queryByTestId("library-courses-section")).toBeNull();
-        expect(screen.queryByTestId("library-contents-section")).toBeNull();
+        expect(screen.queryByTestId("library-special-exams-section")).toBeNull();
       });
     });
   });

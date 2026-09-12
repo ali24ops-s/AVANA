@@ -17,7 +17,10 @@
  * read-only to administrators without duplication or drift.
  */
 
-import type { ReviewSummaryGenerationInput } from "@avana/domain";
+import {
+  type ReviewSummaryGenerationInput,
+  cleanEducationalTitle,
+} from "@avana/domain";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1973,7 +1976,8 @@ export function buildReviewSummaryUserPrompt(
   }
 
   if (input) {
-    const docTitle = input.generationContext.documentTitle || input.documentId;
+    const rawDocTitle = input.generationContext.documentTitle;
+    const cleanTopic = cleanEducationalTitle(rawDocTitle, "مبحث آموزشی جامع");
     const targetMins = input.generationContext.targetMinutes || 12;
     const minMins = input.generationContext.minMinutes || 10;
     const maxMins = input.generationContext.maxMinutes || 15;
@@ -2043,9 +2047,13 @@ export function buildReviewSummaryUserPrompt(
             .join("\n\n---\n\n")
         : "None";
 
+    const sampleSummaryTitle = cleanTopic.startsWith("خلاصه")
+      ? cleanTopic
+      : `خلاصه مروری: ${cleanTopic}`;
+
     return [
       `You are AVANA's Expert Educational AI Content Engine.`,
-      `TASK: GENERATE HIGH-DENSITY REVIEW SUMMARY («خلاصه مروری») for "${docTitle}".`,
+      `TASK: GENERATE HIGH-DENSITY REVIEW SUMMARY («خلاصه مروری») for "${cleanTopic}".`,
       ``,
       LANGUAGE_REQUIREMENT_PROMPT,
       ``,
@@ -2062,6 +2070,7 @@ export function buildReviewSummaryUserPrompt(
       `- NO MERE NAMING: Never summarize a topic merely by naming it. Provide enough substantive factual detail for the student to reconstruct the knowledge.`,
       `- PRESERVE CLINICAL DISTINCTIONS: Preserve clinically important distinctions, contraindications, mechanisms, direct comparisons, and high-yield facts from Stage 1 & Stage 2 supported by source material.`,
       `- STRICT GROUNDING: Ground every statement strictly in the source material. Never hallucinate or invent outside facts (especially doses, adverse effects, contraindications, mechanisms, or numerical values).`,
+      `- MANDATORY EDUCATIONAL TITLE REQUIREMENT: The 'title' field MUST be a scholarly, educational Persian title describing the medical/scientific topic (e.g. "${sampleSummaryTitle}"). NEVER use filenames, extensions (.pdf, .docx), or numeric numbers as the title.`,
       ``,
       `==================================================`,
       `STAGE 1: CURRICULUM PLANNING & BLUEPRINT`,
@@ -2081,6 +2090,7 @@ export function buildReviewSummaryUserPrompt(
       `==================================================`,
       `STAGE 2: GENERATED EDUCATIONAL LESSONS`,
       `==================================================`,
+      `[LESSONS]`,
       lessonsText,
       ``,
       `==================================================`,
@@ -2106,8 +2116,9 @@ export function buildReviewSummaryUserPrompt(
       `Return ONLY valid JSON matching this schema:`,
       JSON.stringify({
         kind: "review_summary",
-        title: docTitle,
+        title: sampleSummaryTitle,
         estimatedReadingMinutes: targetMins,
+
         overview:
           "خلاصه فوق‌العاده متمرکز، فشرده و یک‌دقیقه‌ای از هسته اصلی مبحث به زبان فارسی.",
         sections: [

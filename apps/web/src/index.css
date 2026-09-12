@@ -106,6 +106,16 @@
   --avana-info-border: #a7d0e6;
   --avana-info-text: #2b6d8f;
 
+  /* Highlight & Note Semantic Tokens */
+  --avana-highlight-bg: rgba(0, 128, 128, 0.16);
+  --avana-highlight-border: #008080;
+  --avana-highlight-text: #006666;
+  --avana-highlight-hover: rgba(0, 128, 128, 0.24);
+  --avana-note-bg: rgba(167, 208, 230, 0.25);
+  --avana-note-border: #5ba0c4;
+  --avana-note-text: #1a2226;
+  --avana-note-badge: #5ba0c4;
+
   /* Backward Compatibility Token Maps */
   --color-primary: #008080;
   --color-primary-default: var(--color-primary);
@@ -163,6 +173,15 @@
   --avana-text-muted: #5B6268;
   --avana-border-default: #E2E7EA;
   --avana-border-subtle: #EEF1F3;
+
+  --avana-highlight-bg: rgba(0, 128, 128, 0.16);
+  --avana-highlight-border: #008080;
+  --avana-highlight-text: #006666;
+  --avana-highlight-hover: rgba(0, 128, 128, 0.24);
+  --avana-note-bg: rgba(167, 208, 230, 0.25);
+  --avana-note-border: #5ba0c4;
+  --avana-note-text: #1a2226;
+  --avana-note-badge: #5ba0c4;
 }
 
 .dark {
@@ -177,6 +196,15 @@
   --avana-text-muted: #9AAEB0;
   --avana-border-default: #1e3235;
   --avana-border-subtle: #142528;
+
+  --avana-highlight-bg: rgba(45, 212, 191, 0.22);
+  --avana-highlight-border: #2dd4bf;
+  --avana-highlight-text: #5eead4;
+  --avana-highlight-hover: rgba(45, 212, 191, 0.32);
+  --avana-note-bg: rgba(91, 160, 196, 0.22);
+  --avana-note-border: #7bbfdf;
+  --avana-note-text: #F2F7F7;
+  --avana-note-badge: #7bbfdf;
 
   --color-primary-default: var(--color-primary);
   --color-primary-contrast: #ffffff;

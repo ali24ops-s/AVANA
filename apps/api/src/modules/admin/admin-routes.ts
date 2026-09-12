@@ -38,7 +38,16 @@ import type { ContentImportService } from "./content-import-service.js";
 import type { ExportScope } from "./content-export-import-types.js";
 import type { OrganizationStore } from "../organizations/organization-store.js";
 import type { CourseStore } from "../courses/course-store.js";
-import { DomainError } from "@avana/domain";
+import type { StudyService } from "../study/study-service.js";
+import type { SpecialExamAutomationService } from "../study/special-exam-automation-service.js";
+import {
+  DomainError,
+  calculateSpecialExamPrice,
+  parseCourseId,
+  parseModuleId,
+  type ExamBlueprintItem,
+  type SpecialExamScope,
+} from "@avana/domain";
 
 export interface AdminRouteOptions extends AuthMiddlewareDeps {
   adminStore: AdminStore;
@@ -50,6 +59,8 @@ export interface AdminRouteOptions extends AuthMiddlewareDeps {
   officialContentService?: OfficialContentService;
   contentPackStore?: ContentPackStore;
   commerceStore?: CommerceStore;
+  studyService?: StudyService;
+  specialExamAutomationService?: SpecialExamAutomationService;
   auditService?: AuditService;
   contentExportService?: ContentExportService;
   contentImportService?: ContentImportService;
@@ -986,6 +997,215 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
       }
       return reply.status(500).send({ code: "internal_error", message: err.message || "خطای سرور" });
     }
+  });
+
+  app.post<{
+    Body: {
+      code?: string;
+      title: string;
+      description?: string;
+      questionCount: number;
+      difficulty?: string;
+      scope?: SpecialExamScope;
+      blueprint?: ExamBlueprintItem[];
+      active?: boolean;
+      publicationStatus?: "draft" | "published" | "archived";
+    };
+  }>("/commerce/special-exams", async (request, reply) => {
+    const body = request.body || {};
+    if (!body.title || typeof body.title !== "string" || !body.title.trim()) {
+      return reply.status(400).send({
+        code: "invalid_input",
+        message: "عنوان آزمون ویژه الزامی است.",
+      });
+    }
+    const questionCount = Number(body.questionCount);
+    if (!Number.isInteger(questionCount) || questionCount <= 0) {
+      return reply.status(400).send({
+        code: "invalid_input",
+        message: "تعداد سؤالات باید یک عدد صحیح بزرگتر از صفر باشد.",
+      });
+    }
+
+    if (!opts.commerceStore) {
+      return reply.status(500).send({ code: "internal_error", message: "فروشگاه فعال نیست." });
+    }
+
+    const orgId = asOrganizationId(opts.systemOrganizationId || "00000000-0000-0000-0000-000000000001");
+    const publicationStatus = body.publicationStatus || (body.active === false ? "draft" : "published");
+
+    // If publishing, validate Question Bank pool sufficiency
+    if (opts.studyService && publicationStatus === "published") {
+      const poolCheck = await opts.studyService.validateExamBlueprintPool(orgId, {
+        questionCount,
+        difficulty: body.difficulty,
+        scope: body.scope,
+        blueprint: body.blueprint,
+      });
+
+      if (!poolCheck.isValid) {
+        return reply.status(400).send({
+          code: "insufficient_pool",
+          message: "موجودی بانک سؤال برای انتشار این آزمون با این مشخصات و سهمیه‌ها کافی نیست.",
+          errors: poolCheck.errors,
+          pool: poolCheck,
+        });
+      }
+    }
+
+    const price = calculateSpecialExamPrice(questionCount);
+    const productId = asProductId(randomUUID());
+    const code = body.code?.trim() || `special-exam-${randomUUID().slice(0, 8)}`;
+
+    const newProduct = await opts.commerceStore.createProduct({
+      id: productId,
+      code,
+      type: "special_exam",
+      title: body.title.trim(),
+      description: body.description?.trim() || null,
+      price,
+      currency: "toman",
+      targetType: "special_exam",
+      targetId: null,
+      durationDays: null,
+      active: body.active ?? (publicationStatus === "published"),
+      metadata: {
+        questionCount,
+        difficulty: body.difficulty || "medium",
+        scope: body.scope || {},
+        blueprint: body.blueprint || [],
+        publicationStatus,
+      },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      deletedAt: null,
+    });
+
+    return reply.status(201).send({
+      success: true,
+      product: newProduct,
+    });
+  });
+
+  app.post<{
+    Body: {
+      questionCount: number;
+      difficulty?: string;
+      scope?: SpecialExamScope;
+      blueprint?: ExamBlueprintItem[];
+    };
+  }>("/commerce/special-exams/validate-pool", async (request, reply) => {
+    const body = request.body || {};
+    const questionCount = Number(body.questionCount);
+    if (!Number.isInteger(questionCount) || questionCount <= 0) {
+      return reply.status(400).send({
+        code: "invalid_input",
+        message: "تعداد سؤالات باید یک عدد صحیح بزرگتر از صفر باشد.",
+      });
+    }
+
+    if (!opts.studyService) {
+      return reply.status(500).send({ code: "internal_error", message: "سرویس آموزشی فعال نیست." });
+    }
+
+    const orgId = asOrganizationId(opts.systemOrganizationId || "00000000-0000-0000-0000-000000000001");
+    const result = await opts.studyService.validateExamBlueprintPool(orgId, {
+      questionCount,
+      difficulty: body.difficulty,
+      scope: body.scope,
+      blueprint: body.blueprint,
+    });
+
+    return reply.send({
+      success: true,
+      ...result,
+    });
+  });
+
+  app.post<{
+    Body: {
+      courseId?: string;
+      moduleId?: string;
+      all?: boolean;
+    };
+  }>("/commerce/special-exams/reconcile", async (request, reply) => {
+    if (!opts.specialExamAutomationService) {
+      return reply.status(500).send({
+        code: "internal_error",
+        message: "سرویس خودکارسازی آزمون‌های ویژه فعال نیست.",
+      });
+    }
+
+    const orgId = asOrganizationId(opts.systemOrganizationId || "00000000-0000-0000-0000-000000000001");
+    const body = request.body || {};
+
+    if (body.moduleId) {
+      const product = await opts.specialExamAutomationService.reconcileChapterExam({
+        organizationId: orgId,
+        courseId: body.courseId ? parseCourseId(body.courseId) : undefined,
+        moduleId: parseModuleId(body.moduleId),
+      });
+      return reply.send({
+        success: true,
+        type: "chapter",
+        product,
+      });
+    }
+
+    if (body.courseId) {
+      const result = await opts.specialExamAutomationService.reconcileCourseAndModules({
+        organizationId: orgId,
+        courseId: parseCourseId(body.courseId),
+      });
+      return reply.send({
+        success: true,
+        type: "course",
+        ...result,
+      });
+    }
+
+    const result = await opts.specialExamAutomationService.reconcileAll(orgId);
+    return reply.send({
+      success: true,
+      type: "all",
+      ...result,
+    });
+  });
+
+  app.get("/commerce/special-exams", async (_request, reply) => {
+    if (!opts.commerceStore) {
+      return reply.send({ products: [] });
+    }
+
+    const allProducts = await opts.commerceStore.listActiveProducts();
+    const examProducts = allProducts.filter((p) => p.type === "special_exam");
+
+    const orgId = asOrganizationId(opts.systemOrganizationId || "00000000-0000-0000-0000-000000000001");
+
+    const enriched = await Promise.all(
+      examProducts.map(async (prod) => {
+        const meta = (prod.metadata || {}) as any;
+        let poolHealth = null;
+        if (opts.studyService && meta.questionCount) {
+          try {
+            poolHealth = await opts.studyService.validateExamBlueprintPool(orgId, {
+              questionCount: meta.questionCount,
+              difficulty: meta.difficulty,
+              scope: meta.scope,
+              blueprint: meta.blueprint,
+            });
+          } catch {
+            poolHealth = null;
+          }
+        }
+        return {
+          ...prod,
+          poolHealth,
+        };
+      }),
+    );
+
+    return reply.send({ products: enriched });
   });
 
   app.post<{

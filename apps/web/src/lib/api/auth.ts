@@ -125,6 +125,13 @@ export function createAuthApi(client: ApiClient) {
     signOut(): Promise<void> {
       return client.post<void>("/v1/auth/sign-out");
     },
+
+    /**
+     * POST /v1/auth/worker-auto-login — Auto-login for isolated Local Worker 2.
+     */
+    workerAutoLogin(): Promise<MeResponse> {
+      return client.post<MeResponse>("/v1/auth/worker-auto-login");
+    },
   };
 }
 

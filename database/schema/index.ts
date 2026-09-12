@@ -1713,7 +1713,7 @@ export const userEntitlements = pgTable(
   (table) => ({
     resourceIdCheck: check(
       "chk_user_entitlements_resource_id",
-      sql`(${table.resourceType} = 'subscription' AND ${table.resourceId} IS NULL) OR (${table.resourceType} IN ('course', 'content_pack', 'content') AND ${table.resourceId} IS NOT NULL)`,
+      sql`(${table.resourceType} = 'subscription' AND ${table.resourceId} IS NULL) OR (${table.resourceType} IN ('course', 'content_pack', 'content', 'special_exam') AND ${table.resourceId} IS NOT NULL)`,
     ),
     lifetimeUniqueIdx: uniqueIndex("idx_user_entitlements_lifetime_unique")
       .on(table.userId, table.resourceType, table.resourceId)
@@ -1931,7 +1931,116 @@ export type NewContentImportBatch = typeof contentImportBatches.$inferInsert;
 export type ImportedEntity = typeof importedEntities.$inferSelect;
 export type NewImportedEntity = typeof importedEntities.$inferInsert;
 
+// ---------------------------------------------------------------------------
+// Notifications System
+// ---------------------------------------------------------------------------
 
+export const notifications = pgTable(
+  "notifications",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    type: varchar("type", { length: 64 }).notNull(),
+    title: varchar("title", { length: 255 }).notNull(),
+    message: text("message").notNull(),
+    isRead: boolean("is_read").default(false).notNull(),
+    readAt: timestamp("read_at", { withTimezone: true }),
+    metadata: jsonb("metadata"),
+    actionUrl: varchar("action_url", { length: 512 }),
+    idempotencyKey: varchar("idempotency_key", { length: 255 }).unique(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    userCreatedIdx: index("idx_notifications_user_created").on(
+      table.userId,
+      table.createdAt,
+    ),
+    userUnreadIdx: index("idx_notifications_user_unread").on(
+      table.userId,
+      table.isRead,
+    ),
+    idempotencyIdx: uniqueIndex("idx_notifications_idempotency").on(
+      table.idempotencyKey,
+    ),
+  }),
+);
 
+export type Notification = typeof notifications.$inferSelect;
+export type NewNotification = typeof notifications.$inferInsert;
 
+// ---------------------------------------------------------------------------
+// Lesson Annotations & Text Interactions (Highlights, Notes & Content Reports)
+// ---------------------------------------------------------------------------
 
+export const lessonAnnotations = pgTable(
+  "lesson_annotations",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    lessonId: uuid("lesson_id")
+      .notNull()
+      .references(() => lessons.id, { onDelete: "cascade" }),
+    type: varchar("type", { length: 20 }).notNull(), // "highlight" | "note"
+    selectedText: text("selected_text").notNull(),
+    prefix: text("prefix"),
+    suffix: text("suffix"),
+    startOffset: integer("start_offset"),
+    endOffset: integer("end_offset"),
+    color: varchar("color", { length: 30 }).default("default").notNull(),
+    noteText: text("note_text"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    userLessonIdx: index("idx_lesson_annotations_user_lesson").on(
+      table.userId,
+      table.lessonId,
+    ),
+  }),
+);
+
+export type LessonAnnotation = typeof lessonAnnotations.$inferSelect;
+export type NewLessonAnnotation = typeof lessonAnnotations.$inferInsert;
+
+export const contentReports = pgTable(
+  "content_reports",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    lessonId: uuid("lesson_id")
+      .notNull()
+      .references(() => lessons.id, { onDelete: "cascade" }),
+    courseId: uuid("course_id").references(() => courses.id, {
+      onDelete: "set null",
+    }),
+    selectedText: text("selected_text").notNull(),
+    category: varchar("category", { length: 50 }).notNull(), // "scientific_error" | "typo" | "rendering_issue" | "unclear_content" | "other"
+    comment: text("comment"),
+    status: varchar("status", { length: 20 }).default("pending").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    lessonIdx: index("idx_content_reports_lesson").on(table.lessonId),
+    userIdx: index("idx_content_reports_user").on(table.userId),
+  }),
+);
+
+export type ContentReport = typeof contentReports.$inferSelect;
+export type NewContentReport = typeof contentReports.$inferInsert;

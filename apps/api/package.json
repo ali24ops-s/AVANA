@@ -4,30 +4,140 @@
   "version": "0.0.0",
   "type": "module",
   "exports": {
-    "./config": "./src/config.ts",
-    "./generation/generation-service": "./src/modules/generation/generation-service.ts",
-    "./generation/generation-jobs-store": "./src/modules/generation/generation-jobs-store.ts",
-    "./generation/generation-store": "./src/modules/generation/generation-store.ts",
-    "./generation/generation-queue": "./src/modules/generation/generation-queue.ts",
-    "./generation/generation-processor": "./src/modules/generation/generation-processor.ts",
-    "./generation/generation-recovery-service": "./src/modules/generation/generation-recovery-service.ts",
-    "./generation/drizzle-stores": "./src/modules/generation/drizzle-stores.ts",
-    "./generation/gateway": "./src/modules/generation/gateway/index.ts",
-    "./generation/test/in-memory-stores": "./src/modules/generation/test/in-memory-stores.ts",
-    "./courses/drizzle-stores": "./src/modules/courses/drizzle-stores.ts",
-    "./learning/learning-store": "./src/modules/learning/learning-store.ts",
-    "./learning/drizzle-stores": "./src/modules/learning/drizzle-stores.ts",
-    "./learning/test/in-memory-stores": "./src/modules/learning/test/in-memory-stores.ts",
-    "./observability/audit-service": "./src/observability/audit-service.ts",
-    "./observability/drizzle-stores": "./src/observability/drizzle-stores.ts",
-    "./observability/test/in-memory-stores": "./src/observability/test/in-memory-stores.ts",
+    ".": {
+      "types": "./src/index.ts",
+      "development": "./src/index.ts",
+      "import": "./dist/index.js",
+      "default": "./src/index.ts"
+    },
+    "./config": {
+      "types": "./src/config.ts",
+      "development": "./src/config.ts",
+      "import": "./dist/config.js",
+      "default": "./src/config.ts"
+    },
+    "./generation/generation-service": {
+      "types": "./src/modules/generation/generation-service.ts",
+      "development": "./src/modules/generation/generation-service.ts",
+      "import": "./dist/modules/generation/generation-service.js",
+      "default": "./src/modules/generation/generation-service.ts"
+    },
+    "./generation/generation-jobs-store": {
+      "types": "./src/modules/generation/generation-jobs-store.ts",
+      "development": "./src/modules/generation/generation-jobs-store.ts",
+      "import": "./dist/modules/generation/generation-jobs-store.js",
+      "default": "./src/modules/generation/generation-jobs-store.ts"
+    },
+    "./generation/generation-store": {
+      "types": "./src/modules/generation/generation-store.ts",
+      "development": "./src/modules/generation/generation-store.ts",
+      "import": "./dist/modules/generation/generation-store.js",
+      "default": "./src/modules/generation/generation-store.ts"
+    },
+    "./generation/generation-queue": {
+      "types": "./src/modules/generation/generation-queue.ts",
+      "development": "./src/modules/generation/generation-queue.ts",
+      "import": "./dist/modules/generation/generation-queue.js",
+      "default": "./src/modules/generation/generation-queue.ts"
+    },
+    "./generation/generation-processor": {
+      "types": "./src/modules/generation/generation-processor.ts",
+      "development": "./src/modules/generation/generation-processor.ts",
+      "import": "./dist/modules/generation/generation-processor.js",
+      "default": "./src/modules/generation/generation-processor.ts"
+    },
+    "./generation/generation-recovery-service": {
+      "types": "./src/modules/generation/generation-recovery-service.ts",
+      "development": "./src/modules/generation/generation-recovery-service.ts",
+      "import": "./dist/modules/generation/generation-recovery-service.js",
+      "default": "./src/modules/generation/generation-recovery-service.ts"
+    },
+    "./generation/drizzle-stores": {
+      "types": "./src/modules/generation/drizzle-stores.ts",
+      "development": "./src/modules/generation/drizzle-stores.ts",
+      "import": "./dist/modules/generation/drizzle-stores.js",
+      "default": "./src/modules/generation/drizzle-stores.ts"
+    },
+    "./generation/gateway": {
+      "types": "./src/modules/generation/gateway/index.ts",
+      "development": "./src/modules/generation/gateway/index.ts",
+      "import": "./dist/modules/generation/gateway/index.js",
+      "default": "./src/modules/generation/gateway/index.ts"
+    },
+    "./generation/test/in-memory-stores": {
+      "types": "./src/modules/generation/test/in-memory-stores.ts",
+      "development": "./src/modules/generation/test/in-memory-stores.ts",
+      "import": "./dist/modules/generation/test/in-memory-stores.js",
+      "default": "./src/modules/generation/test/in-memory-stores.ts"
+    },
+    "./courses/drizzle-stores": {
+      "types": "./src/modules/courses/drizzle-stores.ts",
+      "development": "./src/modules/courses/drizzle-stores.ts",
+      "import": "./dist/modules/courses/drizzle-stores.js",
+      "default": "./src/modules/courses/drizzle-stores.ts"
+    },
+    "./learning/learning-store": {
+      "types": "./src/modules/learning/learning-store.ts",
+      "development": "./src/modules/learning/learning-store.ts",
+      "import": "./dist/modules/learning/learning-store.js",
+      "default": "./src/modules/learning/learning-store.ts"
+    },
+    "./learning/drizzle-stores": {
+      "types": "./src/modules/learning/drizzle-stores.ts",
+      "development": "./src/modules/learning/drizzle-stores.ts",
+      "import": "./dist/modules/learning/drizzle-stores.js",
+      "default": "./src/modules/learning/drizzle-stores.ts"
+    },
+    "./learning/test/in-memory-stores": {
+      "types": "./src/modules/learning/test/in-memory-stores.ts",
+      "development": "./src/modules/learning/test/in-memory-stores.ts",
+      "import": "./dist/modules/learning/test/in-memory-stores.js",
+      "default": "./src/modules/learning/test/in-memory-stores.ts"
+    },
+    "./observability/audit-service": {
+      "types": "./src/observability/audit-service.ts",
+      "development": "./src/observability/audit-service.ts",
+      "import": "./dist/observability/audit-service.js",
+      "default": "./src/observability/audit-service.ts"
+    },
+    "./observability/drizzle-stores": {
+      "types": "./src/modules/observability/drizzle-stores.ts",
+      "development": "./src/observability/drizzle-stores.ts",
+      "import": "./dist/observability/drizzle-stores.js",
+      "default": "./src/observability/drizzle-stores.ts"
+    },
+    "./observability/test/in-memory-stores": {
+      "types": "./src/observability/test/in-memory-stores.ts",
+      "development": "./src/observability/test/in-memory-stores.ts",
+      "import": "./dist/observability/test/in-memory-stores.js",
+      "default": "./src/observability/test/in-memory-stores.ts"
+    },
+    "./notifications": {
+      "types": "./src/modules/notifications/index.ts",
+      "development": "./src/modules/notifications/index.ts",
+      "import": "./dist/modules/notifications/index.js",
+      "default": "./src/modules/notifications/index.ts"
+    },
+    "./notifications/drizzle-stores": {
+      "types": "./src/modules/notifications/drizzle-stores.ts",
+      "development": "./src/modules/notifications/drizzle-stores.ts",
+      "import": "./dist/modules/notifications/drizzle-stores.js",
+      "default": "./src/modules/notifications/drizzle-stores.ts"
+    },
+    "./notifications/notification-service": {
+      "types": "./src/modules/notifications/notification-service.ts",
+      "development": "./src/modules/notifications/notification-service.ts",
+      "import": "./dist/modules/notifications/notification-service.js",
+      "default": "./src/modules/notifications/notification-service.ts"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {
     "build": "tsc --build tsconfig.build.json",
     "type-check": "tsc --noEmit",
     "test": "vitest run",
-    "dev": "NODE_ENV=development tsx watch src/dev.ts"
+    "dev": "NODE_ENV=development tsx watch src/dev.ts",
+    "start": "node dist/start.js"
   },
   "dependencies": {
     "@avana/config": "*",

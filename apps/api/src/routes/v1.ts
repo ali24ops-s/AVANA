@@ -23,6 +23,7 @@ import {
 } from "../modules/commerce/index.js";
 import {
   studyRoutes,
+  StudyService,
   assistantRoutes,
   type AssistantConversationStore,
   type StudySessionStore,
@@ -80,6 +81,7 @@ import {
 import { GenerationService } from "../modules/generation/generation-service.js";
 import { GenerationRecoveryService } from "../modules/generation/generation-recovery-service.js";
 import { ReviewService } from "../modules/generation/review-service.js";
+import { SpecialExamAutomationService } from "../modules/study/special-exam-automation-service.js";
 import { DocumentProcessingService } from "../modules/documents/document-processing-service.js";
 import { DocumentService } from "../modules/documents/document-service.js";
 import {
@@ -93,6 +95,11 @@ import {
   adminBlogRoutes,
   type BlogStore,
 } from "../modules/blog/index.js";
+import {
+  notificationRoutes,
+  NotificationService,
+  type NotificationStore,
+} from "../modules/notifications/index.js";
 
 import type { SmsProvider } from "../modules/identity/sms-service.js";
 
@@ -100,6 +107,8 @@ export interface V1RouteOptions {
   config: IdentityPluginOptions["config"];
   sessionStore: SessionStore;
   userStore: UserStore;
+  notificationStore?: NotificationStore;
+  notificationService?: NotificationService;
   deviceStore?: DeviceStore;
   emailVerificationStore?: EmailVerificationStore;
   emailService?: EmailService;
@@ -140,6 +149,9 @@ export interface V1RouteOptions {
   entitlementService?: EntitlementService;
   officialContentService?: OfficialContentService;
   blogStore?: BlogStore;
+  annotationStore?: import("../modules/study/index.js").LessonAnnotationStore;
+  reportStore?: import("../modules/study/index.js").ContentReportStore;
+  annotationService?: import("../modules/study/index.js").AnnotationService;
   db?: import("@avana/database/client").DbClient;
 }
 
@@ -149,6 +161,12 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
 ) => {
   void app.register(healthRoutes);
   void app.register(readinessRoutes);
+
+  const notificationService =
+    opts.notificationService ??
+    (opts.notificationStore
+      ? new NotificationService(opts.notificationStore)
+      : undefined);
 
   // Register identity (auth) module if stores are provided
   if (opts.config && opts.sessionStore && opts.userStore) {
@@ -161,6 +179,7 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       emailService: opts.emailService,
       smsProvider: opts.smsProvider,
       organizationStore: opts.organizationStore,
+      notificationService,
     });
   }
 
@@ -343,6 +362,7 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       generationChunkStore: opts.generationChunkStore,
       generationProgressStore: opts.generationProgressStore,
       generationProgressService: opts.generationProgressService,
+      notificationService,
     });
   }
 
@@ -383,6 +403,8 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
     });
   }
 
+  let sharedStudyService: StudyService | undefined;
+  let specialExamAutomationService: SpecialExamAutomationService | undefined;
   // Register study consumption routes (PR6-7) if all required stores are provided.
   if (
     opts.config &&
@@ -397,6 +419,43 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
     opts.lessonStore &&
     opts.progressStore
   ) {
+    sharedStudyService = new StudyService(
+      opts.flashcardStore,
+      opts.flashcardReviewStore,
+      opts.quizStore,
+      opts.quizQuestionStore,
+      opts.quizAttemptStore,
+      opts.moduleStore,
+      opts.lessonStore,
+      opts.progressStore,
+      defaultPolicy,
+      opts.auditService,
+      opts.organizationStore,
+      opts.userFlashcardScheduleStore,
+      opts.courseStore,
+      opts.config.systemOrganizationId as OrganizationId,
+      opts.studySessionStore,
+      opts.flashcardStudySessionStore,
+      entitlementService,
+    );
+
+    if (
+      sharedStudyService &&
+      opts.commerceStore &&
+      opts.courseStore &&
+      opts.moduleStore
+    ) {
+      specialExamAutomationService = new SpecialExamAutomationService({
+        commerceStore: opts.commerceStore,
+        studyService: sharedStudyService,
+        courseStore: opts.courseStore,
+        moduleStore: opts.moduleStore,
+        systemOrganizationId: opts.config?.systemOrganizationId
+          ? (opts.config.systemOrganizationId as OrganizationId)
+          : undefined,
+      });
+    }
+
     await app.register(studyRoutes, {
       sessionService: new SessionService(
         opts.sessionStore,
@@ -419,6 +478,18 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       studySessionStore: opts.studySessionStore,
       flashcardStudySessionStore: opts.flashcardStudySessionStore,
       entitlementService,
+      studyService: sharedStudyService,
+      annotationStore:
+        opts.annotationStore ??
+        (opts.db
+          ? new (await import("../modules/study/index.js")).DrizzleLessonAnnotationStore(opts.db)
+          : undefined),
+      reportStore:
+        opts.reportStore ??
+        (opts.db
+          ? new (await import("../modules/study/index.js")).DrizzleContentReportStore(opts.db)
+          : undefined),
+      annotationService: opts.annotationService,
     });
   }
 
@@ -548,6 +619,8 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
               opts.quizQuestionStore,
               opts.organizationStore,
               opts.commerceStore,
+              undefined,
+              specialExamAutomationService,
             ),
             opts.adminStore,
             opts.config.systemOrganizationId as OrganizationId,
@@ -586,6 +659,8 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       officialContentService,
       contentPackStore: opts.contentPackStore,
       commerceStore: opts.commerceStore,
+      studyService: sharedStudyService,
+      specialExamAutomationService,
       auditService: opts.auditService,
       contentExportService,
       contentImportService,
@@ -655,6 +730,25 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
         opts.config?.commerce?.onlinePaymentEnabled ?? false,
       mockPaymentEnabled: opts.config?.commerce?.mockPaymentEnabled ?? false,
       modelGateway: opts.gateway,
+      studyService: sharedStudyService,
+      notificationService,
+    });
+  }
+
+  // Register Notifications routes
+  if (
+    opts.config &&
+    opts.sessionStore &&
+    opts.userStore &&
+    notificationService
+  ) {
+    await app.register(notificationRoutes, {
+      sessionService: new SessionService(
+        opts.sessionStore,
+        opts.config.session,
+      ),
+      userStore: opts.userStore,
+      notificationService,
     });
   }
 

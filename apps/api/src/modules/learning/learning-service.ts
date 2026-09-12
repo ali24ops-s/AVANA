@@ -75,7 +75,7 @@ export type CourseLearnResponse = {
       is_preview?: boolean;
       access_reason?: string;
       purchase_options?: Array<{
-        type: "subscription" | "content_pack" | "course" | "content";
+        type: "subscription" | "content_pack" | "course" | "content" | "special_exam";
         productId: string;
         code: string;
         title: string;

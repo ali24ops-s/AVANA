@@ -21,6 +21,7 @@ import { DeviceService } from "./device-service.js";
 import type { EmailVerificationStore } from "./email-verification-store.js";
 import type { EmailService } from "./email-service.js";
 import type { SmsProvider } from "./sms-service.js";
+import type { NotificationService } from "../notifications/notification-service.js";
 
 export interface IdentityPluginOptions {
   config: ApiConfig;
@@ -32,6 +33,7 @@ export interface IdentityPluginOptions {
   emailService?: EmailService;
   smsProvider?: SmsProvider;
   organizationStore?: OrganizationStore;
+  notificationService?: NotificationService;
 }
 
 export async function registerIdentityModule(
@@ -80,6 +82,7 @@ export async function registerIdentityModule(
     smsProvider,
     organizationStore,
     verificationSecret: config.auth?.verificationSecret,
+    notificationService: options.notificationService,
   };
   await app.register(authRoutes, authOpts);
 }

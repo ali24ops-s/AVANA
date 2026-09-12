@@ -138,4 +138,103 @@ describe("ExamResultView Component", () => {
     // Q2 (incorrect) should be visible
     expect(screen.getByText("کدام دارو استاتین است؟")).toBeDefined();
   });
+
+  it("renders Lesson and Chapter hierarchy badges and fallback on question review cards", () => {
+    const resultWithHierarchy: ExamResultViewProps["result"] = {
+      score: 100,
+      total: 3,
+      correct: 3,
+      passed: true,
+      questions: [
+        {
+          id: "q-hier-1",
+          question: "سوال اول با سرفصل و درس؟",
+          choices: ["الف", "ب"],
+          correctAnswer: "الف",
+          lesson: {
+            id: "les-1",
+            title: "جذب داروها",
+          },
+          chapter: {
+            id: "chap-1",
+            title: "فارماکوکینتیک",
+          },
+        },
+        {
+          id: "q-hier-2",
+          question: "سوال دوم فقط با درس؟",
+          choices: ["ج", "د"],
+          correctAnswer: "ج",
+          lesson: {
+            id: "les-2",
+            title: "مکانیسم‌های گیرنده‌ای",
+          },
+        },
+        {
+          id: "q-hier-3",
+          question: "سوال سوم بدون درس؟",
+          choices: ["هـ", "و"],
+          correctAnswer: "هـ",
+        },
+      ],
+      answers: {
+        "q-hier-1": "الف",
+        "q-hier-2": "ج",
+        "q-hier-3": "هـ",
+      },
+    };
+
+    render(
+      <ExamResultView
+        result={resultWithHierarchy}
+        onRetry={vi.fn()}
+        onReturnToConfig={vi.fn()}
+      />
+    );
+
+    // Q1: shows Chapter — Lesson
+    expect(screen.getByText("درس: فارماکوکینتیک — جذب داروها")).toBeDefined();
+
+    // Q2: shows Lesson only
+    expect(screen.getByText("درس: مکانیسم‌های گیرنده‌ای")).toBeDefined();
+
+    // Q3: shows fallback
+    expect(screen.getByText("درس: نامشخص")).toBeDefined();
+  });
+
+  it("handles retake (شرکت مجدد در آزمون) and return to config actions correctly", () => {
+    const handleRetry = vi.fn();
+    const handleReturnToConfig = vi.fn();
+
+    const { rerender } = render(
+      <ExamResultView
+        result={mockResult}
+        onRetry={handleRetry}
+        onReturnToConfig={handleReturnToConfig}
+        isRetrying={false}
+      />
+    );
+
+    const retakeBtn = screen.getByRole("button", { name: /شرکت مجدد در آزمون/ });
+    const returnBtn = screen.getByRole("button", { name: /بازگشت به تنظیمات آزمون/ });
+
+    fireEvent.click(retakeBtn);
+    expect(handleRetry).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(returnBtn);
+    expect(handleReturnToConfig).toHaveBeenCalledTimes(1);
+
+    // Verify isRetrying disabled/loading state
+    rerender(
+      <ExamResultView
+        result={mockResult}
+        onRetry={handleRetry}
+        onReturnToConfig={handleReturnToConfig}
+        isRetrying={true}
+      />
+    );
+
+    const disabledRetakeBtn = screen.getByRole("button", { name: /شرکت مجدد در آزمون/ });
+    expect(disabledRetakeBtn.getAttribute("disabled")).not.toBeNull();
+  });
 });

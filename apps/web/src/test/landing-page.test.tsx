@@ -213,7 +213,7 @@ describe("LandingPage (صفحه اصلی آوانا) Reference Design Complete S
     expect(screen.getByText("✨ موفقیت در انتظار توست...")).toBeInTheDocument();
 
     // Footer Slogan and Copyright
-    expect(screen.getByText("نگاه دارویی ما، راهنمای سلامت شما")).toBeInTheDocument();
+    expect(screen.getByText("هر مسیری برای یادگیری، یک همراه خوب میخواد :)")).toBeInTheDocument();
     expect(
       screen.getByText(/© ۲۰۲۶ آوانا. تمامی حقوق برای پلتفرم آموزشی آوانا محفوظ است/)
     ).toBeInTheDocument();

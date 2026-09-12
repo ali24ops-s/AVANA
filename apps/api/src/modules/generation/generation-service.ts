@@ -86,6 +86,8 @@ import {
   DEFAULT_GENERATION_STALE_THRESHOLD_MS,
   normalizeEducationalContent,
   isLessonChunkSetCurrent,
+  cleanEducationalTitle,
+  resolveCanonicalContentTitle,
 } from "@avana/domain";
 import {
   CONTENT_PLANNING_SYSTEM_PROMPT,
@@ -99,6 +101,7 @@ import {
   REVIEW_SUMMARY_SYSTEM_PROMPT,
   buildReviewSummaryUserPrompt,
 } from "./prompt-registry.js";
+import type { NotificationService } from "../notifications/notification-service.js";
 import type {
   DocumentRecord,
   DocumentChunkRecord,
@@ -219,6 +222,7 @@ export class GenerationService {
   private readonly chunkRecordStore: GenerationChunkStore;
   private readonly generationJobStore?: GenerationJobStore;
   public readonly progressService: GenerationProgressService;
+  private notificationService?: NotificationService;
 
   constructor(
     private readonly generatedContentStore: GeneratedContentStore,
@@ -239,6 +243,7 @@ export class GenerationService {
     generationChunkStore?: GenerationChunkStore,
     generationJobStore?: GenerationJobStore,
     generationProgressService?: GenerationProgressService,
+    notificationService?: NotificationService,
   ) {
     this.chunkRecordStore =
       generationChunkStore ?? new InMemoryGenerationChunkStore();
@@ -246,6 +251,11 @@ export class GenerationService {
     this.progressService =
       generationProgressService ??
       new GenerationProgressService(new InMemoryGenerationProgressStore());
+    this.notificationService = notificationService;
+  }
+
+  setNotificationService(service?: NotificationService): void {
+    this.notificationService = service;
   }
 
   /**
@@ -1099,7 +1109,10 @@ export class GenerationService {
             citationChunkIds?: string[];
           }>(completion.text, "content planning");
 
-          const moduleTitle = parsed.moduleTitle || doc.originalName;
+          const moduleTitle = cleanEducationalTitle(
+            parsed.moduleTitle,
+            "مبحث آموزشی جامع",
+          );
 
           // Normalize session blueprints
           let rawSessions = Array.isArray(parsed.sessions) && parsed.sessions.length > 0
@@ -2656,7 +2669,10 @@ export class GenerationService {
       maxMinutes: budgetConfig.maxReadingMinutes,
       language: "fa",
       audience: "pharmacy_students",
-      documentTitle: doc.originalName,
+      documentTitle: cleanEducationalTitle(
+        contentPlan.moduleTitle,
+        "مبحث آموزشی جامع",
+      ),
       wordsPerMinute: budgetConfig.wordsPerMinute,
       targetWordBudget: budgetConfig.targetWordBudget,
       maxSections: budgetConfig.maxSections,
@@ -3670,11 +3686,15 @@ export class GenerationService {
         let typeUsage = { inputTokens: 0, outputTokens: 0 };
 
         if (type === "lesson") {
+          const cleanLessonTitle = cleanEducationalTitle(
+            moduleTitle,
+            "درسنامه آموزشی جامع",
+          );
           const outlineListing = outline
             .map((item, idx) => `${idx + 1}. **${item.title}**: ${item.description}`)
             .join("\n");
           const masterMarkdown = [
-            `# ${moduleTitle || doc.originalName}`,
+            `# ${cleanLessonTitle}`,
             `## فهرست جلسات آموزشی`,
             outlineListing,
             `---`,
@@ -3687,8 +3707,8 @@ export class GenerationService {
 
           payload = {
             kind: "lesson",
-            moduleTitle,
-            title: moduleTitle || doc.originalName,
+            moduleTitle: cleanLessonTitle,
+            title: cleanLessonTitle,
             outline,
             sessions: generatedSessions,
             contentMarkdown: masterMarkdown,
@@ -3713,8 +3733,15 @@ export class GenerationService {
             allCards.push(...(cards as typeof allCards));
           });
 
+          const flashcardTitle = resolveCanonicalContentTitle({
+            type: "flashcard",
+            payload: { cards: allCards },
+            moduleTitle,
+          });
+
           payload = {
             kind: "flashcard",
+            title: flashcardTitle,
             question: allCards[0]?.question,
             answer: allCards[0]?.answer,
             explanation: allCards[0]?.explanation,
@@ -3745,9 +3772,14 @@ export class GenerationService {
             allQuestions.push(...questions);
           });
 
+          const cleanQuizTopic = cleanEducationalTitle(
+            moduleTitle,
+            "مبحث آموزشی",
+          );
+
           payload = {
             kind: "quiz",
-            title: `آزمون ارزیابی آموخته‌ها: ${moduleTitle}`,
+            title: `آزمون ارزیابی آموخته‌ها: ${cleanQuizTopic}`,
             questions: allQuestions,
             citationChunkIds:
               allQuizCitations.size > 0
@@ -4037,6 +4069,15 @@ export class GenerationService {
           ),
         );
       }
+
+      if (this.notificationService) {
+        void this.notificationService.notifyGenerationCompleted(actor.userId, {
+          jobId: input.jobId,
+          documentId,
+          courseId: input.courseId ?? doc.courseId ?? undefined,
+          types: contents.map((c) => c.type),
+        });
+      }
     } catch (err) {
       if (heartbeatTimer) {
         clearInterval(heartbeatTimer);
@@ -4107,6 +4148,15 @@ export class GenerationService {
             retryCount: (doc.retryCount || 0) + 1,
           }),
         ]);
+      }
+      if (this.notificationService) {
+        void this.notificationService.notifyGenerationFailed(actor.userId, {
+          jobId: input.jobId,
+          documentId,
+          courseId: input.courseId ?? doc.courseId ?? undefined,
+          errorCode,
+          errorMessage: err instanceof Error ? err.message : String(err),
+        });
       }
       throw err;
     } finally {
@@ -4399,8 +4449,12 @@ export class GenerationService {
         const outlineListing = planningRes.outline
           .map((item, idx) => `${idx + 1}. **${item.title}**: ${item.description}`)
           .join("\n");
+        const cleanPlanTitle = cleanEducationalTitle(
+          planningRes.moduleTitle,
+          "درسنامه آموزشی جامع",
+        );
         const masterMarkdown = [
-          `# ${planningRes.moduleTitle || doc.originalName}`,
+          `# ${cleanPlanTitle}`,
           `## فهرست جلسات آموزشی`,
           outlineListing,
           `---`,
@@ -4422,8 +4476,8 @@ export class GenerationService {
 
         const newLessonPayload: GeneratedContentPayload = {
           kind: "lesson",
-          moduleTitle: planningRes.moduleTitle,
-          title: planningRes.moduleTitle || doc.originalName,
+          moduleTitle: cleanPlanTitle,
+          title: cleanPlanTitle,
           outline: planningRes.outline,
           sessions: generatedSessions,
           contentMarkdown: masterMarkdown,

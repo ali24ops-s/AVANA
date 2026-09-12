@@ -26,6 +26,7 @@ import type { FastifyPluginAsync } from "fastify";
 import {
   type Actor,
   type CourseId,
+  type LessonId,
   type DocumentId,
   type FlashcardRating,
   type OrganizationId,
@@ -62,6 +63,16 @@ import type { OrganizationStore } from "../organizations/organization-store.js";
 import type { CourseStore } from "../courses/course-store.js";
 import type { AuditService } from "../../observability/audit-service.js";
 import type { EntitlementService } from "../commerce/entitlement-service.js";
+import { AnnotationService } from "./annotation-service.js";
+import type {
+  LessonAnnotationStore,
+  ContentReportStore,
+} from "./annotation-store.js";
+import type {
+  CreateAnnotationRequest,
+  UpdateAnnotationRequest,
+  CreateContentReportRequest,
+} from "@avana/contracts";
 
 export interface StudyRouteOptions {
   sessionService: AuthMiddlewareDeps["sessionService"];
@@ -82,6 +93,10 @@ export interface StudyRouteOptions {
   studySessionStore?: StudySessionStore;
   flashcardStudySessionStore?: FlashcardStudySessionStore;
   entitlementService?: EntitlementService;
+  studyService?: StudyService;
+  annotationStore?: LessonAnnotationStore;
+  reportStore?: ContentReportStore;
+  annotationService?: AnnotationService;
 }
 
 const UUID_RE =
@@ -110,28 +125,52 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
     studySessionStore,
     flashcardStudySessionStore,
     entitlementService,
+    studyService,
+    annotationStore,
+    reportStore,
+    annotationService: customAnnotationService,
   } = opts;
 
   const { requireAuth } = makeAuthMiddleware({ sessionService, userStore });
-  const service = new StudyService(
-    flashcardStore,
-    flashcardReviewStore,
-    quizStore,
-    quizQuestionStore,
-    quizAttemptStore,
-    moduleStore,
-    lessonStore,
-    progressStore,
-    defaultPolicy,
-    auditService,
-    organizationStore,
-    userFlashcardScheduleStore,
-    courseStore,
-    systemOrganizationId,
-    studySessionStore,
-    flashcardStudySessionStore,
-    entitlementService,
-  );
+  const service =
+    studyService ??
+    new StudyService(
+      flashcardStore,
+      flashcardReviewStore,
+      quizStore,
+      quizQuestionStore,
+      quizAttemptStore,
+      moduleStore,
+      lessonStore,
+      progressStore,
+      defaultPolicy,
+      auditService,
+      organizationStore,
+      userFlashcardScheduleStore,
+      courseStore,
+      systemOrganizationId,
+      studySessionStore,
+      flashcardStudySessionStore,
+      entitlementService,
+    );
+
+  const annotationService =
+    customAnnotationService ??
+    (annotationStore &&
+    reportStore &&
+    courseStore &&
+    organizationStore
+      ? new AnnotationService(
+          annotationStore,
+          reportStore,
+          lessonStore,
+          moduleStore,
+          courseStore,
+          organizationStore,
+          defaultPolicy,
+          systemOrganizationId,
+        )
+      : undefined);
 
   /** Helper to extract actor from authenticated request. */
   function getActor(request: unknown): Actor {
@@ -180,6 +219,58 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
       return params.organizationId as OrganizationId;
     }
     throw new DomainError("bad_request", "Organization ID required");
+  }
+
+  function formatFlashcardStudySession(s: FlashcardStudySessionRecord) {
+    return {
+      id: s.id,
+      user_id: s.userId,
+      organization_id: s.organizationId,
+      course_id: s.courseId ?? null,
+      title: s.title,
+      mode: s.mode,
+      custom_mode: s.customMode ?? null,
+      status: s.status,
+      total_cards: s.totalCards,
+      completed_cards: s.completedCards,
+      current_index: s.currentIndex,
+      current_card_id: s.currentCardId ?? null,
+      started_at: s.startedAt,
+      last_activity_at: s.lastActivityAt,
+      completed_at: s.completedAt ?? null,
+    };
+  }
+
+  function formatFlashcardStudySessionCard(sc: FlashcardStudySessionCardRecord) {
+    return {
+      id: sc.id,
+      session_id: sc.sessionId,
+      flashcard_id: sc.flashcardId ?? null,
+      sort_order: sc.sortOrder,
+      status: sc.status,
+      rating: sc.rating ?? null,
+      reviewed_at: sc.reviewedAt ?? null,
+    };
+  }
+
+  function formatFlashcardResource(f: FlashcardRecord) {
+    return {
+      id: f.id,
+      organization_id: f.organizationId,
+      course_id: f.courseId,
+      document_id: f.documentId,
+      generated_content_id: f.generatedContentId ?? null,
+      question: f.question,
+      answer: f.answer,
+      explanation: f.explanation ?? null,
+      card_type: f.cardType ?? "definition",
+      difficulty: f.difficulty ?? "medium",
+      due_at: f.dueAt,
+      interval_days: f.intervalDays,
+      ease_factor: f.easeFactor,
+      created_at: f.createdAt,
+      updated_at: f.updatedAt,
+    };
   }
 
   // -------------------------------------------------------------------------
@@ -443,13 +534,28 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
       }
     }
 
-    const [allFlashcards, userReviews] = await Promise.all([
+    const [allFlashcards, userSchedules, userReviews] = await Promise.all([
       flashcardStore.listByCourse(courseId, organizationId),
+      userFlashcardScheduleStore
+        ? userFlashcardScheduleStore.listByUser(actor.userId)
+        : Promise.resolve([]),
       flashcardReviewStore.listByUser(actor.userId),
     ]);
+    const scheduleMap = new Map(userSchedules.map((s) => [s.flashcardId, s]));
     const reviewedCardIds = new Set(userReviews.map((r) => r.flashcardId));
     const now = new Date();
-    const nextReviewCount = allFlashcards.filter((f) => {
+    const mappedCards = allFlashcards.map((f) => {
+      const schedule = scheduleMap.get(f.id);
+      if (!schedule) return f;
+      return {
+        ...f,
+        dueAt: schedule.dueAt,
+        intervalDays: schedule.intervalDays,
+        easeFactor: schedule.easeFactor,
+      };
+    });
+
+    const nextReviewCount = mappedCards.filter((f) => {
       if (!reviewedCardIds.has(f.id)) return false;
       if (!f.dueAt) return false;
       const dueAt = new Date(f.dueAt);
@@ -459,8 +565,8 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
 
     return {
       request_id: req.id,
-      flashcards: allFlashcards,
-      items: allFlashcards,
+      flashcards: mappedCards.map(formatFlashcardResource),
+      items: mappedCards.map(formatFlashcardResource),
       next_review_count: nextReviewCount,
     };
   };
@@ -532,10 +638,11 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
       courseId,
     );
 
+    const formatted = dueCards.map(formatFlashcardResource);
     return {
       request_id: req.id,
-      due_cards: dueCards,
-      items: dueCards,
+      due_cards: formatted,
+      items: formatted,
     };
   };
 
@@ -568,10 +675,11 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
       documentIds,
     );
 
+    const formatted = dueCards.map(formatFlashcardResource);
     return {
       request_id: req.id,
-      due_cards: dueCards,
-      items: dueCards,
+      due_cards: formatted,
+      items: formatted,
     };
   };
 
@@ -601,10 +709,11 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
       documentIds,
     );
 
+    const formatted = dueCards.map(formatFlashcardResource);
     return {
       request_id: req.id,
-      due_cards: dueCards,
-      items: dueCards,
+      due_cards: formatted,
+      items: formatted,
     };
   };
 
@@ -642,10 +751,11 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
       documentIds,
     );
 
+    const formatted = dueCards.map(formatFlashcardResource);
     return {
       request_id: req.id,
-      due_cards: dueCards,
-      items: dueCards,
+      due_cards: formatted,
+      items: formatted,
     };
   };
 
@@ -658,57 +768,6 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
   // -------------------------------------------------------------------------
   // 4c. Flashcard Study Sessions (Persistence & Resume) Handlers
   // -------------------------------------------------------------------------
-  function formatFlashcardStudySession(s: FlashcardStudySessionRecord) {
-    return {
-      id: s.id,
-      user_id: s.userId,
-      organization_id: s.organizationId,
-      course_id: s.courseId ?? null,
-      title: s.title,
-      mode: s.mode,
-      custom_mode: s.customMode ?? null,
-      status: s.status,
-      total_cards: s.totalCards,
-      completed_cards: s.completedCards,
-      current_index: s.currentIndex,
-      current_card_id: s.currentCardId ?? null,
-      started_at: s.startedAt,
-      last_activity_at: s.lastActivityAt,
-      completed_at: s.completedAt ?? null,
-    };
-  }
-
-  function formatFlashcardStudySessionCard(sc: FlashcardStudySessionCardRecord) {
-    return {
-      id: sc.id,
-      session_id: sc.sessionId,
-      flashcard_id: sc.flashcardId ?? null,
-      sort_order: sc.sortOrder,
-      status: sc.status,
-      rating: sc.rating ?? null,
-      reviewed_at: sc.reviewedAt ?? null,
-    };
-  }
-
-  function formatFlashcardResource(f: FlashcardRecord) {
-    return {
-      id: f.id,
-      organization_id: f.organizationId,
-      course_id: f.courseId,
-      document_id: f.documentId,
-      generated_content_id: f.generatedContentId ?? null,
-      question: f.question,
-      answer: f.answer,
-      explanation: f.explanation ?? null,
-      card_type: f.cardType ?? "definition",
-      difficulty: f.difficulty ?? "medium",
-      due_at: f.dueAt,
-      interval_days: f.intervalDays,
-      ease_factor: f.easeFactor,
-      created_at: f.createdAt,
-      updated_at: f.updatedAt,
-    };
-  }
 
   const handleCreateFlashcardSession = async (request: unknown, reply: { code: (c: number) => void }) => {
     const req = request as {
@@ -1094,18 +1153,22 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
   const handleSaveExamAttemptAnswers = async (request: unknown) => {
     const req = request as {
       params: { organizationId: string; attemptId: string };
-      body: { answers?: Array<{ questionId?: string; answer?: unknown; selectedChoice?: unknown }> };
+      body: {
+        answers?: Array<{ questionId?: string; answer?: unknown; selectedChoice?: unknown }>;
+        elapsedSeconds?: number;
+      };
       id: string;
     };
     const actor = getActor(req);
     const organizationId = await resolveOrganizationId(actor, req.params as { organizationId: string });
     const attemptId = parseQuizAttemptId(req.params.attemptId, "attemptId");
 
-    if (!req.body || !Array.isArray(req.body.answers)) {
-      throw new DomainError("bad_request", "Answers array is required");
+    const answersInput = Array.isArray(req.body?.answers) ? req.body.answers : [];
+    if (!req.body || (!Array.isArray(req.body.answers) && typeof req.body.elapsedSeconds !== "number")) {
+      throw new DomainError("bad_request", "Answers array or elapsedSeconds is required");
     }
 
-    const formattedAnswers = req.body.answers.map((a) => {
+    const formattedAnswers = answersInput.map((a) => {
       if (!a.questionId) {
         throw new DomainError("bad_request", "questionId is required in answers");
       }
@@ -1115,17 +1178,24 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
       };
     });
 
+    const elapsedSeconds =
+      typeof req.body?.elapsedSeconds === "number" && req.body.elapsedSeconds >= 0
+        ? req.body.elapsedSeconds
+        : undefined;
+
     const res = await service.saveExamAttemptAnswer(
       actor,
       organizationId,
       attemptId,
       formattedAnswers,
+      elapsedSeconds,
     );
 
     return {
       request_id: req.id,
       success: true,
       answers: res.answers,
+      elapsedSeconds: res.elapsedSeconds,
     };
   };
 
@@ -1138,7 +1208,10 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
   const handleSubmitExamAttempt = async (request: unknown) => {
     const req = request as {
       params: { organizationId: string; attemptId: string };
-      body: { answers?: Array<{ questionId?: string; answer?: unknown; selectedChoice?: unknown }> };
+      body: {
+        answers?: Array<{ questionId?: string; answer?: unknown; selectedChoice?: unknown }>;
+        elapsedSeconds?: number;
+      };
       id: string;
     };
     const actor = getActor(req);
@@ -1159,11 +1232,17 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
       };
     });
 
+    const elapsedSeconds =
+      typeof req.body?.elapsedSeconds === "number" && req.body.elapsedSeconds >= 0
+        ? req.body.elapsedSeconds
+        : undefined;
+
     const result = await service.submitConfiguredExamAttempt(
       actor,
       organizationId,
       attemptId,
       formattedAnswers,
+      elapsedSeconds,
     );
 
     const scorePct = result.score;
@@ -1197,6 +1276,28 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
     "/v1/organizations/:organizationId/study/exams/attempts/:attemptId/submit",
     { preHandler: [requireAuth] },
     handleSubmitExamAttempt,
+  );
+
+  const handleRetakeExamAttempt = async (request: unknown) => {
+    const req = request as {
+      params: { organizationId: string; attemptId: string };
+      id: string;
+    };
+    const actor = getActor(req);
+    const organizationId = await resolveOrganizationId(actor, req.params as { organizationId: string });
+    const attemptId = parseQuizAttemptId(req.params.attemptId, "attemptId");
+
+    const result = await service.retakeExamAttempt(actor, organizationId, attemptId);
+    return {
+      request_id: req.id,
+      ...result,
+    };
+  };
+
+  app.post(
+    "/v1/organizations/:organizationId/study/exams/attempts/:attemptId/retake",
+    { preHandler: [requireAuth] },
+    handleRetakeExamAttempt,
   );
 
   // -------------------------------------------------------------------------
@@ -1734,6 +1835,182 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
     "/v1/study-sessions/weekly-summary",
     { preHandler: [requireAuth] },
     handleGetDashboardStats,
+  );
+
+  // ---------------------------------------------------------------------------
+  // Lesson Annotations & Text Interactions (Highlights, Notes & Content Reports)
+  // ---------------------------------------------------------------------------
+
+  const getAnnotationService = () => {
+    if (!annotationService) {
+      throw new DomainError("bad_request", "Annotation service not configured");
+    }
+    return annotationService;
+  };
+
+  /**
+   * GET /v1/lessons/:lessonId/annotations & GET /v1/courses/:courseId/lessons/:lessonId/annotations
+   */
+  const handleListAnnotations = async (request: unknown) => {
+    const req = request as {
+      params: { lessonId: string };
+      id: string;
+    };
+    const actor = getActor(req);
+    const lessonId = req.params.lessonId as LessonId;
+    const items = await getAnnotationService().listAnnotations(actor, lessonId);
+    return {
+      request_id: req.id,
+      items,
+    };
+  };
+
+  app.get(
+    "/v1/lessons/:lessonId/annotations",
+    { preHandler: [requireAuth] },
+    handleListAnnotations,
+  );
+
+  app.get(
+    "/v1/courses/:courseId/lessons/:lessonId/annotations",
+    { preHandler: [requireAuth] },
+    handleListAnnotations,
+  );
+
+  /**
+   * POST /v1/lessons/:lessonId/annotations & POST /v1/courses/:courseId/lessons/:lessonId/annotations
+   */
+  const handleCreateAnnotation = async (request: unknown) => {
+    const req = request as {
+      params: { lessonId: string };
+      body: CreateAnnotationRequest;
+      id: string;
+    };
+    const actor = getActor(req);
+    const lessonId = req.params.lessonId as LessonId;
+    const created = await getAnnotationService().createAnnotation(
+      actor,
+      lessonId,
+      req.body,
+    );
+    return {
+      request_id: req.id,
+      ...created,
+    };
+  };
+
+  app.post(
+    "/v1/lessons/:lessonId/annotations",
+    { preHandler: [requireAuth] },
+    handleCreateAnnotation,
+  );
+
+  app.post(
+    "/v1/courses/:courseId/lessons/:lessonId/annotations",
+    { preHandler: [requireAuth] },
+    handleCreateAnnotation,
+  );
+
+  /**
+   * PATCH /v1/lessons/:lessonId/annotations/:annotationId & PATCH /v1/lessons/annotations/:annotationId
+   */
+  const handleUpdateAnnotation = async (request: unknown) => {
+    const req = request as {
+      params: { lessonId?: string; annotationId: string };
+      body: UpdateAnnotationRequest;
+      id: string;
+    };
+    const actor = getActor(req);
+    const updated = await getAnnotationService().updateAnnotation(
+      actor,
+      req.params.annotationId,
+      req.body,
+    );
+    return {
+      request_id: req.id,
+      ...updated,
+    };
+  };
+
+  app.patch(
+    "/v1/lessons/:lessonId/annotations/:annotationId",
+    { preHandler: [requireAuth] },
+    handleUpdateAnnotation,
+  );
+
+  app.patch(
+    "/v1/lessons/annotations/:annotationId",
+    { preHandler: [requireAuth] },
+    handleUpdateAnnotation,
+  );
+
+  /**
+   * DELETE /v1/lessons/:lessonId/annotations/:annotationId & DELETE /v1/lessons/annotations/:annotationId
+   */
+  const handleDeleteAnnotation = async (request: unknown) => {
+    const req = request as {
+      params: { lessonId?: string; annotationId: string };
+      id: string;
+    };
+    const actor = getActor(req);
+    const deleted = await getAnnotationService().deleteAnnotation(
+      actor,
+      req.params.annotationId,
+    );
+    return {
+      request_id: req.id,
+      ok: deleted,
+    };
+  };
+
+  app.delete(
+    "/v1/lessons/:lessonId/annotations/:annotationId",
+    { preHandler: [requireAuth] },
+    handleDeleteAnnotation,
+  );
+
+  app.delete(
+    "/v1/lessons/annotations/:annotationId",
+    { preHandler: [requireAuth] },
+    handleDeleteAnnotation,
+  );
+
+  /**
+   * POST /v1/lessons/:lessonId/reports & POST /v1/courses/:courseId/lessons/:lessonId/reports
+   */
+  const handleCreateReport = async (request: unknown) => {
+    const req = request as {
+      params: { lessonId: string; courseId?: string };
+      body: CreateContentReportRequest;
+      id: string;
+    };
+    const actor = getActor(req);
+    const lessonId = req.params.lessonId as LessonId;
+    const body: CreateContentReportRequest = {
+      ...req.body,
+      courseId: req.body.courseId || req.params.courseId,
+    };
+    const report = await getAnnotationService().createReport(
+      actor,
+      lessonId,
+      body,
+    );
+    return {
+      request_id: req.id,
+      ...report,
+    };
+  };
+
+  app.post(
+    "/v1/lessons/:lessonId/reports",
+    { preHandler: [requireAuth] },
+    handleCreateReport,
+  );
+
+  app.post(
+    "/v1/courses/:courseId/lessons/:lessonId/reports",
+    { preHandler: [requireAuth] },
+    handleCreateReport,
   );
 };
 

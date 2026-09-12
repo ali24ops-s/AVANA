@@ -24,6 +24,9 @@ import type {
   FlashcardStudySessionRecord,
   FlashcardStudySessionCardRecord,
   FlashcardSessionStatus,
+  QuestionLessonInfo,
+  QuestionChapterInfo,
+  QuestionCourseInfo,
 } from "@avana/domain";
 
 // ---------------------------------------------------------------------------
@@ -104,6 +107,9 @@ export type QuizQuestionRecord = {
   sortOrder: number;
   createdAt: string;
   updatedAt: string;
+  lesson?: QuestionLessonInfo | null;
+  chapter?: QuestionChapterInfo | null;
+  course?: QuestionCourseInfo | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -126,9 +132,12 @@ export type FlashcardScheduleUpdate = {
 // ---------------------------------------------------------------------------
 
 export interface FlashcardStore {
+  findById?(id: FlashcardId): Promise<FlashcardRecord | undefined>;
+
   findByIdForOrganization(
     id: FlashcardId,
-    organizationId: OrganizationId,
+    organizationId?: OrganizationId,
+    systemOrganizationId?: OrganizationId,
   ): Promise<FlashcardRecord | undefined>;
 
   listByCourse(

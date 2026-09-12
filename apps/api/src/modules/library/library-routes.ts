@@ -196,7 +196,7 @@ export const libraryRoutes: FastifyPluginAsync<LibraryRouteOptions> = async (
       };
 
       const type =
-        query.type === "courses" || query.type === "contents" || query.type === "all"
+        query.type === "courses" || query.type === "contents" || query.type === "special_exams" || query.type === "all"
           ? query.type
           : "all";
       const sort =

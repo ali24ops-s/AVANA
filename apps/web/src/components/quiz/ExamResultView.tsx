@@ -8,6 +8,7 @@ import {
   toPersianDigits,
   formatPersianOf,
 } from "@avana/domain";
+import { isInternalIdentifier } from "../../lib/utils/exam-title-formatter.js";
 
 export interface QuestionResultItem {
   status: "correct" | "incorrect" | "unanswered" | "partial";
@@ -38,16 +39,21 @@ export interface ExamResultViewProps {
       topic?: string | null;
       difficulty?: string | null;
       questionType?: string;
+      lesson?: { id: string; title: string } | null;
+      chapter?: { id: string; title: string } | null;
+      course?: { id: string; title: string } | null;
     }>;
   };
-  onRetry: () => void;
+  onRetry: () => void | Promise<void>;
   onReturnToConfig: () => void;
+  isRetrying?: boolean;
 }
 
 export function ExamResultView({
   result,
   onRetry,
   onReturnToConfig,
+  isRetrying = false,
 }: ExamResultViewProps) {
   const scorePct = Math.round(result.score);
   const isPassing = scorePct >= 60;
@@ -204,6 +210,8 @@ export function ExamResultView({
             variant="outline"
             size="md"
             onClick={onRetry}
+            disabled={isRetrying}
+            isLoading={isRetrying}
             leftIcon={<RefreshIcon className="w-4 h-4" />}
           >
             شرکت مجدد در آزمون
@@ -359,9 +367,17 @@ export function ExamResultView({
                     <span className="text-xs font-bold text-[var(--color-primary)] font-mono">
                       سوال {toPersianDigits(idx + 1)}
                     </span>
-                    {q.topic && (
+                    {q.lesson?.title ? (
                       <span className="text-[11px] px-2 py-0.5 rounded bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] border border-[var(--color-border)]">
-                        {q.topic}
+                        درس: {q.chapter?.title ? `${q.chapter.title} — ${q.lesson.title}` : q.lesson.title}
+                      </span>
+                    ) : q.topic && !isInternalIdentifier(q.topic) ? (
+                      <span className="text-[11px] px-2 py-0.5 rounded bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] border border-[var(--color-border)]">
+                        درس: {q.topic}
+                      </span>
+                    ) : (
+                      <span className="text-[11px] px-2 py-0.5 rounded bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] border border-[var(--color-border)]">
+                        درس: نامشخص
                       </span>
                     )}
                   </div>

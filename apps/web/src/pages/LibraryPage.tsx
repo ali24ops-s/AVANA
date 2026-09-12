@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import {
   Search,
   X,
@@ -11,12 +11,14 @@ import {
   RefreshCw,
   Library as LibraryIcon,
   GraduationCap,
-  FileText,
   Layers,
+  BookOpen,
+  HelpCircle,
+  Sparkles,
 } from "lucide-react";
 import { useLibraryResources, useCoursePackages } from "../hooks/useLibrary.js";
 import { CourseLibraryCard } from "../components/library/CourseLibraryCard.js";
-import { ContentLibraryCard } from "../components/library/ContentLibraryCard.js";
+import { SpecialExamLibraryCard } from "../components/library/SpecialExamLibraryCard.js";
 import { ChapterPackageCard } from "../components/library/ChapterPackageCard.js";
 import { ChapterPackageModal } from "../components/library/ChapterPackageModal.js";
 import { PaywallModal } from "../components/commerce/index.js";
@@ -36,10 +38,10 @@ import type {
 import { formatPersianOf } from "@avana/domain";
 import type {
   LibraryCourseItem,
-  LibraryContentItem,
+  LibrarySpecialExamItem,
 } from "../lib/api/library.js";
 
-type LibraryTab = "all" | "courses" | "contents" | "packs";
+type LibraryTab = "all" | "courses" | "special_exams" | "packs";
 
 const PRESET_SUBJECTS = [
   { value: "all", label: "همه موضوعات" },
@@ -60,6 +62,7 @@ const PRESET_SUBJECTS = [
 ];
 
 export function LibraryPage() {
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const urlPackId = searchParams.get("packId") || searchParams.get("packageId");
 
@@ -122,36 +125,6 @@ export function LibraryPage() {
     });
   };
 
-  const handleBuyContent = (content: LibraryContentItem) => {
-    const options: Array<{
-      type: "subscription" | "content_pack" | "course" | "content";
-      productId: string;
-      code: string;
-      title: string;
-      price: number;
-      currency: string;
-      durationDays: number | null;
-    }> = [];
-
-    if (content.purchase && content.purchase.productId) {
-      options.push({
-        type: "content",
-        productId: content.purchase.productId,
-        code: content.purchase.code || `content-${content.id}`,
-        title: content.title,
-        price: content.purchase.price,
-        currency: content.purchase.currency || "IRR",
-        durationDays: null,
-      });
-    }
-
-    setPaywallResource({
-      title: content.title,
-      type: "content",
-      options,
-    });
-  };
-
   const handleBuyPackage = (pkg: ChapterPackageItem) => {
     const options: Array<{
       type: "subscription" | "content_pack" | "course" | "content";
@@ -194,6 +167,10 @@ export function LibraryPage() {
     setIsChapterModalOpen(true);
   };
 
+  const handleBuySpecialExam = (exam: LibrarySpecialExamItem) => {
+    navigate(`/checkout/card-to-card?productId=${encodeURIComponent(exam.productId)}`);
+  };
+
   // Debounce search input (350ms)
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -211,8 +188,8 @@ export function LibraryPage() {
         ? "all"
         : activeTab === "courses"
           ? "courses"
-          : activeTab === "contents"
-            ? "contents"
+          : activeTab === "special_exams"
+            ? "special_exams"
             : undefined,
     subject: selectedSubject !== "all" ? selectedSubject : undefined,
     sort: selectedSort,
@@ -271,7 +248,7 @@ export function LibraryPage() {
   };
 
   const courses = resourcesQuery.data?.courses ?? [];
-  const contents = resourcesQuery.data?.contents ?? [];
+  const specialExams = resourcesQuery.data?.special_exams ?? [];
   const coursePackages = coursePackagesQuery.data?.courses ?? [];
   const totalChapterPackages = coursePackages.reduce(
     (sum, c) => sum + (c.packages?.length || 0),
@@ -298,19 +275,19 @@ export function LibraryPage() {
           total_count:
             activeTab === "courses"
               ? (resourcesQuery.data?.pagination?.total_courses ?? 0)
-              : activeTab === "contents"
-                ? (resourcesQuery.data?.pagination?.total_contents ?? 0)
+              : activeTab === "special_exams"
+                ? (resourcesQuery.data?.pagination?.total_special_exams ?? specialExams.length)
                 : ((resourcesQuery.data?.pagination?.total_courses ?? 0) +
-                  (resourcesQuery.data?.pagination?.total_contents ?? 0)),
+                  (resourcesQuery.data?.pagination?.total_special_exams ?? specialExams.length)),
           total_pages:
             Math.ceil(
               (activeTab === "courses"
                 ? (resourcesQuery.data?.pagination?.total_courses ?? 0)
-                : activeTab === "contents"
-                  ? (resourcesQuery.data?.pagination?.total_contents ?? 0)
+                : activeTab === "special_exams"
+                  ? (resourcesQuery.data?.pagination?.total_special_exams ?? specialExams.length)
                   : Math.max(
                       resourcesQuery.data?.pagination?.total_courses ?? 0,
-                      resourcesQuery.data?.pagination?.total_contents ?? 0,
+                      resourcesQuery.data?.pagination?.total_special_exams ?? specialExams.length,
                     )) / 12,
             ) || 1,
         };
@@ -332,29 +309,126 @@ export function LibraryPage() {
 
   const totalItemsInView =
     activeTab === "all"
-      ? courses.length + contents.length + totalChapterPackages
+      ? courses.length + specialExams.length + totalChapterPackages
       : activeTab === "courses"
         ? courses.length
-        : activeTab === "contents"
-          ? contents.length
+        : activeTab === "special_exams"
+          ? specialExams.length
           : totalChapterPackages;
 
   return (
-    <div className="space-y-8 pb-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4" dir="rtl">
+    <div className="space-y-8 pb-16 w-full" dir="rtl">
       {/* 1. Hero Header Banner */}
-      <Card variant="glass" className="relative overflow-hidden p-6 sm:p-10 border-[var(--color-border)] shadow-md">
-        <div className="relative z-10 max-w-2xl space-y-3">
-          <Badge variant="primary" icon={<LibraryIcon className="w-3.5 h-3.5" />}>
-            کتابخانه جامع یادگیری و محتوای آموزشی آوانا
-          </Badge>
+      <Card variant="solid" className="relative overflow-hidden p-6 sm:p-8 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-[16px] shadow-subtle">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-center">
+          {/* Right: Primary Hero Content */}
+          <div className="lg:col-span-7 space-y-3.5">
+            <Badge variant="primary" icon={<LibraryIcon className="w-3.5 h-3.5" />}>
+              کتابخانه جامع یادگیری و محتوای آموزشی آوانا
+            </Badge>
 
-          <h1 className="text-h1 text-[var(--color-text)]">
-            کتابخانه آوانا
-          </h1>
+            <h1 className="text-h1 font-bold text-[var(--color-text)]">
+              کتابخانه آوانا
+            </h1>
 
-          <p className="text-body-lg text-[var(--color-text-muted)] leading-relaxed">
-            مطالب آموزشی، دوره‌های معتبر و درسنامه‌های دانشگاهی را مرور و مطالعه کن، یا بسته‌های آموزشی آماده هر فصل را برای یادگیری کامل باز کن.
-          </p>
+            <p className="text-sm sm:text-base text-[var(--color-text-muted)] leading-relaxed max-w-xl">
+              مطالب آموزشی، دوره‌های معتبر و درسنامه‌های دانشگاهی را مرور و مطالعه کن، یا بسته‌های آموزشی آماده هر فصل را برای یادگیری کامل باز کن.
+            </p>
+
+            {/* Educational Highlights Meta Strip */}
+            <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[8px] bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-[var(--color-text-secondary)] font-medium">
+                <BookOpen className="w-3.5 h-3.5 text-primary" />
+                <span>درسنامه‌های استاندارد</span>
+              </span>
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[8px] bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-[var(--color-text-secondary)] font-medium">
+                <Layers className="w-3.5 h-3.5 text-amber-500" />
+                <span>فلش‌کارت‌های مرور فعال</span>
+              </span>
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[8px] bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-[var(--color-text-secondary)] font-medium">
+                <HelpCircle className="w-3.5 h-3.5 text-[#5ba0c4]" />
+                <span>آزمون‌های جامع فصلی</span>
+              </span>
+            </div>
+          </div>
+
+          {/* Left: Dedicated Educational Library Visual Composition */}
+          <div className="lg:col-span-5 relative flex items-center justify-center lg:justify-end py-2 lg:py-0">
+            {/* Subtle soft backdrop ambient accents */}
+            <div className="absolute -top-6 -start-6 w-36 h-36 rounded-full bg-primary/5 blur-2xl pointer-events-none" />
+            <div className="absolute -bottom-6 -end-6 w-36 h-36 rounded-full bg-[#A7D0E6]/15 blur-2xl pointer-events-none" />
+
+            {/* Layered Cards Stack */}
+            <div className="relative w-full max-w-sm select-none pointer-events-none space-y-0">
+              {/* 1. Base Layer: Curated Course Module (درسنامه جامع) */}
+              <div className="relative z-10 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-[14px] p-3.5 shadow-subtle space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="w-7 h-7 rounded-[8px] bg-[#e0f2f2] border border-[#b3d9d9] flex items-center justify-center text-[#006666] shrink-0">
+                      <BookOpen className="w-3.5 h-3.5" />
+                    </div>
+                    <div className="min-w-0">
+                      <span className="text-xs font-bold text-[var(--color-text)] block truncate">
+                        درسنامه‌های تخصصی
+                      </span>
+                      <span className="text-[10px] text-[var(--color-text-muted)] block truncate">
+                        سرفصل‌های تاییدشده دانشگاهی
+                      </span>
+                    </div>
+                  </div>
+                  <span className="shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#e0f2f2] text-[#006666] border border-[#b3d9d9]">
+                    درسنامه
+                  </span>
+                </div>
+
+                {/* Subtle structured lines preview */}
+                <div className="space-y-1.5 pt-0.5">
+                  <div className="h-1.5 rounded-[4px] bg-[#EEF1F3] w-5/6" />
+                  <div className="h-1.5 rounded-[4px] bg-[#EEF1F3] w-2/3" />
+                </div>
+              </div>
+
+              {/* 2. Middle Layer: Spaced Repetition (فلش‌کارت مرور) */}
+              <div className="relative z-20 -mt-2 ms-4 sm:ms-6 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-[14px] p-3 shadow-subtle flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-7 h-7 rounded-[8px] bg-[#fdf2e4] border border-[#e8c18a] flex items-center justify-center text-[#8f5e27] shrink-0">
+                    <Layers className="w-3.5 h-3.5" />
+                  </div>
+                  <div className="min-w-0">
+                    <span className="text-xs font-bold text-[var(--color-text)] block truncate">
+                      مرور فعال با فلش‌کارت
+                    </span>
+                    <span className="text-[10px] text-[var(--color-text-muted)] block truncate">
+                      تثبیت هوشمند با الگوریتم SRS
+                    </span>
+                  </div>
+                </div>
+                <span className="shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#fdf2e4] text-[#8f5e27] border border-[#e8c18a]">
+                  فلش‌کارت
+                </span>
+              </div>
+
+              {/* 3. Fore Layer: Assessment (آزمون خودارزیابی) */}
+              <div className="relative z-30 -mt-2 me-4 sm:me-6 bg-[var(--color-surface)] border border-[#a7d0e6] rounded-[14px] p-3 shadow-subtle flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-7 h-7 rounded-[8px] bg-[#e8f4fb] border border-[#a7d0e6] flex items-center justify-center text-[#2b6d8f] shrink-0">
+                    <HelpCircle className="w-3.5 h-3.5" />
+                  </div>
+                  <div className="min-w-0">
+                    <span className="text-xs font-bold text-[var(--color-text)] block truncate">
+                      آزمون‌های خودارزیابی فصلی
+                    </span>
+                    <span className="text-[10px] text-[var(--color-text-muted)] block truncate">
+                      پرسش‌های استاندارد ۴گزینه‌ای
+                    </span>
+                  </div>
+                </div>
+                <span className="shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#e8f4fb] text-[#2b6d8f] border border-[#a7d0e6]">
+                  آزمون
+                </span>
+              </div>
+            </div>
+          </div>
         </div>
       </Card>
 
@@ -368,6 +442,7 @@ export function LibraryPage() {
             variant={activeTab === "all" ? "primary" : "ghost"}
             onClick={() => handleTabChange("all")}
             leftIcon={<LibraryIcon className="w-4 h-4" />}
+            className="rounded-[10px]"
           >
             همه
           </Button>
@@ -378,18 +453,20 @@ export function LibraryPage() {
             variant={activeTab === "courses" ? "primary" : "ghost"}
             onClick={() => handleTabChange("courses")}
             leftIcon={<GraduationCap className="w-4 h-4" />}
+            className="rounded-[10px]"
           >
             دوره‌ها
           </Button>
 
           <Button
-            data-testid="tab-contents"
+            data-testid="tab-special-exams"
             size="sm"
-            variant={activeTab === "contents" ? "primary" : "ghost"}
-            onClick={() => handleTabChange("contents")}
-            leftIcon={<FileText className="w-4 h-4" />}
+            variant={activeTab === "special_exams" ? "primary" : "ghost"}
+            onClick={() => handleTabChange("special_exams")}
+            leftIcon={<Sparkles className="w-4 h-4 text-amber-500" />}
+            className="rounded-[10px]"
           >
-            محتواها و درسنامه‌ها
+            آزمون‌های ویژه
           </Button>
 
           <Button
@@ -398,6 +475,7 @@ export function LibraryPage() {
             variant={activeTab === "packs" ? "primary" : "ghost"}
             onClick={() => handleTabChange("packs")}
             leftIcon={<Layers className="w-4 h-4 text-amber-400" />}
+            className="rounded-[10px]"
           >
             بسته‌های آموزشی آماده
           </Button>
@@ -439,13 +517,13 @@ export function LibraryPage() {
           </div>
 
           {/* Sort Switcher (محبوب‌ترین / جدیدترین) */}
-          <div className="md:col-span-3 flex items-center justify-end gap-1.5 p-1 rounded-xl bg-[var(--color-surface)] border border-[var(--color-border)]">
+          <div className="md:col-span-3 flex items-center justify-end gap-1.5 p-1 rounded-[10px] bg-[var(--color-surface)] border border-[var(--color-border)]">
             <Button
               size="sm"
               variant={selectedSort === "popular" ? "primary" : "ghost"}
               onClick={() => handleSortChange("popular")}
               leftIcon={<TrendingUp className="w-3.5 h-3.5" />}
-              className="flex-1"
+              className="flex-1 rounded-[8px]"
             >
               محبوب‌ترین
             </Button>
@@ -455,7 +533,7 @@ export function LibraryPage() {
               variant={selectedSort === "newest" ? "primary" : "ghost"}
               onClick={() => handleSortChange("newest")}
               leftIcon={<Clock className="w-3.5 h-3.5" />}
-              className="flex-1"
+              className="flex-1 rounded-[8px]"
             >
               جدیدترین
             </Button>
@@ -473,7 +551,7 @@ export function LibraryPage() {
                 onClick={() => handleSubjectChange(sub.value)}
                 className={`px-3.5 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all border ${
                   isSelected
-                    ? "bg-primary/20 text-primary border-primary/40 shadow-sm"
+                    ? "bg-[#008080] text-white border-[#008080] shadow-xs"
                     : "bg-[var(--color-surface)] text-[var(--color-text-muted)] border-[var(--color-border)] hover:bg-[var(--color-surface-warm)] hover:text-[var(--color-text)]"
                 }`}
               >
@@ -606,21 +684,26 @@ export function LibraryPage() {
           </div>
         )}
 
-        {/* Content Items Grid */}
-        {!isLoading && !isError && (activeTab === "all" || activeTab === "contents") && contents.length > 0 && (
-          <div className="space-y-4" data-testid="library-contents-section">
+        {/* Special Exams Grid */}
+        {!isLoading && !isError && (activeTab === "all" || activeTab === "special_exams") && specialExams.length > 0 && (
+          <div className="space-y-4" data-testid="library-special-exams-section">
             {activeTab === "all" && (
-              <h2 className="text-h2 text-[var(--color-text)] flex items-center gap-2">
-                <FileText className="w-5 h-5 text-purple-400" />
-                <span>درسنامه‌ها و محتواها</span>
-              </h2>
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <h2 className="text-h2 text-[var(--color-text)] flex items-center gap-2">
+                  <Sparkles className="w-5 h-5 text-amber-500" />
+                  <span>آزمون‌های ویژه</span>
+                </h2>
+                <span className="text-xs text-[var(--color-text-muted)]">
+                  تولید هوشمند و تصادفی سؤالات با هر بار خرید از بانک سؤالات
+                </span>
+              </div>
             )}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-              {contents.map((content: LibraryContentItem) => (
-                <ContentLibraryCard
-                  key={content.id}
-                  content={content}
-                  onBuy={() => handleBuyContent(content)}
+              {specialExams.map((exam: LibrarySpecialExamItem) => (
+                <SpecialExamLibraryCard
+                  key={exam.id}
+                  exam={exam}
+                  onBuy={handleBuySpecialExam}
                 />
               ))}
             </div>

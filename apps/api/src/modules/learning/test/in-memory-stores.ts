@@ -65,6 +65,13 @@ export class InMemoryModuleStore implements ModuleStore {
     return record && record.deletedAt === null ? { ...record } : undefined;
   }
 
+  async listByIds(moduleIds: ModuleId[]): Promise<ModuleRecord[]> {
+    const set = new Set(moduleIds);
+    return Array.from(this.modules.values())
+      .filter((m) => set.has(m.id) && m.deletedAt === null)
+      .map((m) => ({ ...m }));
+  }
+
   /** Directly insert a module record (used for seeding). */
   insert(module: ModuleRecord): void {
     this.modules.set(module.id, { ...module });
@@ -162,6 +169,13 @@ export class InMemoryLessonStore implements LessonStore {
   async findById(lessonId: LessonId): Promise<LessonRecord | undefined> {
     const record = this.lessons.get(lessonId);
     return record ? { ...record } : undefined;
+  }
+
+  async listByIds(lessonIds: LessonId[]): Promise<LessonRecord[]> {
+    const set = new Set(lessonIds);
+    return Array.from(this.lessons.values())
+      .filter((l) => set.has(l.id) && l.deletedAt === null)
+      .map((l) => ({ ...l }));
   }
 
   /** Directly insert a lesson record (used for seeding). */

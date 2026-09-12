@@ -174,6 +174,12 @@ async function main() {
   // ---------------------------------------------------------------------------
   logInfo("Step 1/8: Checking system prerequisites...");
 
+  const existingEnvPath = path.join(rootDir, ".env");
+  const existingEnv = parseEnvFile(existingEnvPath);
+
+  const initialDbPort = Number(args["db-port"] || existingEnv.DATABASE_PORT || 55432);
+  const initialRedisPort = Number(args["redis-port"] || existingEnv.REDIS_PORT || 56379);
+
   // Check Node.js version
   const nodeVersionMajor = parseInt(process.versions.node.split(".")[0], 10);
   if (nodeVersionMajor < 22) {
@@ -203,15 +209,15 @@ async function main() {
 
   if (!skipDocker) {
     if (!docker.running) {
-      // Check if local PostgreSQL (5432) and Redis (6379) are already running natively
-      const pgReady = await isPortReachable(5432);
-      const redisReady = await isPortReachable(6379);
+      // Check if local PostgreSQL and Redis are already running natively on target ports
+      const pgReady = await isPortReachable(initialDbPort);
+      const redisReady = await isPortReachable(initialRedisPort);
       if (pgReady && redisReady) {
-        logSuccess("Local PostgreSQL (port 5432) and Redis (port 6379) detected active and ready");
+        logSuccess(`Local PostgreSQL (port ${initialDbPort}) and Redis (port ${initialRedisPort}) detected active and ready`);
         skipDocker = true;
       } else {
         if (!docker.installed) {
-          logError("Docker is not installed and local PostgreSQL/Redis are not active.");
+          logError(`Docker is not installed and local PostgreSQL (${initialDbPort})/Redis (${initialRedisPort}) are not active.`);
           process.stdout.write("\nTo install Docker:\n");
           process.stdout.write("  - Windows / macOS: Install Docker Desktop from https://www.docker.com/products/docker-desktop/\n");
           process.stdout.write("  - Linux: Install Docker Engine via https://docs.docker.com/engine/install/\n\n");
@@ -330,6 +336,9 @@ async function main() {
   // ---------------------------------------------------------------------------
   // 4. Local Infrastructure (PostgreSQL & Redis via Docker)
   // ---------------------------------------------------------------------------
+  const targetDbPort = Number(envData.DATABASE_PORT || 55432);
+  const targetRedisPort = Number(envData.REDIS_PORT || 56379);
+
   if (!skipDocker) {
     logInfo("Step 4/8: Starting isolated PostgreSQL and Redis containers...");
 
@@ -339,17 +348,26 @@ async function main() {
     try {
       execSync(
         `docker compose -f "${composePath}" -p "${projectName}" up -d`,
-        { stdio: "pipe" },
+        {
+          stdio: "pipe",
+          env: {
+            ...process.env,
+            ...envData,
+            POSTGRES_PORT: String(targetDbPort),
+            REDIS_PORT: String(targetRedisPort),
+          },
+        },
       );
-      logSuccess(`Docker containers started under project: ${projectName}`);
-    } catch (err: any) {
-      logError(`Failed to start Docker Compose: ${err.message}`);
+      logSuccess(`Docker containers started under project: ${projectName} (PostgreSQL: ${targetDbPort}, Redis: ${targetRedisPort})`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logError(`Failed to start Docker Compose: ${msg}`);
       process.exit(1);
     }
 
     // Wait for PostgreSQL & Redis
-    const pgReady = await waitForPort(5432, "PostgreSQL", "127.0.0.1", 30000);
-    const redisReady = await waitForPort(6379, "Redis", "127.0.0.1", 20000);
+    const pgReady = await waitForPort(targetDbPort, "PostgreSQL", "127.0.0.1", 30000);
+    const redisReady = await waitForPort(targetRedisPort, "Redis", "127.0.0.1", 20000);
 
     if (!pgReady || !redisReady) {
       logError("Infrastructure containers did not become ready in time.");
@@ -380,7 +398,8 @@ async function main() {
       const { db: adminDb, close: closeAdmin } = createDbClient(adminUrl.toString());
       try {
         const checkResult = await adminDb.execute(sql`SELECT 1 FROM pg_database WHERE datname = ${targetDbName}`);
-        if (!checkResult || (checkResult as any).rowCount === 0 || ((checkResult as any).rows && (checkResult as any).rows.length === 0)) {
+        const count = "rowCount" in checkResult ? Number(checkResult.rowCount) : ("rows" in checkResult && Array.isArray(checkResult.rows) ? checkResult.rows.length : 0);
+        if (count === 0) {
           await adminDb.execute(sql.raw(`CREATE DATABASE "${targetDbName}"`));
           logSuccess(`Created isolated local database: ${targetDbName}`);
         }
@@ -400,8 +419,9 @@ async function main() {
       env: { ...process.env, ...envData },
     });
     logSuccess("All database migrations applied successfully");
-  } catch (err: any) {
-    logError(`Database migrations failed: ${err.message}`);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logError(`Database migrations failed: ${msg}`);
     process.exit(1);
   }
 
@@ -416,8 +436,9 @@ async function main() {
       env: { ...process.env, ...envData },
     });
     logSuccess("Baseline courses and learning content seeded");
-  } catch (err: any) {
-    logWarn(`Baseline seed notice: ${err.message}`);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logWarn(`Baseline seed notice: ${msg}`);
   }
 
   // Worker User & Workspace Seed
@@ -432,8 +453,9 @@ async function main() {
     logSuccess(
       `Worker account created: ${workerSeedResult.email} (Role: content_worker)`,
     );
-  } catch (err: any) {
-    logError(`Failed to seed Worker account: ${err.message}`);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logError(`Failed to seed Worker account: ${msg}`);
     process.exit(1);
   }
 
@@ -442,8 +464,8 @@ async function main() {
   // ---------------------------------------------------------------------------
   logInfo("Step 8/8: Performing final health verifications...");
 
-  const pgOk = await isPortReachable(5432);
-  const redisOk = await isPortReachable(6379);
+  const pgOk = await isPortReachable(targetDbPort);
+  const redisOk = await isPortReachable(targetRedisPort);
 
   if (pgOk && redisOk) {
     logSuccess("All infrastructure health checks passed");

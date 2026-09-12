@@ -282,20 +282,45 @@ function toStudySessionRecord(row: {
 export class DrizzleFlashcardStore implements FlashcardStore {
   constructor(private readonly db: DbClient) {}
 
-  async findByIdForOrganization(
-    id: FlashcardId,
-    organizationId: OrganizationId,
-  ): Promise<FlashcardRecord | undefined> {
+  async findById(id: FlashcardId): Promise<FlashcardRecord | undefined> {
     const row = await this.db
       .select()
       .from(flashcards)
-      .where(
-        and(
-          eq(flashcards.id, id),
-          eq(flashcards.organizationId, organizationId),
-          isNull(flashcards.deletedAt),
-        ),
-      )
+      .where(and(eq(flashcards.id, id), isNull(flashcards.deletedAt)))
+      .limit(1)
+      .then((rows) => rows[0]);
+
+    if (!row) return undefined;
+    return toFlashcardRecord(row);
+  }
+
+  async findByIdForOrganization(
+    id: FlashcardId,
+    organizationId?: OrganizationId,
+    systemOrganizationId?: OrganizationId,
+  ): Promise<FlashcardRecord | undefined> {
+    const conditions = [
+      eq(flashcards.id, id),
+      isNull(flashcards.deletedAt),
+    ];
+
+    if (organizationId) {
+      if (systemOrganizationId && systemOrganizationId !== organizationId) {
+        conditions.push(
+          or(
+            eq(flashcards.organizationId, organizationId),
+            eq(flashcards.organizationId, systemOrganizationId),
+          )!,
+        );
+      } else {
+        conditions.push(eq(flashcards.organizationId, organizationId));
+      }
+    }
+
+    const row = await this.db
+      .select()
+      .from(flashcards)
+      .where(and(...conditions))
       .limit(1)
       .then((rows) => rows[0]);
 

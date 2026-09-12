@@ -31,6 +31,8 @@ import {
 import { GenerationService } from "@avana/api/generation/generation-service";
 import { DrizzleAuditStore } from "@avana/api/observability/drizzle-stores";
 import { AuditService } from "@avana/api/observability/audit-service";
+import { DrizzleNotificationStore } from "@avana/api/notifications/drizzle-stores";
+import { NotificationService } from "@avana/api/notifications/notification-service";
 import type { WorkerConfig } from "./config.js";
 
 export interface WorkerDependencies {
@@ -117,6 +119,10 @@ export async function composeWorker(
     generationChunkStore,
     generationJobStore,
   );
+
+  const notificationStore = new DrizzleNotificationStore(db);
+  const notificationService = new NotificationService(notificationStore);
+  generationService.setNotificationService(notificationService);
 
   return {
     generationService,

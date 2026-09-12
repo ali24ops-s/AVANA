@@ -3,6 +3,9 @@ import {
   isInternalIdentifier,
   extractCleanTitles,
   formatExamDisplayTitle,
+  cleanChapterTitle,
+  formatSpecialExamTitle,
+  formatSpecialExamDescription,
 } from "../lib/utils/exam-title-formatter.js";
 
 describe("exam-title-formatter utility", () => {
@@ -117,6 +120,48 @@ describe("exam-title-formatter utility", () => {
       expect(extractCleanTitles("")).toEqual([]);
       expect(formatExamDisplayTitle(null)).toBe("آزمون جامع");
       expect(formatExamDisplayTitle(undefined)).toBe("آزمون جامع");
+    });
+  });
+
+  describe("Special Exam Normalization (cleanChapterTitle & formatSpecialExamTitle)", () => {
+    it("cleans chapter titles with leading 'فصل:'", () => {
+      expect(cleanChapterTitle("فصل: هورمون‌های جنسی و مهارکننده‌ها")).toBe(
+        "هورمون‌های جنسی و مهارکننده‌ها",
+      );
+      expect(cleanChapterTitle("فصل: فصل: هورمون‌های جنسی")).toBe("هورمون‌های جنسی");
+    });
+
+    it("normalizes 'فصل: فصل:' into a single 'آزمون فصل:'", () => {
+      const polluted =
+        "آزمون فصل: فصل: هورمون‌های جنسی و مهارکننده‌ها (Gonadal Hormones & Inhibitors)";
+      expect(formatSpecialExamTitle(polluted)).toBe(
+        "آزمون فصل: هورمون‌های جنسی و مهارکننده‌ها (Gonadal Hormones & Inhibitors)",
+      );
+    });
+
+    it("normalizes raw chapter title without 'آزمون فصل:' into 'آزمون فصل: [نام فصل]'", () => {
+      const raw = "فصل: هورمون‌های جنسی و مهارکننده‌ها (Gonadal Hormones & Inhibitors)";
+      expect(formatSpecialExamTitle(raw)).toBe(
+        "آزمون فصل: هورمون‌های جنسی و مهارکننده‌ها (Gonadal Hormones & Inhibitors)",
+      );
+    });
+
+    it("preserves comprehensive exams without 'فصل:' prefix", () => {
+      expect(formatSpecialExamTitle("آزمون جامع: فارماکولوژی ۱")).toBe(
+        "آزمون جامع: فارماکولوژی ۱",
+      );
+      expect(formatSpecialExamTitle("آزمون ویژه جامع فارماکولوژی")).toBe(
+        "آزمون ویژه جامع فارماکولوژی",
+      );
+    });
+
+    it("generates concise, non-repetitive descriptions for special exams", () => {
+      expect(formatSpecialExamDescription("some raw repetitive description", 25)).toBe(
+        "آزمون شبیه‌ساز و تخصصی ۲۵ سؤالی از مباحث این فصل",
+      );
+      expect(formatSpecialExamDescription(null, 80, true)).toBe(
+        "آزمون شبیه‌ساز و تخصصی ۸۰ سؤالی از کلیه مباحث این دوره",
+      );
     });
   });
 });

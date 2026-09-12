@@ -132,6 +132,18 @@ export const semanticColors = {
       brand: figmaColors.teal,
       focus: figmaColors.teal,
     },
+    highlight: {
+      bg: "rgba(0, 128, 128, 0.16)",
+      border: figmaColors.teal,
+      text: figmaColors.tealDark,
+      hover: "rgba(0, 128, 128, 0.24)",
+    },
+    note: {
+      bg: "rgba(167, 208, 230, 0.25)",
+      border: figmaColors.blueDark,
+      text: figmaColors.text,
+      badge: figmaColors.blueDark,
+    },
   },
   dark: {
     bg: {
@@ -157,6 +169,18 @@ export const semanticColors = {
       subtle: "#142528",
       brand: figmaColors.teal,
       focus: figmaColors.tealLight,
+    },
+    highlight: {
+      bg: "rgba(45, 212, 191, 0.22)",
+      border: "#2dd4bf",
+      text: "#5eead4",
+      hover: "rgba(45, 212, 191, 0.32)",
+    },
+    note: {
+      bg: "rgba(91, 160, 196, 0.22)",
+      border: "#7bbfdf",
+      text: figmaColors.darkText,
+      badge: "#7bbfdf",
     },
   },
   feedback: {

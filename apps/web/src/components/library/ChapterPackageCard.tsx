@@ -176,7 +176,7 @@ export function ChapterPackageCard({
 
         {/* Free Preview Explanatory Notice */}
         {!hasAccess && packageItem.preview?.hasPreview && (
-          <div className="mb-3 rounded-button border border-sky-500/20 bg-sky-500/5 p-2 text-[11px] text-sky-700 dark:text-sky-300">
+          <div className="mb-3 rounded-[10px] border border-sky-500/20 bg-sky-500/5 p-2 text-[11px] text-sky-700 dark:text-sky-300">
             این محتوا پولی است، اما برای آشنایی یک بخش از آن رایگان است.
           </div>
         )}
@@ -187,16 +187,16 @@ export function ChapterPackageCard({
           {contents.lesson.exists && (
             <div
               data-testid="item-lesson"
-              className="flex items-center justify-between p-2 rounded-button bg-blue-500/10 border border-blue-500/20 text-xs text-blue-700 dark:text-blue-200"
+              className="flex items-center justify-between p-2 rounded-[10px] bg-[#e8f4fb] border border-[#a7d0e6] text-xs text-[#2b6d8f]"
             >
               <div className="flex items-center gap-2 min-w-0">
-                <BookOpen className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                <BookOpen className="w-3.5 h-3.5 text-[#5ba0c4] shrink-0" />
                 <span className="truncate">
                   درسنامه {contents.lesson.count > 1 ? `(${contents.lesson.count} جلسه)` : ""}
                 </span>
               </div>
               {!hasAccess && packageItem.preview?.lesson?.available && (
-                <span className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold bg-sky-500/20 text-sky-700 dark:text-sky-300">
+                <span className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#a7d0e6]/40 text-[#2b6d8f]">
                   پیش‌نمایش رایگان
                 </span>
               )}
@@ -207,9 +207,9 @@ export function ChapterPackageCard({
           {contents.summary.exists && (
             <div
               data-testid="item-summary"
-              className="flex items-center gap-2 p-2 rounded-button bg-cyan-500/10 border border-cyan-500/20 text-xs text-cyan-700 dark:text-cyan-200"
+              className="flex items-center gap-2 p-2 rounded-[10px] bg-[#e0f2f2] border border-[#b3d9d9] text-xs text-[#006666]"
             >
-              <FileText className="w-3.5 h-3.5 text-cyan-500 shrink-0" />
+              <FileText className="w-3.5 h-3.5 text-[#008080] shrink-0" />
               <span className="truncate">خلاصه نکات کلیدی</span>
             </div>
           )}
@@ -218,14 +218,14 @@ export function ChapterPackageCard({
           {contents.flashcards.exists && (
             <div
               data-testid="item-flashcards"
-              className="flex items-center justify-between p-2 rounded-button bg-amber-500/10 border border-amber-500/20 text-xs text-amber-700 dark:text-amber-200"
+              className="flex items-center justify-between p-2 rounded-[10px] bg-[#fdf2e4] border border-[#e8c18a] text-xs text-[#8f5e27]"
             >
               <div className="flex items-center gap-2 min-w-0">
                 <Layers className="w-3.5 h-3.5 text-amber-500 shrink-0" />
                 <span className="truncate">{stats.flashcardCount} فلش‌کارت</span>
               </div>
               {!hasAccess && packageItem.preview?.flashcards?.available && (
-                <span className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-700 dark:text-amber-300">
+                <span className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#e8c18a]/40 text-[#8f5e27]">
                   پیش‌نمایش رایگان (۵ کارت)
                 </span>
               )}
@@ -236,14 +236,14 @@ export function ChapterPackageCard({
           {contents.quiz.exists && (
             <div
               data-testid="item-quiz"
-              className="flex items-center justify-between p-2 rounded-button bg-purple-500/10 border border-purple-500/20 text-xs text-purple-700 dark:text-purple-200"
+              className="flex items-center justify-between p-2 rounded-[10px] bg-[#f3e8ff] border border-[#d8b4fe] text-xs text-[#7c3aed]"
             >
               <div className="flex items-center gap-2 min-w-0">
                 <HelpCircle className="w-3.5 h-3.5 text-purple-500 shrink-0" />
                 <span className="truncate">{stats.quizQuestionCount} سوال آزمون</span>
               </div>
               {!hasAccess && packageItem.preview?.quiz?.available && (
-                <span className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-500/20 text-purple-700 dark:text-purple-300">
+                <span className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#d8b4fe]/40 text-[#7c3aed]">
                   پیش‌نمایش رایگان
                 </span>
               )}
@@ -269,6 +269,7 @@ export function ChapterPackageCard({
               data-testid={`btn-view-package-${packageItem.id}`}
               onClick={() => onView(packageItem)}
               leftIcon={<Eye className="w-3.5 h-3.5" />}
+              className="rounded-[10px]"
             >
               مشاهده بسته
             </Button>
@@ -280,6 +281,7 @@ export function ChapterPackageCard({
               data-testid={`btn-view-package-${packageItem.id}`}
               onClick={() => onView(packageItem)}
               leftIcon={<Eye className="w-3.5 h-3.5" />}
+              className="rounded-[10px]"
             >
               مشاهده بسته
             </Button>
@@ -290,6 +292,7 @@ export function ChapterPackageCard({
               data-testid={`btn-buy-package-${packageItem.id}`}
               onClick={() => onBuy(packageItem)}
               leftIcon={<ShoppingBag className="w-3.5 h-3.5" />}
+              className="rounded-[10px]"
             >
               خرید بسته
             </Button>

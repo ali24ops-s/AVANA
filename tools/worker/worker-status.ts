@@ -78,6 +78,26 @@ async function main() {
   const apiPort = Number(envData.AVANA_API_PORT || 3000);
   const webPort = 5173;
 
+  let dbPort = Number(envData.DATABASE_PORT || 55432);
+  if (envData.DATABASE_URL) {
+    try {
+      const parsed = new URL(envData.DATABASE_URL);
+      if (parsed.port) dbPort = Number(parsed.port);
+    } catch {
+      // ignore parse error
+    }
+  }
+
+  let redisPort = Number(envData.REDIS_PORT || 56379);
+  if (envData.REDIS_URL) {
+    try {
+      const parsed = new URL(envData.REDIS_URL);
+      if (parsed.port) redisPort = Number(parsed.port);
+    } catch {
+      // ignore parse error
+    }
+  }
+
   process.stdout.write(`  ${BOLD}Worker ID:${RESET}         ${CYAN}${workerId}${RESET}\n`);
   process.stdout.write(`  ${BOLD}AI Provider:${RESET}       ${envData.AI_PRIMARY_PROVIDER || "gemini"} (fallback: ${envData.AI_ENABLE_FALLBACK || "false"})\n`);
   process.stdout.write(`  ${BOLD}Database URL:${RESET}      ${envData.DATABASE_URL || "not set"}\n`);
@@ -88,8 +108,8 @@ async function main() {
 
   // Probe ports and endpoints
   const [pgUp, redisUp, apiCheck, webCheck] = await Promise.all([
-    checkTcpPort(5432),
-    checkTcpPort(6379),
+    checkTcpPort(dbPort),
+    checkTcpPort(redisPort),
     checkHttpEndpoint(`http://127.0.0.1:${apiPort}/v1/health`),
     checkHttpEndpoint(`http://127.0.0.1:${webPort}`),
   ]);
@@ -106,8 +126,8 @@ async function main() {
     );
   };
 
-  printRow("PostgreSQL", "5432", pgUp, pgUp ? "Ready on 127.0.0.1:5432" : "Port closed");
-  printRow("Redis", "6379", redisUp, redisUp ? "Ready on 127.0.0.1:6379" : "Port closed");
+  printRow("PostgreSQL", String(dbPort), pgUp, pgUp ? `Ready on 127.0.0.1:${dbPort}` : "Port closed");
+  printRow("Redis", String(redisPort), redisUp, redisUp ? `Ready on 127.0.0.1:${redisPort}` : "Port closed");
   printRow(
     "AVANA API",
     String(apiPort),

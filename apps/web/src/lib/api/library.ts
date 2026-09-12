@@ -36,7 +36,7 @@ export interface ListPacksParams {
 
 export interface ListLibraryResourcesParams {
   q?: string;
-  type?: "all" | "courses" | "contents";
+  type?: "all" | "courses" | "contents" | "special_exams";
   subject?: string;
   sort?: "popular" | "newest";
   page?: number;
@@ -59,6 +59,36 @@ export interface LibraryCourseItem {
   purchase?: ResourcePurchaseSummary;
   preview?: import("@avana/domain").ContentPreviewMetadata;
   href: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LibrarySpecialExamItem {
+  id: string;
+  productId: string;
+  code: string;
+  title: string;
+  description: string | null;
+  question_count: number;
+  difficulty: string | null;
+  scope?: {
+    courseId?: string;
+    moduleId?: string;
+    lessonId?: string;
+    topics?: string[];
+  } | null;
+  blueprint?: Array<{
+    name: string;
+    topic?: string;
+    moduleId?: string;
+    lessonId?: string;
+    difficulty?: string;
+    count: number;
+  }>;
+  price: number;
+  currency: string;
+  access?: ResourceAccessSummary;
+  purchase?: ResourcePurchaseSummary;
   created_at: string;
   updated_at: string;
 }
@@ -87,11 +117,13 @@ export interface LibraryResourcesResponse {
   request_id: string;
   courses: LibraryCourseItem[];
   contents: LibraryContentItem[];
+  special_exams?: LibrarySpecialExamItem[];
   pagination: {
     page: number;
     limit: number;
     total_courses: number;
     total_contents: number;
+    total_special_exams?: number;
   };
 }
 

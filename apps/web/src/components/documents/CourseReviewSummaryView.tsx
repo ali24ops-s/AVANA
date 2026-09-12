@@ -5,6 +5,7 @@ import { Card, Button } from "@avana/ui";
 import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
 import { createDocumentsApi } from "../../lib/api/documents.js";
 import { ReviewSummaryViewer } from "./ReviewSummaryViewer.js";
+import { cleanEducationalTitle } from "@avana/domain";
 
 export interface CourseReviewSummaryViewProps {
   organizationId: string;
@@ -39,13 +40,16 @@ export function CourseReviewSummaryView({
     enabled: modulesWithDocs.length === 0,
   });
 
-  const documents: Array<{ id: string; original_name: string }> =
+  const documents: Array<{ id: string; title: string }> =
     modulesWithDocs.length > 0
       ? modulesWithDocs.map((m) => ({
           id: m.document_id,
-          original_name: m.title,
+          title: cleanEducationalTitle(m.title, "سرفصل آموزشی"),
         }))
-      : (docsQuery.data ?? []);
+      : (docsQuery.data ?? []).map((d) => ({
+          id: d.id,
+          title: cleanEducationalTitle(d.original_name, "سرفصل آموزشی"),
+        }));
 
   const activeDocument =
     documents.find((d) => d.id === selectedDocId) ?? documents[0] ?? null;
@@ -90,11 +94,11 @@ export function CourseReviewSummaryView({
         <Card className="p-4 flex flex-wrap items-center justify-between gap-3 shadow-xs">
           <div className="flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
             <FileText className="w-4 h-4 text-[var(--color-primary)]" />
-            <span className="font-bold text-[var(--color-text)]">انتخاب فایل آموزشی:</span>
+            <span className="font-bold text-[var(--color-text)]">انتخاب مبحث آموزشی:</span>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {documents.map((doc: { id: string; original_name: string }) => {
+            {documents.map((doc: { id: string; title: string }) => {
               const isSelected = activeDocument?.id === doc.id;
               return (
                 <Button
@@ -105,7 +109,7 @@ export function CourseReviewSummaryView({
                   leftIcon={<FileText className="w-3.5 h-3.5" />}
                   className="font-bold"
                 >
-                  <span className="max-w-[200px] truncate">{doc.original_name}</span>
+                  <span className="max-w-[200px] truncate">{doc.title}</span>
                 </Button>
               );
             })}
@@ -120,7 +124,7 @@ export function CourseReviewSummaryView({
           organizationId={organizationId}
           documentId={activeDocument.id}
           courseId={courseId}
-          documentTitle={activeDocument.original_name}
+          documentTitle={activeDocument.title}
           onNavigateToFlashcards={onNavigateToFlashcards}
           onNavigateToQuiz={onNavigateToQuiz}
         />

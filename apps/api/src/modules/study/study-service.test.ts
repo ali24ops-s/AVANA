@@ -967,4 +967,295 @@ describe("StudyService", () => {
       expect(schedule?.reviewCount).toBe(2);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Question to Lesson Hierarchy Resolution
+  // -------------------------------------------------------------------------
+
+  describe("Question to Lesson Hierarchy Resolution", () => {
+    it("resolves Lesson -> Chapter (Module) -> Course hierarchy when questions have lesson_id", async () => {
+      const moduleId = randomUUID() as ModuleId;
+      const lessonId = randomUUID() as LessonId;
+      const now = new Date().toISOString();
+
+      moduleStore.insert({
+        id: moduleId,
+        courseId,
+        title: "فارماکوکینتیک",
+        description: "فصل مبانی فارماکوکینتیک",
+        sortOrder: 1,
+        documentId: null,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      });
+
+      lessonStore.insert({
+        id: lessonId,
+        moduleId,
+        title: "جذب داروها",
+        content: "متن درس جذب داروها",
+        sortOrder: 1,
+        documentChunkId: null,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      });
+
+      const quiz = seedQuiz();
+      const questionId = randomUUID() as QuizQuestionId;
+      const question: QuizQuestionRecord = {
+        id: questionId,
+        quizId: quiz.id,
+        lessonId,
+        generatedContentId: null,
+        question: "عوامل موثر بر جذب دارو کدامند؟",
+        questionType: "multiple_choice",
+        choices: ["pH محیط", "حلالیت چربی", "هر دو مورد"],
+        correctAnswer: "هر دو مورد",
+        explanation: "هر دو فاکتور اثرگذارند.",
+        sortOrder: 1,
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      await quizQuestionStore.createMany([question]);
+      quizStore.setQuestionsForQuiz(quiz.id, [question]);
+
+      const result = await service.getQuizForAttempt(student, organizationId, quiz.id);
+
+      expect(result).toBeDefined();
+      expect(result.questions).toHaveLength(1);
+
+      const q = result.questions[0]!;
+      expect(q.lessonId).toBe(lessonId);
+      expect(q.lesson).toEqual({
+        id: lessonId,
+        title: "جذب داروها",
+      });
+      expect(q.chapter).toEqual({
+        id: moduleId,
+        title: "فارماکوکینتیک",
+      });
+    });
+
+    it("handles questions with null lesson_id gracefully with null hierarchy", async () => {
+      const quiz = seedQuiz();
+      const questionId = randomUUID() as QuizQuestionId;
+      const now = new Date().toISOString();
+      const question: QuizQuestionRecord = {
+        id: questionId,
+        quizId: quiz.id,
+        lessonId: null,
+        generatedContentId: null,
+        question: "سوال بدون درس آزمایشی؟",
+        questionType: "multiple_choice",
+        choices: ["الف", "ب"],
+        correctAnswer: "الف",
+        explanation: "توضیح سوال",
+        sortOrder: 1,
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      await quizQuestionStore.createMany([question]);
+      quizStore.setQuestionsForQuiz(quiz.id, [question]);
+
+      const result = await service.getQuizForAttempt(student, organizationId, quiz.id);
+      expect(result.questions).toHaveLength(1);
+
+      const q = result.questions[0]!;
+      expect(q.lessonId ?? null).toBeNull();
+      expect(q.lesson).toBeNull();
+      expect(q.chapter).toBeNull();
+    });
+
+    it("batch resolves questions across multiple distinct lessons and modules", async () => {
+      const mod1 = randomUUID() as ModuleId;
+      const mod2 = randomUUID() as ModuleId;
+      const les1 = randomUUID() as LessonId;
+      const les2 = randomUUID() as LessonId;
+      const now = new Date().toISOString();
+
+      moduleStore.insert({
+        id: mod1,
+        courseId,
+        title: "فارماکولوژی عروق",
+        description: null,
+        sortOrder: 1,
+        documentId: null,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      });
+      moduleStore.insert({
+        id: mod2,
+        courseId,
+        title: "فارماکولوژی اعصاب",
+        description: null,
+        sortOrder: 2,
+        documentId: null,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      });
+
+      lessonStore.insert({
+        id: les1,
+        moduleId: mod1,
+        title: "مهارکننده‌های رنین",
+        content: "درس ۱",
+        sortOrder: 1,
+        documentChunkId: null,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      });
+      lessonStore.insert({
+        id: les2,
+        moduleId: mod2,
+        title: "آگونیست‌های دوپامین",
+        content: "درس ۲",
+        sortOrder: 1,
+        documentChunkId: null,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      });
+
+      const quiz = seedQuiz();
+      const q1: QuizQuestionRecord = {
+        id: randomUUID() as QuizQuestionId,
+        quizId: quiz.id,
+        lessonId: les1,
+        generatedContentId: null,
+        question: "سوال ۱",
+        questionType: "multiple_choice",
+        choices: ["الف", "ب"],
+        correctAnswer: "الف",
+        explanation: null,
+        sortOrder: 1,
+        createdAt: now,
+        updatedAt: now,
+      };
+      const q2: QuizQuestionRecord = {
+        id: randomUUID() as QuizQuestionId,
+        quizId: quiz.id,
+        lessonId: les2,
+        generatedContentId: null,
+        question: "سوال ۲",
+        questionType: "multiple_choice",
+        choices: ["ج", "د"],
+        correctAnswer: "ج",
+        explanation: null,
+        sortOrder: 2,
+        createdAt: now,
+        updatedAt: now,
+      };
+      const q3: QuizQuestionRecord = {
+        id: randomUUID() as QuizQuestionId,
+        quizId: quiz.id,
+        lessonId: null,
+        generatedContentId: null,
+        question: "سوال ۳ بدون درس",
+        questionType: "multiple_choice",
+        choices: ["هـ", "و"],
+        correctAnswer: "هـ",
+        explanation: null,
+        sortOrder: 3,
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      await quizQuestionStore.createMany([q1, q2, q3]);
+      quizStore.setQuestionsForQuiz(quiz.id, [q1, q2, q3]);
+
+      const result = await service.getQuizForAttempt(student, organizationId, quiz.id);
+      expect(result.questions).toHaveLength(3);
+
+      expect(result.questions[0]!.lesson?.title).toBe("مهارکننده‌های رنین");
+      expect(result.questions[0]!.chapter?.title).toBe("فارماکولوژی عروق");
+
+      expect(result.questions[1]!.lesson?.title).toBe("آگونیست‌های دوپامین");
+      expect(result.questions[1]!.chapter?.title).toBe("فارماکولوژی اعصاب");
+
+      expect(result.questions[2]!.lesson).toBeNull();
+      expect(result.questions[2]!.chapter).toBeNull();
+    });
+
+    it("preserves hierarchy metadata during quiz attempt submission and retrieval", async () => {
+      const moduleId = randomUUID() as ModuleId;
+      const lessonId = randomUUID() as LessonId;
+      const now = new Date().toISOString();
+
+      moduleStore.insert({
+        id: moduleId,
+        courseId,
+        title: "فارماکوکینتیک",
+        description: null,
+        sortOrder: 1,
+        documentId: null,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      });
+
+      lessonStore.insert({
+        id: lessonId,
+        moduleId,
+        title: "توزیع داروها",
+        content: "درس توزیع",
+        sortOrder: 1,
+        documentChunkId: null,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      });
+
+      const quiz = seedQuiz();
+      const question: QuizQuestionRecord = {
+        id: randomUUID() as QuizQuestionId,
+        quizId: quiz.id,
+        lessonId,
+        generatedContentId: null,
+        question: "میزان حجم توزیع چیست؟",
+        questionType: "multiple_choice",
+        choices: ["Vd", "Cl", "AUC"],
+        correctAnswer: "Vd",
+        explanation: "حجم فرضی مایعات بدن",
+        sortOrder: 1,
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      await quizQuestionStore.createMany([question]);
+      quizStore.setQuestionsForQuiz(quiz.id, [question]);
+
+      const submission = await service.submitQuizAttempt(
+        student,
+        organizationId,
+        {
+          quizId: quiz.id,
+          answers: [{ questionId: question.id, answer: "Vd" }],
+        },
+      );
+
+      const attemptResult = await service.getQuizAttempt(
+        student,
+        organizationId,
+        submission.attemptId as QuizAttemptId,
+      );
+
+      expect(attemptResult.questions).toBeDefined();
+      expect(attemptResult.questions).toHaveLength(1);
+      expect(attemptResult.questions[0]!.lesson).toEqual({
+        id: lessonId,
+        title: "توزیع داروها",
+      });
+      expect(attemptResult.questions[0]!.chapter).toEqual({
+        id: moduleId,
+        title: "فارماکوکینتیک",
+      });
+    });
+  });
 });

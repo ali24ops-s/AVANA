@@ -221,7 +221,6 @@ export const PricingModal: React.FC<PricingModalProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  setPaymentMethod("card_to_card");
                   setFormError(null);
                 }}
                 className="flex-1 py-2.5 px-3 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center justify-center gap-2 cursor-pointer bg-[var(--color-surface)] text-[#008080] shadow-sm border border-[var(--color-border)]"

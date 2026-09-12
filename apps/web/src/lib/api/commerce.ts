@@ -5,7 +5,7 @@
 export type ProductDto = {
   id: string;
   code: string;
-  type: "subscription" | "content_pack" | "course";
+  type: "subscription" | "content_pack" | "course" | "content" | "special_exam";
   title: string;
   description: string | null;
   price: number;
@@ -169,6 +169,8 @@ export type CardToCardSubmissionResponse = {
   orderId: string;
   paymentId: string;
   subscriptionId: string;
+  attemptId?: string;
+  attempt_id?: string;
   status: string;
   subscriptionStatus: string;
   message: string;

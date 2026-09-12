@@ -18,6 +18,7 @@ export function ExamsPage() {
   const { memberships, isLoading: isAuthLoading } = useAuth();
 
   const [resultData, setResultData] = useState<ExamResultViewProps["result"] | null>(null);
+  const [isRetrying, setIsRetrying] = useState(false);
 
   const apiClient = createApiClient({ baseUrl: getApiBaseUrl() });
   const orgApi = createOrganizationApi(apiClient);
@@ -80,9 +81,24 @@ export function ExamsPage() {
     attemptQuery.refetch();
   };
 
-  const handleRetry = () => {
-    setResultData(null);
-    navigate("/exams");
+  const handleRetry = async () => {
+    if (!organizationId || !attemptId) {
+      setResultData(null);
+      navigate("/exams");
+      return;
+    }
+    try {
+      setIsRetrying(true);
+      const res = await studyApi.retakeExamAttempt(organizationId, attemptId);
+      setResultData(null);
+      navigate(`/exams/attempt/${res.attemptId}`);
+    } catch (err: unknown) {
+      console.error("Failed to retake exam attempt", err);
+      setResultData(null);
+      navigate("/exams");
+    } finally {
+      setIsRetrying(false);
+    }
   };
 
   const handleReturnToConfig = () => {
@@ -146,10 +162,22 @@ export function ExamsPage() {
             result={activeResult}
             onRetry={handleRetry}
             onReturnToConfig={handleReturnToConfig}
+            isRetrying={isRetrying}
           />
         </div>
       );
     }
+
+    const metrics = (attempt.metrics ?? {}) as Record<string, unknown>;
+    const timeLimitMinutes =
+      (attempt as { timeLimitMinutes?: number }).timeLimitMinutes ??
+      (typeof metrics.timeLimitMinutes === "number" ? metrics.timeLimitMinutes : null) ??
+      (typeof metrics.durationMinutes === "number" ? metrics.durationMinutes : null);
+
+    const initialElapsedSeconds =
+      typeof metrics.elapsedSeconds === "number"
+        ? metrics.elapsedSeconds
+        : undefined;
 
     // Render ExamTakingView for active attempt
     return (
@@ -159,6 +187,8 @@ export function ExamsPage() {
         questions={questions}
         initialAnswers={attempt.answers as Record<string, unknown>}
         startedAt={attempt.startedAt}
+        initialElapsedSeconds={initialElapsedSeconds}
+        timeLimitMinutes={timeLimitMinutes}
         topicName={attempt.topic || undefined}
         coverage={coverage}
         onExit={handleReturnToConfig}
