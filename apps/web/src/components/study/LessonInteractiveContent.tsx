@@ -8,7 +8,7 @@
  * - 5 contextual actions: Ask Avana, Explain Simply, Highlight, Note, Report Issue
  */
 
-import React, { useRef, useState, useEffect, useCallback } from "react";
+import React, { useRef, useState, useEffect, useLayoutEffect, useCallback } from "react";
 import { MarkdownRenderer } from "../markdown/MarkdownRenderer.js";
 import { useTextSelection, type TextSelectionData } from "../../hooks/useTextSelection.js";
 import { useLessonAnnotations } from "../../hooks/useLessonAnnotations.js";
@@ -51,6 +51,8 @@ export function LessonInteractiveContent({
     deleteAnnotationAsync,
     createReportAsync,
     isCreating,
+    isUpdating,
+    isDeleting,
   } = useLessonAnnotations(lessonId);
 
   // Active dialog states
@@ -60,6 +62,9 @@ export function LessonInteractiveContent({
   const [isReportOpen, setIsReportOpen] = useState(false);
   const [selectedAnnotation, setSelectedAnnotation] = useState<LessonAnnotationResource | null>(null);
   const [activeSelectionForModal, setActiveSelectionForModal] = useState<TextSelectionData | null>(null);
+
+  const isAnyDialogOpen =
+    isAskAvanaOpen || isExplainOpen || isNoteOpen || isReportOpen;
 
   // Handlers from toolbar
   const handleAskAvana = (sel: TextSelectionData) => {
@@ -74,7 +79,12 @@ export function LessonInteractiveContent({
 
   const handleHighlight = async (sel: TextSelectionData) => {
     try {
-      await createAnnotationAsync({
+      console.log("[annotation-create-request]", {
+        selectedText: sel.selectedText,
+        startOffset: sel.startOffset,
+        endOffset: sel.endOffset,
+      });
+      const res = await createAnnotationAsync({
         type: "highlight",
         selectedText: sel.selectedText,
         prefix: sel.prefix,
@@ -83,9 +93,10 @@ export function LessonInteractiveContent({
         endOffset: sel.endOffset,
         color: "default",
       });
+      console.log("[annotation-create-response]", res);
       clearSelection();
-    } catch {
-      // Ignore or let React Query handle error state
+    } catch (err) {
+      console.error("[annotation-create-error]", err);
     }
   };
 
@@ -100,7 +111,7 @@ export function LessonInteractiveContent({
     setIsReportOpen(true);
   };
 
-  // Restore highlights and notes in the DOM
+  // Restore highlights and notes in the DOM with resilient multi-node anchoring
   const applyAnnotationsToDOM = useCallback(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -110,6 +121,7 @@ export function LessonInteractiveContent({
     existingMarks.forEach((mark) => {
       const parent = mark.parentNode;
       if (parent) {
+        console.log("[mark-removed]", { id: mark.getAttribute("data-avana-annotation") });
         while (mark.firstChild) {
           parent.insertBefore(mark.firstChild, mark);
         }
@@ -118,70 +130,185 @@ export function LessonInteractiveContent({
       }
     });
 
+    console.log("[apply-annotations]", { count: annotations.length, annotations });
     if (!annotations || annotations.length === 0) return;
 
-    // 2. Iterate through annotations and highlight matching text nodes
-    for (const ann of annotations) {
-      const targetText = ann.selectedText.trim();
-      if (!targetText) continue;
-
+    // Helper: collect content text nodes and build character index map
+    const getTextNodeEntries = () => {
       const walker = document.createTreeWalker(
         container,
         NodeFilter.SHOW_TEXT,
-        {
-          acceptNode: (node) => {
-            const parent = node.parentElement;
-            // Skip code blocks, pre, and script tags
-            if (parent && ["PRE", "CODE", "SCRIPT", "STYLE"].includes(parent.tagName)) {
-              return NodeFilter.FILTER_REJECT;
-            }
-            return NodeFilter.FILTER_ACCEPT;
-          },
-        },
+        null,
       );
 
-      let textNode = walker.nextNode();
-      let matched = false;
+      const entries: Array<{ node: Text; start: number; end: number }> = [];
+      let currentOffset = 0;
+      let currentNode = walker.nextNode() as Text | null;
 
-      while (textNode && !matched) {
-        const nodeVal = textNode.nodeValue || "";
-        const index = nodeVal.indexOf(targetText);
+      while (currentNode) {
+        const parent = currentNode.parentElement;
+        if (parent && ["PRE", "CODE", "SCRIPT", "STYLE"].includes(parent.tagName)) {
+          currentNode = walker.nextNode() as Text | null;
+          continue;
+        }
+        const len = currentNode.textContent?.length || 0;
+        entries.push({
+          node: currentNode,
+          start: currentOffset,
+          end: currentOffset + len,
+        });
+        currentOffset += len;
+        currentNode = walker.nextNode() as Text | null;
+      }
 
-        if (index !== -1) {
-          try {
-            const range = document.createRange();
-            range.setStart(textNode, index);
-            range.setEnd(textNode, index + targetText.length);
+      const fullContentText = entries.map((e) => e.node.textContent || "").join("");
+      return { entries, fullContentText };
+    };
 
-            const mark = document.createElement("mark");
-            mark.setAttribute("data-avana-annotation", ann.id);
-            mark.setAttribute("data-annotation-type", ann.type);
+    // Sort annotations by startOffset descending to safely mutate DOM from bottom to top
+    const sortedAnnotations = [...annotations].sort((a, b) => {
+      const offA = typeof a.startOffset === "number" ? a.startOffset : 0;
+      const offB = typeof b.startOffset === "number" ? b.startOffset : 0;
+      return offB - offA;
+    });
 
-            if (ann.type === "highlight") {
-              mark.className =
-                "avana-highlight bg-[var(--avana-highlight-bg)] text-[var(--color-text)] border-b-2 border-[var(--avana-highlight-border)] rounded-[2px] transition-colors hover:bg-[var(--avana-highlight-hover)] cursor-pointer px-0.5";
-            } else {
-              mark.className =
-                "avana-note bg-[var(--avana-note-bg)] text-[var(--color-text)] border-b-2 border-[var(--avana-note-border)] rounded-[2px] transition-colors cursor-pointer px-0.5 relative";
-            }
+    for (const ann of sortedAnnotations) {
+      const targetText = ann.selectedText;
+      if (!targetText || targetText.trim().length === 0) continue;
 
-            range.surroundContents(mark);
-            matched = true;
-          } catch {
-            // If surroundContents fails due to cross-node boundary, skip gracefully
-            break;
+      const { entries, fullContentText } = getTextNodeEntries();
+      if (!fullContentText || entries.length === 0) continue;
+
+      let matchStart = -1;
+      let matchEnd = -1;
+
+      // Strategy 1: Check direct startOffset / endOffset match
+      if (typeof ann.startOffset === "number") {
+        const directSlice = fullContentText.slice(
+          ann.startOffset,
+          ann.startOffset + targetText.length,
+        );
+        if (directSlice === targetText) {
+          matchStart = ann.startOffset;
+          matchEnd = ann.startOffset + targetText.length;
+        } else if (
+          typeof ann.endOffset === "number" &&
+          fullContentText.slice(ann.startOffset, ann.endOffset) === targetText
+        ) {
+          matchStart = ann.startOffset;
+          matchEnd = ann.endOffset;
+        }
+      }
+
+      // Strategy 2: Prefix + Target + Suffix context anchoring
+      if (matchStart === -1) {
+        if (ann.prefix && ann.suffix) {
+          const contextPattern = ann.prefix + targetText + ann.suffix;
+          const idx = fullContentText.indexOf(contextPattern);
+          if (idx !== -1) {
+            matchStart = idx + ann.prefix.length;
+            matchEnd = matchStart + targetText.length;
           }
         }
-        textNode = walker.nextNode();
+        if (matchStart === -1 && ann.prefix) {
+          const prefPattern = ann.prefix + targetText;
+          const idx = fullContentText.indexOf(prefPattern);
+          if (idx !== -1) {
+            matchStart = idx + ann.prefix.length;
+            matchEnd = matchStart + targetText.length;
+          }
+        }
+        if (matchStart === -1 && ann.suffix) {
+          const suffPattern = targetText + ann.suffix;
+          const idx = fullContentText.indexOf(suffPattern);
+          if (idx !== -1) {
+            matchStart = idx;
+            matchEnd = matchStart + targetText.length;
+          }
+        }
+      }
+
+      // Strategy 3: Target string search with nearest offset proximity
+      if (matchStart === -1) {
+        const searchStr = targetText.trim();
+        let bestIdx = -1;
+        let minDiff = Infinity;
+        let searchFrom = 0;
+
+        while ((searchFrom = fullContentText.indexOf(searchStr, searchFrom)) !== -1) {
+          const diff = Math.abs(searchFrom - (ann.startOffset ?? 0));
+          if (diff < minDiff) {
+            minDiff = diff;
+            bestIdx = searchFrom;
+          }
+          searchFrom += searchStr.length || 1;
+        }
+
+        if (bestIdx !== -1) {
+          matchStart = bestIdx;
+          matchEnd = bestIdx + searchStr.length;
+        }
+      }
+
+      if (matchStart === -1 || matchEnd <= matchStart) continue;
+
+      // Find all text node entries that intersect [matchStart, matchEnd]
+      const intersecting = entries.filter(
+        (e) => e.end > matchStart && e.start < matchEnd,
+      );
+
+      // Wrap each intersecting text node slice safely using native splitText
+      for (const entry of intersecting) {
+        const nodeTextLen = entry.node.textContent?.length || 0;
+        const nodeSliceStart = Math.max(0, matchStart - entry.start);
+        const nodeSliceEnd = Math.min(nodeTextLen, matchEnd - entry.start);
+
+        if (nodeSliceStart >= nodeSliceEnd) continue;
+
+        try {
+          const mark = document.createElement("mark");
+          mark.setAttribute("data-avana-annotation", ann.id);
+          mark.setAttribute("data-annotation-type", ann.type);
+
+          if (ann.type === "highlight") {
+            mark.className = "avana-highlight";
+          } else {
+            mark.className = "avana-note";
+          }
+
+          const parent = entry.node.parentNode;
+          if (!parent) continue;
+
+          let targetNode: Text;
+          if (nodeSliceStart > 0) {
+            targetNode = entry.node.splitText(nodeSliceStart);
+          } else {
+            targetNode = entry.node;
+          }
+
+          const lengthToWrap = nodeSliceEnd - nodeSliceStart;
+          if (targetNode.length > lengthToWrap) {
+            targetNode.splitText(lengthToWrap);
+          }
+
+          parent.insertBefore(mark, targetNode);
+          mark.appendChild(targetNode);
+          console.log("[mark-created]", { id: ann.id, type: ann.type, text: ann.selectedText });
+        } catch {
+          // Gracefully continue on any single node error
+        }
       }
     }
   }, [annotations]);
 
-  useEffect(() => {
-    // Apply highlights after Markdown has rendered
-    const timer = setTimeout(applyAnnotationsToDOM, 50);
-    return () => clearTimeout(timer);
-  }, [annotations, content, applyAnnotationsToDOM]);
+  useLayoutEffect(() => {
+    applyAnnotationsToDOM();
+  });
+
+  const memoizedRenderer = React.useMemo(
+    () => <MarkdownRenderer content={content} enableLessonCallouts />,
+    [content],
+  );
 
   // Click on existing annotation marks
   const handleContainerClick = (e: React.MouseEvent) => {
@@ -213,9 +340,6 @@ export function LessonInteractiveContent({
     }
   };
 
-  const isAnyDialogOpen =
-    isAskAvanaOpen || isExplainOpen || isNoteOpen || isReportOpen;
-
   return (
     <div className={`relative ${className}`}>
       {/* Lesson Content Container */}
@@ -224,7 +348,7 @@ export function LessonInteractiveContent({
         onClick={handleContainerClick}
         className="select-text focus:outline-none"
       >
-        <MarkdownRenderer content={content} enableLessonCallouts />
+        {memoizedRenderer}
       </div>
 
       {/* Floating Selection Toolbar */}
@@ -278,6 +402,7 @@ export function LessonInteractiveContent({
         }}
         selectionData={activeSelectionForModal}
         existingNote={selectedAnnotation}
+        isSaving={isCreating || isUpdating || isDeleting}
         onSave={async (noteText) => {
           if (selectedAnnotation) {
             await updateAnnotationAsync({

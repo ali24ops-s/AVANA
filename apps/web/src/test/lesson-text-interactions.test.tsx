@@ -12,7 +12,7 @@ import type { TextSelectionData } from "../hooks/useTextSelection.js";
 const createTestQueryClient = () =>
   new QueryClient({
     defaultOptions: {
-      queries: { retry: false, gcTime: 0 },
+      queries: { retry: false, gcTime: 60_000 },
       mutations: { retry: false },
     },
   });
@@ -40,6 +40,7 @@ describe("Lesson Text Interaction & Selection Feature Suite", () => {
   let queryClient: QueryClient;
 
   beforeEach(() => {
+    window.innerWidth = 1024;
     queryClient = createTestQueryClient();
     vi.restoreAllMocks();
   });
@@ -422,6 +423,375 @@ describe("Lesson Text Interaction & Selection Feature Suite", () => {
       // Press Escape or Close
       fireEvent.click(screen.getByRole("button", { name: "بستن پنجره" }));
       expect(onClose).toHaveBeenCalled();
+    });
+
+    it("creates highlight immediately and renders mark without requiring page reload", async () => {
+      let createdAnnotation: any = null;
+      vi.spyOn(globalThis, "fetch").mockImplementation((url, opts) => {
+        const urlStr = String(url);
+        if (urlStr.includes("/annotations") && opts?.method === "POST") {
+          const body = opts?.body ? JSON.parse(opts.body as string) : {};
+          createdAnnotation = {
+            id: "ann-new-123",
+            userId: "user-1",
+            lessonId: "lesson-1",
+            type: "highlight",
+            color: "default",
+            ...body,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            text: () => Promise.resolve(JSON.stringify(createdAnnotation)),
+          } as unknown as Response);
+        }
+        if (urlStr.includes("/annotations")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            text: () =>
+              Promise.resolve(
+                JSON.stringify({ items: createdAnnotation ? [createdAnnotation] : [] }),
+              ),
+          } as unknown as Response);
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          text: () => Promise.resolve(JSON.stringify({})),
+        } as unknown as Response);
+      });
+
+      const lessonMarkdown = "# پنی‌سیلین‌ها\n\nاین داروها با مهار ساخت دیواره سلولی باکتری عمل می‌کنند.";
+
+      const { container } = render(
+        <QueryClientProvider client={queryClient}>
+          <LessonInteractiveContent
+            lessonId="lesson-1"
+            courseId="course-1"
+            content={lessonMarkdown}
+          />
+        </QueryClientProvider>,
+      );
+
+      // Simulate text selection in jsdom
+      const p = container.querySelector("p");
+      if (p && p.firstChild) {
+        const range = document.createRange();
+        range.setStart(p.firstChild, 14);
+        range.setEnd(p.firstChild, 36);
+        range.getBoundingClientRect = () =>
+          ({
+            width: 150,
+            height: 20,
+            top: 100,
+            bottom: 120,
+            left: 50,
+            right: 200,
+            x: 50,
+            y: 100,
+            toJSON: () => {},
+          }) as DOMRect;
+        const mockSel = {
+          isCollapsed: false,
+          rangeCount: 1,
+          getRangeAt: () => range,
+          toString: () => "مهار ساخت دیواره سلولی",
+          removeAllRanges: vi.fn(),
+          addRange: vi.fn(),
+        };
+        vi.spyOn(window, "getSelection").mockReturnValue(mockSel as unknown as Selection);
+        document.dispatchEvent(new Event("selectionchange"));
+      }
+
+      // Find Toolbar button and click
+      const toolbarHighlightSpan = await screen.findByText("هایلایت");
+      const button = toolbarHighlightSpan.closest("button") || toolbarHighlightSpan;
+      fireEvent.click(button);
+
+      // Verify highlight is immediately applied in DOM
+      await waitFor(() => {
+        const mark = container.querySelector("mark[data-avana-annotation='ann-new-123']");
+        expect(mark).toBeInTheDocument();
+        expect(mark).toHaveClass("avana-highlight");
+        expect(mark?.textContent).toBe("مهار ساخت دیواره سلولی");
+      });
+    });
+
+    it("restores multiple highlights on complex text (headings, bold, lists) simultaneously", async () => {
+      const mockAnnotations = {
+        items: [
+          {
+            id: "ann-heading",
+            userId: "user-1",
+            lessonId: "lesson-1",
+            type: "highlight",
+            selectedText: "داروشناسی بالینی",
+            startOffset: 0,
+            endOffset: 16,
+            color: "default",
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+          {
+            id: "ann-bold",
+            userId: "user-1",
+            lessonId: "lesson-1",
+            type: "highlight",
+            selectedText: "آمپی‌سیلین",
+            prefix: "داروی ",
+            suffix: " خوراکی است",
+            startOffset: 25,
+            endOffset: 35,
+            color: "default",
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+          {
+            id: "ann-list",
+            userId: "user-1",
+            lessonId: "lesson-1",
+            type: "highlight",
+            selectedText: "حساسیت شدید",
+            prefix: "عوارض: ",
+            suffix: " و راش پوستی",
+            startOffset: 50,
+            endOffset: 61,
+            color: "default",
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+        ],
+      };
+
+      vi.spyOn(globalThis, "fetch").mockImplementation((url) => {
+        const urlStr = String(url);
+        if (urlStr.includes("/annotations")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            text: () => Promise.resolve(JSON.stringify(mockAnnotations)),
+          } as unknown as Response);
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          text: () => Promise.resolve(JSON.stringify({})),
+        } as unknown as Response);
+      });
+
+      const complexMarkdown = `# داروشناسی بالینی\n\nداروی **آمپی‌سیلین** خوراکی است.\n\n* عوارض: حساسیت شدید و راش پوستی`;
+
+      const { container } = render(
+        <QueryClientProvider client={queryClient}>
+          <LessonInteractiveContent
+            lessonId="lesson-1"
+            courseId="course-1"
+            content={complexMarkdown}
+          />
+        </QueryClientProvider>,
+      );
+
+      await waitFor(() => {
+        expect(
+          container.querySelector("mark[data-avana-annotation='ann-heading']"),
+        ).toBeInTheDocument();
+        expect(
+          container.querySelector("mark[data-avana-annotation='ann-bold']"),
+        ).toBeInTheDocument();
+        expect(
+          container.querySelector("mark[data-avana-annotation='ann-list']"),
+        ).toBeInTheDocument();
+      });
+    });
+
+    it("supports clicking highlight and deleting it from DOM", async () => {
+      let annotationsList = [
+        {
+          id: "ann-to-delete",
+          userId: "user-1",
+          lessonId: "lesson-1",
+          type: "highlight" as const,
+          selectedText: "سفالوسپورین‌ها",
+          color: "default",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      ];
+
+      vi.spyOn(globalThis, "fetch").mockImplementation((url, opts) => {
+        const urlStr = String(url);
+        if (urlStr.includes("/annotations/ann-to-delete") && opts?.method === "DELETE") {
+          annotationsList = [];
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            text: () => Promise.resolve(JSON.stringify({ ok: true })),
+          } as unknown as Response);
+        }
+        if (urlStr.includes("/annotations")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            text: () => Promise.resolve(JSON.stringify({ items: annotationsList })),
+          } as unknown as Response);
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          text: () => Promise.resolve(JSON.stringify({})),
+        } as unknown as Response);
+      });
+
+      const lessonMarkdown = "درمان با سفالوسپورین‌ها آغاز شد.";
+
+      const { container } = render(
+        <QueryClientProvider client={queryClient}>
+          <LessonInteractiveContent
+            lessonId="lesson-1"
+            courseId="course-1"
+            content={lessonMarkdown}
+          />
+        </QueryClientProvider>,
+      );
+
+      // Verify highlight is rendered
+      let mark: Element | null = null;
+      await waitFor(() => {
+        mark = container.querySelector("mark[data-avana-annotation='ann-to-delete']");
+        expect(mark).toBeInTheDocument();
+      });
+
+      // Click on highlight to open modal
+      fireEvent.click(mark!);
+
+      // Modal should show delete button for highlight
+      const deleteBtn = await screen.findByRole("button", { name: /حذف/ });
+      expect(deleteBtn).toBeInTheDocument();
+
+      // Click delete
+      fireEvent.click(deleteBtn);
+
+      // Verify mark is removed from DOM
+      await waitFor(() => {
+        expect(
+          container.querySelector("mark[data-avana-annotation='ann-to-delete']"),
+        ).toBeNull();
+      });
+    });
+
+    it("creates personal note via selection toolbar, submits note text, and renders note mark without 500 error", async () => {
+      let annotationsList: Array<Record<string, unknown>> = [];
+
+      vi.spyOn(globalThis, "fetch").mockImplementation((url, opts) => {
+        const urlStr = String(url);
+        if (urlStr.includes("/annotations") && opts?.method === "POST") {
+          const body = JSON.parse(String(opts.body));
+          const newNote = {
+            id: "note-new-123",
+            userId: "user-1",
+            lessonId: "lesson-1",
+            type: "note",
+            color: "default",
+            selectedText: body.selectedText,
+            prefix: body.prefix,
+            suffix: body.suffix,
+            startOffset: body.startOffset,
+            endOffset: body.endOffset,
+            noteText: body.noteText,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+          annotationsList = [newNote];
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            text: () => Promise.resolve(JSON.stringify(newNote)),
+          } as unknown as Response);
+        }
+        if (urlStr.includes("/annotations")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            text: () => Promise.resolve(JSON.stringify({ items: annotationsList })),
+          } as unknown as Response);
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          text: () => Promise.resolve(JSON.stringify({})),
+        } as unknown as Response);
+      });
+
+      const lessonMarkdown = "# پنی‌سیلین‌ها\n\nاین داروها با مهار ساخت دیواره سلولی باکتری عمل می‌کنند.";
+
+      const { container } = render(
+        <QueryClientProvider client={queryClient}>
+          <LessonInteractiveContent
+            lessonId="lesson-1"
+            courseId="course-1"
+            content={lessonMarkdown}
+          />
+        </QueryClientProvider>,
+      );
+
+      // Simulate text selection inside lesson container
+      const p = container.querySelector("p");
+      if (p && p.firstChild) {
+        const range = document.createRange();
+        range.setStart(p.firstChild, 14);
+        range.setEnd(p.firstChild, 36);
+        range.getBoundingClientRect = () =>
+          ({
+            width: 150,
+            height: 20,
+            top: 100,
+            bottom: 120,
+            left: 50,
+            right: 200,
+            x: 50,
+            y: 100,
+            toJSON: () => {},
+          }) as DOMRect;
+        const mockSel = {
+          isCollapsed: false,
+          rangeCount: 1,
+          getRangeAt: () => range,
+          toString: () => "مهار ساخت دیواره سلولی",
+          removeAllRanges: vi.fn(),
+          addRange: vi.fn(),
+        };
+        vi.spyOn(window, "getSelection").mockReturnValue(mockSel as unknown as Selection);
+        document.dispatchEvent(new Event("selectionchange"));
+      }
+
+      // Click "یادداشت" in selection toolbar
+      const noteButton = await screen.findByText("یادداشت");
+      const button = noteButton.closest("button") || noteButton;
+      fireEvent.click(button);
+
+      // Verify LessonNoteDialog opens
+      expect(await screen.findByText("یادداشت روی متن")).toBeInTheDocument();
+
+      // Enter note text
+      const textarea = screen.getByPlaceholderText(/نکته، جمع‌بندی یا تحلیل خود درباره این بخش را بنویسید/);
+      fireEvent.change(textarea, {
+        target: { value: "نکته فارماکولوژی: تداخل دارویی با آمینوگلیکوزیدها" },
+      });
+
+      // Submit note
+      const saveButton = screen.getByRole("button", { name: "ذخیره یادداشت" });
+      fireEvent.click(saveButton);
+
+      // Verify mark is created in DOM with note styling
+      await waitFor(() => {
+        const noteMark = container.querySelector("mark[data-avana-annotation='note-new-123']");
+        expect(noteMark).toBeInTheDocument();
+        expect(noteMark).toHaveClass("avana-note");
+        expect(noteMark?.getAttribute("data-annotation-type")).toBe("note");
+      });
     });
   });
 });

@@ -138,6 +138,12 @@ export class InMemoryContentReportStore implements ContentReportStore {
   }
 }
 
+function toIsoStringSafe(val: Date | string | null | undefined): string {
+  if (!val) return new Date().toISOString();
+  if (val instanceof Date) return val.toISOString();
+  return new Date(String(val)).toISOString();
+}
+
 // ---------------------------------------------------------------------------
 // Drizzle Implementations
 // ---------------------------------------------------------------------------
@@ -168,8 +174,8 @@ export class DrizzleLessonAnnotationStore implements LessonAnnotationStore {
       endOffset: r.endOffset,
       color: r.color,
       noteText: r.noteText,
-      createdAt: r.createdAt.toISOString(),
-      updatedAt: r.updatedAt.toISOString(),
+      createdAt: toIsoStringSafe(r.createdAt),
+      updatedAt: toIsoStringSafe(r.updatedAt),
     }));
   }
 
@@ -194,8 +200,8 @@ export class DrizzleLessonAnnotationStore implements LessonAnnotationStore {
       endOffset: r.endOffset,
       color: r.color,
       noteText: r.noteText,
-      createdAt: r.createdAt.toISOString(),
-      updatedAt: r.updatedAt.toISOString(),
+      createdAt: toIsoStringSafe(r.createdAt),
+      updatedAt: toIsoStringSafe(r.updatedAt),
     };
   }
 
@@ -218,6 +224,10 @@ export class DrizzleLessonAnnotationStore implements LessonAnnotationStore {
       })
       .returning();
 
+    if (!inserted) {
+      throw new Error("Failed to insert lesson annotation");
+    }
+
     return {
       id: inserted.id,
       userId: inserted.userId as UserId,
@@ -230,8 +240,8 @@ export class DrizzleLessonAnnotationStore implements LessonAnnotationStore {
       endOffset: inserted.endOffset,
       color: inserted.color,
       noteText: inserted.noteText,
-      createdAt: inserted.createdAt.toISOString(),
-      updatedAt: inserted.updatedAt.toISOString(),
+      createdAt: toIsoStringSafe(inserted.createdAt),
+      updatedAt: toIsoStringSafe(inserted.updatedAt),
     };
   }
 
@@ -269,8 +279,8 @@ export class DrizzleLessonAnnotationStore implements LessonAnnotationStore {
       endOffset: updated.endOffset,
       color: updated.color,
       noteText: updated.noteText,
-      createdAt: updated.createdAt.toISOString(),
-      updatedAt: updated.updatedAt.toISOString(),
+      createdAt: toIsoStringSafe(updated.createdAt),
+      updatedAt: toIsoStringSafe(updated.updatedAt),
     };
   }
 
@@ -303,6 +313,10 @@ export class DrizzleContentReportStore implements ContentReportStore {
       })
       .returning();
 
+    if (!inserted) {
+      throw new Error("Failed to insert content report");
+    }
+
     return {
       id: inserted.id,
       userId: inserted.userId as UserId,
@@ -312,7 +326,7 @@ export class DrizzleContentReportStore implements ContentReportStore {
       category: inserted.category,
       comment: inserted.comment,
       status: inserted.status,
-      createdAt: inserted.createdAt.toISOString(),
+      createdAt: toIsoStringSafe(inserted.createdAt),
     };
   }
 
@@ -334,7 +348,7 @@ export class DrizzleContentReportStore implements ContentReportStore {
       category: r.category,
       comment: r.comment,
       status: r.status,
-      createdAt: r.createdAt.toISOString(),
+      createdAt: toIsoStringSafe(r.createdAt),
     };
   }
 }

@@ -36,6 +36,11 @@ function getCharacterOffsetInContainer(
 
   let currentNode = walker.nextNode();
   while (currentNode) {
+    const parent = currentNode.parentElement;
+    if (parent && ["PRE", "CODE", "SCRIPT", "STYLE"].includes(parent.tagName)) {
+      currentNode = walker.nextNode();
+      continue;
+    }
     if (currentNode === targetNode) {
       return charCount + targetOffset;
     }
@@ -53,6 +58,11 @@ function getCharacterOffsetInContainer(
     );
     let innerNode = innerWalker.nextNode();
     while (innerNode) {
+      const parent = innerNode.parentElement;
+      if (parent && ["PRE", "CODE", "SCRIPT", "STYLE"].includes(parent.tagName)) {
+        innerNode = innerWalker.nextNode();
+        continue;
+      }
       if (
         targetNode.contains(innerNode) ||
         targetNode.compareDocumentPosition(innerNode) &
@@ -99,7 +109,7 @@ export function useTextSelection(containerRef: React.RefObject<HTMLElement | nul
       return;
     }
 
-    const text = sel.toString().trim();
+    const text = (sel.toString() || range.toString()).trim();
     if (!text || text.length === 0) {
       setSelectionData(null);
       return;
@@ -124,6 +134,14 @@ export function useTextSelection(containerRef: React.RefObject<HTMLElement | nul
     const prefix = fullText.slice(Math.max(0, startOffset - 40), startOffset);
     const suffix = fullText.slice(endOffset, Math.min(fullText.length, endOffset + 40));
 
+    console.log("[selection]", {
+      selectedText: text,
+      prefix,
+      suffix,
+      startOffset,
+      endOffset,
+    });
+
     setSelectionData({
       selectedText: text,
       prefix,
@@ -143,11 +161,19 @@ export function useTextSelection(containerRef: React.RefObject<HTMLElement | nul
   }, []);
 
   useEffect(() => {
-    const handleMouseDown = () => {
+    const handleMouseDown = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target?.closest('[role="toolbar"]') || target?.closest('[role="dialog"]')) {
+        return;
+      }
       isMouseDownRef.current = true;
     };
 
-    const handleMouseUp = () => {
+    const handleMouseUp = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target?.closest('[role="toolbar"]') || target?.closest('[role="dialog"]')) {
+        return;
+      }
       isMouseDownRef.current = false;
       // Slight delay to allow browser native selection to finalize
       setTimeout(updateSelection, 10);
@@ -158,6 +184,10 @@ export function useTextSelection(containerRef: React.RefObject<HTMLElement | nul
     };
 
     const handleSelectionChange = () => {
+      const activeEl = document.activeElement as HTMLElement | null;
+      if (activeEl?.closest('[role="toolbar"]') || activeEl?.closest('[role="dialog"]')) {
+        return;
+      }
       if (!isMouseDownRef.current) {
         updateSelection();
       }

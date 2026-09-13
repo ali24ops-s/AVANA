@@ -241,6 +241,7 @@ export class RoleBasedPolicy implements AuthorizationPolicy {
         "course:create",
         "course:read",
         "course:update",
+        "course:archive",
         "org:create",
         "learning:read",
         "progress:write",

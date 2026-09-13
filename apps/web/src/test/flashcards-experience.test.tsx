@@ -530,12 +530,13 @@ describe("Flashcard Experience Flow", () => {
     });
 
     // For interval_days: 0:
-    // Again -> < ۱۰ دقیقه
-    // Hard -> ۱ روز
+    // Again -> ۳ دقیقه
+    // Hard -> ۱۰ دقیقه
     // Good -> ۱ روز
     // Easy -> ۲ روز
-    expect(screen.getByText("< ۱۰ دقیقه")).toBeDefined();
-    expect(screen.getAllByText("۱ روز").length).toBe(2);
+    expect(screen.getByText("۳ دقیقه")).toBeDefined();
+    expect(screen.getByText("۱۰ دقیقه")).toBeDefined();
+    expect(screen.getByText("۱ روز")).toBeDefined();
     expect(screen.getByText("۲ روز")).toBeDefined();
   });
 

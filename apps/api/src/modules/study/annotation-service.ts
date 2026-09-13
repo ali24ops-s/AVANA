@@ -129,7 +129,7 @@ export class AnnotationService {
     lessonId: LessonId,
     input: CreateAnnotationRequest,
   ): Promise<LessonAnnotationResource> {
-    if (!input.selectedText || input.selectedText.trim().length === 0) {
+    if (!input || !input.selectedText || typeof input.selectedText !== "string" || input.selectedText.trim().length === 0) {
       throw new DomainError("bad_request", "Selected text cannot be empty");
     }
 
@@ -236,7 +236,7 @@ export class AnnotationService {
     lessonId: LessonId,
     input: CreateContentReportRequest,
   ): Promise<ContentReportResponse> {
-    if (!input.selectedText || input.selectedText.trim().length === 0) {
+    if (!input || !input.selectedText || typeof input.selectedText !== "string" || input.selectedText.trim().length === 0) {
       throw new DomainError("bad_request", "Selected text cannot be empty");
     }
 

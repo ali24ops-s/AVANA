@@ -483,12 +483,12 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
         opts.annotationStore ??
         (opts.db
           ? new (await import("../modules/study/index.js")).DrizzleLessonAnnotationStore(opts.db)
-          : undefined),
+          : new (await import("../modules/study/index.js")).InMemoryLessonAnnotationStore()),
       reportStore:
         opts.reportStore ??
         (opts.db
           ? new (await import("../modules/study/index.js")).DrizzleContentReportStore(opts.db)
-          : undefined),
+          : new (await import("../modules/study/index.js")).InMemoryContentReportStore()),
       annotationService: opts.annotationService,
     });
   }

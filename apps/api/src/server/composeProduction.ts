@@ -63,6 +63,8 @@ import {
   DrizzleAssistantConversationStore,
   DrizzleStudySessionStore,
   DrizzleFlashcardStudySessionStore,
+  DrizzleLessonAnnotationStore,
+  DrizzleContentReportStore,
 } from "../modules/study/index.js";
 import {
   createModelGateway,
@@ -381,6 +383,8 @@ export async function composeProduction(
   const conversationStore = new DrizzleAssistantConversationStore(db);
   const studySessionStore = new DrizzleStudySessionStore(db);
   const flashcardStudySessionStore = new DrizzleFlashcardStudySessionStore(db);
+  const annotationStore = new DrizzleLessonAnnotationStore(db);
+  const reportStore = new DrizzleContentReportStore(db);
   
   // Admin Store
   const adminStore = new DrizzleAdminStore(db);
@@ -464,6 +468,8 @@ export async function composeProduction(
     assistantGateway,
     studySessionStore,
     flashcardStudySessionStore,
+    annotationStore,
+    reportStore,
     auditService,
     adminStore,
     contentPackStore,

@@ -38,6 +38,8 @@ export function isFlashcardRating(value: string): value is FlashcardRating {
   return (FLASHCARD_RATINGS as readonly string[]).includes(value);
 }
 
+import { toPersianDigits } from "./persian-numbers.js";
+
 /**
  * The minimal scheduling state persisted on a flashcard.
  */
@@ -60,15 +62,18 @@ export const DEFAULT_FLASHCARD_SCHEDULE: Readonly<FlashcardScheduleState> = {
  * Compute the next flashcard review interval (in days) from a rating and the
  * previous scheduling state.
  *
- * This is an "FSRS-inspired" minimal algorithm — intentionally simple and
- * deterministic. It is NOT a full FSRS engine.
- *
  * Rules:
- *  - `again` resets the interval to 0 days (due again immediately/soon).
- *  - `hard` sets a short interval (max(1, previous * 1.2)).
- *  - `good` grows the interval by the ease factor.
- *  - `easy` grows the interval faster (good * 1.3).
- *  - Ease factor adjusts slightly per rating (never below 1.3).
+ *  - For New cards (intervalDays === 0):
+ *      again -> 0 days (due in 3 minutes)
+ *      hard  -> 0 days (due in 10 minutes)
+ *      good  -> 1 day
+ *      easy  -> 2 days
+ *  - For Review cards (intervalDays >= 1):
+ *      again -> 0 days (lapse: due in 10 minutes)
+ *      hard  -> max(1, prevInterval * 1.2)
+ *      good  -> prevInterval * prevEase
+ *      easy  -> round(prevInterval * prevEase * 1.3)
+ *  - Ease factor adjusts per rating (bounded between 1.3 and 3.0).
  */
 export function nextReviewInterval(
   rating: FlashcardRating,
@@ -82,11 +87,11 @@ export function nextReviewInterval(
 
   switch (rating) {
     case "again":
-      intervalDays = 0; // due again now/immediately
+      intervalDays = 0;
       easeFactor = Math.max(1.3, prevEase - 0.2);
       break;
     case "hard":
-      intervalDays = prevInterval === 0 ? 1 : Math.max(1, prevInterval * 1.2);
+      intervalDays = prevInterval === 0 ? 0 : Math.max(1, prevInterval * 1.2);
       easeFactor = Math.max(1.3, prevEase - 0.15);
       break;
     case "good":
@@ -109,20 +114,79 @@ export function nextReviewInterval(
  * Compute the next `due_at` timestamp given a rating and the previous
  * scheduling state. Returns the ISO timestamp of when the card is due again.
  *
- * `again` schedules a very short re-review window (10 minutes) so the card
- * reappears in the near-term review queue rather than being dropped.
+ * For New cards (intervalDays === 0):
+ *   again -> 3 minutes
+ *   hard  -> 10 minutes
+ *   good  -> 1 day (24 hours)
+ *   easy  -> 2 days (48 hours)
+ *
+ * For Review cards (intervalDays >= 1):
+ *   again -> 10 minutes (lapse)
+ *   hard/good/easy -> calculated days
  */
 export function nextDueAt(
   rating: FlashcardRating,
   previous: FlashcardScheduleState = DEFAULT_FLASHCARD_SCHEDULE,
   now: Date = new Date(),
 ): string {
+  const isNew = previous.intervalDays === 0;
   const next = nextReviewInterval(rating, previous);
-  const ms =
-    next.intervalDays === 0
-      ? 10 * 60 * 1000 // 10 minutes for "again"
-      : next.intervalDays * 24 * 60 * 60 * 1000;
+
+  let ms: number;
+  if (isNew) {
+    switch (rating) {
+      case "again":
+        ms = 3 * 60 * 1000; // 3 minutes
+        break;
+      case "hard":
+        ms = 10 * 60 * 1000; // 10 minutes
+        break;
+      case "good":
+        ms = 1 * 24 * 60 * 60 * 1000; // 1 day
+        break;
+      case "easy":
+        ms = 2 * 24 * 60 * 60 * 1000; // 2 days
+        break;
+    }
+  } else {
+    ms =
+      next.intervalDays === 0
+        ? 10 * 60 * 1000 // 10 minutes for review lapse (again)
+        : next.intervalDays * 24 * 60 * 60 * 1000;
+  }
+
   return new Date(now.getTime() + ms).toISOString();
+}
+
+/**
+ * Format a human-readable interval hint in Persian for UI review buttons.
+ * Single source of truth for both New Cards and Review Cards.
+ */
+export function formatReviewIntervalHint(
+  rating: FlashcardRating,
+  previous: FlashcardScheduleState = DEFAULT_FLASHCARD_SCHEDULE,
+): string {
+  if (previous.intervalDays === 0) {
+    switch (rating) {
+      case "again":
+        return "۳ دقیقه";
+      case "hard":
+        return "۱۰ دقیقه";
+      case "good":
+        return "۱ روز";
+      case "easy":
+        return "۲ روز";
+    }
+  }
+
+  const next = nextReviewInterval(rating, previous);
+  if (rating === "again" || next.intervalDays === 0) {
+    return "< ۱۰ دقیقه";
+  }
+  if (next.intervalDays === 1) {
+    return "۱ روز";
+  }
+  return `${toPersianDigits(next.intervalDays)} روز`;
 }
 
 // ---------------------------------------------------------------------------

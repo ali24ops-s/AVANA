@@ -45,16 +45,23 @@ describe("Worker RBAC & Permission Tests", () => {
     };
 
     it("grants content_worker full content generation, editing, and approval permissions", () => {
+      expect(policy.check("course:create", workerActor, mockContext)).toBe(true);
+      expect(policy.check("course:read", workerActor, mockContext)).toBe(true);
+      expect(policy.check("course:update", workerActor, mockContext)).toBe(true);
+      expect(policy.check("course:archive", workerActor, mockContext)).toBe(true);
+      expect(policy.check("document:upload", workerActor, mockContext)).toBe(true);
+      expect(policy.check("document:read", workerActor, mockContext)).toBe(true);
       expect(policy.check("content:generate", workerActor, mockContext)).toBe(true);
       expect(policy.check("content:review", workerActor, mockContext)).toBe(true);
       expect(policy.check("content:accept", workerActor, mockContext)).toBe(true);
       expect(policy.check("content:reject", workerActor, mockContext)).toBe(true);
       expect(policy.check("content:regenerate", workerActor, mockContext)).toBe(true);
       expect(policy.check("content:edit", workerActor, mockContext)).toBe(true);
-      expect(policy.check("course:read", workerActor, mockContext)).toBe(true);
-      expect(policy.check("course:update", workerActor, mockContext)).toBe(true);
-      expect(policy.check("document:upload", workerActor, mockContext)).toBe(true);
-      expect(policy.check("document:read", workerActor, mockContext)).toBe(true);
+      expect(policy.check("content:write", workerActor, mockContext)).toBe(true);
+      expect(policy.check("content:publish", workerActor, mockContext)).toBe(true);
+      expect(policy.check("flashcard:review", workerActor, mockContext)).toBe(true);
+      expect(policy.check("quiz:attempt", workerActor, mockContext)).toBe(true);
+      expect(policy.check("study:read", workerActor, mockContext)).toBe(true);
     });
 
     it("grants content:export to content_worker and platform_admin", () => {
@@ -70,6 +77,7 @@ describe("Worker RBAC & Permission Tests", () => {
       // Destructive actions
       expect(policy.check("course:delete", workerActor, mockContext)).toBe(false);
       expect(policy.check("org:delete", workerActor, mockContext)).toBe(false);
+      expect(policy.check("org:update", workerActor, mockContext)).toBe(false);
 
       // User & membership management
       expect(policy.check("org:manage_memberships", workerActor, mockContext)).toBe(false);

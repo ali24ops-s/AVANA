@@ -21,7 +21,7 @@ import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
 import { createStudyApi } from "../../lib/api/study.js";
 import { useStudySessionTracker } from "../../hooks/useStudySessionTracker.js";
 import type { FlashcardResource, FlashcardRating } from "@avana/contracts";
-import { nextReviewInterval, toPersianDigits } from "@avana/domain";
+import { formatReviewIntervalHint, toPersianDigits } from "@avana/domain";
 import { RichContent } from "../markdown/MarkdownRenderer.js";
 
 export interface FlashcardExperienceProps {
@@ -59,18 +59,10 @@ function getIntervalHint(
   const rawEase = card.ease_factor ?? card.easeFactor;
   const prevEase = rawEase ? Number(rawEase) : 2.5;
 
-  const nextState = nextReviewInterval(rating, {
+  return formatReviewIntervalHint(rating, {
     intervalDays: prevInterval,
     easeFactor: prevEase,
   });
-
-  if (rating === "again" || nextState.intervalDays === 0) {
-    return "< ۱۰ دقیقه";
-  }
-  if (nextState.intervalDays === 1) {
-    return "۱ روز";
-  }
-  return `${toPersianDigits(nextState.intervalDays)} روز`;
 }
 
 export function FlashcardExperience({

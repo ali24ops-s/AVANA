@@ -43,7 +43,11 @@ import {
   InMemoryStudySessionStore,
   InMemoryFlashcardStudySessionStore,
 } from "../modules/study/test/in-memory-stores.js";
-import { InMemoryAssistantConversationStore } from "../modules/study/index.js";
+import {
+  InMemoryAssistantConversationStore,
+  InMemoryLessonAnnotationStore,
+  InMemoryContentReportStore,
+} from "../modules/study/index.js";
 import {
   createModelGateway,
   InMemoryGenerationQueue,
@@ -115,6 +119,8 @@ export async function composeLocalDev(
   const conversationStore = new InMemoryAssistantConversationStore();
   const studySessionStore = new InMemoryStudySessionStore();
   const flashcardStudySessionStore = new InMemoryFlashcardStudySessionStore();
+  const annotationStore = new InMemoryLessonAnnotationStore();
+  const reportStore = new InMemoryContentReportStore();
 
   // Admin store
   const adminStore = new InMemoryAdminStore();
@@ -219,6 +225,8 @@ export async function composeLocalDev(
     assistantGateway,
     studySessionStore,
     flashcardStudySessionStore,
+    annotationStore,
+    reportStore,
     auditService,
     adminStore,
     contentPackStore,

@@ -9,6 +9,7 @@ import type {
   CreateAnnotationRequest,
   UpdateAnnotationRequest,
   CreateContentReportRequest,
+  ListAnnotationsResponse,
 } from "@avana/contracts";
 
 export function useLessonAnnotations(lessonId: string | undefined) {
@@ -28,7 +29,23 @@ export function useLessonAnnotations(lessonId: string | undefined) {
   const createMutation = useMutation({
     mutationFn: (request: CreateAnnotationRequest) =>
       annotationsApi.createAnnotation(lessonId!, request),
-    onSuccess: () => {
+    onSuccess: (newAnnotation) => {
+      console.log("[annotation-cache]", { action: "create", newAnnotation });
+      queryClient.setQueryData<ListAnnotationsResponse | undefined>(
+        queryKey,
+        (old) => {
+          if (!old) {
+            return { items: [newAnnotation] };
+          }
+          if (old.items.some((item) => item.id === newAnnotation.id)) {
+            return old;
+          }
+          return {
+            ...old,
+            items: [...old.items, newAnnotation],
+          };
+        },
+      );
       void queryClient.invalidateQueries({ queryKey });
     },
   });
@@ -41,7 +58,19 @@ export function useLessonAnnotations(lessonId: string | undefined) {
       annotationId: string;
       request: UpdateAnnotationRequest;
     }) => annotationsApi.updateAnnotation(annotationId, request),
-    onSuccess: () => {
+    onSuccess: (updatedAnnotation) => {
+      queryClient.setQueryData<ListAnnotationsResponse | undefined>(
+        queryKey,
+        (old) => {
+          if (!old) return old;
+          return {
+            ...old,
+            items: old.items.map((item) =>
+              item.id === updatedAnnotation.id ? updatedAnnotation : item,
+            ),
+          };
+        },
+      );
       void queryClient.invalidateQueries({ queryKey });
     },
   });
@@ -49,7 +78,17 @@ export function useLessonAnnotations(lessonId: string | undefined) {
   const deleteMutation = useMutation({
     mutationFn: (annotationId: string) =>
       annotationsApi.deleteAnnotation(annotationId),
-    onSuccess: () => {
+    onSuccess: (_data, annotationId) => {
+      queryClient.setQueryData<ListAnnotationsResponse | undefined>(
+        queryKey,
+        (old) => {
+          if (!old) return old;
+          return {
+            ...old,
+            items: old.items.filter((item) => item.id !== annotationId),
+          };
+        },
+      );
       void queryClient.invalidateQueries({ queryKey });
     },
   });

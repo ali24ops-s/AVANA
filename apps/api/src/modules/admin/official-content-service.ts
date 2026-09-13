@@ -165,6 +165,16 @@ export class OfficialContentService {
     }
   }
 
+  private requireContentManager(actor: Actor): void {
+    if (
+      actor.role !== "platform_admin" &&
+      actor.role !== "organization_admin" &&
+      actor.role !== "content_worker"
+    ) {
+      throw new DomainError("forbidden", "دسترسی مدیریت یا تولید محتوا به استودیوی محتوای رسمی لازم است.");
+    }
+  }
+
   /**
    * 1. Create a new Official Course in draft state under the canonical AVANA OFFICIAL organization.
    */
@@ -172,7 +182,7 @@ export class OfficialContentService {
     actor: Actor,
     input: CreateOfficialCourseInput,
   ): Promise<CourseRecord> {
-    this.requireAdmin(actor);
+    this.requireContentManager(actor);
 
     if (!input.name || input.name.trim().length === 0) {
       throw new DomainError("bad_request", "نام دوره رسمی الزامی است.");
@@ -205,7 +215,7 @@ export class OfficialContentService {
    * 2. List all official courses with aggregate learning & product metrics.
    */
   async listOfficialCourses(actor: Actor): Promise<OfficialCourseSummary[]> {
-    this.requireAdmin(actor);
+    this.requireContentManager(actor);
 
     const allCourses = await this.courseStore.listByOrganization(
       this.systemOrganizationId,
@@ -314,7 +324,7 @@ export class OfficialContentService {
       force?: boolean;
     },
   ): Promise<{ generationRunId: string; status: CourseStatus }> {
-    this.requireAdmin(actor);
+    this.requireContentManager(actor);
 
     const course = await this.courseStore.findById(courseId);
     if (!course || course.deletedAt) {
@@ -436,7 +446,7 @@ export class OfficialContentService {
     actor: Actor,
     courseId: CourseId,
   ): Promise<import("../generation/generation-recovery-service.js").CourseRecoveryResult> {
-    this.requireAdmin(actor);
+    this.requireContentManager(actor);
     if (!this.recoveryService) {
       throw new DomainError("service_unavailable", "سرویس بازیابی مقداردهی نشده است.");
     }
@@ -452,7 +462,7 @@ export class OfficialContentService {
   async reconcileAllStale(
     actor: Actor,
   ): Promise<import("../generation/generation-recovery-service.js").StaleReconciliationSummary> {
-    this.requireAdmin(actor);
+    this.requireContentManager(actor);
     if (!this.recoveryService) {
       throw new DomainError("service_unavailable", "سرویس بازیابی مقداردهی نشده است.");
     }
@@ -466,7 +476,7 @@ export class OfficialContentService {
     actor: Actor,
     courseId: CourseId,
   ): Promise<OfficialReviewWorkspace> {
-    this.requireAdmin(actor);
+    this.requireContentManager(actor);
 
     const course = await this.courseStore.findById(courseId);
     if (!course || course.deletedAt) {
@@ -609,7 +619,7 @@ export class OfficialContentService {
       questions: number;
     };
   }> {
-    this.requireAdmin(actor);
+    this.requireContentManager(actor);
 
     const workspace = await this.getReviewWorkspace(actor, courseId);
     if (workspace.unresolvedLessonMappings > 0) {
@@ -858,7 +868,7 @@ export class OfficialContentService {
       active: boolean;
     } | null;
   }> {
-    this.requireAdmin(actor);
+    this.requireContentManager(actor);
     const metrics = await this.calculateVolumeMetricsForLesson(lessonId);
     const breakdown = calculateContentPricingBreakdown(metrics);
 
@@ -1469,7 +1479,7 @@ export class OfficialContentService {
     actor: Actor,
     courseId: CourseId,
   ): Promise<{ success: boolean; course: CourseRecord }> {
-    this.requireAdmin(actor);
+    this.requireContentManager(actor);
 
     const course = await this.courseStore.findById(courseId);
     if (!course || course.deletedAt) {
@@ -1516,7 +1526,7 @@ export class OfficialContentService {
     courseId: CourseId,
     input: DeleteOfficialCourseInput,
   ): Promise<DeleteOfficialCourseResult> {
-    this.requireAdmin(actor);
+    this.requireContentManager(actor);
 
     if (!input?.confirmationName || typeof input.confirmationName !== "string") {
       throw new DomainError("bad_request", "نام دوره برای تأیید الزامی است.");

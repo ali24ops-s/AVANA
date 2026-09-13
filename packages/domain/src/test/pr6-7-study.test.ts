@@ -15,6 +15,7 @@ import {
   DEFAULT_FLASHCARD_SCHEDULE,
   nextReviewInterval,
   nextDueAt,
+  formatReviewIntervalHint,
 } from "../study.js";
 import {
   auditFlashcardReviewed,
@@ -84,7 +85,8 @@ describe("PR6-7 Spaced Repetition Scheduling Algorithm", () => {
 
   it("handles 'hard' rating on fresh card vs previously reviewed card", () => {
     const freshNext = nextReviewInterval("hard", DEFAULT_FLASHCARD_SCHEDULE);
-    expect(freshNext.intervalDays).toBe(1);
+    // New card Hard is intraday (10 minutes -> 0 days)
+    expect(freshNext.intervalDays).toBe(0);
     expect(freshNext.easeFactor).toBe(2.35);
 
     const reviewedNext = nextReviewInterval("hard", {
@@ -122,15 +124,49 @@ describe("PR6-7 Spaced Repetition Scheduling Algorithm", () => {
     expect(reviewedNext.easeFactor).toBe(2.65);
   });
 
-  it("calculates nextDueAt correctly for again vs days interval", () => {
+  it("calculates nextDueAt correctly for New Cards (Again: 3m, Hard: 10m, Good: 1d, Easy: 2d)", () => {
     const fixedNow = new Date("2026-08-12T12:00:00.000Z");
-    // "again" schedules 10 minutes in the future
+    
+    // New Card Again -> 3 minutes
+    const dueAgain = nextDueAt("again", DEFAULT_FLASHCARD_SCHEDULE, fixedNow);
+    expect(dueAgain).toBe("2026-08-12T12:03:00.000Z");
+
+    // New Card Hard -> 10 minutes
+    const dueHard = nextDueAt("hard", DEFAULT_FLASHCARD_SCHEDULE, fixedNow);
+    expect(dueHard).toBe("2026-08-12T12:10:00.000Z");
+
+    // New Card Good -> 1 day (24 hours)
+    const dueGood = nextDueAt("good", DEFAULT_FLASHCARD_SCHEDULE, fixedNow);
+    expect(dueGood).toBe("2026-08-13T12:00:00.000Z");
+
+    // New Card Easy -> 2 days (48 hours)
+    const dueEasy = nextDueAt("easy", DEFAULT_FLASHCARD_SCHEDULE, fixedNow);
+    expect(dueEasy).toBe("2026-08-14T12:00:00.000Z");
+  });
+
+  it("calculates nextDueAt correctly for Review Cards (Again: 10m lapse, Good: days interval)", () => {
+    const fixedNow = new Date("2026-08-12T12:00:00.000Z");
+    // "again" on reviewed card schedules 10 minutes lapse
     const dueAgain = nextDueAt("again", { intervalDays: 5, easeFactor: 2.5 }, fixedNow);
     expect(dueAgain).toBe("2026-08-12T12:10:00.000Z");
 
     // "good" with previous interval 4 -> interval 10 days
     const dueGood = nextDueAt("good", { intervalDays: 4, easeFactor: 2.5 }, fixedNow);
     expect(dueGood).toBe("2026-08-22T12:00:00.000Z");
+  });
+
+  it("formats human-readable review interval hints for New Cards vs Review Cards", () => {
+    // New Cards
+    expect(formatReviewIntervalHint("again", DEFAULT_FLASHCARD_SCHEDULE)).toBe("۳ دقیقه");
+    expect(formatReviewIntervalHint("hard", DEFAULT_FLASHCARD_SCHEDULE)).toBe("۱۰ دقیقه");
+    expect(formatReviewIntervalHint("good", DEFAULT_FLASHCARD_SCHEDULE)).toBe("۱ روز");
+    expect(formatReviewIntervalHint("easy", DEFAULT_FLASHCARD_SCHEDULE)).toBe("۲ روز");
+
+    // Review Cards (interval: 4, ease: 2.5)
+    expect(formatReviewIntervalHint("again", { intervalDays: 4, easeFactor: 2.5 })).toBe("< ۱۰ دقیقه");
+    expect(formatReviewIntervalHint("hard", { intervalDays: 4, easeFactor: 2.5 })).toBe("۵ روز");
+    expect(formatReviewIntervalHint("good", { intervalDays: 4, easeFactor: 2.5 })).toBe("۱۰ روز");
+    expect(formatReviewIntervalHint("easy", { intervalDays: 4, easeFactor: 2.5 })).toBe("۱۳ روز");
   });
 });
 

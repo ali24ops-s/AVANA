@@ -143,7 +143,9 @@ export function LessonNoteDialog({
               disabled={isSaving}
               leftIcon={<Trash2 className="w-3.5 h-3.5" />}
             >
-              حذف یادداشت
+              {existingNote.type === "highlight" && !existingNote.noteText
+                ? "حذف هایلایت"
+                : "حذف یادداشت"}
             </Button>
           ) : (
             <div />

@@ -77,7 +77,7 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
   const adminService = new AdminService(adminStore);
   const { requireAuth, requireRole } = makeAuthMiddleware({ sessionService, userStore });
 
-  // All routes here require platform_admin, EXCEPT content export and course hierarchy reading for content workers
+  // All routes here require platform_admin, EXCEPT content management, studio, export/import, and generation routes for content workers
   app.addHook("preHandler", requireAuth);
   app.addHook("preHandler", async (request, reply) => {
     const rawPath = request.url.split("?")[0];
@@ -86,8 +86,14 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
       rawPath.endsWith("/content/import/validate") ||
       rawPath.endsWith("/content/import") ||
       rawPath.endsWith("/courses") ||
-      (rawPath.includes("/courses/") && rawPath.endsWith("/hierarchy")) ||
-      rawPath.includes("/content-studio/");
+      rawPath.includes("/courses/") ||
+      rawPath.includes("/content-studio/") ||
+      rawPath.endsWith("/documents") ||
+      rawPath.includes("/documents/") ||
+      rawPath.endsWith("/generation") ||
+      rawPath.includes("/generation/") ||
+      rawPath.endsWith("/prompts") ||
+      rawPath.includes("/content/");
 
     if (isWorkerAllowed) {
       const user = (request as any).user;

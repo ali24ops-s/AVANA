@@ -91,9 +91,17 @@ export function LessonSelectionToolbar({
 
   if (!selectionData) return null;
 
-  const handleAction = (e: React.MouseEvent, action: () => void) => {
+  console.log("[toolbar]", {
+    selectedText: selectionData.selectedText,
+    isBottomBar: position.isBottomBar,
+  });
+
+  const handleAction = (e: React.MouseEvent, action: () => void, actionName?: string) => {
     e.preventDefault();
     e.stopPropagation();
+    if (actionName === "highlight") {
+      console.log("[highlight-click]", { selectedText: selectionData.selectedText });
+    }
     action();
   };
 
@@ -110,6 +118,7 @@ export function LessonSelectionToolbar({
       >
         <button
           type="button"
+          onMouseDown={(e) => e.preventDefault()}
           onClick={(e) => handleAction(e, () => onAskAvana(selectionData))}
           className="flex-1 flex flex-col items-center justify-center gap-1 py-1.5 px-1 rounded-xl text-xs font-semibold text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] active:scale-95 transition-all text-center"
         >
@@ -121,6 +130,7 @@ export function LessonSelectionToolbar({
 
         <button
           type="button"
+          onMouseDown={(e) => e.preventDefault()}
           onClick={(e) => handleAction(e, () => onExplainSimply(selectionData))}
           className="flex-1 flex flex-col items-center justify-center gap-1 py-1.5 px-1 rounded-xl text-xs font-semibold text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] active:scale-95 transition-all text-center"
         >
@@ -133,7 +143,8 @@ export function LessonSelectionToolbar({
         <button
           type="button"
           disabled={isHighlighting}
-          onClick={(e) => handleAction(e, () => onHighlight(selectionData))}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={(e) => handleAction(e, () => onHighlight(selectionData), "highlight")}
           className="flex-1 flex flex-col items-center justify-center gap-1 py-1.5 px-1 rounded-xl text-xs font-semibold text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] active:scale-95 transition-all text-center disabled:opacity-50"
         >
           {isHighlighting ? (
@@ -148,6 +159,7 @@ export function LessonSelectionToolbar({
 
         <button
           type="button"
+          onMouseDown={(e) => e.preventDefault()}
           onClick={(e) => handleAction(e, () => onAddNote(selectionData))}
           className="flex-1 flex flex-col items-center justify-center gap-1 py-1.5 px-1 rounded-xl text-xs font-semibold text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] active:scale-95 transition-all text-center"
         >
@@ -159,6 +171,7 @@ export function LessonSelectionToolbar({
 
         <button
           type="button"
+          onMouseDown={(e) => e.preventDefault()}
           onClick={(e) => handleAction(e, () => onReportIssue(selectionData))}
           className="flex-1 flex flex-col items-center justify-center gap-1 py-1.5 px-1 rounded-xl text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 active:scale-95 transition-all text-center"
         >
@@ -187,6 +200,10 @@ export function LessonSelectionToolbar({
     >
       <button
         type="button"
+        onMouseDown={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        }}
         onClick={(e) => handleAction(e, () => onAskAvana(selectionData))}
         className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] hover:text-teal-600 dark:hover:text-teal-400 active:scale-95 transition-all cursor-pointer whitespace-nowrap"
       >
@@ -198,6 +215,10 @@ export function LessonSelectionToolbar({
 
       <button
         type="button"
+        onMouseDown={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        }}
         onClick={(e) => handleAction(e, () => onExplainSimply(selectionData))}
         className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] hover:text-amber-500 active:scale-95 transition-all cursor-pointer whitespace-nowrap"
       >
@@ -210,7 +231,11 @@ export function LessonSelectionToolbar({
       <button
         type="button"
         disabled={isHighlighting}
-        onClick={(e) => handleAction(e, () => onHighlight(selectionData))}
+        onMouseDown={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        }}
+        onClick={(e) => handleAction(e, () => onHighlight(selectionData), "highlight")}
         className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] hover:text-teal-600 dark:hover:text-teal-400 active:scale-95 transition-all cursor-pointer whitespace-nowrap disabled:opacity-50"
       >
         {isHighlighting ? (
@@ -225,6 +250,10 @@ export function LessonSelectionToolbar({
 
       <button
         type="button"
+        onMouseDown={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        }}
         onClick={(e) => handleAction(e, () => onAddNote(selectionData))}
         className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] hover:text-sky-600 dark:hover:text-sky-400 active:scale-95 transition-all cursor-pointer whitespace-nowrap"
       >
@@ -236,6 +265,10 @@ export function LessonSelectionToolbar({
 
       <button
         type="button"
+        onMouseDown={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        }}
         onClick={(e) => handleAction(e, () => onReportIssue(selectionData))}
         className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 active:scale-95 transition-all cursor-pointer whitespace-nowrap"
       >

@@ -107,11 +107,11 @@
   --avana-info-text: #2b6d8f;
 
   /* Highlight & Note Semantic Tokens */
-  --avana-highlight-bg: rgba(0, 128, 128, 0.16);
+  --avana-highlight-bg: rgba(0, 128, 128, 0.22);
   --avana-highlight-border: #008080;
   --avana-highlight-text: #006666;
-  --avana-highlight-hover: rgba(0, 128, 128, 0.24);
-  --avana-note-bg: rgba(167, 208, 230, 0.25);
+  --avana-highlight-hover: rgba(0, 128, 128, 0.34);
+  --avana-note-bg: rgba(91, 160, 196, 0.28);
   --avana-note-border: #5ba0c4;
   --avana-note-text: #1a2226;
   --avana-note-badge: #5ba0c4;
@@ -174,11 +174,11 @@
   --avana-border-default: #E2E7EA;
   --avana-border-subtle: #EEF1F3;
 
-  --avana-highlight-bg: rgba(0, 128, 128, 0.16);
+  --avana-highlight-bg: rgba(0, 128, 128, 0.22);
   --avana-highlight-border: #008080;
   --avana-highlight-text: #006666;
-  --avana-highlight-hover: rgba(0, 128, 128, 0.24);
-  --avana-note-bg: rgba(167, 208, 230, 0.25);
+  --avana-highlight-hover: rgba(0, 128, 128, 0.34);
+  --avana-note-bg: rgba(91, 160, 196, 0.28);
   --avana-note-border: #5ba0c4;
   --avana-note-text: #1a2226;
   --avana-note-badge: #5ba0c4;
@@ -197,11 +197,11 @@
   --avana-border-default: #1e3235;
   --avana-border-subtle: #142528;
 
-  --avana-highlight-bg: rgba(45, 212, 191, 0.22);
+  --avana-highlight-bg: rgba(45, 212, 191, 0.28);
   --avana-highlight-border: #2dd4bf;
   --avana-highlight-text: #5eead4;
-  --avana-highlight-hover: rgba(45, 212, 191, 0.32);
-  --avana-note-bg: rgba(91, 160, 196, 0.22);
+  --avana-highlight-hover: rgba(45, 212, 191, 0.42);
+  --avana-note-bg: rgba(91, 160, 196, 0.30);
   --avana-note-border: #7bbfdf;
   --avana-note-text: #F2F7F7;
   --avana-note-badge: #7bbfdf;
@@ -640,6 +640,44 @@ a {
   padding: 0;
   background: transparent;
   border: none;
+}
+
+/* ======================================================================
+   AVANA Text Highlighting & Note Annotations (DOM Layer)
+   ====================================================================== */
+mark.avana-highlight {
+  background-color: var(--avana-highlight-bg);
+  color: inherit;
+  border-bottom: 2px solid var(--avana-highlight-border);
+  border-radius: 3px;
+  padding: 1px 3px;
+  margin: 0 1px;
+  cursor: pointer;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+mark.avana-highlight:hover {
+  background-color: var(--avana-highlight-hover);
+}
+
+mark.avana-note {
+  background-color: var(--avana-note-bg);
+  color: inherit;
+  border-bottom: 2px solid var(--avana-note-border);
+  border-radius: 3px;
+  padding: 1px 3px;
+  margin: 0 1px;
+  cursor: pointer;
+  position: relative;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+mark.avana-note:hover {
+  background-color: rgba(91, 160, 196, 0.38);
 }
 
 
