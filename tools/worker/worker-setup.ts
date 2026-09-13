@@ -240,9 +240,6 @@ async function main() {
   // ---------------------------------------------------------------------------
   logInfo("Step 2/8: Resolving Worker identity and credentials...");
 
-  const existingEnvPath = path.join(rootDir, ".env");
-  const existingEnv = parseEnvFile(existingEnvPath);
-
   // Worker ID
   let workerId = (args.id as string) || process.env.WORKER_ID || existingEnv.WORKER_ID;
   if (!workerId) {
