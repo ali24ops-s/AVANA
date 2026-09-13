@@ -6,7 +6,7 @@
   "scripts": {
     "build": "tsc --build",
     "type-check": "tsc --noEmit",
-    "dev": "NODE_ENV=development tsx src/index.ts",
+    "dev": "tsx src/index.ts",
     "test": "vitest run"
   },
   "dependencies": {

@@ -10,6 +10,8 @@
  * It is excluded from the production build via tsconfig.build.json.
  */
 
+process.env.NODE_ENV = process.env.NODE_ENV || "development";
+
 import { loadApiConfig } from "./config.js";
 import { createApp } from "./server/createApp.js";
 import { v1Routes } from "./routes/v1.js";

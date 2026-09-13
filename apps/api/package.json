@@ -136,7 +136,7 @@
     "build": "tsc --build tsconfig.build.json",
     "type-check": "tsc --noEmit",
     "test": "vitest run",
-    "dev": "NODE_ENV=development tsx watch src/dev.ts",
+    "dev": "tsx watch src/dev.ts",
     "start": "node dist/start.js"
   },
   "dependencies": {

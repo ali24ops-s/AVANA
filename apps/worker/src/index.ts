@@ -9,6 +9,8 @@
  * gracefully shuts down on SIGINT/SIGTERM.
  */
 
+process.env.NODE_ENV = process.env.NODE_ENV || "development";
+
 import { loadWorkerConfig } from "./config.js";
 import { composeWorker } from "./compose.js";
 import { createGenerationWorker } from "./processors/generation-processor.js";

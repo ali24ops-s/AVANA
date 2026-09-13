@@ -230,6 +230,7 @@ async function main() {
       },
       stdio: ["ignore", "pipe", "pipe"],
       detached: !isWindows,
+      shell: isWindows,
     },
   );
   children.push(apiChild);
@@ -253,6 +254,7 @@ async function main() {
       },
       stdio: ["ignore", "pipe", "pipe"],
       detached: !isWindows,
+      shell: isWindows,
     },
   );
   children.push(webChild);
