@@ -739,7 +739,7 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
     const documentIds = req.query.documentIds ? req.query.documentIds.split(",").map(id => id.trim()) : undefined;
     const limit = req.query.limit ? parseInt(req.query.limit, 10) : 50;
     const aheadDays = req.query.aheadDays ? parseInt(req.query.aheadDays, 10) : 3;
-    const mode = (req.query.mode || "weak") as "weak" | "forgotten" | "overdue" | "review_ahead" | "new";
+    const mode = (req.query.mode || "weak") as "weak" | "forgotten" | "overdue" | "review_ahead" | "new" | "due" | "learned";
 
     const dueCards = await service.getCustomStudyFlashcards(
       actor,
@@ -779,7 +779,7 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
         lessonIds?: string[];
         documentIds?: string[];
         mode?: "daily" | "exam" | "custom" | "normal";
-        customMode?: "weak" | "forgotten" | "overdue" | "review_ahead" | "new";
+        customMode?: "weak" | "forgotten" | "overdue" | "review_ahead" | "new" | "due" | "learned";
         limit?: number;
         aheadDays?: number;
         title?: string;

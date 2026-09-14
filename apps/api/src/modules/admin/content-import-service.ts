@@ -252,9 +252,7 @@ export class ContentImportService {
         );
       }
       if (m.documentExportId && !docExportIds.has(m.documentExportId)) {
-        throw new Error(
-          `Module '${m.title}' references non-existent documentExportId: '${m.documentExportId}'`,
-        );
+        m.documentExportId = null;
       }
     }
 
@@ -266,6 +264,31 @@ export class ContentImportService {
       }
     }
 
+    for (const q of quizzesList) {
+      if (!courseExportIds.has(q.courseExportId)) {
+        throw new Error(
+          `Quiz '${q.title}' references non-existent courseExportId: '${q.courseExportId}'`,
+        );
+      }
+      if (q.documentExportId && !docExportIds.has(q.documentExportId)) {
+        q.documentExportId = null;
+      }
+    }
+
+    for (const fc of flashcardsList) {
+      if (!courseExportIds.has(fc.courseExportId)) {
+        throw new Error(
+          `Flashcard references non-existent courseExportId: '${fc.courseExportId}'`,
+        );
+      }
+      if (fc.lessonExportId && !lessonExportIds.has(fc.lessonExportId)) {
+        fc.lessonExportId = null;
+      }
+      if (fc.documentExportId && !docExportIds.has(fc.documentExportId)) {
+        fc.documentExportId = null;
+      }
+    }
+
     for (const qq of questionsList) {
       if (!quizExportIds.has(qq.quizExportId)) {
         throw new Error(
@@ -273,9 +296,7 @@ export class ContentImportService {
         );
       }
       if (qq.lessonExportId && !lessonExportIds.has(qq.lessonExportId)) {
-        throw new Error(
-          `Question '${qq.question}' references non-existent lessonExportId: '${qq.lessonExportId}'`,
-        );
+        qq.lessonExportId = null;
       }
     }
 

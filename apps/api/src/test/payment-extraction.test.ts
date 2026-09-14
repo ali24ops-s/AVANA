@@ -169,5 +169,26 @@ describe("Payment Extraction & Sanitization Engine", () => {
       expect(result.missingFields).toContain("trackingNumber");
       expect(result.missingFields).toContain("sourceCardLast4");
     });
+
+    it("handles noisy or low-quality receipt text with zero-width characters gracefully", () => {
+      const noisyText = `
+      ...رسید تراکنش نامشخص...
+      برداشت‌از: ۶۰۳۷۹۹۱۲۳۴۵۶۴۳۲۱
+      مبلغ: ۲۹۹٬۰۰۰ تومان
+      کد پیگیری نامشخص
+      `;
+      const result = extractPaymentInfoFromRules(noisyText);
+      expect(result.data.amount).toBe(299000);
+      expect(result.data.sourceCardLast4).toBe("4321");
+      expect(result.missingFields).toContain("trackingNumber");
+    });
+
+    it("returns empty structure with low confidence for empty or invalid text", () => {
+      const emptyResult = extractPaymentInfoFromRules("");
+      expect(emptyResult.data.amount).toBeNull();
+      expect(emptyResult.data.trackingNumber).toBeNull();
+      expect(emptyResult.missingFields).toContain("amount");
+      expect(emptyResult.missingFields).toContain("trackingNumber");
+    });
   });
 });

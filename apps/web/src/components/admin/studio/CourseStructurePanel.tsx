@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useMemo, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
   BookOpen,
@@ -9,8 +10,10 @@ import {
   AlertCircle,
   ChevronDown,
   X,
+  Flag,
 } from "lucide-react";
 import { api, type AdminCourseHierarchy, type AdminCourseHierarchyLesson } from "../../../lib/api/admin.js";
+import { useAdmin } from "../../../hooks/useAdmin.js";
 import { toPersianDigits } from "@avana/domain";
 
 export interface CourseStructurePanelProps {
@@ -18,8 +21,14 @@ export interface CourseStructurePanelProps {
 }
 
 export function CourseStructurePanel({ courseId }: CourseStructurePanelProps) {
+  const adminApi = useAdmin();
   const [expandedModules, setExpandedModules] = useState<Set<string>>(new Set());
   const [previewLesson, setPreviewLesson] = useState<AdminCourseHierarchyLesson | null>(null);
+
+  // Reset expanded modules when switching courses
+  useEffect(() => {
+    setExpandedModules(new Set());
+  }, [courseId]);
 
   const hierarchyQuery = useQuery({
     queryKey: ["course-hierarchy", courseId],
@@ -27,6 +36,22 @@ export function CourseStructurePanel({ courseId }: CourseStructurePanelProps) {
       return api.get<AdminCourseHierarchy>(`/admin/content/courses/${courseId}/hierarchy`);
     },
   });
+
+  const reportsQuery = useQuery({
+    queryKey: ["admin", "content-reports", { courseId }],
+    queryFn: () => adminApi.listContentReports({ courseId, pageSize: 100 }),
+  });
+
+  const reportsByLessonId = useMemo(() => {
+    const map = new Map<string, number>();
+    const items = reportsQuery.data?.items ?? [];
+    for (const r of items) {
+      if (r.lessonId) {
+        map.set(r.lessonId, (map.get(r.lessonId) || 0) + 1);
+      }
+    }
+    return map;
+  }, [reportsQuery.data]);
 
   const hierarchy = hierarchyQuery.data;
   const modules = hierarchy?.modules ?? [];
@@ -91,7 +116,7 @@ export function CourseStructurePanel({ courseId }: CourseStructurePanelProps) {
       {modules.length > 0 && (
         <div className="space-y-3">
           {modules.map((mod, index) => {
-            const isExpanded = expandedModules.has(mod.id) || expandedModules.size === 0;
+            const isExpanded = expandedModules.has(mod.id);
             return (
               <div
                 key={mod.id}
@@ -101,6 +126,7 @@ export function CourseStructurePanel({ courseId }: CourseStructurePanelProps) {
                 <button
                   type="button"
                   onClick={() => toggleModule(mod.id)}
+                  aria-expanded={isExpanded}
                   className="w-full p-4 sm:p-5 flex items-center justify-between hover:bg-[var(--color-surface-warm)]/60 transition-colors text-right"
                 >
                   <div className="flex items-center gap-3">
@@ -172,6 +198,17 @@ export function CourseStructurePanel({ courseId }: CourseStructurePanelProps) {
 
                           {/* Stats Badges & View Content */}
                           <div className="flex items-center gap-2 shrink-0">
+                            {reportsByLessonId.has(lesson.id) && (
+                              <Link
+                                to={`/admin/courses/${courseId}?tab=reports`}
+                                className="px-2 py-0.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-700 dark:text-rose-400 text-[10px] font-bold flex items-center gap-1 hover:bg-rose-500/20 transition-colors"
+                                title="مشاهده گزارش‌های این درس در برگه گزارش‌ها"
+                              >
+                                <Flag className="w-3 h-3 text-rose-500" />
+                                <span>{toPersianDigits(reportsByLessonId.get(lesson.id)!)} گزارش</span>
+                              </Link>
+                            )}
+
                             {lesson.flashcardCount > 0 && (
                               <span className="px-2 py-0.5 rounded-lg bg-teal-500/10 border border-teal-500/20 text-teal-700 dark:text-teal-300 text-[10px] font-bold flex items-center gap-1">
                                 <Sparkles className="w-3 h-3 text-teal-600 dark:text-teal-400" />
@@ -227,6 +264,15 @@ export function CourseStructurePanel({ courseId }: CourseStructurePanelProps) {
 
             <div className="space-y-4">
               <div className="flex flex-wrap gap-2 text-xs">
+                {reportsByLessonId.has(previewLesson.id) && (
+                  <Link
+                    to={`/admin/courses/${courseId}?tab=reports`}
+                    className="px-3 py-1 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 font-bold flex items-center gap-1.5 hover:bg-rose-500/20 transition-colors"
+                  >
+                    <Flag className="w-3.5 h-3.5 text-rose-500" />
+                    <span>{toPersianDigits(reportsByLessonId.get(previewLesson.id)!)} گزارش مشکل ثبت‌شده — مشاهده در برگه گزارش‌ها</span>
+                  </Link>
+                )}
                 <span className="px-3 py-1 rounded-xl bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-[var(--color-text-muted)] font-bold">
                   فلش‌کارت‌های مرتبط: {toPersianDigits(previewLesson.flashcardCount)}
                 </span>

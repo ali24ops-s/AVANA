@@ -2,6 +2,13 @@
  * Admin API Client.
  */
 
+export type {
+  AdminContentReportItem,
+  ListAdminContentReportsResponse,
+  ContentReportStatus,
+  ContentReportCategory,
+} from "@avana/contracts";
+
 export interface DashboardStats {
   totalUsers: number;
   newUsersToday: number;
@@ -75,6 +82,27 @@ export interface AdminGenerationDetail extends AdminGenerationJobRecord {
   organization?: { id: string; name: string };
   document?: { id: string; originalName: string };
   course?: { id: string; name?: string };
+}
+
+export interface AdminRejectedContentRecord {
+  id: string;
+  organizationId: string;
+  type: string;
+  title: string;
+  courseId: string;
+  courseTitle?: string;
+  documentId?: string;
+  documentName?: string;
+  reviewedBy?: string;
+  reviewedAt?: string;
+  reviewReason?: string;
+  model?: string;
+  createdAt: string;
+}
+
+export interface AdminRejectedContentsList {
+  items: AdminRejectedContentRecord[];
+  totalCount: number;
 }
 
 export interface DataIntegrityReport {
@@ -354,8 +382,61 @@ export function createAdminApi(client: {
       return client.get<{ jobs: AdminGenerationJobRecord[]; totalCount: number }>(`/v1/admin/generation?page=${page}&pageSize=${pageSize}${statusParam}${searchParam}`);
     },
 
+    async listRejectedContents(params: {
+      page?: number;
+      pageSize?: number;
+      type?: string;
+      courseId?: string;
+      search?: string;
+    } = {}): Promise<AdminRejectedContentsList> {
+      const page = params.page || 1;
+      const pageSize = params.pageSize || 20;
+      let queryStr = `page=${page}&pageSize=${pageSize}`;
+      if (params.type && params.type !== "all") queryStr += `&type=${encodeURIComponent(params.type)}`;
+      if (params.courseId) queryStr += `&courseId=${encodeURIComponent(params.courseId)}`;
+      if (params.search) queryStr += `&search=${encodeURIComponent(params.search)}`;
+      return client.get<AdminRejectedContentsList>(`/v1/admin/generation/rejected-contents?${queryStr}`);
+    },
+
     async getDataIntegrityReport(): Promise<DataIntegrityReport> {
       return client.get<DataIntegrityReport>("/v1/admin/system/integrity");
+    },
+
+    async listContentReports(params: {
+      page?: number;
+      pageSize?: number;
+      status?: string;
+      category?: string;
+      courseId?: string;
+      lessonId?: string;
+    } = {}) {
+      const queryParts: string[] = [];
+      if (params.page) queryParts.push(`page=${params.page}`);
+      if (params.pageSize) queryParts.push(`pageSize=${params.pageSize}`);
+      if (params.status) queryParts.push(`status=${encodeURIComponent(params.status)}`);
+      if (params.category) queryParts.push(`category=${encodeURIComponent(params.category)}`);
+      if (params.courseId) queryParts.push(`courseId=${encodeURIComponent(params.courseId)}`);
+      if (params.lessonId) queryParts.push(`lessonId=${encodeURIComponent(params.lessonId)}`);
+      const qs = queryParts.length > 0 ? `?${queryParts.join("&")}` : "";
+      return client.get<import("@avana/contracts").ListAdminContentReportsResponse>(
+        `/v1/admin/content-reports${qs}`,
+      );
+    },
+
+    async getContentReport(id: string) {
+      return client.get<import("@avana/contracts").AdminContentReportItem>(
+        `/v1/admin/content-reports/${encodeURIComponent(id)}`,
+      );
+    },
+
+    async updateContentReportStatus(
+      id: string,
+      status: import("@avana/contracts").ContentReportStatus,
+    ) {
+      return client.patch<import("@avana/contracts").AdminContentReportItem>(
+        `/v1/admin/content-reports/${encodeURIComponent(id)}`,
+        { status },
+      );
     },
     
     // Phase 4 Mutations

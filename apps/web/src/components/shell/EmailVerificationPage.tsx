@@ -1,5 +1,5 @@
 import { useState, useEffect, type FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
   Mail,
@@ -34,20 +34,34 @@ function maskPhone(phone?: string | null): string {
 }
 
 export function EmailVerificationPage() {
-  const [channel, setChannel] = useState<VerificationChannel>("email");
-  const [step, setStep] = useState<"select_channel" | "enter_code">("select_channel");
+  const location = useLocation();
+  const locationState = location.state as {
+    step?: "select_channel" | "enter_code";
+    channel?: VerificationChannel;
+    cooldown?: number;
+  } | null;
+
+  const [channel, setChannel] = useState<VerificationChannel>(
+    locationState?.channel ?? "email",
+  );
+  const [step, setStep] = useState<"select_channel" | "enter_code">(
+    locationState?.step ?? "enter_code",
+  );
   const [code, setCode] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSendingCode, setIsSendingCode] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [cooldown, setCooldown] = useState(0);
+  const [cooldown, setCooldown] = useState<number>(
+    locationState?.cooldown ?? 60,
+  );
 
   const {
     user,
     sendVerification,
     verifyChannel,
     isAuthenticated,
+    isLoading,
     isEmailVerified,
     isPhoneVerified,
     isVerified,
@@ -71,8 +85,21 @@ export function EmailVerificationPage() {
     }
   }, [isAuthenticated, isVerified, isEmailVerified, isPhoneVerified, navigate]);
 
+  useEffect(() => {
+    if (!isLoading && !isAuthenticated) {
+      navigate("/sign-in", { replace: true });
+    }
+  }, [isLoading, isAuthenticated, navigate]);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-[var(--color-bg-default)] flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
   if (!isAuthenticated) {
-    navigate("/sign-in", { replace: true });
     return null;
   }
 
@@ -96,6 +123,16 @@ export function EmailVerificationPage() {
     } catch (err) {
       if (err instanceof ApiError) {
         setError(err.message);
+        // If cooldown / rate limited, the code was already issued and is valid — transition to enter_code
+        if (
+          (err.code as string) === "too_many_requests" ||
+          err.message.includes("۶۰ ثانیه") ||
+          err.message.includes("بیش از حد")
+        ) {
+          setChannel(chosenChannel);
+          setStep("enter_code");
+          setCooldown((prev) => (prev > 0 ? prev : 60));
+        }
       } else {
         setError("ارسال کد با خطا مواجه شد. لطفاً دوباره تلاش کنید.");
       }
@@ -139,7 +176,33 @@ export function EmailVerificationPage() {
 
   async function handleResend() {
     if (cooldown > 0 || isSendingCode) return;
-    await handleSendCode(channel);
+    setError(null);
+    setSuccessMessage(null);
+    setIsSendingCode(true);
+
+    try {
+      await sendVerification(channel);
+      setCooldown(60);
+      setSuccessMessage(
+        channel === "phone"
+          ? "کد تأیید ۶ رقمی جدید به شماره موبایل شما ارسال شد."
+          : "کد تأیید ۶ رقمی جدید به ایمیل شما ارسال شد.",
+      );
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setError(err.message);
+        if (
+          (err.code as string) === "too_many_requests" ||
+          err.message.includes("۶۰ ثانیه")
+        ) {
+          setCooldown((prev) => (prev > 0 ? prev : 60));
+        }
+      } else {
+        setError("ارسال مجدد کد با خطا مواجه شد. لطفاً دوباره تلاش کنید.");
+      }
+    } finally {
+      setIsSendingCode(false);
+    }
   }
 
   return (

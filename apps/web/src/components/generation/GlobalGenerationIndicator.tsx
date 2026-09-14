@@ -6,6 +6,10 @@ import {
   AlertCircle,
   ChevronLeft,
 } from "lucide-react";
+import {
+  normalizeGenerationStage,
+  CANONICAL_STAGE_LABELS_FA,
+} from "@avana/domain";
 import { useAuth } from "../../providers/AuthProvider.js";
 import { isUserAdmin } from "../../utils/adminPermissions.js";
 import { useActiveGenerations } from "../../hooks/useActiveGenerations.js";
@@ -68,9 +72,9 @@ export function GlobalGenerationIndicator({
 
   const handleNavigateToReview = (courseId?: string | null, _documentId?: string) => {
     if (courseId) {
-      navigate(`/courses/${courseId}/manage`);
+      navigate(`/admin/courses/${courseId}?tab=generation`);
     } else {
-      navigate("/files");
+      navigate("/admin/documents");
     }
   };
 
@@ -188,7 +192,7 @@ export function GlobalGenerationIndicator({
           {isPrimaryGenerating && (
             <div className="flex items-center gap-1 text-[10px] text-[var(--color-text-muted)] leading-tight truncate max-w-[140px] sm:max-w-[180px]">
               <span>
-                {primaryItem.stageLabel || "در حال پردازش"}
+                {primaryItem.stageLabel || CANONICAL_STAGE_LABELS_FA[normalizeGenerationStage(primaryItem.stage, primaryItem.status)] || "در حال پردازش"}
               </span>
               {primaryItem.progress && primaryItem.progress.total > 0 && (
                 <span>

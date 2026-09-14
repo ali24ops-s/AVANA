@@ -17,6 +17,7 @@ import type {
   DashboardStats,
   AdminUsersList,
   AdminGenerationJobRecord,
+  AdminRejectedContentRecord,
   DataIntegrityReport,
   AdminCourseRecord,
   AdminDocumentRecord,
@@ -69,8 +70,47 @@ export class InMemoryAdminStore implements AdminStore {
     return { users: [], totalCount: 0 };
   }
 
+  public rejectedContents: AdminRejectedContentRecord[] = [];
+
   async listGenerationJobs(_params?: { page: number; pageSize: number; status?: string }): Promise<{ jobs: AdminGenerationJobRecord[]; totalCount: number }> {
     return { jobs: [], totalCount: 0 };
+  }
+
+  async listRejectedGeneratedContents(params: {
+    page: number;
+    pageSize: number;
+    type?: string;
+    courseId?: string;
+    search?: string;
+  }): Promise<{ items: AdminRejectedContentRecord[]; totalCount: number }> {
+    let items = [...this.rejectedContents];
+    if (params.type && params.type !== "all") {
+      items = items.filter((i) => i.type === params.type);
+    }
+    if (params.courseId) {
+      items = items.filter((i) => i.courseId === params.courseId);
+    }
+    if (params.search && params.search.trim()) {
+      const s = params.search.trim().toLowerCase();
+      items = items.filter(
+        (i) =>
+          i.title.toLowerCase().includes(s) ||
+          (i.courseTitle && i.courseTitle.toLowerCase().includes(s)) ||
+          (i.documentName && i.documentName.toLowerCase().includes(s)) ||
+          (i.reviewReason && i.reviewReason.toLowerCase().includes(s)),
+      );
+    }
+
+    const totalCount = items.length;
+    const page = params.page || 1;
+    const pageSize = params.pageSize || 20;
+    const start = (page - 1) * pageSize;
+    const paginated = items.slice(start, start + pageSize);
+
+    return {
+      items: paginated,
+      totalCount,
+    };
   }
 
   async getDataIntegrityReport(): Promise<DataIntegrityReport> {

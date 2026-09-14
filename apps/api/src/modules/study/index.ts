@@ -52,6 +52,9 @@ export { AnnotationService } from "./annotation-service.js";
 export type {
   LessonAnnotationRecord,
   ContentReportRecord,
+  ContentReportDetailRecord,
+  ListContentReportsParams,
+  ListContentReportsResult,
   LessonAnnotationStore,
   ContentReportStore,
 } from "./annotation-store.js";

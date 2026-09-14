@@ -19,7 +19,7 @@ import type {
   RecordAttemptInput,
   DeviceSessionTakeoverResult,
 } from "../device-store.js";
-import { generateDeviceId } from "../device-service.js";
+import { resolveCanonicalDeviceId } from "../device-service.js";
 import type {
   UserDevice,
   AuthenticationAttempt,
@@ -318,8 +318,8 @@ export class InMemoryDeviceStore implements DeviceStore {
           }
         }
 
-        // Case B: Slot is free (or vacated for admin) -> register new device
-        const canonicalDeviceId = generateDeviceId();
+        // Case B: Slot is free (or vacated for admin) -> register new device (preserving persistent client device ID)
+        const canonicalDeviceId = resolveCanonicalDeviceId(params.incomingDeviceId);
         const newDevice = await this.registerDevice({
           userId: params.userId,
           deviceId: canonicalDeviceId,

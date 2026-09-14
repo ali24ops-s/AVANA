@@ -21,6 +21,8 @@ import {
   type ProductRecord,
   type ResourceAccessResult,
   type UserId,
+  type UserSubscriptionRecord,
+  type UserEntitlementRecord,
   asCourseId,
   asContentPackId,
 } from "@avana/domain";
@@ -35,6 +37,18 @@ import type { FlashcardStore, QuizStore } from "../study/study-store.js";
 import type { ContentPackStore } from "../library/library-store.js";
 import type { OrganizationStore } from "../organizations/organization-store.js";
 import { PreviewResolver } from "./preview-resolver.js";
+
+export interface UserAccessSnapshot {
+  actor: Actor | null;
+  activeEntitlements: UserEntitlementRecord[];
+  activeSubscription: UserSubscriptionRecord | null;
+  activeProducts: ProductRecord[];
+  hasActiveSubscription: boolean;
+  activeSubExpiresAt: string | null;
+  entitlementMap: Map<string, UserEntitlementRecord>;
+  productsByTarget: Map<string, ProductRecord>;
+  productsByCode: Map<string, ProductRecord>;
+}
 
 export interface EntitlementServiceDeps {
   commerceStore: CommerceStore;
@@ -72,15 +86,96 @@ export class EntitlementService {
   }
 
   /**
+   * Creates an in-memory access snapshot for an actor (or anonymous visitor)
+   * by loading their active entitlements, active subscription, and active products once.
+   */
+  public async createAccessSnapshot(
+    actor: Actor | null,
+  ): Promise<UserAccessSnapshot> {
+    const { commerceStore } = this.deps;
+    const now = new Date();
+
+    const activeProducts = await commerceStore.listActiveProducts();
+
+    let activeEntitlements: UserEntitlementRecord[] = [];
+    let activeSubscription: UserSubscriptionRecord | null = null;
+    let hasActiveSubscription = false;
+    let activeSubExpiresAt: string | null = null;
+
+    if (actor && actor.userId) {
+      activeEntitlements = await commerceStore.listActiveEntitlements(
+        actor.userId,
+        now,
+      );
+
+      const subEnt = activeEntitlements.find(
+        (e) =>
+          e.resourceType === "subscription" &&
+          (!e.expiresAt || new Date(e.expiresAt) > now),
+      );
+      if (subEnt) {
+        hasActiveSubscription = true;
+        activeSubExpiresAt = subEnt.expiresAt;
+      } else {
+        activeSubscription = await commerceStore.findActiveSubscription(
+          actor.userId,
+          now,
+        );
+        if (activeSubscription) {
+          hasActiveSubscription = true;
+          activeSubExpiresAt = activeSubscription.expiresAt;
+        }
+      }
+    }
+
+    const entitlementMap = new Map<string, UserEntitlementRecord>();
+    for (const ent of activeEntitlements) {
+      entitlementMap.set(`${ent.resourceType}:${ent.resourceId ?? ""}`, ent);
+    }
+
+    const productsByTarget = new Map<string, ProductRecord>();
+    const productsByCode = new Map<string, ProductRecord>();
+    for (const p of activeProducts) {
+      if (p.targetType && p.targetId) {
+        productsByTarget.set(`${p.targetType}:${p.targetId}`, p);
+      }
+      if (p.code) {
+        productsByCode.set(p.code, p);
+      }
+    }
+
+    return {
+      actor,
+      activeEntitlements,
+      activeSubscription,
+      activeProducts,
+      hasActiveSubscription,
+      activeSubExpiresAt,
+      entitlementMap,
+      productsByTarget,
+      productsByCode,
+    };
+  }
+
+  /**
    * Evaluates resource access for a user and returns a structured decision.
+   * Can receive an optional pre-computed UserAccessSnapshot to avoid redundant DB queries.
    */
   async checkAccess(
     actor: Actor,
     input: CheckAccessInput,
+    snapshot?: UserAccessSnapshot,
   ): Promise<ResourceAccessResult> {
-    const { commerceStore } = this.deps;
-    const now = new Date();
+    const activeSnapshot =
+      snapshot ?? (await this.createAccessSnapshot(actor));
+    return this.evaluateAccessWithSnapshot(actor, input, activeSnapshot);
+  }
 
+  private async evaluateAccessWithSnapshot(
+    actor: Actor,
+    input: CheckAccessInput,
+    snapshot: UserAccessSnapshot,
+  ): Promise<ResourceAccessResult> {
     // -----------------------------------------------------------------------
     // 1. Resolve Hierarchy (Parent Course, Content Pack, Content ID, Creator)
     // -----------------------------------------------------------------------
@@ -117,32 +212,11 @@ export class EntitlementService {
     // -----------------------------------------------------------------------
     // 3. Active Subscription Check
     // -----------------------------------------------------------------------
-    const activeSubEntitlement = await commerceStore.findActiveEntitlement(
-      actor.userId,
-      "subscription",
-      null,
-      now,
-    );
-
-    if (activeSubEntitlement) {
+    if (snapshot.hasActiveSubscription) {
       return {
         granted: true,
         reason: "subscription",
-        expiresAt: activeSubEntitlement.expiresAt,
-        availablePurchaseOptions: [],
-      };
-    }
-
-    // Also verify user_subscriptions as secondary check if active
-    const activeSub = await commerceStore.findActiveSubscription(
-      actor.userId,
-      now,
-    );
-    if (activeSub) {
-      return {
-        granted: true,
-        reason: "subscription",
-        expiresAt: activeSub.expiresAt,
+        expiresAt: snapshot.activeSubExpiresAt,
         availablePurchaseOptions: [],
       };
     }
@@ -152,18 +226,15 @@ export class EntitlementService {
     // -----------------------------------------------------------------------
     // 4.1 Direct Content / Lesson Entitlement
     if (effectiveLessonId) {
-      let contentEntitlement = await commerceStore.findActiveEntitlement(
-        actor.userId,
-        "content",
-        effectiveLessonId,
-        now,
+      let contentEntitlement = snapshot.entitlementMap.get(
+        `content:${effectiveLessonId}`,
       );
 
       if (!contentEntitlement) {
         // Resolve across regenerations using exact Product Identity & lineage
         const product =
-          (await commerceStore.findProductByCode(`content_${effectiveLessonId}`)) ||
-          (await commerceStore.findProductByTarget("content", effectiveLessonId));
+          snapshot.productsByCode.get(`content_${effectiveLessonId}`) ||
+          snapshot.productsByTarget.get(`content:${effectiveLessonId}`);
 
         if (product) {
           // Check prior lesson IDs in this exact Product's lineage
@@ -172,11 +243,8 @@ export class EntitlementService {
             : [];
 
           for (const priorId of priorLessonIds) {
-            const priorEntitlement = await commerceStore.findActiveEntitlement(
-              actor.userId,
-              "content",
-              priorId,
-              now,
+            const priorEntitlement = snapshot.entitlementMap.get(
+              `content:${priorId}`,
             );
             if (priorEntitlement) {
               contentEntitlement = priorEntitlement;
@@ -185,17 +253,13 @@ export class EntitlementService {
           }
 
           // Check if user has an active entitlement whose order was for this exact Product ID
-          if (!contentEntitlement) {
-            const activeEnts = await commerceStore.listActiveEntitlements(
-              actor.userId,
-              now,
-            );
-            const contentEnts = activeEnts.filter(
+          if (!contentEntitlement && this.deps.commerceStore) {
+            const contentEnts = snapshot.activeEntitlements.filter(
               (e) => e.resourceType === "content" && e.orderId,
             );
             for (const ent of contentEnts) {
               if (ent.orderId) {
-                const order = await commerceStore.findOrderById(ent.orderId);
+                const order = await this.deps.commerceStore.findOrderById(ent.orderId);
                 if (order && order.productId === product.id) {
                   contentEntitlement = ent;
                   break;
@@ -218,11 +282,8 @@ export class EntitlementService {
                 priorLes.deletedAt !== null &&
                 priorLes.sortOrder === lesson.sortOrder
               ) {
-                const priorEntitlement = await commerceStore.findActiveEntitlement(
-                  actor.userId,
-                  "content",
-                  priorLes.id,
-                  now,
+                const priorEntitlement = snapshot.entitlementMap.get(
+                  `content:${priorLes.id}`,
                 );
                 if (priorEntitlement) {
                   contentEntitlement = priorEntitlement;
@@ -246,11 +307,8 @@ export class EntitlementService {
 
     // 4.2 Direct Course Entitlement (or Parent Course Entitlement)
     if (effectiveCourseId) {
-      const courseEntitlement = await commerceStore.findActiveEntitlement(
-        actor.userId,
-        "course",
-        effectiveCourseId,
-        now,
+      const courseEntitlement = snapshot.entitlementMap.get(
+        `course:${effectiveCourseId}`,
       );
       if (courseEntitlement) {
         return {
@@ -264,11 +322,8 @@ export class EntitlementService {
 
     // 4.3 Direct Content Pack Entitlement (or Parent Pack Entitlement)
     if (effectiveContentPackId) {
-      const packEntitlement = await commerceStore.findActiveEntitlement(
-        actor.userId,
-        "content_pack",
-        effectiveContentPackId,
-        now,
+      const packEntitlement = snapshot.entitlementMap.get(
+        `content_pack:${effectiveContentPackId}`,
       );
       if (packEntitlement) {
         return {
@@ -282,11 +337,8 @@ export class EntitlementService {
 
     // 4.4 Direct Special Exam Attempt Entitlement
     if (input.resourceType === "special_exam" && input.resourceId) {
-      const examEntitlement = await commerceStore.findActiveEntitlement(
-        actor.userId,
-        "special_exam",
-        input.resourceId,
-        now,
+      const examEntitlement = snapshot.entitlementMap.get(
+        `special_exam:${input.resourceId}`,
       );
       if (examEntitlement) {
         return {
@@ -322,7 +374,7 @@ export class EntitlementService {
       }
 
       const packProduct = effectiveContentPackId
-        ? await commerceStore.findActiveProductByTarget("content_pack", effectiveContentPackId)
+        ? snapshot.productsByTarget.get(`content_pack:${effectiveContentPackId}`)
         : null;
 
       if (packProduct && packProduct.active) {
@@ -346,7 +398,7 @@ export class EntitlementService {
     // 5.2 If resource is Course
     if (input.resourceType === "course") {
       const courseProduct = effectiveCourseId
-        ? await commerceStore.findActiveProductByTarget("course", effectiveCourseId)
+        ? snapshot.productsByTarget.get(`course:${effectiveCourseId}`)
         : null;
 
       if (
@@ -380,9 +432,8 @@ export class EntitlementService {
     ) {
       // Check 1: Direct Lesson active product (ONLY explicitlyFree === true allows free)
       if (effectiveLessonId) {
-        const lessonProduct = await commerceStore.findActiveProductByTarget(
-          "content",
-          effectiveLessonId,
+        const lessonProduct = snapshot.productsByTarget.get(
+          `content:${effectiveLessonId}`,
         );
         if (lessonProduct && lessonProduct.active) {
           if (lessonProduct.price === 0 && (lessonProduct.metadata as any)?.explicitlyFree === true) {
@@ -395,9 +446,8 @@ export class EntitlementService {
 
       // Check 1.5: Direct non-lesson resource active product (quiz, flashcard, etc.)
       if (!isExplicitlyFree && !isExplicitlyPaid && input.resourceId && input.resourceType !== "content" && input.resourceType !== "lesson") {
-        const directProduct = await commerceStore.findActiveProductByTarget(
-          input.resourceType as any,
-          input.resourceId,
+        const directProduct = snapshot.productsByTarget.get(
+          `${input.resourceType}:${input.resourceId}`,
         );
         if (directProduct && directProduct.active) {
           if (directProduct.price === 0 && (directProduct.metadata as any)?.explicitlyFree === true) {
@@ -410,9 +460,8 @@ export class EntitlementService {
 
       // Check 2: Parent Course active product (if lesson has no direct active product)
       if (!isExplicitlyFree && !isExplicitlyPaid && effectiveCourseId) {
-        const courseProduct = await commerceStore.findActiveProductByTarget(
-          "course",
-          effectiveCourseId,
+        const courseProduct = snapshot.productsByTarget.get(
+          `course:${effectiveCourseId}`,
         );
         if (courseProduct && courseProduct.active) {
           if (courseProduct.price === 0 && (courseProduct.metadata as any)?.explicitlyFree === true) {
@@ -460,6 +509,7 @@ export class EntitlementService {
           input.moduleId,
           effectiveCourseId,
           input.previewSessionId,
+          snapshot?.activeProducts,
         );
         if (isPreview) {
           return {
@@ -504,11 +554,14 @@ export class EntitlementService {
     // -----------------------------------------------------------------------
     // 6. Access Denied / Locked — Build Purchase Options
     // -----------------------------------------------------------------------
-    const availablePurchaseOptions = await this.getPurchaseOptions({
-      courseId: effectiveCourseId,
-      contentPackId: effectiveContentPackId,
-      lessonId: effectiveLessonId,
-    });
+    const availablePurchaseOptions = this.getPurchaseOptionsFromSnapshot(
+      snapshot,
+      {
+        courseId: effectiveCourseId,
+        contentPackId: effectiveContentPackId,
+        lessonId: effectiveLessonId,
+      },
+    );
 
     return {
       granted: false,
@@ -691,19 +744,20 @@ export class EntitlementService {
   }
 
   /**
-   * Retrieves active purchasing options for paywalls.
+   * Retrieves active purchasing options for paywalls using pre-loaded snapshot.
    */
-  private async getPurchaseOptions(params: {
-    courseId?: CourseId;
-    contentPackId?: ContentPackId;
-    lessonId?: string;
-  }): Promise<ResourceAccessResult["availablePurchaseOptions"]> {
-    const { commerceStore } = this.deps;
-    const activeProducts = await commerceStore.listActiveProducts();
+  private getPurchaseOptionsFromSnapshot(
+    snapshot: UserAccessSnapshot,
+    params: {
+      courseId?: CourseId;
+      contentPackId?: ContentPackId;
+      lessonId?: string;
+    },
+  ): ResourceAccessResult["availablePurchaseOptions"] {
     const options: ResourceAccessResult["availablePurchaseOptions"] = [];
 
     // 1. Always include subscription products
-    for (const p of activeProducts) {
+    for (const p of snapshot.activeProducts) {
       if (p.type === "subscription") {
         options.push(this.mapProductToOption(p));
       }
@@ -711,9 +765,8 @@ export class EntitlementService {
 
     // 2. Include Content (Lesson) product if explicitly defined and active
     if (params.lessonId) {
-      const lessonProduct = await commerceStore.findActiveProductByTarget(
-        "content",
-        params.lessonId,
+      const lessonProduct = snapshot.productsByTarget.get(
+        `content:${params.lessonId}`,
       );
       if (lessonProduct && lessonProduct.price > 0 && lessonProduct.active) {
         options.push(this.mapProductToOption(lessonProduct));
@@ -722,9 +775,8 @@ export class EntitlementService {
 
     // 3. Include Course product if explicitly defined and active
     if (params.courseId) {
-      const courseProduct = await commerceStore.findActiveProductByTarget(
-        "course",
-        params.courseId,
+      const courseProduct = snapshot.productsByTarget.get(
+        `course:${params.courseId}`,
       );
       if (courseProduct && courseProduct.price > 0 && courseProduct.active) {
         options.push(this.mapProductToOption(courseProduct));
@@ -733,9 +785,8 @@ export class EntitlementService {
 
     // 4. Include Content Pack product if explicitly defined and active
     if (params.contentPackId) {
-      const packProduct = await commerceStore.findActiveProductByTarget(
-        "content_pack",
-        params.contentPackId,
+      const packProduct = snapshot.productsByTarget.get(
+        `content_pack:${params.contentPackId}`,
       );
       if (packProduct && packProduct.price > 0 && packProduct.active) {
         options.push(this.mapProductToOption(packProduct));
@@ -744,6 +795,7 @@ export class EntitlementService {
 
     return options;
   }
+
 
   private mapProductToOption(
     p: ProductRecord,

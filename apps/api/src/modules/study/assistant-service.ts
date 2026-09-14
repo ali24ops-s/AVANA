@@ -390,7 +390,7 @@ export class StudyAssistantService {
       this.systemOrganizationId &&
       this.systemOrganizationId === organizationId;
 
-    if (!isSystemOrg) {
+    if (!isSystemOrg && actor.role !== "platform_admin") {
       const membership = await this.organizationStore.findMembership(
         organizationId,
         actor.userId,

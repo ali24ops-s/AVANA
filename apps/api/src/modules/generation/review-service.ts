@@ -773,7 +773,11 @@ export class ReviewService {
       throw new DomainError("bad_request", "Edited payload is required");
     }
 
-    if (record.status !== "draft" && record.status !== "edited") {
+    if (
+      record.status !== "draft" &&
+      record.status !== "edited" &&
+      record.status !== "accepted"
+    ) {
       throw new DomainError(
         "conflict",
         `Cannot edit content in status '${record.status}'`,
@@ -782,9 +786,12 @@ export class ReviewService {
 
     const now = new Date().toISOString();
     const previousPayload = record.payload;
+    const isAlreadyAccepted = record.status === "accepted";
+    const nextStatus = isAlreadyAccepted ? "accepted" : "edited";
+
     const updated: GeneratedContentRecord = {
       ...record,
-      status: "edited",
+      status: nextStatus,
       payload: updates.payload,
       previousPayload,
       editedBy: actor.userId,
@@ -792,6 +799,10 @@ export class ReviewService {
       updatedAt: now,
     };
     await this.generatedContentStore.update(updated);
+
+    if (isAlreadyAccepted) {
+      await this.syncMaterializedContent(updated);
+    }
 
     if (this.auditService) {
       await this.auditService.emit([
@@ -1552,15 +1563,18 @@ export class ReviewService {
   private async materializeFlashcard(
     record: GeneratedContentRecord,
     stores?: ReviewScopedStores,
+    force?: boolean,
   ): Promise<void> {
     const flashcardStore = this.getFlashcardStore(stores);
     const lessonStore = this.getLessonStore(stores);
 
     if (!flashcardStore) return;
-    const existing = await flashcardStore.findByGeneratedContent(
-      record.id,
-    );
-    if (existing) return;
+    if (!force) {
+      const existing = await flashcardStore.findByGeneratedContent(
+        record.id,
+      );
+      if (existing) return;
+    }
 
     // Clean up previous flashcards for this document to avoid duplicate card piles
     if (record.documentId) {
@@ -1673,14 +1687,17 @@ export class ReviewService {
   private async materializeQuiz(
     record: GeneratedContentRecord,
     stores?: ReviewScopedStores,
+    force?: boolean,
   ): Promise<LessonId | null> {
     const quizStore = this.getQuizStore(stores);
     const quizQuestionStore = this.getQuizQuestionStore(stores);
     const lessonStore = this.getLessonStore(stores);
 
     if (!quizStore || !quizQuestionStore) return null;
-    const existing = await quizStore.findByGeneratedContent(record.id);
-    if (existing) return record.materializedLessonId ?? null;
+    if (!force) {
+      const existing = await quizStore.findByGeneratedContent(record.id);
+      if (existing) return record.materializedLessonId ?? null;
+    }
 
     // Clean up previous quizzes for this document to avoid duplicate quizzes
     if (record.documentId) {
@@ -1888,6 +1905,56 @@ export class ReviewService {
     }
 
     return matchedLessonId;
+  }
+
+  private async syncMaterializedContent(
+    record: GeneratedContentRecord,
+    stores?: ReviewScopedStores,
+  ): Promise<void> {
+    const lessonStore = this.getLessonStore(stores);
+    const flashcardStore = this.getFlashcardStore(stores);
+    const quizStore = this.getQuizStore(stores);
+
+    if (record.type === "lesson") {
+      if (lessonStore && record.materializedLessonId) {
+        const lesson = await lessonStore.findById(record.materializedLessonId);
+        if (lesson) {
+          const payload = record.payload as {
+            title?: string;
+            contentMarkdown?: string;
+            content_markdown?: string;
+            markdown?: string;
+            sessions?: Array<{ title: string; contentMarkdown: string }>;
+          };
+          const title =
+            payload.title ||
+            payload.sessions?.[0]?.title ||
+            lesson.title;
+          const rawContent =
+            payload.contentMarkdown ??
+            payload.content_markdown ??
+            payload.markdown ??
+            payload.sessions?.[0]?.contentMarkdown ??
+            lesson.contentMarkdown;
+          const contentMarkdown = normalizeEducationalContent(rawContent);
+
+          await lessonStore.update({
+            ...lesson,
+            title,
+            contentMarkdown,
+            updatedAt: new Date().toISOString(),
+          });
+        }
+      }
+    } else if (record.type === "flashcard") {
+      if (flashcardStore) {
+        await this.materializeFlashcard(record, stores, true);
+      }
+    } else if (record.type === "quiz") {
+      if (quizStore) {
+        await this.materializeQuiz(record, stores, true);
+      }
+    }
   }
 
   private isFilenameFallback(t: string | null | undefined): boolean {

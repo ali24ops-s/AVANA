@@ -50,6 +50,7 @@ import {
 } from "../modules/study/index.js";
 import {
   createModelGateway,
+  OpenRouterModelGateway,
   InMemoryGenerationQueue,
   GenerationService,
   type ModelGateway,
@@ -141,36 +142,28 @@ export async function composeLocalDev(
     organizationStore,
   );
 
-  // Model gateway (Gemini default, or mock/cloudflare/groq if configured, or injected gateway).
-  const gateway =
+  // Admin Model gateway: strictly Gemini with multi-key pool, zero fallback to external providers.
+  const adminProvider = config.generation.aiProvider === "mock" ? "mock" : "gemini";
+  const adminGateway: ModelGateway =
     options?.gateway ??
     createModelGateway({
-      provider: config.generation.aiProvider,
-      enableFallback: config.generation.enableFallback,
+      provider: adminProvider,
+      enableFallback: false,
       geminiApiKey: config.generation.geminiApiKey,
       geminiApiKeys: config.generation.geminiApiKeys,
       geminiModel: config.generation.geminiModel,
-      cloudflareAccountId: config.generation.cloudflareAccountId,
-      cloudflareApiToken: config.generation.cloudflareApiToken,
-      cloudflareAiModel: config.generation.cloudflareAiModel,
-      groqApiKey: config.generation.groqApiKey,
-      groqModel: config.generation.groqModel,
-      gapgptApiKey: config.generation.gapgptApiKey,
-      gapgptBaseUrl: config.generation.gapgptBaseUrl,
-      gapgptModel: config.generation.gapgptModel,
     });
 
-  // Assistant gateway using Cloudflare if configured
-  const assistantGateway =
-    config.generation.cloudflareAccountId &&
-    config.generation.cloudflareApiToken
-      ? createModelGateway({
-          provider: "cloudflare",
-          cloudflareAccountId: config.generation.cloudflareAccountId,
-          cloudflareApiToken: config.generation.cloudflareApiToken,
-          cloudflareAiModel: config.generation.cloudflareAiModel,
-        })
-      : gateway;
+  // Dedicated OpenRouter ModelGateway for User-Facing AI (Content Generation & Ask)
+  // Zero fallback to Gemini or Cloudflare.
+  const userGateway: ModelGateway = new OpenRouterModelGateway({
+    apiKey: config.userAi.openrouterApiKey,
+    modelName: config.userAi.openrouterModel,
+    httpReferer: config.userAi.httpReferer,
+    appTitle: config.userAi.appTitle,
+  });
+
+  const assistantGateway: ModelGateway = userGateway;
 
   const auditStore = new InMemoryAuditStore();
   const auditService = new AuditService(auditStore);
@@ -178,7 +171,7 @@ export async function composeLocalDev(
   const generationService = new GenerationService(
     generatedContentStore,
     generatedContentCitationStore,
-    gateway,
+    userGateway,
     documentStore,
     documentChunkStore,
     defaultPolicy,
@@ -214,7 +207,8 @@ export async function composeLocalDev(
     generatedContentCitationStore,
     generationJobStore,
     queue,
-    gateway,
+    gateway: userGateway,
+    adminGateway,
     flashcardStore,
     flashcardReviewStore,
     userFlashcardScheduleStore,

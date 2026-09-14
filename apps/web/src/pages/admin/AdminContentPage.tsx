@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
-import { api } from "../../lib/api/admin";
-import { AdminSearch, AdminStatusBadge, AdminPagination } from "../../components/admin/AdminUI";
+import { useSearchParams } from "react-router-dom";
+import { api } from "../../lib/api/admin.js";
+import { AdminSearch, AdminStatusBadge, AdminPagination } from "../../components/admin/AdminUI.js";
 import {
   ChevronDown,
   ChevronLeft,
@@ -12,9 +13,11 @@ import {
   BookOpen,
   Download,
   Upload,
+  Flag,
 } from "lucide-react";
-import { ContentExportModal } from "../../components/admin/content/ContentExportModal";
-import { ContentImportModal } from "../../components/admin/content/ContentImportModal";
+import { ContentExportModal } from "../../components/admin/content/ContentExportModal.js";
+import { ContentImportModal } from "../../components/admin/content/ContentImportModal.js";
+import { AdminContentReportsPanel } from "../../components/admin/reports/AdminContentReportsPanel.js";
 import { useAuth } from "../../providers/AuthProvider.js";
 import { toPersianDigits } from "@avana/domain";
 
@@ -62,10 +65,30 @@ interface ModuleHierarchyItem {
 
 interface CourseHierarchy {
   modules: ModuleHierarchyItem[];
+  courseFlashcardCount?: number;
+  courseQuizCount?: number;
 }
 
 export function AdminContentPage() {
   const { user } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = searchParams.get("tab") === "reports" ? "reports" : "curriculum";
+
+  const setTab = (newTab: "curriculum" | "reports") => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (newTab === "reports") {
+          next.set("tab", "reports");
+        } else {
+          next.delete("tab");
+        }
+        return next;
+      },
+      { replace: true },
+    );
+  };
+
   const [stats, setStats] = useState<DashboardStatsShape | null>(null);
   const [courses, setCourses] = useState<CourseListItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -163,43 +186,78 @@ export function AdminContentPage() {
         </div>
       )}
 
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-[var(--color-surface)] p-4 rounded-2xl border border-[var(--color-border)] gap-4 shadow-sm">
-        <h2 className="text-lg font-semibold text-[var(--color-text)]">مرورگر محتوا (Curriculum Explorer)</h2>
-        <AdminSearch value={search} onChange={handleSearchChange} placeholder="جستجوی دوره..." />
+      {/* Tab Navigation */}
+      <div className="flex items-center gap-2 p-1.5 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl overflow-x-auto text-xs font-bold shadow-sm">
+        <button
+          type="button"
+          onClick={() => setTab("curriculum")}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all whitespace-nowrap ${
+            activeTab === "curriculum"
+              ? "bg-[var(--color-primary-default)] text-[var(--color-primary-contrast)] shadow-sm"
+              : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-subtle)]"
+          }`}
+        >
+          <Layers className="w-4 h-4" />
+          <span>مرورگر ساختار محتوا (Curriculum Explorer)</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setTab("reports")}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all whitespace-nowrap ${
+            activeTab === "reports"
+              ? "bg-[var(--color-primary-default)] text-[var(--color-primary-contrast)] shadow-sm"
+              : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-subtle)]"
+          }`}
+        >
+          <Flag className="w-4 h-4" />
+          <span>گزارش‌های مشکل درسنامه‌ها (Issue Reports)</span>
+        </button>
       </div>
 
-      <div className="space-y-3">
-        {loading ? (
-          <div className="p-8 text-center text-[var(--color-text-muted)] bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)]">
-            در حال بارگذاری...
+      {activeTab === "reports" ? (
+        <AdminContentReportsPanel />
+      ) : (
+        <>
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-[var(--color-surface)] p-4 rounded-2xl border border-[var(--color-border)] gap-4 shadow-sm">
+            <h2 className="text-lg font-semibold text-[var(--color-text)]">مرورگر محتوا (Curriculum Explorer)</h2>
+            <AdminSearch value={search} onChange={handleSearchChange} placeholder="جستجوی دوره..." />
           </div>
-        ) : error ? (
-          <div className="p-8 text-center text-rose-500 bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)]">
-            {error}
+
+          <div className="space-y-3">
+            {loading ? (
+              <div className="p-8 text-center text-[var(--color-text-muted)] bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)]">
+                در حال بارگذاری...
+              </div>
+            ) : error ? (
+              <div className="p-8 text-center text-rose-500 bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)]">
+                {error}
+              </div>
+            ) : courses.length === 0 ? (
+              <div className="p-8 text-center text-[var(--color-text-muted)] bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)]">
+                دوره‌ای یافت نشد.
+              </div>
+            ) : (
+              courses.map(course => (
+                <CourseNode 
+                  key={course.id} 
+                  course={course} 
+                  isExpanded={expandedCourse === course.id}
+                  onToggle={() => setExpandedCourse(expandedCourse === course.id ? null : course.id)}
+                />
+              ))
+            )}
           </div>
-        ) : courses.length === 0 ? (
-          <div className="p-8 text-center text-[var(--color-text-muted)] bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)]">
-            دوره‌ای یافت نشد.
-          </div>
-        ) : (
-          courses.map(course => (
-            <CourseNode 
-              key={course.id} 
-              course={course} 
-              isExpanded={expandedCourse === course.id}
-              onToggle={() => setExpandedCourse(expandedCourse === course.id ? null : course.id)}
+
+          {!loading && !error && courses.length > 0 && totalPages > 1 && (
+            <AdminPagination
+              page={page}
+              totalPages={totalPages}
+              totalCount={totalCount}
+              onPageChange={setPage}
             />
-          ))
-        )}
-      </div>
-
-      {!loading && !error && courses.length > 0 && totalPages > 1 && (
-        <AdminPagination
-          page={page}
-          totalPages={totalPages}
-          totalCount={totalCount}
-          onPageChange={setPage}
-        />
+          )}
+        </>
       )}
 
       <ContentExportModal
@@ -276,10 +334,29 @@ function CourseNode({ course, isExpanded, onToggle }: { course: CourseListItem, 
             <div className="text-center py-4 text-sm text-[var(--color-text-muted)]">در حال دریافت ساختار...</div>
           ) : error ? (
             <div className="text-center py-4 text-sm text-rose-500">{error}</div>
-          ) : !hierarchy || hierarchy.modules.length === 0 ? (
+          ) : !hierarchy || (hierarchy.modules.length === 0 && !(hierarchy.courseFlashcardCount || hierarchy.courseQuizCount)) ? (
             <div className="text-center py-4 text-sm text-[var(--color-text-muted)]">محتوایی برای این دوره ثبت نشده است.</div>
           ) : (
             <div className="space-y-4 ps-2 border-s-2 border-[var(--color-border)]">
+              {Boolean((hierarchy.courseFlashcardCount || 0) > 0 || (hierarchy.courseQuizCount || 0) > 0) && (
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between p-3 rounded-xl bg-[var(--color-surface)] border border-[var(--color-border)] text-xs text-[var(--color-text-muted)] gap-2 mb-2 shadow-sm">
+                  <span className="font-semibold text-[var(--color-text)]">محتوای عمومی دوره (سطح کلی)</span>
+                  <div className="flex items-center gap-3">
+                    {(hierarchy.courseFlashcardCount || 0) > 0 && (
+                      <span className="flex items-center gap-1 text-purple-600 dark:text-purple-400 font-medium bg-purple-500/10 px-2 py-1 rounded-lg">
+                        <BrainCircuit className="w-3.5 h-3.5" />
+                        {toPersianDigits(hierarchy.courseFlashcardCount || 0)} فلش‌کارت دوره
+                      </span>
+                    )}
+                    {(hierarchy.courseQuizCount || 0) > 0 && (
+                      <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400 font-medium bg-amber-500/10 px-2 py-1 rounded-lg">
+                        <HelpCircle className="w-3.5 h-3.5" />
+                        {toPersianDigits(hierarchy.courseQuizCount || 0)} آزمون دوره
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
               {hierarchy.modules.map((mod: ModuleHierarchyItem) => (
                 <div key={mod.id} className="space-y-2">
                   <div className="flex items-center gap-2 text-[var(--color-text)] font-medium text-sm">

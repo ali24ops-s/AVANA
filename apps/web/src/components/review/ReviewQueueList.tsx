@@ -213,9 +213,41 @@ export function ReviewQueueList({
               پیش‌نویس‌های تولیدشده را همراه با ارجاعات منبع بررسی، ویرایش یا تایید نمایید.
             </p>
           </div>
+        </div>
 
-          {/* Filter Pills */}
-          <div className="flex items-center gap-1.5 p-1 bg-[var(--color-surface-warm)] border border-[var(--color-border)] rounded-xl text-xs overflow-x-auto">
+        {/* Secondary Controls: Search & Type Filter Pills */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+          <div className="flex-1">
+            <Input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setPage(1);
+              }}
+              placeholder="جستجو در نام فایل‌ها و عناوین محتوا..."
+              aria-label="جستجو در نام فایل‌ها و عناوین محتوا"
+              startIcon={<Search className="w-4 h-4" />}
+              endIcon={
+                searchQuery ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchQuery("");
+                      setPage(1);
+                    }}
+                    className="p-1 text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors cursor-pointer"
+                    aria-label="پاک کردن جستجو"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                ) : undefined
+              }
+            />
+          </div>
+
+          {/* Type Filter Pills */}
+          <div className="flex items-center gap-1.5 p-1 bg-[var(--color-surface-warm)] border border-[var(--color-border)] rounded-xl text-xs overflow-x-auto shrink-0">
             {(["all", "lesson", "flashcard", "quiz"] as const).map((t) => (
               <button
                 type="button"
@@ -227,8 +259,8 @@ export function ReviewQueueList({
                 aria-pressed={typeFilter === t}
                 className={`px-3 py-1.5 rounded-lg font-bold transition-all whitespace-nowrap ${
                   typeFilter === t
-                    ? "bg-[var(--color-primary-default)] text-[var(--color-primary-contrast)] shadow-sm"
-                    : "text-[var(--color-text)] hover:bg-[var(--color-surface)] border border-transparent hover:border-[var(--color-border)]"
+                    ? "bg-[var(--color-surface)] text-[var(--color-text)] border border-[var(--color-border)] shadow-xs"
+                    : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)]/60"
                 }`}
               >
                 {getFilterLabel(t)}
@@ -236,46 +268,20 @@ export function ReviewQueueList({
             ))}
           </div>
         </div>
-
-        {/* Search Bar */}
-        <Input
-          type="text"
-          value={searchQuery}
-          onChange={(e) => {
-            setSearchQuery(e.target.value);
-            setPage(1);
-          }}
-          placeholder="جستجو در نام فایل‌ها و عناوین محتوا..."
-          aria-label="جستجو در نام فایل‌ها و عناوین محتوا"
-          startIcon={<Search className="w-4 h-4" />}
-          endIcon={
-            searchQuery ? (
-              <button
-                type="button"
-                onClick={() => {
-                  setSearchQuery("");
-                  setPage(1);
-                }}
-                className="p-1 text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors cursor-pointer"
-                aria-label="پاک کردن جستجو"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            ) : undefined
-          }
-        />
       </div>
 
       {/* Grouped Queue Items */}
       {groups.length === 0 ? (
-        <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-12 text-center space-y-3">
+        <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-12 text-center space-y-3" data-testid="review-queue-empty-state">
           <Sparkles className="w-10 h-10 text-[var(--color-text-muted)] mx-auto" />
           <h4 className="text-sm font-bold text-[var(--color-text)]">
-            موردی در انتظار بازبینی وجود ندارد
+            {searchQuery
+              ? `نتیجه‌ای برای «${searchQuery}» پیدا نشد`
+              : "موردی در انتظار بازبینی وجود ندارد"}
           </h4>
           <p className="text-xs text-[var(--color-text-muted)] max-w-sm mx-auto leading-relaxed">
             {searchQuery
-              ? `هیچ نتیجه‌ای برای عبارت «${searchQuery}» پیدا نشد.`
+              ? "عبارت جستجو را تغییر دهید یا فیلترهای دیگر را بررسی نمایید."
               : typeFilter === "all"
               ? "تمامی پیش‌نویس‌های تولیدشده بازبینی و تایید شده‌اند یا سندی پردازش نشده است."
               : `پیش‌نویسی از نوع ${getFilterLabel(typeFilter)} در صف انتظار نیست.`}

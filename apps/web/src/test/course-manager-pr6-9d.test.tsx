@@ -409,7 +409,7 @@ describe("ContentReviewDetail", () => {
     fireEvent.click(screen.getByRole("button", { name: /تایید و انتشار/i }));
 
     await waitFor(() => {
-      const editBtn = screen.getByRole("button", { name: /ویرایش پیش‌نویس/i });
+      const editBtn = screen.getByRole("button", { name: /ویرایش/i });
       const rejectBtn = screen.getByRole("button", { name: /رد کردن/i });
       const regenerateBtn = screen.getByRole("button", { name: /تولید مجدد/i });
 

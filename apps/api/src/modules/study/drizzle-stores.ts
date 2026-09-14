@@ -330,18 +330,31 @@ export class DrizzleFlashcardStore implements FlashcardStore {
 
   async listByCourse(
     courseId: CourseId,
-    organizationId: OrganizationId,
+    organizationId?: OrganizationId,
+    systemOrganizationId?: OrganizationId,
   ): Promise<FlashcardRecord[]> {
+    const orgFilter =
+      organizationId && systemOrganizationId && organizationId !== systemOrganizationId
+        ? or(
+            eq(flashcards.organizationId, organizationId),
+            eq(flashcards.organizationId, systemOrganizationId),
+          )
+        : organizationId
+          ? eq(flashcards.organizationId, organizationId)
+          : undefined;
+
+    const conditions = [
+      eq(flashcards.courseId, courseId),
+      isNull(flashcards.deletedAt),
+    ];
+    if (orgFilter) {
+      conditions.push(orgFilter);
+    }
+
     const rows = await this.db
       .select()
       .from(flashcards)
-      .where(
-        and(
-          eq(flashcards.courseId, courseId),
-          eq(flashcards.organizationId, organizationId),
-          isNull(flashcards.deletedAt),
-        ),
-      )
+      .where(and(...conditions))
       .orderBy(asc(flashcards.createdAt));
 
     return rows.map(toFlashcardRecord);

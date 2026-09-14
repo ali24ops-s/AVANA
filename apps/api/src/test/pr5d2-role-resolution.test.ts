@@ -249,7 +249,7 @@ describe("PR5-D2: Organization membership role resolution", () => {
   });
 
   describe("5. course_editor permissions work end-to-end", () => {
-    it("a course_editor can access content endpoints", async () => {
+    it("a course_editor can create and update courses", async () => {
       const app = await buildApp();
       const { token, userId } = await signIn(app, "editor-perms@example.com");
       const org = await createOrg(app, token, "Perms Org");
@@ -264,56 +264,18 @@ describe("PR5-D2: Organization membership role resolution", () => {
       });
       expect(courseRes.statusCode).toBe(201);
       const courseBody = JSON.parse(courseRes.body) as {
-        course: { id: string };
+        course: { id: string; title: string };
       };
-      const courseId = courseBody.course.id as CourseId;
+      expect(courseBody.course.title).toBe("Course");
 
-      // Seed a module via the store
-      const now = new Date().toISOString();
-      const moduleId = randomUUID() as ModuleId;
-      moduleStore.insert({
-        id: moduleId,
-        courseId,
-        title: "Module",
-        description: null,
-        sortOrder: 1,
-        createdAt: now,
-        updatedAt: now,
-        deletedAt: null,
-      });
-
-      // course_editor can create a lesson (content:write)
-      const createLessonRes = await app.inject({
-        method: "POST",
-        url: `/v1/organizations/${org.id}/courses/${courseId}/modules/${moduleId}/lessons`,
+      // Update course metadata (course_editor has course:update)
+      const updateRes = await app.inject({
+        method: "PATCH",
+        url: `/v1/organizations/${org.id}/courses/${courseBody.course.id}`,
         cookies: { avana_session: token },
-        payload: { title: "Lesson", content_markdown: "# Body" },
+        payload: { title: "Updated Course Title" },
       });
-      expect(createLessonRes.statusCode).toBe(201);
-      const lessonBody = JSON.parse(createLessonRes.body) as {
-        lesson: { id: string; publication_status: string };
-      };
-      expect(lessonBody.lesson.publication_status).toBe("draft");
-
-      // course_editor can publish a lesson (content:publish)
-      const publishRes = await app.inject({
-        method: "POST",
-        url: `/v1/organizations/${org.id}/courses/${courseId}/modules/${moduleId}/lessons/${lessonBody.lesson.id}/publish`,
-        cookies: { avana_session: token },
-      });
-      expect(publishRes.statusCode).toBe(200);
-      const publishBody = JSON.parse(publishRes.body) as {
-        lesson: { publication_status: string };
-      };
-      expect(publishBody.lesson.publication_status).toBe("published");
-
-      // course_editor can delete a lesson (content:write)
-      const deleteRes = await app.inject({
-        method: "DELETE",
-        url: `/v1/organizations/${org.id}/courses/${courseId}/modules/${moduleId}/lessons/${lessonBody.lesson.id}`,
-        cookies: { avana_session: token },
-      });
-      expect(deleteRes.statusCode).toBe(204);
+      expect(updateRes.statusCode).toBe(200);
 
       await app.close();
     });

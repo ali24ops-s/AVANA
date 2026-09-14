@@ -987,7 +987,230 @@ describe("RichContent & MarkdownRenderer Math & Markdown Suite", () => {
       expect(container.textContent).not.toContain("⚠️");
     });
   });
+
+  describe("GFM Table UI & Lesson Table Regression Suite", () => {
+    it("renders markdown tables with clean wrapper, subtle shadow, rounded card and RTL direction", () => {
+      const markdownTable = [
+        "متن قبل از جدول.",
+        "",
+        "| نام دارو | دوز استاندارد | سطح شواهد |",
+        "| :--- | :--- | :--- |",
+        "| کاپتوپریل | ۱۲.۵ میلی‌گرم | A |",
+        "| انالاپریل | ۵ میلی‌گرم | A |",
+        "",
+        "متن بعد از جدول.",
+      ].join("\n");
+
+      const { container } = render(
+        <MarkdownRenderer content={markdownTable} enableLessonCallouts />
+      );
+
+      const tableEl = container.querySelector("table");
+      expect(tableEl).toBeInTheDocument();
+      expect(tableEl).toHaveAttribute("dir", "rtl");
+      expect(tableEl).toHaveClass("border-collapse");
+      expect(tableEl).toHaveClass("w-full");
+
+      // Outer wrapper styling
+      const wrapperDiv = tableEl?.parentElement;
+      expect(wrapperDiv).toBeInTheDocument();
+      expect(wrapperDiv).toHaveClass("rounded-card");
+      expect(wrapperDiv).toHaveClass("shadow-xs");
+      expect(wrapperDiv).toHaveClass("overflow-x-auto");
+      expect(wrapperDiv).toHaveClass("my-3.5");
+      expect(wrapperDiv).toHaveClass("sm:my-4");
+      expect(wrapperDiv).not.toHaveClass("shadow-ambient");
+
+      // Headers and data rows
+      const thElements = container.querySelectorAll("th");
+      expect(thElements.length).toBe(3);
+      expect(thElements[0].textContent).toBe("نام دارو");
+      expect(thElements[1].textContent).toBe("دوز استاندارد");
+      expect(thElements[2].textContent).toBe("سطح شواهد");
+
+      const tdElements = container.querySelectorAll("td");
+      expect(tdElements.length).toBe(6);
+      expect(tdElements[0].textContent).toBe("کاپتوپریل");
+      expect(tdElements[1].textContent).toBe("۱۲.۵ میلی‌گرم");
+      expect(tdElements[2].textContent).toBe("A");
+    });
+
+    it("renders medical lesson table with math formulas and bold text inside cells", () => {
+      const pharmaTable = [
+        "| هورمون | نسبت ترشح | فرمول |",
+        "| --- | --- | --- |",
+        "| **تیروکسین** | $T_4$ | $V_d = \\frac{D}{C_0}$ |",
+      ].join("\n");
+
+      const { container } = render(<MarkdownRenderer content={pharmaTable} />);
+
+      const tableEl = container.querySelector("table");
+      expect(tableEl).toBeInTheDocument();
+      expect(container.querySelector("strong")?.textContent).toBe("تیروکسین");
+      expect(container.querySelectorAll(".katex").length).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  describe("Sprint Audit Regression & Educational Rendering Invariant Suite", () => {
+    it("1. unwraps medical drug name 'Lisinopril' from backticks without terminal code box", () => {
+      const text = "داروی `Lisinopril` از مهارکننده‌های ACE است.";
+      const { container } = render(<MarkdownRenderer content={text} />);
+
+      expect(container.textContent).toContain("Lisinopril");
+      // Must be plain text, NOT rendered as <code> tag
+      expect(container.querySelector("code")).toBeNull();
+    });
+
+    it("2. unwraps biomedical acronym 'GFR' and 'Stage 3 CKD' from backticks", () => {
+      const text = "در بیماران با `Stage 3 CKD` و `GFR` کمتر از ۳۰ نیاز به تعدیل دوز است.";
+      const { container } = render(<MarkdownRenderer content={text} />);
+
+      expect(container.textContent).toContain("Stage 3 CKD");
+      expect(container.textContent).toContain("GFR");
+      expect(container.querySelector("code")).toBeNull();
+    });
+
+    it("3. unwraps dosages and units ('10 mg/kg') from backticks", () => {
+      const text = "دوز دارو `10 mg/kg` به صورت منقسم تجویز می‌شود.";
+      const { container } = render(<MarkdownRenderer content={text} />);
+
+      expect(container.textContent).toContain("10 mg/kg");
+      expect(container.querySelector("code")).toBeNull();
+    });
+
+    it("4. strictly preserves real programming code (const x = 10;) wrapped in code styling", () => {
+      const text = "کد جاوااسکریپت `const x = 10;` را مشاهده کنید.";
+      const { container } = render(<MarkdownRenderer content={text} />);
+
+      const codeEl = container.querySelector("code");
+      expect(codeEl).toBeInTheDocument();
+      expect(codeEl?.textContent).toBe("const x = 10;");
+      expect(codeEl).toHaveClass("bg-slate-100");
+    });
+
+    it("5. renders code blocks in clean light-first style without harsh black background in light mode", () => {
+      const text = "```json\n{\n  \"dose\": \"10mg\"\n}\n```";
+      const { container } = render(<MarkdownRenderer content={text} />);
+
+      const preEl = container.querySelector("pre");
+      expect(preEl).toBeInTheDocument();
+      expect(preEl).toHaveClass("bg-slate-100/90");
+      expect(preEl).toHaveClass("rounded-card");
+      expect(preEl).not.toHaveClass("bg-slate-900/90");
+    });
+
+    it("6. renders standard Unicode arrows (→, ←, ↔, ⇒, ⇐, ⇌, ↑, ↓)", () => {
+      const text = "فشار خون بالا → افزایش پس‌بار ⇒ نارسایی قلبی و واکنش A ⇌ B";
+      const { container } = render(<MarkdownRenderer content={text} />);
+
+      expect(container.textContent).toContain("→");
+      expect(container.textContent).toContain("⇒");
+      expect(container.textContent).toContain("⇌");
+    });
+
+    it("7. renders Dingbat typography arrows (➔, ➡, ➜, ➢, ➤) seamlessly", () => {
+      const text = "مرحله ۱ ➔ مرحله ۲ ➡ مرحله ۳ ➜ نتیجه نهایی ➢ بررسی ➤ پایان";
+      const { container } = render(<MarkdownRenderer content={text} />);
+
+      expect(container.textContent).toContain("➔");
+      expect(container.textContent).toContain("➡");
+      expect(container.textContent).toContain("➜");
+      expect(container.textContent).toContain("➢");
+      expect(container.textContent).toContain("➤");
+    });
+
+    it("8. preserves Persian Zero Width Joiner (ZWJ / \\u200D)", () => {
+      const text = "می‌شود\u200D در متون فارسی با اتصال مجازی";
+      const { container } = render(<MarkdownRenderer content={text} />);
+
+      expect(container.textContent).toContain("\u200D");
+    });
+
+    it("9. renders Persian + English + Arrow without breaking text order", () => {
+      const text = "افزایش فشار خون → افزایش afterload → نارسایی بطن چپ";
+      const { container } = render(<MarkdownRenderer content={text} />);
+
+      expect(container.textContent).toContain("افزایش فشار خون");
+      expect(container.textContent).toContain("afterload");
+      expect(container.textContent).toContain("نارسایی بطن چپ");
+    });
+
+    it("10. safely normalizes raw un-delimited LaTeX arrows and symbols outside math ($...$)", () => {
+      const text = "دارو \\rightarrow گیرنده و افزایش فشار \\uparrow و کاهش \\downarrow و علامت \\pm 5";
+      const { container } = render(<MarkdownRenderer content={text} />);
+
+      expect(container.textContent).toContain("دارو → گیرنده");
+      expect(container.textContent).toContain("افزایش فشار ↑");
+      expect(container.textContent).toContain("کاهش ↓");
+      expect(container.textContent).toContain("± 5");
+      expect(container.textContent).not.toContain("\\rightarrow");
+      expect(container.textContent).not.toContain("\\uparrow");
+    });
+
+    it("11. renders 'نکته بالینی' callout correctly", () => {
+      const text = "> **نکته بالینی:** مصرف متوپرولول در آسم منع مصرف دارد.";
+      const { container } = render(
+        <MarkdownRenderer content={text} enableLessonCallouts />
+      );
+
+      const callout = container.querySelector('[data-callout-type="clinical-point"]');
+      expect(callout).toBeInTheDocument();
+      expect(container.textContent).toContain("نکته بالینی");
+    });
+
+    it("12. renders legacy emoji '💡 نکته بالینی:' callout without prefix collision", () => {
+      const rawText = "> 💡 **نکته بالینی:** دوز را به آرامی تیتره کنید.";
+      const normalized = normalizeEducationalContent(rawText);
+      const { container } = render(
+        <MarkdownRenderer content={normalized} enableLessonCallouts />
+      );
+
+      const callout = container.querySelector('[data-callout-type="clinical-point"]');
+      expect(callout).toBeInTheDocument();
+      expect(container.textContent).not.toContain("💡");
+      expect(container.textContent).toContain("دوز را به آرامی تیتره کنید.");
+      expect(container.textContent).not.toContain("بالینی: دوز");
+    });
+
+    it("13. gracefully handles malformed/unbalanced backticks without desynchronizing", () => {
+      const text = "متن با یک بک‌تیک تک ` بازمانده و فرمول $T_4$ در ادامه";
+      const { container } = render(<MarkdownRenderer content={text} />);
+
+      expect(container.textContent).toContain("متن با یک بک‌تیک تک");
+      expect(container.querySelectorAll(".katex").length).toBe(1);
+    });
+
+    it("14. renders table with arrows inside cells cleanly", () => {
+      const tableText = [
+        "| فرایند | جهت اثر |",
+        "| :--- | :--- |",
+        "| تجویز بتابلاکر | ↓ ضربان قلب ➔ ↓ برون‌ده |",
+      ].join("\n");
+
+      const { container } = render(<MarkdownRenderer content={tableText} />);
+
+      const td = container.querySelectorAll("td");
+      expect(td[1].textContent).toContain("↓ ضربان قلب ➔ ↓ برون‌ده");
+    });
+
+    it("15. renders inline math alongside plain text arrows", () => {
+      const text = "غلظت $C_{max}$ در زمان $T_{max}$ حاصل می‌شود → اثر درمانی";
+      const { container } = render(<MarkdownRenderer content={text} />);
+
+      expect(container.querySelectorAll(".katex").length).toBe(2);
+      expect(container.textContent).toContain("→ اثر درمانی");
+    });
+
+    it("16. renders block math with LaTeX arrows properly", () => {
+      const text = "$$\nA \\to B \\Rightarrow C\n$$";
+      const { container } = render(<MarkdownRenderer content={text} />);
+
+      expect(container.querySelector(".katex-display")).toBeInTheDocument();
+    });
+  });
 });
+
+
 
 
 

@@ -388,7 +388,7 @@ export function LearningPage() {
         manageLink={
           courseId && isManagerOrAdmin ? (
             <Link
-              to={`/courses/${courseId}/manage`}
+              to={`/admin/courses/${courseId}`}
               className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-primary border border-primary/30 hover:bg-primary/10 transition-colors flex-shrink-0"
             >
               <Sparkles className="w-3.5 h-3.5" />
@@ -569,26 +569,17 @@ export function LearningPage() {
       {activeTab === "review" && (
         isGenerationPermitted ? (
           <div className="space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-[var(--color-surface)] p-6 rounded-card border border-[var(--color-border)] shadow-sm">
-              <div className="space-y-1">
-                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-button bg-secondary/30 text-primary text-xs font-bold">
-                  <Sparkles className="w-4 h-4" />
-                  <span>بررسی و تایید پیش‌نویس‌های هوش مصنوعی</span>
-                </div>
-                <h2 className="text-lg font-bold text-[var(--color-text)]">
-                  صف بررسی و انتشار محتوای تولیدشده
-                </h2>
-                <p className="text-xs text-[var(--color-text-muted)]">
-                  پیش‌نویس درس‌ها، فلش‌کارت‌ها و آزمون‌های استخراج‌شده از منابع درسی را بررسی، ویرایش یا تایید کنید.
-                </p>
+            <div className="bg-[var(--color-surface)] p-6 rounded-card border border-[var(--color-border)] shadow-sm space-y-1">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-button bg-secondary/30 text-primary text-xs font-bold">
+                <Sparkles className="w-4 h-4" />
+                <span>بررسی و تایید پیش‌نویس‌های هوش مصنوعی</span>
               </div>
-              <Link
-                to={`/courses/${courseId}/manage?tab=review`}
-                className="inline-flex items-center gap-2 px-4 py-2.5 bg-primary text-white text-xs font-bold rounded-button hover:bg-primary-hover transition-all shadow-sm flex-shrink-0"
-              >
-                <span>مدیریت کامل محتوا و سرفصل‌ها</span>
-                <ChevronLeft className="w-4 h-4" />
-              </Link>
+              <h2 className="text-lg font-bold text-[var(--color-text)]">
+                صف بررسی و انتشار محتوای تولیدشده
+              </h2>
+              <p className="text-xs text-[var(--color-text-muted)]">
+                پیش‌نویس درس‌ها، فلش‌کارت‌ها و آزمون‌های استخراج‌شده از منابع درسی را بررسی، ویرایش یا تایید کنید.
+              </p>
             </div>
 
             <ReviewQueueList

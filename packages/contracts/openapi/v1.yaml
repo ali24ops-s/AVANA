@@ -2887,6 +2887,21 @@ components:
         updated_at:
           type: string
           description: UTC ISO datetime
+        reviewed_by:
+          type: string
+          nullable: true
+        reviewed_at:
+          type: string
+          nullable: true
+        review_reason:
+          type: string
+          nullable: true
+        edited_by:
+          type: string
+          nullable: true
+        edited_at:
+          type: string
+          nullable: true
 
     GenerateContentRequest:
       type: object

@@ -14,7 +14,6 @@ import { createApiClient, getApiBaseUrl } from "../lib/api/client.js";
 import { createOrganizationApi } from "../lib/api/organizations.js";
 import { createDocumentsApi, type DocumentListFilters } from "../lib/api/documents.js";
 import { createCourseApi } from "../lib/api/courses.js";
-import { createContentApi } from "../lib/api/content.js";
 import { FileStatsCards } from "../components/files/FileStatsCards.js";
 import { FileFilterToolbar } from "../components/files/FileFilterToolbar.js";
 import { FileTable } from "../components/files/FileTable.js";
@@ -38,7 +37,6 @@ export function FilesPage() {
   const orgApi = useMemo(() => createOrganizationApi(apiClient), [apiClient]);
   const docsApi = useMemo(() => createDocumentsApi(apiClient), [apiClient]);
   const courseApi = useMemo(() => createCourseApi(apiClient), [apiClient]);
-  const contentApi = useMemo(() => createContentApi(apiClient), [apiClient]);
 
   // Fetch available organizations
   const orgsQuery = useQuery({
@@ -306,17 +304,6 @@ export function FilesPage() {
     }
   };
 
-  // Helper to load modules for a course in upload modal
-  const loadModulesForCourse = async (courseId: string) => {
-    if (!organizationId) return [];
-    try {
-      const res = await contentApi.getCourseContent(organizationId, courseId);
-      return res.modules ?? [];
-    } catch {
-      return [];
-    }
-  };
-
   const documentsList = docsQuery.data?.items ?? [];
   const isSearchActive =
     Boolean(filters.search) ||
@@ -566,7 +553,6 @@ export function FilesPage() {
           setIsUploadOpen(false);
         }}
         courses={coursesList}
-        loadModulesForCourse={loadModulesForCourse}
       />
 
       {/* Single Delete Modal */}

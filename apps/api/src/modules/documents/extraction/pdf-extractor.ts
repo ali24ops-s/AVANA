@@ -236,68 +236,69 @@ function parseCMap(cmapText: string): CMap {
   const bfCharBlockRe = /beginbfchar([\s\S]*?)endbfchar/g;
   let blockMatch: RegExpExecArray | null;
   while ((blockMatch = bfCharBlockRe.exec(cmapText)) !== null) {
-    const lines = blockMatch[1].trim().split(/\r?\n/);
-    for (const line of lines) {
-      const pair = line.match(/<([0-9a-fA-F]+)>\s*<([0-9a-fA-F]+)>/);
-      if (pair) {
-        const src = pair[1].toLowerCase();
-        const dstHex = pair[2];
-        let unicode = "";
-        for (let i = 0; i + 3 < dstHex.length; i += 4) {
-          const code = Number.parseInt(dstHex.slice(i, i + 4), 16);
-          unicode += String.fromCharCode(code);
-        }
-        if (!unicode && dstHex.length === 2) {
-          unicode = String.fromCharCode(Number.parseInt(dstHex, 16));
-        }
-        map.set(src, unicode);
+    const rawBlock = blockMatch[1];
+    const charPairRe = /<([0-9a-fA-F]+)>\s*<([0-9a-fA-F]+)>/g;
+    let cpMatch: RegExpExecArray | null;
+    while ((cpMatch = charPairRe.exec(rawBlock)) !== null) {
+      const src = cpMatch[1].toLowerCase();
+      const dstHex = cpMatch[2];
+      let unicode = "";
+      for (let i = 0; i + 3 < dstHex.length; i += 4) {
+        const code = Number.parseInt(dstHex.slice(i, i + 4), 16);
+        unicode += String.fromCharCode(code);
       }
+      if (!unicode && dstHex.length === 2) {
+        unicode = String.fromCharCode(Number.parseInt(dstHex, 16));
+      }
+      map.set(src, unicode);
     }
   }
 
-  // 2. Parse bfrange mappings: <srcStart> <srcEnd> <dstStart> or <srcStart> <srcEnd> [ <dst1> <dst2> ... ]
+  // 2. Parse bfrange mappings: direct <srcStart> <srcEnd> <dstStart> or array <srcStart> <srcEnd> [ <dst1> <dst2> ... ]
   const bfRangeBlockRe = /beginbfrange([\s\S]*?)endbfrange/g;
   while ((blockMatch = bfRangeBlockRe.exec(cmapText)) !== null) {
-    const rangeLines = blockMatch[1].trim().split(/\r?\n/);
-    for (const line of rangeLines) {
-      const directMatch = line.match(/<([0-9a-fA-F]+)>\s*<([0-9a-fA-F]+)>\s*<([0-9a-fA-F]+)>/);
-      if (directMatch) {
-        const start = Number.parseInt(directMatch[1], 16);
-        const end = Number.parseInt(directMatch[2], 16);
-        const dstStart = Number.parseInt(directMatch[3], 16);
-        const hexLen = directMatch[1].length;
+    const rawBlock = blockMatch[1];
 
-        for (let code = start; code <= end; code++) {
-          const srcHex = code.toString(16).padStart(hexLen, "0").toLowerCase();
-          const targetCode = dstStart + (code - start);
-          map.set(srcHex, String.fromCharCode(targetCode));
-        }
-        continue;
+    // Direct range: <src1> <src2> <dstStart>
+    const directRangeRe = /<([0-9a-fA-F]+)>\s*<([0-9a-fA-F]+)>\s*<([0-9a-fA-F]+)>/g;
+    let drMatch: RegExpExecArray | null;
+    while ((drMatch = directRangeRe.exec(rawBlock)) !== null) {
+      const start = Number.parseInt(drMatch[1], 16);
+      const end = Number.parseInt(drMatch[2], 16);
+      const dstStart = Number.parseInt(drMatch[3], 16);
+      const hexLen = drMatch[1].length;
+
+      for (let code = start; code <= end; code++) {
+        const srcHex = code.toString(16).padStart(hexLen, "0").toLowerCase();
+        const targetCode = dstStart + (code - start);
+        map.set(srcHex, String.fromCharCode(targetCode));
       }
+    }
 
-      const arrayMatch = line.match(/<([0-9a-fA-F]+)>\s*<([0-9a-fA-F]+)>\s*\[([\s\S]*?)\]/);
-      if (arrayMatch) {
-        const start = Number.parseInt(arrayMatch[1], 16);
-        const end = Number.parseInt(arrayMatch[2], 16);
-        const list = arrayMatch[3].match(/<([0-9a-fA-F]+)>/g);
-        if (list) {
-          const hexLen = arrayMatch[1].length;
-          list.forEach((item, idx) => {
-            const code = start + idx;
-            if (code <= end) {
-              const srcHex = code.toString(16).padStart(hexLen, "0").toLowerCase();
-              const hexVal = item.replace(/[<>]/g, "");
-              let unicode = "";
-              for (let j = 0; j + 3 < hexVal.length; j += 4) {
-                unicode += String.fromCharCode(Number.parseInt(hexVal.slice(j, j + 4), 16));
-              }
-              if (!unicode && hexVal.length === 2) {
-                unicode = String.fromCharCode(Number.parseInt(hexVal, 16));
-              }
-              map.set(srcHex, unicode);
+    // Array range: <src1> <src2> [ <dst1> <dst2> ... ]
+    const arrayRangeRe = /<([0-9a-fA-F]+)>\s*<([0-9a-fA-F]+)>\s*\[([\s\S]*?)\]/g;
+    let arMatch: RegExpExecArray | null;
+    while ((arMatch = arrayRangeRe.exec(rawBlock)) !== null) {
+      const start = Number.parseInt(arMatch[1], 16);
+      const end = Number.parseInt(arMatch[2], 16);
+      const list = arMatch[3].match(/<([0-9a-fA-F]+)>/g);
+      if (list) {
+        const hexLen = arMatch[1].length;
+        list.forEach((item, idx) => {
+          const code = start + idx;
+          if (code <= end) {
+            const srcHex = code.toString(16).padStart(hexLen, "0").toLowerCase();
+            const hexVal = item.replace(/[<>]/g, "");
+            let unicode = "";
+            for (let j = 0; j + 3 < hexVal.length; j += 4) {
+              unicode += String.fromCharCode(Number.parseInt(hexVal.slice(j, j + 4), 16));
             }
-          });
-        }
+            if (!unicode && hexVal.length === 2) {
+              unicode = String.fromCharCode(Number.parseInt(hexVal, 16));
+            }
+            map.set(srcHex, unicode);
+          }
+        });
       }
     }
   }
@@ -336,10 +337,10 @@ function extractFontCMaps(objects: Map<number, PdfObject>): Map<string, CMap> {
   for (const obj of objects.values()) {
     const fontDictMatch = obj.dictText.match(/\/Font\s*<<([\s\S]*?)>>/);
     if (fontDictMatch) {
-      const fontEntries = fontDictMatch[1].match(/\/([A-Za-z0-9_]+)\s+(\d+)\s+\d+\s+R/g);
+      const fontEntries = fontDictMatch[1].match(/\/([A-Za-z0-9_]+)\s*(\d+)\s+\d+\s+R/g);
       if (fontEntries) {
         for (const entry of fontEntries) {
-          const m = entry.match(/\/([A-Za-z0-9_]+)\s+(\d+)\s+\d+\s+R/);
+          const m = entry.match(/\/([A-Za-z0-9_]+)\s*(\d+)\s+\d+\s+R/);
           if (m) {
             const alias = m[1];
             const targetFontObjNum = Number.parseInt(m[2], 10);
@@ -357,7 +358,7 @@ function extractFontCMaps(objects: Map<number, PdfObject>): Map<string, CMap> {
 }
 
 // ---------------------------------------------------------------------------
-// Text Operator Decoding & Persian Reconstruction
+// Text Operator Decoding & Visual-to-Logical RTL Reconstruction
 // ---------------------------------------------------------------------------
 
 /** Decode a PDF hex string `<...>` */
@@ -365,40 +366,35 @@ function decodePdfHexString(hexStr: string, activeCMap?: CMap): string {
   const cleanHex = hexStr.replace(/[<>\s]/g, "");
   if (!cleanHex) return "";
 
-  // 1. Try CMap if available (2-byte or 1-byte chunks)
+  // 1. Try CMap if available
   if (activeCMap && activeCMap.size > 0) {
-    let out = "";
-    // Try 4-char (2-byte) hex chunks first
     if (cleanHex.length % 4 === 0) {
-      let matchedAll = true;
+      let out = "";
+      let foundAny = false;
       for (let i = 0; i < cleanHex.length; i += 4) {
         const chunk = cleanHex.slice(i, i + 4).toLowerCase();
         if (activeCMap.has(chunk)) {
           out += activeCMap.get(chunk);
+          foundAny = true;
         } else {
-          matchedAll = false;
-          break;
+          // Check 2-byte chunks or single bytes
+          const byte1 = cleanHex.slice(i, i + 2).toLowerCase();
+          const byte2 = cleanHex.slice(i + 2, i + 4).toLowerCase();
+          if (activeCMap.has(byte1)) {
+            out += activeCMap.get(byte1);
+            foundAny = true;
+          }
+          if (activeCMap.has(byte2)) {
+            out += activeCMap.get(byte2);
+            foundAny = true;
+          }
         }
       }
-      if (matchedAll && out.length > 0) return sanitizeText(out);
+      if (foundAny) return sanitizeText(out);
     }
-
-    // Try 2-char (1-byte) hex chunks
-    out = "";
-    let matched1Byte = true;
-    for (let i = 0; i < cleanHex.length; i += 2) {
-      const chunk = cleanHex.slice(i, i + 2).toLowerCase();
-      if (activeCMap.has(chunk)) {
-        out += activeCMap.get(chunk);
-      } else {
-        matched1Byte = false;
-        break;
-      }
-    }
-    if (matched1Byte && out.length > 0) return sanitizeText(out);
   }
 
-  // 2. Try UTF-16BE / Unicode (starts with FEFF or byte pairs)
+  // 2. Try UTF-16BE / Unicode (starts with FEFF)
   if (cleanHex.startsWith("feff") || cleanHex.startsWith("FEFF")) {
     let out = "";
     for (let i = 4; i + 3 < cleanHex.length; i += 4) {
@@ -408,7 +404,7 @@ function decodePdfHexString(hexStr: string, activeCMap?: CMap): string {
     return sanitizeText(out);
   }
 
-  // 3. Latin / Persian / Arabic UTF-16BE detection (e.g. 00xx, 06xx, FExx, FBxx)
+  // 3. Latin / Persian / Arabic UTF-16BE detection
   if (cleanHex.length % 4 === 0 && cleanHex.length >= 4) {
     let isUtf16 = true;
     let out = "";
@@ -479,7 +475,7 @@ function decodePdfLiteralString(raw: string): string {
     return sanitizeText(out);
   }
 
-  // Try UTF-8 decoding if latin1 buffer captured multi-byte UTF-8 sequences (common in Persian/Arabic PDFs)
+  // Try UTF-8 decoding if latin1 buffer captured multi-byte UTF-8 sequences
   if (/[\u0080-\u00FF]/.test(body)) {
     try {
       const buf = Buffer.from(body, "latin1");
@@ -495,33 +491,55 @@ function decodePdfLiteralString(raw: string): string {
   return sanitizeText(body);
 }
 
-/** Heuristic: Reverse characters in reversed Persian words (Visual-to-Logical order) */
-function fixReversedPersianWords(text: string): string {
-  // If text contains Persian characters, check if tokens are in visual reverse order
-  const persianCharRe = /[\u0600-\u06FF\uFB50-\uFDFF\uFE70-\uFEFC]/;
-  if (!persianCharRe.test(text)) return text;
+/** High-frequency Persian words in reverse visual order vs logical order */
+const REVERSED_PERSIAN_MARKERS = new Set([
+  "رد", "هب", "زا", "تسا", "دش", "هدش", "دنک", "دوب", "هک", "اب", "نیا", "نآ", "یارب", "نایاپ", "رگید", "عاونا", "لاح", "لاکشا", "دنتسه", "هتسد", "ود", "رتکد", "ییاضر", "عاونا", "هوزج"
+]);
 
-  // Tokens that frequently appear reversed in legacy PDF outputs (e.g. "رد" instead of "در")
-  const words = text.split(/(\s+)/);
-  const corrected = words.map((w) => {
-    // If word is pure Persian/Arabic letters
-    if (/^[\u0600-\u06FF]+$/.test(w) && w.length > 1) {
-      // If the word starts with non-initial suffixes (like "ها", "های", "تر", "ترین")
-      // or known reverse words, reverse the characters
-      if (
-        w.startsWith("اه") || // ها reversed
-        w.startsWith("دنک") || // کند reversed
-        w.startsWith("تسا") || // است reversed
-        w.startsWith("هدش") || // شده reversed
-        w.startsWith("نامرد")  // درمان reversed
-      ) {
-        return w.split("").reverse().join("");
-      }
+const FORWARD_PERSIAN_MARKERS = new Set([
+  "در", "به", "از", "است", "شد", "شده", "کند", "بود", "که", "با", "این", "آن", "برای", "پایان", "دیگر", "انواع", "حال", "اشکال", "هستند", "دسته", "دو", "دکتر", "رضایی", "انواع", "جزوه"
+]);
+
+/** Check whether a Persian text segment is in Visual RTL order */
+function isVisualRtlText(text: string): boolean {
+  const words = text.split(/\s+/).filter((w) => /^[\u0600-\u06FF]+$/.test(w));
+  if (words.length === 0) return false;
+
+  let revCount = 0;
+  let fwdCount = 0;
+  for (const w of words) {
+    if (REVERSED_PERSIAN_MARKERS.has(w)) revCount++;
+    if (FORWARD_PERSIAN_MARKERS.has(w)) fwdCount++;
+  }
+  return revCount > fwdCount;
+}
+
+/**
+ * Reorder a Visual RTL line into standard Logical RTL reading order:
+ * - Persian words have their characters reversed to restore correct spelling.
+ * - Latin words, numbers, and LTR tokens preserve their internal character order.
+ * - The sequence of tokens in the line is reversed from Visual LTR to Logical RTL.
+ */
+function reorderVisualRtlLine(line: string): string {
+  const tokens: Array<{ text: string; isPersian: boolean }> = [];
+  const tokenRegex =
+    /(\s+|[\u0600-\u06FF\uFB50-\uFDFF\uFE70-\uFEFC]+|[A-Za-z0-9_./#&+-]+|[^\s\w\u0600-\u06FF\uFB50-\uFDFF\uFE70-\uFEFC])/g;
+
+  let m: RegExpExecArray | null;
+  while ((m = tokenRegex.exec(line)) !== null) {
+    const t = m[0];
+    const isPersian = /^[\u0600-\u06FF\uFB50-\uFDFF\uFE70-\uFEFC]+$/.test(t);
+    tokens.push({ text: t, isPersian });
+  }
+
+  for (const tok of tokens) {
+    if (tok.isPersian) {
+      tok.text = tok.text.split("").reverse().join("");
     }
-    return w;
-  });
+  }
 
-  return corrected.join("");
+  tokens.reverse();
+  return tokens.map((t) => t.text).join("");
 }
 
 /** Extract formatted text from a decompressed PDF content stream */
@@ -536,9 +554,7 @@ export function extractTextFromContent(
   const flushLine = () => {
     const trimmed = sanitizeText(currentLine.replace(/\s+/g, " ").trim());
     if (trimmed) {
-      const normalized = normalizePersianUnicode(trimmed);
-      const fixed = fixReversedPersianWords(normalized);
-      lines.push(fixed);
+      lines.push(normalizePersianUnicode(trimmed));
     }
     currentLine = "";
   };
@@ -609,7 +625,19 @@ export function extractTextFromContent(
   }
 
   flushLine();
-  return lines.join("\n");
+
+  // Determine if content stream is Visual RTL
+  const fullContent = lines.join(" ");
+  const streamIsVisual = isVisualRtlText(fullContent);
+
+  const finalLines = lines.map((line) => {
+    if (streamIsVisual || isVisualRtlText(line)) {
+      return reorderVisualRtlLine(line);
+    }
+    return line;
+  });
+
+  return finalLines.join("\n");
 }
 
 // ---------------------------------------------------------------------------

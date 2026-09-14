@@ -31,7 +31,7 @@ export interface FlashcardExperienceProps {
   courseIds?: string[];
   documentIds?: string[];
   mode?: "normal" | "exam" | "custom";
-  customMode?: "weak" | "forgotten" | "review_ahead" | "new";
+  customMode?: "weak" | "forgotten" | "overdue" | "review_ahead" | "new" | "due" | "learned";
   aheadDays?: number;
   limit?: number;
   isPreview?: boolean;

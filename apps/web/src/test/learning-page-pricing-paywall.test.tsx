@@ -3,8 +3,6 @@ import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/re
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { LearningPage } from "../pages/LearningPage.js";
-import { LessonEditor } from "../components/content/LessonEditor.js";
-import type { ContentLessonResource } from "@avana/contracts";
 
 // Mock AuthProvider
 vi.mock("../providers/AuthProvider.js", () => ({
@@ -52,7 +50,7 @@ vi.mock("../hooks/useAdmin.js", () => ({
   }),
 }));
 
-describe("LearningPage & LessonEditor Pricing and Paywall UI Wiring", () => {
+describe("LearningPage Pricing and Paywall UI Wiring", () => {
   let queryClient: QueryClient;
 
   beforeEach(() => {
@@ -219,54 +217,5 @@ describe("LearningPage & LessonEditor Pricing and Paywall UI Wiring", () => {
       expect(screen.getByText("۲۵۰٬۰۰۰ تومان")).toBeInTheDocument();
       expect(screen.getByText(/خرید اشتراک آوانا پلاس \(۱۸۹٬۰۰۰ تومان\)/)).toBeInTheDocument();
     });
-  });
-
-  it("LessonEditor allows editing pricing, displaying Free/Paid badges and saves via studio pricing API", async () => {
-    mockUpdateLesson.mockResolvedValue({
-      lesson: {
-        id: "lesson-1",
-        title: "درس اول",
-        content_markdown: "# محتوا",
-        estimated_minutes: 10,
-      },
-    });
-    mockSetLessonPricing.mockResolvedValue({ success: true });
-
-    const lesson: ContentLessonResource = {
-      id: "lesson-1",
-      module_id: "mod-1",
-      title: "درس اول",
-      content_type: "markdown",
-      content_markdown: "# محتوا",
-      sort_order: 1,
-      estimated_minutes: 10,
-      publication_status: "draft",
-      created_at: "2026-01-01T00:00:00.000Z",
-      updated_at: "2026-01-01T00:00:00.000Z",
-    };
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <LessonEditor
-          lesson={lesson}
-          organizationId="org-1"
-          courseId="course-1"
-          moduleId="mod-1"
-          moduleTitle="فصل اول"
-        />
-      </QueryClientProvider>,
-    );
-
-    // Initial price loaded from mockListProducts (45000)
-    await waitFor(() => {
-      const priceInput = screen.getByDisplayValue("45000") as HTMLInputElement;
-      expect(priceInput).toBeInTheDocument();
-      expect(screen.getByText("پولی")).toBeInTheDocument();
-    });
-
-    // Change price to 0 -> badge turns to Free
-    const priceInput = screen.getByDisplayValue("45000");
-    fireEvent.change(priceInput, { target: { value: "0" } });
-    expect(screen.getByText("رایگان")).toBeInTheDocument();
   });
 });

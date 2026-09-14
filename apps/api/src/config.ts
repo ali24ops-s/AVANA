@@ -104,6 +104,13 @@ export type ApiConfig = {
     arvancloudModel: string;
     arvancloudAuthScheme?: string;
   };
+  userAi: {
+    provider: string;
+    openrouterApiKey?: string;
+    openrouterModel: string;
+    httpReferer?: string;
+    appTitle?: string;
+  };
   commerce: {
     provider: string;
     onlinePaymentEnabled: boolean;
@@ -395,6 +402,17 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
         "DeepSeek-R1-qwen-7b-awq",
       ),
       arvancloudAuthScheme: env.ARVANCLOUD_AUTH_SCHEME,
+    },
+    userAi: {
+      provider: getOptionalString(env, "USER_AI_PROVIDER", "openrouter"),
+      openrouterApiKey: env.OPENROUTER_API_KEY,
+      openrouterModel: getOptionalString(
+        env,
+        "OPENROUTER_USER_AI_MODEL",
+        getOptionalString(env, "OPENROUTER_MODEL", "deepseek/deepseek-v4-flash-0731"),
+      ),
+      httpReferer: env.OPENROUTER_HTTP_REFERER,
+      appTitle: getOptionalString(env, "OPENROUTER_TITLE", "AVANA"),
     },
     commerce: {
       provider: getOptionalString(env, "PAYMENT_PROVIDER", "disabled"),

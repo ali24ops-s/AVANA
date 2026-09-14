@@ -3,10 +3,17 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { eq, and } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 import type { DbClient } from "@avana/database/client";
 import type { LessonId, UserId, CourseId } from "@avana/domain";
-import { lessonAnnotations, contentReports } from "@avana/database/schema";
+import {
+  lessonAnnotations,
+  contentReports,
+  lessons,
+  modules,
+  courses,
+  users,
+} from "@avana/database/schema";
 
 export interface LessonAnnotationRecord {
   id: string;
@@ -36,6 +43,32 @@ export interface ContentReportRecord {
   createdAt: string;
 }
 
+export interface ContentReportDetailRecord extends ContentReportRecord {
+  courseName?: string | null;
+  moduleTitle?: string | null;
+  moduleId?: string | null;
+  lessonTitle?: string | null;
+  userName?: string | null;
+  userEmail?: string | null;
+}
+
+export interface ListContentReportsParams {
+  page?: number;
+  pageSize?: number;
+  status?: string;
+  category?: string;
+  courseId?: CourseId;
+  lessonId?: LessonId;
+}
+
+export interface ListContentReportsResult {
+  items: ContentReportDetailRecord[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
 export interface LessonAnnotationStore {
   listByLesson(userId: UserId, lessonId: LessonId): Promise<LessonAnnotationRecord[]>;
   findById(id: string): Promise<LessonAnnotationRecord | null>;
@@ -54,7 +87,9 @@ export interface ContentReportStore {
   create(
     data: Omit<ContentReportRecord, "id" | "createdAt" | "status">,
   ): Promise<ContentReportRecord>;
-  findById(id: string): Promise<ContentReportRecord | null>;
+  findById(id: string): Promise<ContentReportDetailRecord | null>;
+  list(params?: ListContentReportsParams): Promise<ListContentReportsResult>;
+  updateStatus(id: string, status: string): Promise<ContentReportRecord | null>;
 }
 
 // ---------------------------------------------------------------------------
@@ -116,7 +151,7 @@ export class InMemoryLessonAnnotationStore implements LessonAnnotationStore {
 }
 
 export class InMemoryContentReportStore implements ContentReportStore {
-  private reports: ContentReportRecord[] = [];
+  private reports: Array<ContentReportRecord & Partial<ContentReportDetailRecord>> = [];
 
   async create(
     data: Omit<ContentReportRecord, "id" | "createdAt" | "status">,
@@ -132,9 +167,69 @@ export class InMemoryContentReportStore implements ContentReportStore {
     return { ...newRecord };
   }
 
-  async findById(id: string): Promise<ContentReportRecord | null> {
+  async findById(id: string): Promise<ContentReportDetailRecord | null> {
     const found = this.reports.find((r) => r.id === id);
-    return found ? { ...found } : null;
+    if (!found) return null;
+    return {
+      ...found,
+      courseName: found.courseName ?? null,
+      moduleTitle: found.moduleTitle ?? null,
+      moduleId: found.moduleId ?? null,
+      lessonTitle: found.lessonTitle ?? null,
+      userName: found.userName ?? null,
+      userEmail: found.userEmail ?? null,
+    };
+  }
+
+  async list(params: ListContentReportsParams = {}): Promise<ListContentReportsResult> {
+    let filtered = [...this.reports];
+    if (params.status) {
+      filtered = filtered.filter((r) => r.status === params.status);
+    }
+    if (params.category) {
+      filtered = filtered.filter((r) => r.category === params.category);
+    }
+    if (params.courseId) {
+      filtered = filtered.filter((r) => r.courseId === params.courseId);
+    }
+    if (params.lessonId) {
+      filtered = filtered.filter((r) => r.lessonId === params.lessonId);
+    }
+
+    filtered.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    const totalCount = filtered.length;
+    const page = Math.max(1, params.page || 1);
+    const pageSize = Math.max(1, Math.min(100, params.pageSize || 20));
+    const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+    const offset = (page - 1) * pageSize;
+    const paginated = filtered.slice(offset, offset + pageSize);
+
+    return {
+      items: paginated.map((r) => ({
+        ...r,
+        courseName: r.courseName ?? null,
+        moduleTitle: r.moduleTitle ?? null,
+        moduleId: r.moduleId ?? null,
+        lessonTitle: r.lessonTitle ?? null,
+        userName: r.userName ?? null,
+        userEmail: r.userEmail ?? null,
+      })),
+      totalCount,
+      page,
+      pageSize,
+      totalPages,
+    };
+  }
+
+  async updateStatus(id: string, status: string): Promise<ContentReportRecord | null> {
+    const index = this.reports.findIndex((r) => r.id === id);
+    if (index === -1) return null;
+    this.reports[index] = {
+      ...this.reports[index],
+      status,
+    };
+    return { ...this.reports[index] };
   }
 }
 
@@ -330,10 +425,33 @@ export class DrizzleContentReportStore implements ContentReportStore {
     };
   }
 
-  async findById(id: string): Promise<ContentReportRecord | null> {
+  async findById(id: string): Promise<ContentReportDetailRecord | null> {
     const rows = await this.db
-      .select()
+      .select({
+        id: contentReports.id,
+        userId: contentReports.userId,
+        lessonId: contentReports.lessonId,
+        courseId: contentReports.courseId,
+        selectedText: contentReports.selectedText,
+        category: contentReports.category,
+        comment: contentReports.comment,
+        status: contentReports.status,
+        createdAt: contentReports.createdAt,
+        lessonTitle: lessons.title,
+        moduleId: modules.id,
+        moduleTitle: modules.title,
+        courseName: courses.name,
+        userName: users.name,
+        userEmail: users.email,
+      })
       .from(contentReports)
+      .leftJoin(lessons, eq(contentReports.lessonId, lessons.id))
+      .leftJoin(modules, eq(lessons.moduleId, modules.id))
+      .leftJoin(
+        courses,
+        sql`coalesce(${contentReports.courseId}, ${modules.courseId}) = ${courses.id}`,
+      )
+      .leftJoin(users, eq(contentReports.userId, users.id))
       .where(eq(contentReports.id, id))
       .limit(1);
 
@@ -343,12 +461,130 @@ export class DrizzleContentReportStore implements ContentReportStore {
       id: r.id,
       userId: r.userId as UserId,
       lessonId: r.lessonId as LessonId,
-      courseId: r.courseId as CourseId | null,
+      courseId: (r.courseId as CourseId) || null,
       selectedText: r.selectedText,
       category: r.category,
       comment: r.comment,
       status: r.status,
       createdAt: toIsoStringSafe(r.createdAt),
+      lessonTitle: r.lessonTitle ?? null,
+      moduleId: r.moduleId ?? null,
+      moduleTitle: r.moduleTitle ?? null,
+      courseName: r.courseName ?? null,
+      userName: r.userName ?? null,
+      userEmail: r.userEmail ?? null,
+    };
+  }
+
+  async list(params: ListContentReportsParams = {}): Promise<ListContentReportsResult> {
+    const page = Math.max(1, params.page || 1);
+    const pageSize = Math.max(1, Math.min(100, params.pageSize || 20));
+    const offset = (page - 1) * pageSize;
+
+    const conditions = [];
+    if (params.status) {
+      conditions.push(eq(contentReports.status, params.status));
+    }
+    if (params.category) {
+      conditions.push(eq(contentReports.category, params.category));
+    }
+    if (params.courseId) {
+      conditions.push(
+        sql`coalesce(${contentReports.courseId}, ${modules.courseId}) = ${params.courseId}`,
+      );
+    }
+    if (params.lessonId) {
+      conditions.push(eq(contentReports.lessonId, params.lessonId));
+    }
+
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+    const [countRow] = await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(contentReports)
+      .leftJoin(lessons, eq(contentReports.lessonId, lessons.id))
+      .leftJoin(modules, eq(lessons.moduleId, modules.id))
+      .where(whereClause);
+
+    const totalCount = countRow?.count ?? 0;
+    const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+
+    const rows = await this.db
+      .select({
+        id: contentReports.id,
+        userId: contentReports.userId,
+        lessonId: contentReports.lessonId,
+        courseId: contentReports.courseId,
+        selectedText: contentReports.selectedText,
+        category: contentReports.category,
+        comment: contentReports.comment,
+        status: contentReports.status,
+        createdAt: contentReports.createdAt,
+        lessonTitle: lessons.title,
+        moduleId: modules.id,
+        moduleTitle: modules.title,
+        courseName: courses.name,
+        userName: users.name,
+        userEmail: users.email,
+      })
+      .from(contentReports)
+      .leftJoin(lessons, eq(contentReports.lessonId, lessons.id))
+      .leftJoin(modules, eq(lessons.moduleId, modules.id))
+      .leftJoin(
+        courses,
+        sql`coalesce(${contentReports.courseId}, ${modules.courseId}) = ${courses.id}`,
+      )
+      .leftJoin(users, eq(contentReports.userId, users.id))
+      .where(whereClause)
+      .orderBy(desc(contentReports.createdAt))
+      .limit(pageSize)
+      .offset(offset);
+
+    const items: ContentReportDetailRecord[] = rows.map((r) => ({
+      id: r.id,
+      userId: r.userId as UserId,
+      lessonId: r.lessonId as LessonId,
+      courseId: (r.courseId as CourseId) || null,
+      selectedText: r.selectedText,
+      category: r.category,
+      comment: r.comment,
+      status: r.status,
+      createdAt: toIsoStringSafe(r.createdAt),
+      lessonTitle: r.lessonTitle ?? null,
+      moduleId: r.moduleId ?? null,
+      moduleTitle: r.moduleTitle ?? null,
+      courseName: r.courseName ?? null,
+      userName: r.userName ?? null,
+      userEmail: r.userEmail ?? null,
+    }));
+
+    return {
+      items,
+      totalCount,
+      page,
+      pageSize,
+      totalPages,
+    };
+  }
+
+  async updateStatus(id: string, status: string): Promise<ContentReportRecord | null> {
+    const [updated] = await this.db
+      .update(contentReports)
+      .set({ status })
+      .where(eq(contentReports.id, id))
+      .returning();
+
+    if (!updated) return null;
+    return {
+      id: updated.id,
+      userId: updated.userId as UserId,
+      lessonId: updated.lessonId as LessonId,
+      courseId: updated.courseId as CourseId | null,
+      selectedText: updated.selectedText,
+      category: updated.category,
+      comment: updated.comment,
+      status: updated.status,
+      createdAt: toIsoStringSafe(updated.createdAt),
     };
   }
 }

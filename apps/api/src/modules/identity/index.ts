@@ -49,6 +49,8 @@ export type {
 export {
   DeviceService,
   generateDeviceId,
+  isValidDeviceId,
+  resolveCanonicalDeviceId,
   detectDeviceType,
   parseDeviceName,
 } from "./device-service.js";

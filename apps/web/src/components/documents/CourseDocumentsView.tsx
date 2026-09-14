@@ -25,9 +25,25 @@ export function CourseDocumentsView({
   const docsQuery = useQuery({
     queryKey: ["course-documents", organizationId, courseId],
     queryFn: async () => {
-      const res = await docsApi.listDocuments(organizationId);
-      // Filter documents belonging to this course (or unassigned org docs)
-      return res.items.filter((d) => d.course_id === courseId || d.course_id === null);
+      const [courseRes, unassignedRes] = await Promise.all([
+        docsApi.listDocuments(organizationId, {
+          courseId,
+          limit: 100,
+        }),
+        docsApi.listDocuments(organizationId, {
+          used: "unused",
+          limit: 100,
+        }),
+      ]);
+
+      const docMap = new Map<string, DocumentResource>();
+      for (const item of courseRes.items) {
+        docMap.set(item.id, item);
+      }
+      for (const item of unassignedRes.items) {
+        docMap.set(item.id, item);
+      }
+      return Array.from(docMap.values());
     },
     refetchInterval: 3000,
   });

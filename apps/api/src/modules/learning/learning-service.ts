@@ -223,33 +223,52 @@ export class LearningService {
 
     // 7. Check entitlement & access
     let accessResult: ResourceAccessResult | undefined;
-    if (this.entitlementService) {
+    const accessSnapshot = this.entitlementService
+      ? await this.entitlementService.createAccessSnapshot(actor)
+      : undefined;
+
+    if (this.entitlementService && accessSnapshot) {
       if (options?.moduleId) {
-        const modAccess = await this.entitlementService.checkAccess(actor, {
-          userId: actor.userId,
-          resourceType: "module",
-          resourceId: options.moduleId,
-          courseId,
-        });
+        const modAccess = await this.entitlementService.checkAccess(
+          actor,
+          {
+            userId: actor.userId,
+            resourceType: "module",
+            resourceId: options.moduleId,
+            courseId,
+          },
+          accessSnapshot,
+        );
         if (modAccess.granted && modAccess.reason !== "free_preview") {
           accessResult = modAccess;
         } else {
-          accessResult = await this.entitlementService.checkAccess(actor, {
+          accessResult = await this.entitlementService.checkAccess(
+            actor,
+            {
+              userId: actor.userId,
+              resourceType: "course",
+              resourceId: courseId,
+            },
+            accessSnapshot,
+          );
+        }
+      } else {
+        accessResult = await this.entitlementService.checkAccess(
+          actor,
+          {
             userId: actor.userId,
             resourceType: "course",
             resourceId: courseId,
-          });
-        }
-      } else {
-        accessResult = await this.entitlementService.checkAccess(actor, {
-          userId: actor.userId,
-          resourceType: "course",
-          resourceId: courseId,
-        });
+          },
+          accessSnapshot,
+        );
       }
     }
 
     const isCourseLocked = accessResult ? !accessResult.granted : false;
+    const isCourseWideGranted = accessResult
+      ? accessResult.granted && accessResult.reason !== "free_preview"
+      : false;
 
     // 8. Build a map of moduleId → ordered lessons
     const lessonsByModuleId = new Map<string, LessonRecord[]>();
@@ -287,17 +306,25 @@ export class LearningService {
             let lessonReason = accessResult?.reason ?? "free";
             let lessonPurchaseOptions = accessResult?.availablePurchaseOptions ?? [];
 
-            // Evaluate individual lesson access against entitlement engine
-            // Architecture: PreviewResolver -> EntitlementService -> Service/Route
-            if (this.entitlementService) {
-              const lessonAccess = await this.entitlementService.checkAccess(actor, {
-                userId: actor.userId,
-                resourceType: "lesson",
-                resourceId: lesson.id,
-                moduleId: (options?.moduleId ? mod.id : undefined) as any,
-                courseId,
-                previewSessionId: options?.previewSessionId,
-              });
+            if (isCourseWideGranted) {
+              isLessonLocked = false;
+              isPreview = false;
+              lessonReason = accessResult!.reason;
+              lessonPurchaseOptions = [];
+            } else if (this.entitlementService && accessSnapshot) {
+              // Evaluate individual lesson access against entitlement engine using snapshot
+              const lessonAccess = await this.entitlementService.checkAccess(
+                actor,
+                {
+                  userId: actor.userId,
+                  resourceType: "lesson",
+                  resourceId: lesson.id,
+                  moduleId: (options?.moduleId ? mod.id : undefined) as any,
+                  courseId,
+                  previewSessionId: options?.previewSessionId,
+                },
+                accessSnapshot,
+              );
 
               if (!lessonAccess.granted) {
                 isLessonLocked = true;

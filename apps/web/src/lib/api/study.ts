@@ -181,7 +181,7 @@ export function createStudyApi(client: ApiClient) {
      */
     getCustomQueue(
       organizationId: string,
-      mode: "weak" | "forgotten" | "overdue" | "review_ahead" | "new",
+      mode: "weak" | "forgotten" | "overdue" | "review_ahead" | "new" | "due" | "learned",
       courseIds?: string[],
       limit?: number,
       aheadDays?: number,

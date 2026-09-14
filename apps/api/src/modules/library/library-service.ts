@@ -592,6 +592,10 @@ export class LibraryService {
         limit,
       });
 
+      const accessSnapshot = this.entitlementService
+        ? await this.entitlementService.createAccessSnapshot(actor)
+        : undefined;
+
       const coursesWithAccess = await Promise.all(
         result.courses.map(async (c: any) => {
           let isFree = true;
@@ -600,18 +604,21 @@ export class LibraryService {
           let canPurchase = false;
           let productId: string | null = null;
 
-          if (this.commerceStore) {
-            const product = await this.commerceStore.findActiveProductByTarget(
-              "course",
-              c.id,
-            );
-            if (product && product.price > 0 && product.active) {
-              isFree = false;
-              price = product.price;
-              currency = product.currency || "toman";
-              canPurchase = true;
-              productId = product.id;
-            }
+          const product = accessSnapshot
+            ? accessSnapshot.productsByTarget.get(`course:${c.id}`)
+            : this.commerceStore
+              ? await this.commerceStore.findActiveProductByTarget(
+                  "course",
+                  c.id,
+                )
+              : null;
+
+          if (product && product.price > 0 && product.active) {
+            isFree = false;
+            price = product.price;
+            currency = product.currency || "toman";
+            canPurchase = true;
+            productId = product.id;
           }
 
           let hasAccess = isFree;
@@ -620,7 +627,7 @@ export class LibraryService {
             ? "free"
             : null;
 
-          if (actor && this.entitlementService) {
+          if (actor && this.entitlementService && accessSnapshot) {
             const accessResult = await this.entitlementService.checkAccess(
               actor,
               {
@@ -628,6 +635,7 @@ export class LibraryService {
                 resourceType: "course",
                 resourceId: c.id,
               },
+              accessSnapshot,
             );
             hasAccess = accessResult.granted;
             isPurchased = accessResult.reason === "course_purchase";
@@ -681,31 +689,37 @@ export class LibraryService {
           let canPurchase = false;
           let productId: string | null = null;
 
-          if (this.commerceStore) {
-            const product = await this.commerceStore.findActiveProductByTarget(
-              "content",
-              lessonId,
-            );
-            if (product && product.price > 0 && product.active) {
+          const product = accessSnapshot
+            ? accessSnapshot.productsByTarget.get(`content:${lessonId}`)
+            : this.commerceStore
+              ? await this.commerceStore.findActiveProductByTarget(
+                  "content",
+                  lessonId,
+                )
+              : null;
+
+          if (product && product.price > 0 && product.active) {
+            isFree = false;
+            price = product.price;
+            currency = product.currency || "toman";
+            canPurchase = true;
+            productId = product.id;
+          } else {
+            // Check if parent course is paid
+            const courseProduct = accessSnapshot
+              ? accessSnapshot.productsByTarget.get(`course:${cnt.courseId}`)
+              : this.commerceStore
+                ? await this.commerceStore.findActiveProductByTarget(
+                    "course",
+                    cnt.courseId,
+                  )
+                : null;
+            if (
+              courseProduct &&
+              courseProduct.price > 0 &&
+              courseProduct.active
+            ) {
               isFree = false;
-              price = product.price;
-              currency = product.currency || "toman";
-              canPurchase = true;
-              productId = product.id;
-            } else {
-              // Check if parent course is paid
-              const courseProduct =
-                await this.commerceStore.findActiveProductByTarget(
-                  "course",
-                  cnt.courseId,
-                );
-              if (
-                courseProduct &&
-                courseProduct.price > 0 &&
-                courseProduct.active
-              ) {
-                isFree = false;
-              }
             }
           }
 
@@ -716,7 +730,7 @@ export class LibraryService {
             : null;
 
           let isPreview = false;
-          if (actor && this.entitlementService) {
+          if (actor && this.entitlementService && accessSnapshot) {
             const accessResult = await this.entitlementService.checkAccess(
               actor,
               {
@@ -726,6 +740,7 @@ export class LibraryService {
                 moduleId: cnt.moduleId,
                 courseId: cnt.courseId,
               },
+              accessSnapshot,
             );
             hasAccess = accessResult.granted;
             isPurchased =
@@ -780,7 +795,9 @@ export class LibraryService {
       let totalSpecialExams = 0;
 
       if (this.commerceStore && (options.type === "all" || options.type === "special_exams" || !options.type)) {
-        const allActiveProducts = await this.commerceStore.listActiveProducts();
+        const allActiveProducts = accessSnapshot
+          ? accessSnapshot.activeProducts
+          : await this.commerceStore.listActiveProducts();
         const examProducts = allActiveProducts.filter((p) => p.type === "special_exam");
 
         const filteredExams = examProducts.filter((p) => {
@@ -923,6 +940,10 @@ export class LibraryService {
       limit,
     });
 
+    const accessSnapshot = this.entitlementService
+      ? await this.entitlementService.createAccessSnapshot(actor)
+      : undefined;
+
     const coursesWithAccessAndPricing: CourseWithChapterPackages[] = await Promise.all(
       rawResult.courses.map(async (c) => {
         // 1. Resolve Course-level pricing and access
@@ -932,23 +953,26 @@ export class LibraryService {
         let canPurchaseCourse = false;
         let courseProductId: string | null = null;
 
-        if (this.commerceStore) {
-          const courseProduct = await this.commerceStore.findActiveProductByTarget(
-            "course",
-            c.id,
-          );
-          if (courseProduct && courseProduct.price > 0 && courseProduct.active) {
-            isCourseFree = false;
-            coursePrice = courseProduct.price;
-            courseCurrency = courseProduct.currency || "toman";
-            canPurchaseCourse = true;
-            courseProductId = courseProduct.id;
-          } else if (courseProduct && courseProduct.price === 0 && (courseProduct.metadata as any)?.explicitlyFree === true) {
-            isCourseFree = true;
-            coursePrice = 0;
-            canPurchaseCourse = false;
-            courseProductId = courseProduct.id;
-          }
+        const courseProduct = accessSnapshot
+          ? accessSnapshot.productsByTarget.get(`course:${c.id}`)
+          : this.commerceStore
+            ? await this.commerceStore.findActiveProductByTarget(
+                "course",
+                c.id,
+              )
+            : null;
+
+        if (courseProduct && courseProduct.price > 0 && courseProduct.active) {
+          isCourseFree = false;
+          coursePrice = courseProduct.price;
+          courseCurrency = courseProduct.currency || "toman";
+          canPurchaseCourse = true;
+          courseProductId = courseProduct.id;
+        } else if (courseProduct && courseProduct.price === 0 && (courseProduct.metadata as any)?.explicitlyFree === true) {
+          isCourseFree = true;
+          coursePrice = 0;
+          canPurchaseCourse = false;
+          courseProductId = courseProduct.id;
         }
 
         let hasCourseAccess = isCourseFree;
@@ -957,12 +981,16 @@ export class LibraryService {
           ? "free"
           : null;
 
-        if (actor && this.entitlementService) {
-          const courseAccessRes = await this.entitlementService.checkAccess(actor, {
-            userId: actor.userId,
-            resourceType: "course",
-            resourceId: c.id,
-          });
+        if (actor && this.entitlementService && accessSnapshot) {
+          const courseAccessRes = await this.entitlementService.checkAccess(
+            actor,
+            {
+              userId: actor.userId,
+              resourceType: "course",
+              resourceId: c.id,
+            },
+            accessSnapshot,
+          );
           hasCourseAccess = courseAccessRes.granted;
           isCoursePurchased = courseAccessRes.reason === "course_purchase";
           courseAccessSource = courseAccessRes.granted
@@ -982,8 +1010,18 @@ export class LibraryService {
             let canPurchasePkg = false;
             let pkgProductId: string | null = null;
 
-            if (this.commerceStore) {
-              let product: import("@avana/domain").ProductRecord | undefined | null;
+            let product: import("@avana/domain").ProductRecord | undefined | null;
+            if (accessSnapshot) {
+              if (pkg.id) {
+                product = accessSnapshot.productsByTarget.get(`content_pack:${pkg.id}`);
+              }
+              if (!product && pkg.contentPackId) {
+                product = accessSnapshot.productsByTarget.get(`content_pack:${pkg.contentPackId}`);
+              }
+              if (!product && pkg.contents.lesson.lessonId) {
+                product = accessSnapshot.productsByTarget.get(`content:${pkg.contents.lesson.lessonId}`);
+              }
+            } else if (this.commerceStore) {
               if (pkg.id) {
                 product = await this.commerceStore.findActiveProductByTarget(
                   "content_pack",
@@ -1002,37 +1040,23 @@ export class LibraryService {
                   pkg.contents.lesson.lessonId,
                 );
               }
+            }
 
-              if (product && product.active) {
-                if (product.price > 0) {
-                  isPkgFree = false;
-                  pkgPrice = product.price;
-                  pkgCurrency = product.currency || "toman";
-                  canPurchasePkg = true;
-                  pkgProductId = product.id;
-                } else if (product.price === 0 && (product.metadata as any)?.explicitlyFree === true) {
-                  isPkgFree = true;
-                  pkgPrice = 0;
-                  canPurchasePkg = false;
-                  pkgProductId = product.id;
-                }
-              } else {
-                // Canonical suggested pricing for unpriced educational packages
-                const suggested = calculateDefaultContentPrice({
-                  lessonCount: pkg.stats.lessonCount,
-                  flashcardCount: pkg.stats.flashcardCount,
-                  questionCount: pkg.stats.quizQuestionCount,
-                  hasReviewSummary: pkg.contents.summary.exists,
-                });
-                if (suggested > 0) {
-                  isPkgFree = false;
-                  pkgPrice = suggested;
-                  pkgCurrency = "toman";
-                  canPurchasePkg = true;
-                  pkgProductId = null;
-                }
+            if (product && product.active) {
+              if (product.price > 0) {
+                isPkgFree = false;
+                pkgPrice = product.price;
+                pkgCurrency = product.currency || "toman";
+                canPurchasePkg = true;
+                pkgProductId = product.id;
+              } else if (product.price === 0 && (product.metadata as any)?.explicitlyFree === true) {
+                isPkgFree = true;
+                pkgPrice = 0;
+                canPurchasePkg = false;
+                pkgProductId = product.id;
               }
             } else {
+              // Canonical suggested pricing for unpriced educational packages
               const suggested = calculateDefaultContentPrice({
                 lessonCount: pkg.stats.lessonCount,
                 flashcardCount: pkg.stats.flashcardCount,
@@ -1059,29 +1083,41 @@ export class LibraryService {
               isPkgPurchased = isCoursePurchased;
               pkgAccessSource = courseAccessSource;
               canPurchasePkg = false;
-            } else if (actor && this.entitlementService) {
+            } else if (actor && this.entitlementService && accessSnapshot) {
               let accessRes: import("@avana/domain").ResourceAccessResult | undefined;
               if (pkg.contentPackId) {
-                accessRes = await this.entitlementService.checkAccess(actor, {
-                  userId: actor.userId,
-                  resourceType: "content_pack",
-                  resourceId: pkg.contentPackId,
-                  courseId: c.id as any,
-                });
+                accessRes = await this.entitlementService.checkAccess(
+                  actor,
+                  {
+                    userId: actor.userId,
+                    resourceType: "content_pack",
+                    resourceId: pkg.contentPackId,
+                    courseId: c.id as any,
+                  },
+                  accessSnapshot,
+                );
               } else if (pkg.contents.lesson.lessonId) {
-                accessRes = await this.entitlementService.checkAccess(actor, {
-                  userId: actor.userId,
-                  resourceType: "lesson",
-                  resourceId: pkg.contents.lesson.lessonId,
-                  courseId: c.id as any,
-                });
+                accessRes = await this.entitlementService.checkAccess(
+                  actor,
+                  {
+                    userId: actor.userId,
+                    resourceType: "lesson",
+                    resourceId: pkg.contents.lesson.lessonId,
+                    courseId: c.id as any,
+                  },
+                  accessSnapshot,
+                );
               } else {
-                accessRes = await this.entitlementService.checkAccess(actor, {
-                  userId: actor.userId,
-                  resourceType: "module",
-                  resourceId: pkg.moduleId,
-                  courseId: c.id as any,
-                });
+                accessRes = await this.entitlementService.checkAccess(
+                  actor,
+                  {
+                    userId: actor.userId,
+                    resourceType: "module",
+                    resourceId: pkg.moduleId,
+                    courseId: c.id as any,
+                  },
+                  accessSnapshot,
+                );
               }
 
               if (accessRes && accessRes.granted && accessRes.reason !== "free_preview") {

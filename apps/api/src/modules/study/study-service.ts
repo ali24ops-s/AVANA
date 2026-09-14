@@ -39,6 +39,13 @@ import {
   evaluateQuestionAnswer,
   type QuestionEvaluationResult,
   seededRandomShuffle,
+  FLASHCARD_MASTERY_INTERVAL_DAYS,
+  FLASHCARD_DEFAULT_DAILY_REVIEW_LIMIT,
+  FLASHCARD_DEFAULT_DAILY_NEW_LIMIT,
+  QUIZ_WEAKNESS_THRESHOLD_PERCENT,
+  QUIZ_STRENGTH_THRESHOLD_PERCENT,
+  MAX_RECOMMENDATIONS_COUNT,
+  toPersianDigits,
 } from "@avana/domain";
 import type {
   FlashcardRating,
@@ -294,8 +301,14 @@ export class StudyService {
       }
     }
 
+    const course = this.courseStore
+      ? await this.courseStore.findById(courseId).catch(() => undefined)
+      : undefined;
+    const courseOrgId = (course?.organizationId || (course as { organization_id?: OrganizationId } | undefined)?.organization_id) as OrganizationId | undefined;
+    const systemOrgId = this.systemOrganizationId ?? courseOrgId;
+
     const [allFlashcards, userSchedules] = await Promise.all([
-      this.flashcardStore.listByCourse(courseId, organizationId),
+      this.flashcardStore.listByCourse(courseId, organizationId, systemOrgId),
       this.userFlashcardScheduleStore
         ? this.userFlashcardScheduleStore.listByUser(actor.userId)
         : Promise.resolve([]),
@@ -307,14 +320,14 @@ export class StudyService {
     return allFlashcards
       .filter((f) => {
         const schedule = scheduleMap.get(f.id);
-        const rawDueAt = schedule ? schedule.dueAt : f.dueAt;
+        if (!schedule || schedule.reviewCount < 1) return false;
+        const rawDueAt = schedule.dueAt;
         if (!rawDueAt) return false;
         const dueAt = new Date(rawDueAt);
         return !isNaN(dueAt.getTime()) && dueAt <= now;
       })
       .map((f) => {
-        const schedule = scheduleMap.get(f.id);
-        if (!schedule) return f;
+        const schedule = scheduleMap.get(f.id)!;
         return {
           ...f,
           dueAt: schedule.dueAt,
@@ -470,9 +483,9 @@ export class StudyService {
       const topicStats = courseStats.topics.get(docId)!;
 
       const schedule = scheduleMap.get(f.id);
-      const isReviewed = schedule ? true : reviewedCardIds.has(f.id);
-      const rawDueAt = schedule ? schedule.dueAt : f.dueAt;
-      const intervalDays = schedule ? schedule.intervalDays : f.intervalDays;
+      const isReviewed = schedule ? schedule.reviewCount > 0 : reviewedCardIds.has(f.id);
+      const rawDueAt = schedule ? schedule.dueAt : null;
+      const intervalDays = schedule ? schedule.intervalDays : 0;
 
       const hasDueAt = rawDueAt != null && !isNaN(new Date(rawDueAt).getTime());
       const dueAt = hasDueAt ? new Date(rawDueAt) : null;
@@ -588,6 +601,7 @@ export class StudyService {
     organizationId: OrganizationId,
     courseIds?: CourseId[],
     documentIds?: string[],
+    limit: number = FLASHCARD_DEFAULT_DAILY_REVIEW_LIMIT,
   ): Promise<FlashcardRecord[]> {
     await this.authorizeRead(actor, organizationId);
 
@@ -606,7 +620,7 @@ export class StudyService {
     const courseSet = courseIds && courseIds.length > 0 ? new Set(courseIds) : null;
     const docSet = documentIds && documentIds.length > 0 ? new Set(documentIds) : null;
 
-    return allowedCards
+    const mapped = allowedCards
       .filter((f) => {
         if (courseSet && !courseSet.has(f.courseId)) return false;
         if (docSet && (!f.documentId || !docSet.has(f.documentId))) return false;
@@ -614,7 +628,8 @@ export class StudyService {
           return previewCardIds.has(f.id);
         }
         const schedule = scheduleMap.get(f.id);
-        const rawDueAt = schedule ? schedule.dueAt : f.dueAt;
+        if (!schedule || schedule.reviewCount < 1) return false;
+        const rawDueAt = schedule.dueAt;
         if (!rawDueAt) return false;
         const dueAt = new Date(rawDueAt);
         return !isNaN(dueAt.getTime()) && dueAt <= now;
@@ -629,6 +644,9 @@ export class StudyService {
           easeFactor: schedule.easeFactor,
         };
       });
+
+    const maxLimit = Math.min(limit > 0 ? limit : FLASHCARD_DEFAULT_DAILY_REVIEW_LIMIT, 500);
+    return mapped.slice(0, maxLimit);
   }
 
   /**
@@ -711,16 +729,18 @@ export class StudyService {
   }
 
   /**
-   * List flashcards for Custom Study (Filtered queue: weak, forgotten, overdue, review_ahead, new).
+   * List flashcards for Custom Study (Filtered queue: weak, forgotten, overdue, review_ahead, new, due, learned).
    */
   async getCustomStudyFlashcards(
     actor: Actor,
     organizationId: OrganizationId,
-    mode: "weak" | "forgotten" | "overdue" | "review_ahead" | "new",
+    mode: "weak" | "forgotten" | "overdue" | "review_ahead" | "new" | "due" | "learned",
     courseIds?: CourseId[],
-    limit: number = 50,
+    limit?: number,
     aheadDays: number = 3,
     documentIds?: string[],
+    moduleIds?: string[],
+    lessonIds?: string[],
   ): Promise<FlashcardRecord[]> {
     await this.authorizeRead(actor, organizationId);
 
@@ -738,8 +758,43 @@ export class StudyService {
     const scheduleMap = new Map(userSchedules.map((s) => [s.flashcardId, s]));
     const reviewedCardIds = new Set(userReviews.map((r) => r.flashcardId));
     const now = new Date();
+
+    const hasScopeFilter = Boolean(
+      (courseIds && courseIds.length > 0) ||
+      (moduleIds && moduleIds.length > 0) ||
+      (lessonIds && lessonIds.length > 0) ||
+      (documentIds && documentIds.length > 0),
+    );
+
     const courseSet = courseIds && courseIds.length > 0 ? new Set(courseIds) : null;
+    const modSet = moduleIds && moduleIds.length > 0 ? new Set(moduleIds) : null;
+    const lesSet = lessonIds && lessonIds.length > 0 ? new Set(lessonIds) : null;
     const docSet = documentIds && documentIds.length > 0 ? new Set(documentIds) : null;
+
+    const lessonToModuleMap = new Map<string, string>();
+    const docToModuleMap = new Map<string, string>();
+    const singleModuleCourseMap = new Map<string, string>();
+
+    if (hasScopeFilter && this.moduleStore) {
+      const distinctCourseIds = Array.from(new Set(allowedCards.map((f) => f.courseId)));
+      for (const cId of distinctCourseIds) {
+        const cModules = await this.moduleStore.listByCourse(cId as CourseId).catch(() => []);
+        if (cModules.length === 1) {
+          singleModuleCourseMap.set(cId, cModules[0].id);
+        }
+        for (const m of cModules) {
+          if (m.documentId) {
+            docToModuleMap.set(m.documentId, m.id);
+          }
+        }
+        if (this.lessonStore && cModules.length > 0) {
+          const cLessons = await this.lessonStore.listByModules(cModules.map((m) => m.id)).catch(() => []);
+          for (const les of cLessons) {
+            lessonToModuleMap.set(les.id, les.moduleId);
+          }
+        }
+      }
+    }
 
     const mapped = allowedCards.map((f) => {
       const schedule = scheduleMap.get(f.id);
@@ -752,43 +807,93 @@ export class StudyService {
       };
     });
 
-    let filtered = mapped.filter(
-      (f) =>
-        (!courseSet || courseSet.has(f.courseId)) &&
-        (!docSet || Boolean(f.documentId && docSet.has(f.documentId))),
-    );
+    let filtered = mapped.filter((f) => {
+      if (!f || f.deletedAt) return false;
+      if (hasScopeFilter) {
+        const cardLessonId = f.lessonId ?? null;
+        const cardModuleId =
+          (f.lessonId && lessonToModuleMap.get(f.lessonId)) ||
+          (f.documentId && docToModuleMap.get(f.documentId)) ||
+          singleModuleCourseMap.get(f.courseId) ||
+          null;
 
-    if (mode === "weak" || mode === "forgotten") {
+        const inScope = Boolean(
+          (courseSet && courseSet.has(f.courseId)) ||
+          (cardModuleId && modSet && modSet.has(cardModuleId)) ||
+          (cardLessonId && lesSet && lesSet.has(cardLessonId)) ||
+          (f.documentId && docSet && docSet.has(f.documentId)),
+        );
+        if (!inScope) return false;
+      }
+      return true;
+    });
+
+    if (mode === "weak") {
       filtered = filtered.filter((f) => Number(f.easeFactor) < 2.3 || f.intervalDays === 0);
       filtered.sort((a, b) => Number(a.easeFactor) - Number(b.easeFactor));
-    } else if (mode === "overdue") {
+    } else if (mode === "forgotten" || mode === "overdue") {
       filtered = filtered.filter((f) => {
-        const isReviewed = this.userFlashcardScheduleStore ? scheduleMap.has(f.id) : reviewedCardIds.has(f.id);
+        const schedule = scheduleMap.get(f.id);
+        const isReviewed = schedule ? true : reviewedCardIds.has(f.id);
         if (!isReviewed) return false;
-        if (!f.dueAt) return false;
-        const dueAt = new Date(f.dueAt);
-        if (isNaN(dueAt.getTime())) return false;
-        return dueAt <= now && f.intervalDays >= 1 && (now.getTime() - dueAt.getTime() > 86400000);
-      });
-    } else if (mode === "review_ahead") {
-      const cutoff = new Date(now.getTime() + aheadDays * 86400000);
-      filtered = filtered.filter((f) => {
-        const isReviewed = this.userFlashcardScheduleStore ? scheduleMap.has(f.id) : reviewedCardIds.has(f.id);
-        if (!isReviewed) return false;
-        if (!f.dueAt) return false;
-        const dueAt = new Date(f.dueAt);
-        if (isNaN(dueAt.getTime())) return false;
-        return dueAt <= cutoff;
+        const rawDueAt = schedule ? schedule.dueAt : f.dueAt;
+        const intervalDays = schedule ? schedule.intervalDays : f.intervalDays;
+        const hasDueAt = rawDueAt != null && !isNaN(new Date(rawDueAt).getTime());
+        const dueAt = hasDueAt ? new Date(rawDueAt) : null;
+        return (
+          dueAt !== null &&
+          dueAt <= now &&
+          intervalDays >= 1 &&
+          now.getTime() - dueAt.getTime() > 24 * 60 * 60 * 1000
+        );
       });
       filtered.sort((a, b) => new Date(a.dueAt).getTime() - new Date(b.dueAt).getTime());
     } else if (mode === "new") {
       filtered = filtered.filter((f) => {
-        const isReviewed = this.userFlashcardScheduleStore ? scheduleMap.has(f.id) : reviewedCardIds.has(f.id);
-        return !isReviewed || f.intervalDays === 0;
+        const schedule = scheduleMap.get(f.id);
+        const isReviewed = schedule ? true : reviewedCardIds.has(f.id);
+        return !isReviewed;
       });
+    } else if (mode === "due") {
+      filtered = filtered.filter((f) => {
+        const schedule = scheduleMap.get(f.id);
+        const isReviewed = schedule ? true : reviewedCardIds.has(f.id);
+        if (!isReviewed) return false;
+        const rawDueAt = schedule ? schedule.dueAt : f.dueAt;
+        const hasDueAt = rawDueAt != null && !isNaN(new Date(rawDueAt).getTime());
+        const dueAt = hasDueAt ? new Date(rawDueAt) : null;
+        return dueAt !== null && dueAt <= now;
+      });
+      filtered.sort((a, b) => new Date(a.dueAt).getTime() - new Date(b.dueAt).getTime());
+    } else if (mode === "learned") {
+      filtered = filtered.filter((f) => {
+        const schedule = scheduleMap.get(f.id);
+        const isReviewed = schedule ? true : reviewedCardIds.has(f.id);
+        if (!isReviewed) return false;
+        const rawDueAt = schedule ? schedule.dueAt : f.dueAt;
+        const intervalDays = schedule ? schedule.intervalDays : f.intervalDays;
+        const hasDueAt = rawDueAt != null && !isNaN(new Date(rawDueAt).getTime());
+        const dueAt = hasDueAt ? new Date(rawDueAt) : null;
+        return intervalDays >= 1 && dueAt !== null && dueAt > now;
+      });
+      filtered.sort((a, b) => new Date(a.dueAt).getTime() - new Date(b.dueAt).getTime());
+    } else if (mode === "review_ahead") {
+      const cutoff = new Date(now.getTime() + aheadDays * 86400000);
+      filtered = filtered.filter((f) => {
+        const schedule = scheduleMap.get(f.id);
+        const isReviewed = schedule ? true : reviewedCardIds.has(f.id);
+        if (!isReviewed) return false;
+        const rawDueAt = schedule ? schedule.dueAt : f.dueAt;
+        const hasDueAt = rawDueAt != null && !isNaN(new Date(rawDueAt).getTime());
+        const dueAt = hasDueAt ? new Date(rawDueAt) : null;
+        return dueAt !== null && dueAt <= cutoff;
+      });
+      filtered.sort((a, b) => new Date(a.dueAt).getTime() - new Date(b.dueAt).getTime());
     }
 
-    const maxLimit = Math.min(limit, 500);
+    const defaultLimit = mode === "new" ? FLASHCARD_DEFAULT_DAILY_NEW_LIMIT : FLASHCARD_DEFAULT_DAILY_REVIEW_LIMIT;
+    const resolvedLimit = limit !== undefined && limit > 0 ? limit : defaultLimit;
+    const maxLimit = Math.min(resolvedLimit, 500);
     return filtered.slice(0, maxLimit);
   }
 
@@ -809,7 +914,7 @@ export class StudyService {
       lessonIds?: string[];
       documentIds?: string[];
       mode?: "daily" | "exam" | "custom" | "normal";
-      customMode?: "weak" | "forgotten" | "overdue" | "review_ahead" | "new";
+      customMode?: "weak" | "forgotten" | "overdue" | "review_ahead" | "new" | "due" | "learned";
       limit?: number;
       aheadDays?: number;
       title?: string;
@@ -844,21 +949,27 @@ export class StudyService {
         resolvedDocIds,
       );
     } else if (mode === "custom" && input.customMode) {
+      const defaultLimit = input.customMode === "new" ? FLASHCARD_DEFAULT_DAILY_NEW_LIMIT : FLASHCARD_DEFAULT_DAILY_REVIEW_LIMIT;
+      const effectiveLimit = input.limit !== undefined && input.limit > 0 ? input.limit : defaultLimit;
       cards = await this.getCustomStudyFlashcards(
         actor,
         organizationId,
         input.customMode,
         input.courseIds,
-        input.limit ?? 50,
+        effectiveLimit,
         input.aheadDays ?? 3,
         resolvedDocIds,
+        input.moduleIds,
+        input.lessonIds,
       );
     } else {
+      const effectiveLimit = input.limit !== undefined && input.limit > 0 ? input.limit : FLASHCARD_DEFAULT_DAILY_REVIEW_LIMIT;
       cards = await this.listFlashcardsForReviewMulti(
         actor,
         organizationId,
         input.courseIds,
         resolvedDocIds,
+        effectiveLimit,
       );
       // Fallback: If no cards are due by timestamp but user explicitly requested study,
       // return all cards within the selected course/document scope so a session is reliably created
@@ -873,12 +984,12 @@ export class StudyService {
           if (courseSet && !courseSet.has(f.courseId)) return false;
           if (docSet && (!f.documentId || !docSet.has(f.documentId))) return false;
           return !f.deletedAt;
-        });
+        }).slice(0, effectiveLimit);
       }
     }
 
     if (cards.length === 0) {
-      throw new DomainError("bad_request", "هیچ فلش‌کارتی برای مطالعه یافت نشد");
+      throw new DomainError("bad_request", "هیچ فلش‌کارتی برای مطالعه در این دسته یافت نشد");
     }
 
     // Determine a descriptive Persian title
@@ -901,9 +1012,11 @@ export class StudyService {
           const modeLabels: Record<string, string> = {
             weak: "مطالعه کارت‌های ضعیف",
             forgotten: "مطالعه کارت‌های فراموش‌شده",
-            overdue: "مطالعه کارت‌های به‌تعویق‌افتاده",
-            review_ahead: "مطالعه پیش‌رو",
+            overdue: "مطالعه کارت‌های فراموش‌شده",
             new: "مطالعه کارت‌های جدید",
+            due: "مرور کارت‌های نیازمند یادآوری",
+            learned: "مرور کارت‌های یادگرفته‌شده",
+            review_ahead: "مطالعه پیش‌رو",
           };
           sessionTitle = modeLabels[input.customMode || ""] || "مطالعه سفارشی";
         } else {
@@ -3473,30 +3586,172 @@ export class StudyService {
     };
   }
 
-  // -------------------------------------------------------------------------
-  // Analytics
-  // -------------------------------------------------------------------------
+  /**
+   * Generates structured study recommendations based on course learning state.
+   * Single Source of Truth for all recommendations in AVANA.
+   */
+  generateRecommendations(
+    courseId: CourseId,
+    analytics: StudyAnalytics,
+    context: {
+      publishedLessons: LessonRecord[];
+      completedLessonIds: Set<string>;
+      quizzes: QuizRecord[];
+      attemptsByQuiz: Map<string, QuizAttemptRecord[]>;
+      dueFlashcardsCount: number;
+      dailyReviewLimit?: number;
+    },
+  ): StudyRecommendation[] {
+    const candidates: Array<StudyRecommendation & { severity: number }> = [];
+
+    // 1. Due Flashcards Candidate
+    const totalDueCards = context.dueFlashcardsCount;
+    const dailyLimit = context.dailyReviewLimit ?? FLASHCARD_DEFAULT_DAILY_REVIEW_LIMIT;
+    const displayCount = Math.min(totalDueCards, dailyLimit);
+
+    if (displayCount > 0) {
+      candidates.push({
+        id: `rec:course:${courseId}:flashcards:due`,
+        type: "flashcard_review",
+        priority: "high",
+        title: "مرور فلش‌کارت‌ها",
+        reason: `${toPersianDigits(displayCount)} فلش‌کارت برای مرور آماده است.`,
+        target: {
+          tab: "flashcards",
+          courseId,
+        },
+        metadata: {
+          dueCount: displayCount,
+        },
+        summary: `شما ${toPersianDigits(displayCount)} فلش‌کارت آماده برای مرور دارید.`,
+        topics: ["مرور فلش‌کارت", "Flashcard Review"],
+        source: "flashcard_review",
+        severity: 1000 + displayCount,
+      });
+    }
+
+    // 2. Weak Quiz Candidates
+    for (const quiz of context.quizzes) {
+      if (analytics.weak_areas.includes(quiz.title)) {
+        const quizAttempts = context.attemptsByQuiz.get(quiz.id) ?? [];
+        const lastAttempt = quizAttempts[quizAttempts.length - 1];
+        const lastScore = lastAttempt ? lastAttempt.score : 0;
+        const isCritical = lastScore < 50;
+        const priority = isCritical ? "high" : "medium";
+        const severity = isCritical
+          ? 2000 + (100 - lastScore)
+          : 500 + (100 - lastScore);
+
+        candidates.push({
+          id: `rec:course:${courseId}:quiz:${quiz.id}:weak`,
+          type: "quiz_retry_weak",
+          priority,
+          title: `مرور و آزمون مجدد: ${quiz.title}`,
+          reason: `عملکرد اخیر شما در این آزمون (${toPersianDigits(Math.round(lastScore))}٪) نیازمند تمرین و تقویت است.`,
+          target: {
+            tab: "quizzes",
+            courseId,
+            quizId: quiz.id,
+            topic: quiz.topic ?? undefined,
+          },
+          metadata: {
+            lastScore: Math.round(lastScore),
+          },
+          summary: `آزمون «${quiz.title}» نیازمند تمرین و مرور مجدد است.`,
+          topics: [quiz.title],
+          source: "quiz_attempt",
+          severity,
+        });
+      }
+    }
+
+    // 3. Unfinished Lesson Candidate (Next Lesson)
+    if (analytics.completed_lessons < analytics.total_lessons) {
+      const nextLesson = context.publishedLessons.find(
+        (l) => !context.completedLessonIds.has(l.id),
+      );
+      if (nextLesson) {
+        candidates.push({
+          id: `rec:course:${courseId}:lesson:${nextLesson.id}`,
+          type: "lesson_continue",
+          priority: "medium",
+          title: `مطالعه درس: ${nextLesson.title}`,
+          reason: "درس بعدی در مسیر یادگیری این دوره.",
+          target: {
+            tab: "lessons",
+            courseId,
+            moduleId: nextLesson.moduleId,
+            lessonId: nextLesson.id,
+          },
+          metadata: {
+            remainingLessonsCount:
+              analytics.total_lessons - analytics.completed_lessons,
+          },
+          summary: `مطالعه درس «${nextLesson.title}» را ادامه دهید.`,
+          topics: ["مطالعه درس"],
+          source: "accepted_lesson",
+          severity: 200 + (analytics.total_lessons - analytics.completed_lessons),
+        });
+      }
+    }
+
+    // Deterministic Deduplication & Ranking
+    const uniqueMap = new Map<string, StudyRecommendation & { severity: number }>();
+    for (const c of candidates) {
+      if (!uniqueMap.has(c.id)) {
+        uniqueMap.set(c.id, c);
+      }
+    }
+
+    const priorityWeight: Record<string, number> = {
+      high: 3,
+      medium: 2,
+      low: 1,
+    };
+
+    const sorted = Array.from(uniqueMap.values()).sort((a, b) => {
+      const pDiff = (priorityWeight[b.priority ?? "low"] ?? 0) - (priorityWeight[a.priority ?? "low"] ?? 0);
+      if (pDiff !== 0) return pDiff;
+      const sDiff = b.severity - a.severity;
+      if (sDiff !== 0) return sDiff;
+      return a.id.localeCompare(b.id);
+    });
+
+    return sorted
+      .slice(0, MAX_RECOMMENDATIONS_COUNT)
+      .map(({ severity: _severity, ...rec }) => rec);
+  }
 
   /**
-   * Get study analytics for a user in a course.
-   * Derived from real persisted data: lesson progress, flashcard reviews, quiz attempts.
+   * Internal helper to compute aggregated course learning state and recommendations.
    */
-  async getStudyAnalytics(
+  private async computeCourseLearningState(
     actor: Actor,
     organizationId: OrganizationId,
     courseId: CourseId,
-  ): Promise<StudyAnalytics> {
-    await this.authorizeRead(actor, organizationId);
+    options?: { dailyReviewLimit?: number },
+  ): Promise<{
+    analytics: StudyAnalytics;
+    recommendations: StudyRecommendation[];
+  }> {
+    const course = this.courseStore
+      ? await this.courseStore.findById(courseId).catch(() => undefined)
+      : undefined;
+
+    const courseOrgId = (course?.organizationId || (course as { organization_id?: OrganizationId } | undefined)?.organization_id) as OrganizationId | undefined;
+    const systemOrgId = this.systemOrganizationId ?? courseOrgId;
 
     // Fetch all data in parallel.
-    const [modules, flashcards, courseAttempts, progressRecords, allUserAttempts, course] = await Promise.all([
-      this.moduleStore.listByCourse(courseId),
-      this.flashcardStore.listByCourse(courseId, organizationId),
-      this.quizAttemptStore.listByUserAndCourse(actor.userId, courseId),
-      this.progressStore.listByUserAndCourse(actor.userId, courseId),
-      this.quizAttemptStore.listByUser(actor.userId),
-      this.courseStore ? this.courseStore.findById(courseId).catch(() => undefined) : Promise.resolve(undefined),
-    ]);
+    const [modules, flashcards, courseAttempts, progressRecords, allUserAttempts, userSchedules, quizzes] =
+      await Promise.all([
+        this.moduleStore.listByCourse(courseId),
+        this.flashcardStore.listByCourse(courseId, organizationId, systemOrgId),
+        this.quizAttemptStore.listByUserAndCourse(actor.userId, courseId),
+        this.progressStore.listByUserAndCourse(actor.userId, courseId),
+        this.quizAttemptStore.listByUser(actor.userId),
+        this.userFlashcardScheduleStore ? this.userFlashcardScheduleStore.listByUser(actor.userId) : Promise.resolve([]),
+        this.quizStore.listByCourse(courseId, courseOrgId || organizationId),
+      ]);
 
     // Include completed configured exam attempts (quizId = null) alongside course quizzes
     const courseTitle = course?.name?.trim().toLowerCase();
@@ -3533,44 +3788,44 @@ export class StudyService {
         ? Math.round((completedLessons / totalLessons) * 100)
         : 0;
 
-    // Flashcard mastery heuristic: cards where due_at is > 7 days from now are counted
-    // as "mastered" for progress overview. Note: this is a lightweight heuristic based
-    // on review intervals rather than a formal cognitive/probabilistic mastery model.
+    // Flashcard metrics & scheduling state
     const totalFlashcards = flashcards.length;
     const now = new Date();
-    const masteryThresholdMs = 7 * 24 * 60 * 60 * 1000;
-
-    const userSchedules = this.userFlashcardScheduleStore
-      ? await this.userFlashcardScheduleStore.listByUser(actor.userId)
-      : [];
     const scheduleMap = new Map(userSchedules.map((s) => [s.flashcardId, s]));
 
-    const reviewedFlashcards = flashcards.filter((f: FlashcardRecord) => {
-      const schedule = scheduleMap.get(f.id);
-      if (schedule) {
-        return schedule.reviewCount > 0 || schedule.intervalDays > 0;
-      }
-      return f.intervalDays > 0;
-    }).length;
+    let dueFlashcardsCount = 0;
+    let reviewedFlashcards = 0;
+    let masteredFlashcards = 0;
 
-    const masteredFlashcards = flashcards.filter((f: FlashcardRecord) => {
+    for (const f of flashcards) {
       const schedule = scheduleMap.get(f.id);
-      if (schedule) {
-        const dueAt = new Date(schedule.dueAt);
-        return dueAt.getTime() - now.getTime() > masteryThresholdMs || schedule.intervalDays >= 7;
+      const isReviewed = schedule ? schedule.reviewCount > 0 : false;
+
+      if (isReviewed) {
+        reviewedFlashcards++;
       }
-      const dueAt = new Date(f.dueAt);
-      return dueAt.getTime() - now.getTime() > masteryThresholdMs;
-    }).length;
+
+      const intervalDays = schedule ? schedule.intervalDays : 0;
+      if (intervalDays >= FLASHCARD_MASTERY_INTERVAL_DAYS) {
+        masteredFlashcards++;
+      }
+
+      const rawDueAt = schedule ? schedule.dueAt : null;
+      const hasDueAt = rawDueAt != null && !isNaN(new Date(rawDueAt).getTime());
+      const dueAt = hasDueAt ? new Date(rawDueAt) : null;
+      if (isReviewed && dueAt !== null && dueAt <= now) {
+        dueFlashcardsCount++;
+      }
+    }
 
     const flashcardMasteryPercent =
       totalFlashcards > 0
         ? Math.round((masteredFlashcards / totalFlashcards) * 100)
         : 0;
 
-    // Quiz analytics.
-    const quizzes = await this.quizStore.listByCourse(courseId, organizationId);
-    const totalQuizzes = quizzes.filter((q: QuizRecord) => q.status === "published").length;
+    // Quiz analytics
+    const publishedQuizzes = quizzes.filter((q: QuizRecord) => q.status === "published");
+    const totalQuizzes = publishedQuizzes.length;
     const attemptsTaken = attempts.length;
     const averageQuizScore =
       attemptsTaken > 0
@@ -3579,53 +3834,98 @@ export class StudyService {
           ) / 100
         : 0;
 
-    // Weak areas: quizzes where the last attempt scored below 70%.
-    const attemptsByQuiz = new Map<string, QuizAttemptRecord>();
-    for (const a of attempts) {
+    // Group attempts by quiz chronologically
+    const attemptsByQuiz = new Map<string, QuizAttemptRecord[]>();
+    for (const a of courseAttempts) {
       if (a.quizId) {
-        const existing = attemptsByQuiz.get(a.quizId);
-        const aTime = a.completedAt ? new Date(a.completedAt).getTime() : 0;
-        const existingTime = existing?.completedAt ? new Date(existing.completedAt).getTime() : 0;
-        if (!existing || aTime > existingTime) {
-          attemptsByQuiz.set(a.quizId, a);
+        const list = attemptsByQuiz.get(a.quizId) ?? [];
+        list.push(a);
+        attemptsByQuiz.set(a.quizId, list);
+      }
+    }
+
+    for (const [, list] of attemptsByQuiz.entries()) {
+      list.sort((a, b) => {
+        const aTime = a.completedAt ? new Date(a.completedAt).getTime() : new Date(a.startedAt).getTime();
+        const bTime = b.completedAt ? new Date(b.completedAt).getTime() : new Date(b.startedAt).getTime();
+        return aTime - bTime;
+      });
+    }
+
+    const weakAreas: string[] = [];
+    const strengths: string[] = [];
+
+    for (const quiz of publishedQuizzes) {
+      const quizAttempts = attemptsByQuiz.get(quiz.id);
+      if (quizAttempts && quizAttempts.length > 0) {
+        const lastAttempt = quizAttempts[quizAttempts.length - 1];
+        if (quizAttempts.length === 1) {
+          if (lastAttempt.score < QUIZ_WEAKNESS_THRESHOLD_PERCENT) {
+            weakAreas.push(quiz.title);
+          }
+        } else {
+          const last2 = quizAttempts.slice(-2);
+          const avgLast2 = (last2[0].score + last2[1].score) / 2;
+          if (avgLast2 < QUIZ_WEAKNESS_THRESHOLD_PERCENT) {
+            weakAreas.push(quiz.title);
+          }
+        }
+
+        if (lastAttempt.score >= QUIZ_STRENGTH_THRESHOLD_PERCENT) {
+          strengths.push(quiz.title);
         }
       }
     }
-    const weakAreas: string[] = [];
-    for (const quiz of quizzes) {
-      const lastAttempt = attemptsByQuiz.get(quiz.id);
-      if (lastAttempt && lastAttempt.score < 70) {
-        weakAreas.push(quiz.title);
-      }
-    }
 
-    const recommendedNextSteps: string[] = [];
-    if (completedLessons < totalLessons) {
-      recommendedNextSteps.push("Continue reading lesson content");
-    }
-    if (reviewedFlashcards < totalFlashcards) {
-      recommendedNextSteps.push("Review due flashcards");
-    }
-    if (weakAreas.length > 0) {
-      recommendedNextSteps.push("Retry quizzes in weak areas");
-    }
-    if (totalFlashcards > 0 && flashcardMasteryPercent < 50) {
-      recommendedNextSteps.push("Focus on flashcard mastery");
-    }
-
-    return {
+    const baseAnalytics: StudyAnalytics = {
       total_lessons: totalLessons,
       completed_lessons: completedLessons,
       lesson_progress_percent: lessonProgressPercent,
       total_flashcards: totalFlashcards,
       reviewed_flashcards: reviewedFlashcards,
+      mastered_flashcards: masteredFlashcards,
       flashcard_mastery_percent: flashcardMasteryPercent,
       total_quizzes: totalQuizzes,
       attempts_taken: attemptsTaken,
       average_quiz_score: averageQuizScore,
       weak_areas: weakAreas,
-      recommended_next_steps: recommendedNextSteps,
+      strengths,
+      recommended_next_steps: [],
     };
+
+    const recommendations = this.generateRecommendations(courseId, baseAnalytics, {
+      publishedLessons,
+      completedLessonIds,
+      quizzes: publishedQuizzes,
+      attemptsByQuiz,
+      dueFlashcardsCount,
+      dailyReviewLimit: options?.dailyReviewLimit,
+    });
+
+    const analytics: StudyAnalytics = {
+      ...baseAnalytics,
+      recommended_next_steps: recommendations.map((r) => r.title ?? r.summary),
+    };
+
+    return {
+      analytics,
+      recommendations,
+    };
+  }
+
+  /**
+   * Get study analytics for a user in a course.
+   * Derived from real persisted data: lesson progress, flashcard reviews, quiz attempts.
+   */
+  async getStudyAnalytics(
+    actor: Actor,
+    organizationId: OrganizationId,
+    courseId: CourseId,
+    options?: { dailyReviewLimit?: number },
+  ): Promise<StudyAnalytics> {
+    await this.authorizeRead(actor, organizationId);
+    const state = await this.computeCourseLearningState(actor, organizationId, courseId, options);
+    return state.analytics;
   }
 
   /**
@@ -3636,41 +3936,11 @@ export class StudyService {
     actor: Actor,
     organizationId: OrganizationId,
     courseId: CourseId,
+    options?: { dailyReviewLimit?: number },
   ): Promise<StudyRecommendation[]> {
     await this.authorizeRead(actor, organizationId);
-
-    const analytics = await this.getStudyAnalytics(actor, organizationId, courseId);
-    const recommendations: StudyRecommendation[] = [];
-
-    if (analytics.reviewed_flashcards < analytics.total_flashcards) {
-      const dueCount = analytics.total_flashcards - analytics.reviewed_flashcards;
-      recommendations.push({
-        id: randomUUID(),
-        summary: `You have ${dueCount} flashcard(s) due for review.`,
-        topics: ["Flashcard Review"],
-        source: "flashcard_review",
-      });
-    }
-
-    if (analytics.weak_areas.length > 0) {
-      recommendations.push({
-        id: randomUUID(),
-        summary: `Retry quizzes in weak areas: ${analytics.weak_areas.join(", ")}.`,
-        topics: analytics.weak_areas,
-        source: "quiz_attempt",
-      });
-    }
-
-    if (analytics.completed_lessons < analytics.total_lessons) {
-      recommendations.push({
-        id: randomUUID(),
-        summary: `Complete ${analytics.total_lessons - analytics.completed_lessons} remaining lesson(s).`,
-        topics: ["Lesson Reading"],
-        source: "accepted_lesson",
-      });
-    }
-
-    return recommendations;
+    const state = await this.computeCourseLearningState(actor, organizationId, courseId, options);
+    return state.recommendations;
   }
 
   // -------------------------------------------------------------------------

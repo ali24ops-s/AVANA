@@ -11,9 +11,12 @@
 
 import { CalloutType } from "./callout.js";
 
-// List of semantic and decorative emojis commonly found in legacy/AI educational text
+// List of semantic and decorative emojis commonly found in legacy/AI educational text.
+// Strictly preserves:
+// - Dingbat typography & process arrows (U+2794 to U+27BF, e.g. ➔, ➡, ➜, ➢, ➤)
+// - Zero Width Joiner (\u200D) for Persian cursive typography & ligatures
 const STRIP_EMOJIS_REGEX =
-  /(?:[\u{1F300}-\u{1F5FF}]|[\u{1F600}-\u{1F64F}]|[\u{1F680}-\u{1F6FF}]|[\u{1F700}-\u{1F77F}]|[\u{1F780}-\u{1F7FF}]|[\u{1F800}-\u{1F8FF}]|[\u{1F900}-\u{1F9FF}]|[\u{1FA00}-\u{1FA6F}]|[\u{1FA70}-\u{1FAFF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]|\u200D|\uFE0F)/gu;
+  /(?:[\u{1F300}-\u{1F5FF}]|[\u{1F600}-\u{1F64F}]|[\u{1F680}-\u{1F6FF}]|[\u{1F700}-\u{1F77F}]|[\u{1F780}-\u{1F7FF}]|[\u{1F900}-\u{1F9FF}]|[\u{1FA00}-\u{1FA6F}]|[\u{1FA70}-\u{1FAFF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{2793}]|\uFE0F)/gu;
 
 interface SemanticPattern {
   type: CalloutType;
@@ -84,7 +87,7 @@ export const SEMANTIC_PATTERNS: SemanticPattern[] = [
     type: "common-mistake",
     canonicalTitle: "اشتباه رایج",
     triggerRegex: buildPatternRegex(
-      "\\u26A0\\uFE0F|\\u26A0|⚠️|⚠|❌|🚫",
+      "\\u26A0\\uFE0F|\\u26A0|⚠️|⚠|❌|🚫|🚨|❗",
       "اشتباه[\\s\\u200C]+رایج|اشتباه[\\s\\u200C]+متداول",
     ),
   },
@@ -100,7 +103,7 @@ export const SEMANTIC_PATTERNS: SemanticPattern[] = [
     type: "contraindication",
     canonicalTitle: "منع مصرف",
     triggerRegex: buildPatternRegex(
-      "⛔|🚫|\\u26A0\\uFE0F|\\u26A0|⚠️|⚠|❌",
+      "⛔|🚫|\\u26A0\\uFE0F|\\u26A0|⚠️|⚠|❌|🚨",
       "منع[\\s\\u200C]+مصرف|موارد[\\s\\u200C]+منع[\\s\\u200C]+مصرف|Contraindication",
     ),
   },
@@ -108,7 +111,7 @@ export const SEMANTIC_PATTERNS: SemanticPattern[] = [
     type: "clinical-point",
     canonicalTitle: "نکته بالینی",
     triggerRegex: buildPatternRegex(
-      "💊|💉|\\u{1F48A}",
+      "💊|💉|\\u{1F48A}|💡|📌|⭐|✨|🚨|❗|⚠️",
       "نکته(?:[\\s\\u200C]+حیاتی)?[\\s\\u200C]+بالینی|کاربرد[\\s\\u200C]+بالینی|Clinical[\\s\\u200C]+Point",
     ),
   },
@@ -116,7 +119,7 @@ export const SEMANTIC_PATTERNS: SemanticPattern[] = [
     type: "important",
     canonicalTitle: "نکته مهم",
     triggerRegex: buildPatternRegex(
-      "📌|🚨|❗|⭐",
+      "📌|🚨|❗|⭐|💡|⚠️",
       "نکته[\\s\\u200C]+مهم|نکته[\\s\\u200C]+حیاتی|توجه[\\s\\u200C]+مهم|Important",
     ),
   },
@@ -124,7 +127,7 @@ export const SEMANTIC_PATTERNS: SemanticPattern[] = [
     type: "drug-application",
     canonicalTitle: "کاربرد دارویی نوین",
     triggerRegex: buildPatternRegex(
-      "💊|\\u{1F48A}",
+      "💊|\\u{1F48A}|💡|✨",
       "کاربرد[\\s\\u200C]+دارویی[\\s\\u200C]+نوین|کاربرد[\\s\\u200C]+دارویی",
     ),
   },
@@ -132,7 +135,7 @@ export const SEMANTIC_PATTERNS: SemanticPattern[] = [
     type: "key-point",
     canonicalTitle: "نکته کلیدی",
     triggerRegex: buildPatternRegex(
-      "🔑|✅|⭐|\\u{1F511}",
+      "🔑|✅|⭐|\\u{1F511}|💡|📌",
       "نکته[\\s\\u200C]+کلیدی|نکات[\\s\\u200C]+کلیدی|Key[\\s\\u200C]+Point",
     ),
   },
@@ -140,7 +143,7 @@ export const SEMANTIC_PATTERNS: SemanticPattern[] = [
     type: "educational-tip",
     canonicalTitle: "نکته آموزشی",
     triggerRegex: buildPatternRegex(
-      "💡|📌|\\u{1F4A1}|\\u{1F4CC}",
+      "💡|📌|\\u{1F4A1}|\\u{1F4CC}|⭐|✨",
       "نکته[\\s\\u200C]+آموزشی(?:[\\s\\u200C]+مهم)?|نکات[\\s\\u200C]+آموزشی|Educational[\\s\\u200C]+Tip",
     ),
   },
@@ -148,7 +151,7 @@ export const SEMANTIC_PATTERNS: SemanticPattern[] = [
     type: "understanding",
     canonicalTitle: "برای فهم بهتر",
     triggerRegex: buildPatternRegex(
-      "🧠|💡|\\u{1F9E0}|\\u{1F4A1}",
+      "🧠|💡|\\u{1F9E0}|\\u{1F4A1}|✨",
       "برای[\\s\\u200C]+فهم[\\s\\u200C]+بهتر|برای[\\s\\u200C]+درک[\\s\\u200C]+بهتر",
     ),
   },
@@ -156,7 +159,7 @@ export const SEMANTIC_PATTERNS: SemanticPattern[] = [
     type: "supplementary",
     canonicalTitle: "توضیح تکمیلی",
     triggerRegex: buildPatternRegex(
-      "💡|✨|\\u{1F4A1}",
+      "💡|✨|\\u{1F4A1}|📌",
       "توضیح[\\s\\u200C]+تکمیلی|اطلاعات[\\s\\u200C]+تکمیلی|نکات[\\s\\u200C]+تکمیلی(?:[\\s\\u200C]+آوانا)?(?:[—\\-–][\\s\\u200C]*در[\\s\\u200C]+منبع[\\s\\u200C]+اصلی[\\s\\u200C]+ذکر[\\s\\u200C]+نشده[\\s\\u200C]+است)?",
     ),
   },
@@ -164,8 +167,8 @@ export const SEMANTIC_PATTERNS: SemanticPattern[] = [
     type: "tip",
     canonicalTitle: "نکته",
     triggerRegex: buildPatternRegex(
-      "💡|📌|\\u{1F4A1}|\\u{1F4CC}",
-      "نکته|توصیه|Tip",
+      "💡|📌|\\u{1F4A1}|\\u{1F4CC}|⭐|✨",
+      "نکته(?!\\s*(?:بالینی|آموزشی|کلیدی|مهم|حیاتی|دارویی|نوین))|توصیه|Tip",
     ),
   },
 ];

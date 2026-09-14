@@ -21,10 +21,52 @@ import { createDocumentsApi } from "../lib/api/documents.js";
 import { useAuth } from "../providers/AuthProvider.js";
 import { TaxonomySelector } from "../components/study/TaxonomySelector.js";
 import { UnfinishedSessionsList } from "../components/flashcards/UnfinishedSessionsList.js";
-import { toPersianDigits } from "@avana/domain";
+import {
+  toPersianDigits,
+  FLASHCARD_DEFAULT_DAILY_NEW_LIMIT,
+  FLASHCARD_DEFAULT_DAILY_REVIEW_LIMIT,
+} from "@avana/domain";
 
 const EXAM_MODE_LIMITS = [20, 50, 100, 200, "all"] as const;
 type ExamLimit = (typeof EXAM_MODE_LIMITS)[number];
+
+type RawFlashcardLesson = {
+  lesson_id?: string;
+  id?: string;
+  title?: string;
+  total_cards?: number;
+  due_cards?: number;
+  new_cards?: number;
+  learning_cards?: number;
+  overdue_cards?: number;
+  itemCount?: number;
+};
+
+type RawFlashcardModule = {
+  module_id?: string;
+  id?: string;
+  title?: string;
+  total_cards?: number;
+  due_cards?: number;
+  new_cards?: number;
+  learning_cards?: number;
+  overdue_cards?: number;
+  itemCount?: number;
+  lessons?: RawFlashcardLesson[];
+};
+
+type RawFlashcardCourse = {
+  course_id?: string;
+  id?: string;
+  title?: string;
+  total_cards?: number;
+  due_cards?: number;
+  new_cards?: number;
+  learning_cards?: number;
+  overdue_cards?: number;
+  itemCount?: number;
+  modules?: RawFlashcardModule[];
+};
 
 export function FlashcardsPage() {
   const { memberships, isLoading: isAuthLoading } = useAuth();
@@ -53,8 +95,32 @@ export function FlashcardsPage() {
   const [examLimit, setExamLimit] = useState<ExamLimit>(50);
   const [reviewAheadDays, setReviewAheadDays] = useState<number>(3);
   const [showSettings, setShowSettings] = useState<boolean>(false);
-  const [dailyNewCardsLimit, setDailyNewCardsLimit] = useState<number>(20);
-  const [dailyMaxReviewsLimit, setDailyMaxReviewsLimit] = useState<number>(100);
+  const [dailyNewCardsLimit, setDailyNewCardsLimit] = useState<number>(() => {
+    if (typeof window !== "undefined" && window.localStorage) {
+      const saved = window.localStorage.getItem("avana_flashcards_new_limit");
+      if (saved && !isNaN(Number(saved)) && Number(saved) > 0) {
+        return Number(saved);
+      }
+    }
+    return FLASHCARD_DEFAULT_DAILY_NEW_LIMIT;
+  });
+  const [dailyMaxReviewsLimit, setDailyMaxReviewsLimit] = useState<number>(() => {
+    if (typeof window !== "undefined" && window.localStorage) {
+      const saved = window.localStorage.getItem("avana_flashcards_review_limit");
+      if (saved && !isNaN(Number(saved)) && Number(saved) > 0) {
+        return Number(saved);
+      }
+    }
+    return FLASHCARD_DEFAULT_DAILY_REVIEW_LIMIT;
+  });
+
+  const handleSaveSettings = () => {
+    if (typeof window !== "undefined" && window.localStorage) {
+      window.localStorage.setItem("avana_flashcards_new_limit", String(dailyNewCardsLimit));
+      window.localStorage.setItem("avana_flashcards_review_limit", String(dailyMaxReviewsLimit));
+    }
+    setShowSettings(false);
+  };
 
   const summaryQuery = useQuery({
     queryKey: ["flashcard-summary", organizationId],
@@ -93,30 +159,6 @@ export function FlashcardsPage() {
 
   // Build clean taxonomy tree filtering out modules and lessons with 0 flashcards while retaining courses with total_cards > 0
   const validCourses = useMemo(() => {
-    type RawFlashcardLesson = {
-      lesson_id?: string;
-      id?: string;
-      title?: string;
-      total_cards?: number;
-      itemCount?: number;
-    };
-    type RawFlashcardModule = {
-      module_id?: string;
-      id?: string;
-      title?: string;
-      total_cards?: number;
-      itemCount?: number;
-      lessons?: RawFlashcardLesson[];
-    };
-    type RawFlashcardCourse = {
-      course_id?: string;
-      id?: string;
-      title?: string;
-      total_cards?: number;
-      itemCount?: number;
-      modules?: RawFlashcardModule[];
-    };
-
     const rawCourses = summary?.courses as RawFlashcardCourse[] | undefined;
     if (!rawCourses) return [];
     return rawCourses
@@ -173,6 +215,85 @@ export function FlashcardsPage() {
     return selectedCourses.size === allCourseIds.size;
   }, [selectedModules, selectedCourses, allModuleIds, allCourseIds]);
 
+  // Compute scoped stats for the 4 insight tiles based on taxonomy selection
+  const scopedStats = useMemo(() => {
+    if (!summary) {
+      return { overdue: 0, newCards: 0, due: 0, learned: 0, totalCards: 0 };
+    }
+
+    const isAll =
+      (selectedCourses.size === 0 &&
+        selectedModules.size === 0 &&
+        selectedLessons.size === 0) ||
+      isAllSelected;
+
+    if (isAll) {
+      const totalCards = summary.total_cards || 0;
+      const due = summary.total_due || 0;
+      const newCards = summary.total_new || 0;
+      const overdue = summary.total_overdue || 0;
+      const learned = Math.max(0, totalCards - (due + newCards));
+      return { overdue, newCards, due, learned, totalCards };
+    }
+
+    const rawCourses = summary.courses as RawFlashcardCourse[] | undefined;
+    if (!rawCourses || rawCourses.length === 0) {
+      return { overdue: 0, newCards: 0, due: 0, learned: 0, totalCards: 0 };
+    }
+
+    let totalCards = 0;
+    let due = 0;
+    let newCards = 0;
+    let overdue = 0;
+
+    for (const course of rawCourses) {
+      const courseId = course.course_id || course.id || "";
+      const isCourseSelected = selectedCourses.has(courseId);
+
+      if (isCourseSelected) {
+        // Entire course is selected: include its total stats (no double counting)
+        totalCards += course.total_cards || 0;
+        due += course.due_cards || 0;
+        newCards += course.new_cards || 0;
+        overdue += course.overdue_cards || 0;
+      } else if (course.modules && course.modules.length > 0) {
+        // Individual modules or lessons within the course may be selected
+        for (const mod of course.modules) {
+          const moduleId = mod.module_id || mod.id || "";
+          const isModuleSelected = selectedModules.has(moduleId);
+
+          if (isModuleSelected) {
+            // Entire module is selected
+            totalCards += mod.total_cards || 0;
+            due += mod.due_cards || 0;
+            newCards += mod.new_cards || 0;
+            overdue += mod.overdue_cards || 0;
+          } else if (mod.lessons && mod.lessons.length > 0) {
+            // Specific lessons in the module may be selected
+            for (const les of mod.lessons) {
+              const lessonId = les.lesson_id || les.id || "";
+              if (selectedLessons.has(lessonId)) {
+                totalCards += les.total_cards || 0;
+                due += les.due_cards || 0;
+                newCards += les.new_cards || 0;
+                overdue += les.overdue_cards || 0;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    const learned = Math.max(0, totalCards - (due + newCards));
+    return { overdue, newCards, due, learned, totalCards };
+  }, [
+    summary,
+    selectedCourses,
+    selectedModules,
+    selectedLessons,
+    isAllSelected,
+  ]);
+
   const toggleSelectAllTopics = () => {
     if (isAllSelected) {
       setSelectedCourses(new Set());
@@ -215,23 +336,12 @@ export function FlashcardsPage() {
   // Estimated study duration in minutes (~1 min per 5 cards)
   const estimatedMinutes = Math.max(5, Math.ceil(activeSelectedCardCount * 0.2));
 
-  const buildQueryParams = () => {
-    const params = new URLSearchParams();
-    if (selectedCourses.size > 0) {
-      params.set("courses", Array.from(selectedCourses).join(","));
-    }
-    if (selectedModules.size > 0) {
-      params.set("modules", Array.from(selectedModules).join(","));
-    }
-    return params;
-  };
-
   const [isStartingSession, setIsStartingSession] = useState(false);
 
   const startStudySession = async (
     mode: "daily" | "exam" | "custom",
     options?: {
-      customMode?: "weak" | "forgotten" | "review_ahead" | "new";
+      customMode?: "weak" | "forgotten" | "overdue" | "review_ahead" | "new" | "due" | "learned";
       aheadDays?: number;
       limit?: number;
       specificCourseId?: string;
@@ -262,36 +372,19 @@ export function FlashcardsPage() {
           queryKey: ["flashcard-sessions", organizationId],
         });
         navigate(`/flashcards/review?sessionId=${res.session.id}`);
-      } else {
-        const params = buildQueryParams();
-        if (mode === "exam") {
-          params.set("mode", "exam");
-          if (options?.limit) params.set("limit", String(options.limit));
-        } else if (mode === "custom") {
-          params.set("mode", "custom");
-          if (options?.customMode) params.set("customMode", options.customMode);
-          if (options?.aheadDays) params.set("aheadDays", String(options.aheadDays));
-        }
-        navigate(`/flashcards/review?${params.toString()}`);
       }
-    } catch {
-      const params = buildQueryParams();
-      if (mode === "exam") {
-        params.set("mode", "exam");
-        if (options?.limit) params.set("limit", String(options.limit));
-      } else if (mode === "custom") {
-        params.set("mode", "custom");
-        if (options?.customMode) params.set("customMode", options.customMode);
-        if (options?.aheadDays) params.set("aheadDays", String(options.aheadDays));
-      }
-      navigate(`/flashcards/review?${params.toString()}`);
+    } catch (err) {
+      console.error("Failed to create flashcard study session:", err);
     } finally {
       setIsStartingSession(false);
     }
   };
 
   const startNormalReview = (specificCourseId?: string) => {
-    void startStudySession("daily", { specificCourseId });
+    void startStudySession("daily", {
+      specificCourseId,
+      limit: dailyMaxReviewsLimit,
+    });
   };
 
   const startExamMode = () => {
@@ -299,10 +392,12 @@ export function FlashcardsPage() {
     return;
   };
 
-  const startCustomStudy = (mode: "weak" | "forgotten" | "review_ahead" | "new") => {
+  const startCustomStudy = (mode: "weak" | "forgotten" | "overdue" | "review_ahead" | "new" | "due" | "learned") => {
+    const limit = mode === "new" ? dailyNewCardsLimit : dailyMaxReviewsLimit;
     void startStudySession("custom", {
       customMode: mode,
       aheadDays: mode === "review_ahead" ? reviewAheadDays : undefined,
+      limit,
     });
   };
 
@@ -367,10 +462,7 @@ export function FlashcardsPage() {
     );
   }
 
-  const learnedCardsCount = Math.max(
-    0,
-    (summary.total_cards || 0) - ((summary.total_due || 0) + (summary.total_new || 0)),
-  );
+  const learnedCardsCount = scopedStats.learned;
 
   return (
     <div className="antialiased min-h-screen flex flex-col text-[var(--color-text)] bg-[var(--color-bg)] p-4 md:p-6 relative overflow-hidden font-sans dir-rtl text-right">
@@ -561,11 +653,20 @@ export function FlashcardsPage() {
 
           {/* Tile 5: Micro-Insight: Forgotten Cards Tile (Col 3, Row 2) */}
           <div
-            onClick={() => startCustomStudy("forgotten")}
-            className="bg-[var(--color-warning-soft)] border border-[var(--color-warning-muted)] rounded-[16px] p-6 md:col-span-1 md:row-span-1 flex flex-col justify-center relative overflow-hidden transition-all duration-300 cursor-pointer group shadow-[var(--shadow-subtle)]"
+            onClick={() => {
+              if (scopedStats.overdue > 0) {
+                startCustomStudy("overdue");
+              }
+            }}
+            role="button"
+            tabIndex={scopedStats.overdue > 0 ? 0 : -1}
+            aria-disabled={scopedStats.overdue === 0}
+            className={`bg-[var(--color-warning-soft)] border border-[var(--color-warning-muted)] rounded-[16px] p-6 md:col-span-1 md:row-span-1 flex flex-col justify-center relative overflow-hidden transition-all duration-300 group shadow-[var(--shadow-subtle)] ${
+              scopedStats.overdue > 0 ? "cursor-pointer hover:shadow-md" : "opacity-60 cursor-not-allowed"
+            }`}
           >
             <h3 className="text-3xl font-black text-[var(--color-warning)] mb-1 relative z-10">
-              {summary.total_overdue || 0}
+              {scopedStats.overdue}
             </h3>
             <p className="text-sm font-bold text-[var(--color-text)] relative z-10">کارت فراموش شده</p>
             <p className="text-xs text-[var(--color-text-muted)] mt-1 relative z-10">
@@ -575,11 +676,20 @@ export function FlashcardsPage() {
 
           {/* Tile 6: Micro-Insight: New Cards Tile (Col 4, Row 2) */}
           <div
-            onClick={() => startCustomStudy("new")}
-            className="bg-[var(--color-primary-soft)] border border-[var(--color-primary-muted)] rounded-[16px] p-6 md:col-span-1 md:row-span-1 flex flex-col justify-center relative overflow-hidden transition-all duration-300 cursor-pointer group shadow-[var(--shadow-subtle)]"
+            onClick={() => {
+              if (scopedStats.newCards > 0) {
+                startCustomStudy("new");
+              }
+            }}
+            role="button"
+            tabIndex={scopedStats.newCards > 0 ? 0 : -1}
+            aria-disabled={scopedStats.newCards === 0}
+            className={`bg-[var(--color-primary-soft)] border border-[var(--color-primary-muted)] rounded-[16px] p-6 md:col-span-1 md:row-span-1 flex flex-col justify-center relative overflow-hidden transition-all duration-300 group shadow-[var(--shadow-subtle)] ${
+              scopedStats.newCards > 0 ? "cursor-pointer hover:shadow-md" : "opacity-60 cursor-not-allowed"
+            }`}
           >
             <h3 className="text-3xl font-black text-[var(--color-primary)] mb-1 relative z-10">
-              {summary.total_new || 0}
+              {scopedStats.newCards}
             </h3>
             <p className="text-sm font-bold text-[var(--color-text)] relative z-10">کارت‌های جدید</p>
             <p className="text-xs text-[var(--color-text-muted)] mt-1 relative z-10">آماده برای یادگیری امروز.</p>
@@ -587,18 +697,39 @@ export function FlashcardsPage() {
 
           {/* Tile 7: Micro-Insight: Needs Review Tile (Col 3, Row 3) */}
           <div
-            onClick={() => setSelectedGoal("daily")}
-            className="bg-[var(--color-error-soft)] border border-[var(--color-error-muted)] rounded-[16px] p-6 md:col-span-1 md:row-span-1 flex flex-col justify-center relative overflow-hidden transition-all duration-300 cursor-pointer group shadow-[var(--shadow-subtle)]"
+            onClick={() => {
+              if (scopedStats.due > 0) {
+                startCustomStudy("due");
+              }
+            }}
+            role="button"
+            tabIndex={scopedStats.due > 0 ? 0 : -1}
+            aria-disabled={scopedStats.due === 0}
+            className={`bg-[var(--color-error-soft)] border border-[var(--color-error-muted)] rounded-[16px] p-6 md:col-span-1 md:row-span-1 flex flex-col justify-center relative overflow-hidden transition-all duration-300 group shadow-[var(--shadow-subtle)] ${
+              scopedStats.due > 0 ? "cursor-pointer hover:shadow-md" : "opacity-60 cursor-not-allowed"
+            }`}
           >
             <h3 className="text-3xl font-black text-[var(--color-error)] mb-1 relative z-10">
-              {summary.total_due || 0}
+              {scopedStats.due}
             </h3>
             <p className="text-sm font-bold text-[var(--color-text)] relative z-10">نیاز به مرور</p>
             <p className="text-xs text-[var(--color-text-muted)] mt-1 relative z-10">زمان یادآوری فرا رسیده است.</p>
           </div>
 
           {/* Tile 8: Micro-Insight: Learned Tile (Col 4, Row 3) */}
-          <div className="bg-[var(--color-success-soft)] border border-[var(--color-success-muted)] rounded-[16px] p-6 md:col-span-1 md:row-span-1 flex flex-col justify-center relative overflow-hidden transition-all duration-300 shadow-[var(--shadow-subtle)] group">
+          <div
+            onClick={() => {
+              if (scopedStats.learned > 0) {
+                startCustomStudy("learned");
+              }
+            }}
+            role="button"
+            tabIndex={scopedStats.learned > 0 ? 0 : -1}
+            aria-disabled={scopedStats.learned === 0}
+            className={`bg-[var(--color-success-soft)] border border-[var(--color-success-muted)] rounded-[16px] p-6 md:col-span-1 md:row-span-1 flex flex-col justify-center relative overflow-hidden transition-all duration-300 group shadow-[var(--shadow-subtle)] ${
+              scopedStats.learned > 0 ? "cursor-pointer hover:shadow-md" : "opacity-60 cursor-not-allowed"
+            }`}
+          >
             <h3 className="text-3xl font-black text-[var(--color-success)] mb-1 relative z-10">
               {learnedCardsCount}
             </h3>
@@ -692,7 +823,7 @@ export function FlashcardsPage() {
                 type="button"
                 variant="primary"
                 size="md"
-                onClick={() => setShowSettings(false)}
+                onClick={handleSaveSettings}
                 className="flex-1 rounded-[10px] font-bold text-sm shadow-md"
               >
                 ذخیره تغییرات

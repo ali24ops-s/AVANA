@@ -249,6 +249,16 @@ describe("Unified Official Content Studio Workspace — Comprehensive Test Matri
       const url = typeof input === "string" ? input : input.toString();
       const method = init?.method || "GET";
 
+      // Auto-login fallback
+      if (url.includes("auto-login")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ error: { code: "forbidden", message: "Forbidden" } }),
+            { status: 403, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      }
+
       // /v1/me
       if (url.includes("/v1/me")) {
         if (!role) {
@@ -683,9 +693,13 @@ describe("Unified Official Content Studio Workspace — Comprehensive Test Matri
 
     await waitFor(() => {
       expect(screen.getByText("فصل اول: فارماکودینامیک و گیرنده‌ها")).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByText("فصل اول: فارماکودینامیک و گیرنده‌ها"));
+
+    await waitFor(() => {
       expect(screen.getByText("درس ۱: مقدمه بر گیرنده‌های آدرنرژیک")).toBeInTheDocument();
-      expect(screen.getByText("10 کارت")).toBeInTheDocument();
-      expect(screen.getByText("5 سؤال")).toBeInTheDocument();
+      expect(screen.getByText("۱۰ کارت")).toBeInTheDocument();
+      expect(screen.getByText("۵ سؤال")).toBeInTheDocument();
     });
   });
 

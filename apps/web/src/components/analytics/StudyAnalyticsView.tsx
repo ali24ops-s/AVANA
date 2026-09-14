@@ -157,7 +157,7 @@ export function StudyAnalyticsView({
                 {`${analytics.flashcard_mastery_percent}%`}
               </span>
               <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
-                {formatPersianOf(analytics.reviewed_flashcards, analytics.total_flashcards, { suffix: " کارت مرور شده" })}
+                {formatPersianOf(Math.round((analytics.flashcard_mastery_percent * analytics.total_flashcards) / 100), analytics.total_flashcards, { suffix: " کارت مسلط شده" })}
               </p>
             </div>
             <Progress

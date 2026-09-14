@@ -5,7 +5,7 @@ import { healthRoutes } from "./health.js";
 import { readinessRoutes } from "./readiness.js";
 import { organizationRoutes } from "../modules/organizations/index.js";
 import { courseRoutes } from "../modules/courses/index.js";
-import { learningRoutes, contentRoutes } from "../modules/learning/index.js";
+import { learningRoutes } from "../modules/learning/index.js";
 import { documentRoutes } from "../modules/documents/index.js";
 import { generationRoutes, reviewRoutes } from "../modules/generation/index.js";
 import { libraryRoutes } from "../modules/library/index.js";
@@ -44,7 +44,10 @@ import type {
 import type { GenerationChunkStore } from "../modules/generation/generation-chunk-store.js";
 import type { GenerationJobStore } from "../modules/generation/generation-jobs-store.js";
 import type { GenerationQueue } from "../modules/generation/generation-queue.js";
-import type { ModelGateway } from "../modules/generation/gateway/index.js";
+import {
+  OpenRouterModelGateway,
+  type ModelGateway,
+} from "../modules/generation/gateway/index.js";
 import type { OrganizationStore } from "../modules/organizations/organization-store.js";
 import type { CourseStore } from "../modules/courses/course-store.js";
 import type {
@@ -129,6 +132,7 @@ export interface V1RouteOptions {
   generationProgressService?: GenerationProgressService;
   queue?: GenerationQueue;
   gateway?: ModelGateway;
+  adminGateway?: ModelGateway;
   flashcardStore?: FlashcardStore;
   flashcardReviewStore?: FlashcardReviewStore;
   userFlashcardScheduleStore?: UserFlashcardScheduleStore;
@@ -219,30 +223,6 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       courseStore: opts.courseStore,
       auditService: opts.auditService,
       systemOrganizationId: opts.config.systemOrganizationId as OrganizationId,
-    });
-  }
-
-  // Register content (authoring) routes if all required stores provided
-  if (
-    opts.config &&
-    opts.sessionStore &&
-    opts.userStore &&
-    opts.organizationStore &&
-    opts.courseStore &&
-    opts.moduleStore &&
-    opts.lessonStore
-  ) {
-    await app.register(contentRoutes, {
-      sessionService: new SessionService(
-        opts.sessionStore,
-        opts.config.session,
-      ),
-      userStore: opts.userStore,
-      courseStore: opts.courseStore,
-      organizationStore: opts.organizationStore,
-      moduleStore: opts.moduleStore,
-      lessonStore: opts.lessonStore,
-      auditService: opts.auditService,
     });
   }
 
@@ -494,24 +474,33 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
   }
 
   // Register AI Study Assistant routes (POST /v1/ai/ask)
+  // Dedicated OpenRouter/DeepSeek gateway with zero fallback to Gemini or Cloudflare.
   if (
     opts.config &&
     opts.sessionStore &&
     opts.userStore &&
-    (opts.assistantGateway || opts.gateway) &&
     opts.conversationStore &&
     opts.lessonStore &&
     opts.moduleStore &&
     opts.courseStore &&
     opts.organizationStore
   ) {
+    const assistantGateway =
+      opts.assistantGateway ??
+      new OpenRouterModelGateway({
+        apiKey: opts.config.userAi.openrouterApiKey,
+        modelName: opts.config.userAi.openrouterModel,
+        httpReferer: opts.config.userAi.httpReferer,
+        appTitle: opts.config.userAi.appTitle,
+      });
+
     await app.register(assistantRoutes, {
       sessionService: new SessionService(
         opts.sessionStore,
         opts.config.session,
       ),
       userStore: opts.userStore,
-      assistantGateway: (opts.assistantGateway ?? opts.gateway)!,
+      assistantGateway,
       conversationStore: opts.conversationStore,
       lessonStore: opts.lessonStore,
       moduleStore: opts.moduleStore,
@@ -560,6 +549,8 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
           )
         : undefined;
 
+    const officialGateway = opts.adminGateway ?? opts.gateway;
+
     const officialContentService =
       opts.officialContentService ??
       (opts.courseStore &&
@@ -571,7 +562,7 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       opts.documentStore &&
       opts.generatedContentStore &&
       opts.documentChunkStore &&
-      opts.gateway &&
+      officialGateway &&
       opts.queue &&
       opts.generatedContentCitationStore
         ? new OfficialContentService(
@@ -587,7 +578,7 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
             new GenerationService(
               opts.generatedContentStore,
               opts.generatedContentCitationStore,
-              opts.gateway,
+              officialGateway,
               opts.documentStore,
               opts.documentChunkStore,
               defaultPolicy,
@@ -667,6 +658,8 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       systemOrganizationId: opts.config?.systemOrganizationId,
       organizationStore: opts.organizationStore,
       courseStore: opts.courseStore,
+      contentReportStore: opts.reportStore,
+      notificationService,
     });
   }
 

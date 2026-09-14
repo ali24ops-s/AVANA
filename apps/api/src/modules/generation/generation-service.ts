@@ -40,7 +40,6 @@ import {
   type GenerationJobId,
   type GenerationJobStatus,
   type OrganizationId,
-  type QuizId,
   DomainError,
   defaultPolicy,
   auditContentGenerated,
@@ -48,8 +47,6 @@ import {
   type GeneratedContentType,
   type GeneratedContentPayload,
   type LessonPayload,
-  type FlashcardPayload,
-  type QuizPayload,
   isGenerationTypeEnabled,
   calculateGenerationBudget,
   type GenerationBudget,
@@ -81,8 +78,6 @@ import {
   type GenerationChunkStage,
   type GenerationProgress,
   type DocumentGenerationProgressResource,
-  type GenerationProgressStatus,
-  type GenerationPipelineStage,
   DEFAULT_GENERATION_STALE_THRESHOLD_MS,
   normalizeEducationalContent,
   isLessonChunkSetCurrent,
@@ -94,10 +89,13 @@ import {
   buildContentPlanningUserPrompt,
   LESSON_GENERATION_SYSTEM_PROMPT,
   buildLessonGenerationUserPrompt,
+  buildLessonBatchGenerationUserPrompt,
   FLASHCARD_GENERATION_SYSTEM_PROMPT,
   buildFlashcardGenerationUserPrompt,
+  buildFlashcardBatchGenerationUserPrompt,
   QUIZ_GENERATION_SYSTEM_PROMPT,
   buildQuizGenerationUserPrompt,
+  buildQuizBatchGenerationUserPrompt,
   REVIEW_SUMMARY_SYSTEM_PROMPT,
   buildReviewSummaryUserPrompt,
 } from "./prompt-registry.js";
@@ -130,47 +128,27 @@ import type {
   QuizQuestionStore,
 } from "../study/study-store.js";
 import type { CourseStore } from "../courses/course-store.js";
-import type { ModelGateway } from "./gateway/index.js";
+import { isDeepSeekProvider, type ModelGateway } from "./gateway/index.js";
 import type { AuditService } from "../../observability/audit-service.js";
 import type { OrganizationStore } from "../organizations/organization-store.js";
+import { cleanAndParseJson } from "./engine/resilient-json-parser.js";
+import { GenerationQueryService } from "./services/generation-query-service.js";
+import {
+  GenerationContentStatusService,
+  type DocumentContentStatusResource,
+} from "./services/generation-content-status-service.js";
+import {
+  GenerationActiveStatusService,
+  type ActiveGenerationResource,
+} from "./services/generation-active-status-service.js";
+import { GenerationLifecycleService } from "./services/generation-lifecycle-service.js";
 
 // ---------------------------------------------------------------------------
 // Response contract types
 // ---------------------------------------------------------------------------
 
-export type ActiveGenerationResource = {
-  documentId: DocumentId;
-  documentName: string;
-  courseId: CourseId | null;
-  organizationId?: OrganizationId;
-  status: GenerationProgressStatus;
-  stage: GenerationPipelineStage | null;
-  stageLabel: string | null;
-  progress: {
-    current: number;
-    total: number;
-    percentage: number;
-  } | null;
-  stageStartedAt: string | null;
-  lastActivityAt: string | null;
-  error: string | null;
-  updatedAt: string;
-};
-
-export type DocumentContentStatusResource = {
-  request_id: string;
-  document_id: DocumentId;
-  course_id: CourseId | null;
-  lesson: { generated: boolean; count: number; accepted?: boolean };
-  flashcards: { generated: boolean; count: number; accepted?: boolean };
-  exam: { generated: boolean; count: number; accepted?: boolean };
-  review_summary?: { generated: boolean; count: number; accepted?: boolean };
-  progress?: GenerationProgress;
-  generationProgress?: DocumentGenerationProgressResource;
-  can_generate: boolean;
-  all_generated: boolean;
-  has_publishable_content?: boolean;
-};
+export type { ActiveGenerationResource };
+export type { DocumentContentStatusResource };
 
 export type GeneratedContentResource = {
   id: GeneratedContentId;
@@ -222,6 +200,10 @@ export class GenerationService {
   private readonly chunkRecordStore: GenerationChunkStore;
   private readonly generationJobStore?: GenerationJobStore;
   public readonly progressService: GenerationProgressService;
+  public readonly queryService: GenerationQueryService;
+  public readonly contentStatusService: GenerationContentStatusService;
+  public readonly activeStatusService: GenerationActiveStatusService;
+  public readonly lifecycleService: GenerationLifecycleService;
   private notificationService?: NotificationService;
 
   constructor(
@@ -244,6 +226,10 @@ export class GenerationService {
     generationJobStore?: GenerationJobStore,
     generationProgressService?: GenerationProgressService,
     notificationService?: NotificationService,
+    generationQueryService?: GenerationQueryService,
+    generationContentStatusService?: GenerationContentStatusService,
+    generationActiveStatusService?: GenerationActiveStatusService,
+    generationLifecycleService?: GenerationLifecycleService,
   ) {
     this.chunkRecordStore =
       generationChunkStore ?? new InMemoryGenerationChunkStore();
@@ -252,6 +238,53 @@ export class GenerationService {
       generationProgressService ??
       new GenerationProgressService(new InMemoryGenerationProgressStore());
     this.notificationService = notificationService;
+    this.queryService =
+      generationQueryService ??
+      new GenerationQueryService(
+        this.documentStore,
+        this.chunkRecordStore,
+        this.progressService,
+        this.generationJobStore,
+        this.orgStore,
+        this.policy,
+      );
+    this.contentStatusService =
+      generationContentStatusService ??
+      new GenerationContentStatusService(
+        this.documentStore,
+        this.generatedContentStore,
+        this.progressService,
+        this.queryService,
+        this.orgStore,
+        this.moduleStore,
+        this.lessonStore,
+        this.flashcardStore,
+        this.quizStore,
+        this.quizQuestionStore,
+        this.policy,
+      );
+    this.activeStatusService =
+      generationActiveStatusService ??
+      new GenerationActiveStatusService(
+        this.documentStore,
+        this.generatedContentStore,
+        this.progressService,
+        this.queryService,
+        this.orgStore,
+        this.systemOrganizationId,
+        this.policy,
+      );
+    this.lifecycleService =
+      generationLifecycleService ??
+      new GenerationLifecycleService(
+        this.documentStore,
+        this.generatedContentStore,
+        this.progressService,
+        this.chunkRecordStore,
+        this.generationJobStore,
+        this.orgStore,
+        this.policy,
+      );
   }
 
   setNotificationService(service?: NotificationService): void {
@@ -267,56 +300,11 @@ export class GenerationService {
     organizationId?: OrganizationId,
     documentId?: DocumentId,
   ): Promise<void> {
-    if (!jobId || !organizationId || !this.generationJobStore) {
-      return;
-    }
-
-    const job = await this.generationJobStore.findByIdForOrganization(
-      jobId as any,
+    return this.lifecycleService.checkCancellation(
+      jobId,
       organizationId,
+      documentId,
     );
-
-    if (!job) {
-      if (documentId) {
-        await this.progressService.reset(documentId, organizationId);
-      }
-      throw new GenerationDeletedError();
-    }
-
-    if (job.status === "stopping") {
-      const now = new Date().toISOString();
-      await this.generationJobStore.update({
-        ...job,
-        status: "stopped",
-        leaseExpiresAt: null,
-        completedAt: now,
-        updatedAt: now,
-      });
-      if (documentId) {
-        await this.progressService.stop(documentId, organizationId);
-      }
-      process.stdout.write(
-        `[GENERATION] cancelled_at_safe_point: jobId=${jobId} documentId=${documentId}\n`,
-      );
-      throw new GenerationStoppedError();
-    }
-
-    if (job.status === "stopped") {
-      if (documentId) {
-        await this.progressService.stop(documentId, organizationId);
-      }
-      throw new GenerationStoppedError();
-    }
-
-    if (job.status === "deleting" || job.status === "deleted") {
-      if (documentId) {
-        await this.progressService.reset(documentId, organizationId);
-      }
-      process.stdout.write(
-        `[GENERATION] aborted_due_to_deletion: jobId=${jobId} documentId=${documentId}\n`,
-      );
-      throw new GenerationDeletedError();
-    }
   }
 
   /**
@@ -493,107 +481,18 @@ export class GenerationService {
 
   /**
    * Calculate incremental generation progress for a document based on real persisted DB state.
+   * Delegated to GenerationQueryService.
    */
   async getGenerationProgress(
     documentId: DocumentId,
     organizationId: OrganizationId,
     requestedTypes?: GeneratedContentType[],
   ): Promise<GenerationProgress> {
-    const chunks = await this.chunkRecordStore.listByDocument(
+    return this.queryService.getGenerationProgress(
       documentId,
       organizationId,
+      requestedTypes,
     );
-
-    const planningChunk = chunks.find(
-      (c) =>
-        c.stage === "planning" &&
-        c.status === "completed" &&
-        c.deletedAt === null,
-    );
-
-    let sessionCount = 0;
-    if (planningChunk?.payload && typeof planningChunk.payload === "object") {
-      const p = planningChunk.payload as {
-        contentPlan?: { sessions?: unknown[] };
-      };
-      if (Array.isArray(p.contentPlan?.sessions)) {
-        sessionCount = p.contentPlan.sessions.length;
-      }
-    }
-
-    const types =
-      requestedTypes && requestedTypes.length > 0
-        ? requestedTypes
-        : ([
-            "lesson",
-            "flashcard",
-            "quiz",
-            "review_summary",
-          ] as GeneratedContentType[]);
-
-    const effectiveSessionCount = sessionCount > 0 ? sessionCount : 8;
-    const stagesCount =
-      (types.includes("lesson") ? 1 : 0) +
-      (types.includes("flashcard") ? 1 : 0) +
-      (types.includes("quiz") ? 1 : 0);
-
-    const total =
-      1 + // planning
-      effectiveSessionCount * stagesCount +
-      (types.includes("review_summary") ? 1 : 0);
-
-    const activeChunks = chunks.filter(
-      (c) => c.deletedAt === null || c.deletedAt === undefined,
-    );
-    const completed = activeChunks.filter(
-      (c) => c.status === "completed",
-    ).length;
-    const failed = activeChunks.filter(
-      (c) => c.status === "failed",
-    ).length;
-
-    const nowTime = Date.now();
-    const staleThresholdMs = 600_000;
-    const isRunning = activeChunks.some((c) => {
-      if (c.status !== "running") return false;
-      if (c.leaseExpiresAt) {
-        return new Date(c.leaseExpiresAt).getTime() > nowTime;
-      }
-      if (c.heartbeatAt) {
-        return nowTime - new Date(c.heartbeatAt).getTime() <= staleThresholdMs;
-      }
-      return nowTime - new Date(c.updatedAt).getTime() <= staleThresholdMs;
-    });
-
-    let effectiveTotal = total;
-    if (!requestedTypes && !isRunning && failed === 0 && completed > 0) {
-      effectiveTotal = completed;
-    }
-
-    const pending = Math.max(0, effectiveTotal - completed - failed);
-
-    let status: GenerationProgress["status"] = "queued";
-    if (failed > 0) {
-      status = completed > 0 ? "partial" : "failed";
-    } else if (completed >= effectiveTotal && effectiveTotal > 0 && !isRunning) {
-      status = "succeeded";
-    } else if (isRunning) {
-      status = "running";
-    } else if (completed > 0) {
-      status = "partial";
-    }
-
-    const lastActiveChunk = activeChunks[activeChunks.length - 1];
-
-    return {
-      total: effectiveTotal,
-      completed,
-      failed,
-      pending,
-      status,
-      currentStage: lastActiveChunk?.stage,
-      currentChunkKey: lastActiveChunk?.chunkKey,
-    };
   }
 
   /**
@@ -656,279 +555,10 @@ export class GenerationService {
 
   /**
    * Parse and validate model JSON output with multi-stage recovery.
+   * Delegated to standalone ResilientJsonParser engine.
    */
   private cleanAndParseJson<T>(text: string, typeDesc: string): T {
-    if (!text || text.trim().length === 0) {
-      if (typeDesc.includes("review_summary") || typeDesc.includes("summary")) {
-        throw new DomainError(
-          "unprocessable",
-          `STAGE5_INVALID_MODEL_JSON: Model returned an empty response for ${typeDesc}`,
-        );
-      }
-      throw new DomainError(
-        "unprocessable",
-        `Model returned an empty response for ${typeDesc}`,
-      );
-    }
-
-    let jsonStr = text.trim();
-    const jsonBlockMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-    if (jsonBlockMatch && jsonBlockMatch[1]) {
-      jsonStr = jsonBlockMatch[1].trim();
-    } else {
-      const firstBrace = jsonStr.indexOf("{");
-      const lastBrace = jsonStr.lastIndexOf("}");
-      const firstBracket = jsonStr.indexOf("[");
-      const lastBracket = jsonStr.lastIndexOf("]");
-
-      if (
-        firstBracket !== -1 &&
-        lastBracket !== -1 &&
-        lastBracket > firstBracket &&
-        (firstBrace === -1 || firstBracket < firstBrace)
-      ) {
-        jsonStr = jsonStr.slice(firstBracket, lastBracket + 1).trim();
-      } else if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-        jsonStr = jsonStr.slice(firstBrace, lastBrace + 1).trim();
-      }
-    }
-
-    const normalizeResult = (val: unknown): unknown => {
-      if (Array.isArray(val)) {
-        if (typeDesc.includes("flashcard")) {
-          return { kind: "flashcards_batch", cards: val };
-        }
-        if (typeDesc.includes("quiz")) {
-          return { kind: "quizzes_batch", questions: val };
-        }
-        if (typeDesc.includes("session")) {
-          return { kind: "sessions_batch", sessions: val };
-        }
-      }
-      return val;
-    };
-
-    // Helper to safely preserve single-backslash LaTeX commands inside JSON string literals
-    // Prevents JSON.parse from converting \t (in \text), \b (in \beta), \f (in \frac), \r (in \rho), \n (in \neq) into control characters
-    const sanitizeLatexBackslashesInJson = (raw: string): string => {
-      return raw.replace(/"((?:[^"\\]|\\.)*)"/gs, (stringLiteral) => {
-        return stringLiteral.replace(
-          /(?<!\\)\\(text|textbf|textit|textrm|textsf|texttt|beta|bar|binom|bullet|frac|forall|flat|rho|rightarrow|right|rangle|neq|nabla|nu|not|neg|alpha|gamma|theta|sigma|omega|delta|Delta|mu|lambda|pi|partial|times|le|ge|pm|approx|cdot|infty|sqrt|sum|int|lim|to|leftarrow|left|langle|cup|cap|subset|subseteq|in|notin|subset|exists|emptyset|log|ln|sin|cos|tan)(?![a-zA-Z])/g,
-          "\\\\$1",
-        );
-      });
-    };
-
-    const latexSafeJson = sanitizeLatexBackslashesInJson(jsonStr);
-
-    // Attempt 1: Standard JSON parse with LaTeX escape protection
-    try {
-      const parsed = normalizeResult(JSON.parse(latexSafeJson));
-      if (typeof parsed === "object" && parsed !== null) {
-        return parsed as T;
-      }
-    } catch {
-      // Continue to cleanup attempts
-    }
-
-    // Attempt 2: Remove trailing commas
-    try {
-      const noTrailingCommas = jsonStr.replace(/,\s*([}\]])/g, "$1");
-      const parsed = normalizeResult(JSON.parse(noTrailingCommas));
-      if (typeof parsed === "object" && parsed !== null) {
-        return parsed as T;
-      }
-    } catch {
-      // Continue
-    }
-
-    // Attempt 3: Fix unescaped newlines and tabs inside string literals
-    try {
-      const escapedStrings = jsonStr
-        .replace(/,\s*([}\]])/g, "$1")
-        .replace(/"((?:[^"\\]|\\.)*)"/gs, (match) => {
-          return match
-            .replace(/\r\n/g, "\\n")
-            .replace(/\n/g, "\\n")
-            .replace(/\r/g, "\\n")
-            .replace(/\t/g, "\\t");
-        });
-      const parsed = normalizeResult(JSON.parse(escapedStrings));
-      if (typeof parsed === "object" && parsed !== null) {
-        return parsed as T;
-      }
-    } catch {
-      // Continue
-    }
-
-    // Attempt 4: Fix unescaped control chars
-    try {
-      const sanitized = jsonStr
-        .replace(/,\s*([}\]])/g, "$1")
-        .replace(/"((?:[^"\\]|\\.)*)"/gs, (match) => {
-          return match
-            .replace(/\r\n/g, "\\n")
-            .replace(/\n/g, "\\n")
-            .replace(/\r/g, "\\n")
-            .replace(/\t/g, "\\t");
-        })
-        // eslint-disable-next-line no-control-regex
-        .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "");
-      const parsed = JSON.parse(sanitized);
-      if (typeof parsed === "object" && parsed !== null) {
-        return parsed as T;
-      }
-    } catch {
-      // Continue
-    }
-
-    // Attempt 5: Comprehensive fallback parsing per content type
-    if (typeDesc.includes("sessions_batch")) {
-      const sessionsMatch = [
-        ...jsonStr.matchAll(
-          /{\s*"index"\s*:\s*(\d+)[\s\S]*?"title"\s*:\s*"([^"]+)"[\s\S]*?"contentMarkdown"\s*:\s*"([\s\S]*?)"(?:\s*,\s*"citationChunkIds"|\s*})/g,
-        ),
-      ];
-      if (sessionsMatch.length > 0) {
-        const sessions = sessionsMatch.map((m) => ({
-          index: parseInt(m[1], 10),
-          title: m[2],
-          contentMarkdown: m[3]
-            .replace(/\\n/g, "\n")
-            .replace(/\\r/g, "\r")
-            .replace(/\\t/g, "\t")
-            .replace(/\\"/g, '"')
-            .replace(/\\\\/g, "\\"),
-          citationChunkIds: [],
-        }));
-        return {
-          kind: "sessions_batch",
-          sessions,
-          citationChunkIds: [],
-        } as T;
-      }
-    }
-
-    if (typeDesc.includes("session")) {
-      const titleMatch =
-        jsonStr.match(/"title"\s*:\s*"([^"]+)"/i) ||
-        text.match(/"title"\s*:\s*"([^"]+)"/i);
-
-      let content = "";
-      const contentMatch = jsonStr.match(
-        /"contentMarkdown"\s*:\s*"([\s\S]*?)"(?:\s*,\s*"citationChunkIds"|\s*,\s*"kind"|\s*})/,
-      );
-      if (contentMatch && contentMatch[1]) {
-        content = contentMatch[1];
-      } else {
-        const idx = jsonStr.indexOf('"contentMarkdown"');
-        if (idx !== -1) {
-          const after = jsonStr.slice(idx + 17);
-          const startQuote = after.indexOf('"');
-          if (startQuote !== -1) {
-            const rawContent = after.slice(startQuote + 1);
-            const endCitation = rawContent.lastIndexOf('"citationChunkIds"');
-            if (endCitation !== -1) {
-              content = rawContent.slice(0, endCitation).replace(/",\s*$/, "").trim();
-            } else {
-              content = rawContent.replace(/"\s*}\s*$/, "").trim();
-            }
-          }
-        }
-      }
-
-      const finalContent = content || text;
-      const unescaped = finalContent
-        .replace(/\\n/g, "\n")
-        .replace(/\\r/g, "\r")
-        .replace(/\\t/g, "\t")
-        .replace(/\\"/g, '"')
-        .replace(/\\\\/g, "\\");
-
-      let citationChunkIds: string[] = [];
-      const citMatch =
-        jsonStr.match(/"citationChunkIds"\s*:\s*(\[[^\]]*\])/) ||
-        text.match(/"citationChunkIds"\s*:\s*(\[[^\]]*\])/);
-      if (citMatch && citMatch[1]) {
-        try {
-          citationChunkIds = JSON.parse(citMatch[1]);
-        } catch {
-          // ignore
-        }
-      }
-
-      return {
-        kind: "session",
-        title: titleMatch ? titleMatch[1] : undefined,
-        contentMarkdown: unescaped,
-        citationChunkIds,
-      } as T;
-    }
-
-    if (typeDesc.includes("flashcard")) {
-      const cardMatches = [
-        ...jsonStr.matchAll(
-          /{\s*(?:"sessionIndex"\s*:\s*(\d+)\s*,\s*)?"question"\s*:\s*"([\s\S]*?)"\s*,\s*"answer"\s*:\s*"([\s\S]*?)"(?:\s*,\s*"explanation"\s*:\s*"([\s\S]*?)")?(?:\s*,\s*"cardType"\s*:\s*"([\s\S]*?)")?(?:\s*,\s*"difficulty"\s*:\s*"([\s\S]*?)")?\s*}/g,
-        ),
-      ];
-      if (cardMatches.length > 0) {
-        const cards = cardMatches.map((m) => ({
-          sessionIndex: m[1] ? parseInt(m[1], 10) : undefined,
-          question: m[2].replace(/\\"/g, '"').replace(/\\n/g, "\n"),
-          answer: m[3].replace(/\\"/g, '"').replace(/\\n/g, "\n"),
-          explanation: m[4] ? m[4].replace(/\\"/g, '"').replace(/\\n/g, "\n") : undefined,
-          cardType: (m[5] as unknown as "key_fact") || "key_fact",
-          difficulty: (m[6] as unknown as "medium") || "medium",
-        }));
-        return {
-          kind: "flashcards_batch",
-          cards,
-          citationChunkIds: [],
-        } as T;
-      }
-    }
-
-    if (typeDesc.includes("quiz")) {
-      const qMatches = [
-        ...jsonStr.matchAll(
-          /(?:{\s*"sessionIndex"\s*:\s*(\d+)\s*,)?[\s\S]*?"question"\s*:\s*"([^"]+)"[\s\S]*?"choices"\s*:\s*\[([\s\S]*?)\][\s\S]*?"correctAnswer"\s*:\s*"([^"]+)"[\s\S]*?"explanation"\s*:\s*"([^"]+)"/g,
-        ),
-      ];
-      if (qMatches.length > 0) {
-        const questions = qMatches.map((m) => {
-          const rawChoices = m[3];
-          const choices = [...rawChoices.matchAll(/"([^"]+)"/g)].map((c) => c[1]);
-          return {
-            sessionIndex: m[1] ? parseInt(m[1], 10) : undefined,
-            question: m[2],
-            questionType: "multiple_choice" as const,
-            choices:
-              choices.length >= 4
-                ? choices
-                : [m[4], "گزینه انحرافی ۱", "گزینه انحرافی ۲", "گزینه انحرافی ۳"],
-            correctAnswer: m[4],
-            explanation: m[5],
-          };
-        });
-        return {
-          kind: "quizzes_batch",
-          questions,
-          citationChunkIds: [],
-        } as T;
-      }
-    }
-
-    if (typeDesc.includes("review_summary") || typeDesc.includes("summary")) {
-      throw new DomainError(
-        "unprocessable",
-        `STAGE5_INVALID_MODEL_JSON: Model returned malformed or unparseable JSON for ${typeDesc}`,
-      );
-    }
-
-    throw new DomainError(
-      "unprocessable",
-      `Model returned invalid JSON for ${typeDesc}`,
-    );
+    return cleanAndParseJson<T>(text, typeDesc);
   }
 
   /**
@@ -1322,6 +952,323 @@ export class GenerationService {
       sessionBlueprints.length,
     );
 
+    if (isDeepSeekProvider(this.gateway)) {
+      // -----------------------------------------------------------------------
+      // DeepSeek Batch Processing (batchSize = 3)
+      // -----------------------------------------------------------------------
+      const BATCH_SIZE = 3;
+      for (let batchStart = 0; batchStart < sessionBlueprints.length; batchStart += BATCH_SIZE) {
+        await this.checkCancellation(jobId, organizationId, documentId);
+        const batchBlueprints = sessionBlueprints.slice(batchStart, batchStart + BATCH_SIZE);
+
+        // 1. Check cache for each blueprint in batch
+        const pendingBlueprints: typeof batchBlueprints = [];
+        for (const blueprint of batchBlueprints) {
+          const chunkKey = `lesson:${blueprint.index}`;
+          const claim = await this.acquireOrWaitForChunk<{
+            title: string;
+            contentMarkdown: string;
+            citationChunkIds: string[];
+          }>({
+            organizationId,
+            documentId,
+            courseId: targetCourseId ?? doc.courseId,
+            jobId,
+            stage: "lesson",
+            chunkIndex: blueprint.index,
+            chunkKey,
+          });
+
+          if (claim.status === "completed") {
+            const currentChunkIds = new Set(chunks.map((c) => c.id));
+            const isStale =
+              !claim.payload ||
+              (Array.isArray(claim.payload.citationChunkIds) &&
+                claim.payload.citationChunkIds.some((id) => !currentChunkIds.has(id)));
+
+            if (!isStale) {
+              process.stdout.write(
+                `[generation-service] Stage 2: Lesson for session ${blueprint.index + 1}/${sessionBlueprints.length} ("${blueprint.title}") loaded from cache.\n`,
+              );
+              generatedSessions[blueprint.index] = claim.payload;
+              if (claim.record.tokenUsage) {
+                totalUsage.inputTokens += claim.record.tokenUsage.inputTokens;
+                totalUsage.outputTokens += claim.record.tokenUsage.outputTokens;
+              }
+              await this.progressService.updateProgress(
+                documentId,
+                organizationId,
+                "lesson",
+                blueprint.index + 1,
+                sessionBlueprints.length,
+              );
+              continue;
+            }
+          }
+          pendingBlueprints.push(blueprint);
+        }
+
+        if (pendingBlueprints.length === 0) {
+          continue;
+        }
+
+        // 2. Validate relevant chunks for pending blueprints
+        const validPendingItems: Array<{
+          blueprint: (typeof batchBlueprints)[number];
+          effectiveChunks: Array<{ id: string; content: string; heading: string | null }>;
+          chunkContext: string;
+          chunkIdList: string[];
+          sessionBlueprintJson: string;
+        }> = [];
+
+        for (const blueprint of pendingBlueprints) {
+          const relevantChunks = chunks.filter((c) =>
+            blueprint.relevantChunkIds?.includes(c.id),
+          );
+
+          if (relevantChunks.length === 0) {
+            process.stderr.write(
+              `[generation-service] Stage 2 Diagnostic Warning: Session ${blueprint.index + 1}/${sessionBlueprints.length} ("${blueprint.title}") has no valid matching chunks. Model call skipped.\n`,
+            );
+            const fallbackLesson = {
+              title: blueprint.title,
+              contentMarkdown: `# ${blueprint.title}\n\n> **خطای انتساب منبع:** هیچ بخش معتبری از سند برای این جلسه آموزشی اختصاص نیافته است.\n\nتولید این جلسه برای جلوگیری از کاهش دقت علمی و اختلاط با سایر بخش‌های سند متوقف شد.`,
+              citationChunkIds: [],
+            };
+            generatedSessions[blueprint.index] = fallbackLesson;
+            await this.progressService.updateProgress(
+              documentId,
+              organizationId,
+              "lesson",
+              blueprint.index + 1,
+              sessionBlueprints.length,
+            );
+            continue;
+          }
+
+          const effectiveChunks = relevantChunks;
+          const chunkContext = effectiveChunks
+            .map(
+              (c, i) =>
+                `[Chunk ID: ${c.id}] (Index ${i + 1})${c.heading ? ` - ${c.heading}` : ""}:\n${c.content}`,
+            )
+            .join("\n\n---\n\n");
+          const chunkIdList = effectiveChunks.map((c) => c.id);
+          const sessionBlueprintJson = JSON.stringify(
+            {
+              index: blueprint.index,
+              title: blueprint.title,
+              description: blueprint.description,
+              coreConcepts: blueprint.coreConcepts,
+              relevantChunkIds: blueprint.relevantChunkIds,
+            },
+            null,
+            2,
+          );
+
+          validPendingItems.push({
+            blueprint,
+            effectiveChunks,
+            chunkContext,
+            chunkIdList,
+            sessionBlueprintJson,
+          });
+        }
+
+        if (validPendingItems.length === 0) {
+          continue;
+        }
+
+        // 3. Dispatch batch request to DeepSeek
+        const batchKey = `lesson_batch:${validPendingItems.map((v) => v.blueprint.index).join(",")}`;
+        const batchPrompt = buildLessonBatchGenerationUserPrompt({
+          documentTitle: doc.originalName,
+          sessions: validPendingItems.map((v) => ({
+            sessionIndex: v.blueprint.index,
+            sessionTitle: v.blueprint.title,
+            sessionBlueprint: v.sessionBlueprintJson,
+            chunkContext: v.chunkContext,
+            chunkIdList: v.chunkIdList,
+          })),
+        });
+
+        process.stdout.write(
+          `[generation-service] Stage 2: Generating DeepSeek Batch (${validPendingItems.length} lessons: ${validPendingItems.map((v) => `"${v.blueprint.title}"`).join(", ")})...\n`,
+        );
+
+        const batchResult = await this.executeWithChunkRetry(
+          batchKey,
+          async () => {
+            const completion = await this.gateway.complete({
+              promptVersion,
+              messages: [
+                {
+                  role: "system",
+                  content: LESSON_GENERATION_SYSTEM_PROMPT,
+                },
+                { role: "user", content: batchPrompt },
+              ],
+              jsonSchema: { type: "lesson_batch" },
+              correlationId,
+              organizationId,
+              documentId,
+              stage: "lesson",
+            });
+
+            const parsed = this.cleanAndParseJson<{
+              results?: Array<{
+                sessionIndex?: number;
+                index?: number;
+                sessionTitle?: string;
+                title?: string;
+                contentMarkdown?: string;
+                citationChunkIds?: string[];
+              }>;
+              sessions?: Array<{
+                sessionIndex?: number;
+                index?: number;
+                sessionTitle?: string;
+                title?: string;
+                contentMarkdown?: string;
+                citationChunkIds?: string[];
+              }>;
+            }>(completion.text, "lesson_batch");
+
+            const rawResults = Array.isArray(parsed?.results)
+              ? parsed.results
+              : Array.isArray(parsed?.sessions)
+                ? parsed.sessions
+                : Array.isArray(parsed)
+                  ? (parsed as unknown[])
+                  : [];
+
+            return {
+              results: rawResults as Array<{
+                sessionIndex?: number;
+                index?: number;
+                sessionTitle?: string;
+                title?: string;
+                contentMarkdown?: string;
+                citationChunkIds?: string[];
+              }>,
+              usage: completion.usage,
+            };
+          },
+        );
+
+        totalUsage.inputTokens += batchResult.usage.inputTokens;
+        totalUsage.outputTokens += batchResult.usage.outputTokens;
+
+        // 4. Deterministic mapping strictly by sessionIndex / index & persistence
+        for (const item of validPendingItems) {
+          const blueprint = item.blueprint;
+          const chunkKey = `lesson:${blueprint.index}`;
+
+          const matched = batchResult.results.find(
+            (r) => r.sessionIndex === blueprint.index || r.index === blueprint.index,
+          );
+
+          const hasValidContent =
+            matched &&
+            typeof matched.contentMarkdown === "string" &&
+            matched.contentMarkdown.trim().length > 0;
+
+          if (!matched || !hasValidContent) {
+            const failedAt = new Date().toISOString();
+            await this.chunkRecordStore.upsert({
+              id: randomUUID(),
+              organizationId,
+              documentId,
+              courseId: targetCourseId ?? doc.courseId,
+              stage: "lesson",
+              chunkIndex: blueprint.index,
+              chunkKey,
+              status: "failed",
+              payload: null,
+              errorCode: "STAGE2_BATCH_LESSON_MISSING",
+              errorMessage: `DeepSeek batch response did not include valid lesson content for sessionIndex ${blueprint.index}`,
+              attempts: 1,
+              createdAt: failedAt,
+              updatedAt: failedAt,
+            });
+            continue;
+          }
+
+          const title = matched.title || blueprint.title;
+          const validCitations = Array.isArray(matched.citationChunkIds)
+            ? matched.citationChunkIds.filter((id) =>
+                item.effectiveChunks.some((c) => c.id === id),
+              )
+            : [];
+
+          const citationChunkIds =
+            validCitations.length > 0 ? validCitations : item.chunkIdList;
+
+          const normalizedContentMarkdown = normalizeEducationalContent(matched.contentMarkdown);
+
+          const sessionObj = {
+            title,
+            contentMarkdown: normalizedContentMarkdown,
+            citationChunkIds,
+          };
+
+          const completedAt = new Date().toISOString();
+          await this.chunkRecordStore.upsert({
+            id: randomUUID(),
+            organizationId,
+            documentId,
+            courseId: targetCourseId ?? doc.courseId,
+            stage: "lesson",
+            chunkIndex: blueprint.index,
+            chunkKey,
+            status: "completed",
+            payload: sessionObj,
+            tokenUsage: {
+              inputTokens: Math.round(batchResult.usage.inputTokens / validPendingItems.length),
+              outputTokens: Math.round(batchResult.usage.outputTokens / validPendingItems.length),
+            },
+            attempts: 1,
+            createdAt: completedAt,
+            updatedAt: completedAt,
+            completedAt,
+          });
+
+          generatedSessions[blueprint.index] = sessionObj;
+          await this.progressService.updateProgress(
+            documentId,
+            organizationId,
+            "lesson",
+            blueprint.index + 1,
+            sessionBlueprints.length,
+          );
+        }
+      }
+
+      const missingLessonIndices = sessionBlueprints
+        .filter((b, i) => !generatedSessions[b.index] && !generatedSessions[i])
+        .map((b) => b.index);
+      if (missingLessonIndices.length > 0) {
+        throw new DomainError(
+          "unprocessable",
+          `DeepSeek batch generation failed to produce valid lessons for session indices: ${missingLessonIndices.join(", ")}`,
+        );
+      }
+
+      await this.progressService.completeStage(
+        documentId,
+        organizationId,
+        "lesson",
+      );
+
+      return {
+        sessions: sessionBlueprints.map((b, i) => generatedSessions[b.index] || generatedSessions[i]),
+        usage: totalUsage,
+      };
+    }
+
+    // -------------------------------------------------------------------------
+    // Gemini & Standard Per-Item Processing (100% Unchanged)
+    // -------------------------------------------------------------------------
     for (let idx = 0; idx < sessionBlueprints.length; idx++) {
       await this.checkCancellation(jobId, organizationId, documentId);
       const blueprint = sessionBlueprints[idx];
@@ -1472,8 +1419,6 @@ export class GenerationService {
               }>;
             }>(completion.text, "session");
 
-            // Support both single session schema { kind: "session", title, contentMarkdown, citationChunkIds }
-            // and fallback array/batch format { kind: "sessions_batch", sessions: [...] }
             const sessionObj =
               Array.isArray(parsed?.sessions) && parsed.sessions.length > 0
                 ? parsed.sessions.find((s) => s.index === blueprint.index) ||
@@ -1638,6 +1583,392 @@ export class GenerationService {
       sessionBlueprints.length,
     );
 
+    if (isDeepSeekProvider(this.gateway)) {
+      // -----------------------------------------------------------------------
+      // DeepSeek Batch Processing (batchSize = 3)
+      // -----------------------------------------------------------------------
+      const BATCH_SIZE = 3;
+      for (let batchStart = 0; batchStart < sessionBlueprints.length; batchStart += BATCH_SIZE) {
+        await this.checkCancellation(jobId, organizationId, documentId);
+        const batchBlueprints = sessionBlueprints.slice(batchStart, batchStart + BATCH_SIZE);
+
+        // 1. Check cache for each blueprint in batch
+        const pendingBlueprints: typeof batchBlueprints = [];
+        for (const blueprint of batchBlueprints) {
+          const chunkKey = `flashcard:${blueprint.index}`;
+          const claim = await this.acquireOrWaitForChunk<{
+            cards: Array<{
+              question: string;
+              answer: string;
+              explanation?: string;
+              cardType?: "definition" | "mechanism" | "comparison" | "key_fact" | "application" | "clinical_reasoning" | "cloze";
+              difficulty?: "easy" | "medium" | "hard";
+              citationChunkIds?: string[];
+              sessionIndex?: number;
+            }>;
+            citationChunkIds?: string[];
+          }>({
+            organizationId,
+            documentId,
+            courseId: targetCourseId ?? doc.courseId,
+            jobId,
+            stage: "flashcard",
+            chunkIndex: blueprint.index,
+            chunkKey,
+          });
+
+          if (claim.status === "completed") {
+            const currentChunkIds = new Set(chunks.map((c) => c.id));
+            const isStale =
+              !claim.payload ||
+              !Array.isArray(claim.payload.cards) ||
+              (Array.isArray(claim.payload.citationChunkIds) &&
+                claim.payload.citationChunkIds.some((id) => !currentChunkIds.has(id))) ||
+              claim.payload.cards.some(
+                (card) =>
+                  Array.isArray(card.citationChunkIds) &&
+                  card.citationChunkIds.some((id) => !currentChunkIds.has(id)),
+              );
+
+            if (!isStale) {
+              process.stdout.write(
+                `[generation-service] Stage 3: Flashcards for session ${blueprint.index + 1}/${sessionBlueprints.length} ("${blueprint.title}") loaded from cache (${claim.payload.cards.length} cards).\n`,
+              );
+              flashcardsBySession.set(blueprint.index, claim.payload.cards);
+              if (Array.isArray(claim.payload.citationChunkIds)) {
+                claim.payload.citationChunkIds.forEach((id) => allCitations.add(id));
+              }
+              if (claim.payload.cards) {
+                claim.payload.cards.forEach((c) => {
+                  c.citationChunkIds?.forEach((id) => allCitations.add(id));
+                });
+              }
+              if (claim.record.tokenUsage) {
+                totalUsage.inputTokens += claim.record.tokenUsage.inputTokens;
+                totalUsage.outputTokens += claim.record.tokenUsage.outputTokens;
+              }
+              await this.progressService.updateProgress(
+                documentId,
+                organizationId,
+                "flashcard",
+                blueprint.index + 1,
+                sessionBlueprints.length,
+              );
+              continue;
+            }
+          }
+          pendingBlueprints.push(blueprint);
+        }
+
+        if (pendingBlueprints.length === 0) {
+          continue;
+        }
+
+        // 2. Prepare valid pending items
+        const validPendingItems: Array<{
+          blueprint: (typeof batchBlueprints)[number];
+          effectiveChunks: Array<{ id: string; content: string; heading: string | null }>;
+          chunkContext: string;
+          chunkIdList: string[];
+          sessionBlueprintJson: string;
+          targetFlashcardCount: number;
+          lessonContent: string;
+        }> = [];
+
+        for (const blueprint of pendingBlueprints) {
+          const relevantChunks = chunks.filter((c) =>
+            blueprint.relevantChunkIds?.includes(c.id),
+          );
+
+          if (relevantChunks.length === 0) {
+            process.stderr.write(
+              `[generation-service] Stage 3 Diagnostic Warning: Session ${blueprint.index + 1}/${sessionBlueprints.length} ("${blueprint.title}") has no valid matching chunks. Model call skipped.\n`,
+            );
+            flashcardsBySession.set(blueprint.index, []);
+            await this.progressService.updateProgress(
+              documentId,
+              organizationId,
+              "flashcard",
+              blueprint.index + 1,
+              sessionBlueprints.length,
+            );
+            continue;
+          }
+
+          const effectiveChunks = relevantChunks;
+          const chunkContext = effectiveChunks
+            .map(
+              (c, i) =>
+                `[Chunk ID: ${c.id}] (Index ${i + 1})${c.heading ? ` - ${c.heading}` : ""}:\n${c.content}`,
+            )
+            .join("\n\n---\n\n");
+          const chunkIdList = effectiveChunks.map((c) => c.id);
+
+          const sessionBlueprintJson = JSON.stringify(
+            {
+              index: blueprint.index,
+              title: blueprint.title,
+              description: blueprint.description,
+              coreConcepts: blueprint.coreConcepts,
+              relevantChunkIds: blueprint.relevantChunkIds,
+            },
+            null,
+            2,
+          );
+
+          const targetFlashcardCount = Math.min(
+            budget.flashcardBudget.targetCardsPerTopic,
+            Math.max(
+              budget.flashcardBudget.minCardsPerTopic,
+              blueprint.targetFlashcardCount || budget.flashcardBudget.targetCardsPerTopic,
+            ),
+          );
+
+          const matchedSession =
+            sessionsMarkdown.find((s) => s.title === blueprint.title) ??
+            sessionsMarkdown[blueprint.index];
+          const lessonContent =
+            matchedSession?.contentMarkdown ||
+            `[Session Blueprint Summary]\nTopic: ${blueprint.title}\nDescription: ${blueprint.description || ""}\nCore Concepts to Cover:\n${(blueprint.coreConcepts || []).map((c) => `- ${c}`).join("\n")}\n\nNote: Ground all flashcards strictly in the provided source chunks.`;
+
+          validPendingItems.push({
+            blueprint,
+            effectiveChunks,
+            chunkContext,
+            chunkIdList,
+            sessionBlueprintJson,
+            targetFlashcardCount,
+            lessonContent,
+          });
+        }
+
+        if (validPendingItems.length === 0) {
+          continue;
+        }
+
+        // 3. Dispatch batch request to DeepSeek
+        const batchKey = `flashcard_batch:${validPendingItems.map((v) => v.blueprint.index).join(",")}`;
+        const batchPrompt = buildFlashcardBatchGenerationUserPrompt({
+          documentTitle: doc.originalName,
+          sessions: validPendingItems.map((v) => ({
+            sessionIndex: v.blueprint.index,
+            sessionTitle: v.blueprint.title,
+            sessionBlueprint: v.sessionBlueprintJson,
+            targetFlashcardCount: v.targetFlashcardCount,
+            lessonContent: v.lessonContent,
+            chunkContext: v.chunkContext,
+            chunkIdList: v.chunkIdList,
+          })),
+        });
+
+        process.stdout.write(
+          `[generation-service] Stage 3: Generating DeepSeek Batch (${validPendingItems.length} session flashcard sets: ${validPendingItems.map((v) => `"${v.blueprint.title}"`).join(", ")})...\n`,
+        );
+
+        const batchResult = await this.executeWithChunkRetry(
+          batchKey,
+          async () => {
+            const completion = await this.gateway.complete({
+              promptVersion,
+              messages: [
+                {
+                  role: "system",
+                  content: FLASHCARD_GENERATION_SYSTEM_PROMPT,
+                },
+                { role: "user", content: batchPrompt },
+              ],
+              jsonSchema: { type: "flashcards_batch" },
+              correlationId,
+              organizationId,
+              documentId,
+              stage: "flashcard",
+            });
+
+            const parsed = this.cleanAndParseJson<{
+              results?: Array<{
+                sessionIndex?: number;
+                index?: number;
+                sessionTitle?: string;
+                title?: string;
+                cards?: Array<{
+                  sessionIndex?: number;
+                  question: string;
+                  answer: string;
+                  explanation?: string;
+                  cardType?: "definition" | "mechanism" | "comparison" | "key_fact" | "application" | "clinical_reasoning" | "cloze";
+                  difficulty?: "easy" | "medium" | "hard";
+                  citationChunkIds?: string[];
+                }>;
+                citationChunkIds?: string[];
+              }>;
+              cards?: Array<{
+                sessionIndex?: number;
+                question: string;
+                answer: string;
+                explanation?: string;
+                cardType?: "definition" | "mechanism" | "comparison" | "key_fact" | "application" | "clinical_reasoning" | "cloze";
+                difficulty?: "easy" | "medium" | "hard";
+                citationChunkIds?: string[];
+              }>;
+              citationChunkIds?: string[];
+            }>(completion.text, "flashcards_batch");
+
+            const rawResults = Array.isArray(parsed?.results)
+              ? parsed.results
+              : Array.isArray(parsed?.cards)
+                ? [{ sessionIndex: validPendingItems[0]?.blueprint.index, cards: parsed.cards, citationChunkIds: parsed.citationChunkIds }]
+                : Array.isArray(parsed)
+                  ? (parsed as unknown[])
+                  : [];
+
+            return {
+              results: rawResults as Array<{
+                sessionIndex?: number;
+                index?: number;
+                sessionTitle?: string;
+                title?: string;
+                cards?: Array<{
+                  sessionIndex?: number;
+                  question: string;
+                  answer: string;
+                  explanation?: string;
+                  cardType?: "definition" | "mechanism" | "comparison" | "key_fact" | "application" | "clinical_reasoning" | "cloze";
+                  difficulty?: "easy" | "medium" | "hard";
+                  citationChunkIds?: string[];
+                }>;
+                citationChunkIds?: string[];
+              }>,
+              usage: completion.usage,
+            };
+          },
+        );
+
+        totalUsage.inputTokens += batchResult.usage.inputTokens;
+        totalUsage.outputTokens += batchResult.usage.outputTokens;
+
+        // 4. Deterministic mapping strictly by sessionIndex / index & persistence
+        for (const item of validPendingItems) {
+          const blueprint = item.blueprint;
+          const chunkKey = `flashcard:${blueprint.index}`;
+
+          const matched = batchResult.results.find(
+            (r) => r.sessionIndex === blueprint.index || r.index === blueprint.index,
+          );
+
+          const rawCards = Array.isArray(matched?.cards) ? matched.cards : [];
+          const validChunkSet = new Set(item.chunkIdList);
+
+          const sessionCards = rawCards
+            .filter((c) => c && typeof c.question === "string" && c.question.trim() && typeof c.answer === "string" && c.answer.trim())
+            .map((c) => {
+              const validCardCitations = Array.isArray(c.citationChunkIds)
+                ? c.citationChunkIds.filter((id) => validChunkSet.has(id))
+                : [];
+              const cardCitations =
+                validCardCitations.length > 0 ? validCardCitations : [item.chunkIdList[0]];
+
+              return {
+                sessionIndex: blueprint.index,
+                question: c.question,
+                answer: c.answer,
+                explanation: c.explanation,
+                cardType: c.cardType || "mechanism",
+                difficulty: c.difficulty || "medium",
+                citationChunkIds: cardCitations,
+              };
+            });
+
+          if (!matched || sessionCards.length === 0) {
+            const failedAt = new Date().toISOString();
+            await this.chunkRecordStore.upsert({
+              id: randomUUID(),
+              organizationId,
+              documentId,
+              courseId: targetCourseId ?? doc.courseId,
+              stage: "flashcard",
+              chunkIndex: blueprint.index,
+              chunkKey,
+              status: "failed",
+              payload: null,
+              errorCode: "STAGE3_BATCH_FLASHCARD_MISSING",
+              errorMessage: `DeepSeek batch response did not include valid flashcards for sessionIndex ${blueprint.index}`,
+              attempts: 1,
+              createdAt: failedAt,
+              updatedAt: failedAt,
+            });
+            continue;
+          }
+
+          const citationChunkIds = Array.isArray(matched?.citationChunkIds)
+            ? matched.citationChunkIds.filter((id) => validChunkSet.has(id))
+            : [];
+
+          sessionCards.forEach((c) => {
+            c.citationChunkIds?.forEach((id) => allCitations.add(id));
+          });
+          citationChunkIds.forEach((id) => allCitations.add(id));
+
+          const completedAt = new Date().toISOString();
+          await this.chunkRecordStore.upsert({
+            id: randomUUID(),
+            organizationId,
+            documentId,
+            courseId: targetCourseId ?? doc.courseId,
+            stage: "flashcard",
+            chunkIndex: blueprint.index,
+            chunkKey,
+            status: "completed",
+            payload: {
+              cards: sessionCards,
+              citationChunkIds,
+            },
+            tokenUsage: {
+              inputTokens: Math.round(batchResult.usage.inputTokens / validPendingItems.length),
+              outputTokens: Math.round(batchResult.usage.outputTokens / validPendingItems.length),
+            },
+            attempts: 1,
+            createdAt: completedAt,
+            updatedAt: completedAt,
+            completedAt,
+          });
+
+          flashcardsBySession.set(blueprint.index, sessionCards);
+          await this.progressService.updateProgress(
+            documentId,
+            organizationId,
+            "flashcard",
+            blueprint.index + 1,
+            sessionBlueprints.length,
+          );
+        }
+      }
+
+      const missingFlashcardIndices = sessionBlueprints
+        .filter((b) => !flashcardsBySession.has(b.index) || flashcardsBySession.get(b.index)!.length === 0)
+        .map((b) => b.index);
+      if (missingFlashcardIndices.length > 0) {
+        throw new DomainError(
+          "unprocessable",
+          `DeepSeek batch generation failed to produce valid flashcards for session indices: ${missingFlashcardIndices.join(", ")}`,
+        );
+      }
+
+      await this.progressService.completeStage(
+        documentId,
+        organizationId,
+        "flashcard",
+      );
+
+      return {
+        flashcardsBySession,
+        allCitations,
+        usage: totalUsage,
+      };
+    }
+
+    // -------------------------------------------------------------------------
+    // Gemini & Standard Per-Item Processing (100% Unchanged)
+    // -------------------------------------------------------------------------
     for (let idx = 0; idx < sessionBlueprints.length; idx++) {
       await this.checkCancellation(jobId, organizationId, documentId);
       const blueprint = sessionBlueprints[idx];
@@ -1996,6 +2327,498 @@ export class GenerationService {
       sessionBlueprints.length,
     );
 
+    if (isDeepSeekProvider(this.gateway)) {
+      // -----------------------------------------------------------------------
+      // DeepSeek Batch Processing (batchSize = 3)
+      // -----------------------------------------------------------------------
+      const BATCH_SIZE = 3;
+      for (let batchStart = 0; batchStart < sessionBlueprints.length; batchStart += BATCH_SIZE) {
+        await this.checkCancellation(jobId, organizationId, documentId);
+        const batchBlueprints = sessionBlueprints.slice(batchStart, batchStart + BATCH_SIZE);
+
+        // 1. Check cache for each blueprint in batch
+        const pendingBlueprints: typeof batchBlueprints = [];
+        for (const blueprint of batchBlueprints) {
+          const chunkKey = `quiz:${blueprint.index}`;
+          const claim = await this.acquireOrWaitForChunk<{
+            questions: Array<{
+              sessionIndex?: number;
+              question: string;
+              questionType: "multiple_choice";
+              choices: string[];
+              correctAnswer: string;
+              explanation: string;
+              difficulty?: "easy" | "medium" | "hard";
+              category?: string;
+              citationChunkIds?: string[];
+            }>;
+            citationChunkIds?: string[];
+          }>({
+            organizationId,
+            documentId,
+            courseId: targetCourseId ?? doc.courseId,
+            jobId,
+            stage: "quiz",
+            chunkIndex: blueprint.index,
+            chunkKey,
+          });
+
+          if (claim.status === "completed") {
+            const currentChunkIds = new Set(chunks.map((c) => c.id));
+            const isStale =
+              !claim.payload ||
+              !Array.isArray(claim.payload.questions) ||
+              (Array.isArray(claim.payload.citationChunkIds) &&
+                claim.payload.citationChunkIds.some((id) => !currentChunkIds.has(id))) ||
+              claim.payload.questions.some(
+                (q) =>
+                  Array.isArray(q.citationChunkIds) &&
+                  q.citationChunkIds.some((id) => !currentChunkIds.has(id)),
+              );
+
+            if (!isStale) {
+              process.stdout.write(
+                `[generation-service] Stage 4: Quizzes for session ${blueprint.index + 1}/${sessionBlueprints.length} ("${blueprint.title}") loaded from cache (${claim.payload.questions.length} questions).\n`,
+              );
+              quizzesBySession.set(blueprint.index, claim.payload.questions);
+              if (Array.isArray(claim.payload.citationChunkIds)) {
+                claim.payload.citationChunkIds.forEach((id) => allCitations.add(id));
+              }
+              if (claim.payload.questions) {
+                claim.payload.questions.forEach((q) => {
+                  q.citationChunkIds?.forEach((id) => allCitations.add(id));
+                });
+              }
+              if (claim.record.tokenUsage) {
+                totalUsage.inputTokens += claim.record.tokenUsage.inputTokens;
+                totalUsage.outputTokens += claim.record.tokenUsage.outputTokens;
+              }
+              await this.progressService.updateProgress(
+                documentId,
+                organizationId,
+                "quiz",
+                blueprint.index + 1,
+                sessionBlueprints.length,
+              );
+              continue;
+            }
+          }
+          pendingBlueprints.push(blueprint);
+        }
+
+        if (pendingBlueprints.length === 0) {
+          continue;
+        }
+
+        // 2. Prepare valid pending items
+        const validPendingItems: Array<{
+          blueprint: (typeof batchBlueprints)[number];
+          effectiveChunks: Array<{ id: string; content: string; heading: string | null }>;
+          chunkContext: string;
+          chunkIdList: string[];
+          sessionBlueprintJson: string;
+          targetQuizCount: number;
+          lessonContent: string;
+        }> = [];
+
+        for (const blueprint of pendingBlueprints) {
+          const relevantChunks = chunks.filter((c) =>
+            blueprint.relevantChunkIds?.includes(c.id),
+          );
+
+          if (relevantChunks.length === 0) {
+            process.stderr.write(
+              `[generation-service] Stage 4 Diagnostic Warning: Session ${blueprint.index + 1}/${sessionBlueprints.length} ("${blueprint.title}") has no valid matching chunks. Model call skipped.\n`,
+            );
+            quizzesBySession.set(blueprint.index, []);
+            await this.progressService.updateProgress(
+              documentId,
+              organizationId,
+              "quiz",
+              blueprint.index + 1,
+              sessionBlueprints.length,
+            );
+            continue;
+          }
+
+          const effectiveChunks = relevantChunks;
+          const chunkContext = effectiveChunks
+            .map(
+              (c, i) =>
+                `[Chunk ID: ${c.id}] (Index ${i + 1})${c.heading ? ` - ${c.heading}` : ""}:\n${c.content}`,
+            )
+            .join("\n\n---\n\n");
+          const chunkIdList = effectiveChunks.map((c) => c.id);
+
+          const sessionBlueprintJson = JSON.stringify(
+            {
+              index: blueprint.index,
+              title: blueprint.title,
+              description: blueprint.description,
+              coreConcepts: blueprint.coreConcepts,
+              relevantChunkIds: blueprint.relevantChunkIds,
+            },
+            null,
+            2,
+          );
+
+          const targetQuizCount = Math.min(
+            budget.quizBudget.maxQuestionsPerTopic,
+            Math.max(
+              budget.quizBudget.minQuestionsPerTopic,
+              blueprint.targetQuizCount || budget.quizBudget.targetQuestionsPerTopic,
+            ),
+          );
+
+          const matchedSession =
+            sessionsMarkdown.find((s) => s.title === blueprint.title) ??
+            sessionsMarkdown[blueprint.index];
+          const lessonContent =
+            matchedSession?.contentMarkdown ||
+            `[Session Blueprint Summary]\nTopic: ${blueprint.title}\nDescription: ${blueprint.description || ""}\nCore Concepts to Cover:\n${(blueprint.coreConcepts || []).map((c) => `- ${c}`).join("\n")}\n\nNote: Ground all quiz questions strictly in the provided source chunks.`;
+
+          validPendingItems.push({
+            blueprint,
+            effectiveChunks,
+            chunkContext,
+            chunkIdList,
+            sessionBlueprintJson,
+            targetQuizCount,
+            lessonContent,
+          });
+        }
+
+        if (validPendingItems.length === 0) {
+          continue;
+        }
+
+        // 3. Dispatch batch request to DeepSeek
+        const batchKey = `quiz_batch:${validPendingItems.map((v) => v.blueprint.index).join(",")}`;
+        const batchPrompt = buildQuizBatchGenerationUserPrompt({
+          documentTitle: doc.originalName,
+          sessions: validPendingItems.map((v) => ({
+            sessionIndex: v.blueprint.index,
+            sessionTitle: v.blueprint.title,
+            sessionBlueprint: v.sessionBlueprintJson,
+            targetQuizCount: v.targetQuizCount,
+            lessonContent: v.lessonContent,
+            chunkContext: v.chunkContext,
+            chunkIdList: v.chunkIdList,
+          })),
+        });
+
+        process.stdout.write(
+          `[generation-service] Stage 4: Generating DeepSeek Batch (${validPendingItems.length} session quiz sets: ${validPendingItems.map((v) => `"${v.blueprint.title}"`).join(", ")})...\n`,
+        );
+
+        const batchResult = await this.executeWithChunkRetry(
+          batchKey,
+          async () => {
+            const completion = await this.gateway.complete({
+              promptVersion,
+              messages: [
+                {
+                  role: "system",
+                  content: QUIZ_GENERATION_SYSTEM_PROMPT,
+                },
+                { role: "user", content: batchPrompt },
+              ],
+              jsonSchema: { type: "quizzes_batch" },
+              correlationId,
+              organizationId,
+              documentId,
+              stage: "quiz",
+            });
+
+            const parsed = this.cleanAndParseJson<{
+              results?: Array<{
+                sessionIndex?: number;
+                index?: number;
+                sessionTitle?: string;
+                title?: string;
+                questions?: Array<{
+                  question: string;
+                  questionType?: "multiple_choice";
+                  difficulty?: "easy" | "medium" | "hard";
+                  category?: string;
+                  choices?: string[];
+                  correctAnswer?: string;
+                  explanation?: string;
+                  citationChunkIds?: string[];
+                }>;
+                citationChunkIds?: string[];
+              }>;
+              questions?: Array<{
+                question: string;
+                questionType?: "multiple_choice";
+                difficulty?: "easy" | "medium" | "hard";
+                category?: string;
+                choices?: string[];
+                correctAnswer?: string;
+                explanation?: string;
+                citationChunkIds?: string[];
+              }>;
+              citationChunkIds?: string[];
+            }>(completion.text, "quizzes_batch");
+
+            const rawResults = Array.isArray(parsed?.results)
+              ? parsed.results
+              : Array.isArray(parsed?.questions)
+                ? [{ sessionIndex: validPendingItems[0]?.blueprint.index, questions: parsed.questions, citationChunkIds: parsed.citationChunkIds }]
+                : Array.isArray(parsed)
+                  ? (parsed as unknown[])
+                  : [];
+
+            return {
+              results: rawResults as Array<{
+                sessionIndex?: number;
+                index?: number;
+                sessionTitle?: string;
+                title?: string;
+                questions?: Array<{
+                  question: string;
+                  questionType?: "multiple_choice";
+                  difficulty?: "easy" | "medium" | "hard";
+                  category?: string;
+                  choices?: string[];
+                  correctAnswer?: string;
+                  explanation?: string;
+                  citationChunkIds?: string[];
+                }>;
+                citationChunkIds?: string[];
+              }>,
+              usage: completion.usage,
+            };
+          },
+        );
+
+        totalUsage.inputTokens += batchResult.usage.inputTokens;
+        totalUsage.outputTokens += batchResult.usage.outputTokens;
+
+        // 4. Deterministic mapping strictly by sessionIndex / index & persistence
+        for (const item of validPendingItems) {
+          const blueprint = item.blueprint;
+          const chunkKey = `quiz:${blueprint.index}`;
+
+          const matched = batchResult.results.find(
+            (r) => r.sessionIndex === blueprint.index || r.index === blueprint.index,
+          );
+
+          const rawQuestions = Array.isArray(matched?.questions) ? matched.questions : [];
+          const validChunkSet = new Set(item.chunkIdList);
+          const validSessionQuestions: Array<{
+            sessionIndex: number;
+            question: string;
+            questionType: "multiple_choice";
+            choices: string[];
+            correctAnswer: string;
+            explanation: string;
+            difficulty: "easy" | "medium" | "hard";
+            category: string;
+            citationChunkIds: string[];
+          }> = [];
+
+          for (const q of rawQuestions) {
+            if (!q.question || typeof q.question !== "string" || !q.question.trim()) {
+              continue;
+            }
+
+            let choices = Array.isArray(q.choices)
+              ? q.choices.map((c) => String(c).trim()).filter(Boolean)
+              : [];
+
+            // Quality constraint 1: Exactly 4 choices
+            if (choices.length !== 4) {
+              continue;
+            }
+
+            // Quality constraint 2: Distinct choices (no duplicate options)
+            if (new Set(choices).size !== 4) {
+              continue;
+            }
+
+            // Quality constraint 3: Strict correct answer resolution
+            let resolvedCorrectAnswer = resolveCorrectChoiceText(choices, q.correctAnswer, { strict: true });
+            if (!resolvedCorrectAnswer) {
+              continue;
+            }
+
+            // Quality constraint 4: Quality gate
+            let qualityResult = validateQuestionQuality(
+              {
+                question: q.question,
+                choices,
+                correctAnswer: resolvedCorrectAnswer,
+              },
+              { requireFourChoices: true },
+            );
+
+            // Quality constraint 4b: Safe Deterministic Repair if quality gate failed
+            if (!qualityResult.valid) {
+              const repairRes = repairQuestionBias({
+                question: q.question,
+                choices,
+                correctAnswer: resolvedCorrectAnswer,
+                explanation: q.explanation,
+              });
+
+              if (repairRes.repaired && repairRes.question && Array.isArray(repairRes.question.choices)) {
+                choices = repairRes.question.choices.map((c) => String(c).trim());
+                resolvedCorrectAnswer = String(repairRes.question.correctAnswer);
+                qualityResult = validateQuestionQuality(
+                  {
+                    question: q.question,
+                    choices,
+                    correctAnswer: resolvedCorrectAnswer,
+                  },
+                  { requireFourChoices: true },
+                );
+              }
+
+              if (!qualityResult.valid) {
+                continue;
+              }
+            }
+
+            // Quality constraint 5: De-duplication
+            const isDuplicate = validSessionQuestions.some((existingQ) =>
+              isNearDuplicateQuestion(existingQ.question, q.question),
+            );
+            if (isDuplicate) {
+              continue;
+            }
+
+            // Quality constraint 6: Sanitize citations
+            const validQuestionCitations = Array.isArray(q.citationChunkIds)
+              ? q.citationChunkIds.filter((id) => validChunkSet.has(id))
+              : [];
+            const finalQuestionCitations =
+              validQuestionCitations.length > 0
+                ? validQuestionCitations
+                : [item.chunkIdList[0]];
+
+            let normalizedDifficulty: "easy" | "medium" | "hard" = "medium";
+            if (q.difficulty === "easy" || q.difficulty === "hard") {
+              normalizedDifficulty = q.difficulty;
+            }
+
+            const baseExplanation =
+              q.explanation && q.explanation.trim()
+                ? q.explanation.trim()
+                : `پاسخ صحیح: ${resolvedCorrectAnswer}. بر اساس تحلیل داده‌های منبع درس.`;
+
+            // Quality constraint 7: Atomic Choice Shuffling
+            const shuffled = canonicalizeAndShuffleQuestion({
+              question: q.question.trim(),
+              choices,
+              correctAnswer: resolvedCorrectAnswer,
+              explanation: baseExplanation,
+            });
+
+            validSessionQuestions.push({
+              sessionIndex: blueprint.index,
+              question: shuffled.question || q.question.trim(),
+              questionType: "multiple_choice",
+              choices: (shuffled.choices as string[]) || choices,
+              correctAnswer: String(shuffled.correctAnswer),
+              explanation: shuffled.explanation || baseExplanation,
+              difficulty: normalizedDifficulty,
+              category: q.category?.trim() || "application",
+              citationChunkIds: finalQuestionCitations,
+            });
+          }
+
+          if (!matched || validSessionQuestions.length === 0) {
+            const failedAt = new Date().toISOString();
+            await this.chunkRecordStore.upsert({
+              id: randomUUID(),
+              organizationId,
+              documentId,
+              courseId: targetCourseId ?? doc.courseId,
+              stage: "quiz",
+              chunkIndex: blueprint.index,
+              chunkKey,
+              status: "failed",
+              payload: null,
+              errorCode: "STAGE4_BATCH_QUIZ_MISSING",
+              errorMessage: `DeepSeek batch response did not include valid quiz questions for sessionIndex ${blueprint.index}`,
+              attempts: 1,
+              createdAt: failedAt,
+              updatedAt: failedAt,
+            });
+            continue;
+          }
+
+          const citationChunkIds = Array.isArray(matched?.citationChunkIds)
+            ? matched.citationChunkIds.filter((id) => validChunkSet.has(id))
+            : [];
+
+          validSessionQuestions.forEach((q) => {
+            q.citationChunkIds.forEach((id) => allCitations.add(id));
+          });
+          citationChunkIds.forEach((id) => allCitations.add(id));
+
+          const completedAt = new Date().toISOString();
+          await this.chunkRecordStore.upsert({
+            id: randomUUID(),
+            organizationId,
+            documentId,
+            courseId: targetCourseId ?? doc.courseId,
+            stage: "quiz",
+            chunkIndex: blueprint.index,
+            chunkKey,
+            status: "completed",
+            payload: {
+              questions: validSessionQuestions,
+              citationChunkIds,
+            },
+            tokenUsage: {
+              inputTokens: Math.round(batchResult.usage.inputTokens / validPendingItems.length),
+              outputTokens: Math.round(batchResult.usage.outputTokens / validPendingItems.length),
+            },
+            attempts: 1,
+            createdAt: completedAt,
+            updatedAt: completedAt,
+            completedAt,
+          });
+
+          quizzesBySession.set(blueprint.index, validSessionQuestions);
+          await this.progressService.updateProgress(
+            documentId,
+            organizationId,
+            "quiz",
+            blueprint.index + 1,
+            sessionBlueprints.length,
+          );
+        }
+      }
+
+      const missingQuizIndices = sessionBlueprints
+        .filter((b) => !quizzesBySession.has(b.index) || quizzesBySession.get(b.index)!.length === 0)
+        .map((b) => b.index);
+      if (missingQuizIndices.length > 0) {
+        throw new DomainError(
+          "unprocessable",
+          `DeepSeek batch generation failed to produce valid quizzes for session indices: ${missingQuizIndices.join(", ")}`,
+        );
+      }
+
+      await this.progressService.completeStage(
+        documentId,
+        organizationId,
+        "quiz",
+      );
+
+      return {
+        quizzesBySession,
+        allCitations,
+        usage: totalUsage,
+      };
+    }
+
+    // -------------------------------------------------------------------------
+    // Gemini & Standard Per-Item Processing (100% Unchanged)
+    // -------------------------------------------------------------------------
     for (let idx = 0; idx < sessionBlueprints.length; idx++) {
       await this.checkCancellation(jobId, organizationId, documentId);
       const blueprint = sessionBlueprints[idx];
@@ -2695,10 +3518,7 @@ export class GenerationService {
 
   /**
    * Calculate true database-backed content generation status for a document.
-   *
-   * Accurately determines whether lessons, flashcards, and quizzes exist in DB
-   * or active unrejected review drafts exist.
-   * If an item is deleted in DB, generated status reverts to false.
+   * Delegated to GenerationContentStatusService.
    */
   async getDocumentContentStatus(
     actor: Actor,
@@ -2706,574 +3526,79 @@ export class GenerationService {
     documentId: DocumentId,
     courseId?: CourseId,
   ): Promise<DocumentContentStatusResource> {
-    await this.authorize(actor, organizationId, "content:review");
-    const doc = await this.requireDocument(organizationId, documentId);
-
-    // 1. Resolve all generated content records for this document
-    const docContents = await this.generatedContentStore.listByDocument(
-      documentId,
+    return this.contentStatusService.getDocumentContentStatus(
+      actor,
       organizationId,
-    );
-    const docContentIds = new Set(docContents.map((c) => c.id));
-
-    const activeDrafts = docContents.filter(
-      (c) =>
-        c.deletedAt === null &&
-        (c.status === "draft" || c.status === "edited"),
-    );
-
-    // 2. Calculate Lesson Status from DB & Drafts
-    let lessonCount = 0;
-    if (this.moduleStore && this.lessonStore) {
-      const moduleRecord = await this.moduleStore.findByDocument(documentId);
-      if (moduleRecord) {
-        const lessons = await this.lessonStore.listByModule(moduleRecord.id);
-        lessonCount = lessons.filter((l) => l.deletedAt === null).length;
-      }
-    }
-
-    let draftLessonCount = 0;
-    for (const draft of activeDrafts) {
-      if (draft.type === "lesson") {
-        const payload = draft.payload as LessonPayload | undefined;
-        if (Array.isArray(payload?.sessions) && payload.sessions.length > 0) {
-          draftLessonCount += payload.sessions.length;
-        } else {
-          draftLessonCount += 1;
-        }
-      }
-    }
-
-    // 3. Calculate Flashcards Status from DB & Drafts
-    let flashcardCount = 0;
-    if (this.flashcardStore) {
-      const allCards = await this.flashcardStore.listByOrganization(organizationId);
-      flashcardCount = allCards.filter(
-        (f) =>
-          (f.documentId === documentId || (f.generatedContentId && docContentIds.has(f.generatedContentId))) &&
-          f.deletedAt === null,
-      ).length;
-    }
-
-    let draftFlashcardCount = 0;
-    for (const draft of activeDrafts) {
-      if (draft.type === "flashcard") {
-        type FlashcardShape = FlashcardPayload & { flashcards?: unknown[]; question?: unknown; answer?: unknown };
-        const payload = draft.payload as FlashcardShape | undefined;
-        if (Array.isArray(payload?.cards) && payload.cards.length > 0) {
-          draftFlashcardCount += payload.cards.length;
-        } else if (Array.isArray(payload?.flashcards) && payload.flashcards.length > 0) {
-          draftFlashcardCount += payload.flashcards.length;
-        } else if (payload?.question && payload?.answer) {
-          draftFlashcardCount += 1;
-        }
-      }
-    }
-
-    // 4. Calculate Quizzes/Exam Status from DB & Drafts
-    let quizCount = 0;
-    let quizQuestionCount = 0;
-    if (this.quizStore) {
-      type ExtendedQuizRecord = {
-        id: string;
-        deletedAt: string | null;
-        documentId?: DocumentId | null;
-        generatedContentId?: GeneratedContentId | null;
-      };
-      const allQuizzes = (await this.quizStore.listByOrganization(organizationId)) as unknown as ExtendedQuizRecord[];
-      const docQuizzes = allQuizzes.filter(
-        (q) =>
-          (q.documentId === documentId ||
-            (q.generatedContentId && docContentIds.has(q.generatedContentId))) &&
-          q.deletedAt === null,
-      );
-      quizCount = docQuizzes.length;
-      if (this.quizQuestionStore) {
-        for (const q of docQuizzes) {
-          type ExtendedQuestion = { id: string; deletedAt?: string | null };
-          const questions = (await this.quizQuestionStore.listByQuiz(q.id as QuizId)) as unknown as ExtendedQuestion[];
-          quizQuestionCount += questions.filter(
-            (qq) => qq.deletedAt === null || qq.deletedAt === undefined,
-          ).length;
-        }
-      }
-    }
-
-    let draftQuizQuestionCount = 0;
-    for (const draft of activeDrafts) {
-      if (draft.type === "quiz") {
-        type QuizDraftShape = QuizPayload & { quiz?: { questions?: unknown[] } };
-        const payload = draft.payload as QuizDraftShape | undefined;
-        if (Array.isArray(payload?.questions) && payload.questions.length > 0) {
-          draftQuizQuestionCount += payload.questions.length;
-        } else if (Array.isArray(payload?.quiz?.questions) && payload.quiz.questions.length > 0) {
-          draftQuizQuestionCount += payload.quiz.questions.length;
-        } else {
-          draftQuizQuestionCount += 1;
-        }
-      }
-    }
-
-    // 5. Calculate Review Summary Status from DB & Drafts
-    let reviewSummaryCount = 0;
-    const reviewSummaryItem = docContents.find(
-      (c) =>
-        c.type === "review_summary" &&
-        c.deletedAt === null &&
-        c.status !== "rejected",
-    );
-    if (reviewSummaryItem) {
-      reviewSummaryCount = 1;
-    }
-    const reviewSummaryGenerated = reviewSummaryCount > 0;
-
-    const totalLessonCount = lessonCount > 0 ? lessonCount : draftLessonCount;
-    const totalFlashcardCount = flashcardCount > 0 ? flashcardCount : draftFlashcardCount;
-    const totalExamCount =
-      quizQuestionCount > 0
-        ? quizQuestionCount
-        : (quizCount > 0 ? quizCount : draftQuizQuestionCount);
-
-    const lessonGenerated = totalLessonCount > 0;
-    const flashcardsGenerated = totalFlashcardCount > 0;
-    const examGenerated = totalExamCount > 0;
-
-    const allGenerated = lessonGenerated && flashcardsGenerated && examGenerated;
-
-    const progress = await this.getGenerationProgress(
       documentId,
-      organizationId,
+      courseId,
     );
-
-    const generatableDocStatuses = new Set([
-      "uploaded",
-      "extracted",
-      "generating",
-      "review_pending",
-      "ready",
-      "failed",
-    ]);
-    const isDocActivelyRunning =
-      doc.status === "generating" && Boolean(progress && progress.status === "running");
-    const canGenerate =
-      !allGenerated &&
-      generatableDocStatuses.has(doc.status) &&
-      !isDocActivelyRunning;
-
-    // Compute accepted status for publish eligibility (publishableAcceptedContentCount >= 1)
-    const activeAcceptedContents = docContents.filter(
-      (c) => c.deletedAt === null && c.status === "accepted",
-    );
-    const lessonAccepted =
-      activeAcceptedContents.some((c) => c.type === "lesson") || lessonCount > 0;
-    const flashcardsAccepted =
-      activeAcceptedContents.some((c) => c.type === "flashcard") || flashcardCount > 0;
-    const examAccepted =
-      activeAcceptedContents.some((c) => c.type === "quiz") || quizCount > 0;
-    const reviewSummaryAccepted = activeAcceptedContents.some(
-      (c) => c.type === "review_summary",
-    );
-
-    const hasPublishableContent = Boolean(
-      lessonAccepted ||
-      flashcardsAccepted ||
-      examAccepted ||
-      reviewSummaryAccepted,
-    );
-
-    const progressRecord = await this.progressService.getRecord(documentId, organizationId);
-    const generationProgress = this.progressService.toResource(
-      progressRecord,
-      doc.status,
-      doc.errorCode,
-    );
-
-    return {
-      request_id: randomUUID(),
-      document_id: documentId,
-      course_id: (courseId || doc.courseId || null) as CourseId | null,
-      lesson: {
-        generated: lessonGenerated,
-        count: totalLessonCount,
-        accepted: lessonAccepted,
-      },
-      flashcards: {
-        generated: flashcardsGenerated,
-        count: totalFlashcardCount,
-        accepted: flashcardsAccepted,
-      },
-      exam: {
-        generated: examGenerated,
-        count: totalExamCount,
-        accepted: examAccepted,
-      },
-      review_summary: {
-        generated: reviewSummaryGenerated,
-        count: reviewSummaryCount,
-        accepted: reviewSummaryAccepted,
-      },
-      progress,
-      generationProgress,
-      can_generate: canGenerate,
-      all_generated: allGenerated,
-      has_publishable_content: hasPublishableContent,
-    };
   }
 
   /**
    * Check if a document has an actively running worker with a valid lease or recent heartbeat.
+   * Delegated to GenerationQueryService.
    */
   async isDocumentActivelyWorking(
     documentId: DocumentId,
     organizationId: OrganizationId,
     staleThresholdMs = DEFAULT_GENERATION_STALE_THRESHOLD_MS,
   ): Promise<boolean> {
-    const now = Date.now();
-    const staleCutoff = now - staleThresholdMs;
-
-    // 1. Check generation jobs
-    if (this.generationJobStore) {
-      const jobs = await this.generationJobStore.listByDocument(
-        documentId,
-        organizationId,
-      );
-      for (const job of jobs) {
-        if (job.status === "running" || job.status === "queued") {
-          if (job.leaseExpiresAt && new Date(job.leaseExpiresAt).getTime() > now) {
-            return true;
-          }
-          if (job.heartbeatAt && new Date(job.heartbeatAt).getTime() > staleCutoff) {
-            return true;
-          }
-          if (!job.heartbeatAt && !job.leaseExpiresAt && new Date(job.updatedAt).getTime() > staleCutoff) {
-            return true;
-          }
-        }
-      }
-    }
-
-    // 2. Check chunk store
-    if (this.chunkRecordStore && typeof (this.chunkRecordStore as any).getAll === "function") {
-      const chunks = (this.chunkRecordStore as any).getAll() as GenerationChunkRecord[];
-      for (const chunk of chunks) {
-        if (chunk.documentId === documentId && chunk.status === "running" && !chunk.deletedAt) {
-          if (chunk.leaseExpiresAt && new Date(chunk.leaseExpiresAt).getTime() > now) {
-            return true;
-          }
-          if (chunk.heartbeatAt && new Date(chunk.heartbeatAt).getTime() > staleCutoff) {
-            return true;
-          }
-          if (!chunk.heartbeatAt && !chunk.leaseExpiresAt && new Date(chunk.updatedAt).getTime() > staleCutoff) {
-            return true;
-          }
-        }
-      }
-    }
-
-    return false;
+    return this.queryService.isDocumentActivelyWorking(
+      documentId,
+      organizationId,
+      staleThresholdMs,
+    );
   }
 
   /**
    * Return all active generation items visible to the authenticated actor across all
    * authorized organizations and system organization.
+   * Delegated to GenerationActiveStatusService.
    */
   async getGlobalActiveGenerations(
     actor: Actor,
   ): Promise<ActiveGenerationResource[]> {
-    const orgIds = new Set<OrganizationId>();
-
-    if (this.systemOrganizationId && actor.role === "platform_admin") {
-      orgIds.add(this.systemOrganizationId);
-    }
-
-    if (this.orgStore && typeof this.orgStore.listMembershipsByUserId === "function") {
-      try {
-        const memberships = await this.orgStore.listMembershipsByUserId(actor.userId);
-        for (const m of memberships) {
-          if (m.organizationId) {
-            orgIds.add(m.organizationId);
-          }
-        }
-      } catch {
-        // Suppress and fallback
-      }
-    }
-
-    if (actor.role === "platform_admin" && this.orgStore) {
-      if (typeof (this.orgStore as any).listAll === "function") {
-        try {
-          const allOrgs = await (this.orgStore as any).listAll();
-          for (const o of allOrgs) {
-            if (o.id) orgIds.add(o.id);
-          }
-        } catch {
-          // Suppress
-        }
-      } else if (typeof (this.orgStore as any).listOrganizations === "function") {
-        try {
-          const allOrgs = await (this.orgStore as any).listOrganizations();
-          for (const o of allOrgs) {
-            if (o.id) orgIds.add(o.id);
-          }
-        } catch {
-          // Suppress
-        }
-      }
-    }
-
-    // Fallback if no orgs were found: check systemOrganizationId
-    if (orgIds.size === 0 && this.systemOrganizationId) {
-      orgIds.add(this.systemOrganizationId);
-    }
-
-    const itemsMap = new Map<DocumentId, ActiveGenerationResource>();
-
-    for (const orgId of orgIds) {
-      try {
-        const orgItems = await this.getActiveGenerations(actor, orgId);
-        for (const item of orgItems) {
-          if (!itemsMap.has(item.documentId)) {
-            itemsMap.set(item.documentId, item);
-          }
-        }
-      } catch {
-        // If actor is not authorized for this specific org, safely continue
-      }
-    }
-
-    const items = Array.from(itemsMap.values());
-
-    // Sort active ones first, then by lastActivityAt descending
-    items.sort((a, b) => {
-      const aActive =
-        a.status === "queued" ||
-        a.status === "planning" ||
-        a.status === "generating" ||
-        a.status === "stopping" ||
-        a.status === "deleting";
-      const bActive =
-        b.status === "queued" ||
-        b.status === "planning" ||
-        b.status === "generating" ||
-        b.status === "stopping" ||
-        b.status === "deleting";
-      if (aActive && !bActive) return -1;
-      if (!aActive && bActive) return 1;
-
-      const aTime = a.lastActivityAt ? new Date(a.lastActivityAt).getTime() : 0;
-      const bTime = b.lastActivityAt ? new Date(b.lastActivityAt).getTime() : 0;
-      return bTime - aTime;
-    });
-
-    return items;
+    return this.activeStatusService.getGlobalActiveGenerations(actor);
   }
 
   /**
    * Return all currently active generation items for the current user and organization.
    * Scoped strictly to the actor's authorized documents and membership.
+   * Delegated to GenerationActiveStatusService.
    */
   async getActiveGenerations(
     actor: Actor,
     organizationId: OrganizationId,
     courseId?: CourseId,
   ): Promise<ActiveGenerationResource[]> {
-    await this.authorize(actor, organizationId, "document:read");
-
-    let isPrivileged = actor.role === "platform_admin";
-    if (!isPrivileged && this.orgStore && typeof this.orgStore.findMembership === "function") {
-      const membership = await this.orgStore.findMembership(organizationId, actor.userId);
-      const role = membership?.role;
-      isPrivileged =
-        role === "organization_admin" ||
-        role === "course_editor" ||
-        role === "teacher" ||
-        role === "platform_admin" ||
-        role === "support_agent";
-    }
-
-    const allDocs = isPrivileged
-      ? await this.documentStore.listByOrganization(organizationId)
-      : await this.documentStore.listByOwner(organizationId, actor.userId);
-
-    const nonDeletedDocs = allDocs.filter(
-      (d) => d.deletedAt === null && (!courseId || d.courseId === courseId),
+    return this.activeStatusService.getActiveGenerations(
+      actor,
+      organizationId,
+      courseId,
     );
-    if (nonDeletedDocs.length === 0) {
-      return [];
-    }
-
-    const docIds = nonDeletedDocs.map((d) => d.id);
-    const recordsMap = await this.progressService.getRecordsMap(docIds, organizationId);
-
-    const items: ActiveGenerationResource[] = [];
-    const now = Date.now();
-    const THREE_MINUTES_MS = 3 * 60 * 1000;
-    const STALE_THRESHOLD_MS = DEFAULT_GENERATION_STALE_THRESHOLD_MS;
-
-    for (const doc of nonDeletedDocs) {
-      const record = recordsMap.get(doc.id);
-      let res = this.progressService.toResource(record, doc.status, doc.errorCode);
-
-      // A document is only in active generation phase if it is in queued, planning, generating, stopping, or deleting.
-      // Reviewing, validating, publishing, ready, and completed are post-generation or completed phases and are NOT active generation.
-      const isPostGenerationOrCompleted =
-        res.status === "reviewing" ||
-        res.status === "completed" ||
-        res.status === "deleted" ||
-        res.stage === "review" ||
-        res.stage === "publishing" ||
-        doc.status === "review_pending" ||
-        doc.status === "ready";
-
-      let isActive =
-        !isPostGenerationOrCompleted &&
-        (res.status === "queued" ||
-          res.status === "planning" ||
-          res.status === "generating" ||
-          res.status === "stopping" ||
-          res.status === "deleting" ||
-          doc.status === "generating" ||
-          doc.status === "pending_generation");
-
-      // If marked active, verify whether it is actually stale (abandoned worker / crashed process)
-      if (isActive && res.status !== "stopping" && res.status !== "deleting") {
-        const lastActivityTime = res.lastActivityAt
-          ? new Date(res.lastActivityAt).getTime()
-          : (record?.updatedAt ? new Date(record.updatedAt).getTime() : (doc.updatedAt ? new Date(doc.updatedAt).getTime() : 0));
-        const isTimeExceeded = (now - lastActivityTime) > STALE_THRESHOLD_MS;
-
-        if (isTimeExceeded) {
-          const hasActiveWorker = await this.isDocumentActivelyWorking(
-            doc.id,
-            organizationId,
-            STALE_THRESHOLD_MS,
-          );
-          if (!hasActiveWorker) {
-            // Reconcile stale document safely without deleting any drafts or canonical content
-            const drafts = await this.generatedContentStore.listByDocument(doc.id, organizationId);
-            const hasDrafts = drafts.some((d) => !d.deletedAt && d.status !== "rejected");
-            const newDocStatus = hasDrafts ? "review_pending" : "extracted";
-
-            await this.progressService.fail(
-              doc.id,
-              organizationId,
-              "فرآیند تولید به دلیل عدم دریافت پاسخ یا قطع ارتباط با پردازشگر متوقف شد (Timeout).",
-            );
-
-            if (doc.status === "generating" || doc.status === "pending_generation") {
-              await this.documentStore.update({
-                ...doc,
-                status: newDocStatus,
-                errorCode: "GENERATION_TIMEOUT_STALE",
-                updatedAt: new Date().toISOString(),
-              });
-              doc.status = newDocStatus;
-            }
-
-            const updatedRecord = await this.progressService.getRecord(doc.id, organizationId);
-            res = this.progressService.toResource(updatedRecord, doc.status, "GENERATION_TIMEOUT_STALE");
-            isActive = false;
-          }
-        }
-      }
-
-      const isStopped = !isPostGenerationOrCompleted && res.status === "stopped";
-      // Include failed within recent window so client indicator can show the failure state
-      const isRecent =
-        !isPostGenerationOrCompleted &&
-        res.status === "failed" &&
-        ((res.lastActivityAt && now - new Date(res.lastActivityAt).getTime() < THREE_MINUTES_MS) ||
-          (doc.updatedAt && now - new Date(doc.updatedAt).getTime() < THREE_MINUTES_MS));
-
-      if (isActive || isStopped || isRecent) {
-        items.push({
-          documentId: doc.id,
-          documentName: doc.originalName,
-          courseId: doc.courseId ?? null,
-          organizationId: doc.organizationId,
-          status: res.status,
-          stage: res.stage,
-          stageLabel: res.stageLabel,
-          progress: res.progress,
-          stageStartedAt: res.stageStartedAt,
-          lastActivityAt: res.lastActivityAt,
-          error: res.error,
-          updatedAt: record?.updatedAt ?? doc.updatedAt,
-        });
-      }
-    }
-
-    // Sort active ones first, then by lastActivityAt descending
-    items.sort((a, b) => {
-      const aActive =
-        a.status === "queued" ||
-        a.status === "planning" ||
-        a.status === "generating" ||
-        a.status === "stopping" ||
-        a.status === "deleting";
-      const bActive =
-        b.status === "queued" ||
-        b.status === "planning" ||
-        b.status === "generating" ||
-        b.status === "stopping" ||
-        b.status === "deleting";
-      if (aActive && !bActive) return -1;
-      if (!aActive && bActive) return 1;
-
-      const aTime = a.lastActivityAt ? new Date(a.lastActivityAt).getTime() : 0;
-      const bTime = b.lastActivityAt ? new Date(b.lastActivityAt).getTime() : 0;
-      return bTime - aTime;
-    });
-
-    return items;
   }
 
   /**
    * Return canonical progress for a single document with strict tenant/ownership verification.
+   * Delegated to GenerationQueryService.
    */
   async getDocumentGenerationProgress(
     actor: Actor,
     organizationId: OrganizationId,
     documentId: DocumentId,
-    _courseId?: CourseId,
+    courseId?: CourseId,
   ): Promise<{
     documentId: DocumentId;
     documentName: string;
     courseId: CourseId | null;
     generationProgress: DocumentGenerationProgressResource;
   }> {
-    await this.authorize(actor, organizationId, "document:read");
-    const doc = await this.requireDocument(organizationId, documentId);
-
-    let isPrivileged = actor.role === "platform_admin";
-    if (!isPrivileged && this.orgStore && typeof this.orgStore.findMembership === "function") {
-      const membership = await this.orgStore.findMembership(organizationId, actor.userId);
-      const role = membership?.role;
-      isPrivileged =
-        role === "organization_admin" ||
-        role === "course_editor" ||
-        role === "teacher" ||
-        role === "platform_admin" ||
-        role === "support_agent";
-    }
-
-    if (!isPrivileged && doc.ownerUserId !== actor.userId) {
-      throw new DomainError("not_found", "Document not found");
-    }
-
-    const record = await this.progressService.getRecord(documentId, organizationId);
-    const generationProgress = this.progressService.toResource(
-      record,
-      doc.status,
-      doc.errorCode,
+    return this.queryService.getDocumentGenerationProgress(
+      actor,
+      organizationId,
+      documentId,
+      courseId,
     );
-
-    return {
-      documentId: doc.id,
-      documentName: doc.originalName,
-      courseId: doc.courseId ?? null,
-      generationProgress,
-    };
   }
 
   /**
@@ -4810,6 +5135,7 @@ export class GenerationService {
 
   /**
    * Stop an active or queued generation job at the next safe point (PR Real Stop).
+   * Delegated to GenerationLifecycleService.
    */
   async stopGenerationJob(
     actor: Actor,
@@ -4820,120 +5146,16 @@ export class GenerationService {
     status: "stopped" | "stopping";
     previousStatus: GenerationJobStatus;
   }> {
-    await this.authorize(actor, organizationId, "content:generate");
-
-    if (!this.generationJobStore) {
-      throw new DomainError("bad_request", "Generation job store not configured");
-    }
-
-    const job = await this.generationJobStore.findByIdForOrganization(
-      jobId,
+    return this.lifecycleService.stopGenerationJob(
+      actor,
       organizationId,
+      jobId,
     );
-    if (!job) {
-      throw new DomainError("not_found", "Generation job not found");
-    }
-
-    const previousStatus = job.status;
-
-    if (previousStatus === "stopped") {
-      return { jobId, status: "stopped", previousStatus };
-    }
-    if (previousStatus === "deleted") {
-      return { jobId, status: "stopped", previousStatus };
-    }
-    if (previousStatus === "succeeded" || previousStatus === "failed") {
-      throw new DomainError(
-        "conflict",
-        `Cannot stop a job that has already completed (status: ${previousStatus})`,
-      );
-    }
-
-    const now = new Date().toISOString();
-
-    if (previousStatus === "queued") {
-      await this.generationJobStore.update({
-        ...job,
-        status: "stopped",
-        leaseExpiresAt: null,
-        completedAt: now,
-        updatedAt: now,
-      });
-      await this.progressService.stop(job.documentId, organizationId);
-
-      const doc = await this.documentStore.findByIdForOrganization(
-        job.documentId,
-        organizationId,
-      );
-      if (doc && (doc.status === "generating" || doc.status === "pending_generation")) {
-        const remaining = await this.generatedContentStore.listByDocument(
-          job.documentId,
-          organizationId,
-        );
-        const hasDrafts = remaining.some((d) => !d.deletedAt && d.status !== "rejected");
-        const newDocStatus = hasDrafts ? "review_pending" : "extracted";
-        await this.documentStore.update({
-          ...doc,
-          status: newDocStatus,
-          updatedAt: now,
-        });
-      }
-
-      return { jobId, status: "stopped", previousStatus };
-    }
-
-    if (previousStatus === "running") {
-      const isLeaseExpired =
-        job.leaseExpiresAt && new Date(job.leaseExpiresAt).getTime() < Date.now();
-
-      if (isLeaseExpired) {
-        await this.generationJobStore.update({
-          ...job,
-          status: "stopped",
-          leaseExpiresAt: null,
-          completedAt: now,
-          updatedAt: now,
-        });
-        await this.progressService.stop(job.documentId, organizationId);
-
-        const doc = await this.documentStore.findByIdForOrganization(
-          job.documentId,
-          organizationId,
-        );
-        if (doc && (doc.status === "generating" || doc.status === "pending_generation")) {
-          const remaining = await this.generatedContentStore.listByDocument(
-            job.documentId,
-            organizationId,
-          );
-          const hasDrafts = remaining.some((d) => !d.deletedAt && d.status !== "rejected");
-          const newDocStatus = hasDrafts ? "review_pending" : "extracted";
-          await this.documentStore.update({
-            ...doc,
-            status: newDocStatus,
-            updatedAt: now,
-          });
-        }
-        return { jobId, status: "stopped", previousStatus };
-      }
-
-      await this.generationJobStore.update({
-        ...job,
-        status: "stopping",
-        updatedAt: now,
-      });
-      await this.progressService.markStopping(job.documentId, organizationId);
-      return { jobId, status: "stopping", previousStatus };
-    }
-
-    if (previousStatus === "stopping") {
-      return { jobId, status: "stopping", previousStatus };
-    }
-
-    return { jobId, status: "stopped", previousStatus };
   }
 
   /**
    * Stop any active generation job associated with a document.
+   * Delegated to GenerationLifecycleService.
    */
   async stopGenerationForDocument(
     actor: Actor,
@@ -4944,58 +5166,17 @@ export class GenerationService {
     status: "stopped" | "stopping";
     previousStatus: GenerationJobStatus;
   }> {
-    await this.authorize(actor, organizationId, "content:generate");
-
-    let result: {
-      jobId?: GenerationJobId;
-      status: "stopped" | "stopping";
-      previousStatus: GenerationJobStatus;
-    } = { status: "stopped", previousStatus: "running" };
-
-    if (this.generationJobStore) {
-      const jobs = await this.generationJobStore.listByDocument(
-        documentId,
-        organizationId,
-      );
-      const activeJob = jobs.find(
-        (j) =>
-          j.status === "running" ||
-          j.status === "queued" ||
-          j.status === "stopping",
-      );
-      if (activeJob) {
-        result = await this.stopGenerationJob(actor, organizationId, activeJob.id);
-      }
-    }
-
-    if (result.status !== "stopping") {
-      await this.progressService.stop(documentId, organizationId);
-    }
-
-    const doc = await this.documentStore.findByIdForOrganization(
-      documentId,
+    return this.lifecycleService.stopGenerationForDocument(
+      actor,
       organizationId,
+      documentId,
     );
-    if (doc && (doc.status === "generating" || doc.status === "pending_generation")) {
-      const remaining = await this.generatedContentStore.listByDocument(
-        documentId,
-        organizationId,
-      );
-      const hasDrafts = remaining.some((d) => !d.deletedAt && d.status !== "rejected");
-      const newDocStatus = hasDrafts ? "review_pending" : "extracted";
-      await this.documentStore.update({
-        ...doc,
-        status: newDocStatus,
-        updatedAt: new Date().toISOString(),
-      });
-    }
-
-    return result;
   }
 
   /**
    * Safely delete a generation job, cancel in-flight work, and clean up transient chunks/drafts
    * without deleting the parent Document or accepted contents (PR Real Delete).
+   * Delegated to GenerationLifecycleService.
    */
   async deleteGenerationJob(
     actor: Actor,
@@ -5006,79 +5187,16 @@ export class GenerationService {
     status: "deleted";
     previousStatus: GenerationJobStatus;
   }> {
-    await this.authorize(actor, organizationId, "content:generate");
-
-    if (!this.generationJobStore) {
-      throw new DomainError("bad_request", "Generation job store not configured");
-    }
-
-    const job = await this.generationJobStore.findByIdForOrganization(
+    return this.lifecycleService.deleteGenerationJob(
+      actor,
+      organizationId,
       jobId,
-      organizationId,
     );
-    if (!job) {
-      return { jobId, status: "deleted", previousStatus: "deleted" };
-    }
-
-    const previousStatus = job.status;
-    if (previousStatus === "deleted") {
-      return { jobId, status: "deleted", previousStatus };
-    }
-
-    const now = new Date().toISOString();
-
-    // 1. Mark job as deleting
-    await this.generationJobStore.update({
-      ...job,
-      status: "deleting",
-      leaseExpiresAt: null,
-      updatedAt: now,
-    });
-    await this.progressService.markDeleting(job.documentId, organizationId);
-
-    // 2. Clean up chunks attributed to this job
-    if (this.chunkRecordStore.deleteByJob) {
-      await this.chunkRecordStore.deleteByJob(jobId, organizationId);
-    }
-
-    // 3. Clean up unaccepted draft contents for this document
-    await this.generatedContentStore.deleteDraftsByDocument(
-      job.documentId,
-      organizationId,
-    );
-
-    // 4. Soft-delete the job record
-    await this.generationJobStore.delete(jobId, organizationId);
-
-    // 5. Reset document generation progress to idle
-    await this.progressService.reset(job.documentId, organizationId);
-
-    // 6. Safeguard document status: NEVER delete document row
-    const doc = await this.documentStore.findByIdForOrganization(
-      job.documentId,
-      organizationId,
-    );
-    if (doc) {
-      if (doc.status === "generating" || doc.status === "pending_generation") {
-        const remaining = await this.generatedContentStore.listByDocument(
-          job.documentId,
-          organizationId,
-        );
-        const hasDrafts = remaining.some((d) => !d.deletedAt && d.status !== "rejected");
-        const newDocStatus = hasDrafts ? "review_pending" : "extracted";
-        await this.documentStore.update({
-          ...doc,
-          status: newDocStatus,
-          updatedAt: now,
-        });
-      }
-    }
-
-    return { jobId, status: "deleted", previousStatus };
   }
 
   /**
    * Delete generation processes and transient drafts for a document.
+   * Delegated to GenerationLifecycleService.
    */
   async deleteGenerationForDocument(
     actor: Actor,
@@ -5088,44 +5206,10 @@ export class GenerationService {
     status: "deleted";
     previousStatus?: GenerationJobStatus;
   }> {
-    await this.authorize(actor, organizationId, "content:generate");
-
-    if (this.generationJobStore) {
-      const jobs = await this.generationJobStore.listByDocument(
-        documentId,
-        organizationId,
-      );
-      for (const job of jobs) {
-        await this.deleteGenerationJob(actor, organizationId, job.id);
-      }
-    }
-
-    // Also clean up document chunks and drafts
-    await this.chunkRecordStore.deleteByDocument(documentId, organizationId);
-    await this.generatedContentStore.deleteDraftsByDocument(
-      documentId,
+    return this.lifecycleService.deleteGenerationForDocument(
+      actor,
       organizationId,
-    );
-    await this.progressService.reset(documentId, organizationId);
-
-    const doc = await this.documentStore.findByIdForOrganization(
       documentId,
-      organizationId,
     );
-    if (doc && (doc.status === "generating" || doc.status === "pending_generation")) {
-      const remaining = await this.generatedContentStore.listByDocument(
-        documentId,
-        organizationId,
-      );
-      const hasDrafts = remaining.some((d) => !d.deletedAt && d.status !== "rejected");
-      const newDocStatus = hasDrafts ? "review_pending" : "extracted";
-      await this.documentStore.update({
-        ...doc,
-        status: newDocStatus,
-        updatedAt: new Date().toISOString(),
-      });
-    }
-
-    return { status: "deleted" };
   }
 }

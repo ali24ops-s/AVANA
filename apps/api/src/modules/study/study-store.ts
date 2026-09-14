@@ -142,7 +142,8 @@ export interface FlashcardStore {
 
   listByCourse(
     courseId: CourseId,
-    organizationId: OrganizationId,
+    organizationId?: OrganizationId,
+    systemOrganizationId?: OrganizationId,
   ): Promise<FlashcardRecord[]>;
 
   listByOrganization(

@@ -9,6 +9,7 @@ import type {
   DashboardStats,
   AdminUsersList,
   AdminGenerationJobRecord,
+  AdminRejectedContentRecord,
   DataIntegrityReport,
   AdminCommerceStats,
   AdminOrdersList,
@@ -40,6 +41,20 @@ export class AdminService {
     if (pageSize < 1 || pageSize > 100) throw new DomainError("bad_request", "Page size must be between 1 and 100");
     
     return this.store.listGenerationJobs({ page, pageSize, status });
+  }
+
+  async listRejectedGeneratedContents(params: {
+    page: number;
+    pageSize: number;
+    type?: string;
+    courseId?: string;
+    search?: string;
+  }): Promise<{ items: AdminRejectedContentRecord[]; totalCount: number }> {
+    if (params.page < 1) throw new DomainError("bad_request", "Page must be >= 1");
+    if (params.pageSize < 1 || params.pageSize > 100)
+      throw new DomainError("bad_request", "Page size must be between 1 and 100");
+
+    return this.store.listRejectedGeneratedContents(params);
   }
 
   async getDataIntegrityReport(): Promise<DataIntegrityReport> {

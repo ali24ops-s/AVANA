@@ -197,7 +197,18 @@ describe("StudyService", () => {
     return questions;
   }
 
-  function seedReview(userId: UserId, flashcardId: FlashcardId, rating: FlashcardRating = "good") {
+  async function seedReview(
+    userId: UserId,
+    flashcardId: FlashcardId,
+    rating: FlashcardRating = "good",
+    scheduleOverrides: Partial<{
+      dueAt: string;
+      intervalDays: number;
+      easeFactor: number;
+      reviewCount: number;
+      lastReviewedAt: string;
+    }> = {},
+  ) {
     flashcardReviewStore.create({
       id: randomUUID(),
       flashcardId,
@@ -205,6 +216,18 @@ describe("StudyService", () => {
       rating,
       reviewedAt: new Date().toISOString(),
       reactionMs: 1000,
+    });
+    const card = await flashcardStore.findById(flashcardId);
+    const defaultDueAt = card?.dueAt !== undefined ? card.dueAt : new Date().toISOString();
+    await userFlashcardScheduleStore.upsertSchedule({
+      userId,
+      flashcardId,
+      dueAt: defaultDueAt,
+      intervalDays: card?.intervalDays ?? 1,
+      easeFactor: card?.easeFactor ?? 2.5,
+      reviewCount: 1,
+      lastReviewedAt: new Date().toISOString(),
+      ...scheduleOverrides,
     });
   }
 
@@ -220,10 +243,10 @@ describe("StudyService", () => {
 
       const unreviewedCard = seedFlashcard({ dueAt: past });
       const futureCard = seedFlashcard({ dueAt: future });
-      seedReview(student.userId, futureCard.id);
+      await seedReview(student.userId, futureCard.id);
 
       const dueCard = seedFlashcard({ dueAt: past });
-      seedReview(student.userId, dueCard.id);
+      await seedReview(student.userId, dueCard.id);
 
       const dueList = await service.listFlashcardsForReview(
         student,
@@ -231,43 +254,44 @@ describe("StudyService", () => {
         courseId,
       );
 
-      expect(dueList.length).toBe(2);
-      expect(dueList.map((c) => c.id).sort()).toEqual([unreviewedCard.id, dueCard.id].sort());
+      // Only dueCard (which is reviewed and dueAt <= now) is in the review queue
+      expect(dueList.length).toBe(1);
+      expect(dueList.map((c) => c.id)).toEqual([dueCard.id]);
     });
 
     describe("Ready for Review (dueReviewCards) strict requirements", () => {
-      it("includes unread cards with dueAt <= now, excludes future cards and null dueAt in review queue", async () => {
+      it("includes reviewed cards with dueAt <= now, excludes future cards, unreviewed cards, and null dueAt in review queue", async () => {
         const now = new Date();
         const past = new Date(now.getTime() - 1000 * 60 * 60).toISOString();
         const future = new Date(now.getTime() + 1000 * 60 * 60 * 24).toISOString();
 
-        // 1. Unread card with past dueAt -> DUE for initial review
+        // 1. Unread card with past dueAt -> NOT in review queue (unreviewed card)
         const unreadDueCard = seedFlashcard({ dueAt: past });
 
         // 2. Read card with future dueAt -> NOT due
         const futureCard = seedFlashcard({ dueAt: future });
-        seedReview(student.userId, futureCard.id);
+        await seedReview(student.userId, futureCard.id);
 
         // 3. Read card with past dueAt -> DUE
         const dueCard1 = seedFlashcard({ dueAt: past, intervalDays: 1 });
-        seedReview(student.userId, dueCard1.id);
+        await seedReview(student.userId, dueCard1.id);
 
         // 4. Read card with overdue dueAt (5 days ago) -> DUE
         const overduePast = new Date(now.getTime() - 5 * 86400000).toISOString();
         const dueCard2 = seedFlashcard({ dueAt: overduePast, intervalDays: 2 });
-        seedReview(student.userId, dueCard2.id);
+        await seedReview(student.userId, dueCard2.id);
 
         // 5. Card with invalid/null dueAt -> NOT due
         const nullCard = seedFlashcard({ dueAt: null as unknown as string });
-        seedReview(student.userId, nullCard.id);
+        await seedReview(student.userId, nullCard.id);
 
         const summary = await service.getFlashcardSummary(student, organizationId);
         const courseStats = summary.courseMap.get(courseId);
 
         expect(courseStats).toBeDefined();
         const dueQueue = await service.listFlashcardsForReview(student, organizationId, courseId);
-        expect(dueQueue.length).toBe(3);
-        expect(dueQueue.map((c) => c.id).sort()).toEqual([unreadDueCard.id, dueCard1.id, dueCard2.id].sort());
+        expect(dueQueue.length).toBe(2);
+        expect(dueQueue.map((c) => c.id).sort()).toEqual([dueCard1.id, dueCard2.id].sort());
       });
 
       it("enforces due count invariants: unseen+past=>0 due / 1 new, reviewed+future=>0, reviewed+past=>1 due", async () => {
@@ -280,11 +304,11 @@ describe("StudyService", () => {
 
         // 2. reviewed + due_at > now -> due = 0
         const cardFuture = seedFlashcard({ dueAt: future });
-        seedReview(student.userId, cardFuture.id);
+        await seedReview(student.userId, cardFuture.id);
 
         // 3. reviewed + due_at <= now -> due = 1
         const cardDue = seedFlashcard({ dueAt: past, intervalDays: 1 });
-        seedReview(student.userId, cardDue.id);
+        await seedReview(student.userId, cardDue.id);
 
         const summary = await service.getFlashcardSummary(student, organizationId);
         const courseStats = summary.courseMap.get(courseId)!;
@@ -301,7 +325,7 @@ describe("StudyService", () => {
 
         const card = seedFlashcard({ dueAt: past, intervalDays: 1 });
         // User A reviews the card
-        seedReview(student.userId, card.id);
+        await seedReview(student.userId, card.id);
 
         // User A checks due summary & queue
         const summaryA = await service.getFlashcardSummary(student, organizationId);
@@ -315,7 +339,7 @@ describe("StudyService", () => {
         expect(summaryB.courseMap.get(courseId)!.due).toBe(0);
 
         const queueB = await service.listFlashcardsForReview(studentB, organizationId, courseId);
-        expect(queueB.length).toBe(1); // User B sees the card ready for initial review
+        expect(queueB.length).toBe(0); // User B has no due reviews
       });
     });
 
@@ -649,11 +673,20 @@ describe("StudyService", () => {
         updatedAt: new Date().toISOString(),
       });
 
-      // 2. Seed flashcards: 1 reviewed, 1 fresh
-      seedFlashcard({ intervalDays: 10, dueAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 10).toISOString() }); // Mastered (> 7 days)
-      seedFlashcard({ intervalDays: 0, dueAt: new Date(Date.now() - 1000).toISOString() }); // Due
+      // 2. Seed flashcards: 1 reviewed (mastered), 1 fresh
+      const c1 = seedFlashcard();
+      await userFlashcardScheduleStore.upsertSchedule({
+        userId: student.userId,
+        flashcardId: c1.id,
+        dueAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 10).toISOString(),
+        intervalDays: 10,
+        easeFactor: 2.5,
+        reviewCount: 1,
+        lastReviewedAt: new Date().toISOString(),
+      });
+      seedFlashcard(); // Fresh unreviewed card
 
-      // 3. Seed quiz and attempt with 60% score
+      // 3. Seed quiz and attempt with 50% score
       const quiz = seedQuiz({ title: "Cardiovascular Drugs" });
       const questions = seedQuizQuestions(quiz.id);
 
@@ -684,8 +717,9 @@ describe("StudyService", () => {
     });
 
     it("generates actionable recommendations when student has pending items and weak areas", async () => {
-      // Seed flashcard that is not reviewed
-      seedFlashcard({ intervalDays: 0 });
+      // Seed flashcard that is due for review
+      const card = seedFlashcard({ intervalDays: 1, dueAt: new Date(Date.now() - 3600000).toISOString() });
+      await seedReview(student.userId, card.id);
 
       // Seed quiz with a failed attempt
       const quiz = seedQuiz({ title: "Antibiotics" });
@@ -706,7 +740,7 @@ describe("StudyService", () => {
       const quizRec = recommendations.find((r) => r.source === "quiz_attempt");
 
       expect(flashcardRec).toBeDefined();
-      expect(flashcardRec?.summary).toContain("flashcard");
+      expect(flashcardRec?.summary).toContain("آماده برای مرور");
       expect(quizRec).toBeDefined();
       expect(quizRec?.summary).toContain("Antibiotics");
     });
@@ -1255,6 +1289,651 @@ describe("StudyService", () => {
       expect(attemptResult.questions[0]!.chapter).toEqual({
         id: moduleId,
         title: "فارماکوکینتیک",
+      });
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Unified Study Analysis & Next Steps Domain Specification Test Suite
+  // -------------------------------------------------------------------------
+
+  describe("Unified Study Analysis & Next Steps Domain Specification", () => {
+    describe("Flashcard Metrics & Mastery Distinction", () => {
+      it("handles zero flashcards correctly", async () => {
+        const analytics = await service.getStudyAnalytics(student, organizationId, courseId);
+        expect(analytics.total_flashcards).toBe(0);
+        expect(analytics.reviewed_flashcards).toBe(0);
+        expect(analytics.mastered_flashcards).toBe(0);
+        expect(analytics.flashcard_mastery_percent).toBe(0);
+      });
+
+      it("correctly differentiates reviewed cards vs mastered cards (interval >= 7)", async () => {
+        // Card 1: Reviewed 1 time, interval 1 day -> Reviewed, NOT Mastered
+        const card1 = seedFlashcard();
+        await userFlashcardScheduleStore.upsertSchedule({
+          userId: student.userId,
+          flashcardId: card1.id,
+          dueAt: new Date(Date.now() + 86400000).toISOString(),
+          intervalDays: 1,
+          easeFactor: 2.5,
+          reviewCount: 1,
+          lastReviewedAt: new Date().toISOString(),
+        });
+
+        // Card 2: Reviewed 3 times, interval 8 days -> Reviewed & Mastered
+        const card2 = seedFlashcard();
+        await userFlashcardScheduleStore.upsertSchedule({
+          userId: student.userId,
+          flashcardId: card2.id,
+          dueAt: new Date(Date.now() + 8 * 86400000).toISOString(),
+          intervalDays: 8,
+          easeFactor: 2.8,
+          reviewCount: 3,
+          lastReviewedAt: new Date().toISOString(),
+        });
+
+        // Card 3: Fresh, unreviewed card
+        seedFlashcard();
+
+        const analytics = await service.getStudyAnalytics(student, organizationId, courseId);
+        expect(analytics.total_flashcards).toBe(3);
+        expect(analytics.reviewed_flashcards).toBe(2);
+        expect(analytics.mastered_flashcards).toBe(1);
+        expect(analytics.flashcard_mastery_percent).toBe(33); // 1 of 3 = 33%
+      });
+    });
+
+    describe("Weak Areas & Strengths Calculation", () => {
+      it("single attempt < 70% is weak, >= 70% is not weak", async () => {
+        const quiz1 = seedQuiz({ title: "Renal Drugs" });
+        const q1 = seedQuizQuestions(quiz1.id);
+        const quiz2 = seedQuiz({ title: "Cardiac Drugs" });
+        const q2 = seedQuizQuestions(quiz2.id);
+
+        // Attempt 1: score 50% (< 70%) -> weak
+        await service.submitQuizAttempt(student, organizationId, {
+          quizId: quiz1.id,
+          answers: [{ questionId: q1[0].id, answer: "Activates receptor" }],
+        });
+
+        // Attempt 2: score 100% (>= 70%) -> not weak, is strength
+        await service.submitQuizAttempt(student, organizationId, {
+          quizId: quiz2.id,
+          answers: [
+            { questionId: q2[0].id, answer: "Activates receptor" },
+            { questionId: q2[1].id, answer: "Blocks receptor" },
+          ],
+        });
+
+        const analytics = await service.getStudyAnalytics(student, organizationId, courseId);
+        expect(analytics.weak_areas).toContain("Renal Drugs");
+        expect(analytics.weak_areas).not.toContain("Cardiac Drugs");
+        expect(analytics.strengths).toContain("Cardiac Drugs");
+      });
+
+      it("two recent attempts: average of last 2 determines weakness", async () => {
+        const quiz = seedQuiz({ title: "Autonomic Nervous System" });
+        const q = seedQuizQuestions(quiz.id);
+
+        // Attempt 1: 0%
+        await service.submitQuizAttempt(student, organizationId, {
+          quizId: quiz.id,
+          answers: [{ questionId: q[0].id, answer: "wrong" }],
+        });
+
+        // Attempt 2: 60% -> avg(0, 60) = 30% (< 70%) -> still weak
+        await service.submitQuizAttempt(student, organizationId, {
+          quizId: quiz.id,
+          answers: [{ questionId: q[0].id, answer: "Activates receptor" }],
+        });
+
+        let analytics = await service.getStudyAnalytics(student, organizationId, courseId);
+        expect(analytics.weak_areas).toContain("Autonomic Nervous System");
+
+        // Attempt 3: 100% -> last 2 are (60, 100) -> avg = 80% (>= 70%) -> exits weak area!
+        await service.submitQuizAttempt(student, organizationId, {
+          quizId: quiz.id,
+          answers: [
+            { questionId: q[0].id, answer: "Activates receptor" },
+            { questionId: q[1].id, answer: "Blocks receptor" },
+          ],
+        });
+
+        analytics = await service.getStudyAnalytics(student, organizationId, courseId);
+        expect(analytics.weak_areas).not.toContain("Autonomic Nervous System");
+      });
+    });
+
+    describe("Structured Recommendations & Single Source of Truth", () => {
+      it("zero state: recommends first lesson if course has lessons", async () => {
+        const moduleId = randomUUID() as ModuleId;
+        const lessonId = randomUUID() as LessonId;
+        moduleStore.insert({
+          id: moduleId,
+          courseId,
+          title: "فصل اول",
+          description: null,
+          sortOrder: 1,
+          documentId: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          deletedAt: null,
+        });
+        lessonStore.insert({
+          id: lessonId,
+          moduleId,
+          title: "مقدمه بر فارماکولوژی",
+          content: "متن درس",
+          sortOrder: 1,
+          documentChunkId: null,
+          publicationStatus: "published",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          deletedAt: null,
+        });
+
+        const recs = await service.getStudyRecommendations(student, organizationId, courseId);
+        expect(recs.length).toBe(1);
+        expect(recs[0].type).toBe("lesson_continue");
+        expect(recs[0].id).toBe(`rec:course:${courseId}:lesson:${lessonId}`);
+        expect(recs[0].title).toContain("مقدمه بر فارماکولوژی");
+        expect(recs[0].priority).toBe("medium");
+      });
+
+      it("caps recommendations at MAX_RECOMMENDATIONS_COUNT (3) and orders deterministically", async () => {
+        const moduleId = randomUUID() as ModuleId;
+        const l1 = randomUUID() as LessonId;
+        const l2 = randomUUID() as LessonId;
+        moduleStore.insert({
+          id: moduleId,
+          courseId,
+          title: "M1",
+          description: null,
+          sortOrder: 1,
+          documentId: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          deletedAt: null,
+        });
+        lessonStore.insert({
+          id: l1,
+          moduleId,
+          title: "L1",
+          content: "C1",
+          sortOrder: 1,
+          documentChunkId: null,
+          publicationStatus: "published",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          deletedAt: null,
+        });
+        lessonStore.insert({
+          id: l2,
+          moduleId,
+          title: "L2",
+          content: "C2",
+          sortOrder: 2,
+          documentChunkId: null,
+          publicationStatus: "published",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          deletedAt: null,
+        });
+
+        // 1. Due flashcard -> Priority High
+        const card = seedFlashcard();
+        await userFlashcardScheduleStore.upsertSchedule({
+          userId: student.userId,
+          flashcardId: card.id,
+          dueAt: new Date(Date.now() - 3600000).toISOString(),
+          intervalDays: 1,
+          easeFactor: 2.5,
+          reviewCount: 1,
+          lastReviewedAt: new Date().toISOString(),
+        });
+
+        // 2. Weak quiz 1 (< 50%) -> Priority High
+        const quiz1 = seedQuiz({ title: "Very Weak Quiz" });
+        const q1 = seedQuizQuestions(quiz1.id);
+        await service.submitQuizAttempt(student, organizationId, {
+          quizId: quiz1.id,
+          answers: [{ questionId: q1[0].id, answer: "wrong" }],
+        });
+
+        // 3. Weak quiz 2 (50% <= score < 70%) -> Priority Medium
+        const quiz2 = seedQuiz({ title: "Medium Weak Quiz" });
+        const q2 = seedQuizQuestions(quiz2.id);
+        await service.submitQuizAttempt(student, organizationId, {
+          quizId: quiz2.id,
+          answers: [{ questionId: q2[0].id, answer: "Activates receptor" }],
+        });
+
+        const recs = await service.getStudyRecommendations(student, organizationId, courseId);
+        expect(recs.length).toBeLessThanOrEqual(3);
+        // High priority recommendations must come first
+        expect(recs[0].priority).toBe("high");
+        expect(recs[1].priority).toBe("high");
+
+        // Critical weak quiz (<50%) ranks before due flashcard
+        expect(recs[0].id).toBe(`rec:course:${courseId}:quiz:${quiz1.id}:weak`);
+        expect(recs[1].id).toBe(`rec:course:${courseId}:flashcards:due`);
+      });
+
+      it("Scenario 1: 1 Due card + 35% quiz -> critical weak quiz first, due card second", async () => {
+        // 1. One Due Flashcard
+        const card = seedFlashcard();
+        await userFlashcardScheduleStore.upsertSchedule({
+          userId: student.userId,
+          flashcardId: card.id,
+          dueAt: new Date(Date.now() - 3600000).toISOString(),
+          intervalDays: 1,
+          easeFactor: 2.5,
+          reviewCount: 1,
+          lastReviewedAt: new Date().toISOString(),
+        });
+
+        // 2. 35% Quiz (< 50%) -> Critical weak quiz
+        const quiz = seedQuiz({ title: "Pharmacokinetics 35" });
+        const questions = seedQuizQuestions(quiz.id);
+        await service.submitQuizAttempt(student, organizationId, {
+          quizId: quiz.id,
+          answers: [{ questionId: questions[0].id, answer: "wrong" }],
+        });
+
+        const recs = await service.getStudyRecommendations(student, organizationId, courseId);
+        expect(recs).toHaveLength(2);
+        expect(recs[0].id).toBe(`rec:course:${courseId}:quiz:${quiz.id}:weak`);
+        expect(recs[0].priority).toBe("high");
+        expect(recs[1].id).toBe(`rec:course:${courseId}:flashcards:due`);
+        expect(recs[1].priority).toBe("high");
+      });
+
+      it("Scenario 2: Due cards + 65% quiz + unfinished lesson -> Due first, 65% quiz second, unfinished lesson third", async () => {
+        // 1. Module and published unfinished lesson
+        const moduleId = randomUUID() as ModuleId;
+        const lessonId = randomUUID() as LessonId;
+        moduleStore.insert({
+          id: moduleId,
+          courseId,
+          title: "فصل مبانی",
+          description: null,
+          sortOrder: 1,
+          documentId: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          deletedAt: null,
+        });
+        lessonStore.insert({
+          id: lessonId,
+          moduleId,
+          title: "درس دوم ناتمام",
+          content: "محتوا",
+          sortOrder: 1,
+          documentChunkId: null,
+          publicationStatus: "published",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          deletedAt: null,
+        });
+
+        // 2. Due flashcards
+        const card = seedFlashcard();
+        await userFlashcardScheduleStore.upsertSchedule({
+          userId: student.userId,
+          flashcardId: card.id,
+          dueAt: new Date(Date.now() - 3600000).toISOString(),
+          intervalDays: 1,
+          easeFactor: 2.5,
+          reviewCount: 1,
+          lastReviewedAt: new Date().toISOString(),
+        });
+
+        // 3. 65% Moderate Weak Quiz (50% <= score < 70%)
+        const quiz = seedQuiz({ title: "Moderate Quiz 65" });
+        const questions = seedQuizQuestions(quiz.id);
+        await service.submitQuizAttempt(student, organizationId, {
+          quizId: quiz.id,
+          answers: [{ questionId: questions[0].id, answer: "Activates receptor" }],
+        });
+
+        const recs = await service.getStudyRecommendations(student, organizationId, courseId);
+        expect(recs).toHaveLength(3);
+        expect(recs[0].type).toBe("flashcard_review");
+        expect(recs[0].priority).toBe("high");
+        expect(recs[1].type).toBe("quiz_retry_weak");
+        expect(recs[1].priority).toBe("medium");
+        expect(recs[1].title).toContain("Moderate Quiz 65");
+        expect(recs[2].type).toBe("lesson_continue");
+        expect(recs[2].priority).toBe("medium");
+        expect(recs[2].title).toContain("درس دوم ناتمام");
+      });
+
+      it("Scenario 3: 35% quiz + 65% quiz + unfinished lesson -> 35% quiz first, 65% quiz second, lesson third", async () => {
+        // 1. Module and published unfinished lesson
+        const moduleId = randomUUID() as ModuleId;
+        const lessonId = randomUUID() as LessonId;
+        moduleStore.insert({
+          id: moduleId,
+          courseId,
+          title: "فصل مبانی",
+          description: null,
+          sortOrder: 1,
+          documentId: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          deletedAt: null,
+        });
+        lessonStore.insert({
+          id: lessonId,
+          moduleId,
+          title: "درس بعدی",
+          content: "محتوا",
+          sortOrder: 1,
+          documentChunkId: null,
+          publicationStatus: "published",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          deletedAt: null,
+        });
+
+        // 2. 35% quiz (< 50%) -> Critical
+        const quiz35 = seedQuiz({ title: "Critical Quiz 35" });
+        const q35 = seedQuizQuestions(quiz35.id);
+        await service.submitQuizAttempt(student, organizationId, {
+          quizId: quiz35.id,
+          answers: [{ questionId: q35[0].id, answer: "wrong" }],
+        });
+
+        // 3. 65% quiz (50-69%) -> Moderate
+        const quiz65 = seedQuiz({ title: "Moderate Quiz 65" });
+        const q65 = seedQuizQuestions(quiz65.id);
+        await service.submitQuizAttempt(student, organizationId, {
+          quizId: quiz65.id,
+          answers: [{ questionId: q65[0].id, answer: "Activates receptor" }],
+        });
+
+        const recs = await service.getStudyRecommendations(student, organizationId, courseId);
+        expect(recs).toHaveLength(3);
+        expect(recs[0].type).toBe("quiz_retry_weak");
+        expect(recs[0].priority).toBe("high");
+        expect(recs[0].title).toContain("Critical Quiz 35");
+
+        expect(recs[1].type).toBe("quiz_retry_weak");
+        expect(recs[1].priority).toBe("medium");
+        expect(recs[1].title).toContain("Moderate Quiz 65");
+
+        expect(recs[2].type).toBe("lesson_continue");
+        expect(recs[2].priority).toBe("medium");
+        expect(recs[2].title).toContain("درس بعدی");
+      });
+
+      it("maintains backward compatibility with analytics.recommended_next_steps", async () => {
+        const card = seedFlashcard();
+        await userFlashcardScheduleStore.upsertSchedule({
+          userId: student.userId,
+          flashcardId: card.id,
+          dueAt: new Date(Date.now() - 3600000).toISOString(),
+          intervalDays: 1,
+          easeFactor: 2.5,
+          reviewCount: 1,
+          lastReviewedAt: new Date().toISOString(),
+        });
+
+        const analytics = await service.getStudyAnalytics(student, organizationId, courseId);
+        expect(analytics.recommended_next_steps).toBeDefined();
+        expect(Array.isArray(analytics.recommended_next_steps)).toBe(true);
+        expect(analytics.recommended_next_steps.length).toBeGreaterThan(0);
+        expect(analytics.recommended_next_steps[0]).toContain("مرور فلش‌کارت‌ها");
+      });
+    });
+
+    describe("Multi-Tenant Course Flashcard Scope & Mastery Calculation (Pharma 3 Root Cause Regression)", () => {
+      const systemOrgId = "00000000-0000-0000-0000-000000000000" as OrganizationId;
+      const userOrgId = "11111111-1111-4111-8111-111111111111" as OrganizationId;
+
+      it("correctly aggregates total_flashcards from system/owner org (676) + user org (124) = 800 total", async () => {
+        const multiTenantService = new StudyService(
+          flashcardStore,
+          flashcardReviewStore,
+          quizStore,
+          quizQuestionStore,
+          quizAttemptStore,
+          moduleStore,
+          lessonStore,
+          progressStore,
+          new RoleBasedPolicy(),
+          auditService,
+          undefined,
+          userFlashcardScheduleStore,
+          undefined,
+          systemOrgId,
+        );
+
+        // 1. Seed 676 cards in systemOrganizationId for courseId
+        for (let i = 0; i < 676; i++) {
+          seedFlashcard({}, systemOrgId);
+        }
+
+        // 2. Seed 124 cards in userOrgId for courseId
+        const userCards: FlashcardRecord[] = [];
+        for (let i = 0; i < 124; i++) {
+          userCards.push(seedFlashcard({}, userOrgId));
+        }
+
+        // 3. Seed 10 soft-deleted cards in courseId (should be ignored)
+        seedFlashcard({ deletedAt: new Date().toISOString() }, systemOrgId);
+
+        // 4. Seed 50 cards in another unrelated course (should be ignored)
+        const otherCourseId = randomUUID() as CourseId;
+        for (let i = 0; i < 50; i++) {
+          seedFlashcard({ courseId: otherCourseId }, systemOrgId);
+        }
+
+        // Case A: User has 0 mastered cards
+        let analytics = await multiTenantService.getStudyAnalytics(student, userOrgId, courseId);
+        expect(analytics.total_flashcards).toBe(800);
+        expect(analytics.reviewed_flashcards).toBe(0);
+        expect(analytics.mastered_flashcards).toBe(0);
+        expect(analytics.flashcard_mastery_percent).toBe(0);
+
+        // Case B: User masters 10 cards (interval >= 7, reviewCount >= 1)
+        for (let i = 0; i < 10; i++) {
+          await userFlashcardScheduleStore.upsertSchedule({
+            userId: student.userId,
+            flashcardId: userCards[i].id,
+            dueAt: new Date(Date.now() + 86400000 * 10).toISOString(),
+            intervalDays: 10,
+            easeFactor: 2.5,
+            reviewCount: 3,
+            lastReviewedAt: new Date().toISOString(),
+          });
+        }
+
+        analytics = await multiTenantService.getStudyAnalytics(student, userOrgId, courseId);
+        expect(analytics.total_flashcards).toBe(800);
+        expect(analytics.reviewed_flashcards).toBe(10);
+        expect(analytics.mastered_flashcards).toBe(10);
+        // (10 / 800) * 100 = 1.25% -> rounds to 1%
+        expect(analytics.flashcard_mastery_percent).toBe(1);
+      });
+    });
+
+    describe("Flashcard Recommendation & Review Queue Reconciled Regression Tests", () => {
+      it("Case 1: Due = 0 -> does not generate flashcard_review recommendation", async () => {
+        // Seed 10 unreviewed cards (no schedule)
+        for (let i = 0; i < 10; i++) {
+          seedFlashcard();
+        }
+
+        const recs = await service.getStudyRecommendations(student, organizationId, courseId);
+        const flashcardRec = recs.find((r) => r.source === "flashcard_review");
+        expect(flashcardRec).toBeUndefined();
+      });
+
+      it("Case 2: Due = 1, limit = 120 -> displays 1 card in recommendation", async () => {
+        const card = seedFlashcard();
+        await userFlashcardScheduleStore.upsertSchedule({
+          userId: student.userId,
+          flashcardId: card.id,
+          dueAt: new Date(Date.now() - 3600000).toISOString(),
+          intervalDays: 1,
+          easeFactor: 2.5,
+          reviewCount: 1,
+          lastReviewedAt: new Date().toISOString(),
+        });
+
+        const recs = await service.getStudyRecommendations(student, organizationId, courseId);
+        const flashcardRec = recs.find((r) => r.source === "flashcard_review");
+        expect(flashcardRec).toBeDefined();
+        expect(flashcardRec?.summary).toBe("شما ۱ فلش‌کارت آماده برای مرور دارید.");
+        expect(flashcardRec?.metadata?.dueCount).toBe(1);
+      });
+
+      it("Case 3: Due = 120, limit = 120 -> displays 120 cards in recommendation", async () => {
+        for (let i = 0; i < 120; i++) {
+          const card = seedFlashcard();
+          await userFlashcardScheduleStore.upsertSchedule({
+            userId: student.userId,
+            flashcardId: card.id,
+            dueAt: new Date(Date.now() - 3600000).toISOString(),
+            intervalDays: 1,
+            easeFactor: 2.5,
+            reviewCount: 1,
+            lastReviewedAt: new Date().toISOString(),
+          });
+        }
+
+        const recs = await service.getStudyRecommendations(student, organizationId, courseId);
+        const flashcardRec = recs.find((r) => r.source === "flashcard_review");
+        expect(flashcardRec).toBeDefined();
+        expect(flashcardRec?.summary).toBe("شما ۱۲۰ فلش‌کارت آماده برای مرور دارید.");
+        expect(flashcardRec?.metadata?.dueCount).toBe(120);
+      });
+
+      it("Case 4: Due = 150, limit = 120 -> displays capped 120 cards in recommendation", async () => {
+        for (let i = 0; i < 150; i++) {
+          const card = seedFlashcard();
+          await userFlashcardScheduleStore.upsertSchedule({
+            userId: student.userId,
+            flashcardId: card.id,
+            dueAt: new Date(Date.now() - 3600000).toISOString(),
+            intervalDays: 1,
+            easeFactor: 2.5,
+            reviewCount: 1,
+            lastReviewedAt: new Date().toISOString(),
+          });
+        }
+
+        const recs = await service.getStudyRecommendations(student, organizationId, courseId);
+        const flashcardRec = recs.find((r) => r.source === "flashcard_review");
+        expect(flashcardRec).toBeDefined();
+        expect(flashcardRec?.summary).toBe("شما ۱۲۰ فلش‌کارت آماده برای مرور دارید.");
+        expect(flashcardRec?.metadata?.dueCount).toBe(120);
+      });
+
+      it("Case 5: Unreviewed cards are strictly excluded from Due count and Review Queue", async () => {
+        // 5 cards without schedule
+        for (let i = 0; i < 5; i++) {
+          seedFlashcard({ dueAt: new Date(Date.now() - 3600000).toISOString() });
+        }
+
+        // 5 cards with reviewCount = 0
+        for (let i = 0; i < 5; i++) {
+          const card = seedFlashcard();
+          await userFlashcardScheduleStore.upsertSchedule({
+            userId: student.userId,
+            flashcardId: card.id,
+            dueAt: new Date(Date.now() - 3600000).toISOString(),
+            intervalDays: 0,
+            easeFactor: 2.5,
+            reviewCount: 0,
+            lastReviewedAt: new Date().toISOString(),
+          });
+        }
+
+        // 2 genuinely due cards (reviewCount >= 1 && dueAt <= now)
+        const dueCards: FlashcardRecord[] = [];
+        for (let i = 0; i < 2; i++) {
+          const card = seedFlashcard();
+          dueCards.push(card);
+          await userFlashcardScheduleStore.upsertSchedule({
+            userId: student.userId,
+            flashcardId: card.id,
+            dueAt: new Date(Date.now() - 3600000).toISOString(),
+            intervalDays: 1,
+            easeFactor: 2.5,
+            reviewCount: 1,
+            lastReviewedAt: new Date().toISOString(),
+          });
+        }
+
+        const summary = await service.getFlashcardSummary(student, organizationId);
+        expect(summary.courseMap.get(courseId)?.due).toBe(2);
+        expect(summary.courseMap.get(courseId)?.newCards).toBe(10); // 5 unscheduled + 5 reviewCount=0
+
+        const reviewQueue = await service.listFlashcardsForReview(student, organizationId, courseId);
+        expect(reviewQueue.length).toBe(2);
+        expect(reviewQueue.map((c) => c.id).sort()).toEqual(dueCards.map((c) => c.id).sort());
+
+        const recs = await service.getStudyRecommendations(student, organizationId, courseId);
+        const flashcardRec = recs.find((r) => r.source === "flashcard_review");
+        expect(flashcardRec?.summary).toBe("شما ۲ فلش‌کارت آماده برای مرور دارید.");
+      });
+
+      it("Case 6: End-to-end consistency (800 total, 700 unreviewed, 100 reviewed, 35 due, limit 20)", async () => {
+        // 700 unreviewed cards
+        for (let i = 0; i < 700; i++) {
+          seedFlashcard();
+        }
+
+        // 65 reviewed cards not due (future)
+        for (let i = 0; i < 65; i++) {
+          const card = seedFlashcard();
+          await userFlashcardScheduleStore.upsertSchedule({
+            userId: student.userId,
+            flashcardId: card.id,
+            dueAt: new Date(Date.now() + 86400000 * 5).toISOString(),
+            intervalDays: 5,
+            easeFactor: 2.5,
+            reviewCount: 2,
+            lastReviewedAt: new Date().toISOString(),
+          });
+        }
+
+        // 35 reviewed cards due (past)
+        const dueCards: FlashcardRecord[] = [];
+        for (let i = 0; i < 35; i++) {
+          const card = seedFlashcard();
+          dueCards.push(card);
+          await userFlashcardScheduleStore.upsertSchedule({
+            userId: student.userId,
+            flashcardId: card.id,
+            dueAt: new Date(Date.now() - 3600000).toISOString(),
+            intervalDays: 1,
+            easeFactor: 2.5,
+            reviewCount: 1,
+            lastReviewedAt: new Date().toISOString(),
+          });
+        }
+
+        const analytics = await service.getStudyAnalytics(student, organizationId, courseId);
+        expect(analytics.total_flashcards).toBe(800);
+        expect(analytics.reviewed_flashcards).toBe(100);
+
+        // Verify recommendations with limit override (dailyReviewLimit = 20)
+        const recs = await service.getStudyRecommendations(student, organizationId, courseId, {
+          dailyReviewLimit: 20,
+        });
+        const flashcardRec = recs.find((r) => r.source === "flashcard_review");
+        expect(flashcardRec).toBeDefined();
+        // Capped at 20:
+        expect(flashcardRec?.summary).toBe("شما ۲۰ فلش‌کارت آماده برای مرور دارید.");
+        expect(flashcardRec?.metadata?.dueCount).toBe(20);
+
+        // Verify review queue returns all 35 due cards (or limited when limit requested)
+        const fullQueue = await service.listFlashcardsForReview(student, organizationId, courseId);
+        expect(fullQueue.length).toBe(35);
+        expect(fullQueue.map((c) => c.id).sort()).toEqual(dueCards.map((c) => c.id).sort());
       });
     });
   });

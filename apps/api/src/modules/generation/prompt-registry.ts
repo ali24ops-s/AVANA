@@ -906,6 +906,66 @@ export function buildLessonGenerationUserPrompt(
   ].join("\n");
 }
 
+export interface LessonBatchItemPromptParams {
+  sessionIndex: number;
+  sessionTitle: string;
+  sessionBlueprint: string;
+  chunkContext: string;
+  chunkIdList: string[];
+}
+
+export interface LessonBatchGenerationPromptParams {
+  documentTitle: string;
+  sessions: LessonBatchItemPromptParams[];
+}
+
+export function buildLessonBatchGenerationUserPrompt(
+  params: LessonBatchGenerationPromptParams,
+): string {
+  const sessionBlocks = params.sessions
+    .map(
+      (s, idx) => [
+        `================================================================================`,
+        `SESSION ${idx + 1} OF ${params.sessions.length} (SESSION INDEX: ${s.sessionIndex})`,
+        `================================================================================`,
+        `SESSION INDEX: ${s.sessionIndex}`,
+        `SESSION TITLE: "${s.sessionTitle}"`,
+        ``,
+        `SESSION BLUEPRINT:`,
+        s.sessionBlueprint,
+        ``,
+        `RELEVANT SOURCE CHUNKS FOR SESSION ${s.sessionIndex} (Ground truth):`,
+        s.chunkContext,
+        ``,
+        `AVAILABLE CHUNK IDs FOR SESSION ${s.sessionIndex}:`,
+        JSON.stringify(s.chunkIdList),
+      ].join("\n"),
+    )
+    .join("\n\n");
+
+  return [
+    `You are AVANA’s Expert Educational AI Content Engine.`,
+    ``,
+    `TASK: BATCH LESSON GENERATION FOR ${params.sessions.length} EDUCATIONAL SESSIONS.`,
+    ``,
+    `DOCUMENT: “${params.documentTitle}”`,
+    ``,
+    `CRITICAL BATCH INSTRUCTIONS:`,
+    `- You must generate a distinct, complete educational lesson for EACH requested session.`,
+    `- Return a JSON object with a "results" array.`,
+    `- Each element in "results" MUST contain:`,
+    `  * "sessionIndex": number (matching the exact sessionIndex requested)`,
+    `  * "sessionTitle": string (the exact title of the session)`,
+    `  * "title": string (the clean lesson title)`,
+    `  * "contentMarkdown": string (the comprehensive educational lesson in Persian Markdown)`,
+    `  * "citationChunkIds": string[] (array of chunk IDs cited for this session)`,
+    `- Ground each session ONLY in its assigned relevant source chunks. Do NOT mix concepts across sessions.`,
+    ``,
+    `SESSIONS TO GENERATE IN THIS BATCH:`,
+    sessionBlocks,
+  ].join("\n");
+}
+
 export function getLessonGenerationTemplate(): string {
   return [
     `You are AVANA’s Expert Educational AI Content Engine.`,
@@ -1764,6 +1824,71 @@ export function buildFlashcardGenerationUserPrompt(
     .replaceAll("{{chunkIdList}}", JSON.stringify(params.chunkIdList));
 }
 
+export interface FlashcardBatchItemPromptParams {
+  sessionIndex: number;
+  sessionTitle: string;
+  sessionBlueprint: string;
+  targetFlashcardCount: number;
+  lessonContent: string;
+  chunkContext: string;
+  chunkIdList: string[];
+}
+
+export interface FlashcardBatchGenerationPromptParams {
+  documentTitle: string;
+  sessions: FlashcardBatchItemPromptParams[];
+}
+
+export function buildFlashcardBatchGenerationUserPrompt(
+  params: FlashcardBatchGenerationPromptParams,
+): string {
+  const sessionBlocks = params.sessions
+    .map(
+      (s, idx) => [
+        `================================================================================`,
+        `SESSION ${idx + 1} OF ${params.sessions.length} (SESSION INDEX: ${s.sessionIndex})`,
+        `================================================================================`,
+        `SESSION INDEX: ${s.sessionIndex}`,
+        `SESSION TITLE: "${s.sessionTitle}"`,
+        `TARGET FLASHCARD COUNT: ${s.targetFlashcardCount}`,
+        ``,
+        `SESSION BLUEPRINT:`,
+        s.sessionBlueprint,
+        ``,
+        `GENERATED LESSON FOR SESSION ${s.sessionIndex}:`,
+        s.lessonContent,
+        ``,
+        `RELEVANT SOURCE CHUNKS FOR SESSION ${s.sessionIndex} (Ground truth):`,
+        s.chunkContext,
+        ``,
+        `AVAILABLE CHUNK IDs FOR SESSION ${s.sessionIndex}:`,
+        JSON.stringify(s.chunkIdList),
+      ].join("\n"),
+    )
+    .join("\n\n");
+
+  return [
+    `You are AVANA's Expert Educational AI Content Engine.`,
+    ``,
+    `TASK: BATCH FLASHCARD GENERATION FOR ${params.sessions.length} EDUCATIONAL SESSIONS.`,
+    ``,
+    `DOCUMENT: "${params.documentTitle}"`,
+    ``,
+    `CRITICAL BATCH INSTRUCTIONS:`,
+    `- You must generate a set of atomic flashcards for EACH requested session.`,
+    `- Return a JSON object with a "results" array.`,
+    `- Each element in "results" MUST contain:`,
+    `  * "sessionIndex": number (matching the exact sessionIndex requested)`,
+    `  * "sessionTitle": string (the exact title of the session)`,
+    `  * "cards": array of flashcard objects ({ question, answer, explanation, cardType, difficulty, citationChunkIds })`,
+    `  * "citationChunkIds": string[] (array of chunk IDs cited for this session)`,
+    `- Ground each session's flashcards strictly in its own lesson content and source chunks.`,
+    ``,
+    `SESSIONS TO GENERATE IN THIS BATCH:`,
+    sessionBlocks,
+  ].join("\n");
+}
+
 // ---------------------------------------------------------------------------
 // 4. Single-Session Multiple-Choice Quiz Generation
 // ---------------------------------------------------------------------------
@@ -1778,6 +1903,73 @@ export interface QuizGenerationPromptParams {
   lessonContent: string;
   chunkContext: string;
   chunkIdList: string[];
+}
+
+export interface QuizBatchItemPromptParams {
+  sessionIndex: number;
+  sessionTitle: string;
+  sessionBlueprint: string;
+  targetQuizCount: number;
+  lessonContent: string;
+  chunkContext: string;
+  chunkIdList: string[];
+}
+
+export interface QuizBatchGenerationPromptParams {
+  documentTitle: string;
+  sessions: QuizBatchItemPromptParams[];
+}
+
+export function buildQuizBatchGenerationUserPrompt(
+  params: QuizBatchGenerationPromptParams,
+): string {
+  const sessionBlocks = params.sessions
+    .map(
+      (s, idx) => [
+        `================================================================================`,
+        `SESSION ${idx + 1} OF ${params.sessions.length} (SESSION INDEX: ${s.sessionIndex})`,
+        `================================================================================`,
+        `SESSION INDEX: ${s.sessionIndex}`,
+        `SESSION TITLE: "${s.sessionTitle}"`,
+        `TARGET QUIZ COUNT: ${s.targetQuizCount}`,
+        ``,
+        `SESSION BLUEPRINT:`,
+        s.sessionBlueprint,
+        ``,
+        `GENERATED LESSON FOR SESSION ${s.sessionIndex}:`,
+        s.lessonContent,
+        ``,
+        `RELEVANT SOURCE CHUNKS FOR SESSION ${s.sessionIndex} (Ground truth):`,
+        s.chunkContext,
+        ``,
+        `AVAILABLE CHUNK IDs FOR SESSION ${s.sessionIndex}:`,
+        JSON.stringify(s.chunkIdList),
+      ].join("\n"),
+    )
+    .join("\n\n");
+
+  return [
+    `You are AVANA's Expert Educational AI Content Engine.`,
+    ``,
+    `TASK: BATCH MULTIPLE-CHOICE QUIZ GENERATION FOR ${params.sessions.length} EDUCATIONAL SESSIONS.`,
+    ``,
+    `DOCUMENT: "${params.documentTitle}"`,
+    ``,
+    LANGUAGE_REQUIREMENT_PROMPT,
+    ``,
+    `CRITICAL BATCH INSTRUCTIONS:`,
+    `- You must generate high-quality multiple-choice questions for EACH requested session.`,
+    `- Return a JSON object with a "results" array.`,
+    `- Each element in "results" MUST contain:`,
+    `  * "sessionIndex": number (matching the exact sessionIndex requested)`,
+    `  * "sessionTitle": string (the exact title of the session)`,
+    `  * "questions": array of multiple-choice question objects ({ question, questionType: "multiple_choice", choices: [4 options], correctAnswer, explanation, difficulty, category, citationChunkIds })`,
+    `  * "citationChunkIds": string[] (array of chunk IDs cited for this session)`,
+    `- Enforce all anti-bias and distractor parity rules across all questions. Ground each session strictly in its own lesson and source chunks.`,
+    ``,
+    `SESSIONS TO GENERATE IN THIS BATCH:`,
+    sessionBlocks,
+  ].join("\n");
 }
 
 export function buildQuizGenerationUserPrompt(

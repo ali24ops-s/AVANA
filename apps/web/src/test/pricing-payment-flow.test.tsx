@@ -181,7 +181,7 @@ describe("Pricing & Card-to-Card UX Refactor Suite", () => {
     expect(screen.getByText("ورود دستی اطلاعات")).toBeDefined();
   });
 
-  it("4. Automated extraction triggers extract hook and populates preview fields", () => {
+  it("4. Automated extraction with complete receipt populates all preview fields", () => {
     mockExtractMutate.mockImplementation((_data, callbacks) => {
       callbacks.onSuccess({
         data: {
@@ -228,23 +228,105 @@ describe("Pricing & Card-to-Card UX Refactor Suite", () => {
     expect(screen.getByDisplayValue("4321")).toBeDefined();
     expect(screen.getByDisplayValue("علی رضایی")).toBeDefined();
     expect(screen.getByText("تأیید اطلاعات و فعال‌سازی فوری")).toBeDefined();
+    expect(screen.getByText(/با ثبت پرداخت، اشتراک شما فعال می‌شود/)).toBeDefined();
   });
 
-  it("5. Submitting verified extracted details executes card-to-card payment mutation", () => {
+  it("5. Partial extraction displays missing field banners and prompts user to fill missing data", () => {
+    mockExtractMutate.mockImplementation((_data, callbacks) => {
+      callbacks.onSuccess({
+        data: {
+          amount: 99000,
+          currency: "toman",
+          trackingNumber: null,
+          sourceCardLast4: "4321",
+          paymentDate: "1404/12/15",
+          paymentTime: "14:30",
+          payerName: null,
+        },
+        confidence: {
+          amount: "high",
+          trackingNumber: "low",
+          sourceCardLast4: "high",
+          paymentDate: "high",
+          paymentTime: "high",
+          payerName: "low",
+        },
+        extractionMethod: "rule",
+        missingFields: ["trackingNumber"],
+        sanitizedText: "...",
+      });
+    });
+
     renderWithRouter(["/checkout/card-to-card?productId=prod-sub-monthly"]);
 
-    // Switch to manual or preview
-    const manualBtn = screen.getByText("ورود دستی اطلاعات");
-    fireEvent.click(manualBtn);
+    const textarea = screen.getByPlaceholderText(/بانک ملت/);
+    fireEvent.change(textarea, { target: { value: "مبلغ ۹۹۰۰۰ از کارت ۴۳۲۱" } });
 
-    const trackingInput = screen.getByPlaceholderText("مثال: ۱۲۳۴۵۶۷۸۹");
-    fireEvent.change(trackingInput, { target: { value: "TRK-998877" } });
+    const extractBtn = screen.getByText("استخراج اطلاعات پرداخت");
+    fireEvent.click(extractBtn);
 
-    const last4Input = screen.getByPlaceholderText("مثال: ۵۶۷۸");
-    fireEvent.change(last4Input, { target: { value: "8822" } });
+    // Warning banner for missing tracking number
+    expect(screen.getByText(/شماره پیگیری در متن پیدا نشد/)).toBeDefined();
+    expect(screen.getByDisplayValue("4321")).toBeDefined();
+  });
 
-    const payerInput = screen.getByPlaceholderText("مثال: علی رضایی");
-    fireEvent.change(payerInput, { target: { value: "رضا احمدی" } });
+  it("6. Extraction failure shows error alert and gracefully switches to manual entry mode", () => {
+    mockExtractMutate.mockImplementation((_data, callbacks) => {
+      callbacks.onError({
+        message: "متن پیامک ناخوانا است",
+      });
+    });
+
+    renderWithRouter(["/checkout/card-to-card?productId=prod-sub-monthly"]);
+
+    const textarea = screen.getByPlaceholderText(/بانک ملت/);
+    fireEvent.change(textarea, { target: { value: "متن نامعتبر و ناخوانا" } });
+
+    const extractBtn = screen.getByText("استخراج اطلاعات پرداخت");
+    fireEvent.click(extractBtn);
+
+    expect(screen.getByText("متن پیامک ناخوانا است")).toBeDefined();
+    expect(screen.getByText("حالت ورود دستی اطلاعات پرداخت")).toBeDefined();
+  });
+
+  it("7. User can manually correct extracted values and submit updated data", () => {
+    mockExtractMutate.mockImplementation((_data, callbacks) => {
+      callbacks.onSuccess({
+        data: {
+          amount: 99000,
+          currency: "toman",
+          trackingNumber: "AUTO-111",
+          sourceCardLast4: "1111",
+          paymentDate: "1404/12/15",
+          paymentTime: "14:30",
+          payerName: "نام اولیه",
+        },
+        confidence: {
+          amount: "high",
+          trackingNumber: "high",
+          sourceCardLast4: "high",
+          paymentDate: "high",
+          paymentTime: "high",
+          payerName: "medium",
+        },
+        extractionMethod: "rule",
+        missingFields: [],
+        sanitizedText: "...",
+      });
+    });
+
+    renderWithRouter(["/checkout/card-to-card?productId=prod-sub-monthly"]);
+
+    const textarea = screen.getByPlaceholderText(/بانک ملت/);
+    fireEvent.change(textarea, { target: { value: "متن نمونه" } });
+    fireEvent.click(screen.getByText("استخراج اطلاعات پرداخت"));
+
+    // User edits the tracking number and last 4
+    const trackingInput = screen.getByDisplayValue("AUTO-111");
+    fireEvent.change(trackingInput, { target: { value: "USER-EDITED-999" } });
+
+    const last4Input = screen.getByDisplayValue("1111");
+    fireEvent.change(last4Input, { target: { value: "9988" } });
 
     const submitBtn = screen.getByText("تأیید اطلاعات و فعال‌سازی فوری");
     fireEvent.click(submitBtn);
@@ -253,15 +335,14 @@ describe("Pricing & Card-to-Card UX Refactor Suite", () => {
       expect.objectContaining({
         product_id: "prod-sub-monthly",
         amount: 99000,
-        tracking_number: "TRK-998877",
-        source_card_last4: "8822",
-        payer_name: "رضا احمدی",
+        tracking_number: "USER-EDITED-999",
+        source_card_last4: "9988",
       }),
       expect.any(Object),
     );
   });
 
-  it("6. Prevents submission with invalid last4 and displays validation error", () => {
+  it("8. Prevents submission with invalid last4 and displays validation error", () => {
     renderWithRouter(["/checkout/card-to-card?productId=prod-sub-monthly"]);
 
     const manualBtn = screen.getByText("ورود دستی اطلاعات");
@@ -279,4 +360,78 @@ describe("Pricing & Card-to-Card UX Refactor Suite", () => {
     expect(mockC2cMutate).not.toHaveBeenCalled();
     expect(screen.getByText("۴ رقم آخر کارت مبدأ باید دقیقاً ۴ رقم عددی باشد.")).toBeDefined();
   });
+
+  it("9. Reset button allows re-pasting text", () => {
+    mockExtractMutate.mockImplementation((_data, callbacks) => {
+      callbacks.onSuccess({
+        data: {
+          amount: 99000,
+          currency: "toman",
+          trackingNumber: "TRK-123456",
+          sourceCardLast4: "4321",
+          paymentDate: "1404/12/15",
+          paymentTime: "14:30",
+          payerName: null,
+        },
+        confidence: {
+          amount: "high",
+          trackingNumber: "high",
+          sourceCardLast4: "high",
+          paymentDate: "high",
+          paymentTime: "high",
+          payerName: "low",
+        },
+        extractionMethod: "rule",
+        missingFields: [],
+        sanitizedText: "...",
+      });
+    });
+
+    renderWithRouter(["/checkout/card-to-card?productId=prod-sub-monthly"]);
+
+    const textarea = screen.getByPlaceholderText(/بانک ملت/);
+    fireEvent.change(textarea, { target: { value: "تست" } });
+    fireEvent.click(screen.getByText("استخراج اطلاعات پرداخت"));
+
+    expect(screen.getByText("Paste مجدد متن")).toBeDefined();
+    fireEvent.click(screen.getByText("Paste مجدد متن"));
+
+    expect(screen.getByPlaceholderText(/بانک ملت/)).toBeDefined();
+  });
+
+  it("10. PricingPage renders enhanced hero headline, shared features section, and 12-hour refund policy", () => {
+    renderWithRouter(["/pricing"]);
+
+    // Hero headline
+    expect(screen.getByText(/سرمایه‌گذاری روی/)).toBeDefined();
+    expect(screen.getByText(/یادگیری عمیق و بدون محدودیت/)).toBeDefined();
+
+    // Shared features section
+    expect(screen.getByText("امکانات مشترک همه پلن‌ها")).toBeDefined();
+    expect(
+      screen.getByText("با خرید هر یک از پلن‌های اشتراک، به تمامی امکانات زیر بدون محدودیت دسترسی خواهید داشت"),
+    ).toBeDefined();
+    expect(screen.getByText("شامل تمام پلن‌ها")).toBeDefined();
+    expect(screen.getByText("دسترسی نامحدود به متن تمام درسنامه‌ها")).toBeDefined();
+    expect(screen.getByText("مرور هوشمند فلش‌کارت‌ها با الگوریتم FSRS")).toBeDefined();
+    expect(screen.getByText("گفتگوی نامحدود با دستیار هوشمند (AI Tutor)")).toBeDefined();
+
+    // Single-line plan-specific highlights
+    expect(screen.getByText("دسترسی ۳۰ روزه به کلیه امکانات")).toBeDefined();
+    expect(screen.getByText("دسترسی ۹۰ روزه به کلیه امکانات")).toBeDefined();
+    expect(screen.getByText("دسترسی ۳۶۵ روزه به کلیه امکانات")).toBeDefined();
+
+    // Refund policy FAQ text
+    const faqButton = screen.getByText("آیا امکان لغو اشتراک و بازگشت وجه وجود دارد؟");
+    expect(faqButton).toBeDefined();
+    fireEvent.click(faqButton);
+
+    expect(
+      screen.getByText(
+        "بله، در صورت عدم رضایت تا ۱۲ ساعت پس از خرید، می‌توانید با پشتیبانی آوانا ارتباط برقرار کرده و درخواست بازگشت وجه دهید.",
+      ),
+    ).toBeDefined();
+    expect(screen.queryByText(/۴۸ ساعت/)).toBeNull();
+  });
 });
+

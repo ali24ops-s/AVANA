@@ -19,7 +19,7 @@ import { composeProduction } from "./server/composeProduction.js";
 import { composeLocalDev } from "./server/composeLocalDev.js";
 import { GenerationService } from "./modules/generation/generation-service.js";
 import { createGenerationWorker } from "./modules/generation/generation-processor.js";
-import { defaultPolicy } from "@avana/domain";
+import { defaultPolicy, type OrganizationId } from "@avana/domain";
 import type { V1RouteOptions } from "./routes/v1.js";
 
 async function main(): Promise<void> {
@@ -92,7 +92,7 @@ async function main(): Promise<void> {
         v1Options.quizStore,
         v1Options.quizQuestionStore,
         v1Options.courseStore,
-        v1Options.config.systemOrganizationId as any,
+        v1Options.config.systemOrganizationId as OrganizationId,
         v1Options.generationChunkStore,
         v1Options.generationJobStore,
         v1Options.generationProgressService,
@@ -109,7 +109,7 @@ async function main(): Promise<void> {
 
       worker.on("ready", () => {
         process.stdout.write(
-          `[worker] Generation worker ready on queue "${config.generation.queueName}" (provider: ${config.generation.aiProvider}, model: ${config.generation.geminiModel})\n`,
+          `[worker] Generation worker ready on queue "${config.generation.queueName}" (provider: ${v1Options.gateway?.provider ?? config.userAi.provider}, model: ${v1Options.gateway?.model ?? config.userAi.openrouterModel})\n`,
         );
       });
       worker.on("active", (job) => {

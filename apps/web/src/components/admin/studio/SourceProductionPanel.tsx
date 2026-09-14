@@ -87,14 +87,29 @@ export function SourceProductionPanel({
   const apiClient = createApiClient({ baseUrl: getApiBaseUrl() });
   const docsApi = createDocumentsApi(apiClient);
 
-  // List documents for this course
+  // List documents for this course (including course-assigned and general unassigned documents)
   const docsQuery = useQuery({
     queryKey: ["course-documents", organizationId, course.id],
     queryFn: async () => {
-      const res = await docsApi.listDocuments(organizationId);
-      return res.items.filter(
-        (d) => d.course_id === course.id || d.course_id === null,
-      );
+      const [courseRes, unassignedRes] = await Promise.all([
+        docsApi.listDocuments(organizationId, {
+          courseId: course.id,
+          limit: 100,
+        }),
+        docsApi.listDocuments(organizationId, {
+          used: "unused",
+          limit: 100,
+        }),
+      ]);
+
+      const docMap = new Map<string, DocumentResource>();
+      for (const item of courseRes.items) {
+        docMap.set(item.id, item);
+      }
+      for (const item of unassignedRes.items) {
+        docMap.set(item.id, item);
+      }
+      return Array.from(docMap.values());
     },
     refetchInterval: (query) => {
       const docs = query.state.data ?? [];

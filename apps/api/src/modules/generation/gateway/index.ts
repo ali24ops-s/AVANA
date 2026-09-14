@@ -26,6 +26,10 @@ import {
   DEFAULT_ARVANCLOUD_MODEL,
   DEFAULT_ARVANCLOUD_BASE_URL,
 } from "./arvancloud.js";
+import {
+  OpenRouterModelGateway,
+  DEFAULT_OPENROUTER_USER_AI_MODEL,
+} from "./openrouter.js";
 import { FallbackModelGateway } from "./fallback.js";
 import type { ModelGateway } from "./types.js";
 
@@ -51,7 +55,13 @@ export {
   cleanAndParseArvanCloudJson,
   buildArvanCloudChatUrl,
 } from "./arvancloud.js";
+export {
+  OpenRouterModelGateway,
+  DEFAULT_OPENROUTER_USER_AI_MODEL,
+  OPENROUTER_API_CHAT_URL,
+} from "./openrouter.js";
 export { FallbackModelGateway } from "./fallback.js";
+export { isDeepSeekProvider } from "./types.js";
 
 /**
  * Options for configuring ModelGateway instantiation.
@@ -77,6 +87,10 @@ export interface CreateModelGatewayOptions {
   arvancloudModel?: string;
   arvancloudAuthScheme?: string;
   arvancloudTimeoutMs?: number;
+  openrouterApiKey?: string;
+  openrouterModel?: string;
+  openrouterHttpReferer?: string;
+  openrouterAppTitle?: string;
 }
 
 /**
@@ -120,6 +134,10 @@ export function createModelGateway(
   let arvancloudModelOption: string | undefined;
   let arvancloudAuthSchemeOption: string | undefined;
   let arvancloudTimeoutMsOption: number | undefined;
+  let openrouterApiKeyOption: string | undefined;
+  let openrouterModelOption: string | undefined;
+  let openrouterHttpRefererOption: string | undefined;
+  let openrouterAppTitleOption: string | undefined;
   let explicitFallbackOption: boolean | undefined;
 
   if (typeof providerOrOptions === "object" && providerOrOptions !== null) {
@@ -142,6 +160,10 @@ export function createModelGateway(
     arvancloudModelOption = providerOrOptions.arvancloudModel;
     arvancloudAuthSchemeOption = providerOrOptions.arvancloudAuthScheme;
     arvancloudTimeoutMsOption = providerOrOptions.arvancloudTimeoutMs;
+    openrouterApiKeyOption = providerOrOptions.openrouterApiKey;
+    openrouterModelOption = providerOrOptions.openrouterModel;
+    openrouterHttpRefererOption = providerOrOptions.openrouterHttpReferer;
+    openrouterAppTitleOption = providerOrOptions.openrouterAppTitle;
     if (providerOrOptions.enableFallback !== undefined) {
       explicitFallbackOption = providerOrOptions.enableFallback;
     } else if (providerOrOptions.disableFallback !== undefined) {
@@ -322,11 +344,81 @@ export function createModelGateway(
           }),
         );
       }
+    } else if (p === "openrouter") {
+      const resolvedApiKey =
+        openrouterApiKeyOption ||
+        (requestedProvider === "openrouter" ? key : undefined) ||
+        process.env.OPENROUTER_API_KEY;
+
+      if (resolvedApiKey && resolvedApiKey.trim().length > 0) {
+        const resolvedModel =
+          openrouterModelOption ||
+          (requestedProvider === "openrouter" ? modelName : undefined) ||
+          process.env.OPENROUTER_USER_AI_MODEL ||
+          process.env.OPENROUTER_MODEL ||
+          DEFAULT_OPENROUTER_USER_AI_MODEL;
+
+        const resolvedReferer =
+          openrouterHttpRefererOption || process.env.OPENROUTER_HTTP_REFERER;
+        const resolvedAppTitle =
+          openrouterAppTitleOption || process.env.OPENROUTER_TITLE;
+
+        instantiatedGateways.push(
+          new OpenRouterModelGateway({
+            apiKey: resolvedApiKey.trim(),
+            modelName: resolvedModel.trim(),
+            httpReferer: resolvedReferer?.trim(),
+            appTitle: resolvedAppTitle?.trim(),
+          }),
+        );
+      }
+    } else if (p === "deepseek") {
+      const resolvedApiKey =
+        openrouterApiKeyOption ||
+        (requestedProvider === "deepseek" ? key : undefined) ||
+        process.env.DEEPSEEK_API_KEY ||
+        process.env.OPENROUTER_API_KEY;
+
+      if (resolvedApiKey && resolvedApiKey.trim().length > 0) {
+        const resolvedModel =
+          openrouterModelOption ||
+          (requestedProvider === "deepseek" ? modelName : undefined) ||
+          process.env.DEEPSEEK_MODEL ||
+          process.env.OPENROUTER_USER_AI_MODEL ||
+          process.env.OPENROUTER_MODEL ||
+          DEFAULT_OPENROUTER_USER_AI_MODEL;
+
+        const resolvedReferer =
+          openrouterHttpRefererOption || process.env.OPENROUTER_HTTP_REFERER;
+        const resolvedAppTitle =
+          openrouterAppTitleOption || process.env.OPENROUTER_TITLE;
+
+        instantiatedGateways.push(
+          new OpenRouterModelGateway({
+            apiKey: resolvedApiKey.trim(),
+            modelName: resolvedModel.trim(),
+            httpReferer: resolvedReferer?.trim(),
+            appTitle: resolvedAppTitle?.trim(),
+          }),
+        );
+      }
     }
   }
 
   // If no gateways could be instantiated, throw domain error for requested provider
   if (instantiatedGateways.length === 0) {
+    if (requestedProvider === "deepseek") {
+      throw new DomainError(
+        "unprocessable",
+        "OPENROUTER_API_KEY or DEEPSEEK_API_KEY is required when AI_PROVIDER is 'deepseek'",
+      );
+    }
+    if (requestedProvider === "openrouter") {
+      throw new DomainError(
+        "unprocessable",
+        "OPENROUTER_API_KEY is required when AI_PROVIDER is 'openrouter'",
+      );
+    }
     if (requestedProvider === "gapgpt") {
       throw new DomainError(
         "unprocessable",

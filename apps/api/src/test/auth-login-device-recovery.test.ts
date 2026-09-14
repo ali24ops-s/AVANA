@@ -521,4 +521,250 @@ describe("Auth Login & Device Management Regression Test Suite", () => {
       }
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // 5. Persistent Client Device & Multi-Account Regression Suite (Requirements A-G)
+  // ---------------------------------------------------------------------------
+  describe("5. Persistent Client Device & Multi-Account Regression Suite", () => {
+    it("A. Same-user re-login: login -> logout -> login succeeds on same client", async () => {
+      const password = "UserPassword123!";
+      const passwordHash = await hashPassword(password);
+      const user = await userStore.createUserWithPassword({
+        email: "sameuser_relogin@example.com",
+        passwordHash,
+        name: "Same User",
+      });
+
+      // 1. Initial login (fresh client)
+      const res1 = await app.inject({
+        method: "POST",
+        url: "/v1/auth/sign-in",
+        headers: { "x-device-type": "desktop" },
+        payload: { email: "sameuser_relogin@example.com", password },
+      });
+      expect(res1.statusCode).toBe(200);
+      const deviceId = extractCookie(res1, "avana_device_id");
+      const sessionToken = extractCookie(res1, "avana_session");
+      expect(deviceId).toMatch(/^dev_[0-9a-f]{48}$/);
+      expect(sessionToken).toBeDefined();
+
+      // 2. Logout: preserves device cookie
+      const logoutRes = await app.inject({
+        method: "POST",
+        url: "/v1/auth/sign-out",
+        headers: { cookie: `avana_session=${sessionToken}` },
+      });
+      expect(logoutRes.statusCode).toBe(204);
+      // Ensure avana_device_id is NOT in the cleared cookies list of sign-out
+      const clearedCookies = logoutRes.cookies.map((c) => c.name);
+      expect(clearedCookies).not.toContain("avana_device_id");
+
+      // 3. Re-login with the same client device cookie
+      const res2 = await app.inject({
+        method: "POST",
+        url: "/v1/auth/sign-in",
+        headers: {
+          "x-device-type": "desktop",
+          cookie: `avana_device_id=${deviceId}`,
+        },
+        payload: { email: "sameuser_relogin@example.com", password },
+      });
+      expect(res2.statusCode).toBe(200);
+      expect(extractCookie(res2, "avana_device_id")).toBe(deviceId);
+
+      const activeDevices = await deviceStore.findActiveByUser(asUserId(user.id));
+      expect(activeDevices).toHaveLength(1);
+      expect(activeDevices[0].deviceId).toBe(deviceId);
+    });
+
+    it("B, C & G. Multi-user same-client: Student -> logout -> Admin -> logout -> Student succeeds on shared client", async () => {
+      const password = "Password123!";
+      const passwordHash = await hashPassword(password);
+      const student = await userStore.createUserWithPassword({
+        email: "student_multi@example.com",
+        passwordHash,
+        name: "Student Multi",
+      });
+      const admin = await userStore.createUserWithPassword({
+        email: "admin_multi@example.com",
+        passwordHash,
+        name: "Admin Multi",
+        globalRole: "platform_admin",
+      });
+
+      // Step 1: Student logs in on Safari (fresh browser, no cookie)
+      const studentRes1 = await app.inject({
+        method: "POST",
+        url: "/v1/auth/sign-in",
+        headers: { "x-device-type": "desktop" },
+        payload: { email: "student_multi@example.com", password },
+      });
+      expect(studentRes1.statusCode).toBe(200);
+      const clientDeviceId = extractCookie(studentRes1, "avana_device_id")!;
+      const studentSession1 = extractCookie(studentRes1, "avana_session")!;
+      expect(clientDeviceId).toMatch(/^dev_[0-9a-f]{48}$/);
+
+      // Step 2: Student logs out
+      const studentLogout = await app.inject({
+        method: "POST",
+        url: "/v1/auth/sign-out",
+        headers: { cookie: `avana_session=${studentSession1}` },
+      });
+      expect(studentLogout.statusCode).toBe(204);
+
+      // Step 3: Admin logs in on THE SAME Safari (browser sends clientDeviceId)
+      const adminRes = await app.inject({
+        method: "POST",
+        url: "/v1/auth/sign-in",
+        headers: {
+          "x-device-type": "desktop",
+          cookie: `avana_device_id=${clientDeviceId}`,
+        },
+        payload: { email: "admin_multi@example.com", password },
+      });
+      expect(adminRes.statusCode).toBe(200);
+      // G: Cookie regression check — Admin login MUST NOT overwrite clientDeviceId with a random new value!
+      expect(extractCookie(adminRes, "avana_device_id")).toBe(clientDeviceId);
+      const adminSession = extractCookie(adminRes, "avana_session")!;
+
+      // Step 4: Admin logs out
+      const adminLogout = await app.inject({
+        method: "POST",
+        url: "/v1/auth/sign-out",
+        headers: { cookie: `avana_session=${adminSession}` },
+      });
+      expect(adminLogout.statusCode).toBe(204);
+
+      // Step 5: Student logs back in on THE SAME Safari (browser still has clientDeviceId)
+      const studentRes2 = await app.inject({
+        method: "POST",
+        url: "/v1/auth/sign-in",
+        headers: {
+          "x-device-type": "desktop",
+          cookie: `avana_device_id=${clientDeviceId}`,
+        },
+        payload: { email: "student_multi@example.com", password },
+      });
+      // CRUCIAL: Student MUST NOT get DEVICE_LIMIT_REACHED!
+      expect(studentRes2.statusCode).toBe(200);
+      expect(extractCookie(studentRes2, "avana_device_id")).toBe(clientDeviceId);
+
+      // C: Verify both Student and Admin have independent active records bound to clientDeviceId
+      const studentDevices = await deviceStore.findActiveByUser(asUserId(student.id));
+      const adminDevices = await deviceStore.findActiveByUser(asUserId(admin.id));
+      expect(studentDevices).toHaveLength(1);
+      expect(studentDevices[0].deviceId).toBe(clientDeviceId);
+      expect(adminDevices).toHaveLength(1);
+      expect(adminDevices[0].deviceId).toBe(clientDeviceId);
+    });
+
+    it("D. Device limit: Student registered on device A gets DEVICE_LIMIT_REACHED when logging in from device B", async () => {
+      const password = "Password123!";
+      const passwordHash = await hashPassword(password);
+      await userStore.createUserWithPassword({
+        email: "student_limits@example.com",
+        passwordHash,
+        name: "Student Limits",
+      });
+
+      // 1. Register on Device A
+      const resA = await app.inject({
+        method: "POST",
+        url: "/v1/auth/sign-in",
+        headers: { "x-device-type": "desktop" },
+        payload: { email: "student_limits@example.com", password },
+      });
+      expect(resA.statusCode).toBe(200);
+      const deviceA = extractCookie(resA, "avana_device_id")!;
+
+      // 2. Attempt login from Device B (different device ID or fresh client without cookie)
+      const resB = await app.inject({
+        method: "POST",
+        url: "/v1/auth/sign-in",
+        headers: {
+          "x-device-type": "desktop",
+          cookie: `avana_device_id=dev_999999999999999999999999999999999999999999999999`,
+        },
+        payload: { email: "student_limits@example.com", password },
+      });
+      expect(resB.statusCode).toBe(403);
+      const bodyB = resB.json();
+      expect(bodyB.error.code).toBe("DEVICE_LIMIT_REACHED");
+
+      // 3. Re-login from Device A still works
+      const resARetry = await app.inject({
+        method: "POST",
+        url: "/v1/auth/sign-in",
+        headers: {
+          "x-device-type": "desktop",
+          cookie: `avana_device_id=${deviceA}`,
+        },
+        payload: { email: "student_limits@example.com", password },
+      });
+      expect(resARetry.statusCode).toBe(200);
+    });
+
+    it("E. Fresh client: generates fresh device ID matching canonical format", async () => {
+      const password = "Password123!";
+      const passwordHash = await hashPassword(password);
+      await userStore.createUserWithPassword({
+        email: "fresh_client@example.com",
+        passwordHash,
+        name: "Fresh User",
+      });
+
+      const res = await app.inject({
+        method: "POST",
+        url: "/v1/auth/sign-in",
+        headers: { "x-device-type": "desktop" },
+        payload: { email: "fresh_client@example.com", password },
+      });
+      expect(res.statusCode).toBe(200);
+      const deviceId = extractCookie(res, "avana_device_id");
+      expect(deviceId).toBeDefined();
+      expect(deviceId).toMatch(/^dev_[0-9a-f]{48}$/);
+    });
+
+    it("F. Admin takeover: preserves client device ID without generating unnecessary new random string", async () => {
+      const password = "Password123!";
+      const passwordHash = await hashPassword(password);
+      const admin = await userStore.createUserWithPassword({
+        email: "takeover_admin@example.com",
+        passwordHash,
+        name: "Takeover Admin",
+        globalRole: "platform_admin",
+      });
+
+      // 1. Admin already registered Device 1 (e.g. from office PC)
+      const resOffice = await app.inject({
+        method: "POST",
+        url: "/v1/auth/sign-in",
+        headers: { "x-device-type": "desktop" },
+        payload: { email: "takeover_admin@example.com", password },
+      });
+      expect(resOffice.statusCode).toBe(200);
+      const officeDeviceId = extractCookie(resOffice, "avana_device_id")!;
+
+      // 2. Admin logs in from Laptop (which already has an established persistent device ID)
+      const laptopDeviceId = "dev_1111222233334444555566667777888899990000aaaabbbb";
+      const resLaptop = await app.inject({
+        method: "POST",
+        url: "/v1/auth/sign-in",
+        headers: {
+          "x-device-type": "desktop",
+          cookie: `avana_device_id=${laptopDeviceId}`,
+        },
+        payload: { email: "takeover_admin@example.com", password },
+      });
+      expect(resLaptop.statusCode).toBe(200);
+      // The cookie returned must be laptopDeviceId, NOT regenerated!
+      expect(extractCookie(resLaptop, "avana_device_id")).toBe(laptopDeviceId);
+
+      // Verify old office device is revoked and laptop device is now active for admin
+      const activeDevices = await deviceStore.findActiveByUser(asUserId(admin.id));
+      expect(activeDevices).toHaveLength(1);
+      expect(activeDevices[0].deviceId).toBe(laptopDeviceId);
+      expect(activeDevices[0].deviceId).not.toBe(officeDeviceId);
+    });
+  });
 });

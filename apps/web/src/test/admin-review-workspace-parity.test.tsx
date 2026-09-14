@@ -371,7 +371,7 @@ describe("Admin Review Workspace — Complete Parity with User Review Experience
 
     // Verify rich ContentReviewDetail elements
     await waitFor(() => {
-      expect(screen.getByText("ویرایش پیش‌نویس")).toBeInTheDocument();
+      expect(screen.getByText("ویرایش محتوا")).toBeInTheDocument();
       expect(screen.getByText("تولید مجدد")).toBeInTheDocument();
       expect(screen.getByText("رد کردن")).toBeInTheDocument();
       expect(screen.getByText("تایید و انتشار")).toBeInTheDocument();
@@ -380,7 +380,7 @@ describe("Admin Review Workspace — Complete Parity with User Review Experience
     });
 
     // 1. Test Edit Dialog
-    fireEvent.click(screen.getByText("ویرایش پیش‌نویس"));
+    fireEvent.click(screen.getByText("ویرایش محتوا"));
     await waitFor(() => {
       expect(screen.getByText("ویرایش پیش‌نویس محتوا")).toBeInTheDocument();
     });

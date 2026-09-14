@@ -591,4 +591,122 @@ describe("AdminCourseHubPage (/admin/courses/:courseId)", () => {
       expect(priceInput.value).toBe("850000");
     });
   });
+
+  it("Case 12 (Regression Fix): CourseStructurePanel accordion dropdown toggles item 1 and item 2 independently without affecting other items", async () => {
+    const multiModuleHierarchy: AdminCourseHierarchy = {
+      id: "official-course-1",
+      name: "فارماکولوژی جامع بالینی",
+      subject: "داروسازی",
+      modules: [
+        {
+          id: "mod-1",
+          title: "فصل اول: فارماکودینامیک و گیرنده‌ها",
+          lessons: [
+            {
+              id: "les-1",
+              title: "درس ۱: مقدمه بر گیرنده‌های آدرنرژیک",
+              publicationStatus: "published",
+              flashcardCount: 10,
+              quizCount: 5,
+              hasContent: true,
+              createdAt: "2026-08-22T10:00:00Z",
+            },
+          ],
+        },
+        {
+          id: "mod-2",
+          title: "فصل دوم: سیستم عصبی خودمختار",
+          lessons: [
+            {
+              id: "les-2",
+              title: "درس ۲: کولینرژیک‌ها و آنتی‌کولینرژیک‌ها",
+              publicationStatus: "published",
+              flashcardCount: 15,
+              quizCount: 8,
+              hasContent: true,
+              createdAt: "2026-08-22T10:00:00Z",
+            },
+          ],
+        },
+        {
+          id: "mod-3",
+          title: "فصل سوم: داروهای قلبی عروقی",
+          lessons: [
+            {
+              id: "les-3",
+              title: "درس ۳: بتابلوکرها و مهارکننده‌های ACE",
+              publicationStatus: "published",
+              flashcardCount: 12,
+              quizCount: 6,
+              hasContent: true,
+              createdAt: "2026-08-22T10:00:00Z",
+            },
+          ],
+        },
+      ],
+    };
+
+    setupFetchMock({ hierarchy: multiModuleHierarchy });
+    renderCourseHub("/admin/courses/official-course-1?tab=structure");
+
+    // Wait for modules and lessons to appear
+    await waitFor(() => {
+      expect(screen.getByText("فصل اول: فارماکودینامیک و گیرنده‌ها")).toBeInTheDocument();
+      expect(screen.getByText("فصل دوم: سیستم عصبی خودمختار")).toBeInTheDocument();
+      expect(screen.getByText("فصل سوم: داروهای قلبی عروقی")).toBeInTheDocument();
+    });
+
+    // Verify all 3 modules start COLLAPSED/CLOSED by default
+    const mod1Button = screen.getByRole("button", { name: /فصل اول: فارماکودینامیک و گیرنده‌ها/i });
+    const mod2Button = screen.getByRole("button", { name: /فصل دوم: سیستم عصبی خودمختار/i });
+    const mod3Button = screen.getByRole("button", { name: /فصل سوم: داروهای قلبی عروقی/i });
+
+    expect(mod1Button).toHaveAttribute("aria-expanded", "false");
+    expect(mod2Button).toHaveAttribute("aria-expanded", "false");
+    expect(mod3Button).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("درس ۱: مقدمه بر گیرنده‌های آدرنرژیک")).not.toBeInTheDocument();
+    expect(screen.queryByText("درس ۲: کولینرژیک‌ها و آنتی‌کولینرژیک‌ها")).not.toBeInTheDocument();
+    expect(screen.queryByText("درس ۳: بتابلوکرها و مهارکننده‌های ACE")).not.toBeInTheDocument();
+
+    // 1. Click on item 1 -> item 1 must expand (open), items 2 and 3 must remain closed
+    fireEvent.click(mod1Button);
+
+    expect(mod1Button).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("درس ۱: مقدمه بر گیرنده‌های آدرنرژیک")).toBeInTheDocument();
+
+    // Verify other items were NOT opened/affected by clicking item 1
+    expect(mod2Button).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("درس ۲: کولینرژیک‌ها و آنتی‌کولینرژیک‌ها")).not.toBeInTheDocument();
+    expect(mod3Button).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("درس ۳: بتابلوکرها و مهارکننده‌های ACE")).not.toBeInTheDocument();
+
+    // 2. Click on item 2 -> item 2 must expand (open), item 1 remains open, item 3 remains closed
+    fireEvent.click(mod2Button);
+
+    expect(mod1Button).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("درس ۱: مقدمه بر گیرنده‌های آدرنرژیک")).toBeInTheDocument();
+    expect(mod2Button).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("درس ۲: کولینرژیک‌ها و آنتی‌کولینرژیک‌ها")).toBeInTheDocument();
+    expect(mod3Button).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("درس ۳: بتابلوکرها و مهارکننده‌های ACE")).not.toBeInTheDocument();
+
+    // 3. Click on item 1 again -> item 1 must collapse (close), item 2 remains open
+    fireEvent.click(mod1Button);
+
+    expect(mod1Button).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("درس ۱: مقدمه بر گیرنده‌های آدرنرژیک")).not.toBeInTheDocument();
+    expect(mod2Button).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("درس ۲: کولینرژیک‌ها و آنتی‌کولینرژیک‌ها")).toBeInTheDocument();
+    expect(mod3Button).toHaveAttribute("aria-expanded", "false");
+
+    // 4. Click on item 2 again -> item 2 must collapse (close), all are closed
+    fireEvent.click(mod2Button);
+
+    expect(mod1Button).toHaveAttribute("aria-expanded", "false");
+    expect(mod2Button).toHaveAttribute("aria-expanded", "false");
+    expect(mod3Button).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("درس ۱: مقدمه بر گیرنده‌های آدرنرژیک")).not.toBeInTheDocument();
+    expect(screen.queryByText("درس ۲: کولینرژیک‌ها و آنتی‌کولینرژیک‌ها")).not.toBeInTheDocument();
+    expect(screen.queryByText("درس ۳: بتابلوکرها و مهارکننده‌های ACE")).not.toBeInTheDocument();
+  });
 });

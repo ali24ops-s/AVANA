@@ -76,6 +76,15 @@ export interface NotifyGenerationFailedDetails {
   errorMessage?: string;
 }
 
+export interface NotifyContentReportStatusDetails {
+  reportId: string;
+  lessonId: string;
+  courseId?: string | null;
+  lessonTitle?: string | null;
+  oldStatus: string;
+  newStatus: string;
+}
+
 export class NotificationService {
   constructor(private readonly store: NotificationStore) {}
 
@@ -343,6 +352,61 @@ export class NotificationService {
         errorCode: details.errorCode,
       },
       idempotencyKey: `generation:${keyRef}:failed`,
+    });
+  }
+
+  /**
+   * Notify student when their content/lesson problem report status changes.
+   * Handles:
+   *   pending -> in_review
+   *   pending/in_review -> resolved
+   *   pending/in_review -> dismissed
+   * Strictly idempotent via report ID and new status.
+   */
+  async notifyContentReportStatus(
+    userId: UserId,
+    details: NotifyContentReportStatusDetails,
+  ): Promise<NotificationItem | null> {
+    const { reportId, lessonId, courseId, lessonTitle, newStatus } = details;
+
+    let title: string;
+    let message: string;
+
+    const lessonNameSuffix = lessonTitle
+      ? ` در درسنامه «${lessonTitle}»`
+      : " در درسنامه";
+
+    if (newStatus === "in_review") {
+      title = "بررسی گزارش اشکال";
+      message = `گزارش شما${lessonNameSuffix} در حال بررسی توسط تیم آموزشی است.`;
+    } else if (newStatus === "resolved") {
+      title = "رفع اشکال گزارش‌شده";
+      message = `اشکال گزارش‌شده توسط شما${lessonNameSuffix} بررسی و برطرف شد. از مشارکت شما سپاسگزاریم.`;
+    } else if (newStatus === "dismissed") {
+      title = "نتیجه بررسی گزارش اشکال";
+      message = `گزارش شما${lessonNameSuffix} بررسی شد، اما به‌عنوان مشکل قابل اصلاح تأیید نگردید.`;
+    } else {
+      // Unhandled or pending reversal, no notification needed
+      return null;
+    }
+
+    const actionUrl = courseId
+      ? `/courses/${courseId}?lessonId=${lessonId}`
+      : undefined;
+
+    return await this.createForUser(userId, {
+      type: "content_report_status_changed",
+      title,
+      message,
+      actionUrl,
+      metadata: {
+        reportId,
+        lessonId,
+        courseId: courseId ?? null,
+        oldStatus: details.oldStatus,
+        newStatus,
+      },
+      idempotencyKey: `report:${reportId}:${newStatus}`,
     });
   }
 }

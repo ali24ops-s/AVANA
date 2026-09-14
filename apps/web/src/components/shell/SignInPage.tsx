@@ -22,6 +22,7 @@ import { useAuth } from "../../providers/AuthProvider.js";
 import { ApiError } from "../../lib/api/errors.js";
 import { validateAndNormalizeIranPhone } from "@avana/domain";
 import { Button } from "@avana/ui";
+import { WORKER_MODE_ENABLED } from "../../config/features.js";
 
 type LoginMethod = "email" | "phone";
 
@@ -510,16 +511,18 @@ export function SignInPage() {
             )}
 
             <div className="mt-8 pt-6 border-t border-[var(--color-border)] text-center space-y-3">
-              <div>
-                <button
-                  type="button"
-                  onClick={handleWorkerAutoLogin}
-                  disabled={isSubmitting}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold text-primary bg-[var(--color-primary-soft)] hover:bg-[var(--color-surface-warm)] border border-[var(--color-border)] transition-colors cursor-pointer"
-                >
-                  <span>⚡ ورود سریع به محیط محلی Worker</span>
-                </button>
-              </div>
+              {WORKER_MODE_ENABLED && (
+                <div>
+                  <button
+                    type="button"
+                    onClick={handleWorkerAutoLogin}
+                    disabled={isSubmitting}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold text-primary bg-[var(--color-primary-soft)] hover:bg-[var(--color-surface-warm)] border border-[var(--color-border)] transition-colors cursor-pointer"
+                  >
+                    <span>⚡ ورود سریع به محیط محلی Worker</span>
+                  </button>
+                </div>
+              )}
               <div className="text-xs text-[var(--color-text-muted)]">
                 حساب کاربری ندارید؟{" "}
                 <Link

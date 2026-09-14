@@ -9,6 +9,7 @@
 
 import { useState } from "react";
 import { Link } from "react-router-dom";
+import { motion } from "framer-motion";
 import {
   Crown,
   Check,
@@ -19,6 +20,7 @@ import {
   Loader2,
   ArrowLeft,
   ChevronDown,
+  Sparkles,
 } from "lucide-react";
 import { useCommerceProducts, useMySubscription } from "../hooks/useCommerce.js";
 import { PricingModal } from "../components/commerce/PricingModal.js";
@@ -39,14 +41,43 @@ export function PricingPage() {
     setIsPricingModalOpen(true);
   };
 
-  const features = [
-    "دسترسی کامل و نامحدود به متن تمام درسنامه‌ها",
-    "مرور هوشمند فلش‌کارت‌ها با الگوریتم فاصله‌گذاری FSRS",
+  const sharedFeatures = [
+    "دسترسی نامحدود به متن تمام درسنامه‌ها",
+    "مرور هوشمند فلش‌کارت‌ها با الگوریتم FSRS",
     "آزمون‌های جامع همراه با تحلیل عملکرد و پاسخ تشریحی",
-    "گفتگوی نامحدود با دستیار هوشمند آموزشی آوانا (AI Tutor)",
-    "نصب و استفاده از تمام بسته‌های آموزشی کتابخانه عمومی",
-    "ثبت خودکار و ذخیره سوابق یادگیری و پیشرفت مباحث",
+    "گفتگوی نامحدود با دستیار هوشمند (AI Tutor)",
+    "نصب بسته‌های آموزشی از کتابخانه عمومی",
+    "ذخیره خودکار سوابق یادگیری و پیشرفت مباحث",
   ];
+
+  const getPlanHighlights = (code?: string, durationDays?: number | null) => {
+    if (code === "sub_yearly" || durationDays === 365) {
+      return [
+        "دسترسی ۳۶۵ روزه به کلیه امکانات",
+        "بیشترین تخفیف (۵۰٪ صرفه‌جویی)",
+        "دسترسی برای کل سال تحصیلی",
+      ];
+    }
+    if (code === "sub_quarterly" || durationDays === 90) {
+      return [
+        "دسترسی ۹۰ روزه به کلیه امکانات",
+        "تخفیف ویژه نسبت به اشتراک ماهانه",
+        "پوشش یک ترم یا دوره تحصیلی",
+      ];
+    }
+    if (code === "sub_monthly" || durationDays === 30) {
+      return [
+        "دسترسی ۳۰ روزه به کلیه امکانات",
+        "امکان تمدید یا ارتقا در هر زمان",
+        "مناسب برای شروع و مرور متمرکز",
+      ];
+    }
+    return [
+      `دسترسی ${durationDays || 30} روزه به کلیه امکانات`,
+      "امکان تمدید یا ارتقا در هر زمان",
+      "فعال‌سازی فوری و بدون وقفه",
+    ];
+  };
 
   const faqs = [
     {
@@ -63,7 +94,7 @@ export function PricingPage() {
     },
     {
       q: "آیا امکان لغو اشتراک و بازگشت وجه وجود دارد؟",
-      a: "بله، در صورت عدم رضایت تا ۴۸ ساعت پس از خرید، می‌توانید با پشتیبانی آوانا ارتباط برقرار کرده و درخواست بازگشت وجه دهید.",
+      a: "بله، در صورت عدم رضایت تا ۱۲ ساعت پس از خرید، می‌توانید با پشتیبانی آوانا ارتباط برقرار کرده و درخواست بازگشت وجه دهید.",
     },
     {
       q: "آیا خرید اشتراک با خرید دائمی دوره‌ها تفاوت دارد؟",
@@ -72,19 +103,27 @@ export function PricingPage() {
   ];
 
   return (
-    <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-12 space-y-16 text-[var(--color-text)] font-body" dir="rtl">
-      {/* 1. Hero Section */}
-      <div className="text-center space-y-4 max-w-3xl mx-auto">
+    <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-12 space-y-12 sm:space-y-16 text-[var(--color-text)] font-body" dir="rtl">
+      {/* 1. Hero Section with Premium Motion & Gradient Headline */}
+      <motion.div
+        initial={{ opacity: 0, y: 18 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+        className="text-center space-y-4 max-w-3xl mx-auto"
+      >
         <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#008080]/10 text-[#008080] border border-[#008080]/20 text-xs font-bold shadow-xs">
           <Crown className="w-4 h-4 text-amber-500" />
           <span>پلن‌های اشتراک آوانا پلاس</span>
         </div>
 
-        <h1 className="text-3xl sm:text-5xl font-black text-[var(--color-text)] tracking-tight leading-tight">
-          سرمایه‌گذاری روی یادگیری عمیق و بدون محدودیت
+        <h1 className="text-3xl sm:text-5xl font-black text-[var(--color-text)] tracking-tight leading-[1.25] sm:leading-tight">
+          <span>سرمایه‌گذاری روی </span>
+          <span className="bg-gradient-to-r from-[#008080] via-[#0d9488] to-[#5ba0c4] bg-[length:200%_auto] bg-clip-text text-transparent inline-block font-black motion-safe:animate-[lp-gradient-x_12s_ease_infinite]">
+            یادگیری عمیق و بدون محدودیت
+          </span>
         </h1>
 
-        <p className="text-sm sm:text-base text-[var(--color-text-muted)] leading-relaxed">
+        <p className="text-sm sm:text-base text-[var(--color-text-muted)] leading-relaxed max-w-2xl mx-auto">
           با انتخاب یکی از پلن‌های اشتراک، به کامل‌ترین بانک درسنامه‌های ساختاریافته، فلش‌کارت‌های هوشمند، آزمون‌های شبیه‌ساز و دستیار هوش مصنوعی آوانا دسترسی پیدا کنید.
         </p>
 
@@ -101,7 +140,7 @@ export function PricingPage() {
               </Link>
             </div>
           )}
-      </div>
+      </motion.div>
 
       {/* 2. Pricing Grid */}
       {isProdLoading ? (
@@ -115,6 +154,7 @@ export function PricingPage() {
             const isYearly = product.code === "sub_yearly";
             const isQuarterly = product.code === "sub_quarterly";
             const isMonthly = product.code === "sub_monthly";
+            const highlights = getPlanHighlights(product.code, product.duration_days);
 
             // Monthly equivalent
             let monthlyEquivalent = product.price;
@@ -124,7 +164,7 @@ export function PricingPage() {
             return (
               <div
                 key={product.id}
-                className={`relative rounded-[16px] p-6 sm:p-8 flex flex-col justify-between transition-all duration-300 ${
+                className={`relative rounded-[16px] p-6 sm:p-7 flex flex-col justify-between transition-all duration-300 ${
                   isYearly
                     ? "border-2 border-[#008080] bg-[var(--color-surface)] shadow-lg shadow-teal-900/5 md:-translate-y-2"
                     : isQuarterly
@@ -144,12 +184,12 @@ export function PricingPage() {
                   </div>
                 )}
 
-                <div className="space-y-6">
+                <div className="space-y-5">
                   <div>
-                    <h3 className="text-xl font-bold text-[var(--color-text)] mb-2">
+                    <h3 className="text-xl font-bold text-[var(--color-text)] mb-1.5">
                       {product.title}
                     </h3>
-                    <p className="text-xs text-[var(--color-text-muted)] min-h-[32px] leading-relaxed">
+                    <p className="text-xs text-[var(--color-text-muted)] leading-relaxed">
                       {product.description}
                     </p>
                   </div>
@@ -170,24 +210,24 @@ export function PricingPage() {
                     )}
                   </div>
 
-                  {/* Features List */}
+                  {/* Single-Line Plan-Specific Highlights */}
                   <div className="space-y-2.5 pt-4 border-t border-[var(--color-border)]">
-                    <span className="text-xs font-bold text-[var(--color-text)] block mb-2">
-                      امکانات این پلن:
+                    <span className="text-xs font-bold text-[var(--color-text)] block mb-1">
+                      ویژگی‌های این پلن:
                     </span>
-                    {features.map((feat, i) => (
-                      <div key={i} className="flex items-center gap-2 text-xs text-[var(--color-text)]">
+                    {highlights.map((highlight, i) => (
+                      <div key={i} className="flex items-center gap-2 text-xs text-[var(--color-text)] min-w-0">
                         <div className="w-4 h-4 rounded-full bg-[#008080]/10 text-[#008080] flex items-center justify-center shrink-0">
                           <Check className="w-3 h-3" />
                         </div>
-                        <span>{feat}</span>
+                        <span className="leading-snug truncate">{highlight}</span>
                       </div>
                     ))}
                   </div>
                 </div>
 
                 {/* Checkout CTA */}
-                <div className="pt-8">
+                <div className="pt-6">
                   <button
                     type="button"
                     onClick={() => handleSelectPlan(product.id)}
@@ -203,8 +243,46 @@ export function PricingPage() {
         </div>
       )}
 
-      {/* 3. Security & Trust Badges */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-6">
+      {/* 3. Shared Features Section Across All Plans */}
+      <div className="rounded-[16px] border border-[var(--color-border)] bg-[var(--color-surface)] shadow-xs p-6 sm:p-8 space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-[var(--color-border)]">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-[10px] bg-[#008080]/10 text-[#008080] flex items-center justify-center shrink-0">
+              <Sparkles className="w-5 h-5 text-[#008080]" />
+            </div>
+            <div>
+              <h2 className="text-base sm:text-lg font-bold text-[var(--color-text)]">
+                امکانات مشترک همه پلن‌ها
+              </h2>
+              <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
+                با خرید هر یک از پلن‌های اشتراک، به تمامی امکانات زیر بدون محدودیت دسترسی خواهید داشت
+              </p>
+            </div>
+          </div>
+
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#008080]/10 text-[#008080] text-[11px] font-bold self-start sm:self-auto">
+            <Check className="w-3.5 h-3.5" />
+            <span>شامل تمام پلن‌ها</span>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-3.5">
+          {sharedFeatures.map((feat, i) => (
+            <div
+              key={i}
+              className="flex items-center gap-2.5 p-3 sm:p-3.5 rounded-[12px] bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-xs sm:text-[13px] text-[var(--color-text)] transition-colors hover:border-[#008080]/30 min-w-0"
+            >
+              <div className="w-5 h-5 rounded-full bg-[#008080]/10 text-[#008080] flex items-center justify-center shrink-0">
+                <Check className="w-3.5 h-3.5" />
+              </div>
+              <span className="font-medium leading-normal truncate">{feat}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* 4. Security & Trust Badges */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="p-5 rounded-[16px] border border-[var(--color-border)] bg-[var(--color-surface)] shadow-xs flex items-center gap-3">
           <div className="w-10 h-10 rounded-[10px] bg-[#008080]/10 text-[#008080] flex items-center justify-center shrink-0">
             <ShieldCheck className="w-5 h-5" />
@@ -236,7 +314,7 @@ export function PricingPage() {
         </div>
       </div>
 
-      {/* 4. FAQ Accordion */}
+      {/* 5. FAQ Accordion */}
       <div className="rounded-[16px] border border-[var(--color-border)] bg-[var(--color-surface)] shadow-xs p-6 sm:p-10 space-y-6">
         <div className="text-center space-y-2">
           <h2 className="text-xl sm:text-2xl font-bold text-[var(--color-text)]">
@@ -287,3 +365,4 @@ export function PricingPage() {
     </div>
   );
 }
+

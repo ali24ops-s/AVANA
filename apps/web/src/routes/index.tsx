@@ -10,12 +10,13 @@
  *   /home         — AVANA Home / Dashboard (HomePage)
  *   /courses      — Course list
  *   /courses/:courseId — Course detail / learning hub
- *   /courses/:courseId/manage — Course content & documents manager
+ *   /courses/:courseId/manage — Compatibility redirect to Course Hub or Course detail
  */
 
-import { createBrowserRouter, Navigate } from "react-router-dom";
+import { createBrowserRouter, Navigate, useParams } from "react-router-dom";
 import { ProtectedRoute } from "../components/shell/ProtectedRoute.js";
-import { RequireCourseManager } from "../components/shell/RequireCourseManager.js";
+import { useAuth } from "../providers/AuthProvider.js";
+import { isContentManagerOrAdmin } from "../utils/generationPermissions.js";
 import { AuthenticatedShell } from "../components/shell/AuthenticatedShell.js";
 import { SignInPage } from "../components/shell/SignInPage.js";
 import { RegisterPage } from "../components/shell/RegisterPage.js";
@@ -24,7 +25,6 @@ import { AboutPage } from "../pages/AboutPage.js";
 import { HomePage } from "../pages/HomePage.js";
 import { CourseListPage } from "../pages/CourseListPage.js";
 import { LearningPage } from "../pages/LearningPage.js";
-import { CourseContentPage } from "../pages/CourseContentPage.js";
 import { FlashcardsPage } from "../pages/FlashcardsPage.js";
 import { ReviewPage } from "../pages/ReviewPage.js";
 import { ExamsPage } from "../pages/ExamsPage.js";
@@ -88,6 +88,17 @@ const getRouterBasename = () => {
   const raw = import.meta.env.BASE_URL || "/";
   return raw === "./" || raw === "." ? "/" : (raw.length > 1 ? raw.replace(/\/+$/, "") : raw);
 };
+
+function CourseManageRedirect() {
+  const { courseId } = useParams<{ courseId: string }>();
+  const { user, memberships } = useAuth();
+  const isAdmin = isContentManagerOrAdmin(user, memberships);
+
+  if (isAdmin) {
+    return <Navigate to={`/admin/courses/${courseId ?? ""}`} replace />;
+  }
+  return <Navigate to={`/courses/${courseId ?? ""}`} replace />;
+}
 
 export const router = createBrowserRouter(
   [
@@ -171,13 +182,7 @@ export const router = createBrowserRouter(
             },
             {
               path: "courses/:courseId/manage",
-              element: <RequireCourseManager />,
-              children: [
-                {
-                  index: true,
-                  element: <CourseContentPage />,
-                },
-              ],
+              element: <CourseManageRedirect />,
             },
             {
               path: "flashcards",

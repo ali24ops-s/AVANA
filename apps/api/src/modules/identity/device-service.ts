@@ -14,6 +14,24 @@ export function generateDeviceId(): string {
   return `dev_${randomBytes(24).toString("hex")}`;
 }
 
+/** Check whether a string is a well-formed canonical device ID. */
+export function isValidDeviceId(deviceId?: string | null): deviceId is string {
+  if (!deviceId || typeof deviceId !== "string") return false;
+  return /^dev_[0-9a-f]{48}$/.test(deviceId.trim());
+}
+
+/**
+ * Resolve the canonical client device ID.
+ * If incomingDeviceId is valid and present, keep it (persistent client/browser device ID).
+ * If missing or invalid, generate a fresh secure device ID.
+ */
+export function resolveCanonicalDeviceId(incomingDeviceId?: string | null): string {
+  if (isValidDeviceId(incomingDeviceId)) {
+    return incomingDeviceId.trim();
+  }
+  return generateDeviceId();
+}
+
 /**
  * Determine device type strictly as "mobile" or "desktop".
  * Prioritizes server-side User-Agent parsing; validates optional client hint.
@@ -163,7 +181,7 @@ export class DeviceService {
     userAgent?: string | null;
     ip?: string | null;
   }): Promise<UserDevice> {
-    const finalDeviceId = params.deviceId?.trim() || generateDeviceId();
+    const finalDeviceId = resolveCanonicalDeviceId(params.deviceId);
     const deviceName = parseDeviceName(params.userAgent, params.deviceType);
 
     return this.store.registerDevice({

@@ -51,6 +51,7 @@ export class PreviewResolver {
    */
   async resolveCoursePreviewLesson(
     courseId: string,
+    options?: { activeProducts?: import("@avana/domain").ProductRecord[] },
   ): Promise<LessonRecord | undefined> {
     if (!this.deps.moduleStore || !this.deps.lessonStore) return undefined;
 
@@ -81,11 +82,16 @@ export class PreviewResolver {
       return a.id.localeCompare(b.id);
     });
 
-    if (this.deps.commerceStore) {
+    if (this.deps.commerceStore || options?.activeProducts) {
+      const products =
+        options?.activeProducts ??
+        (this.deps.commerceStore
+          ? await this.deps.commerceStore.listActiveProducts()
+          : []);
+
       // 1. Course product override: previewLessonId
-      const courseProduct = await this.deps.commerceStore.findActiveProductByTarget(
-        "course",
-        courseId,
+      const courseProduct = products.find(
+        (p) => p.targetType === "course" && p.targetId === courseId && p.active,
       );
       if (courseProduct && (courseProduct.metadata as any)?.previewLessonId) {
         const designated = activeLessons.find(
@@ -94,11 +100,9 @@ export class PreviewResolver {
         if (designated) return designated;
       }
 
-      const products = await this.deps.commerceStore.listActiveProducts();
-
       // 2. Explicit free/preview product takes precedence
       const explicitFree = activeLessons.find((l) => {
-        const prod = products.find((p) => p.targetType === "content" && p.targetId === l.id);
+        const prod = products.find((p) => p.targetType === "content" && p.targetId === l.id && p.active);
         return (
           prod &&
           (prod.price === 0 ||
@@ -110,7 +114,7 @@ export class PreviewResolver {
 
       // 3. Filter out dedicated paid lessons
       const eligible = activeLessons.filter((l) => {
-        const prod = products.find((p) => p.targetType === "content" && p.targetId === l.id);
+        const prod = products.find((p) => p.targetType === "content" && p.targetId === l.id && p.active);
         return !prod || prod.price === 0;
       });
 
@@ -136,7 +140,7 @@ export class PreviewResolver {
    */
   async resolvePreviewLesson(
     moduleId: string,
-    _options?: { previewSessionId?: string },
+    options?: { previewSessionId?: string; activeProducts?: import("@avana/domain").ProductRecord[] },
   ): Promise<LessonRecord | undefined> {
     if (!this.deps.lessonStore) return undefined;
 
@@ -156,12 +160,16 @@ export class PreviewResolver {
     });
 
     let eligible = activePublished;
-    if (this.deps.commerceStore) {
-      const products = await this.deps.commerceStore.listActiveProducts();
+    if (this.deps.commerceStore || options?.activeProducts) {
+      const products =
+        options?.activeProducts ??
+        (this.deps.commerceStore
+          ? await this.deps.commerceStore.listActiveProducts()
+          : []);
 
       // 1. Check if any lesson in this module is explicitly free or preview
       const explicitFree = activePublished.find((l) => {
-        const prod = products.find((p) => p.targetType === "content" && p.targetId === l.id);
+        const prod = products.find((p) => p.targetType === "content" && p.targetId === l.id && p.active);
         return (
           prod &&
           (prod.price === 0 ||
@@ -173,13 +181,15 @@ export class PreviewResolver {
 
       // 2. Filter out lessons that have a dedicated paid product (price > 0)
       eligible = activePublished.filter((l) => {
-        const prod = products.find((p) => p.targetType === "content" && p.targetId === l.id);
+        const prod = products.find((p) => p.targetType === "content" && p.targetId === l.id && p.active);
         return !prod || prod.price === 0;
       });
       if (eligible.length === 0) return undefined;
 
       // 3. Product override for module or content_pack if configured
-      const modProduct = await this.deps.commerceStore.findActiveProductByTarget("module", moduleId);
+      const modProduct = products.find(
+        (p) => (p.targetType as string) === "module" && p.targetId === moduleId && p.active,
+      );
       if (modProduct && (modProduct.metadata as any)?.previewLessonId) {
         const designated = eligible.find((l) => l.id === (modProduct.metadata as any).previewLessonId);
         if (designated) return designated;
@@ -435,6 +445,7 @@ export class PreviewResolver {
     moduleId?: string,
     courseId?: string,
     previewSessionId?: string,
+    activeProducts?: import("@avana/domain").ProductRecord[],
   ): Promise<boolean> {
     let effectiveModuleId = moduleId;
 
@@ -447,7 +458,10 @@ export class PreviewResolver {
 
     // When moduleId is explicitly specified (ChapterPackage preview), module preview takes precedence
     if (moduleId && effectiveModuleId) {
-      const preview = await this.resolvePreviewLesson(effectiveModuleId, { previewSessionId });
+      const preview = await this.resolvePreviewLesson(effectiveModuleId, {
+        previewSessionId,
+        activeProducts,
+      });
       if (preview !== undefined) {
         return preview.id === lessonId;
       }
@@ -462,14 +476,19 @@ export class PreviewResolver {
     }
 
     if (effectiveCourseId) {
-      const preview = await this.resolveCoursePreviewLesson(effectiveCourseId);
+      const preview = await this.resolveCoursePreviewLesson(effectiveCourseId, {
+        activeProducts,
+      });
       if (preview !== undefined) {
         return preview.id === lessonId;
       }
     }
 
     if (effectiveModuleId) {
-      const preview = await this.resolvePreviewLesson(effectiveModuleId, { previewSessionId });
+      const preview = await this.resolvePreviewLesson(effectiveModuleId, {
+        previewSessionId,
+        activeProducts,
+      });
       return preview !== undefined && preview.id === lessonId;
     }
 

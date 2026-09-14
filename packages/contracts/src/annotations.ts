@@ -47,6 +47,12 @@ export interface ListAnnotationsResponse {
   items: LessonAnnotationResource[];
 }
 
+export type ContentReportStatus =
+  | "pending"
+  | "in_review"
+  | "resolved"
+  | "dismissed";
+
 export interface CreateContentReportRequest {
   selectedText: string;
   category: ContentReportCategory;
@@ -61,4 +67,34 @@ export interface ContentReportResponse {
   status: string;
   message: string;
   createdAt: string;
+}
+
+export interface AdminContentReportItem {
+  id: string;
+  userId: string;
+  userName?: string | null;
+  userEmail?: string | null;
+  lessonId: string;
+  lessonTitle?: string | null;
+  moduleId?: string | null;
+  moduleTitle?: string | null;
+  courseId?: string | null;
+  courseName?: string | null;
+  selectedText: string;
+  category: ContentReportCategory;
+  comment?: string | null;
+  status: ContentReportStatus;
+  createdAt: string;
+}
+
+export interface ListAdminContentReportsResponse {
+  items: AdminContentReportItem[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
+export interface UpdateContentReportStatusRequest {
+  status: ContentReportStatus;
 }

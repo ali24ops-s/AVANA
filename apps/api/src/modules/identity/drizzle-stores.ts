@@ -27,7 +27,7 @@ import type {
   RecordAttemptInput,
   DeviceSessionTakeoverResult,
 } from "./device-store.js";
-import { generateDeviceId } from "./device-service.js";
+import { resolveCanonicalDeviceId } from "./device-service.js";
 import type { UserRecord, UserStore } from "./user-store.js";
 import type {
   EmailVerificationCodeRecord,
@@ -492,8 +492,8 @@ export class DrizzleDeviceStore implements DeviceStore {
               })
               .where(eq(userDevices.id, occupiedRows[0].id));
 
-            // Register the new device for the slot
-            const canonicalDeviceId = generateDeviceId();
+            // Register the new device for the slot (preserving persistent client device ID if present)
+            const canonicalDeviceId = resolveCanonicalDeviceId(incomingDeviceId);
             const [newDeviceRow] = await tx
               .insert(userDevices)
               .values({
@@ -517,8 +517,8 @@ export class DrizzleDeviceStore implements DeviceStore {
             };
           }
         } else {
-          // Case B: Slot is free -> register new device under lock
-          const canonicalDeviceId = generateDeviceId();
+          // Case B: Slot is free -> register new device under lock (preserving persistent client device ID if present)
+          const canonicalDeviceId = resolveCanonicalDeviceId(incomingDeviceId);
           const [newDeviceRow] = await tx
             .insert(userDevices)
             .values({

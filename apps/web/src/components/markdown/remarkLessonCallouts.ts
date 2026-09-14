@@ -95,7 +95,7 @@ const CALLOUT_PATTERNS: CalloutPattern[] = [
     type: "tip",
     title: "نکته",
     regex: new RegExp(
-      `^(?:${LEGACY_CALLOUT_EMOJI}\\s*)?(?:نکته|\\[!TIP\\]|\\[!NOTE\\]|tip|note)\\s*[:：]?\\s*`,
+      `^(?:${LEGACY_CALLOUT_EMOJI}\\s*)?(?:نکته(?!\\s*(?:بالینی|آموزشی|کلیدی|مهم|حیاتی|دارویی|نوین))|\\[!TIP\\]|\\[!NOTE\\]|tip|note)\\s*[:：]?\\s*`,
       "iu",
     ),
   },

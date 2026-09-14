@@ -25,7 +25,7 @@ import {
 import { DrizzleCourseStore } from "@avana/api/courses/drizzle-stores";
 import { GenerationRecoveryService } from "@avana/api/generation/generation-recovery-service";
 import {
-  createModelGateway,
+  OpenRouterModelGateway,
   type ModelGateway,
 } from "@avana/api/generation/gateway";
 import { GenerationService } from "@avana/api/generation/generation-service";
@@ -62,25 +62,13 @@ export async function composeWorker(
   const generationJobStore = new DrizzleGenerationJobStore(db);
   const generationChunkStore = new DrizzleGenerationChunkStore(db);
 
-  // Model gateway (mock provider unless a real provider is configured).
-  const gateway = createModelGateway({
-    provider: config.generation.aiProvider,
-    enableFallback: config.generation.enableFallback,
-    geminiApiKey: config.generation.geminiApiKey,
-    geminiApiKeys: config.generation.geminiApiKeys,
-    geminiModel: config.generation.geminiModel,
-    cloudflareAccountId: config.generation.cloudflareAccountId,
-    cloudflareApiToken: config.generation.cloudflareApiToken,
-    cloudflareAiModel: config.generation.cloudflareAiModel,
-    groqApiKey: config.generation.groqApiKey,
-    groqModel: config.generation.groqModel,
-    gapgptApiKey: config.generation.gapgptApiKey,
-    gapgptBaseUrl: config.generation.gapgptBaseUrl,
-    gapgptModel: config.generation.gapgptModel,
-    arvancloudApiKey: config.generation.arvancloudApiKey,
-    arvancloudBaseUrl: config.generation.arvancloudBaseUrl,
-    arvancloudModel: config.generation.arvancloudModel,
-    arvancloudAuthScheme: config.generation.arvancloudAuthScheme,
+  // User-facing content generation gateway: OpenRouter (DeepSeek)
+  // Zero fallback to Gemini or Cloudflare.
+  const gateway: ModelGateway = new OpenRouterModelGateway({
+    apiKey: config.userAi.openrouterApiKey,
+    modelName: config.userAi.openrouterModel,
+    httpReferer: config.userAi.httpReferer,
+    appTitle: config.userAi.appTitle,
   });
 
   // Audit service.

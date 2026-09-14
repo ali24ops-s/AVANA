@@ -68,6 +68,7 @@ import {
 } from "../modules/study/index.js";
 import {
   createModelGateway,
+  OpenRouterModelGateway,
   BullMqGenerationQueue,
   type ModelGateway,
 } from "../modules/generation/index.js";
@@ -341,24 +342,14 @@ export async function composeProduction(
   const generationChunkStore = new DrizzleGenerationChunkStore(db);
   const generationProgressStore = new DrizzleGenerationProgressStore(db);
   const generationProgressService = new GenerationProgressService(generationProgressStore);
-  const gateway = createModelGateway({
-    provider: config.generation.aiProvider,
-    enableFallback: config.generation.enableFallback,
+  // Admin Model gateway: strictly Gemini with multi-key pool, zero fallback to external providers.
+  const adminProvider = config.generation.aiProvider === "mock" ? "mock" : "gemini";
+  const adminGateway: ModelGateway = createModelGateway({
+    provider: adminProvider,
+    enableFallback: false,
     geminiApiKey: config.generation.geminiApiKey,
     geminiApiKeys: config.generation.geminiApiKeys,
     geminiModel: config.generation.geminiModel,
-    cloudflareAccountId: config.generation.cloudflareAccountId,
-    cloudflareApiToken: config.generation.cloudflareApiToken,
-    cloudflareAiModel: config.generation.cloudflareAiModel,
-    groqApiKey: config.generation.groqApiKey,
-    groqModel: config.generation.groqModel,
-    gapgptApiKey: config.generation.gapgptApiKey,
-    gapgptBaseUrl: config.generation.gapgptBaseUrl,
-    gapgptModel: config.generation.gapgptModel,
-    arvancloudApiKey: config.generation.arvancloudApiKey,
-    arvancloudBaseUrl: config.generation.arvancloudBaseUrl,
-    arvancloudModel: config.generation.arvancloudModel,
-    arvancloudAuthScheme: config.generation.arvancloudAuthScheme,
   });
 
   // BullMQ generation queue (Redis-backed producer).
@@ -393,21 +384,16 @@ export async function composeProduction(
   const contentPackStore = new DrizzleContentPackStore(db);
   const contentPackUsageStore = new DrizzleContentPackUsageStore(db);
 
-  // Cloudflare AI Model Gateway dedicated for Study Assistant
-  let assistantGateway: ModelGateway;
-  if (
-    config.generation.cloudflareAccountId &&
-    config.generation.cloudflareApiToken
-  ) {
-    assistantGateway = createModelGateway({
-      provider: "cloudflare",
-      cloudflareAccountId: config.generation.cloudflareAccountId,
-      cloudflareApiToken: config.generation.cloudflareApiToken,
-      cloudflareAiModel: config.generation.cloudflareAiModel,
-    });
-  } else {
-    assistantGateway = gateway;
-  }
+  // Dedicated OpenRouter ModelGateway for User-Facing AI (Content Generation & Ask)
+  // Zero fallback to Gemini or Cloudflare.
+  const userGateway: ModelGateway = new OpenRouterModelGateway({
+    apiKey: config.userAi.openrouterApiKey,
+    modelName: config.userAi.openrouterModel,
+    httpReferer: config.userAi.httpReferer,
+    appTitle: config.userAi.appTitle,
+  });
+
+  const assistantGateway: ModelGateway = userGateway;
 
   const auditStore = new DrizzleAuditStore(db);
   const auditService = new AuditService(auditStore);
@@ -457,7 +443,8 @@ export async function composeProduction(
     generationProgressStore,
     generationProgressService,
     queue,
-    gateway,
+    gateway: userGateway,
+    adminGateway,
     flashcardStore,
     flashcardReviewStore,
     userFlashcardScheduleStore,

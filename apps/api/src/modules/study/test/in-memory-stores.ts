@@ -91,15 +91,20 @@ export class InMemoryFlashcardStore implements FlashcardStore {
 
   async listByCourse(
     courseId: CourseId,
-    organizationId: OrganizationId,
+    organizationId?: OrganizationId,
+    systemOrganizationId?: OrganizationId,
   ): Promise<FlashcardRecord[]> {
     return Array.from(this.flashcards.values())
-      .filter(
-        (f) =>
-          f.courseId === courseId &&
-          f.organizationId === organizationId &&
-          f.deletedAt === null,
-      )
+      .filter((f) => {
+        if (f.courseId !== courseId || f.deletedAt !== null) return false;
+        if (organizationId && systemOrganizationId && organizationId !== systemOrganizationId) {
+          return f.organizationId === organizationId || f.organizationId === systemOrganizationId;
+        }
+        if (organizationId) {
+          return f.organizationId === organizationId;
+        }
+        return true;
+      })
       .map((f) => ({ ...f }));
   }
 

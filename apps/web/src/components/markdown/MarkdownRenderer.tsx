@@ -30,16 +30,37 @@ export type MarkdownRendererProps = RichContentProps;
 
 /**
  * Helper to identify biomedical / scientific tokens that may have been incorrectly wrapped
- * in Markdown backticks by LLMs (e.g. `hsp70`, `FKBP5`, `COX-2`, `ACTH`, `cAMP`).
- * Ensures real programming code (e.g. `npm install`, `JSON.parse()`, `useState()`) is strictly preserved.
+ * in Markdown backticks by LLMs (e.g. `hsp70`, `Lisinopril`, `Atenolol`, `GFR`, `ACE inhibitors`, `10 mg/kg`, `Stage 3 CKD`).
+ * Ensures real programming code (e.g. `npm install`, `const x = 10;`, `JSON.parse()`, `useState()`) is strictly preserved.
  */
 function isScientificToken(token: string): boolean {
   const trimmed = token.trim();
-  // Exclude anything containing programming syntax, spaces, operators, brackets, parentheses
-  if (/[\s();={}[\]<>/*+!~`".,\\]/.test(trimmed) || trimmed.includes("/")) {
+  if (!trimmed) return false;
+
+  // STRICT PROGRAMMING GUARDS: Exclude real programming code, CLI commands, scripts, syntax
+  // Programming keywords & common functions
+  if (
+    /^(?:const|let|var|function|return|import|export|class|if|else|for|while|switch|case|break|continue|try|catch|finally|throw|typeof|instanceof|void|delete|new|this|async|await|yield|console|npm|pnpm|yarn|bun|npx|git|docker|curl|wget|cd|ls|mkdir|rm|chmod|chown|ssh|sudo|pip|python|node|ts|js|select|insert|update|delete|from|where|order by|group by)\b/i.test(
+      trimmed,
+    )
+  ) {
     return false;
   }
-  // Specific biomedical prefixes (hsp40, CYP3A4, FKBP5, COX-2, GLUT4, JAK2, SGLT2, IL-1, TNF-alpha)
+
+  // Code operators & constructs (assignments, arrow functions, semicolons, brackets, braces, comparisons)
+  if (/[;={}[\]<>*+!~`"\\]/.test(trimmed)) {
+    return false;
+  }
+  // Function calls like foo() or methods like arr.map()
+  if (/\w+\([^)]*\)/.test(trimmed) || /\.\w+\(/.test(trimmed)) {
+    return false;
+  }
+  // Dot property access or file paths (e.g. object.property, ./path, /var/log, foo/bar)
+  if (trimmed.includes("./") || trimmed.startsWith("/") || /\w+\.\w+/.test(trimmed) || /[a-z0-9_]+\/[a-z0-9_]{3,}/i.test(trimmed)) {
+    return false;
+  }
+
+  // 1. Specific biomedical prefixes & pathways (hsp40, CYP3A4, FKBP5, COX-2, GLUT4, JAK2, SGLT2, IL-1, TNF-alpha)
   if (/^(?:hsp|Hsp|HSP)\d+[a-zA-Z]?$/i.test(trimmed)) return true;
   if (/^(?:FKBP|fkbp)\d+[a-zA-Z]?$/i.test(trimmed)) return true;
   if (/^(?:COX|cox)(?:-[1-3]|\d+)?$/i.test(trimmed)) return true;
@@ -48,11 +69,40 @@ function isScientificToken(token: string): boolean {
   if (/^(?:JAK|jak|STAT|stat)\d+$/i.test(trimmed)) return true;
   if (/^(?:IL|il|TNF|tnf|INF|inf)(?:-[0-9a-zA-Zα-ωΑ-Ω]+)?$/i.test(trimmed)) return true;
   if (/^(?:p53|Bcl-2|mTOR|NF-kB|NF-κB|HMG-CoA)$/i.test(trimmed)) return true;
-  // Mixed-case biological messengers (cAMP, cGMP, mRNA, tRNA, rRNA, cDNA)
-  if (/^(?:cAMP|cGMP|mRNA|tRNA|rRNA|cDNA)$/.test(trimmed)) return true;
-  // Uppercase biomedical abbreviations (e.g. ACTH, GH, TSH, LH, FSH, ACE, ACEIs, NSAIDs, GABA, NMDA, LDL, HDL)
+
+  // 2. Mixed-case biological messengers & nucleotides (cAMP, cGMP, mRNA, tRNA, rRNA, cDNA, HbA1c)
+  if (/^(?:cAMP|cGMP|mRNA|tRNA|rRNA|cDNA|HbA1c)$/i.test(trimmed)) return true;
+
+  // 3. Uppercase & Mixed biomedical abbreviations (e.g. GFR, eGFR, ACTH, GH, TSH, LH, FSH, ACE, ACEIs, ARBs, NSAIDs, GABA, NMDA, LDL, HDL, CKD, NYHA, BP, MAP, ECG, EKG)
   if (/^[A-Z]{2,6}s?$/.test(trimmed)) return true;
   if (/^[A-Z]{2,5}(?:-[0-9A-Za-z]{1,3}|[0-9]{1,3})$/.test(trimmed)) return true;
+
+  // 4. Clinical stages & classifications (e.g. "Stage 3 CKD", "NYHA Class II", "Grade 2", "Type 2 Diabetes")
+  if (/^(?:Stage|Grade|Class|Type|Phase)\s+[0-9IVXAB]+(?:\s+[A-Za-z]+)?$/i.test(trimmed)) return true;
+
+  // 5. Drug classes & multi-word medical categories (e.g. "ACE inhibitors", "Beta-blockers", "Calcium channel blockers")
+  if (
+    /^(?:[A-Za-z0-9-]+\s+)*(?:inhibitor|inhibitors|blocker|blockers|agonist|agonists|antagonist|antagonists|diuretic|diuretics|channel|receptor|receptors|syndrome|disease|hypertension)$/i.test(
+      trimmed,
+    )
+  ) {
+    return true;
+  }
+
+  // 6. Dosages, lab values & medical units (e.g. "10 mg/kg", "50 mg", "120 mmHg", "10 mcg/kg/min", "5 mg/dL", "140 mmol/L")
+  if (
+    /^\d+(?:\.\d+)?\s*(?:mg|mcg|μg|g|kg|mL|L|dL|mmol|mEq|IU|bpm|mmHg|mol)(?:\/(?:kg|day|hr|min|dL|L|dose))?(?:\/(?:min|hr|day))?$/i.test(
+      trimmed,
+    )
+  ) {
+    return true;
+  }
+
+  // 7. Capitalized Single Drug / Chemical / Medical Names (e.g. Lisinopril, Atenolol, Metformin, Captopril, Propranolol)
+  if (/^[A-Z][a-z]{2,25}$/.test(trimmed)) {
+    return true;
+  }
+
   return false;
 }
 
@@ -61,7 +111,7 @@ function isScientificToken(token: string): boolean {
  * 1. Safely normalizes alternative LaTeX delimiters (\(...) -> $...$ and \[...\] -> $$...$$)
  * 2. Protects standalone currency dollar amounts ($100, $50.00) so they don't corrupt math parsing
  * 3. Unwraps scientific terms wrapped in backticks while strictly preserving programming code
- * 4. Recovers legacy corrupted LaTeX commands
+ * 4. Recovers legacy corrupted LaTeX commands and converts raw standalone LaTeX arrows outside math
  */
 export function normalizeRichContent(text: string): string {
   if (!text) {
@@ -69,7 +119,8 @@ export function normalizeRichContent(text: string): string {
   }
 
   // Split content by code blocks (fenced ```...``` and inline `...`)
-  const parts = text.split(/(```[\s\S]*?```|`[^`\n]*`)/g);
+  // Uses paired match to prevent desynchronization on unclosed single backticks
+  const parts = text.split(/(```[\s\S]*?```|`[^`\n]+`)/g);
 
   return parts
     .map((part, index) => {
@@ -137,6 +188,7 @@ export function normalizeRichContent(text: string): string {
       );
 
       // 6. In plain text outside math: safely unwrap standalone legacy \text{ACRONYM} or \t ext{ACRONYM} to ACRONYM
+      // and safely convert standalone raw LaTeX arrows and math symbols outside $...$
       const mathSplit = processed.split(/(\$\$[\s\S]*?\$\$|\$[^$\n]+\$)/g);
       processed = mathSplit
         .map((segment, segIdx) => {
@@ -144,7 +196,21 @@ export function normalizeRichContent(text: string): string {
           if (segIdx % 2 === 1) return segment;
           return segment
             .replace(/\\?text\{([A-Za-z0-9_\-+]+)\}/g, "$1")
-            .replace(/(?:\b|\t)ext\{([A-Za-z0-9_\-+]+)\}/g, "$1");
+            .replace(/(?:\b|\t)ext\{([A-Za-z0-9_\-+]+)\}/g, "$1")
+            // Safe raw LaTeX arrow and symbol conversions outside math and code
+            .replace(/\\(?:rightarrow|to)\b/g, "→")
+            .replace(/\\(?:leftarrow|gets)\b/g, "←")
+            .replace(/\\leftrightarrow\b/g, "↔")
+            .replace(/\\Rightarrow\b/g, "⇒")
+            .replace(/\\Leftarrow\b/g, "⇐")
+            .replace(/\\Leftrightarrow\b/g, "⇔")
+            .replace(/\\(?:rightleftharpoons|leftharpoons)\b/g, "⇌")
+            .replace(/\\uparrow\b/g, "↑")
+            .replace(/\\downarrow\b/g, "↓")
+            .replace(/\\times\b/g, "×")
+            .replace(/\\leq\b/g, "≤")
+            .replace(/\\geq\b/g, "≥")
+            .replace(/\\pm\b/g, "±");
         })
         .join("");
 
@@ -206,7 +272,7 @@ export function RichContent({
             h6: ({ children }) => <span className="font-bold">{children}</span>,
             code: ({ children, ...props }) => (
               <code
-                className="bg-slate-900/70 border border-white/10 px-1.5 py-0.5 rounded text-xs font-mono text-teal-300 inline-block"
+                className="bg-slate-100 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/60 px-1.5 py-0.5 rounded text-xs font-mono text-teal-900 dark:text-teal-300 inline-block align-baseline"
                 dir="ltr"
                 {...props}
               >
@@ -347,7 +413,7 @@ export function RichContent({
           ),
           pre: ({ children, ...props }) => (
             <pre
-              className="my-4 p-4 rounded-button bg-slate-900/90 border border-[var(--color-border)] overflow-x-auto text-xs sm:text-sm font-mono text-slate-200 leading-relaxed shadow-inner"
+              className="my-4 p-4 rounded-card bg-slate-100/90 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 overflow-x-auto text-xs sm:text-sm font-mono text-slate-800 dark:text-slate-200 leading-relaxed shadow-xs"
               dir="ltr"
               {...props}
             >
@@ -356,7 +422,7 @@ export function RichContent({
           ),
           code: ({ children, ...props }) => (
             <code
-              className="bg-slate-900/70 border border-white/10 px-2 py-0.5 rounded-md text-sm font-mono text-teal-300 dark:text-teal-300"
+              className="bg-slate-100 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/60 px-1.5 py-0.5 rounded text-xs sm:text-sm font-mono text-teal-900 dark:text-teal-300 inline-block align-baseline"
               {...props}
             >
               {children}
@@ -364,9 +430,9 @@ export function RichContent({
           ),
           // GFM Table Components with High Contrast & RTL Persian Text Alignment
           table: ({ children, ...props }) => (
-            <div className="my-6 w-full overflow-x-auto rounded-card border border-[var(--color-border)] shadow-ambient bg-[var(--color-surface)]">
+            <div className="my-3.5 sm:my-4 w-full overflow-x-auto rounded-card border border-[var(--color-border)] shadow-xs bg-[var(--color-surface)]">
               <table
-                className="w-full border-collapse text-right text-sm leading-relaxed"
+                className="w-full !m-0 !my-0 border-collapse text-right text-sm leading-relaxed"
                 dir="rtl"
                 {...props}
               >
@@ -400,7 +466,7 @@ export function RichContent({
           ),
           th: ({ children, ...props }) => (
             <th
-              className="px-4 py-3.5 text-right font-extrabold text-[var(--color-text)] tracking-tight whitespace-nowrap bg-[var(--color-surface-warm)] border-b border-[var(--color-border)]"
+              className="px-4 py-3 text-right font-extrabold text-[var(--color-text)] tracking-tight whitespace-nowrap bg-[var(--color-surface-warm)]"
               {...props}
             >
               {children}
@@ -408,7 +474,7 @@ export function RichContent({
           ),
           td: ({ children, ...props }) => (
             <td
-              className="px-4 py-3.5 text-right text-[var(--color-text)] dark:text-slate-200 align-top border-b border-[var(--color-border)]"
+              className="px-4 py-3 text-right text-[var(--color-text)] dark:text-slate-200 align-top"
               {...props}
             >
               {children}

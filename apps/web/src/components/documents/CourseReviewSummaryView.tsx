@@ -6,6 +6,7 @@ import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
 import { createDocumentsApi } from "../../lib/api/documents.js";
 import { ReviewSummaryViewer } from "./ReviewSummaryViewer.js";
 import { cleanEducationalTitle } from "@avana/domain";
+import type { DocumentResource } from "@avana/contracts";
 
 export interface CourseReviewSummaryViewProps {
   organizationId: string;
@@ -34,8 +35,25 @@ export function CourseReviewSummaryView({
   const docsQuery = useQuery({
     queryKey: ["course-documents", organizationId, courseId],
     queryFn: async () => {
-      const res = await docsApi.listDocuments(organizationId);
-      return res.items.filter((d) => d.course_id === courseId || d.course_id === null);
+      const [courseRes, unassignedRes] = await Promise.all([
+        docsApi.listDocuments(organizationId, {
+          courseId,
+          limit: 100,
+        }),
+        docsApi.listDocuments(organizationId, {
+          used: "unused",
+          limit: 100,
+        }),
+      ]);
+
+      const docMap = new Map<string, DocumentResource>();
+      for (const item of courseRes.items) {
+        docMap.set(item.id, item);
+      }
+      for (const item of unassignedRes.items) {
+        docMap.set(item.id, item);
+      }
+      return Array.from(docMap.values());
     },
     enabled: modulesWithDocs.length === 0,
   });

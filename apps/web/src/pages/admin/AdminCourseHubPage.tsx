@@ -19,6 +19,7 @@ import {
   FileCheck,
   Download,
   Upload,
+  Flag,
 } from "lucide-react";
 import type { OfficialCourse } from "../../lib/api/admin.js";
 import { CourseStructurePanel } from "../../components/admin/studio/CourseStructurePanel.js";
@@ -26,10 +27,11 @@ import { SourceProductionPanel } from "../../components/admin/studio/SourceProdu
 import { DraftReviewPanel } from "../../components/admin/studio/DraftReviewPanel.js";
 import { PublicationActionCenter } from "../../components/admin/studio/PublicationActionCenter.js";
 import { CourseSettingsPanel } from "../../components/admin/studio/CourseSettingsPanel.js";
+import { AdminContentReportsPanel } from "../../components/admin/reports/AdminContentReportsPanel.js";
 import { ContentExportModal } from "../../components/admin/content/ContentExportModal.js";
 import { ContentImportModal } from "../../components/admin/content/ContentImportModal.js";
 
-export type CourseHubTab = "structure" | "generation" | "review" | "publish" | "settings";
+export type CourseHubTab = "structure" | "generation" | "review" | "publish" | "settings" | "reports";
 
 const VALID_TABS: readonly CourseHubTab[] = [
   "structure",
@@ -37,6 +39,7 @@ const VALID_TABS: readonly CourseHubTab[] = [
   "review",
   "publish",
   "settings",
+  "reports",
 ] as const;
 
 export function AdminCourseHubPage() {
@@ -398,6 +401,19 @@ export function AdminCourseHubPage() {
           <Settings className="w-4 h-4" />
           <span>۵. تنظیمات دوره</span>
         </button>
+
+        <button
+          type="button"
+          onClick={() => setTab("reports")}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all whitespace-nowrap ${
+            activeTab === "reports"
+              ? "bg-[var(--color-primary-default)] text-[var(--color-primary-contrast)] shadow-sm"
+              : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-subtle)]"
+          }`}
+        >
+          <Flag className="w-4 h-4" />
+          <span>۶. گزارش‌های مشکل درسنامه</span>
+        </button>
       </div>
 
       {/* Main Tab Panel Content */}
@@ -434,6 +450,14 @@ export function AdminCourseHubPage() {
           <CourseSettingsPanel
             course={course}
             onRefresh={fetchCourses}
+          />
+        )}
+
+        {activeTab === "reports" && (
+          <AdminContentReportsPanel
+            courseId={course.id}
+            title={`گزارش‌های مشکل درسنامه — ${course.name}`}
+            description="بررسی و مدیریت اشکالات علمی، تایپی و نمایشی گزارش‌شده توسط کاربران در درسنامه‌های این دوره"
           />
         )}
       </div>

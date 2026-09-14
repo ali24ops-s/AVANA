@@ -182,6 +182,8 @@ export interface AdminCourseHierarchy {
   name: string;
   subject: string | null;
   modules: AdminCourseHierarchyModule[];
+  courseFlashcardCount?: number;
+  courseQuizCount?: number;
 }
 
 export interface AdminAnalyticsPeriodStats {
@@ -430,5 +432,29 @@ export interface AdminStore {
     paymentId: string,
     reason: string,
   ): Promise<{ success: boolean; payment: AdminPaymentRecord; message?: string }>;
+  listRejectedGeneratedContents(params: {
+    page: number;
+    pageSize: number;
+    type?: string;
+    courseId?: string;
+    search?: string;
+  }): Promise<{ items: AdminRejectedContentRecord[]; totalCount: number }>;
   getUserCommerceProfile(userId: string): Promise<AdminUserCommerceProfile>;
 }
+
+export interface AdminRejectedContentRecord {
+  id: string;
+  organizationId: string;
+  type: string;
+  title: string;
+  courseId: string;
+  courseTitle?: string;
+  documentId?: string;
+  documentName?: string;
+  reviewedBy?: string;
+  reviewedAt?: string;
+  reviewReason?: string;
+  model?: string;
+  createdAt: string;
+}
+

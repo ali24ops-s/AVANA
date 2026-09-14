@@ -322,5 +322,59 @@ describe("Educational Content Normalization Suite (@avana/domain)", () => {
       const canonical = "> **نکته مهم:** این یک متن ساده درون کال‌اوت استاندارد است.";
       expect(normalizeEducationalContent(canonical)).toBe(canonical);
     });
+
+    it("handles legacy emoji prefixes on specific callouts without colliding into generic tip (Rule 3)", () => {
+      const sample1 = "💡 **نکته بالینی:** دوز اولیه باید با کمترین مقدار ممکن شروع شود.";
+      expect(normalizeEducationalContent(sample1)).toBe(
+        "**نکته بالینی:** دوز اولیه باید با کمترین مقدار ممکن شروع شود."
+      );
+
+      const sample2 = "💡 **نکته آموزشی:** جهت کاهش عوارض گوارشی بعد از غذا میل شود.";
+      expect(normalizeEducationalContent(sample2)).toBe(
+        "**نکته آموزشی:** جهت کاهش عوارض گوارشی بعد از غذا میل شود."
+      );
+
+      const sample3 = "📌 **نکته کلیدی:** انتخابی بودن گیرنده بتا-۱ در دوزهای بالا کاهش می‌یابد.";
+      expect(normalizeEducationalContent(sample3)).toBe(
+        "**نکته کلیدی:** انتخابی بودن گیرنده بتا-۱ در دوزهای بالا کاهش می‌یابد."
+      );
+
+      const sample4 = "⭐ **نکته مهم:** پایش عملکرد کلیه الزامی است.";
+      expect(normalizeEducationalContent(sample4)).toBe(
+        "**نکته مهم:** پایش عملکرد کلیه الزامی است."
+      );
+
+      const genericTip = "💡 **نکته:** مصرف این دارو همراه با آب فراوان توصیه می‌شود.";
+      expect(normalizeEducationalContent(genericTip)).toBe(
+        "**نکته:** مصرف این دارو همراه با آب فراوان توصیه می‌شود."
+      );
+    });
+
+    it("strictly preserves Dingbat typography & process arrows (➔, ➡, ➜, ➢, ➤) (Rule 2)", () => {
+      const processText = "مرحله ۱ ➔ مرحله ۲ ➡ مرحله ۳ ➜ نتیجه نهایی ➢ بررسی تکمیلی ➤ پایان";
+      const normalized = normalizeEducationalContent(processText);
+      expect(normalized).toBe(processText);
+      expect(normalized).toContain("➔");
+      expect(normalized).toContain("➡");
+      expect(normalized).toContain("➜");
+      expect(normalized).toContain("➢");
+      expect(normalized).toContain("➤");
+    });
+
+    it("strictly preserves Persian Zero Width Joiner (ZWJ / \\u200D) in typography (Rule 2)", () => {
+      const textWithZwj = "می‌شود\u200D و ساختار کلمه‌ای فارسی";
+      const normalized = normalizeEducationalContent(textWithZwj);
+      expect(normalized).toContain("\u200D");
+    });
+
+    it("strips decorative emojis while preserving process arrows and medical symbols", () => {
+      const input = "🎉 تبریک 🚀 داروی Lisinopril ➔ اثر درمانی 💊 دارد! ⭐ 🐱";
+      const normalized = normalizeEducationalContent(input);
+      expect(normalized).not.toContain("🎉");
+      expect(normalized).not.toContain("🚀");
+      expect(normalized).not.toContain("🐱");
+      expect(normalized).toContain("Lisinopril ➔ اثر درمانی");
+    });
   });
 });
+

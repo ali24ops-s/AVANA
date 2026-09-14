@@ -16,6 +16,7 @@ import {
   BrainCircuit,
   GraduationCap,
   Hash,
+  Ban,
 } from "lucide-react";
 import {
   type ReviewSummaryPayload,
@@ -172,56 +173,76 @@ export function ContentReviewDetail({
 
         {/* Action bar */}
         <div className="flex items-center gap-2 flex-wrap">
-          <button
-            type="button"
-            onClick={() => setIsEditDialogOpen(true)}
-            disabled={anyMutationPending}
-            className="px-3.5 py-2 bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] text-[var(--color-text)] rounded-xl text-xs font-bold border border-[var(--color-border)] shadow-xs flex items-center gap-1.5 disabled:opacity-50 disabled:pointer-events-none transition-colors"
-          >
-            <Pencil className="w-3.5 h-3.5 text-[var(--color-primary-default)]" />
-            <span>ویرایش پیش‌نویس</span>
-          </button>
+          {content.status !== "rejected" && (
+            <button
+              type="button"
+              onClick={() => setIsEditDialogOpen(true)}
+              disabled={anyMutationPending}
+              className="px-3.5 py-2 bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] text-[var(--color-text)] rounded-xl text-xs font-bold border border-[var(--color-border)] shadow-xs flex items-center gap-1.5 disabled:opacity-50 disabled:pointer-events-none transition-colors"
+            >
+              <Pencil className="w-3.5 h-3.5 text-[var(--color-primary-default)]" />
+              <span>ویرایش محتوا</span>
+            </button>
+          )}
 
-          <button
-            type="button"
-            onClick={() => regenerateMutation.mutate()}
-            disabled={anyMutationPending}
-            className="px-3.5 py-2 bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] text-[var(--color-text)] rounded-xl text-xs font-bold border border-[var(--color-border)] shadow-xs flex items-center gap-1.5 disabled:opacity-50 disabled:pointer-events-none transition-colors"
-          >
-            {regenerateMutation.isPending ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            ) : (
-              <RotateCcw className="w-3.5 h-3.5 text-[var(--color-primary-default)]" />
-            )}
-            <span>{regenerateMutation.isPending ? "در حال بازتولید..." : "تولید مجدد"}</span>
-          </button>
+          {content.status !== "accepted" && (
+            <>
+              <button
+                type="button"
+                onClick={() => regenerateMutation.mutate()}
+                disabled={anyMutationPending}
+                className="px-3.5 py-2 bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] text-[var(--color-text)] rounded-xl text-xs font-bold border border-[var(--color-border)] shadow-xs flex items-center gap-1.5 disabled:opacity-50 disabled:pointer-events-none transition-colors"
+              >
+                {regenerateMutation.isPending ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <RotateCcw className="w-3.5 h-3.5 text-[var(--color-primary-default)]" />
+                )}
+                <span>{regenerateMutation.isPending ? "در حال بازتولید..." : "تولید مجدد"}</span>
+              </button>
 
-          <button
-            type="button"
-            onClick={() => setIsRejectDialogOpen(true)}
-            disabled={anyMutationPending}
-            className="px-3.5 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-700 dark:text-rose-400 rounded-xl text-xs font-bold border border-rose-500/20 shadow-xs flex items-center gap-1.5 disabled:opacity-50 disabled:pointer-events-none transition-colors"
-          >
-            <XCircle className="w-3.5 h-3.5" />
-            <span>رد کردن</span>
-          </button>
+              {content.status !== "rejected" && (
+                <button
+                  type="button"
+                  onClick={() => setIsRejectDialogOpen(true)}
+                  disabled={anyMutationPending}
+                  className="px-3.5 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-700 dark:text-rose-400 rounded-xl text-xs font-bold border border-rose-500/20 shadow-xs flex items-center gap-1.5 disabled:opacity-50 disabled:pointer-events-none transition-colors"
+                >
+                  <XCircle className="w-3.5 h-3.5" />
+                  <span>رد کردن</span>
+                </button>
+              )}
+            </>
+          )}
 
-          <button
-            type="button"
-            onClick={() => {
-              setAcceptError(null);
-              acceptMutation.mutate();
-            }}
-            disabled={anyMutationPending}
-            className="px-4 py-2 bg-[var(--color-primary-default)] hover:bg-[var(--color-primary-hover)] text-[var(--color-primary-contrast)] rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md disabled:opacity-50 transition-colors"
-          >
-            {acceptMutation.isPending ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            ) : (
+          {content.status === "accepted" ? (
+            <div className="px-3.5 py-2 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 rounded-xl text-xs font-bold border border-emerald-500/20 flex items-center gap-1.5 shadow-xs">
               <CheckCircle2 className="w-3.5 h-3.5" />
-            )}
-            <span>{acceptMutation.isPending ? "در حال انتشار..." : "تایید و انتشار"}</span>
-          </button>
+              <span>تایید و منتشر شده</span>
+            </div>
+          ) : content.status === "rejected" ? (
+            <div className="px-3.5 py-2 bg-rose-500/10 text-rose-700 dark:text-rose-400 rounded-xl text-xs font-bold border border-rose-500/20 flex items-center gap-1.5 shadow-xs">
+              <Ban className="w-3.5 h-3.5" />
+              <span>پیش‌نویس رد شده</span>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setAcceptError(null);
+                acceptMutation.mutate();
+              }}
+              disabled={anyMutationPending}
+              className="px-4 py-2 bg-[var(--color-primary-default)] hover:bg-[var(--color-primary-hover)] text-[var(--color-primary-contrast)] rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md disabled:opacity-50 transition-colors"
+            >
+              {acceptMutation.isPending ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <CheckCircle2 className="w-3.5 h-3.5" />
+              )}
+              <span>{acceptMutation.isPending ? "در حال انتشار..." : "تایید و انتشار"}</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -259,7 +280,18 @@ export function ContentReviewDetail({
                   : "محتوای آموزشی"}
               </span>
               <span className="text-xs text-[var(--color-text-muted)]">
-                وضعیت: <strong className="text-[var(--color-text)]">در انتظار بازبینی</strong>
+                وضعیت:{" "}
+                <strong className="text-[var(--color-text)]">
+                  {content.status === "accepted"
+                    ? "تأیید و منتشر شده"
+                    : content.status === "edited"
+                    ? "ویرایش‌شده (در انتظار بازبینی)"
+                    : content.status === "rejected"
+                    ? "رد شده"
+                    : content.status === "regenerating"
+                    ? "در حال بازتولید"
+                    : "در انتظار بازبینی"}
+                </strong>
               </span>
             </div>
             <h2 className="text-base font-bold text-[var(--color-text)] mt-1 truncate">
@@ -273,6 +305,31 @@ export function ContentReviewDetail({
           </div>
         </div>
       </div>
+
+      {/* Rejection Reason Card for Rejected Content */}
+      {content.status === "rejected" && (
+        <div className="bg-rose-500/10 border border-rose-500/20 rounded-2xl p-5 space-y-3 text-rose-950 dark:text-rose-100 shadow-sm" data-testid="rejection-reason-panel">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-rose-500/20 pb-3">
+            <div className="flex items-center gap-2 font-bold text-sm text-rose-700 dark:text-rose-300">
+              <Ban className="w-4 h-4 text-rose-600 dark:text-rose-400" />
+              <span>علت رد محتوا</span>
+            </div>
+            {content.reviewed_at && (
+              <span className="text-xs text-rose-600 dark:text-rose-400">
+                تاریخ رد: {new Date(content.reviewed_at).toLocaleDateString("fa-IR")}
+              </span>
+            )}
+          </div>
+          <div className="text-xs sm:text-sm leading-relaxed whitespace-pre-wrap font-medium text-rose-900 dark:text-rose-200 bg-[var(--color-surface)]/80 p-3.5 rounded-xl border border-rose-500/20">
+            {content.review_reason?.trim() || "بدون توضیح"}
+          </div>
+          <div className="flex items-center gap-4 text-xs text-rose-700 dark:text-rose-400 pt-1">
+            <span>
+              رد شده توسط: <strong className="text-rose-900 dark:text-rose-200">{content.reviewed_by ? "بازبین محتوا" : "بازبین سیستم"}</strong>
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Full Width Stacked Layout: Evidence Summary on Top, Generated Content Preview Below */}
       <div className="space-y-6">

@@ -251,6 +251,7 @@ async function main() {
         ...process.env,
         ...envData,
         NODE_ENV: "development",
+        VITE_WORKER_MODE: "true",
       },
       stdio: ["ignore", "pipe", "pipe"],
       detached: !isWindows,

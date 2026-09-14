@@ -234,11 +234,11 @@ export function CardToCardPaymentPage() {
         extraction_method: hasExtracted ? extractionMethod : "manual",
       },
       {
-        onSuccess: (res: any) => {
+        onSuccess: (res: { message?: string; attemptId?: string; attempt_id?: string }) => {
           setIsSuccess(true);
-          setSuccessMessage(res.message);
+          setSuccessMessage(res.message || "");
           if (res.attemptId || res.attempt_id) {
-            setCreatedAttemptId(res.attemptId || res.attempt_id);
+            setCreatedAttemptId(res.attemptId || res.attempt_id || null);
           }
         },
         onError: (err: { envelope?: { error?: { message?: string } }; response?: { data?: { message?: string } }; message?: string }) => {
@@ -267,22 +267,24 @@ export function CardToCardPaymentPage() {
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8" dir="rtl">
       {/* 1. Header & Navigation */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-6 border-b border-[var(--color-border)]">
-        <div>
+      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 pb-6 border-b border-[var(--color-border)]">
+        <div className="space-y-1">
           <Link
             to={isSpecialExamProduct ? "/library" : "/pricing"}
-            className="inline-flex items-center gap-1.5 text-xs font-bold text-[var(--color-text-muted)] hover:text-primary transition-colors mb-2"
+            className="inline-flex items-center gap-1.5 text-xs font-bold text-[var(--color-text-muted)] hover:text-primary transition-colors mb-1"
           >
             <ArrowRight className="w-3.5 h-3.5" />
             <span>{isSpecialExamProduct ? "بازگشت به کتابخانه آزمون‌ها" : "بازگشت به انتخاب پلن‌ها"}</span>
           </Link>
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-[var(--color-text)] flex items-center gap-2.5">
-            <Zap className="w-7 h-7 text-amber-500 fill-amber-500" />
-            {isSpecialExamProduct
-              ? "خرید آزمون ویژه و ساخت آزمون اختصاصی"
-              : "پرداخت کارت‌به‌کارت با استخراج خودکار و فعال‌سازی فوری"}
+          <h1 className="text-xl sm:text-2xl lg:text-3xl font-extrabold text-[var(--color-text)] flex items-center gap-2.5 whitespace-normal sm:whitespace-nowrap">
+            <Zap className="w-6 h-6 sm:w-7 sm:h-7 text-amber-500 fill-amber-500 shrink-0" />
+            <span>
+              {isSpecialExamProduct
+                ? "خرید آزمون ویژه و ساخت آزمون اختصاصی"
+                : "پرداخت کارت‌به‌کارت با استخراج خودکار و فعال‌سازی فوری"}
+            </span>
           </h1>
-          <p className="text-xs sm:text-sm text-[var(--color-text-muted)] mt-1">
+          <p className="text-xs sm:text-sm text-[var(--color-text-muted)] mt-1 leading-relaxed">
             {isSpecialExamProduct
               ? "مبلغ آزمون را واریز کرده و مشخصات تراکنش را ثبت کنید تا آزمون با سؤالات تصادفی بلافاصله ایجاد شود."
               : "مبلغ اشتراک را واریز کرده، متن پیامک بانکی را Paste کنید تا دسترسی شما بلافاصله فعال شود."}
@@ -290,11 +292,11 @@ export function CardToCardPaymentPage() {
         </div>
 
         {selectedProduct && (
-          <div className="px-4 py-2.5 rounded-2xl bg-[var(--color-surface)] border border-primary/30 text-left shadow-xs">
+          <div className="px-4 py-2.5 rounded-2xl bg-[var(--color-surface)] border border-primary/30 text-left shadow-xs shrink-0 self-start md:self-auto">
             <div className="text-[11px] text-[var(--color-text-muted)]">
               {isSpecialExamProduct ? "آزمون انتخابی:" : "پلن انتخابی شما:"}
             </div>
-            <div className="text-sm font-bold text-primary">{selectedProduct.title}</div>
+            <div className="text-xs sm:text-sm font-bold text-primary whitespace-nowrap">{selectedProduct.title}</div>
           </div>
         )}
       </div>
@@ -411,14 +413,17 @@ export function CardToCardPaymentPage() {
                 </div>
 
                 {/* 16-Digit Card Number with Spaces */}
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-xl sm:text-2xl font-mono font-black tracking-widest text-amber-300 select-all">
+                <div className="flex items-center justify-between gap-3 overflow-x-auto">
+                  <span
+                    dir="ltr"
+                    className="text-lg sm:text-2xl font-mono font-black tracking-wider sm:tracking-widest text-amber-300 select-all whitespace-nowrap"
+                  >
                     {formatCardNumberWithSpaces(destinationNumber)}
                   </span>
                   <button
                     type="button"
                     onClick={() => handleCopyCard(destinationNumber)}
-                    className="px-3 py-1.5 rounded-xl bg-white/15 hover:bg-white/25 active:scale-95 transition-all text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer shrink-0 shadow-sm"
+                    className="px-3 py-1.5 rounded-xl bg-white/15 hover:bg-white/25 active:scale-95 transition-all text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer shrink-0 shadow-sm whitespace-nowrap"
                     title="کپی شماره کارت"
                   >
                     {copiedCard ? (
@@ -439,7 +444,7 @@ export function CardToCardPaymentPage() {
                   <div />
                   <div className="text-left">
                     <span className="text-teal-100 block text-[11px]">مبلغ قابل پرداخت:</span>
-                    <span className="text-base sm:text-lg font-black text-amber-300">
+                    <span className="text-base sm:text-lg font-black text-amber-300 whitespace-nowrap">
                       {selectedProduct?.price.toLocaleString("fa-IR")} تومان
                     </span>
                   </div>
@@ -705,10 +710,10 @@ export function CardToCardPaymentPage() {
                   </div>
 
                   {/* Instant Activation Alert */}
-                  <div className="flex items-center gap-2 p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 text-xs">
+                  <div className="flex items-center gap-2.5 p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 text-xs leading-relaxed">
                     <Zap className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 fill-current" />
                     <span>
-                      <strong>فعال‌سازی فوری:</strong> با کلیک بر روی تأیید، اشتراک شما همان لحظه فعال شده و نیازی به انتظار نیست.
+                      با ثبت پرداخت، اشتراک شما فعال می‌شود و می‌توانید بلافاصله از امکانات آن استفاده کنید.
                     </span>
                   </div>
 
@@ -747,13 +752,13 @@ export function CardToCardPaymentPage() {
               </div>
 
               <div className="space-y-3 text-xs">
-                <div className="flex justify-between items-center text-[var(--color-text-secondary)]">
-                  <span>محصول:</span>
-                  <span className="font-bold text-[var(--color-text)]">{selectedProduct?.title}</span>
+                <div className="flex justify-between items-center text-[var(--color-text-secondary)] gap-2">
+                  <span className="shrink-0">محصول:</span>
+                  <span className="font-bold text-[var(--color-text)] whitespace-nowrap truncate">{selectedProduct?.title}</span>
                 </div>
                 <div className="flex justify-between items-center text-[var(--color-text-secondary)]">
                   <span>مدت اعتبار:</span>
-                  <span className="font-bold text-[var(--color-text)]">
+                  <span className="font-bold text-[var(--color-text)] whitespace-nowrap">
                     {selectedProduct?.duration_days
                       ? `${selectedProduct.duration_days} روز`
                       : "دسترسی همیشگی"}
@@ -761,7 +766,7 @@ export function CardToCardPaymentPage() {
                 </div>
                 <div className="flex justify-between items-center text-[var(--color-text-secondary)] pt-2 border-t border-[var(--color-border)]">
                   <span className="font-bold text-[var(--color-text)]">مبلغ نهایی:</span>
-                  <span className="text-lg font-black text-primary">
+                  <span className="text-lg font-black text-primary whitespace-nowrap">
                     {selectedProduct?.price.toLocaleString("fa-IR")} تومان
                   </span>
                 </div>

@@ -427,6 +427,156 @@ describe("ReviewService", () => {
         service.editContent(student, organizationId, content.id, { payload }),
       ).rejects.toMatchObject({ code: "forbidden" });
     });
+
+    it("edits an already accepted lesson and updates materialized lesson without duplicating", async () => {
+      const content = seedContent();
+      const acceptResult = await service.acceptContent(
+        editor,
+        organizationId,
+        content.id,
+      );
+      expect(acceptResult.status).toBe("accepted");
+      const matId = acceptResult.materialized_lesson_id!;
+      expect(matId).toBeDefined();
+
+      const initialLesson = await lessonStore.findById(matId);
+      expect(initialLesson?.title).toBe("AI Lesson");
+
+      const editResult = await service.editContent(
+        editor,
+        organizationId,
+        content.id,
+        {
+          payload: {
+            kind: "lesson",
+            title: "Updated Accepted Lesson",
+            contentMarkdown: "# Updated Markdown Content",
+            citationChunkIds: [],
+          },
+        },
+      );
+
+      // Status remains accepted (does not downgrade to draft)
+      expect(editResult.content.status).toBe("accepted");
+      expect((editResult.content.payload as LessonPayload).title).toBe(
+        "Updated Accepted Lesson",
+      );
+
+      // Stored record tracks edit metadata
+      const stored = contentStore.getAll()[0];
+      expect(stored.status).toBe("accepted");
+      expect(stored.editedBy).toBe(editor.userId);
+      expect(stored.editedAt).toBeDefined();
+      expect((stored.previousPayload as LessonPayload).title).toBe("AI Lesson");
+
+      // Materialized lesson in Learning Core is updated in-place without duplicates
+      expect(lessonStore.getAll()).toHaveLength(1);
+      const updatedLesson = await lessonStore.findById(matId);
+      expect(updatedLesson?.title).toBe("Updated Accepted Lesson");
+      expect(updatedLesson?.contentMarkdown).toContain("Updated Markdown Content");
+    });
+
+    it("edits an already accepted flashcard and updates flashcardStore", async () => {
+      const flashcardDraft = seedContent({
+        type: "flashcard",
+        payload: {
+          kind: "flashcard",
+          cards: [
+            {
+              question: "روی کارت اول",
+              answer: "پشت کارت اول",
+              explanation: "توضیح اولیه",
+            },
+          ],
+          citationChunkIds: [],
+        },
+      });
+
+      await service.acceptContent(editor, organizationId, flashcardDraft.id);
+      const initialCards = await flashcardStore.listByCourse(courseId, organizationId);
+      expect(initialCards.length).toBeGreaterThanOrEqual(1);
+      expect(initialCards[0].question).toBe("روی کارت اول");
+
+      const editResult = await service.editContent(
+        editor,
+        organizationId,
+        flashcardDraft.id,
+        {
+          payload: {
+            kind: "flashcard",
+            cards: [
+              {
+                question: "روی کارت ویرایش‌شده",
+                answer: "پشت کارت ویرایش‌شده",
+                explanation: "توضیح جدید",
+              },
+            ],
+            citationChunkIds: [],
+          },
+        },
+      );
+
+      expect(editResult.content.status).toBe("accepted");
+      const updatedCards = await flashcardStore.listByCourse(courseId, organizationId);
+      expect(updatedCards).toHaveLength(1);
+      expect(updatedCards[0].question).toBe("روی کارت ویرایش‌شده");
+      expect(updatedCards[0].answer).toBe("پشت کارت ویرایش‌شده");
+    });
+
+    it("edits an already accepted quiz and updates quizQuestionStore", async () => {
+      const quizDraft = seedContent({
+        type: "quiz",
+        payload: {
+          kind: "quiz",
+          title: "آزمون اولیه",
+          questions: [
+            {
+              question: "سؤال ۱ اولیه؟",
+              questionType: "multiple_choice",
+              choices: ["الف", "ب", "ج", "د"],
+              correctAnswer: "الف",
+              explanation: "توضیح ۱",
+            },
+          ],
+          citationChunkIds: [],
+        },
+      });
+
+      await service.acceptContent(editor, organizationId, quizDraft.id);
+      const quizzes = await quizStore.listByCourse(courseId, organizationId);
+      expect(quizzes.length).toBeGreaterThanOrEqual(1);
+
+      const editResult = await service.editContent(
+        editor,
+        organizationId,
+        quizDraft.id,
+        {
+          payload: {
+            kind: "quiz",
+            title: "آزمون ویرایش‌شده",
+            questions: [
+              {
+                question: "سؤال ۱ ویرایش‌شده؟",
+                questionType: "multiple_choice",
+                choices: ["گزینه ۱", "گزینه ۲", "گزینه ۳", "گزینه ۴"],
+                correctAnswer: "گزینه ۲",
+                explanation: "توضیح جدید",
+              },
+            ],
+            citationChunkIds: [],
+          },
+        },
+      );
+
+      expect(editResult.content.status).toBe("accepted");
+      const updatedQuestions = await quizQuestionStore.listByFilter({
+        organizationId,
+      });
+      expect(updatedQuestions.length).toBeGreaterThanOrEqual(1);
+      const matchingQ = updatedQuestions.find((q) => q.question.includes("ویرایش‌شده"));
+      expect(matchingQ).toBeDefined();
+      expect(matchingQ?.correctAnswer).toBe("گزینه ۲");
+    });
   });
 
   describe("regenerateContent", () => {

@@ -705,4 +705,333 @@ describe("Content Export & Import Production-Ready System", () => {
     // 2. Physical files cleaned up from targetStorage!
     expect(targetStorage.files.size).toBe(0);
   });
+
+  it("10. Comprehensive Initial Detection & Multi-Scope Content: Flashcards and Quizzes identified in preview and imported cleanly", async () => {
+    // 1. Seed Source DB with both Lesson-scoped AND Course-scoped Flashcards and Quizzes
+    const courseId = "src-c-multi";
+    const modId = "src-m-multi";
+    const lessonId = "src-l-multi";
+    const lessonCardId = "src-fc-lesson";
+    const courseCardId = "src-fc-course";
+    const quizId = "src-quiz-1";
+    const q1Id = "src-qq-lesson";
+    const q2Id = "src-qq-course";
+
+    sourceDb.tables.courses.push({
+      id: courseId,
+      organizationId: orgA,
+      name: "دوره جامع با فلش‌کارت‌های درسی و سراسری",
+      subject: "پزشکی",
+      status: "published",
+    });
+
+    sourceDb.tables.modules.push({
+      id: modId,
+      courseId,
+      title: "ماژول اول",
+      sortOrder: 0,
+    });
+
+    sourceDb.tables.lessons.push({
+      id: lessonId,
+      moduleId: modId,
+      title: "درس اول",
+      contentType: "markdown",
+      contentMarkdown: "# درس اول\nمحتوای درس",
+      sortOrder: 0,
+      publicationStatus: "published",
+    });
+
+    // Lesson-scoped flashcard
+    sourceDb.tables.flashcards.push({
+      id: lessonCardId,
+      organizationId: orgA,
+      courseId,
+      lessonId,
+      question: "سوال فلش‌کارت درسی",
+      answer: "پاسخ فلش‌کارت درسی",
+      cardType: "definition",
+    });
+
+    // Course-scoped flashcard (lessonId is null)
+    sourceDb.tables.flashcards.push({
+      id: courseCardId,
+      organizationId: orgA,
+      courseId,
+      lessonId: null,
+      question: "سوال فلش‌کارت عمومی دوره",
+      answer: "پاسخ فلش‌کارت عمومی دوره",
+      cardType: "concept",
+    });
+
+    // Quiz and questions (one linked to lesson, one course-level)
+    sourceDb.tables.quizzes.push({
+      id: quizId,
+      organizationId: orgA,
+      courseId,
+      title: "آزمون ارزیابی جامع",
+      status: "published",
+    });
+
+    sourceDb.tables.quiz_questions.push({
+      id: q1Id,
+      quizId,
+      lessonId,
+      question: "سوال مرتبط با درس",
+      choices: ["الف", "ب"],
+      correctAnswer: "الف",
+      sortOrder: 0,
+    });
+
+    sourceDb.tables.quiz_questions.push({
+      id: q2Id,
+      quizId,
+      lessonId: null,
+      question: "سوال سطح کل دوره",
+      choices: ["۱", "۲"],
+      correctAnswer: "۱",
+      sortOrder: 1,
+    });
+
+    // Step A: Export
+    const zipBuffer = await exportService.exportContent(orgA, { courseId });
+
+    // Step B & C: Validate & Initial Detection
+    const plan = await importService.validatePackage(zipBuffer, actorId, orgB);
+
+    // Initial detection MUST show ALL entity counts before Import
+    expect(plan.summary.courses.new).toBe(1);
+    expect(plan.summary.modules.new).toBe(1);
+    expect(plan.summary.lessons.new).toBe(1);
+    expect(plan.summary.flashcards.new).toBe(2); // Both lesson-scoped and course-scoped
+    expect(plan.summary.quizzes.new).toBe(1);
+    expect(plan.summary.questions.new).toBe(2);
+    expect(plan.conflicts.length).toBe(0);
+
+    // Step D: Execute Import
+    const execResult = await importService.executeImport(plan.planId, actorId, orgB);
+    expect(execResult.success).toBe(true);
+    expect(execResult.counts.created).toBe(8); // 1 course + 1 module + 1 lesson + 2 flashcards + 1 quiz + 2 quizQuestions = 8
+
+    // Step E: Verify remapped DB entries in Target
+    const targetCourse = targetDb.tables.courses.find((c) => c.organizationId === orgB && c.name === "دوره جامع با فلش‌کارت‌های درسی و سراسری")!;
+    expect(targetCourse).toBeDefined();
+
+    const targetLessonCards = targetDb.tables.flashcards.filter((fc) => fc.courseId === targetCourse.id && fc.lessonId !== null);
+    const targetCourseCards = targetDb.tables.flashcards.filter((fc) => fc.courseId === targetCourse.id && fc.lessonId === null);
+    expect(targetLessonCards.length).toBe(1);
+    expect(targetCourseCards.length).toBe(1);
+
+    const targetQuiz = targetDb.tables.quizzes.find((q) => q.courseId === targetCourse.id)!;
+    expect(targetQuiz).toBeDefined();
+
+    const targetQuestions = targetDb.tables.quiz_questions.filter((qq) => qq.quizId === targetQuiz.id);
+    expect(targetQuestions.length).toBe(2);
+
+    // Step F: Re-import exact same ZIP -> 0 duplicates
+    const plan2 = await importService.validatePackage(zipBuffer, actorId, orgB);
+    expect(plan2.summary.courses.new).toBe(0);
+    expect(plan2.summary.courses.existing).toBe(1);
+    expect(plan2.summary.modules.new).toBe(0);
+    expect(plan2.summary.modules.existing).toBe(1);
+    expect(plan2.summary.lessons.new).toBe(0);
+    expect(plan2.summary.lessons.existing).toBe(1);
+    expect(plan2.summary.flashcards.new).toBe(0);
+    expect(plan2.summary.flashcards.existing).toBe(2);
+    expect(plan2.summary.quizzes.new).toBe(0);
+    expect(plan2.summary.quizzes.existing).toBe(1);
+    expect(plan2.summary.questions.new).toBe(0);
+    expect(plan2.summary.questions.existing).toBe(2);
+
+    const execResult2 = await importService.executeImport(plan2.planId, actorId, orgB);
+    expect(execResult2.counts.created).toBe(0);
+  });
+
+  it("11. ZIP Entry Order Independence: Package with reverse/shuffled JSON files imports with deterministic hierarchy", async () => {
+    const customZip = new JSZip();
+
+    const manifest = {
+      formatVersion: 1,
+      exportedAt: new Date().toISOString(),
+      source: "shuffled-test",
+      contentVersion: "1.0",
+      scope: {
+        courses: true,
+        modules: true,
+        lessons: true,
+        documents: true,
+        generatedContent: true,
+        flashcards: true,
+        quizzes: true,
+        questions: true,
+        files: true,
+      },
+      counts: {
+        courses: 1,
+        modules: 1,
+        lessons: 1,
+        documents: 0,
+        documentChunks: 0,
+        generatedContents: 0,
+        flashcards: 1,
+        quizzes: 1,
+        questions: 1,
+        files: 0,
+      },
+      files: [],
+    };
+
+    // Add files in reverse topological order (children before parents)
+    customZip.file("questions.json", JSON.stringify([{
+      exportId: "q_child",
+      quizExportId: "qz_parent",
+      lessonExportId: "ls_parent",
+      question: "سوال تستی",
+      choices: ["1", "2"],
+      correctAnswer: "1",
+      sortOrder: 0,
+    }]));
+    customZip.file("quizzes.json", JSON.stringify([{
+      exportId: "qz_parent",
+      courseExportId: "cs_root",
+      title: "کوئیز تستی",
+      status: "published",
+    }]));
+    customZip.file("flashcards.json", JSON.stringify([{
+      exportId: "fc_child",
+      courseExportId: "cs_root",
+      lessonExportId: "ls_parent",
+      question: "سوال فلش کارت",
+      answer: "پاسخ",
+    }]));
+    customZip.file("lessons.json", JSON.stringify([{
+      exportId: "ls_parent",
+      moduleExportId: "md_parent",
+      title: "درس مستقل",
+      contentType: "markdown",
+      contentMarkdown: "# درس",
+      sortOrder: 0,
+    }]));
+    customZip.file("modules.json", JSON.stringify([{
+      exportId: "md_parent",
+      courseExportId: "cs_root",
+      title: "ماژول مستقل",
+      sortOrder: 0,
+    }]));
+    customZip.file("courses.json", JSON.stringify([{
+      exportId: "cs_root",
+      name: "دوره تست ترتیب فایل",
+      status: "published",
+    }]));
+    customZip.file("manifest.json", JSON.stringify(manifest));
+
+    const zipBuffer = await customZip.generateAsync({ type: "nodebuffer" });
+
+    // Validate
+    const plan = await importService.validatePackage(zipBuffer, actorId, orgB);
+    expect(plan.summary.courses.new).toBe(1);
+    expect(plan.summary.modules.new).toBe(1);
+    expect(plan.summary.lessons.new).toBe(1);
+    expect(plan.summary.flashcards.new).toBe(1);
+    expect(plan.summary.quizzes.new).toBe(1);
+    expect(plan.summary.questions.new).toBe(1);
+
+    // Execute
+    const execResult = await importService.executeImport(plan.planId, actorId, orgB);
+    expect(execResult.success).toBe(true);
+
+    // Verify all parent-child links were correctly resolved
+    const targetCourse = targetDb.tables.courses.find((c) => c.name === "دوره تست ترتیب فایل")!;
+    expect(targetCourse).toBeDefined();
+    const targetModule = targetDb.tables.modules.find((m) => m.courseId === targetCourse.id)!;
+    expect(targetModule).toBeDefined();
+    const targetLesson = targetDb.tables.lessons.find((l) => l.moduleId === targetModule.id)!;
+    expect(targetLesson).toBeDefined();
+    const targetQuiz = targetDb.tables.quizzes.find((q) => q.courseId === targetCourse.id)!;
+    expect(targetQuiz).toBeDefined();
+    const targetQuestion = targetDb.tables.quiz_questions.find((qq) => qq.quizId === targetQuiz.id)!;
+    expect(targetQuestion).toBeDefined();
+    expect(targetQuestion.lessonId).toBe(targetLesson.id);
+  });
+
+  it("12. Resilient Graceful Degradation: Unexported/missing optional parent references fallback to course-level without crashing", async () => {
+    const customZip = new JSZip();
+
+    const manifest = {
+      formatVersion: 1,
+      exportedAt: new Date().toISOString(),
+      source: "missing-ref-test",
+      contentVersion: "1.0",
+      scope: {
+        courses: true,
+        modules: true,
+        lessons: true,
+        documents: true,
+        generatedContent: true,
+        flashcards: true,
+        quizzes: true,
+        questions: true,
+        files: true,
+      },
+      counts: {
+        courses: 1,
+        modules: 0,
+        lessons: 0,
+        documents: 0,
+        documentChunks: 0,
+        generatedContents: 0,
+        flashcards: 1,
+        quizzes: 1,
+        questions: 1,
+        files: 0,
+      },
+      files: [],
+    };
+
+    // Flashcard and Question reference a lessonExportId that does not exist in lessons.json (e.g. deleted lesson)
+    customZip.file("manifest.json", JSON.stringify(manifest));
+    customZip.file("courses.json", JSON.stringify([{ exportId: "c_1", name: "دوره بدون درس" }]));
+    customZip.file("modules.json", JSON.stringify([]));
+    customZip.file("lessons.json", JSON.stringify([]));
+    customZip.file("flashcards.json", JSON.stringify([{
+      exportId: "fc_1",
+      courseExportId: "c_1",
+      lessonExportId: "lesson_deleted_uuid", // Missing in lessons.json
+      question: "فلش کارت با درس حذف شده",
+      answer: "پاسخ",
+    }]));
+    customZip.file("quizzes.json", JSON.stringify([{
+      exportId: "qz_1",
+      courseExportId: "c_1",
+      title: "آزمون با سوال دارای درس ناموجود",
+    }]));
+    customZip.file("questions.json", JSON.stringify([{
+      exportId: "qq_1",
+      quizExportId: "qz_1",
+      lessonExportId: "lesson_deleted_uuid", // Missing in lessons.json
+      question: "سوال با درس ناموجود",
+      choices: ["A"],
+      correctAnswer: "A",
+    }]));
+
+    const zipBuffer = await customZip.generateAsync({ type: "nodebuffer" });
+
+    // Validation must NOT crash; it should gracefully decouple the optional missing lesson reference
+    const plan = await importService.validatePackage(zipBuffer, actorId, orgB);
+    expect(plan.summary.flashcards.new).toBe(1);
+    expect(plan.summary.quizzes.new).toBe(1);
+    expect(plan.summary.questions.new).toBe(1);
+
+    // Import must succeed and save flashcard and question as course-scoped (lessonId = null)
+    const execResult = await importService.executeImport(plan.planId, actorId, orgB);
+    expect(execResult.success).toBe(true);
+
+    const savedFc = targetDb.tables.flashcards.find((fc) => fc.question === "فلش کارت با درس حذف شده")!;
+    expect(savedFc).toBeDefined();
+    expect(savedFc.lessonId).toBeNull(); // Gracefully fell back to course-level
+
+    const savedQq = targetDb.tables.quiz_questions.find((qq) => qq.question === "سوال با درس ناموجود")!;
+    expect(savedQq).toBeDefined();
+    expect(savedQq.lessonId).toBeNull(); // Gracefully fell back to course-level
+  });
 });

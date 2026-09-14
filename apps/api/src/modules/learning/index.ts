@@ -6,9 +6,7 @@
  */
 
 export { learningRoutes } from "./learning-routes.js";
-export { contentRoutes } from "./content-routes.js";
 export type { LearningRouteOptions } from "./learning-routes.js";
-export type { ContentRouteOptions } from "./content-routes.js";
 export type {
   ModuleRecord,
   LessonRecord,

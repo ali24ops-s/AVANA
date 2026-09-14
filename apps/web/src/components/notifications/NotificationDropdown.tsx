@@ -57,6 +57,12 @@ function getNotificationIcon(type: NotificationType) {
           <Sparkles className="w-4 h-4" />
         </div>
       );
+    case "content_report_status_changed":
+      return (
+        <div className="w-8 h-8 rounded-full bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+          <AlertCircle className="w-4 h-4" />
+        </div>
+      );
     case "generation_failed":
     case "payment_failed":
       return (

@@ -368,15 +368,6 @@ describe("PR6-9E: Authorization & Multi-Tenant Hardening", () => {
     });
     expect(resEdit.statusCode).toBe(403);
 
-    // Student attempting to create a module
-    const resCreateMod = await app.inject({
-      method: "POST",
-      url: `/v1/organizations/${orgA}/courses/${courseA}/modules`,
-      headers: { cookie: cookieHeader },
-      payload: { title: "New Module" },
-    });
-    expect(resCreateMod.statusCode).toBe(403);
-
     // Student attempting to update course metadata
     const resUpdateCourse = await app.inject({
       method: "PATCH",

@@ -93,6 +93,92 @@ export const STAGE_LABELS_FA: Record<GenerationPipelineStage, string> = {
   publishing: "انتشار",
 };
 
+/**
+ * Canonical 6-stage user-facing pipeline indicator stages.
+ */
+export type CanonicalGenerationStage =
+  | "queued"
+  | "planning"
+  | "lessons"
+  | "flashcards"
+  | "mcqs"
+  | "completed";
+
+export const CANONICAL_STAGE_LABELS_FA: Record<CanonicalGenerationStage, string> = {
+  queued: "صف",
+  planning: "برنامه‌ریزی",
+  lessons: "تولید درس‌ها",
+  flashcards: "تولید فلش‌کارت‌ها",
+  mcqs: "تولید سوالات",
+  completed: "تکمیل",
+};
+
+/**
+ * Normalizes any incoming stage identifier (or status) to one of the 6 canonical stages.
+ * Prevents UI from getting stuck on step 0 due to casing, naming mismatch, or undefined keys.
+ */
+export function normalizeGenerationStage(
+  stage?: string | null,
+  status?: string | null,
+): CanonicalGenerationStage {
+  if (status === "completed" || status === "succeeded" || status === "ready") {
+    return "completed";
+  }
+  if (!stage || stage.trim().length === 0) {
+    if (status === "queued" || status === "idle") return "queued";
+    if (status === "planning") return "planning";
+    if (status === "generating") return "lessons";
+    return "queued";
+  }
+
+  const s = stage.toLowerCase().trim();
+  switch (s) {
+    case "queued":
+    case "queue":
+    case "pending":
+    case "idle":
+      return "queued";
+
+    case "analysis":
+    case "planning":
+    case "plan":
+      return "planning";
+
+    case "lesson":
+    case "lessons":
+    case "session":
+    case "sessions":
+      return "lessons";
+
+    case "flashcard":
+    case "flashcards":
+    case "cards":
+      return "flashcards";
+
+    case "quiz":
+    case "quizzes":
+    case "mcq":
+    case "mcqs":
+    case "exam":
+    case "exams":
+    case "summary":
+    case "review_summary":
+      return "mcqs";
+
+    case "completed":
+    case "succeeded":
+    case "review":
+    case "reviewing":
+    case "publishing":
+    case "ready":
+      return "completed";
+
+    default:
+      return "planning";
+  }
+}
+
+
 export type DocumentGenerationProgressRecord = {
   documentId: DocumentId;
   organizationId: OrganizationId;

@@ -18,7 +18,22 @@ import type { DocumentId, OrganizationId } from "@avana/domain";
  * Extensible — future "openai" | "anthropic" | "azure" are added behind the
  * same ModelGateway interface. PR6-4 only provides the "mock" provider.
  */
-export type ModelProvider = "mock" | "gemini" | "cloudflare" | "groq" | "gapgpt" | "arvancloud";
+export type ModelProvider = "mock" | "gemini" | "cloudflare" | "groq" | "gapgpt" | "arvancloud" | "openrouter" | "deepseek";
+
+/**
+ * Checks whether a gateway or provider target is DeepSeek.
+ */
+export function isDeepSeekProvider(gateway?: { provider?: string; model?: string }): boolean {
+  if (!gateway) return false;
+  const p = gateway.provider?.toLowerCase() ?? "";
+  const m = gateway.model?.toLowerCase() ?? "";
+  return (
+    p === "deepseek" ||
+    m.includes("deepseek") ||
+    p === "arvancloud" ||
+    (p === "openrouter" && (m.includes("deepseek") || !m))
+  );
+}
 
 /**
  * A single message in a completion request.

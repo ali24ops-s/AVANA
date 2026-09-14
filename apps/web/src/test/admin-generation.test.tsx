@@ -222,4 +222,87 @@ describe("Admin Generation Center Frontend", () => {
     expect(screen.getByText("اطلاعات مصرف توکن موجود نیست")).toBeInTheDocument();
     expect(screen.getByText("برای این Job خروجی تولیدی موجود نیست.")).toBeInTheDocument();
   });
+
+  it("renders rejected content history tab and displays rejected items with reason and reviewer", async () => {
+    const listRejectedSpy = vi.fn().mockResolvedValue({
+      items: [
+        {
+          id: "gen-100",
+          organizationId: "org-1",
+          type: "lesson",
+          title: "فارماکولوژی پیشرفته",
+          courseId: "c-100",
+          courseTitle: "داروشناسی بالینی",
+          documentId: "doc-100",
+          documentName: "درسنامه داروشناسی.pdf",
+          reviewedBy: "دکتر حسینی",
+          reviewedAt: "2026-09-13T10:00:00.000Z",
+          reviewReason: "دوز داروها نیاز به بازنگری دارد.",
+          model: "gemini-1.5-pro",
+          createdAt: "2026-09-13T09:00:00.000Z",
+        },
+      ],
+      totalCount: 1,
+    });
+
+    vi.mocked(useAdminModule.useAdmin).mockReturnValue({
+      listGenerationJobs: vi.fn().mockResolvedValue({ jobs: [], totalCount: 0 }),
+      listRejectedContents: listRejectedSpy,
+    } as unknown as ReturnType<typeof useAdminModule.useAdmin>);
+
+    const { queryClient } = setup();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/admin/generation?tab=rejected"]}>
+          <Routes>
+            <Route path="/admin/generation" element={<AdminGenerationPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+
+    // Verify Tab Header
+    expect(screen.getByRole("tab", { name: /محتواهای ردشده/i })).toBeInTheDocument();
+
+    // Wait for rejected data to load
+    await waitFor(() => {
+      expect(screen.getByText("فارماکولوژی پیشرفته")).toBeInTheDocument();
+      expect(screen.getByText("داروشناسی بالینی")).toBeInTheDocument();
+      expect(screen.getByText("درسنامه داروشناسی.pdf")).toBeInTheDocument();
+      expect(screen.getByText("دوز داروها نیاز به بازنگری دارد.")).toBeInTheDocument();
+      expect(screen.getByText("دکتر حسینی")).toBeInTheDocument();
+    });
+
+    expect(listRejectedSpy).toHaveBeenCalledWith({
+      page: 1,
+      pageSize: 20,
+      type: undefined,
+      search: undefined,
+    });
+  });
+
+  it("shows empty state when no rejected contents exist", async () => {
+    vi.mocked(useAdminModule.useAdmin).mockReturnValue({
+      listGenerationJobs: vi.fn().mockResolvedValue({ jobs: [], totalCount: 0 }),
+      listRejectedContents: vi.fn().mockResolvedValue({ items: [], totalCount: 0 }),
+    } as unknown as ReturnType<typeof useAdminModule.useAdmin>);
+
+    const { queryClient } = setup();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/admin/generation?tab=rejected"]}>
+          <Routes>
+            <Route path="/admin/generation" element={<AdminGenerationPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("هیچ محتوای ردشده‌ای وجود ندارد.")).toBeInTheDocument();
+    });
+  });
 });
+

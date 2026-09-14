@@ -638,6 +638,11 @@ export type GeneratedContentResource = {
   citations: CitationResource[];
   created_at: string;
   updated_at: string;
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
+  review_reason?: string | null;
+  edited_by?: string | null;
+  edited_at?: string | null;
 };
 
 export type GenerateContentRequest = {
@@ -1012,7 +1017,7 @@ export type CreateFlashcardStudySessionRequest = {
   lessonIds?: UUID[];
   documentIds?: UUID[];
   mode?: "daily" | "exam" | "custom" | "normal";
-  customMode?: "weak" | "forgotten" | "overdue" | "review_ahead" | "new";
+  customMode?: "weak" | "forgotten" | "overdue" | "review_ahead" | "new" | "due" | "learned";
   limit?: number;
   aheadDays?: number;
   title?: string;

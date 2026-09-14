@@ -107,90 +107,7 @@ export class ContentExportService {
       }
     }
 
-    // 2. Query Modules
-    const moduleConditions = [
-      inArray(modules.courseId, selectedCourseIds),
-      isNull(modules.deletedAt),
-    ];
-    if (options.moduleIds && options.moduleIds.length > 0) {
-      moduleConditions.push(inArray(modules.id, options.moduleIds));
-    }
-    const dbModules = await this.db
-      .select()
-      .from(modules)
-      .where(and(...moduleConditions))
-      .orderBy(modules.sortOrder);
-
-    const selectedModuleIds = dbModules.map((m) => m.id);
-    const moduleExportMap = new Map<string, string>();
-    const exportModules: ExportModuleItem[] = [];
-
-    for (const m of dbModules) {
-      const exportId = `module_${m.id}`;
-      moduleExportMap.set(m.id, exportId);
-      if (scope.modules) {
-        exportModules.push({
-          exportId,
-          courseExportId: courseExportMap.get(m.courseId) || `course_${m.courseId}`,
-          documentExportId: m.documentId ? `doc_${m.documentId}` : null,
-          title: m.title,
-          description: m.description,
-          sortOrder: m.sortOrder,
-          contentHash: sha256Hex(
-            JSON.stringify({
-              title: m.title.trim().toLowerCase(),
-              sortOrder: m.sortOrder,
-            }),
-          ),
-        });
-      }
-    }
-
-    // 3. Query Lessons
-    let dbLessons: (typeof lessons.$inferSelect)[] = [];
-    if (selectedModuleIds.length > 0) {
-      const lessonConditions = [
-        inArray(lessons.moduleId, selectedModuleIds),
-        isNull(lessons.deletedAt),
-      ];
-      if (options.lessonIds && options.lessonIds.length > 0) {
-        lessonConditions.push(inArray(lessons.id, options.lessonIds));
-      }
-      dbLessons = await this.db
-        .select()
-        .from(lessons)
-        .where(and(...lessonConditions))
-        .orderBy(lessons.sortOrder);
-    }
-
-    const selectedLessonIds = dbLessons.map((l) => l.id);
-    const lessonExportMap = new Map<string, string>();
-    const exportLessons: ExportLessonItem[] = [];
-
-    for (const l of dbLessons) {
-      const exportId = `lesson_${l.id}`;
-      lessonExportMap.set(l.id, exportId);
-      if (scope.lessons) {
-        exportLessons.push({
-          exportId,
-          moduleExportId: moduleExportMap.get(l.moduleId) || `module_${l.moduleId}`,
-          title: l.title,
-          contentType: l.contentType,
-          contentMarkdown: l.contentMarkdown,
-          sortOrder: l.sortOrder,
-          estimatedMinutes: l.estimatedMinutes,
-          publicationStatus: l.publicationStatus,
-          contentHash: sha256Hex(
-            JSON.stringify({
-              title: l.title.trim().toLowerCase(),
-              contentMarkdown: l.contentMarkdown.trim(),
-            }),
-          ),
-        });
-      }
-    }
-
-    // 4. Query Documents and Chunks
+    // 2. Query Documents and Chunks
     const dbDocuments = await this.db
       .select()
       .from(documents)
@@ -272,6 +189,89 @@ export class ContentExportService {
       }
     }
 
+    // 3. Query Modules
+    const moduleConditions = [
+      inArray(modules.courseId, selectedCourseIds),
+      isNull(modules.deletedAt),
+    ];
+    if (options.moduleIds && options.moduleIds.length > 0) {
+      moduleConditions.push(inArray(modules.id, options.moduleIds));
+    }
+    const dbModules = await this.db
+      .select()
+      .from(modules)
+      .where(and(...moduleConditions))
+      .orderBy(modules.sortOrder);
+
+    const selectedModuleIds = dbModules.map((m) => m.id);
+    const moduleExportMap = new Map<string, string>();
+    const exportModules: ExportModuleItem[] = [];
+
+    for (const m of dbModules) {
+      const exportId = `module_${m.id}`;
+      moduleExportMap.set(m.id, exportId);
+      if (scope.modules) {
+        exportModules.push({
+          exportId,
+          courseExportId: courseExportMap.get(m.courseId) || `course_${m.courseId}`,
+          documentExportId: m.documentId ? docExportMap.get(m.documentId) || null : null,
+          title: m.title,
+          description: m.description,
+          sortOrder: m.sortOrder,
+          contentHash: sha256Hex(
+            JSON.stringify({
+              title: m.title.trim().toLowerCase(),
+              sortOrder: m.sortOrder,
+            }),
+          ),
+        });
+      }
+    }
+
+    // 4. Query Lessons
+    let dbLessons: (typeof lessons.$inferSelect)[] = [];
+    if (selectedModuleIds.length > 0) {
+      const lessonConditions = [
+        inArray(lessons.moduleId, selectedModuleIds),
+        isNull(lessons.deletedAt),
+      ];
+      if (options.lessonIds && options.lessonIds.length > 0) {
+        lessonConditions.push(inArray(lessons.id, options.lessonIds));
+      }
+      dbLessons = await this.db
+        .select()
+        .from(lessons)
+        .where(and(...lessonConditions))
+        .orderBy(lessons.sortOrder);
+    }
+
+    const selectedLessonIds = dbLessons.map((l) => l.id);
+    const lessonExportMap = new Map<string, string>();
+    const exportLessons: ExportLessonItem[] = [];
+
+    for (const l of dbLessons) {
+      const exportId = `lesson_${l.id}`;
+      lessonExportMap.set(l.id, exportId);
+      if (scope.lessons) {
+        exportLessons.push({
+          exportId,
+          moduleExportId: moduleExportMap.get(l.moduleId) || `module_${l.moduleId}`,
+          title: l.title,
+          contentType: l.contentType,
+          contentMarkdown: l.contentMarkdown,
+          sortOrder: l.sortOrder,
+          estimatedMinutes: l.estimatedMinutes,
+          publicationStatus: l.publicationStatus,
+          contentHash: sha256Hex(
+            JSON.stringify({
+              title: l.title.trim().toLowerCase(),
+              contentMarkdown: l.contentMarkdown.trim(),
+            }),
+          ),
+        });
+      }
+    }
+
     // 5. Query Generated Contents & Citations
     const exportGeneratedContents: ExportGeneratedContentItem[] = [];
     const exportCitations: ExportGeneratedContentCitationItem[] = [];
@@ -295,9 +295,9 @@ export class ContentExportService {
         exportGeneratedContents.push({
           exportId,
           courseExportId: courseExportMap.get(g.courseId) || `course_${g.courseId}`,
-          documentExportId: g.documentId ? docExportMap.get(g.documentId) || `doc_${g.documentId}` : null,
+          documentExportId: g.documentId ? docExportMap.get(g.documentId) || null : null,
           materializedLessonExportId: g.materializedLessonId
-            ? lessonExportMap.get(g.materializedLessonId) || `lesson_${g.materializedLessonId}`
+            ? lessonExportMap.get(g.materializedLessonId) || null
             : null,
           type: g.type,
           status: g.status,
@@ -363,8 +363,8 @@ export class ContentExportService {
         exportFlashcards.push({
           exportId: `card_${fc.id}`,
           courseExportId: courseExportMap.get(fc.courseId) || `course_${fc.courseId}`,
-          documentExportId: fc.documentId ? docExportMap.get(fc.documentId) || `doc_${fc.documentId}` : null,
-          lessonExportId: fc.lessonId ? lessonExportMap.get(fc.lessonId) || `lesson_${fc.lessonId}` : null,
+          documentExportId: fc.documentId ? docExportMap.get(fc.documentId) || null : null,
+          lessonExportId: fc.lessonId ? lessonExportMap.get(fc.lessonId) || null : null,
           generatedContentExportId: fc.generatedContentId ? `gen_${fc.generatedContentId}` : null,
           question: fc.question,
           answer: fc.answer,
@@ -406,7 +406,7 @@ export class ContentExportService {
         exportQuizzes.push({
           exportId,
           courseExportId: courseExportMap.get(q.courseId) || `course_${q.courseId}`,
-          documentExportId: q.documentId ? docExportMap.get(q.documentId) || `doc_${q.documentId}` : null,
+          documentExportId: q.documentId ? docExportMap.get(q.documentId) || null : null,
           title: q.title,
           topic: q.topic,
           difficulty: q.difficulty,
@@ -440,7 +440,7 @@ export class ContentExportService {
           exportQuizQuestions.push({
             exportId: `question_${qq.id}`,
             quizExportId: `quiz_${qq.quizId}`,
-            lessonExportId: qq.lessonId ? lessonExportMap.get(qq.lessonId) || `lesson_${qq.lessonId}` : null,
+            lessonExportId: qq.lessonId ? lessonExportMap.get(qq.lessonId) || null : null,
             generatedContentExportId: qq.generatedContentId ? `gen_${qq.generatedContentId}` : null,
             question: qq.question,
             topic: qq.topic,

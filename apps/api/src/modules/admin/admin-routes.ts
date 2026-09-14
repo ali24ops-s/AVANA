@@ -17,6 +17,7 @@ import {
   asContentPackId,
   buildAdminContentPackPreview,
   type Role,
+  type UserId,
   type CourseId,
   type LessonId,
 } from "@avana/domain";
@@ -40,6 +41,12 @@ import type { OrganizationStore } from "../organizations/organization-store.js";
 import type { CourseStore } from "../courses/course-store.js";
 import type { StudyService } from "../study/study-service.js";
 import type { SpecialExamAutomationService } from "../study/special-exam-automation-service.js";
+import type { NotificationService } from "../notifications/notification-service.js";
+import {
+  type ContentReportStore,
+  DrizzleContentReportStore,
+  InMemoryContentReportStore,
+} from "../study/index.js";
 import {
   DomainError,
   calculateSpecialExamPrice,
@@ -67,6 +74,8 @@ export interface AdminRouteOptions extends AuthMiddlewareDeps {
   systemOrganizationId?: string;
   organizationStore?: OrganizationStore;
   courseStore?: CourseStore;
+  contentReportStore?: ContentReportStore;
+  notificationService?: NotificationService;
 }
 
 export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
@@ -77,7 +86,13 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
   const adminService = new AdminService(adminStore);
   const { requireAuth, requireRole } = makeAuthMiddleware({ sessionService, userStore });
 
-  // All routes here require platform_admin, EXCEPT content management, studio, export/import, and generation routes for content workers
+  const contentReportStore: ContentReportStore =
+    opts.contentReportStore ??
+    ((opts.adminStore as any)?.db
+      ? new DrizzleContentReportStore((opts.adminStore as any).db)
+      : new InMemoryContentReportStore());
+
+  // All routes here require platform_admin, EXCEPT content management, studio, export/import, generation, and content-reports routes for content workers
   app.addHook("preHandler", requireAuth);
   app.addHook("preHandler", async (request, reply) => {
     const rawPath = request.url.split("?")[0];
@@ -93,7 +108,8 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
       rawPath.endsWith("/generation") ||
       rawPath.includes("/generation/") ||
       rawPath.endsWith("/prompts") ||
-      rawPath.includes("/content/");
+      rawPath.includes("/content/") ||
+      rawPath.includes("/content-reports");
 
     if (isWorkerAllowed) {
       const user = (request as any).user;
@@ -134,6 +150,27 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
     const pageSize = query.pageSize ? parseInt(query.pageSize, 10) : 20;
     
     const result = await adminService.listGenerationJobs(page, pageSize, query.status);
+    return reply.send(result);
+  });
+
+  app.get("/generation/rejected-contents", async (request, reply) => {
+    const query = request.query as {
+      page?: string;
+      pageSize?: string;
+      type?: string;
+      courseId?: string;
+      search?: string;
+    };
+    const page = query.page ? parseInt(query.page, 10) : 1;
+    const pageSize = query.pageSize ? parseInt(query.pageSize, 10) : 20;
+
+    const result = await adminService.listRejectedGeneratedContents({
+      page,
+      pageSize,
+      type: query.type,
+      courseId: query.courseId,
+      search: query.search,
+    });
     return reply.send(result);
   });
 
@@ -2054,6 +2091,111 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
       message: "دستگاه‌ها و نشست‌های کاربر با موفقیت بازنشانی شدند.",
       revokedDevicesCount,
     });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Content Problem Reports Management (Lesson Issues)
+  // ---------------------------------------------------------------------------
+
+  const VALID_REPORT_STATUSES: readonly string[] = [
+    "pending",
+    "in_review",
+    "resolved",
+    "dismissed",
+  ];
+
+  app.get("/content-reports", async (request, reply) => {
+    const query = (request.query || {}) as {
+      page?: string;
+      pageSize?: string;
+      status?: string;
+      category?: string;
+      courseId?: string;
+      lessonId?: string;
+    };
+
+    const page = Math.max(1, parseInt(query.page || "1", 10) || 1);
+    const pageSize = Math.max(
+      1,
+      Math.min(100, parseInt(query.pageSize || "20", 10) || 20),
+    );
+
+    const result = await contentReportStore.list({
+      page,
+      pageSize,
+      status: query.status?.trim() || undefined,
+      category: query.category?.trim() || undefined,
+      courseId: query.courseId?.trim() ? (query.courseId.trim() as CourseId) : undefined,
+      lessonId: query.lessonId?.trim() ? (query.lessonId.trim() as LessonId) : undefined,
+    });
+
+    return reply.send(result);
+  });
+
+  app.get("/content-reports/:id", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const report = await contentReportStore.findById(id);
+    if (!report) {
+      throw new DomainError("not_found", "گزارش مورد نظر یافت نشد.");
+    }
+    return reply.send(report);
+  });
+
+  app.patch("/content-reports/:id", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = (request.body || {}) as { status?: string };
+
+    if (!body.status || !VALID_REPORT_STATUSES.includes(body.status)) {
+      throw new DomainError(
+        "bad_request",
+        `وضعیت نامعتبر است. وضعیت‌های مجاز: ${VALID_REPORT_STATUSES.join(", ")}`,
+      );
+    }
+
+    const currentReport = await contentReportStore.findById(id);
+    if (!currentReport) {
+      throw new DomainError("not_found", "گزارش مورد نظر یافت نشد.");
+    }
+
+    const oldStatus = currentReport.status;
+    const newStatus = body.status;
+
+    let updated = currentReport;
+    if (oldStatus !== newStatus) {
+      const updateResult = await contentReportStore.updateStatus(id, newStatus);
+      if (!updateResult) {
+        throw new DomainError("not_found", "گزارش مورد نظر یافت نشد.");
+      }
+
+      const refetched = await contentReportStore.findById(id);
+      if (refetched) {
+        updated = refetched;
+      }
+
+      // Send notification to the report author (currentReport.userId)
+      if (opts.notificationService && currentReport.userId) {
+        try {
+          await opts.notificationService.notifyContentReportStatus(
+            currentReport.userId as UserId,
+            {
+              reportId: id,
+              lessonId: currentReport.lessonId,
+              courseId: currentReport.courseId,
+              lessonTitle: currentReport.lessonTitle,
+              oldStatus,
+              newStatus,
+            },
+          );
+        } catch (notifErr) {
+          request.log.error(
+            notifErr,
+            "Failed to send content report status notification",
+          );
+        }
+      }
+    }
+
+    return reply.send(updated);
   });
 };
 

@@ -18,6 +18,11 @@ import {
   PauseCircle,
   Trash2,
 } from "lucide-react";
+import {
+  normalizeGenerationStage,
+  type CanonicalGenerationStage,
+  CANONICAL_STAGE_LABELS_FA,
+} from "@avana/domain";
 import type { ActiveGenerationItem } from "../../lib/api/generation.js";
 
 export interface GenerationDetailsModalProps {
@@ -33,18 +38,25 @@ export interface GenerationDetailsModalProps {
 }
 
 const ORDERED_STAGES: Array<{
-  stage: "analysis" | "planning" | "lesson" | "flashcard" | "quiz" | "summary" | "review" | "publishing";
+  stage: CanonicalGenerationStage;
   label: string;
   icon: typeof BookOpen;
 }> = [
-  { stage: "analysis", label: "تحلیل فایل", icon: FileText },
-  { stage: "planning", label: "برنامه‌ریزی محتوا", icon: Sparkles },
-  { stage: "lesson", label: "تولید درسنامه", icon: BookOpen },
-  { stage: "flashcard", label: "تولید فلش‌کارت", icon: Layers },
-  { stage: "quiz", label: "تولید آزمون", icon: HelpCircle },
-  { stage: "summary", label: "تولید خلاصه", icon: Zap },
-  { stage: "review", label: "بازبینی و اعتبارسنجی", icon: CheckCircle2 },
-  { stage: "publishing", label: "انتشار", icon: Sparkles },
+  { stage: "queued", label: "صف", icon: Clock },
+  { stage: "planning", label: "برنامه‌ریزی", icon: Sparkles },
+  { stage: "lessons", label: "تولید درس‌ها", icon: BookOpen },
+  { stage: "flashcards", label: "تولید فلش‌کارت‌ها", icon: Layers },
+  { stage: "mcqs", label: "تولید سوالات", icon: HelpCircle },
+  { stage: "completed", label: "تکمیل", icon: CheckCircle2 },
+];
+
+const STAGE_ORDER: CanonicalGenerationStage[] = [
+  "queued",
+  "planning",
+  "lessons",
+  "flashcards",
+  "mcqs",
+  "completed",
 ];
 
 function sanitizeErrorMessage(rawError?: string | null): string {
@@ -113,18 +125,8 @@ export function GenerationDetailsModal({
 
   const currentItem = items.find((i) => i.documentId === activeDocId) || items[0];
 
-  const stageIndexMap: Record<string, number> = {
-    analysis: 0,
-    planning: 1,
-    lesson: 2,
-    flashcard: 3,
-    quiz: 4,
-    summary: 5,
-    review: 6,
-    publishing: 7,
-  };
-
-  const currentStageIndex = currentItem?.stage ? (stageIndexMap[currentItem.stage] ?? 0) : 0;
+  const normalizedStage = normalizeGenerationStage(currentItem?.stage, currentItem?.status);
+  const currentStageIndex = Math.max(0, STAGE_ORDER.indexOf(normalizedStage));
   const isCompleted = currentItem?.status === "completed";
   const isFailed = currentItem?.status === "failed";
   const isStopped = currentItem?.status === "stopped";
@@ -331,7 +333,7 @@ export function GenerationDetailsModal({
                   <span className="text-[var(--color-primary-default)] flex items-center gap-1.5">
                     <Loader2 className="w-4 h-4 animate-spin text-[var(--color-primary-default)]" />
                     <span>
-                      {currentItem.stageLabel || "در حال پردازش پایپ‌لاین تولید محتوا"}
+                      {currentItem.stageLabel || CANONICAL_STAGE_LABELS_FA[normalizedStage] || "در حال پردازش پایپ‌لاین تولید محتوا"}
                       {currentItem.progress ? ` (${currentItem.progress.current}/${currentItem.progress.total})` : ""}
                     </span>
                   </span>

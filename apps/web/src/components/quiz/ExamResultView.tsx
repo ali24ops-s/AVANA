@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { TrophyIcon, RefreshIcon } from "./ExamIcons.js";
 import { RichContent } from "../markdown/MarkdownRenderer.js";
 import { Button, Card, Badge } from "@avana/ui";
@@ -106,33 +107,96 @@ export function ExamResultView({
 
   // Topic mastery performance breakdown
   const topicBreakdown = useMemo(() => {
-    const map = new Map<string, { total: number; earned: number; correct: number }>();
+    const map = new Map<
+      string,
+      {
+        total: number;
+        earned: number;
+        correct: number;
+        incorrect: number;
+        unanswered: number;
+        partial: number;
+        lessonId?: string;
+        courseId?: string;
+        chapterTitle?: string;
+      }
+    >();
+
     for (const q of questions) {
-      const topic = q.topic?.trim() || "مباحث جامع";
+      const rawTopic = q.topic?.trim();
+      const topic =
+        rawTopic && !isInternalIdentifier(rawTopic)
+          ? rawTopic
+          : q.lesson?.title?.trim() ||
+            q.chapter?.title?.trim() ||
+            q.course?.title?.trim() ||
+            "مباحث جامع";
+
       const ev = evaluations[q.id];
-      const curr = map.get(topic) || { total: 0, earned: 0, correct: 0 };
+      const curr = map.get(topic) || {
+        total: 0,
+        earned: 0,
+        correct: 0,
+        incorrect: 0,
+        unanswered: 0,
+        partial: 0,
+      };
+
       curr.total += 1;
+      if (q.lesson?.id) curr.lessonId = q.lesson.id;
+      if (q.course?.id) curr.courseId = q.course.id;
+      if (q.chapter?.title) curr.chapterTitle = q.chapter.title;
+
       if (ev) {
         if (ev.status === "correct") {
           curr.earned += 1;
           curr.correct += 1;
         } else if (ev.status === "partial") {
           curr.earned += ev.scoreRatio;
+          curr.partial += 1;
+        } else if (ev.status === "unanswered") {
+          curr.unanswered += 1;
+        } else {
+          curr.incorrect += 1;
         }
       }
       map.set(topic, curr);
     }
 
-    return Array.from(map.entries()).map(([topic, stats]) => ({
-      topic,
-      total: stats.total,
-      correct: stats.correct,
-      percent: Math.round((stats.earned / Math.max(1, stats.total)) * 100),
-    }));
+    const items = Array.from(map.entries()).map(([topic, stats]) => {
+      const percent = Math.round((stats.earned / Math.max(1, stats.total)) * 100);
+      const studyUrl =
+        stats.courseId && stats.lessonId
+          ? `/courses/${stats.courseId}?lessonId=${stats.lessonId}`
+          : stats.courseId
+            ? `/courses/${stats.courseId}`
+            : undefined;
+
+      return {
+        topic,
+        total: stats.total,
+        correct: stats.correct,
+        incorrect: stats.incorrect,
+        unanswered: stats.unanswered,
+        partial: stats.partial,
+        percent,
+        studyUrl,
+        chapterTitle: stats.chapterTitle,
+      };
+    });
+
+    // Sort from weakest to strongest (ascending) so areas needing attention are immediately prominent
+    return items.sort((a, b) => a.percent - b.percent);
   }, [questions, evaluations]);
 
-  const strengths = topicBreakdown.filter((t) => t.percent >= 70);
-  const weaknesses = topicBreakdown.filter((t) => t.percent < 60);
+  const strengths = useMemo(
+    () => topicBreakdown.filter((t) => t.percent >= 70),
+    [topicBreakdown],
+  );
+  const weaknesses = useMemo(
+    () => topicBreakdown.filter((t) => t.percent < 60),
+    [topicBreakdown],
+  );
 
   const displayedQuestions = useMemo(() => {
     if (activeFilter === "review_needed") {
@@ -176,30 +240,30 @@ export function ExamResultView({
           <div className="p-3 rounded-xl bg-[#e4f4ec] border border-[#9ed4bb] text-center">
             <span className="text-xs text-[#2a624b] block font-semibold">پاسخ صحیح</span>
             <span className="text-xl font-bold font-mono text-[#2a624b] mt-1 block">
-              {correctCount}
+              {toPersianDigits(correctCount)}
             </span>
           </div>
 
           <div className="p-3 rounded-xl bg-[#fde8e8] border border-[#e8a0a0] text-center">
             <span className="text-xs text-[#7f3131] block font-semibold">پاسخ نادرست</span>
             <span className="text-xl font-bold font-mono text-[#7f3131] mt-1 block">
-              {incorrectCount}
-            </span>
-          </div>
-
-          <div className="p-3 rounded-xl bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-center">
-            <span className="text-xs text-[var(--color-text-muted)] block font-semibold">بدون پاسخ</span>
-            <span className="text-xl font-bold font-mono text-[var(--color-text)] mt-1 block">
-              {unansweredCount}
+              {toPersianDigits(incorrectCount)}
             </span>
           </div>
 
           <div className="p-3 rounded-xl bg-[#fdf2e4] border border-[#e8c18a] text-center">
-            <span className="text-xs text-[#8f5e27] block font-semibold">
+            <span className="text-xs text-[#8f5e27] block font-semibold">بدون پاسخ</span>
+            <span className="text-xl font-bold font-mono text-[#8f5e27] mt-1 block">
+              {toPersianDigits(unansweredCount)}
+            </span>
+          </div>
+
+          <div className="p-3 rounded-xl bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-center">
+            <span className="text-xs text-[var(--color-text-muted)] block font-semibold">
               {partialCount > 0 ? "پاسخ ناقص" : "کل سوالات"}
             </span>
-            <span className="text-xl font-bold font-mono text-[#8f5e27] mt-1 block">
-              {partialCount > 0 ? partialCount : result.total}
+            <span className="text-xl font-bold font-mono text-[var(--color-text)] mt-1 block">
+              {toPersianDigits(partialCount > 0 ? partialCount : result.total)}
             </span>
           </div>
         </div>
@@ -236,73 +300,236 @@ export function ExamResultView({
               عملکرد به تفکیک مباحث آزمون
             </h3>
             <span className="text-xs text-[var(--color-text-muted)]">
-              {topicBreakdown.length} مبحث ارزیابی‌شده
+              {toPersianDigits(topicBreakdown.length)} مبحث ارزیابی‌شده
             </span>
           </div>
 
-          <div className="space-y-4">
-            {topicBreakdown.map((t, idx) => (
-              <div key={idx} className="space-y-1.5">
-                <div className="flex justify-between items-center text-xs">
-                  <span className="text-[var(--color-text)] font-semibold">{t.topic}</span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[var(--color-text-muted)] font-mono">
-                      {formatPersianOf(t.correct, t.total, { suffix: "صحیح" })}
+          <div className="grid grid-cols-1 gap-3.5">
+            {topicBreakdown.map((t, idx) => {
+              const isMastered = t.percent >= 70;
+              const needsReview = t.percent >= 60 && t.percent < 70;
+
+              const statusVariant = isMastered ? "success" : needsReview ? "warning" : "error";
+              const statusLabel = isMastered ? "تسلط مطلوب" : needsReview ? "نیازمند مرور" : "نیازمند تمرکز";
+              const progressBarColor = isMastered ? "bg-[#3d8f6e]" : needsReview ? "bg-[#c2853f]" : "bg-[#b84c4c]";
+              const percentColor = isMastered ? "text-[#2a624b]" : needsReview ? "text-[#8f5e27]" : "text-[#7f3131]";
+
+              return (
+                <div
+                  key={idx}
+                  className="p-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] hover:border-[var(--color-primary)]/40 transition-all shadow-2xs space-y-3"
+                >
+                  {/* Header: Title, Chapter & Badges */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="space-y-0.5 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-bold text-[var(--color-text)] truncate">
+                          {t.topic}
+                        </span>
+                        <Badge variant={statusVariant} size="sm">
+                          {statusLabel}
+                        </Badge>
+                      </div>
+                      {t.chapterTitle && (
+                        <p className="text-[11px] text-[var(--color-text-muted)] truncate">
+                          سرفصل: {t.chapterTitle}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-3 shrink-0 self-end sm:self-center">
+                      <span className={`text-lg font-black font-mono ${percentColor}`} dir="ltr">
+                        {toPersianDigits(t.percent)}%
+                      </span>
+                      {t.studyUrl && (
+                        <Link
+                          to={t.studyUrl}
+                          className="inline-flex items-center gap-1 text-xs font-bold text-primary hover:underline bg-primary/10 hover:bg-primary/20 px-2.5 py-1 rounded-lg transition-colors"
+                        >
+                          <span>مطالعه جلسه</span>
+                          <span className="material-symbols-outlined text-xs">arrow_back</span>
+                        </Link>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Visual Progress Bar */}
+                  <div className="w-full bg-[var(--color-surface-warm)] border border-[var(--color-border)] rounded-full h-2.5 overflow-hidden">
+                    <div
+                      className={`h-2.5 rounded-full transition-all duration-500 ${progressBarColor}`}
+                      style={{ width: `${Math.max(2, t.percent)}%` }}
+                    />
+                  </div>
+
+                  {/* Granular Counts Breakdown: درست · غلط · بدون پاسخ */}
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--color-text-secondary)] pt-0.5 border-t border-[var(--color-border)]/50">
+                    <span className="flex items-center gap-1 text-[#2a624b] font-medium">
+                      <span className="w-2 h-2 rounded-full bg-[#3d8f6e]" />
+                      <span>{toPersianDigits(t.correct)} درست</span>
                     </span>
-                    <span
-                      className={`font-bold font-mono ${
-                        t.percent >= 70
-                          ? "text-[#2a624b]"
-                          : t.percent >= 50
-                            ? "text-[#8f5e27]"
-                            : "text-[#7f3131]"
-                      }`}
-                    >
-                      {t.percent}%
+                    <span className="text-[var(--color-border)]">·</span>
+                    <span className="flex items-center gap-1 text-[#7f3131] font-medium">
+                      <span className="w-2 h-2 rounded-full bg-[#b84c4c]" />
+                      <span>{toPersianDigits(t.incorrect)} غلط</span>
+                    </span>
+                    {t.unanswered > 0 && (
+                      <>
+                        <span className="text-[var(--color-border)]">·</span>
+                        <span className="flex items-center gap-1 text-[#8f5e27] font-medium">
+                          <span className="w-2 h-2 rounded-full bg-[#c2853f]" />
+                          <span>{toPersianDigits(t.unanswered)} بدون پاسخ</span>
+                        </span>
+                      </>
+                    )}
+                    {t.partial > 0 && (
+                      <>
+                        <span className="text-[var(--color-border)]">·</span>
+                        <span className="flex items-center gap-1 text-[#8f5e27] font-medium">
+                          <span className="w-2 h-2 rounded-full bg-[#c2853f]" />
+                          <span>{toPersianDigits(t.partial)} پاسخ ناقص</span>
+                        </span>
+                      </>
+                    )}
+                    <span className="ms-auto text-[11px] text-[var(--color-text-muted)] font-mono">
+                      {formatPersianOf(t.correct, t.total, { suffix: "صحیح" })}
                     </span>
                   </div>
                 </div>
-                <div className="w-full bg-[var(--color-surface-warm)] border border-[var(--color-border)] rounded-full h-2 overflow-hidden">
-                  <div
-                    className={`h-2 rounded-full transition-all duration-500 ${
-                      t.percent >= 70
-                        ? "bg-[#3d8f6e]"
-                        : t.percent >= 50
-                          ? "bg-[#c2853f]"
-                          : "bg-[#b84c4c]"
-                    }`}
-                    style={{ width: `${t.percent}%` }}
-                  />
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
-          {/* Strengths and Weaknesses */}
+          {/* Strengths and Weaknesses Grid */}
           {(strengths.length > 0 || weaknesses.length > 0) && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3 border-t border-[var(--color-border)]">
-              <div className="p-3 bg-[#e4f4ec] border border-[#9ed4bb] rounded-xl space-y-1">
-                <span className="text-xs font-bold text-[#2a624b] flex items-center gap-1">
-                  <span className="material-symbols-outlined text-sm">trending_up</span>
-                  نقاط قوت شما:
-                </span>
-                <p className="text-xs text-[var(--color-text)] leading-relaxed">
-                  {strengths.length > 0
-                    ? strengths.map((s) => s.topic).join("، ")
-                    : "نیاز به تقویت در کلیه سرفصل‌ها برای رسیدن به تسلط پایدار."}
-                </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 border-t border-[var(--color-border)]">
+              {/* Weaknesses (مباحث نیازمند مرور بیشتر) */}
+              <div className="p-4 bg-[#fde8e8]/70 border border-[#e8a0a0] rounded-2xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-[#7f3131] flex items-center gap-1.5">
+                    <span className="material-symbols-outlined text-base">priority_high</span>
+                    مباحث نیازمند مرور و تقویت:
+                  </span>
+                  {weaknesses.length > 0 && (
+                    <span className="text-[11px] font-bold text-[#7f3131] bg-[#fde8e8] px-2 py-0.5 rounded-md border border-[#e8a0a0]">
+                      {toPersianDigits(weaknesses.length)} مبحث
+                    </span>
+                  )}
+                </div>
+
+                {weaknesses.length > 0 ? (
+                  <div className="space-y-2">
+                    {weaknesses.map((w, idx) => (
+                      <div
+                        key={idx}
+                        className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-[var(--color-surface)] border border-[#e8a0a0]/60 text-xs shadow-2xs"
+                      >
+                        <div className="flex flex-col min-w-0 flex-1">
+                          {w.studyUrl ? (
+                            <Link
+                              to={w.studyUrl}
+                              className="font-bold text-[#7f3131] hover:underline flex items-center gap-1 group truncate"
+                            >
+                              <span className="truncate">{w.topic}</span>
+                              <span className="material-symbols-outlined text-xs shrink-0 text-primary opacity-80 group-hover:translate-x-[-2px] transition-transform">
+                                arrow_back
+                              </span>
+                            </Link>
+                          ) : (
+                            <span className="font-bold text-[var(--color-text)] truncate">{w.topic}</span>
+                          )}
+                          {w.chapterTitle && (
+                            <span className="text-[10px] text-[var(--color-text-muted)] truncate">
+                              سرفصل: {w.chapterTitle}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="text-xs font-bold font-mono text-[#7f3131]">
+                            {toPersianDigits(w.percent)}%
+                          </span>
+                          {w.studyUrl && (
+                            <Link
+                              to={w.studyUrl}
+                              className="px-2 py-1 rounded-lg bg-[#fde8e8] text-[#7f3131] border border-[#e8a0a0] text-[11px] font-bold hover:bg-[#7f3131] hover:text-white transition-colors"
+                            >
+                              مطالعه
+                            </Link>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-[var(--color-text-secondary)] leading-relaxed">
+                    عملکرد متعادل در تمام مباحث این آزمون؛ نقطه ضعف حادی ثبت نشد.
+                  </p>
+                )}
               </div>
 
-              <div className="p-3 bg-[#fde8e8] border border-[#e8a0a0] rounded-xl space-y-1">
-                <span className="text-xs font-bold text-[#7f3131] flex items-center gap-1">
-                  <span className="material-symbols-outlined text-sm">priority_high</span>
-                  مباحث نیازمند مرور بیشتر:
-                </span>
-                <p className="text-xs text-[var(--color-text)] leading-relaxed">
-                  {weaknesses.length > 0
-                    ? weaknesses.map((w) => w.topic).join("، ")
-                    : "عملکرد متعادل در تمام مباحث این آزمون."}
-                </p>
+              {/* Strengths (نقاط قوت شما) */}
+              <div className="p-4 bg-[#e4f4ec]/70 border border-[#9ed4bb] rounded-2xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-[#2a624b] flex items-center gap-1.5">
+                    <span className="material-symbols-outlined text-base">trending_up</span>
+                    نقاط قوت و تسلط بالا:
+                  </span>
+                  {strengths.length > 0 && (
+                    <span className="text-[11px] font-bold text-[#2a624b] bg-[#e4f4ec] px-2 py-0.5 rounded-md border border-[#9ed4bb]">
+                      {toPersianDigits(strengths.length)} مبحث
+                    </span>
+                  )}
+                </div>
+
+                {strengths.length > 0 ? (
+                  <div className="space-y-2">
+                    {strengths.map((s, idx) => (
+                      <div
+                        key={idx}
+                        className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-[var(--color-surface)] border border-[#9ed4bb]/60 text-xs shadow-2xs"
+                      >
+                        <div className="flex flex-col min-w-0 flex-1">
+                          {s.studyUrl ? (
+                            <Link
+                              to={s.studyUrl}
+                              className="font-bold text-[#2a624b] hover:underline flex items-center gap-1 group truncate"
+                            >
+                              <span className="truncate">{s.topic}</span>
+                              <span className="material-symbols-outlined text-xs shrink-0 text-primary opacity-80 group-hover:translate-x-[-2px] transition-transform">
+                                arrow_back
+                              </span>
+                            </Link>
+                          ) : (
+                            <span className="font-bold text-[var(--color-text)] truncate">{s.topic}</span>
+                          )}
+                          {s.chapterTitle && (
+                            <span className="text-[10px] text-[var(--color-text-muted)] truncate">
+                              سرفصل: {s.chapterTitle}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="text-xs font-bold font-mono text-[#2a624b]">
+                            {toPersianDigits(s.percent)}%
+                          </span>
+                          {s.studyUrl && (
+                            <Link
+                              to={s.studyUrl}
+                              className="px-2 py-1 rounded-lg bg-[#e4f4ec] text-[#2a624b] border border-[#9ed4bb] text-[11px] font-bold hover:bg-[#2a624b] hover:text-white transition-colors"
+                            >
+                              مرور
+                            </Link>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-[var(--color-text-secondary)] leading-relaxed">
+                    نیاز به تقویت در کلیه سرفصل‌ها برای رسیدن به تسلط پایدار.
+                  </p>
+                )}
               </div>
             </div>
           )}
@@ -397,7 +624,7 @@ export function ExamResultView({
                   )}
 
                   {status === "unanswered" && (
-                    <Badge variant="neutral" size="md" className="gap-1 px-2.5 py-0.5">
+                    <Badge variant="warning" size="md" className="gap-1 px-2.5 py-0.5">
                       <span className="material-symbols-outlined text-[14px]">help_outline</span>
                       <span>بدون پاسخ</span>
                     </Badge>
@@ -406,7 +633,7 @@ export function ExamResultView({
                   {status === "partial" && (
                     <Badge variant="warning" size="md" className="gap-1 px-2.5 py-0.5">
                       <span className="material-symbols-outlined text-[14px]">remove</span>
-                      <span>پاسخ ناقص ({Math.round(evaluation.scoreRatio * 100)}%)</span>
+                      <span>پاسخ ناقص ({toPersianDigits(Math.round(evaluation.scoreRatio * 100))}%)</span>
                     </Badge>
                   )}
                 </div>
@@ -416,8 +643,8 @@ export function ExamResultView({
                 </div>
 
                 {status === "unanswered" && (
-                  <div className="p-3 bg-[var(--color-surface-warm)] rounded-xl border border-[var(--color-border)] text-xs text-[var(--color-text-muted)] flex items-center gap-2">
-                    <span className="material-symbols-outlined text-[var(--color-text-muted)] text-base">info</span>
+                  <div className="p-3 bg-[#fdf2e4] rounded-xl border border-[#e8c18a] text-xs text-[#8f5e27] flex items-center gap-2">
+                    <span className="material-symbols-outlined text-[#8f5e27] text-base shrink-0">help_outline</span>
                     <span>شما در زمان برگزاری آزمون به این سوال پاسخ نداده‌اید. گزینه صحیح با رنگ سبز مشخص شده است.</span>
                   </div>
                 )}

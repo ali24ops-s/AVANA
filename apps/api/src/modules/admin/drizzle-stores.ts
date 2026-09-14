@@ -25,7 +25,9 @@ import {
 import {
   resolveEffectiveRole,
   calculateSubscriptionExpiry,
+  resolveCanonicalContentTitle,
   type Role,
+  type GeneratedContentType,
   STAGE_LABELS_FA,
   type GenerationPipelineStage,
   type GenerationProgressStatus,
@@ -37,6 +39,7 @@ import type {
   DashboardStats,
   AdminUsersList,
   AdminGenerationJobRecord,
+  AdminRejectedContentRecord,
   DataIntegrityReport,
   AdminCourseRecord,
   AdminDocumentRecord,
@@ -235,6 +238,102 @@ export class DrizzleAdminStore implements AdminStore {
         documentName: r.documentName ?? undefined,
         userEmail: r.userEmail ?? undefined,
       })),
+    };
+  }
+
+  async listRejectedGeneratedContents(params: {
+    page: number;
+    pageSize: number;
+    type?: string;
+    courseId?: string;
+    search?: string;
+  }): Promise<{ items: AdminRejectedContentRecord[]; totalCount: number }> {
+    const { page, pageSize, type, courseId, search } = params;
+    const offset = (page - 1) * pageSize;
+
+    const conditions: Array<SQL | undefined> = [
+      eq(generatedContents.status, "rejected"),
+      isNull(generatedContents.deletedAt),
+    ];
+
+    if (type && type !== "all") {
+      conditions.push(eq(generatedContents.type, type));
+    }
+    if (courseId) {
+      conditions.push(eq(generatedContents.courseId, courseId));
+    }
+
+    const whereClause = and(...conditions);
+
+    const baseQuery = this.db
+      .select({
+        item: generatedContents,
+        courseName: courses.name,
+        documentName: documents.originalName,
+        reviewerName: users.name,
+        reviewerEmail: users.email,
+      })
+      .from(generatedContents)
+      .leftJoin(courses, eq(generatedContents.courseId, courses.id))
+      .leftJoin(documents, eq(generatedContents.documentId, documents.id))
+      .leftJoin(users, eq(generatedContents.reviewedBy, users.id))
+      .where(whereClause);
+
+    const countQuery = this.db
+      .select({ count: count() })
+      .from(generatedContents)
+      .where(whereClause);
+
+    const [totalRes, rows] = await Promise.all([
+      countQuery,
+      baseQuery
+        .limit(pageSize)
+        .offset(offset)
+        .orderBy(desc(generatedContents.reviewedAt), desc(generatedContents.createdAt)),
+    ]);
+
+    const items: AdminRejectedContentRecord[] = rows.map((r) => {
+      const title = resolveCanonicalContentTitle({
+        type: r.item.type as GeneratedContentType,
+        payload: (r.item.payload ?? {}) as Record<string, unknown>,
+      });
+      const reviewerDisplayName =
+        r.reviewerName ||
+        r.reviewerEmail ||
+        (r.item.reviewedBy ? "کارشناس بازبینی" : undefined);
+
+      return {
+        id: r.item.id,
+        organizationId: r.item.organizationId,
+        type: r.item.type,
+        title,
+        courseId: r.item.courseId,
+        courseTitle: r.courseName ?? undefined,
+        documentId: r.item.documentId ?? undefined,
+        documentName: r.documentName ?? undefined,
+        reviewedBy: reviewerDisplayName,
+        reviewedAt: r.item.reviewedAt ? r.item.reviewedAt.toISOString() : undefined,
+        reviewReason: r.item.reviewReason ?? undefined,
+        model: r.item.model ?? undefined,
+        createdAt: r.item.createdAt.toISOString(),
+      };
+    });
+
+    let filteredItems = items;
+    if (search && search.trim()) {
+      const s = search.trim().toLowerCase();
+      filteredItems = items.filter(
+        (it) =>
+          it.title.toLowerCase().includes(s) ||
+          (it.courseTitle && it.courseTitle.toLowerCase().includes(s)) ||
+          (it.documentName && it.documentName.toLowerCase().includes(s)) ||
+          (it.reviewReason && it.reviewReason.toLowerCase().includes(s)),
+      );
+    }
+
+    return {
+      totalCount: totalRes[0]?.count ?? 0,
+      items: filteredItems,
     };
   }
 
@@ -783,10 +882,21 @@ export class DrizzleAdminStore implements AdminStore {
       }
     }
 
+    const [courseFcCount, courseQCount] = await Promise.all([
+      this.db.select({ count: count() })
+        .from(flashcards)
+        .where(and(eq(flashcards.courseId, courseId), isNull(flashcards.lessonId), isNull(flashcards.deletedAt))),
+      this.db.select({ count: count() })
+        .from(quizzes)
+        .where(and(eq(quizzes.courseId, courseId), isNull(quizzes.deletedAt))),
+    ]);
+
     return {
       id: course.id,
       name: course.name,
       subject: course.subject,
+      courseFlashcardCount: courseFcCount[0]?.count || 0,
+      courseQuizCount: courseQCount[0]?.count || 0,
       modules: courseModules.map((m) => ({
         id: m.id,
         title: m.title,

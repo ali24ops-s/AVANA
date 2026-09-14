@@ -12,6 +12,7 @@ export const NotificationTypes = {
   PAYMENT_FAILED: "payment_failed",
   GENERATION_COMPLETED: "generation_completed",
   GENERATION_FAILED: "generation_failed",
+  CONTENT_REPORT_STATUS_CHANGED: "content_report_status_changed",
 } as const;
 
 export type NotificationType =

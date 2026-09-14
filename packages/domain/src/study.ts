@@ -282,8 +282,24 @@ export interface ExamCoverageCourse {
 }
 
 // ---------------------------------------------------------------------------
-// Study analytics / recommendations
+// Study analytics / recommendations constants & types
 // ---------------------------------------------------------------------------
+
+export const FLASHCARD_MASTERY_INTERVAL_DAYS = 7;
+export const QUIZ_WEAKNESS_THRESHOLD_PERCENT = 70;
+export const QUIZ_STRENGTH_THRESHOLD_PERCENT = 85;
+export const EXAM_PASSING_SCORE_PERCENT = 60;
+export const MAX_RECOMMENDATIONS_COUNT = 3;
+export const FLASHCARD_DEFAULT_DAILY_REVIEW_LIMIT = 120;
+export const FLASHCARD_DEFAULT_DAILY_NEW_LIMIT = 40;
+
+export type RecommendationType =
+  | "flashcard_review"
+  | "lesson_continue"
+  | "quiz_retry_weak"
+  | "quiz_start_new";
+
+export type RecommendationPriority = "high" | "medium" | "low";
 
 export type StudyTopicMastery = {
   topic: string;
@@ -297,20 +313,42 @@ export type StudyAnalytics = {
   lesson_progress_percent: number;
   total_flashcards: number;
   reviewed_flashcards: number;
+  mastered_flashcards?: number;
   flashcard_mastery_percent: number;
   total_quizzes: number;
   attempts_taken: number;
   average_quiz_score: number;
   weak_areas: string[];
+  strengths?: string[];
   recommended_next_steps: string[];
 };
 
 export type StudyRecommendation = {
   id: string;
+  type?: RecommendationType;
+  priority?: RecommendationPriority;
+  title?: string;
+  reason?: string;
+  target?: {
+    tab: "lessons" | "flashcards" | "quizzes";
+    courseId: string;
+    moduleId?: string;
+    lessonId?: string;
+    quizId?: string;
+    topic?: string;
+  };
+  metadata?: {
+    dueCount?: number;
+    lastScore?: number;
+    remainingLessonsCount?: number;
+  };
   summary: string;
   topics: string[];
   source:
-    "accepted_lesson" | "flashcard_review" | "quiz_attempt" | "recommendation";
+    | "accepted_lesson"
+    | "flashcard_review"
+    | "quiz_attempt"
+    | "recommendation";
 };
 
 // ---------------------------------------------------------------------------

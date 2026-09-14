@@ -252,15 +252,15 @@ describe("Background Generation UX & Global Status Visibility", () => {
       // Verify details modal opened
       await waitFor(() => {
         expect(screen.getAllByText("physics-notes.pdf").length).toBeGreaterThan(0);
-        expect(screen.getAllByText("تولید فلش‌کارت").length).toBeGreaterThan(0);
-        expect(screen.getByText("تحلیل فایل")).toBeDefined();
-        expect(screen.getByText("برنامه‌ریزی محتوا")).toBeDefined();
+        expect(screen.getAllByText(/فلش‌کارت/i).length).toBeGreaterThan(0);
+        expect(screen.getByText("صف")).toBeDefined();
+        expect(screen.getByText("برنامه‌ریزی")).toBeDefined();
       });
     });
   });
 
   describe("3. Generation Details Modal (Stages, Stale Warnings, Safe Error Messages)", () => {
-    it("renders canonical 8 stages with active step and multi-document tabs", async () => {
+    it("renders canonical 6 stages with active step and multi-document tabs", async () => {
       const items: ActiveGenerationItem[] = [
         {
           documentId: mockDocId,
@@ -304,15 +304,13 @@ describe("Background Generation UX & Global Status Visibility", () => {
       expect(screen.getAllByText("math-module.pdf").length).toBeGreaterThan(0);
       expect(screen.getAllByText("math-exercises.pdf").length).toBeGreaterThan(0);
 
-      // Canonical 8 stages
-      expect(screen.getByText("تحلیل فایل")).toBeDefined();
-      expect(screen.getByText("برنامه‌ریزی محتوا")).toBeDefined();
-      expect(screen.getByText("تولید درسنامه")).toBeDefined();
-      expect(screen.getByText("تولید فلش‌کارت")).toBeDefined();
-      expect(screen.getByText("تولید آزمون")).toBeDefined();
-      expect(screen.getByText("تولید خلاصه")).toBeDefined();
-      expect(screen.getByText("بازبینی و اعتبارسنجی")).toBeDefined();
-      expect(screen.getByText("انتشار")).toBeDefined();
+      // Canonical 6 stages
+      expect(screen.getByText("صف")).toBeDefined();
+      expect(screen.getByText("برنامه‌ریزی")).toBeDefined();
+      expect(screen.getByText("تولید درس‌ها")).toBeDefined();
+      expect(screen.getByText("تولید فلش‌کارت‌ها")).toBeDefined();
+      expect(screen.getByText("تولید سوالات")).toBeDefined();
+      expect(screen.getByText("تکمیل")).toBeDefined();
     });
 
     it("displays safe sanitized Persian error message and retry button on failure", async () => {

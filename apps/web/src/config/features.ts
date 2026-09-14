@@ -25,3 +25,14 @@ export const FILES_ENABLED: boolean =
  */
 export const CONTENT_GENERATION_ENABLED: boolean =
   import.meta.env.VITE_FEATURE_CONTENT_GENERATION === "true";
+
+/**
+ * Feature: Local Worker Mode
+ *
+ * Controls visibility of the local worker quick login button.
+ * - Default: false (hidden in production and standard environments)
+ * - Enabled strictly when VITE_WORKER_MODE=true is provided.
+ */
+export const WORKER_MODE_ENABLED: boolean =
+  import.meta.env.VITE_WORKER_MODE === "true";
+

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { AdminContentPage } from "../pages/admin/AdminContentPage";
 import { ContentImportModal } from "../components/admin/content/ContentImportModal";
 import * as adminApi from "../lib/api/admin";
@@ -37,7 +38,11 @@ describe("Admin Content Export & Import UI Suite", () => {
   });
 
   it("1. Renders Export and Import buttons on AdminContentPage", async () => {
-    render(<AdminContentPage />);
+    render(
+      <MemoryRouter>
+        <AdminContentPage />
+      </MemoryRouter>
+    );
 
     await waitFor(() => {
       expect(screen.getByText("خروجی محتوا (Export)")).toBeInTheDocument();
@@ -46,7 +51,11 @@ describe("Admin Content Export & Import UI Suite", () => {
   });
 
   it("2. Opens ContentExportModal, displays course selector and scope checkboxes, triggers export", async () => {
-    render(<AdminContentPage />);
+    render(
+      <MemoryRouter>
+        <AdminContentPage />
+      </MemoryRouter>
+    );
 
     await waitFor(() => {
       expect(screen.getByText("خروجی محتوا (Export)")).toBeInTheDocument();
@@ -133,6 +142,8 @@ describe("Admin Content Export & Import UI Suite", () => {
       expect(screen.getByText("+1")).toBeInTheDocument(); // 1 new course
       expect(screen.getByText("+3")).toBeInTheDocument(); // 3 new modules
       expect(screen.getAllByText("+10").length).toBe(2); // 10 new lessons and 10 new questions
+      expect(screen.getByText("+25")).toBeInTheDocument(); // 25 new flashcards
+      expect(screen.getByText("+2")).toBeInTheDocument(); // 2 new quizzes
     });
 
     // Execute Import

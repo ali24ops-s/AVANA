@@ -135,6 +135,55 @@ endobj
     expect(result.pages[0].rawText).toContain("دارو و درمان");
   });
 
+  it("preserves Logical Persian and does not falsely reverse words like اهمیت, اهداف, اهل", async () => {
+    const rawStream = "BT /F1 12 Tf (اهمیت اهداف اهل با این حال در درمان بیماران) Tj ET";
+    const header = "%PDF-1.4\n1 0 obj\n<< /Type /Page /Contents 2 0 R >>\nendobj\n2 0 obj\n<< >>\nstream\n";
+    const footer = "\nendstream\nendobj\n%%EOF";
+    const pdf = Buffer.concat([
+      Buffer.from(header, "utf-8"),
+      Buffer.from(rawStream, "utf-8"),
+      Buffer.from(footer, "utf-8"),
+    ]);
+
+    const result = await extractor.extract({
+      data: pdf,
+      mimeType: PDF_MIME,
+      originalName: "logical-persian.pdf",
+    });
+
+    expect(result.pages.length).toBe(1);
+    const text = result.pages[0].rawText;
+    expect(text).toContain("اهمیت");
+    expect(text).toContain("اهداف");
+    expect(text).toContain("اهل");
+    expect(text).toContain("با این حال");
+    expect(text).not.toContain("تیمها");
+    expect(text).not.toContain("فادها");
+  });
+
+  it("handles Mixed Persian + English + Numbers preserving LTR tokens", async () => {
+    const rawStream = "BT /F1 12 Tf (مدل GPT-4 در سال 2024 معرفی شد.) Tj ET";
+    const header = "%PDF-1.4\n1 0 obj\n<< /Type /Page /Contents 2 0 R >>\nendobj\n2 0 obj\n<< >>\nstream\n";
+    const footer = "\nendstream\nendobj\n%%EOF";
+    const pdf = Buffer.concat([
+      Buffer.from(header, "utf-8"),
+      Buffer.from(rawStream, "utf-8"),
+      Buffer.from(footer, "utf-8"),
+    ]);
+
+    const result = await extractor.extract({
+      data: pdf,
+      mimeType: PDF_MIME,
+      originalName: "mixed.pdf",
+    });
+
+    expect(result.pages.length).toBe(1);
+    const text = result.pages[0].rawText;
+    expect(text).toContain("GPT-4");
+    expect(text).toContain("2024");
+    expect(text).toContain("معرفی شد");
+  });
+
   it("throws invalid_pdf for non-PDF bytes", async () => {
     await expect(
       extractor.extract({

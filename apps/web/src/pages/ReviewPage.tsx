@@ -29,7 +29,7 @@ export function ReviewPage() {
   const rawMode = searchParams.get("mode");
   // قابلیت شب امتحان (exam) موقتاً غیرفعال است؛ در صورت وجود mode=exam به مرور عادی هدایت می‌شود
   const mode = rawMode === "custom" ? "custom" : "normal";
-  const customMode = (searchParams.get("customMode") || "weak") as "weak" | "forgotten" | "review_ahead" | "new";
+  const customMode = (searchParams.get("customMode") || "weak") as "weak" | "forgotten" | "overdue" | "review_ahead" | "new" | "due" | "learned";
   const aheadDays = searchParams.get("aheadDays") ? parseInt(searchParams.get("aheadDays")!, 10) : 3;
   const limit = searchParams.get("limit")
     ? searchParams.get("limit") === "all"
