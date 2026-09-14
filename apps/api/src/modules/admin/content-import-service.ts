@@ -583,8 +583,14 @@ export class ContentImportService {
       .from(quizzes)
       .where(and(eq(quizzes.organizationId, organizationId), isNull(quizzes.deletedAt)));
     const quizzesById = new Map<string, typeof quizzes.$inferSelect>();
+    const quizzesByCourseAndDoc = new Map<string, typeof quizzes.$inferSelect>();
+    const quizzesByCourseAndTitle = new Map<string, typeof quizzes.$inferSelect>();
     for (const q of dbTargetQuizzes) {
       quizzesById.set(q.id, q);
+      if (q.courseId && q.documentId) {
+        quizzesByCourseAndDoc.set(`${q.courseId}:${q.documentId}`, q);
+      }
+      quizzesByCourseAndTitle.set(`${q.courseId}:${q.title.trim().toLowerCase()}`, q);
     }
 
     for (const q of quizzesList) {
@@ -598,12 +604,29 @@ export class ContentImportService {
           titleOrName: q.title,
         });
       } else {
-        resolutions.push({
-          entityType: "quiz",
-          exportId: q.exportId,
-          status: "NEW",
-          titleOrName: q.title,
-        });
+        const targetCourseId = courseResolutions.get(q.courseExportId);
+        const targetDocId = q.documentExportId ? docResolutions.get(q.documentExportId) : undefined;
+
+        const docMatch = targetCourseId && targetDocId ? quizzesByCourseAndDoc.get(`${targetCourseId}:${targetDocId}`) : undefined;
+        const titleMatch = targetCourseId ? quizzesByCourseAndTitle.get(`${targetCourseId}:${q.title.trim().toLowerCase()}`) : undefined;
+        const matched = docMatch || titleMatch;
+
+        if (matched) {
+          resolutions.push({
+            entityType: "quiz",
+            exportId: q.exportId,
+            status: "EXISTING",
+            targetEntityId: matched.id,
+            titleOrName: q.title,
+          });
+        } else {
+          resolutions.push({
+            entityType: "quiz",
+            exportId: q.exportId,
+            status: "NEW",
+            titleOrName: q.title,
+          });
+        }
       }
     }
 
@@ -629,9 +652,28 @@ export class ContentImportService {
     }
 
     // 7.8 Generated Contents Duplicate Detection
+    const dbTargetGenContents = await this.db
+      .select()
+      .from(generatedContents)
+      .where(and(eq(generatedContents.organizationId, organizationId), isNull(generatedContents.deletedAt)));
+
+    const genContentsById = new Map<string, typeof generatedContents.$inferSelect>();
+    const genContentsByDocTypeKey = new Map<string, typeof generatedContents.$inferSelect>();
+    const genContentsByCourseDocType = new Map<string, typeof generatedContents.$inferSelect>();
+
+    for (const gc of dbTargetGenContents) {
+      genContentsById.set(gc.id, gc);
+      if (gc.documentId && gc.type && gc.generationKey) {
+        genContentsByDocTypeKey.set(`${gc.documentId}:${gc.type}:${gc.generationKey}`, gc);
+      }
+      if (gc.courseId && gc.documentId && gc.type) {
+        genContentsByCourseDocType.set(`${gc.courseId}:${gc.documentId}:${gc.type}`, gc);
+      }
+    }
+
     for (const gc of genContentsList) {
       const imp = importedByExportId.get(`generated_content:${gc.exportId}`);
-      if (imp) {
+      if (imp && genContentsById.has(imp.targetEntityId)) {
         resolutions.push({
           entityType: "generated_content",
           exportId: gc.exportId,
@@ -639,11 +681,33 @@ export class ContentImportService {
           targetEntityId: imp.targetEntityId,
         });
       } else {
-        resolutions.push({
-          entityType: "generated_content",
-          exportId: gc.exportId,
-          status: "NEW",
-        });
+        const targetCourseId = courseResolutions.get(gc.courseExportId);
+        const targetDocId = gc.documentExportId ? docResolutions.get(gc.documentExportId) : undefined;
+
+        const keyMatch = targetDocId && gc.type && gc.generationKey
+          ? genContentsByDocTypeKey.get(`${targetDocId}:${gc.type}:${gc.generationKey}`)
+          : undefined;
+
+        const courseDocTypeMatch = targetCourseId && targetDocId && gc.type
+          ? genContentsByCourseDocType.get(`${targetCourseId}:${targetDocId}:${gc.type}`)
+          : undefined;
+
+        const matched = keyMatch || courseDocTypeMatch;
+
+        if (matched) {
+          resolutions.push({
+            entityType: "generated_content",
+            exportId: gc.exportId,
+            status: "EXISTING",
+            targetEntityId: matched.id,
+          });
+        } else {
+          resolutions.push({
+            entityType: "generated_content",
+            exportId: gc.exportId,
+            status: "NEW",
+          });
+        }
       }
     }
 
@@ -1043,7 +1107,17 @@ export class ContentImportService {
           const res = resolutionMap.get(`generated_content:${gc.exportId}`);
           if (res?.status === "EXISTING" && res.targetEntityId) {
             targetIdMap.set(gc.exportId, res.targetEntityId);
+            genExportToId.set(gc.exportId, res.targetEntityId);
             totalSkipped++;
+            newProvenanceRecords.push({
+              id: crypto.randomUUID(),
+              organizationId,
+              batchId,
+              entityType: "generated_content",
+              exportId: gc.exportId,
+              targetEntityId: res.targetEntityId,
+              contentHash: gc.contentHash,
+            });
             continue;
           }
 
@@ -1159,6 +1233,16 @@ export class ContentImportService {
           if (res?.status === "EXISTING" && res.targetEntityId) {
             targetIdMap.set(q.exportId, res.targetEntityId);
             totalSkipped++;
+            newProvenanceRecords.push({
+              id: crypto.randomUUID(),
+              organizationId,
+              batchId,
+              entityType: "quiz",
+              exportId: q.exportId,
+              targetEntityId: res.targetEntityId,
+              contentHash: q.contentHash,
+              naturalKey: `${q.courseExportId}:${q.title.trim().toLowerCase()}`,
+            });
             continue;
           }
 
