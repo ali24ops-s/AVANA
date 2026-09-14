@@ -1497,4 +1497,100 @@ describe("Comprehensive Content Export / Import Test Matrix", () => {
     expect(importedCard).toBeDefined();
     expect(importedCard.answer).toContain("مدت‌زمان لازم برای نصف شدن غلظت");
   });
+
+  // =========================================================================
+  // 23. MODULE DUPLICATE DETECTION BY (COURSE_ID, DOCUMENT_ID)
+  // =========================================================================
+  it("23. Module Duplicate Detection: Matches existing module by (course_id, document_id) even when title differs without provenance", async () => {
+    // 1. Setup Source: Course + Document + Module linked to Doc + Lesson
+    const docSha = "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890";
+    sourceDb.tables.courses.push({
+      id: "src-c1",
+      organizationId: orgA,
+      name: "فارماکولوژی ۱",
+      status: "published",
+    });
+    sourceDb.tables.documents.push({
+      id: "src-doc1",
+      organizationId: orgA,
+      courseId: "src-c1",
+      originalName: "pharma1.pdf",
+      mimeType: "application/pdf",
+      sha256: docSha,
+      sizeBytes: 1024,
+      status: "ready",
+    });
+    sourceDb.tables.modules.push({
+      id: "src-m1",
+      courseId: "src-c1",
+      documentId: "src-doc1",
+      title: "فصل ۱: کلیات فارماکولوژی (عنوان جدید منبع)",
+      sortOrder: 1,
+    });
+    sourceDb.tables.lessons.push({
+      id: "src-l1",
+      moduleId: "src-m1",
+      title: "مقدمه",
+      contentType: "markdown",
+      contentMarkdown: "# مقدمه",
+      sortOrder: 1,
+    });
+
+    // 2. Setup Target: Already has the same course & document & module (with older title and NO provenance)
+    targetDb.tables.courses.push({
+      id: "tgt-c1",
+      organizationId: orgB,
+      name: "فارماکولوژی ۱",
+      status: "published",
+    });
+    targetDb.tables.documents.push({
+      id: "tgt-doc1",
+      organizationId: orgB,
+      courseId: "tgt-c1",
+      originalName: "pharma1.pdf",
+      mimeType: "application/pdf",
+      sha256: docSha,
+      sizeBytes: 1024,
+      status: "ready",
+    });
+    targetDb.tables.modules.push({
+      id: "tgt-m1",
+      courseId: "tgt-c1",
+      documentId: "tgt-doc1",
+      title: "فصل اول: کلیات و مقدمات (عنوان قدیمی مقصد)",
+      sortOrder: 1,
+    });
+
+    // 3. Export from Source
+    const zip = await exportService.exportContent(orgA);
+
+    // 4. Validate Import into Target
+    const plan = await importService.validatePackage(zip, actorId, orgB);
+
+    // Course should be EXISTING (matched by name)
+    expect(plan.summary.courses.existing).toBe(1);
+    // Document should be EXISTING (matched by sha256)
+    expect(plan.summary.documents.existing).toBe(1);
+    // Module should be EXISTING (matched by target course + target document despite title difference!)
+    expect(plan.summary.modules.existing).toBe(1);
+    expect(plan.summary.modules.new).toBe(0);
+
+    const moduleResolution = plan.resolutions.find((r) => r.entityType === "module")!;
+    expect(moduleResolution.status).toBe("EXISTING");
+    expect(moduleResolution.targetEntityId).toBe("tgt-m1");
+
+    // 5. Execute Import
+    const result = await importService.executeImport(plan.planId, actorId, orgB);
+    expect(result.success).toBe(true);
+
+    // Verify existing module is preserved in targetDb (not duplicated or overwritten)
+    expect(targetDb.tables.modules.length).toBe(1);
+    expect(targetDb.tables.modules[0].id).toBe("tgt-m1");
+    expect(targetDb.tables.modules[0].title).toBe("فصل اول: کلیات و مقدمات (عنوان قدیمی مقصد)");
+
+    // Verify imported lesson points to the existing target module ID
+    const importedLesson = targetDb.tables.lessons.find((l) => l.title === "مقدمه")!;
+    expect(importedLesson).toBeDefined();
+    expect(importedLesson.moduleId).toBe("tgt-m1");
+  });
 });

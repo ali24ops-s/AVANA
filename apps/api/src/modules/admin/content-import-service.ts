@@ -396,10 +396,13 @@ export class ContentImportService {
       docsById.set(d.id, d);
     }
 
+    const docResolutions = new Map<string, string>(); // exportId -> targetDocId
+
     for (const d of documentsList) {
       const imp = importedByExportId.get(`document:${d.exportId}`);
       if (imp && docsById.has(imp.targetEntityId)) {
         const targetDoc = docsById.get(imp.targetEntityId)!;
+        docResolutions.set(d.exportId, targetDoc.id);
         resolutions.push({
           entityType: "document",
           exportId: d.exportId,
@@ -410,6 +413,7 @@ export class ContentImportService {
       } else {
         const naturalMatch = docsBySha.get(d.sha256);
         if (naturalMatch) {
+          docResolutions.set(d.exportId, naturalMatch.id);
           resolutions.push({
             entityType: "document",
             exportId: d.exportId,
@@ -435,15 +439,20 @@ export class ContentImportService {
       .where(isNull(modules.deletedAt));
 
     const modulesById = new Map<string, typeof modules.$inferSelect>();
+    const modulesByCourseAndDoc = new Map<string, typeof modules.$inferSelect>();
     const modulesByCourseAndTitle = new Map<string, typeof modules.$inferSelect>();
     for (const m of dbTargetModules) {
       modulesById.set(m.id, m);
+      if (m.courseId && m.documentId) {
+        modulesByCourseAndDoc.set(`${m.courseId}:${m.documentId}`, m);
+      }
       modulesByCourseAndTitle.set(`${m.courseId}:${m.title.trim().toLowerCase()}`, m);
     }
 
     for (const m of modulesList) {
       const imp = importedByExportId.get(`module:${m.exportId}`);
       if (imp && modulesById.has(imp.targetEntityId)) {
+        // 1. Provenance exists -> EXISTING
         const targetMod = modulesById.get(imp.targetEntityId)!;
         resolutions.push({
           entityType: "module",
@@ -454,19 +463,31 @@ export class ContentImportService {
         });
       } else {
         const targetCourseId = courseResolutions.get(m.courseExportId);
-        const naturalMatch = targetCourseId
+        const targetDocId = m.documentExportId ? docResolutions.get(m.documentExportId) : undefined;
+
+        // 2. Same target course + same target document -> EXISTING
+        const courseDocMatch =
+          targetCourseId && targetDocId
+            ? modulesByCourseAndDoc.get(`${targetCourseId}:${targetDocId}`)
+            : undefined;
+
+        // 3. Same target course + same normalized title -> EXISTING
+        const courseTitleMatch = targetCourseId
           ? modulesByCourseAndTitle.get(`${targetCourseId}:${m.title.trim().toLowerCase()}`)
           : undefined;
 
-        if (naturalMatch) {
+        const matched = courseDocMatch || courseTitleMatch;
+
+        if (matched) {
           resolutions.push({
             entityType: "module",
             exportId: m.exportId,
             status: "EXISTING",
-            targetEntityId: naturalMatch.id,
+            targetEntityId: matched.id,
             titleOrName: m.title,
           });
         } else {
+          // 4. Otherwise -> NEW
           resolutions.push({
             entityType: "module",
             exportId: m.exportId,
