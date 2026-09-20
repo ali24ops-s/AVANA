@@ -25,7 +25,6 @@ import {
   asModuleId,
   asLessonId,
   asProductId,
-  asUserId,
   asOrganizationId,
 } from "@avana/domain";
 
@@ -111,7 +110,7 @@ describe("Commerce & Monetization HTTP Endpoints Test Suite", () => {
     };
   }
 
-  it("GET /v1/commerce/products returns 3 subscription plans with Tomans pricing", async () => {
+  it("GET /v1/commerce/products returns active products including subscription plans with Tomans pricing", async () => {
     const app = await buildTestApp();
     const res = await app.inject({
       method: "GET",
@@ -120,14 +119,32 @@ describe("Commerce & Monetization HTTP Endpoints Test Suite", () => {
 
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body);
-    expect(body.items.length).toBe(3);
-    expect(body.items[0].code).toBe("sub_monthly");
-    expect(body.items[0].price).toBe(99000);
-    expect(body.items[0].currency).toBe("toman");
-    expect(body.items[1].code).toBe("sub_quarterly");
-    expect(body.items[1].price).toBe(199000);
-    expect(body.items[2].code).toBe("sub_yearly");
-    expect(body.items[2].price).toBe(599000);
+    const subscriptionPlans = body.items.filter((p: any) => p.type === "subscription");
+    expect(subscriptionPlans.length).toBe(3);
+    expect(subscriptionPlans[0].code).toBe("sub_monthly");
+    expect(subscriptionPlans[0].price).toBe(99000);
+    expect(subscriptionPlans[0].currency).toBe("toman");
+    expect(subscriptionPlans[0].gift_credit).toBe(40000);
+    expect(subscriptionPlans[1].code).toBe("sub_quarterly");
+    expect(subscriptionPlans[1].price).toBe(199000);
+    expect(subscriptionPlans[1].gift_credit).toBe(100000);
+    expect(subscriptionPlans[2].code).toBe("sub_yearly");
+    expect(subscriptionPlans[2].price).toBe(599000);
+    expect(subscriptionPlans[2].gift_credit).toBe(200000);
+
+    const walletTopup = body.items.find((p: any) => p.type === "wallet_topup");
+    expect(walletTopup).toBeDefined();
+    expect(walletTopup.code).toBe("wallet_topup");
+    expect(walletTopup.gift_credit).toBeNull();
+
+    // Verify GET /v1/commerce/products/:productId also returns gift_credit
+    const singleRes = await app.inject({
+      method: "GET",
+      url: `/v1/commerce/products/${subscriptionPlans[0].id}`,
+    });
+    expect(singleRes.statusCode).toBe(200);
+    const singleBody = JSON.parse(singleRes.body);
+    expect(singleBody.product.gift_credit).toBe(40000);
   });
 
   it("POST /v1/commerce/checkout rejects when mock/online payment gateway is disabled", async () => {

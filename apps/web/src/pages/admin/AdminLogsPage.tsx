@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { api } from "../../lib/api/admin";
-import { AdminTable, AdminPagination, AdminFilter, AdminLoadingState, AdminEmptyState, AdminErrorState } from "../../components/admin/AdminUI";
+import { AdminTable, AdminPagination, AdminFilter, AdminLoadingState, AdminEmptyState, AdminErrorState } from "../../components/admin/AdminUI.js";
 import { FileText } from "lucide-react";
+import { toPersianDigits } from "@avana/domain";
 
 interface SystemLogRecord {
   id: string;
@@ -69,7 +70,7 @@ export function AdminLogsPage() {
         {loading ? <AdminLoadingState colSpan={4} /> : error ? <AdminErrorState message={error} colSpan={4} /> : logs.length === 0 ? <AdminEmptyState message="لاگی یافت نشد (سیستم فعلاً Logs روی DB ذخیره نمی‌کند)." /> : (
           logs.map(log => (
             <tr key={log.id} className="hover:bg-[var(--color-surface-subtle)] transition-colors">
-              <td className="px-6 py-4 text-xs font-mono text-[var(--color-text-muted)]" dir="ltr">{new Date(log.timestamp).toLocaleString("fa-IR")}</td>
+              <td className="px-6 py-4 text-xs font-mono text-[var(--color-text-muted)]" dir="ltr">{toPersianDigits(new Date(log.timestamp).toLocaleString("fa-IR"))}</td>
               <td className="px-6 py-4">
                 <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${
                   log.level === 'ERROR'

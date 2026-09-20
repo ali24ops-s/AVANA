@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   HelpCircle,
@@ -17,10 +17,23 @@ export interface QuizListViewProps {
   courseId: string;
   isPreview?: boolean;
   onUnlock?: () => void;
+  initialQuizId?: string | null;
 }
 
-export function QuizListView({ organizationId, courseId, isPreview = false, onUnlock }: QuizListViewProps) {
-  const [activeQuizId, setActiveQuizId] = useState<string | null>(null);
+export function QuizListView({
+  organizationId,
+  courseId,
+  isPreview = false,
+  onUnlock,
+  initialQuizId = null,
+}: QuizListViewProps) {
+  const [activeQuizId, setActiveQuizId] = useState<string | null>(initialQuizId);
+
+  useEffect(() => {
+    if (initialQuizId) {
+      setActiveQuizId(initialQuizId);
+    }
+  }, [initialQuizId]);
 
   const apiClient = createApiClient({ baseUrl: getApiBaseUrl() });
   const studyApi = createStudyApi(apiClient);
@@ -30,7 +43,7 @@ export function QuizListView({ organizationId, courseId, isPreview = false, onUn
     queryFn: () => studyApi.listQuizzes(organizationId, courseId),
   });
 
-  const effectiveIsPreview = isPreview || (quizzesQuery.data as any)?.is_preview === true;
+  const effectiveIsPreview = isPreview || (quizzesQuery.data as { is_preview?: boolean } | undefined)?.is_preview === true;
 
   if (activeQuizId) {
     return (

@@ -868,6 +868,147 @@ export class DrizzleBlogStore implements BlogStore {
     return (res as any)?.rowCount ? (res as any).rowCount > 0 : true;
   }
 
+  async getTagBySlug(slug: string): Promise<BlogTagRecord | null> {
+    const tag = await this.db
+      .select()
+      .from(blogTags)
+      .where(or(eq(blogTags.slug, slug), eq(blogTags.name, slug)))
+      .limit(1)
+      .then((r) => r[0]);
+
+    if (!tag) return null;
+
+    const countRes = await this.db
+      .select({ count: count() })
+      .from(blogPostTags)
+      .innerJoin(blogPosts, eq(blogPostTags.postId, blogPosts.id))
+      .where(
+        and(
+          eq(blogPostTags.tagId, tag.id),
+          eq(blogPosts.status, "published"),
+          lte(blogPosts.publishedAt, new Date()),
+        ),
+      );
+
+    return {
+      id: tag.id,
+      name: tag.name,
+      slug: tag.slug,
+      postCount: Number(countRes[0]?.count ?? 0),
+      createdAt: tag.createdAt,
+      updatedAt: tag.updatedAt,
+    };
+  }
+
+  async listTagsWithCounts(search?: string): Promise<BlogTagRecord[]> {
+    const conditions = [];
+    if (search && search.trim().length > 0) {
+      const term = `%${search.trim()}%`;
+      conditions.push(or(like(blogTags.name, term), like(blogTags.slug, term))!);
+    }
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+    const tags = await this.db
+      .select({
+        id: blogTags.id,
+        name: blogTags.name,
+        slug: blogTags.slug,
+        createdAt: blogTags.createdAt,
+        updatedAt: blogTags.updatedAt,
+      })
+      .from(blogTags)
+      .where(whereClause)
+      .orderBy(asc(blogTags.name));
+
+    const counts = await this.db
+      .select({
+        tagId: blogPostTags.tagId,
+        count: count(),
+      })
+      .from(blogPostTags)
+      .innerJoin(blogPosts, eq(blogPostTags.postId, blogPosts.id))
+      .where(
+        and(
+          eq(blogPosts.status, "published"),
+          lte(blogPosts.publishedAt, new Date()),
+        ),
+      )
+      .groupBy(blogPostTags.tagId);
+
+    const countMap = new Map(counts.map((c) => [c.tagId, Number(c.count)]));
+
+    return tags.map((t) => ({
+      ...t,
+      postCount: countMap.get(t.id) || 0,
+    }));
+  }
+
+  async createTag(name: string, slug: string): Promise<BlogTagRecord> {
+    const id = randomUUID();
+    const now = new Date();
+
+    await this.db
+      .insert(blogTags)
+      .values({
+        id,
+        name,
+        slug,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoNothing();
+
+    const created = await this.db
+      .select()
+      .from(blogTags)
+      .where(eq(blogTags.name, name))
+      .limit(1)
+      .then((r) => r[0]);
+
+    return {
+      id: created?.id || id,
+      name: created?.name || name,
+      slug: created?.slug || slug,
+      postCount: 0,
+      createdAt: created?.createdAt || now,
+      updatedAt: created?.updatedAt || now,
+    };
+  }
+
+  async updateTag(id: string, name: string, slug: string): Promise<BlogTagRecord> {
+    const now = new Date();
+    await this.db
+      .update(blogTags)
+      .set({
+        name,
+        slug,
+        updatedAt: now,
+      })
+      .where(eq(blogTags.id, id));
+
+    const updated = await this.db
+      .select()
+      .from(blogTags)
+      .where(eq(blogTags.id, id))
+      .limit(1)
+      .then((r) => r[0]);
+
+    if (!updated) throw new Error(`Tag with id ${id} not found`);
+    return {
+      id: updated.id,
+      name: updated.name,
+      slug: updated.slug,
+      createdAt: updated.createdAt,
+      updatedAt: updated.updatedAt,
+    };
+  }
+
+  async deleteTag(id: string): Promise<boolean> {
+    await this.db.delete(blogPostTags).where(eq(blogPostTags.tagId, id));
+    const res = await this.db.delete(blogTags).where(eq(blogTags.id, id));
+    return (res as any)?.rowCount ? (res as any).rowCount > 0 : true;
+  }
+
   async getOrCreateTags(tagNames: string[]): Promise<BlogTagRecord[]> {
     const result: BlogTagRecord[] = [];
     const now = new Date();

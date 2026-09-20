@@ -19,6 +19,9 @@ export interface BlogTag {
   id: string;
   name: string;
   slug: string;
+  postCount?: number;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface BlogPostSummary {
@@ -161,6 +164,22 @@ export function createBlogApi(client: ApiClient) {
       return client.get<{ tags: BlogTag[] }>("/v1/blog/tags");
     },
 
+    /**
+     * Get tag by slug and its articles.
+     */
+    async getTagBySlug(
+      slug: string,
+      params?: { page?: number; pageSize?: number },
+    ): Promise<{ tag: BlogTag } & ListBlogPostsResponse> {
+      const searchParams = new URLSearchParams();
+      if (params?.page) searchParams.set("page", String(params.page));
+      if (params?.pageSize) searchParams.set("pageSize", String(params.pageSize));
+      const qs = searchParams.toString();
+      return client.get<{ tag: BlogTag } & ListBlogPostsResponse>(
+        `/v1/blog/tags/${encodeURIComponent(slug)}${qs ? `?${qs}` : ""}`,
+      );
+    },
+
     // -----------------------------------------------------------------------
     // Admin Endpoints (Require platform_admin)
     // -----------------------------------------------------------------------
@@ -280,6 +299,40 @@ export function createBlogApi(client: ApiClient) {
      */
     async deleteCategory(id: string): Promise<{ success: boolean }> {
       return client.delete<{ success: boolean }>(`/v1/admin/blog/categories/${id}`);
+    },
+
+    /**
+     * Admin tags list with counts.
+     */
+    async getAdminTags(params?: { search?: string }): Promise<{ tags: BlogTag[] }> {
+      const searchParams = new URLSearchParams();
+      if (params?.search) searchParams.set("search", params.search);
+      const qs = searchParams.toString();
+      return client.get<{ tags: BlogTag[] }>(`/v1/admin/blog/tags${qs ? `?${qs}` : ""}`);
+    },
+
+    /**
+     * Admin create tag.
+     */
+    async createTag(data: { name: string; slug?: string }): Promise<{ tag: BlogTag }> {
+      return client.post<{ tag: BlogTag }>("/v1/admin/blog/tags", data);
+    },
+
+    /**
+     * Admin update tag.
+     */
+    async updateTag(
+      id: string,
+      data: { name: string; slug?: string },
+    ): Promise<{ tag: BlogTag }> {
+      return client.patch<{ tag: BlogTag }>(`/v1/admin/blog/tags/${id}`, data);
+    },
+
+    /**
+     * Admin delete tag.
+     */
+    async deleteTag(id: string): Promise<{ success: boolean }> {
+      return client.delete<{ success: boolean }>(`/v1/admin/blog/tags/${id}`);
     },
   };
 }

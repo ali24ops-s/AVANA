@@ -29,16 +29,20 @@ export type CourseStatus =
   | "draft"
   | "generating"
   | "review"
+  | "pending_review"
   | "approved"
   | "published"
+  | "rejected"
   | "archived";
 
 export const COURSE_STATUSES: readonly CourseStatus[] = [
   "draft",
   "generating",
   "review",
+  "pending_review",
   "approved",
   "published",
+  "rejected",
   "archived",
 ];
 
@@ -55,7 +59,8 @@ export type ProductType =
   | "content_pack"
   | "course"
   | "content"
-  | "special_exam";
+  | "special_exam"
+  | "wallet_topup";
 
 export const PRODUCT_TYPES: readonly ProductType[] = [
   "subscription",
@@ -63,6 +68,7 @@ export const PRODUCT_TYPES: readonly ProductType[] = [
   "course",
   "content",
   "special_exam",
+  "wallet_topup",
 ];
 
 export function isProductType(v: string): v is ProductType {
@@ -73,8 +79,15 @@ export type ProductTargetType =
   | "plan"
   | "content_pack"
   | "course"
+  | "course_publication"
   | "content"
-  | "special_exam";
+  | "special_exam"
+  | "wallet";
+
+export const CANONICAL_WALLET_TOPUP_ID =
+  "44444444-4444-4444-8444-444444444444" as ProductId;
+
+export const CANONICAL_WALLET_TOPUP_CODE = "wallet_topup";
 
 export type ProductRecord = {
   id: ProductId;
@@ -188,7 +201,7 @@ export * from "./payment-extraction.js";
 
 export type CardToCardPaymentInput = {
   productId: ProductId;
-  amount: number; // Integer in Tomans, must match product price
+  amount: number; // Integer in Tomans, must match product price (or discounted payable price)
   trackingNumber: string; // Bank tracking / reference number
   sourceCardLast4: string; // Exactly 4 digits
   paymentDate?: string; // Optional user-reported date
@@ -197,6 +210,7 @@ export type CardToCardPaymentInput = {
   receiptUrl?: string; // Optional private storage URL/key
   rawPaymentText?: string; // Optional user-pasted text (sanitized before storage)
   extractionMethod?: "rule" | "ai" | "hybrid" | "manual"; // Extraction technique used
+  couponCode?: string; // Optional coupon code
 };
 
 export type CardToCardInfoResponse = {
@@ -360,16 +374,22 @@ export type ExamBlueprintItem = {
   name?: string;
   topic?: string;
   moduleId?: string;
+  moduleIds?: string[];
   lessonId?: string;
+  lessonIds?: string[];
   courseId?: string;
+  courseIds?: string[];
   difficulty?: string;
   count: number;
 };
 
 export type SpecialExamScope = {
   courseId?: string;
+  courseIds?: string[];
   moduleId?: string;
+  moduleIds?: string[];
   lessonId?: string;
+  lessonIds?: string[];
   topics?: string[];
 };
 
@@ -597,6 +617,56 @@ export function calculateContentPricingBreakdown(
     flashcardCount,
     questionCount,
     hasReviewSummary,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Course Suggested Pricing
+// ---------------------------------------------------------------------------
+
+/**
+ * Suggested discount percentage for complete official courses compared to individual chapter pricing.
+ */
+export const COURSE_SUGGESTED_DISCOUNT_PERCENT = 15;
+
+export type CoursePricingBreakdown = ContentPricingBreakdown & {
+  basePrice: number;
+  discountPercentage: number;
+  discountAmount: number;
+  suggestedCoursePrice: number;
+};
+
+/**
+ * Calculates the suggested price for a complete course by applying a 15% discount
+ * to the base price calculated using the exact authoritative chapter/content pricing formula.
+ *
+ * Formula:
+ * basePrice = calculateDefaultContentPrice(input)
+ * suggestedCoursePrice = Math.round(basePrice * 0.85)
+ */
+export function calculateSuggestedCoursePrice(input: ContentPricingInput): number {
+  const basePrice = calculateDefaultContentPrice(input);
+  return Math.round(basePrice * 0.85);
+}
+
+/**
+ * Returns a comprehensive pricing breakdown for a course, including base calculated price,
+ * 15% discount amount, and final suggested course price.
+ */
+export function calculateCoursePricingBreakdown(
+  input: ContentPricingInput,
+): CoursePricingBreakdown {
+  const contentBreakdown = calculateContentPricingBreakdown(input);
+  const basePrice = contentBreakdown.totalSuggestedPrice;
+  const suggestedCoursePrice = Math.round(basePrice * 0.85);
+  const discountAmount = basePrice - suggestedCoursePrice;
+
+  return {
+    ...contentBreakdown,
+    basePrice,
+    discountPercentage: COURSE_SUGGESTED_DISCOUNT_PERCENT,
+    discountAmount,
+    suggestedCoursePrice,
   };
 }
 

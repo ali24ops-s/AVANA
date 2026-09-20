@@ -259,11 +259,13 @@ export type ChapterPackageItem = {
     lessonCount: number;
     flashcardCount: number;
     quizQuestionCount: number;
+    hasSummary?: boolean;
     estimatedReadingMinutes: number;
   };
   completeness: ChapterPackageCompleteness;
   access: import("./commerce.js").ResourceAccessSummary;
   purchase: import("./commerce.js").ResourcePurchaseSummary;
+  pricing?: ContentPackPricing;
   preview?: import("./preview-resolver.js").ContentPreviewMetadata;
   createdAt: string;
   updatedAt: string;

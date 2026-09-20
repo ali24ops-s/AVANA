@@ -83,7 +83,7 @@ import type {
   QuizQuestionStore,
 } from "../study/study-store.js";
 import type { OrganizationStore } from "../organizations/organization-store.js";
-import type { GenerationQueue } from "./generation-queue.js";
+import type { GenerationQueue, GenerationContext } from "./generation-queue.js";
 import { AuditService } from "../../observability/audit-service.js";
 import type { DbClient } from "@avana/database/client";
 import { DrizzleGeneratedContentStore } from "./drizzle-stores.js";
@@ -449,7 +449,7 @@ export class ReviewService {
         } else if (options?.status) {
           return c.status === options.status;
         }
-        return c.status === "draft" || c.status === "edited";
+        return c.status === "draft" || c.status === "edited" || c.status === "regenerating";
       });
 
       if (options?.type) {
@@ -676,6 +676,21 @@ export class ReviewService {
       if (qLessonId) {
         materializedLessonId = qLessonId;
       }
+    } else if (record.type === "review_summary" && record.documentId) {
+      const priorContents = await this.generatedContentStore.listByDocument(
+        record.documentId,
+        record.organizationId,
+      );
+      const priorSummaries = priorContents.filter(
+        (g) => g.type === "review_summary" && g.id !== record.id && g.deletedAt === null,
+      );
+      for (const prior of priorSummaries) {
+        await this.generatedContentStore.update({
+          ...prior,
+          deletedAt: now,
+          updatedAt: now,
+        });
+      }
     }
 
     const updated: GeneratedContentRecord = {
@@ -834,23 +849,43 @@ export class ReviewService {
       throw new DomainError("conflict", "Content is already being regenerated");
     }
 
+    if (record.documentId) {
+      const doc = await this.documentStore.findByIdForOrganization(
+        record.documentId as DocumentId,
+        organizationId,
+      );
+      if (doc && (doc.status === "generating" || doc.status === "pending_generation")) {
+        throw new DomainError(
+          "conflict",
+          "این سند در حال حاضر در حال پردازش یا تولید محتوا است. لطفاً منتظر بمانید.",
+        );
+      }
+    }
+
     const now = new Date().toISOString();
     const generationKey = `content:${record.id}:regen:${now}`;
 
-    // Mark unaccepted content as regenerating (async job in flight).
+    // Mark unaccepted content as regenerating atomically (async job in flight).
     // Accepted content remains accepted so students retain access if generation fails.
     if (record.status !== "accepted") {
-      const updated: GeneratedContentRecord = {
-        ...record,
-        status: "regenerating",
-        updatedAt: now,
-      };
-      await this.generatedContentStore.update(updated);
+      const locked = await this.generatedContentStore.markRegenerating(
+        record.id,
+        organizationId,
+      );
+      if (!locked) {
+        throw new DomainError("conflict", "Content is already being regenerated");
+      }
     }
 
     // Reuse the async generation queue (BullMQ). Never call the gateway
     // synchronously. The worker will call generateForDocument which is
     // idempotent on the generation key.
+    const isActorAdmin =
+      actor.role === "platform_admin" ||
+      actor.role === "organization_admin" ||
+      actor.role === "course_editor";
+    const generationContext: GenerationContext = isActorAdmin ? "admin" : "public";
+
     const result = await this.queue.enqueueGenerationJob({
       actorUserId: actor.userId,
       actorRole: actor.role,
@@ -861,6 +896,7 @@ export class ReviewService {
       promptVersion: record.promptVersion ?? undefined,
       generationKey,
       force: true,
+      generationContext,
     });
 
     if (this.auditService) {
@@ -1086,6 +1122,21 @@ export class ReviewService {
         const qLessonId = await this.materializeQuiz(record, stores);
         if (qLessonId) {
           materializedLessonId = qLessonId;
+        }
+      } else if (record.type === "review_summary" && record.documentId) {
+        const priorContents = await contentStore.listByDocument(
+          record.documentId,
+          record.organizationId,
+        );
+        const priorSummaries = priorContents.filter(
+          (g) => g.type === "review_summary" && g.id !== record.id && g.deletedAt === null,
+        );
+        for (const prior of priorSummaries) {
+          await contentStore.update({
+            ...prior,
+            deletedAt: now,
+            updatedAt: now,
+          });
         }
       }
 
@@ -1536,7 +1587,7 @@ export class ReviewService {
         courseId: record.courseId,
         documentId: record.documentId,
         title: resolvedTitle,
-        description: "مباحث و جلسات آموزشی استخراج‌شده",
+        description: "مباحث و جلسات آموزشی جامع",
         sortOrder: modules.length,
         createdAt: now,
         updatedAt: now,

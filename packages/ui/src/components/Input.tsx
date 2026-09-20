@@ -21,6 +21,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
       containerClassName = "",
       id,
       disabled,
+      dir,
       ...props
     },
     ref
@@ -34,9 +35,9 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
             {label}
           </label>
         )}
-        <div className="relative flex items-center w-full">
+        <div className="relative flex items-center w-full" dir={dir}>
           {startIcon && (
-            <div className="absolute start-3.5 top-1/2 -translate-y-1/2 text-[var(--color-text-muted)] pointer-events-none">
+            <div className="absolute start-3.5 top-1/2 -translate-y-1/2 flex items-center justify-center text-[var(--color-text-muted)] pointer-events-none">
               {startIcon}
             </div>
           )}
@@ -44,6 +45,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
             ref={ref}
             id={inputId}
             disabled={disabled}
+            dir={dir}
             className={`w-full py-2.5 px-3.5 bg-[var(--color-surface)] border ${
               error
                 ? "border-[#b84c4c] focus:ring-[#b84c4c]/20 text-[var(--color-text)]"
@@ -54,7 +56,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
             {...props}
           />
           {endIcon && (
-            <div className="absolute end-3.5 top-1/2 -translate-y-1/2 text-[var(--color-text-muted)]">
+            <div className="absolute end-3.5 top-1/2 -translate-y-1/2 flex items-center justify-center text-[var(--color-text-muted)]">
               {endIcon}
             </div>
           )}

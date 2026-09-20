@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Trophy,
@@ -14,8 +15,16 @@ import {
 import { Card, Button, Progress, Badge } from "@avana/ui";
 import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
 import { createStudyApi } from "../../lib/api/study.js";
-import type { StudyRecommendationResource } from "@avana/contracts";
+import type {
+  StudyRecommendationResource,
+  StudyTaskResource,
+} from "@avana/contracts";
 import { formatPersianOf, toPersianDigits } from "@avana/domain";
+import {
+  useDailyStudyPlan,
+  useUpdateStudyTaskStatus,
+} from "../../hooks/useDailyStudyPlan.js";
+import { StudyTaskCard } from "../planner/StudyTaskCard.js";
 
 export interface StudyAnalyticsViewProps {
   organizationId: string;
@@ -30,6 +39,28 @@ export function StudyAnalyticsView({
 }: StudyAnalyticsViewProps) {
   const apiClient = createApiClient({ baseUrl: getApiBaseUrl() });
   const studyApi = createStudyApi(apiClient);
+
+  const { data: planData } = useDailyStudyPlan();
+  const updateTaskMutation = useUpdateStudyTaskStatus();
+  const [updatingTaskId, setUpdatingTaskId] = useState<string | null>(null);
+
+  const handleCompleteTask = (task: StudyTaskResource) => {
+    if (task.status === "completed") return;
+    if (updateTaskMutation.isPending && updatingTaskId === task.id) return;
+    setUpdatingTaskId(task.id);
+    updateTaskMutation.mutate(
+      { taskId: task.id, status: "completed" },
+      {
+        onSettled: () => {
+          setUpdatingTaskId(null);
+        },
+      },
+    );
+  };
+
+  const courseTasks = (planData?.plan?.tasks ?? []).filter(
+    (task) => task.courseId === courseId,
+  );
 
   const analyticsQuery = useQuery({
     queryKey: ["study-analytics", organizationId, courseId],
@@ -127,8 +158,8 @@ export function StudyAnalyticsView({
               </div>
             </div>
             <div>
-              <span className="text-2xl font-black text-[var(--color-text)]" dir="ltr">
-                {`${analytics.lesson_progress_percent}%`}
+              <span className="text-2xl font-black text-[var(--color-text)]">
+                {`${toPersianDigits(analytics.lesson_progress_percent)}٪`}
               </span>
               <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
                 {formatPersianOf(analytics.completed_lessons, analytics.total_lessons, { suffix: " درس تکمیل شده" })}
@@ -153,8 +184,8 @@ export function StudyAnalyticsView({
               </div>
             </div>
             <div>
-              <span className="text-2xl font-black text-[var(--color-text)]" dir="ltr">
-                {`${analytics.flashcard_mastery_percent}%`}
+              <span className="text-2xl font-black text-[var(--color-text)]">
+                {`${toPersianDigits(analytics.flashcard_mastery_percent)}٪`}
               </span>
               <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
                 {formatPersianOf(Math.round((analytics.flashcard_mastery_percent * analytics.total_flashcards) / 100), analytics.total_flashcards, { suffix: " کارت مسلط شده" })}
@@ -179,8 +210,8 @@ export function StudyAnalyticsView({
               </div>
             </div>
             <div>
-              <span className="text-2xl font-black text-[var(--color-text)]" dir="ltr">
-                {`${analytics.average_quiz_score}%`}
+              <span className="text-2xl font-black text-[var(--color-text)]">
+                {`${toPersianDigits(analytics.average_quiz_score)}٪`}
               </span>
               <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
                 {`در ${toPersianDigits(analytics.attempts_taken)} نوبت آزمون در ${toPersianDigits(analytics.total_quizzes)} آزمون`}
@@ -225,17 +256,35 @@ export function StudyAnalyticsView({
             )}
           </Card>
 
-          {/* Recommended Next Steps */}
+          {/* Recommended Next Steps / Course Study Tasks */}
           <Card className="space-y-3 shadow-xs">
-            <h4 className="text-sm font-bold text-[var(--color-text)] flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-[var(--color-success)]" />
-              <span>گام‌های پیشنهادی برای ادامه مطالعه</span>
-            </h4>
-            {analytics.recommended_next_steps.length === 0 ? (
-              <p className="text-xs text-[var(--color-text-muted)] py-4">
-                با تکمیل بخش‌های بیشتر، گام‌های پیشنهادی اختصاصی فعال خواهند شد.
-              </p>
-            ) : (
+            <div className="flex items-center justify-between">
+              <h4 className="text-sm font-bold text-[var(--color-text)] flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-[var(--color-success)]" />
+                <span>گام‌های پیشنهادی برای ادامه مطالعه</span>
+              </h4>
+              {courseTasks.length > 0 && (
+                <Badge variant="neutral" size="sm">
+                  {toPersianDigits(courseTasks.length)} تسک فعال
+                </Badge>
+              )}
+            </div>
+
+            {courseTasks.length > 0 ? (
+              <div className="space-y-2 pt-1">
+                {courseTasks.map((task) => (
+                  <StudyTaskCard
+                    key={task.id}
+                    task={task}
+                    isUpdating={
+                      updateTaskMutation.isPending && updatingTaskId === task.id
+                    }
+                    onComplete={handleCompleteTask}
+                    hideCourseName={true}
+                  />
+                ))}
+              </div>
+            ) : analytics.recommended_next_steps.length > 0 ? (
               <ul className="space-y-2">
                 {analytics.recommended_next_steps.map((step: string, i: number) => (
                   <li
@@ -247,6 +296,10 @@ export function StudyAnalyticsView({
                   </li>
                 ))}
               </ul>
+            ) : (
+              <p className="text-xs text-[var(--color-text-muted)] py-4">
+                با تکمیل بخش‌های بیشتر، گام‌های پیشنهادی اختصاصی فعال خواهند شد.
+              </p>
             )}
           </Card>
         </div>
@@ -260,7 +313,7 @@ export function StudyAnalyticsView({
             <span>پیشنهادهای هوشمند مطالعه</span>
           </h4>
           <Badge variant="neutral" size="sm">
-            {recommendations.length} پیشنهاد فعال
+            {toPersianDigits(recommendations.length)} پیشنهاد فعال
           </Badge>
         </div>
 

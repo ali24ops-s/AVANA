@@ -95,7 +95,11 @@ export class SearchService {
         this.systemOrganizationId,
         safeLimit * 2,
       ),
-      this.store.searchSharedContent(trimmedQuery, safeLimit * 2),
+      this.store.searchSharedContent(
+        trimmedQuery,
+        safeLimit * 2,
+        this.systemOrganizationId,
+      ),
     ]);
 
     // Rank & format Course items
@@ -131,7 +135,7 @@ export class SearchService {
       .slice(0, safeLimit)
       .map((sc) => sc.item);
 
-    // Rank & format Shared Content items
+    // Rank & format Educational Pack / Shared Content items
     const scoredShared = sharedList.map((p) => {
       const score = computeRelevanceScore(
         p.title,
@@ -141,9 +145,9 @@ export class SearchService {
       );
       const item: SearchResultItem = {
         id: p.id,
-        type: "shared_content",
+        type: "educational_pack",
         title: p.title,
-        subtitle: p.subject ? `${p.subject} • محتوای اشتراکی` : "محتوای اشتراکی",
+        subtitle: p.subject ? `${p.subject} • بسته آموزشی` : "بسته آموزشی",
         description: p.description || null,
         target_url: `/library?packId=${p.id}`,
         metadata: {
@@ -184,6 +188,7 @@ export class SearchService {
       grouped: {
         courses: formattedCourses,
         shared_content: formattedShared,
+        educational_packs: formattedShared,
       },
     };
   }

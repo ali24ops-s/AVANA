@@ -71,6 +71,7 @@ describe("PR-6 database schema", () => {
     expect(cols).toHaveProperty("name");
     expect(cols).toHaveProperty("subject");
     expect(cols).toHaveProperty("examDate");
+    expect(cols).toHaveProperty("examScope");
     expect(cols).toHaveProperty("createdAt");
     expect(cols).toHaveProperty("updatedAt");
     expect(cols).toHaveProperty("deletedAt");
@@ -444,5 +445,39 @@ describe("PR-6 database schema", () => {
     expect(cols).toHaveProperty("title");
     expect(cols).toHaveProperty("previewLessonId");
   });
-});
 
+  test("daily_study_plans table is defined and has required columns", () => {
+    expect(schema.dailyStudyPlans).toBeDefined();
+    const cols = getTableColumns(schema.dailyStudyPlans);
+    expect(cols).toHaveProperty("id");
+    expect(cols).toHaveProperty("userId");
+    expect(cols).toHaveProperty("planDate");
+    expect(cols).toHaveProperty("status");
+    expect(cols).toHaveProperty("targetDurationMinutes");
+    expect(cols).toHaveProperty("completedDurationMinutes");
+    expect(cols).toHaveProperty("createdAt");
+    expect(cols).toHaveProperty("updatedAt");
+  });
+
+  test("study_tasks table is defined and has required columns", () => {
+    expect(schema.studyTasks).toBeDefined();
+    const cols = getTableColumns(schema.studyTasks);
+    expect(cols).toHaveProperty("id");
+    expect(cols).toHaveProperty("planId");
+    expect(cols).toHaveProperty("userId");
+    expect(cols).toHaveProperty("taskType");
+    expect(cols).toHaveProperty("status");
+    expect(cols).toHaveProperty("title");
+    expect(cols).toHaveProperty("description");
+    expect(cols).toHaveProperty("courseId");
+    expect(cols).toHaveProperty("moduleId");
+    expect(cols).toHaveProperty("lessonId");
+    expect(cols).toHaveProperty("quizId");
+    expect(cols).toHaveProperty("priority");
+    expect(cols).toHaveProperty("estimatedMinutes");
+    expect(cols).toHaveProperty("completedAt");
+    expect(cols).toHaveProperty("metadata");
+    expect(cols).toHaveProperty("createdAt");
+    expect(cols).toHaveProperty("updatedAt");
+  });
+});

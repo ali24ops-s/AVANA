@@ -11,9 +11,8 @@
  * 6. Learning Pipeline Section ("از یک منبع تا یادگیری کامل")
  * 7. Quiz Experience Section ("فقط نخوان؛ خودت را امتحان کن")
  * 8. Review Summary Section ("وقتی وقت کم است، دقیق مرور کن")
- * 9. Complete AVANA Loop Section ("چرخه یکپارچه یادگیری آوانا")
- * 10. Final CTA Section ("منبعت را بده به آوانا. از همین‌جا شروع کن.")
- * 11. Footer
+ * 9. Final CTA Section ("منبعت را بده به آوانا. از همین‌جا شروع کن.")
+ * 10. Footer
  */
 
 import { useState, useEffect, useCallback } from "react";
@@ -27,7 +26,6 @@ import { LivingTextbookSection } from "./landing/LivingTextbookSection.js";
 import { LearningPipelineSection } from "./landing/LearningPipelineSection.js";
 import { QuizExperienceSection } from "./landing/QuizExperienceSection.js";
 import { ReviewSummarySection } from "./landing/ReviewSummarySection.js";
-import { CompleteLoopSection } from "./landing/CompleteLoopSection.js";
 import { FinalCTASection } from "./landing/FinalCTASection.js";
 import { Footer } from "./landing/Footer.js";
 import { useAuth } from "../providers/AuthProvider.js";
@@ -98,8 +96,8 @@ export function LandingPage() {
     { label: "خانه", href: "#hero", isInternalRoute: false },
     { label: "امکانات", href: "#living-textbook", isInternalRoute: false },
     { label: "مسیر یادگیری", href: "#learning-pipeline", isInternalRoute: false },
+    { label: "وبلاگ", href: "/blog", isInternalRoute: true },
     { label: "قیمت‌گذاری", href: "/pricing", isInternalRoute: true },
-    { label: "درباره ما", href: "/about", isInternalRoute: true },
   ];
 
   return (
@@ -243,10 +241,7 @@ export function LandingPage() {
         {/* 7. Review Summary ("وقتی وقت کم است، دقیق مرور کن") */}
         <ReviewSummarySection />
 
-        {/* 8. Complete AVANA Loop ("چرخه یکپارچه یادگیری آوانا") */}
-        <CompleteLoopSection />
-
-        {/* 9. Final CTA ("منبعت را بده به آوانا. از همین‌جا شروع کن.") */}
+        {/* 8. Final CTA ("منبعت را بده به آوانا. از همین‌جا شروع کن.") */}
         <FinalCTASection />
       </main>
 

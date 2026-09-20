@@ -8,7 +8,6 @@
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
-  GraduationCap,
   Flame,
   ChevronLeft,
 } from "lucide-react";
@@ -16,6 +15,7 @@ import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
 import { createOrganizationApi } from "../../lib/api/organizations.js";
 import { createCourseApi } from "../../lib/api/courses.js";
 import { useAuth } from "../../providers/AuthProvider.js";
+import { CourseCard } from "../avana/CourseCard.js";
 import type { CourseResource } from "@avana/contracts";
 
 export interface PopularCoursesLibrarySectionProps {
@@ -107,55 +107,22 @@ export function PopularCoursesLibrarySection({
       ) : (
         /* Course Grid in exact API ranking order */
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-          {activeCourses.map((course) => (
-            <PopularCourseLibraryCard key={course.id} course={course} />
-          ))}
+          {activeCourses.map((course) => {
+            const rawCourse = course as { cover_image?: string; thumbnail_url?: string };
+            return (
+              <CourseCard
+                key={course.id}
+                id={course.id}
+                title={course.title}
+                subject={course.subject}
+                coverImage={rawCourse.cover_image || rawCourse.thumbnail_url}
+                href={`/courses/${course.id}`}
+                variant="compact"
+              />
+            );
+          })}
         </div>
       )}
     </section>
-  );
-}
-
-/**
- * Single Popular Course Card for Library page.
- */
-function PopularCourseLibraryCard({ course }: { course: CourseResource }) {
-  return (
-    <Link
-      to={`/courses/${course.id}`}
-      className="p-4 sm:p-5 rounded-[16px] bg-[var(--color-surface)] border border-[var(--color-border)] shadow-subtle hover:border-primary/50 hover:shadow-card transition-all duration-200 flex flex-col justify-between group cursor-pointer min-h-[160px]"
-    >
-      <div>
-        <div className="flex items-start justify-between gap-2 mb-3">
-          <div className="w-9 h-9 rounded-[10px] bg-primary/10 border border-primary/30 flex items-center justify-center shrink-0 text-primary group-hover:scale-105 transition-transform">
-            <GraduationCap className="w-4.5 h-4.5" />
-          </div>
-          {course.subject && (
-            <span
-              className="text-[10px] px-2.5 py-0.5 rounded-full bg-[#e0f2f2] text-[#006666] font-medium border border-[#b3d9d9] shrink-0 truncate max-w-[130px]"
-              title={course.subject}
-            >
-              {course.subject}
-            </span>
-          )}
-        </div>
-
-        <h3
-          className="text-sm font-bold text-[var(--color-text)] group-hover:text-primary transition-colors line-clamp-2 min-h-[2.5rem] leading-snug"
-          title={course.title}
-        >
-          {course.title}
-        </h3>
-      </div>
-
-      {/* Footer Section */}
-      <div className="mt-4 pt-3 border-t border-[var(--color-border)] flex items-center justify-between text-xs text-[var(--color-text-muted)]">
-        <span>محتوای آموزشی</span>
-        <div className="text-primary font-semibold flex items-center gap-1 group-hover:underline">
-          <span>ورود به دوره</span>
-          <ChevronLeft className="w-3.5 h-3.5" />
-        </div>
-      </div>
-    </Link>
   );
 }

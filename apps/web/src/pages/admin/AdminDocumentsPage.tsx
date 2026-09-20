@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../lib/api/admin";
 import { AdminTable, AdminPagination, AdminSearch, AdminFilter, AdminStatusBadge, AdminLoadingState, AdminEmptyState, AdminErrorState } from "../../components/admin/AdminUI";
+import { formatPersianOf } from "@avana/domain";
 import { Sparkles, CheckCircle, AlertCircle, Clock } from "lucide-react";
 
 export interface DocumentGenerationProgress {
@@ -115,7 +116,7 @@ export function AdminDocumentsPage() {
             </span>
             <span className="truncate max-w-[120px]" title={stageName}>{stageName}</span>
             {showCount && (
-              <span className="text-[var(--color-text-muted)] text-[11px]" dir="ltr">({current}/{total})</span>
+              <span className="text-[var(--color-text-muted)] text-[11px]">({formatPersianOf(current, total)})</span>
             )}
           </div>
           <div className="w-full bg-[var(--color-surface-subtle)] border border-[var(--color-border)] rounded-full h-1.5 overflow-hidden">

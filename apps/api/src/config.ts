@@ -103,6 +103,11 @@ export type ApiConfig = {
     arvancloudBaseUrl?: string;
     arvancloudModel: string;
     arvancloudAuthScheme?: string;
+    pricing: {
+      inputPricePerMillionUsd: number;
+      outputPricePerMillionUsd: number;
+      usdToTomanRate: number;
+    };
   };
   userAi: {
     provider: string;
@@ -402,6 +407,33 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
         "DeepSeek-R1-qwen-7b-awq",
       ),
       arvancloudAuthScheme: env.ARVANCLOUD_AUTH_SCHEME,
+      pricing: {
+        inputPricePerMillionUsd: Number(
+          getOptionalString(
+            env,
+            "AI_INPUT_TOKEN_PRICE_PER_MILLION_USD",
+            getOptionalString(
+              env,
+              "GENERATION_INPUT_PRICE_PER_M_USD",
+              "0.14",
+            ),
+          ),
+        ),
+        outputPricePerMillionUsd: Number(
+          getOptionalString(
+            env,
+            "AI_OUTPUT_TOKEN_PRICE_PER_MILLION_USD",
+            getOptionalString(
+              env,
+              "GENERATION_OUTPUT_PRICE_PER_M_USD",
+              "0.28",
+            ),
+          ),
+        ),
+        usdToTomanRate: Number(
+          getOptionalString(env, "USD_TO_TOMAN_RATE", "100000"),
+        ),
+      },
     },
     userAi: {
       provider: getOptionalString(env, "USER_AI_PROVIDER", "openrouter"),

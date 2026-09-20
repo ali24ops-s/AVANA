@@ -73,6 +73,12 @@ import {
   repairQuestionBias,
   canonicalizeAndShuffleQuestion,
   isNearDuplicateQuestion,
+  calculateEstimatedGenerationCost,
+  type CostEstimateResult,
+  calculateReferenceBasedUserPrice,
+  type ReferenceBasedUserPriceResult,
+  type ReferencePricingBaseline,
+  type ModelPricingConfig,
   resolveCorrectChoiceText,
   type GenerationChunkRecord,
   type GenerationChunkStage,
@@ -80,6 +86,7 @@ import {
   type DocumentGenerationProgressResource,
   DEFAULT_GENERATION_STALE_THRESHOLD_MS,
   normalizeEducationalContent,
+  extractChemicalStructuresFromMarkdown,
   isLessonChunkSetCurrent,
   cleanEducationalTitle,
   resolveCanonicalContentTitle,
@@ -128,9 +135,11 @@ import type {
   QuizQuestionStore,
 } from "../study/study-store.js";
 import type { CourseStore } from "../courses/course-store.js";
+import type { EntitlementService } from "../commerce/entitlement-service.js";
 import { isDeepSeekProvider, type ModelGateway } from "./gateway/index.js";
 import type { AuditService } from "../../observability/audit-service.js";
 import type { OrganizationStore } from "../organizations/organization-store.js";
+import type { GenerationContext } from "./generation-queue.js";
 import { cleanAndParseJson } from "./engine/resilient-json-parser.js";
 import { GenerationQueryService } from "./services/generation-query-service.js";
 import {
@@ -205,6 +214,9 @@ export class GenerationService {
   public readonly activeStatusService: GenerationActiveStatusService;
   public readonly lifecycleService: GenerationLifecycleService;
   private notificationService?: NotificationService;
+  private readonly pricingConfig?: ModelPricingConfig;
+  private readonly referencePricingProvider?: () => Promise<ReferencePricingBaseline>;
+  private readonly entitlementService?: EntitlementService;
 
   constructor(
     private readonly generatedContentStore: GeneratedContentStore,
@@ -230,7 +242,13 @@ export class GenerationService {
     generationContentStatusService?: GenerationContentStatusService,
     generationActiveStatusService?: GenerationActiveStatusService,
     generationLifecycleService?: GenerationLifecycleService,
+    pricingConfig?: ModelPricingConfig,
+    referencePricingProvider?: () => Promise<ReferencePricingBaseline>,
+    entitlementService?: EntitlementService,
   ) {
+    this.pricingConfig = pricingConfig;
+    this.referencePricingProvider = referencePricingProvider;
+    this.entitlementService = entitlementService;
     this.chunkRecordStore =
       generationChunkStore ?? new InMemoryGenerationChunkStore();
     this.generationJobStore = generationJobStore;
@@ -1205,11 +1223,13 @@ export class GenerationService {
             validCitations.length > 0 ? validCitations : item.chunkIdList;
 
           const normalizedContentMarkdown = normalizeEducationalContent(matched.contentMarkdown);
+          const chemicalStructures = extractChemicalStructuresFromMarkdown(normalizedContentMarkdown);
 
           const sessionObj = {
             title,
             contentMarkdown: normalizedContentMarkdown,
             citationChunkIds,
+            ...(chemicalStructures.length > 0 ? { chemicalStructures } : {}),
           };
 
           const completedAt = new Date().toISOString();
@@ -1444,6 +1464,7 @@ export class GenerationService {
                 : chunkIdList;
 
             const normalizedContentMarkdown = normalizeEducationalContent(contentMarkdown);
+            const chemicalStructures = extractChemicalStructuresFromMarkdown(normalizedContentMarkdown);
 
             process.stdout.write(
               `[GENERATION] validation_passed: stage=lesson chunkKey=${chunkKey} correlationId=${correlationId} markdownLength=${normalizedContentMarkdown.length}\n`,
@@ -1454,6 +1475,7 @@ export class GenerationService {
                 title,
                 contentMarkdown: normalizedContentMarkdown,
                 citationChunkIds,
+                ...(chemicalStructures.length > 0 ? { chemicalStructures } : {}),
               },
               usage: completion.usage,
             };
@@ -3535,6 +3557,99 @@ export class GenerationService {
   }
 
   /**
+   * Estimate generation selling price in Toman for a document before starting generation,
+   * calibrated against Katzung Chapter 40 reference document baseline.
+   * Deterministic, zero AI calls, safe against client-side parameter tampering.
+   */
+  async estimateCostForDocument(
+    actor: Actor,
+    organizationId: OrganizationId,
+    documentId: DocumentId,
+    types: GeneratedContentType[],
+    _courseId?: CourseId,
+  ): Promise<{
+    userPrice: ReferenceBasedUserPriceResult;
+    aiCostEstimate: CostEstimateResult;
+    estimatedPriceToman: number;
+    formattedPrice: string;
+    currency: "toman";
+    disclaimer: string;
+  }> {
+    await this.authorize(actor, organizationId, "content:generate");
+
+    const doc = await this.requireDocument(organizationId, documentId);
+    const chunks = await this.chunkStore.listByDocument(documentId);
+
+    if (!chunks || chunks.length === 0) {
+      throw new DomainError(
+        "unprocessable",
+        "Document has not been processed or has no extracted text content for price estimation.",
+      );
+    }
+
+    const totalTokens = chunks.reduce(
+      (acc, c) => acc + (c.tokenEstimate || 0),
+      0,
+    );
+    const totalCharacters = chunks.reduce(
+      (acc, c) => acc + c.content.length,
+      0,
+    );
+
+    if (totalTokens <= 0) {
+      throw new DomainError(
+        "unprocessable",
+        "Document contains no usable extracted tokens for price estimation.",
+      );
+    }
+
+    const requestedTypes =
+      types && types.length > 0
+        ? types
+        : (["lesson", "flashcard", "quiz", "review_summary"] as GeneratedContentType[]);
+    const enabled = requestedTypes.filter((t): t is GeneratedContentType =>
+      isGenerationTypeEnabled(t),
+    );
+
+    let baselineOverride: Partial<ReferencePricingBaseline> | undefined;
+    if (this.referencePricingProvider) {
+      try {
+        baselineOverride = await this.referencePricingProvider();
+      } catch {
+        // Fallback safely to canonical default baseline
+      }
+    }
+
+    // 1. User Selling Price (Calibrated on Katzung Chapter 40 Reference File)
+    const userPrice = calculateReferenceBasedUserPrice({
+      targetUsableTokens: totalTokens,
+      types: enabled,
+      baseline: baselineOverride,
+    });
+
+    // 2. AI Infrastructure Cost Estimate (DeepSeek Flash V4 token rate)
+    const aiCostEstimate = calculateEstimatedGenerationCost({
+      documentMetrics: {
+        pageCount: doc.pageCount,
+        chunkCount: chunks.length,
+        totalTokens,
+        totalCharacters,
+      },
+      types: enabled,
+      pricing: this.pricingConfig,
+    });
+
+    return {
+      userPrice,
+      aiCostEstimate,
+      estimatedPriceToman: userPrice.totalPriceToman,
+      formattedPrice: userPrice.formattedTotalPrice,
+      currency: "toman",
+      disclaimer: userPrice.disclaimer,
+    };
+  }
+
+  /**
    * Check if a document has an actively running worker with a valid lease or recent heartbeat.
    * Delegated to GenerationQueryService.
    */
@@ -3620,9 +3735,23 @@ export class GenerationService {
       courseId?: CourseId;
       force?: boolean;
       jobId?: string;
+      generationContext?: GenerationContext;
     } = {},
   ): Promise<GenerateResult> {
     await this.authorize(actor, organizationId, "content:generate");
+
+    // Central Invariant: Admin generation = Gemini ONLY
+    if (input.generationContext === "admin") {
+      if (
+        isDeepSeekProvider(this.gateway) ||
+        (this.gateway.provider !== "gemini" && this.gateway.provider !== "mock")
+      ) {
+        throw new DomainError(
+          "bad_request",
+          `Admin generation invariant violation: Admin content generation must strictly use Gemini gateway (current provider: ${this.gateway.provider}, model: ${this.gateway.model ?? "unknown"}).`,
+        );
+      }
+    }
 
     const promptVersion = input.promptVersion ?? "v1";
     const generationKey = input.generationKey ?? undefined;
@@ -3641,7 +3770,7 @@ export class GenerationService {
         try {
           const leaseExpiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
           await this.generationJobStore?.updateHeartbeat?.(
-            activeJobId as any,
+            activeJobId as GenerationJobId,
             organizationId,
             new Date().toISOString(),
             leaseExpiresAt,
@@ -4030,6 +4159,8 @@ export class GenerationService {
             new Set(generatedSessions.flatMap((s) => s.citationChunkIds)),
           );
 
+          const rootChemicalStructures = extractChemicalStructuresFromMarkdown(masterMarkdown);
+
           payload = {
             kind: "lesson",
             moduleTitle: cleanLessonTitle,
@@ -4042,6 +4173,7 @@ export class GenerationService {
                 ? allSessionCitations
                 : planningRes.citationChunkIds,
             coverageReport,
+            ...(rootChemicalStructures.length > 0 ? { chemicalStructures: rootChemicalStructures } : {}),
           };
           typeUsage = lessonUsage;
         } else if (type === "flashcard") {
@@ -4416,7 +4548,7 @@ export class GenerationService {
         process.stdout.write(
           `[GENERATION] pipeline stopped cleanly: documentId=${documentId} jobId=${input.jobId}\n`,
         );
-        let updatedDoc = await this.requireDocument(organizationId, documentId);
+        const updatedDoc = await this.requireDocument(organizationId, documentId);
         if (updatedDoc.status === "generating") {
           const existingDrafts = await this.generatedContentStore.listByDocument(documentId, organizationId);
           const newDocStatus = existingDrafts.length > 0 ? "review_pending" : "extracted";
@@ -4551,9 +4683,24 @@ export class GenerationService {
       promptVersion?: string;
       courseId?: CourseId;
       generationKey?: string;
+      generationContext?: GenerationContext;
     },
   ): Promise<GeneratedContentResource> {
     await this.authorize(actor, organizationId, "content:generate");
+
+    // Central Invariant: Admin generation = Gemini ONLY
+    if (options?.generationContext === "admin") {
+      if (
+        isDeepSeekProvider(this.gateway) ||
+        (this.gateway.provider !== "gemini" && this.gateway.provider !== "mock")
+      ) {
+        throw new DomainError(
+          "bad_request",
+          `Admin generation invariant violation: Admin content generation must strictly use Gemini gateway (current provider: ${this.gateway.provider}, model: ${this.gateway.model ?? "unknown"}).`,
+        );
+      }
+    }
+
     const doc = await this.requireDocument(organizationId, documentId);
 
     if (!options?.force) {
@@ -4597,7 +4744,7 @@ export class GenerationService {
       chunkKey,
     });
 
-    if (claim.status === "completed") {
+    if (!options?.force && claim.status === "completed") {
       const isStale =
         !claim.payload ||
         !Array.isArray((claim.payload as ReviewSummaryPayload).citationChunkIds) ||
@@ -4614,7 +4761,8 @@ export class GenerationService {
           (c) =>
             c.type === "review_summary" &&
             c.deletedAt === null &&
-            c.status !== "rejected",
+            c.status !== "rejected" &&
+            c.status !== "regenerating",
         );
         if (existingSummary) {
           return this.toResource(existingSummary);
@@ -5048,6 +5196,23 @@ export class GenerationService {
 
       return this.toResource(record);
     } catch (err) {
+      // If there was an unaccepted review summary in "regenerating" status, restore to "draft" on failure so it can be discovered and retried
+      try {
+        const docContents = await this.generatedContentStore.listByDocument(documentId, organizationId);
+        const regeneratingSummary = docContents.find(
+          (c) => c.type === "review_summary" && c.deletedAt === null && c.status === "regenerating",
+        );
+        if (regeneratingSummary) {
+          await this.generatedContentStore.update({
+            ...regeneratingSummary,
+            status: "draft",
+            updatedAt: new Date().toISOString(),
+          });
+        }
+      } catch {
+        // Non-blocking rollback
+      }
+
       await this.chunkRecordStore.upsert({
         id: existingSummaryChunk?.id ?? randomUUID(),
         organizationId,
@@ -5087,9 +5252,44 @@ export class GenerationService {
       if (!course) {
         throw new DomainError("not_found", "Course not found");
       }
-      targetOrgId = (course.organizationId || (course as any).organization_id) as OrganizationId;
+      targetOrgId = (course.organizationId || (course as { organization_id?: OrganizationId }).organization_id) as OrganizationId;
+
+      if (this.entitlementService) {
+        const access = await this.entitlementService.checkAccess(actor, {
+          userId: actor.userId,
+          resourceType: "document",
+          resourceId: documentId,
+          courseId,
+        });
+        if (!access.granted) {
+          throw new DomainError(
+            "forbidden",
+            "برای دسترسی به خلاصه مروری این فصل، خرید دوره یا فعال‌سازی اشتراک الزامی است.",
+          );
+        }
+      }
     } else {
       await this.authorize(actor, organizationId, "content:review");
+
+      if (this.entitlementService && actor.role !== "platform_admin" && actor.role !== "organization_admin") {
+        const doc = this.documentStore
+          ? await this.documentStore.findByIdForOrganization(documentId, targetOrgId).catch(() => undefined)
+          : undefined;
+        if (doc && doc.ownerUserId !== actor.userId) {
+          const access = await this.entitlementService.checkAccess(actor, {
+            userId: actor.userId,
+            resourceType: "document",
+            resourceId: documentId,
+            courseId: doc.courseId ?? undefined,
+          });
+          if (!access.granted) {
+            throw new DomainError(
+              "forbidden",
+              "برای دسترسی به خلاصه مروری این فصل، خرید دوره یا فعال‌سازی اشتراک الزامی است.",
+            );
+          }
+        }
+      }
     }
 
     // Check if an active summary exists (including decoupled summaries where source document was soft-deleted)
@@ -5098,12 +5298,23 @@ export class GenerationService {
       targetOrgId,
     );
 
-    const summary = contents.find(
+    const activeSummaries = contents.filter(
       (c) =>
         c.type === "review_summary" &&
         c.deletedAt === null &&
         c.status !== "rejected",
     );
+
+    // Prefer newest active draft/revision for review/editing, followed by accepted
+    activeSummaries.sort((a, b) => {
+      const isDraftA = a.status === "draft" || a.status === "edited" || a.status === "regenerating";
+      const isDraftB = b.status === "draft" || b.status === "edited" || b.status === "regenerating";
+      if (isDraftA && !isDraftB) return -1;
+      if (!isDraftA && isDraftB) return 1;
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
+
+    const summary = activeSummaries[0];
 
     if (summary) {
       if (courseId && summary.courseId && summary.courseId !== courseId) {

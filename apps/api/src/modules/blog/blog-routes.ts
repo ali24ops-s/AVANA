@@ -116,4 +116,33 @@ export const blogRoutes: FastifyPluginAsync<BlogRouteOptions> = async (
     const tags = await blogService.listPopularTags(30);
     return reply.send({ tags });
   });
+
+  /**
+   * GET /v1/blog/tags/:slug
+   * Gets single tag and its published posts.
+   */
+  app.get("/v1/blog/tags/:slug", async (request, reply) => {
+    const { slug } = request.params as { slug: string };
+    const query = request.query as { page?: string; pageSize?: string };
+    const page = query.page ? Math.max(1, parseInt(query.page, 10)) : 1;
+    const pageSize = query.pageSize ? Math.min(50, Math.max(1, parseInt(query.pageSize, 10))) : 10;
+
+    const tag = await blogService.getTagBySlug(slug);
+    if (!tag) {
+      return reply.status(404).send({
+        error: { code: "not_found", message: "برچسب مورد نظر یافت نشد." },
+      });
+    }
+
+    const postsResult = await blogService.listPublishedPosts({
+      page,
+      pageSize,
+      tagSlug: tag.slug,
+    });
+
+    return reply.send({
+      tag,
+      ...postsResult,
+    });
+  });
 };

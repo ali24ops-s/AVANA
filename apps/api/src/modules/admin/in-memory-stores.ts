@@ -3,7 +3,18 @@
  * Used for local development (composeLocalDev) and testing.
  */
 
-import { STAGE_LABELS_FA, type UserId, type Role } from "@avana/domain";
+import {
+  STAGE_LABELS_FA,
+  type UserId,
+  type Role,
+  type ContentGenerationPricingConfig,
+  type UpdateContentGenerationPricingInput,
+  DEFAULT_CONTENT_GENERATION_PRICING_CONFIG,
+  type SubscriptionCreditBonusesConfig,
+  DEFAULT_SUBSCRIPTION_CREDIT_BONUSES,
+  generateBulkPromotionCodes,
+  normalizePromotionCode,
+} from "@avana/domain";
 import type {
   DocumentGenerationProgressResource,
   GenerationPipelineStage,
@@ -345,8 +356,70 @@ export class InMemoryAdminStore implements AdminStore {
     return { exams: [], totalCount: 0 };
   }
 
-  async getCourseHierarchy(_courseId: string): Promise<AdminCourseHierarchy | null> {
-    return null;
+  private learningStores?: {
+    courseStore?: any;
+    moduleStore?: any;
+    subCourseGroupStore?: any;
+    lessonStore?: any;
+  };
+
+  setLearningStores(stores: {
+    courseStore?: any;
+    moduleStore?: any;
+    subCourseGroupStore?: any;
+    lessonStore?: any;
+  }) {
+    this.learningStores = stores;
+  }
+
+  async getCourseHierarchy(courseId: string): Promise<AdminCourseHierarchy | null> {
+    if (!this.learningStores?.courseStore || !this.learningStores?.moduleStore) return null;
+    const course = await this.learningStores.courseStore.findById(courseId);
+    if (!course) return null;
+
+    const rawModules = await this.learningStores.moduleStore.listByCourse(courseId);
+    const rawGroups = this.learningStores.subCourseGroupStore
+      ? await this.learningStores.subCourseGroupStore.listByCourse(courseId)
+      : [];
+
+    const groups = rawGroups.map((g: any) => ({
+      id: g.id,
+      courseId: g.courseId,
+      title: g.title,
+      sortOrder: g.sortOrder,
+      createdAt: g.createdAt,
+      updatedAt: g.updatedAt,
+    }));
+
+    const modules = [];
+    for (const m of rawModules) {
+      const lessons = this.learningStores.lessonStore
+        ? await this.learningStores.lessonStore.listByModule(m.id)
+        : [];
+      modules.push({
+        id: m.id,
+        title: m.title,
+        sortOrder: m.sortOrder ?? 0,
+        subCourseGroupId: m.subCourseGroupId ?? null,
+        lessons: lessons.map((l: any) => ({
+          id: l.id,
+          title: l.title,
+          publicationStatus: "published",
+          flashcardCount: 0,
+          quizCount: 0,
+          hasContent: Boolean(l.contentMarkdown),
+          createdAt: l.createdAt,
+        })),
+      });
+    }
+
+    return {
+      id: course.id,
+      name: course.name,
+      subject: course.subject,
+      groups,
+      modules,
+    };
   }
 
   async getGenerationJob(_id: string): Promise<AdminGenerationDetail | null> {
@@ -438,7 +511,7 @@ export class InMemoryAdminStore implements AdminStore {
   // Monetization & Commerce
   // ---------------------------------------------------------------------------
 
-  private memoryProducts: AdminProductRecord[] = [
+  public memoryProducts: AdminProductRecord[] = [
     {
       id: "prod_sub_monthly",
       code: "sub_monthly",
@@ -483,10 +556,15 @@ export class InMemoryAdminStore implements AdminStore {
     },
   ];
 
-  private memoryOrders: AdminOrderRecord[] = [];
-  private memoryPayments: AdminPaymentRecord[] = [];
-  private memorySubscriptions: AdminSubscriptionRecord[] = [];
-  private memoryEntitlements: AdminEntitlementRecord[] = [];
+  public memoryOrders: AdminOrderRecord[] = [];
+  public memoryPayments: AdminPaymentRecord[] = [];
+  public memorySubscriptions: AdminSubscriptionRecord[] = [];
+  public memoryEntitlements: AdminEntitlementRecord[] = [];
+  public commerceStore?: import("../commerce/commerce-store.js").InMemoryCommerceStore;
+
+  setCommerceStore(store: import("../commerce/commerce-store.js").InMemoryCommerceStore) {
+    this.commerceStore = store;
+  }
 
   async getCommerceStats(): Promise<AdminCommerceStats> {
     let totalRevenue = 0;
@@ -582,20 +660,69 @@ export class InMemoryAdminStore implements AdminStore {
     status?: string;
     from?: string;
     to?: string;
+    category?: string;
+    productType?: string;
   }): Promise<AdminPaymentsList> {
-    let filtered = [...this.memoryPayments];
+    let allPayments = [...this.memoryPayments];
+    if (this.commerceStore) {
+      for (const cPay of this.commerceStore.payments) {
+        if (!allPayments.some((p) => p.id === cPay.id)) {
+          const cOrder = this.commerceStore.orders.find((o) => o.id === cPay.orderId);
+          const cProd = cOrder ? this.commerceStore.products.find((p) => p.id === cOrder.productId) : undefined;
+          allPayments.push({
+            id: cPay.id,
+            orderId: cPay.orderId,
+            orderNumber: cOrder?.orderNumber ?? "ORD-1",
+            userId: cPay.userId,
+            userEmail: "user@avana.app",
+            productId: cProd?.id,
+            productTitle: cProd?.title ?? "Product",
+            productType: cProd?.type ?? "subscription",
+            amount: cPay.amount,
+            currency: cPay.currency,
+            gateway: cPay.gateway,
+            authority: cPay.authority,
+            transactionId: cPay.transactionId,
+            status: cPay.status,
+            trackingNumber: cPay.trackingNumber ?? null,
+            sourceCardLast4: cPay.sourceCardLast4 ?? null,
+            payerName: cPay.payerName ?? null,
+            receiptUrl: cPay.receiptUrl ?? null,
+            initialValidationResult: cPay.initialValidationResult ?? null,
+            rejectionReason: cPay.rejectionReason ?? null,
+            reviewedAt: cPay.reviewedAt ?? null,
+            reviewedBy: cPay.reviewedBy ?? null,
+            paidAt: cPay.paidAt ?? null,
+            createdAt: cPay.createdAt,
+          });
+        }
+      }
+    }
+
+    let filtered = allPayments;
     if (params.gateway && params.gateway !== "all") {
       filtered = filtered.filter((p) => p.gateway === params.gateway);
     }
     if (params.status && params.status !== "all") {
       filtered = filtered.filter((p) => p.status === params.status);
     }
+    if (params.category === "subscription") {
+      filtered = filtered.filter((p) => p.productType === "subscription");
+    } else if (params.category === "wallet_topup") {
+      filtered = filtered.filter((p) => p.productType === "wallet_topup");
+    } else if (params.category === "product") {
+      filtered = filtered.filter((p) => p.productType !== "subscription" && p.productType !== "wallet_topup");
+    } else if (params.productType && params.productType !== "all") {
+      filtered = filtered.filter((p) => p.productType === params.productType);
+    }
+
     if (params.search) {
       const q = params.search.toLowerCase();
       filtered = filtered.filter(
         (p) =>
           p.orderNumber.toLowerCase().includes(q) ||
           p.userEmail.toLowerCase().includes(q) ||
+          (p.productTitle && p.productTitle.toLowerCase().includes(q)) ||
           (p.authority && p.authority.toLowerCase().includes(q)) ||
           (p.trackingNumber && p.trackingNumber.toLowerCase().includes(q)) ||
           (p.payerName && p.payerName.toLowerCase().includes(q)),
@@ -798,7 +925,42 @@ export class InMemoryAdminStore implements AdminStore {
     adminId: string,
     paymentId: string,
   ): Promise<{ success: boolean; payment: AdminPaymentRecord; message?: string }> {
-    const payment = this.memoryPayments.find((p) => p.id === paymentId);
+    let payment = this.memoryPayments.find((p) => p.id === paymentId);
+    if (!payment && this.commerceStore) {
+      const cPay = this.commerceStore.payments.find((p) => p.id === paymentId);
+      if (cPay) {
+        const cOrder = this.commerceStore.orders.find((o) => o.id === cPay.orderId);
+        const cProd = cOrder ? this.commerceStore.products.find((p) => p.id === cOrder.productId) : undefined;
+        payment = {
+          id: cPay.id,
+          orderId: cPay.orderId,
+          orderNumber: cOrder?.orderNumber ?? "C2C-ORDER",
+          userId: cPay.userId,
+          userEmail: "user@avana.app",
+          productId: cProd?.id,
+          productTitle: cProd?.title ?? "Product",
+          productType: cProd?.type ?? "subscription",
+          amount: cPay.amount,
+          currency: cPay.currency,
+          gateway: cPay.gateway,
+          authority: cPay.authority,
+          transactionId: cPay.transactionId,
+          status: cPay.status,
+          trackingNumber: cPay.trackingNumber ?? null,
+          sourceCardLast4: cPay.sourceCardLast4 ?? null,
+          payerName: cPay.payerName ?? null,
+          receiptUrl: cPay.receiptUrl ?? null,
+          initialValidationResult: cPay.initialValidationResult ?? null,
+          rejectionReason: cPay.rejectionReason ?? null,
+          reviewedAt: cPay.reviewedAt ?? null,
+          reviewedBy: cPay.reviewedBy ?? null,
+          paidAt: cPay.paidAt ?? null,
+          createdAt: cPay.createdAt,
+        };
+        this.memoryPayments.push(payment);
+      }
+    }
+
     if (!payment) throw new Error("not_found");
 
     if (payment.status === "admin_approved" || payment.status === "paid") {
@@ -821,12 +983,28 @@ export class InMemoryAdminStore implements AdminStore {
     payment.status = "admin_approved";
     payment.reviewedAt = now;
     payment.reviewedBy = adminId;
+    payment.paidAt = now;
 
-    const order = this.memoryOrders.find((o) => o.id === payment.orderId);
+    const order = this.memoryOrders.find((o) => o.id === payment!.orderId);
     if (order) order.status = "paid";
 
-    const sub = this.memorySubscriptions.find((s) => s.orderId === payment.orderId);
+    const sub = this.memorySubscriptions.find((s) => s.orderId === payment!.orderId);
     if (sub) sub.status = "active";
+
+    if (this.commerceStore) {
+      const cPay = this.commerceStore.payments.find((p) => p.id === paymentId);
+      if (cPay) {
+        cPay.status = "admin_approved";
+        cPay.reviewedAt = now;
+        cPay.reviewedBy = adminId;
+        cPay.paidAt = now;
+      }
+      const cOrder = this.commerceStore.orders.find((o) => o.id === payment!.orderId);
+      if (cOrder) cOrder.status = "paid";
+
+      const cSub = this.commerceStore.subscriptions.find((s) => s.orderId === payment!.orderId);
+      if (cSub) cSub.status = "active";
+    }
 
     return {
       success: true,
@@ -843,7 +1021,42 @@ export class InMemoryAdminStore implements AdminStore {
     const trimmedReason = reason?.trim();
     if (!trimmedReason) throw new Error("rejection_reason_required");
 
-    const payment = this.memoryPayments.find((p) => p.id === paymentId);
+    let payment = this.memoryPayments.find((p) => p.id === paymentId);
+    if (!payment && this.commerceStore) {
+      const cPay = this.commerceStore.payments.find((p) => p.id === paymentId);
+      if (cPay) {
+        const cOrder = this.commerceStore.orders.find((o) => o.id === cPay.orderId);
+        const cProd = cOrder ? this.commerceStore.products.find((p) => p.id === cOrder.productId) : undefined;
+        payment = {
+          id: cPay.id,
+          orderId: cPay.orderId,
+          orderNumber: cOrder?.orderNumber ?? "C2C-ORDER",
+          userId: cPay.userId,
+          userEmail: "user@avana.app",
+          productId: cProd?.id,
+          productTitle: cProd?.title ?? "Product",
+          productType: cProd?.type ?? "subscription",
+          amount: cPay.amount,
+          currency: cPay.currency,
+          gateway: cPay.gateway,
+          authority: cPay.authority,
+          transactionId: cPay.transactionId,
+          status: cPay.status,
+          trackingNumber: cPay.trackingNumber ?? null,
+          sourceCardLast4: cPay.sourceCardLast4 ?? null,
+          payerName: cPay.payerName ?? null,
+          receiptUrl: cPay.receiptUrl ?? null,
+          initialValidationResult: cPay.initialValidationResult ?? null,
+          rejectionReason: cPay.rejectionReason ?? null,
+          reviewedAt: cPay.reviewedAt ?? null,
+          reviewedBy: cPay.reviewedBy ?? null,
+          paidAt: cPay.paidAt ?? null,
+          createdAt: cPay.createdAt,
+        };
+        this.memoryPayments.push(payment);
+      }
+    }
+
     if (!payment) throw new Error("not_found");
 
     if (payment.status === "admin_rejected") {
@@ -868,10 +1081,10 @@ export class InMemoryAdminStore implements AdminStore {
     payment.reviewedAt = now;
     payment.reviewedBy = adminId;
 
-    const order = this.memoryOrders.find((o) => o.id === payment.orderId);
+    const order = this.memoryOrders.find((o) => o.id === payment!.orderId);
     if (order) order.status = "cancelled";
 
-    const sub = this.memorySubscriptions.find((s) => s.orderId === payment.orderId);
+    const sub = this.memorySubscriptions.find((s) => s.orderId === payment!.orderId);
     if (sub) {
       sub.status = "cancelled_payment_rejected" as any;
       sub.expiresAt = now;
@@ -879,12 +1092,30 @@ export class InMemoryAdminStore implements AdminStore {
 
     const ent = this.memoryEntitlements.find(
       (e) =>
-        e.userId === payment.userId &&
-        e.orderId === payment.orderId,
+        e.userId === payment!.userId &&
+        e.orderId === payment!.orderId,
     );
     if (ent) {
       ent.expiresAt = now;
       ent.active = false;
+    }
+
+    if (this.commerceStore) {
+      const cPay = this.commerceStore.payments.find((p) => p.id === paymentId);
+      if (cPay) {
+        cPay.status = "admin_rejected";
+        cPay.rejectionReason = trimmedReason;
+        cPay.reviewedAt = now;
+        cPay.reviewedBy = adminId;
+      }
+      const cOrder = this.commerceStore.orders.find((o) => o.id === payment!.orderId);
+      if (cOrder) cOrder.status = "cancelled";
+
+      const cSub = this.commerceStore.subscriptions.find((s) => s.orderId === payment!.orderId);
+      if (cSub) {
+        cSub.status = "cancelled_payment_rejected" as any;
+        cSub.expiresAt = now;
+      }
     }
 
     return {
@@ -919,5 +1150,454 @@ export class InMemoryAdminStore implements AdminStore {
       orders: userOrders,
       payments: userPayments,
     };
+  }
+
+  private contentGenerationPricing: ContentGenerationPricingConfig = {
+    ...DEFAULT_CONTENT_GENERATION_PRICING_CONFIG,
+  };
+
+  async getContentGenerationPricing(): Promise<ContentGenerationPricingConfig> {
+    return { ...this.contentGenerationPricing };
+  }
+
+  async updateContentGenerationPricing(
+    adminId: string,
+    input: UpdateContentGenerationPricingInput,
+  ): Promise<ContentGenerationPricingConfig> {
+    const now = new Date().toISOString();
+    this.contentGenerationPricing = {
+      ...this.contentGenerationPricing,
+      lessonBaselinePriceToman:
+        input.lessonBaselinePriceToman !== undefined
+          ? input.lessonBaselinePriceToman
+          : this.contentGenerationPricing.lessonBaselinePriceToman,
+      flashcardBaselinePriceToman:
+        input.flashcardBaselinePriceToman !== undefined
+          ? input.flashcardBaselinePriceToman
+          : this.contentGenerationPricing.flashcardBaselinePriceToman,
+      examBaselinePriceToman:
+        input.examBaselinePriceToman !== undefined
+          ? input.examBaselinePriceToman
+          : this.contentGenerationPricing.examBaselinePriceToman,
+      summaryFixedPriceToman:
+        input.summaryFixedPriceToman !== undefined
+          ? input.summaryFixedPriceToman
+          : this.contentGenerationPricing.summaryFixedPriceToman,
+      updatedAt: now,
+      updatedBy: adminId,
+    };
+    return { ...this.contentGenerationPricing };
+  }
+
+  private subscriptionCreditBonuses: SubscriptionCreditBonusesConfig = {
+    ...DEFAULT_SUBSCRIPTION_CREDIT_BONUSES,
+  };
+
+  async getSubscriptionCreditBonuses(): Promise<SubscriptionCreditBonusesConfig> {
+    return { ...this.subscriptionCreditBonuses };
+  }
+
+  async updateSubscriptionCreditBonuses(
+    adminId: string,
+    input: Partial<SubscriptionCreditBonusesConfig>,
+  ): Promise<SubscriptionCreditBonusesConfig> {
+    const now = new Date().toISOString();
+    this.subscriptionCreditBonuses = {
+      ...this.subscriptionCreditBonuses,
+      monthly:
+        input.monthly !== undefined && typeof input.monthly === "number" && !isNaN(input.monthly) && input.monthly >= 0
+          ? Math.round(input.monthly)
+          : this.subscriptionCreditBonuses.monthly,
+      quarterly:
+        input.quarterly !== undefined && typeof input.quarterly === "number" && !isNaN(input.quarterly) && input.quarterly >= 0
+          ? Math.round(input.quarterly)
+          : this.subscriptionCreditBonuses.quarterly,
+      annual:
+        input.annual !== undefined && typeof input.annual === "number" && !isNaN(input.annual) && input.annual >= 0
+          ? Math.round(input.annual)
+          : this.subscriptionCreditBonuses.annual,
+      updatedAt: now,
+      updatedBy: adminId,
+    };
+    return { ...this.subscriptionCreditBonuses };
+  }
+
+  // --- In-Memory Promotions & Coupons Store ---
+
+  public memoryPromotions: any[] = [];
+  public memoryPromotionCodes: any[] = [];
+  public memoryPromotionProducts: any[] = [];
+  public memoryPromotionUsers: any[] = [];
+  public memoryPromotionRedemptions: any[] = [];
+
+  async listCommercePromotions(params: {
+    page: number;
+    pageSize: number;
+    search?: string;
+    status?: string;
+    benefitType?: string;
+  }): Promise<{ items: any[]; totalCount: number }> {
+    let list = this.memoryPromotions.filter((p) => p.deletedAt === null);
+
+    if (params.search?.trim()) {
+      const q = params.search.trim().toLowerCase();
+      list = list.filter((p) => {
+        const nameMatch = p.name.toLowerCase().includes(q);
+        const codeMatch = this.memoryPromotionCodes.some(
+          (c) => c.promotionId === p.id && c.deletedAt === null && c.code.toLowerCase().includes(q),
+        );
+        return nameMatch || codeMatch;
+      });
+    }
+
+    const now = new Date();
+    if (params.status === "active") {
+      list = list.filter(
+        (p) =>
+          p.active &&
+          (!p.startsAt || new Date(p.startsAt).getTime() <= now.getTime()) &&
+          (!p.endsAt || new Date(p.endsAt).getTime() >= now.getTime()),
+      );
+    } else if (params.status === "inactive") {
+      list = list.filter((p) => !p.active);
+    } else if (params.status === "expired") {
+      list = list.filter((p) => p.endsAt && new Date(p.endsAt).getTime() < now.getTime());
+    }
+
+    if (params.benefitType) {
+      list = list.filter((p) => p.benefitType === params.benefitType);
+    }
+
+    const totalCount = list.length;
+    const page = Math.max(1, params.page || 1);
+    const pageSize = Math.min(100, Math.max(1, params.pageSize || 20));
+    const start = (page - 1) * pageSize;
+    const paged = list.slice(start, start + pageSize);
+
+    const items = paged.map((p) => {
+      const codes = this.memoryPromotionCodes.filter(
+        (c) => c.promotionId === p.id && c.deletedAt === null,
+      );
+      const redemptions = this.memoryPromotionRedemptions.filter(
+        (r) => r.promotionId === p.id && r.status === "completed",
+      );
+      const totalDiscount = redemptions.reduce((acc, r) => acc + (r.discountAmount || 0), 0);
+      const totalCashback = redemptions.reduce((acc, r) => acc + (r.cashbackAmount || 0), 0);
+
+      return {
+        id: p.id,
+        name: p.name,
+        description: p.description,
+        benefitType: p.benefitType,
+        benefitValue: p.benefitValue,
+        maxDiscountAmount: p.maxDiscountAmount,
+        minOrderAmount: p.minOrderAmount,
+        totalUsageLimit: p.totalUsageLimit,
+        perUserUsageLimit: p.perUserUsageLimit,
+        active: p.active,
+        startsAt: p.startsAt,
+        endsAt: p.endsAt,
+        codesCount: codes.length,
+        primaryCode: codes[0]?.code || null,
+        totalRedemptions: redemptions.length,
+        totalDiscountGranted: totalDiscount,
+        totalCashbackGranted: totalCashback,
+        createdAt: p.createdAt,
+      };
+    });
+
+    return { items, totalCount };
+  }
+
+  async getCommercePromotion(id: string): Promise<any | null> {
+    const promo = this.memoryPromotions.find((p) => p.id === id && p.deletedAt === null);
+    if (!promo) return null;
+
+    const codes = this.memoryPromotionCodes.filter(
+      (c) => c.promotionId === id && c.deletedAt === null,
+    );
+    const productRestrictions = this.memoryPromotionProducts.filter(
+      (pr) => pr.promotionId === id,
+    );
+    const userRestrictions = this.memoryPromotionUsers
+      .filter((ur) => ur.promotionId === id)
+      .map((ur) => {
+        let userName: string | undefined;
+        let userEmail: string | undefined;
+        if (this.userStore && (this.userStore as any).users) {
+          const u = (this.userStore as any).users.find((user: any) => user.id === ur.userId);
+          if (u) {
+            userName = u.name;
+            userEmail = u.email;
+          }
+        }
+        return {
+          id: ur.id,
+          userId: ur.userId,
+          userName,
+          userEmail,
+        };
+      });
+
+    const completed = this.memoryPromotionRedemptions.filter(
+      (r) => r.promotionId === id && r.status === "completed",
+    );
+    const pending = this.memoryPromotionRedemptions.filter(
+      (r) =>
+        r.promotionId === id &&
+        r.status === "pending" &&
+        new Date(r.reservationExpiresAt).getTime() > Date.now(),
+    );
+
+    const totalRedemptions = completed.length + pending.length;
+    const totalDiscountGranted = completed.reduce((acc, r) => acc + (r.discountAmount || 0), 0);
+    const totalCashbackGranted = completed.reduce((acc, r) => acc + (r.cashbackAmount || 0), 0);
+    const remainingUsage =
+      promo.totalUsageLimit !== null ? Math.max(0, promo.totalUsageLimit - totalRedemptions) : null;
+
+    return {
+      id: promo.id,
+      name: promo.name,
+      description: promo.description,
+      benefitType: promo.benefitType,
+      benefitValue: promo.benefitValue,
+      maxDiscountAmount: promo.maxDiscountAmount,
+      minOrderAmount: promo.minOrderAmount,
+      totalUsageLimit: promo.totalUsageLimit,
+      perUserUsageLimit: promo.perUserUsageLimit,
+      active: promo.active,
+      startsAt: promo.startsAt,
+      endsAt: promo.endsAt,
+      codes,
+      productRestrictions,
+      userRestrictions,
+      stats: {
+        totalRedemptions,
+        completedRedemptions: completed.length,
+        pendingRedemptions: pending.length,
+        totalDiscountGranted,
+        totalCashbackGranted,
+        remainingUsage,
+      },
+      metadata: promo.metadata || {},
+      createdAt: promo.createdAt,
+      updatedAt: promo.updatedAt,
+    };
+  }
+
+  async createCommercePromotion(_adminId: string, input: any): Promise<any> {
+    const promoId = (input.id || (await import("node:crypto")).randomUUID()) as string;
+    const now = new Date().toISOString();
+
+    const newPromo = {
+      id: promoId,
+      name: input.name.trim(),
+      description: input.description?.trim() || null,
+      benefitType: input.benefitType,
+      benefitValue: input.benefitValue,
+      maxDiscountAmount: input.maxDiscountAmount ?? null,
+      minOrderAmount: input.minOrderAmount ?? null,
+      totalUsageLimit: input.totalUsageLimit ?? null,
+      perUserUsageLimit: input.perUserUsageLimit ?? null,
+      active: input.active ?? true,
+      startsAt: input.startsAt || null,
+      endsAt: input.endsAt || null,
+      metadata: input.metadata || {},
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    };
+    this.memoryPromotions.push(newPromo);
+
+    if (input.code) {
+      const normCode = normalizePromotionCode(input.code);
+      const codeId = (await import("node:crypto")).randomUUID();
+      this.memoryPromotionCodes.push({
+        id: codeId,
+        promotionId: promoId,
+        code: normCode,
+        maxUses: null,
+        active: true,
+        createdAt: now,
+        deletedAt: null,
+      });
+    }
+
+    if (input.productRestrictions) {
+      for (const pr of input.productRestrictions) {
+        this.memoryPromotionProducts.push({
+          id: (await import("node:crypto")).randomUUID(),
+          promotionId: promoId,
+          productId: pr.productId || null,
+          productType: pr.productType || null,
+          createdAt: now,
+        });
+      }
+    }
+
+    if (input.userRestrictions) {
+      for (const uid of input.userRestrictions) {
+        this.memoryPromotionUsers.push({
+          id: (await import("node:crypto")).randomUUID(),
+          promotionId: promoId,
+          userId: uid,
+          createdAt: now,
+        });
+      }
+    }
+
+    return (await this.getCommercePromotion(promoId))!;
+  }
+
+  async updateCommercePromotion(_adminId: string, id: string, patch: any): Promise<any> {
+    const promo = this.memoryPromotions.find((p) => p.id === id && p.deletedAt === null);
+    if (!promo) throw new Error("not_found");
+
+    const now = new Date().toISOString();
+    if (patch.name !== undefined) promo.name = patch.name.trim();
+    if (patch.description !== undefined) promo.description = patch.description;
+    if (patch.benefitType !== undefined) promo.benefitType = patch.benefitType;
+    if (patch.benefitValue !== undefined) promo.benefitValue = patch.benefitValue;
+    if (patch.maxDiscountAmount !== undefined) promo.maxDiscountAmount = patch.maxDiscountAmount;
+    if (patch.minOrderAmount !== undefined) promo.minOrderAmount = patch.minOrderAmount;
+    if (patch.totalUsageLimit !== undefined) promo.totalUsageLimit = patch.totalUsageLimit;
+    if (patch.perUserUsageLimit !== undefined) promo.perUserUsageLimit = patch.perUserUsageLimit;
+    if (patch.active !== undefined) promo.active = patch.active;
+    if (patch.startsAt !== undefined) promo.startsAt = patch.startsAt;
+    if (patch.endsAt !== undefined) promo.endsAt = patch.endsAt;
+    if (patch.metadata !== undefined) promo.metadata = patch.metadata;
+    promo.updatedAt = now;
+
+    if (patch.productRestrictions !== undefined) {
+      this.memoryPromotionProducts = this.memoryPromotionProducts.filter((pr) => pr.promotionId !== id);
+      for (const pr of patch.productRestrictions) {
+        this.memoryPromotionProducts.push({
+          id: (await import("node:crypto")).randomUUID(),
+          promotionId: id,
+          productId: pr.productId || null,
+          productType: pr.productType || null,
+          createdAt: now,
+        });
+      }
+    }
+
+    if (patch.userRestrictions !== undefined) {
+      this.memoryPromotionUsers = this.memoryPromotionUsers.filter((ur) => ur.promotionId !== id);
+      for (const uid of patch.userRestrictions) {
+        this.memoryPromotionUsers.push({
+          id: (await import("node:crypto")).randomUUID(),
+          promotionId: id,
+          userId: uid,
+          createdAt: now,
+        });
+      }
+    }
+
+    return (await this.getCommercePromotion(id))!;
+  }
+
+  async toggleCommercePromotionActive(_adminId: string, id: string, active: boolean): Promise<any> {
+    const promo = this.memoryPromotions.find((p) => p.id === id && p.deletedAt === null);
+    if (!promo) throw new Error("not_found");
+    promo.active = active;
+    promo.updatedAt = new Date().toISOString();
+    return (await this.getCommercePromotion(id))!;
+  }
+
+  async deleteCommercePromotion(_adminId: string, id: string): Promise<boolean> {
+    const promo = this.memoryPromotions.find((p) => p.id === id && p.deletedAt === null);
+    if (!promo) return false;
+    const now = new Date().toISOString();
+    promo.active = false;
+    promo.deletedAt = now;
+    promo.updatedAt = now;
+    for (const c of this.memoryPromotionCodes.filter((code) => code.promotionId === id)) {
+      c.active = false;
+      c.deletedAt = now;
+    }
+    return true;
+  }
+
+  async bulkGenerateCommercePromotionCodes(
+    _adminId: string,
+    id: string,
+    input: { count: number; prefix?: string; length?: number },
+  ): Promise<{ generatedCount: number; sampleCodes: string[] }> {
+    const promo = this.memoryPromotions.find((p) => p.id === id && p.deletedAt === null);
+    if (!promo) throw new Error("not_found");
+
+    const existingCodes = new Set<string>(
+      this.memoryPromotionCodes.filter((c) => c.deletedAt === null).map((c) => c.code.toUpperCase()),
+    );
+
+    const generated = generateBulkPromotionCodes({
+      count: input.count,
+      prefix: input.prefix,
+      length: input.length,
+      existingCodes,
+    });
+
+    const now = new Date().toISOString();
+    for (const code of generated) {
+      this.memoryPromotionCodes.push({
+        id: (await import("node:crypto")).randomUUID(),
+        promotionId: id,
+        code,
+        maxUses: 1,
+        active: true,
+        createdAt: now,
+        deletedAt: null,
+      });
+    }
+
+    return {
+      generatedCount: generated.length,
+      sampleCodes: generated,
+    };
+  }
+
+  async listCommercePromotionRedemptions(
+    id: string,
+    params: { page: number; pageSize: number },
+  ): Promise<{ items: any[]; totalCount: number }> {
+    const list = this.memoryPromotionRedemptions.filter((r) => r.promotionId === id);
+    const totalCount = list.length;
+    const page = Math.max(1, params.page || 1);
+    const pageSize = Math.min(100, Math.max(1, params.pageSize || 20));
+    const start = (page - 1) * pageSize;
+    const paged = list.slice(start, start + pageSize);
+
+    const items = paged.map((r) => {
+      let userName: string | undefined;
+      let userEmail: string | undefined;
+      if (this.userStore && (this.userStore as any).users) {
+        const u = (this.userStore as any).users.find((user: any) => user.id === r.userId);
+        if (u) {
+          userName = u.name;
+          userEmail = u.email;
+        }
+      }
+
+      return {
+        id: r.id,
+        userId: r.userId,
+        userName,
+        userEmail,
+        orderId: r.orderId,
+        orderNumber: r.orderNumber || r.orderId,
+        code: r.code || "",
+        benefitType: r.benefitType,
+        benefitValue: r.benefitValue,
+        discountAmount: r.discountAmount,
+        cashbackAmount: r.cashbackAmount,
+        orderOriginalAmount: r.orderOriginalAmount,
+        orderFinalAmount: r.orderFinalAmount,
+        status: r.status,
+        redeemedAt: r.redeemedAt,
+        completedAt: r.completedAt,
+      };
+    });
+
+    return { items, totalCount };
   }
 }

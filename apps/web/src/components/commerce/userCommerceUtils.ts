@@ -8,6 +8,8 @@
  * - Status Badge Definitions conforming to AVANA Design System
  */
 
+import { toPersianDigits } from "@avana/domain";
+
 export interface RemainingTimeInfo {
   totalHours: number;
   days: number;
@@ -68,11 +70,11 @@ export function calculateRemainingTime(
   let shortText = "";
 
   if (days > 0) {
-    text = `${days.toLocaleString("fa-IR")} روز و ${hours.toLocaleString("fa-IR")} ساعت باقی‌مانده`;
-    shortText = `${days.toLocaleString("fa-IR")} روز باقی‌مانده`;
+    text = `${toPersianDigits(days.toLocaleString("fa-IR"))} روز و ${toPersianDigits(hours.toLocaleString("fa-IR"))} ساعت باقی‌مانده`;
+    shortText = `${toPersianDigits(days.toLocaleString("fa-IR"))} روز باقی‌مانده`;
   } else {
-    text = `${hours.toLocaleString("fa-IR")} ساعت باقی‌مانده`;
-    shortText = `${hours.toLocaleString("fa-IR")} ساعت باقی‌مانده`;
+    text = `${toPersianDigits(hours.toLocaleString("fa-IR"))} ساعت باقی‌مانده`;
+    shortText = `${toPersianDigits(hours.toLocaleString("fa-IR"))} ساعت باقی‌مانده`;
   }
 
   let urgency: RemainingTimeInfo["urgency"] = "normal";
@@ -122,7 +124,7 @@ export function calculateSubscriptionProgress(
  */
 export function formatToman(amount: number | null | undefined): string {
   if (amount === undefined || amount === null) return "۰ تومان";
-  return `${amount.toLocaleString("fa-IR")} تومان`;
+  return `${toPersianDigits(amount.toLocaleString("fa-IR"))} تومان`;
 }
 
 /**
@@ -144,7 +146,7 @@ export function formatPersianDate(
         ? { hour: "2-digit", minute: "2-digit", hour12: false }
         : {}),
     };
-    return d.toLocaleDateString("fa-IR", options);
+    return toPersianDigits(d.toLocaleDateString("fa-IR", options));
   } catch {
     return dateStr;
   }
@@ -361,7 +363,7 @@ export function getUserChipSubscriptionInfo(
   // Expiring soon: 5 days or fewer (5, 4, 3, 2, 1, <1 day)
   let badgeLabel: string;
   if (remaining.days >= 1) {
-    badgeLabel = `${remaining.days.toLocaleString("fa-IR")} روز باقیمانده`;
+    badgeLabel = `${toPersianDigits(remaining.days.toLocaleString("fa-IR"))} روز باقیمانده`;
   } else {
     badgeLabel = "کمتر از ۱ روز";
   }

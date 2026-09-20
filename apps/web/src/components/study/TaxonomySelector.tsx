@@ -9,6 +9,7 @@ import {
   FolderTree,
   FileText,
 } from "lucide-react";
+import { toPersianDigits } from "@avana/domain";
 
 export type TaxonomyLesson = {
   id: string;
@@ -29,6 +30,7 @@ export type TaxonomyCourse = {
   id: string;
   title: string;
   itemCount?: number;
+  hasAccess?: boolean;
   modules: TaxonomyModule[];
 };
 
@@ -317,12 +319,23 @@ export function TaxonomySelector({
                     >
                       دوره آموزشی
                     </span>
+                    {course.hasAccess !== undefined && (
+                      <span
+                        className={`px-2 py-0.5 rounded-sm text-[10px] font-bold border ${
+                          course.hasAccess
+                            ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20"
+                            : "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20"
+                        }`}
+                      >
+                        {course.hasAccess ? "در دسترس" : "آزمون سفارشی"}
+                      </span>
+                    )}
                     <h3 className="text-base font-extrabold text-[var(--color-text)] truncate">
                       {course.title}
                     </h3>
                   </div>
                   <span className="text-[11px] text-[var(--color-text-muted)] mt-0.5 block">
-                    دوره آموزشی ({course.modules.length} بخش)
+                    دوره آموزشی ({toPersianDigits(course.modules.length)} بخش)
                   </span>
                 </div>
               </div>
@@ -336,7 +349,7 @@ export function TaxonomySelector({
                         : "bg-[var(--color-surface)] text-[var(--color-text-muted)] border border-[var(--color-border)]"
                     }`}
                   >
-                    {course.itemCount} {itemLabelSingular}
+                    {toPersianDigits(course.itemCount)} {itemLabelSingular}
                   </span>
                 )}
                 <button
@@ -400,7 +413,7 @@ export function TaxonomySelector({
                           {module.itemBadges}
                           {module.itemCount !== undefined && (
                             <span className="px-2.5 py-1 rounded-sm bg-[var(--color-surface)] text-[11px] font-bold text-[var(--color-text-muted)] border border-[var(--color-border)]">
-                              {module.itemCount} {itemLabelSingular}
+                              {toPersianDigits(module.itemCount)} {itemLabelSingular}
                             </span>
                           )}
 
@@ -457,7 +470,7 @@ export function TaxonomySelector({
 
                                 {lesson.itemCount !== undefined && (
                                   <span className="px-2 py-0.5 rounded-sm bg-[var(--color-surface)] text-[10px] font-bold text-[var(--color-text-muted)] border border-[var(--color-border)]">
-                                    {lesson.itemCount} {itemLabelSingular}
+                                    {toPersianDigits(lesson.itemCount)} {itemLabelSingular}
                                   </span>
                                 )}
                               </div>

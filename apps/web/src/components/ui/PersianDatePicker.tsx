@@ -241,28 +241,28 @@ export function PersianDatePicker({
       aria-label="تقویم انتخاب تاریخ شمسی"
       style={popupStyle}
       dir="rtl"
-      className="bg-slate-900/98 backdrop-blur-2xl border border-white/20 rounded-2xl shadow-2xl p-4 animate-in fade-in zoom-in-95 duration-150 text-slate-200 select-none ring-1 ring-white/10"
+      className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-dialog shadow-modal p-4 animate-in fade-in zoom-in-95 duration-150 text-[var(--color-text)] select-none font-sans"
     >
       {/* Calendar Header with Navigation and Selects */}
-      <div className="flex items-center justify-between gap-1 pb-3 mb-3 border-b border-white/10">
+      <div className="flex items-center justify-between gap-1 pb-3 mb-3 border-b border-[var(--color-border)]">
         {/* Next Month (in RTL, next month is on the left) */}
         <button
           type="button"
           onClick={handleNextMonth}
           aria-label="ماه بعد"
-          className="p-1.5 rounded-lg hover:bg-white/10 text-slate-300 hover:text-white transition-colors cursor-pointer"
+          className="p-1.5 rounded-button hover:bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors cursor-pointer"
         >
           <ChevronLeft className="w-4 h-4" />
         </button>
 
         {/* Month & Year Selects */}
-        <div className="flex items-center gap-1.5 flex-1 justify-center">
+        <div className="flex items-center gap-2 flex-1 justify-center">
           {/* Month Select */}
           <select
             value={viewMonth}
             aria-label="انتخاب ماه"
             onChange={(e) => setViewMonth(Number(e.target.value))}
-            className="bg-slate-800 border border-white/10 rounded-lg px-2 py-1 text-xs font-semibold text-white focus:outline-none focus:border-teal-500 cursor-pointer"
+            className="bg-[var(--color-surface-warm)] hover:bg-[var(--color-surface)] border border-[var(--color-border)] rounded-button ps-2.5 pe-6 py-1 text-xs font-bold text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors cursor-pointer"
           >
             {PERSIAN_MONTH_NAMES.map((name, idx) => (
               <option key={name} value={idx + 1}>
@@ -276,7 +276,7 @@ export function PersianDatePicker({
             value={viewYear}
             aria-label="انتخاب سال"
             onChange={(e) => setViewYear(Number(e.target.value))}
-            className="bg-slate-800 border border-white/10 rounded-lg px-2 py-1 text-xs font-semibold text-white focus:outline-none focus:border-teal-500 cursor-pointer"
+            className="bg-[var(--color-surface-warm)] hover:bg-[var(--color-surface)] border border-[var(--color-border)] rounded-button ps-2.5 pe-6 py-1 text-xs font-bold text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors cursor-pointer"
           >
             {availableYears.map((yr) => (
               <option key={yr} value={yr}>
@@ -291,7 +291,7 @@ export function PersianDatePicker({
           type="button"
           onClick={handlePrevMonth}
           aria-label="ماه قبل"
-          className="p-1.5 rounded-lg hover:bg-white/10 text-slate-300 hover:text-white transition-colors cursor-pointer"
+          className="p-1.5 rounded-button hover:bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors cursor-pointer"
         >
           <ChevronRight className="w-4 h-4" />
         </button>
@@ -303,7 +303,7 @@ export function PersianDatePicker({
           <span
             key={dayName}
             className={`text-[11px] font-semibold py-1 ${
-              idx === 6 ? "text-rose-400/90" : "text-slate-400"
+              idx === 6 ? "text-[var(--avana-error)] font-bold" : "text-[var(--color-text-muted)]"
             }`}
           >
             {dayName}
@@ -332,14 +332,14 @@ export function PersianDatePicker({
               disabled={disabled}
               onClick={() => handleSelectDay(dayNumber)}
               aria-label={`${toPersianDigits(dayNumber)} ${PERSIAN_MONTH_NAMES[viewMonth - 1]} ${toPersianDigits(viewYear)}`}
-              className={`h-8 rounded-lg text-xs font-semibold flex items-center justify-center transition-all ${
+              className={`h-8 rounded-button text-xs font-semibold flex items-center justify-center transition-all ${
                 selected
-                  ? "bg-teal-600 text-white font-bold shadow-md shadow-teal-900/60 ring-2 ring-teal-400/40"
+                  ? "bg-primary text-[var(--color-primary-foreground)] font-bold shadow-xs hover:bg-[var(--color-primary-hover)] active:bg-[var(--color-primary-active)]"
                   : disabled
-                    ? "text-slate-600 opacity-40 cursor-not-allowed"
+                    ? "text-[var(--color-text-muted)] opacity-35 cursor-not-allowed"
                     : today
-                      ? "bg-teal-500/15 text-teal-300 border border-teal-500/40 hover:bg-teal-500/25 cursor-pointer"
-                      : "text-slate-200 hover:bg-white/10 hover:text-white cursor-pointer"
+                      ? "bg-[var(--color-primary-light)] text-primary font-bold border border-primary/30 hover:bg-primary/20 cursor-pointer"
+                      : "text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] hover:text-primary cursor-pointer"
               }`}
             >
               {toPersianDigits(dayNumber)}
@@ -349,19 +349,19 @@ export function PersianDatePicker({
       </div>
 
       {/* Footer with Today / Quick action */}
-      <div className="mt-3 pt-2.5 border-t border-white/10 flex items-center justify-between text-xs">
+      <div className="mt-3 pt-2.5 border-t border-[var(--color-border)] flex items-center justify-between text-xs">
         <button
           type="button"
           onClick={handleSelectToday}
           disabled={isDayDisabled(todayJalali.jd)}
-          className="text-teal-400 hover:text-teal-300 font-bold px-2 py-1 rounded-lg hover:bg-teal-500/10 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+          className="text-primary hover:text-[var(--color-primary-hover)] font-bold px-2.5 py-1 rounded-button hover:bg-[var(--color-primary-soft)] transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
         >
           انتخاب امروز ({toPersianDigits(todayJalali.jd)} {PERSIAN_MONTH_NAMES[todayJalali.jm - 1]})
         </button>
         <button
           type="button"
           onClick={() => setIsOpen(false)}
-          className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-colors cursor-pointer"
+          className="text-[var(--color-text-muted)] hover:text-[var(--color-text)] p-1.5 rounded-button hover:bg-[var(--color-surface-warm)] transition-colors cursor-pointer"
           aria-label="بستن تقویم"
         >
           <X className="w-3.5 h-3.5" />
@@ -375,10 +375,10 @@ export function PersianDatePicker({
       {label && (
         <label
           htmlFor={id}
-          className="block text-xs font-semibold text-slate-300 mb-1.5 text-right"
+          className="block text-xs font-semibold text-[var(--color-text)] mb-1.5 text-right"
         >
           {label}
-          {required && <span className="text-rose-400 mr-1">*</span>}
+          {required && <span className="text-[var(--avana-error)] mr-1">*</span>}
         </label>
       )}
 
@@ -391,20 +391,20 @@ export function PersianDatePicker({
         aria-expanded={isOpen}
         disabled={disabled}
         onClick={() => setIsOpen((prev) => !prev)}
-        className={`w-full bg-slate-800/90 hover:bg-slate-800 border ${
-          isOpen ? "border-teal-500 ring-2 ring-teal-500/20" : "border-white/15"
-        } rounded-xl px-3.5 py-2.5 text-xs md:text-sm text-right flex items-center justify-between transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed`}
+        className={`w-full bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] border ${
+          isOpen ? "border-primary ring-2 ring-primary/20" : "border-[var(--color-border)] hover:border-[var(--color-border-hover)]"
+        } rounded-input px-3.5 py-2.5 text-xs md:text-sm text-right flex items-center justify-between transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed font-sans`}
       >
         <div className="flex items-center gap-2 min-w-0">
-          <CalendarIcon className="w-4 h-4 text-teal-400 shrink-0" />
+          <CalendarIcon className="w-4 h-4 text-primary shrink-0" />
           {formattedDisplay ? (
-            <span className="text-white font-medium truncate">{formattedDisplay}</span>
+            <span className="text-[var(--color-text)] font-medium truncate">{formattedDisplay}</span>
           ) : (
-            <span className="text-slate-400">{placeholder}</span>
+            <span className="text-[var(--color-text-muted)]">{placeholder}</span>
           )}
         </div>
         {value && (
-          <span className="text-[10px] text-teal-300/80 bg-teal-500/10 border border-teal-500/20 px-2 py-0.5 rounded-full shrink-0 font-medium">
+          <span className="text-[10px] text-primary bg-[var(--color-primary-light)] border border-primary/20 px-2 py-0.5 rounded-full shrink-0 font-medium">
             شمسی
           </span>
         )}

@@ -10,6 +10,9 @@ function mapDomainCodeToStatus(code: DomainError["code"]): number {
     case "UNAUTHORIZED":
     case "SESSION_REVOKED":
       return 401;
+    case "INSUFFICIENT_FUNDS":
+    case "insufficient_balance":
+      return 402;
     case "forbidden":
     case "DEVICE_LIMIT_REACHED":
     case "SUBSCRIPTION_REQUIRED":

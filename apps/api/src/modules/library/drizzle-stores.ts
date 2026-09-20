@@ -55,6 +55,8 @@ import {
   DomainError,
   normalizeQuestionOptions,
   canonicalizeAndShuffleQuestion,
+  cleanEducationalTitle,
+  cleanEducationalDescription,
 } from "@avana/domain";
 
 // ---------------------------------------------------------------------------
@@ -919,17 +921,62 @@ export class DrizzleContentPackStore implements ContentPackStore {
           .limit(limit)
           .offset(offset);
 
+        const courseIds = courseRows.map((r) => r.id);
+        const flashcardMap = new Map<string, number>();
+        const quizQuestionMap = new Map<string, number>();
+
+        if (courseIds.length > 0) {
+          const [flashcardRows, quizQuestionRows] = await Promise.all([
+            this.db
+              .select({
+                courseId: flashcards.courseId,
+                count: sql<number>`count(${flashcards.id})::int`,
+              })
+              .from(flashcards)
+              .where(
+                and(
+                  inArray(flashcards.courseId, courseIds),
+                  isNull(flashcards.deletedAt),
+                ),
+              )
+              .groupBy(flashcards.courseId),
+            this.db
+              .select({
+                courseId: quizzes.courseId,
+                count: sql<number>`count(${quizQuestions.id})::int`,
+              })
+              .from(quizzes)
+              .innerJoin(quizQuestions, eq(quizQuestions.quizId, quizzes.id))
+              .where(
+                and(
+                  inArray(quizzes.courseId, courseIds),
+                  isNull(quizzes.deletedAt),
+                ),
+              )
+              .groupBy(quizzes.courseId),
+          ]);
+
+          for (const row of flashcardRows) {
+            flashcardMap.set(row.courseId, Number(row.count || 0));
+          }
+          for (const row of quizQuestionRows) {
+            quizQuestionMap.set(row.courseId, Number(row.count || 0));
+          }
+        }
+
         courseResults = courseRows.map((row) => {
           const total = Number(row.contentCount || 0);
           const completed = Number(row.completedLessons || 0);
           const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
           return {
             id: row.id as CourseId,
-            title: row.title,
-            description: row.description ?? null,
+            title: cleanEducationalTitle(row.title, "دوره آموزشی جامع"),
+            description: cleanEducationalDescription(row.description, null),
             subject: row.subject ?? null,
             moduleCount: Number(row.moduleCount || 0),
             contentCount: total,
+            flashcardCount: flashcardMap.get(row.id) ?? 0,
+            quizQuestionCount: quizQuestionMap.get(row.id) ?? 0,
             progress: {
               completedLessons: completed,
               totalLessons: total,
@@ -997,12 +1044,12 @@ export class DrizzleContentPackStore implements ContentPackStore {
 
         contentResults = contentRows.map((row) => ({
           id: row.id,
-          title: row.title,
+          title: cleanEducationalTitle(row.title, "درسنامه آموزشی"),
           type: "lesson" as const,
           courseId: row.courseId as CourseId,
-          courseTitle: row.courseTitle,
+          courseTitle: cleanEducationalTitle(row.courseTitle, "دوره آموزشی جامع"),
           moduleId: row.moduleId as ModuleId,
-          moduleTitle: row.moduleTitle,
+          moduleTitle: cleanEducationalTitle(row.moduleTitle, "فصل آموزشی"),
           lessonId: row.id as LessonId,
           estimatedMinutes: row.estimatedMinutes ?? null,
           completed: Boolean(row.completed),
@@ -1430,9 +1477,12 @@ export class DrizzleContentPackStore implements ContentPackStore {
           id: attachedPack?.id ?? mod.id,
           moduleId: mod.id,
           courseId: courseRow.id,
-          courseTitle: courseRow.title,
-          title: mod.title,
-          description: mod.description ?? attachedPack?.description ?? null,
+          courseTitle: cleanEducationalTitle(courseRow.title, "دوره آموزشی جامع"),
+          title: cleanEducationalTitle(mod.title, "فصل: مبحث آموزشی جامع"),
+          description: cleanEducationalDescription(
+            mod.description ?? attachedPack?.description,
+            "بسته آموزشی جامع فصل شامل درسنامه ساختاریافته، خلاصه نکات کلیدی، فلش‌کارت‌های مرور فعال و آزمون تستی.",
+          ),
           subject: courseRow.subject ?? attachedPack?.subject ?? null,
           sortOrder: mod.sortOrder,
           documentId: mod.documentId ?? null,

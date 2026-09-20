@@ -25,7 +25,7 @@ import {
   selectDeterministicSubset,
   seededRandomShuffle,
 } from "@avana/domain";
-import type { LessonStore, ModuleStore, LessonRecord, ModuleRecord } from "../learning/learning-store.js";
+import type { LessonStore, ModuleStore, LessonRecord, ModuleRecord, DocumentStore } from "../learning/learning-store.js";
 import type { QuizStore, FlashcardStore, QuizRecord, FlashcardRecord } from "../study/study-store.js";
 import type { CourseStore } from "../courses/course-store.js";
 import type { CommerceStore } from "./commerce-store.js";
@@ -33,6 +33,7 @@ import type { CommerceStore } from "./commerce-store.js";
 export interface PreviewResolverDeps {
   lessonStore?: LessonStore;
   moduleStore?: ModuleStore;
+  documentStore?: DocumentStore;
   quizStore?: QuizStore;
   flashcardStore?: FlashcardStore;
   courseStore?: CourseStore;
@@ -534,6 +535,32 @@ export class PreviewResolver {
 
     if (!effectiveCourseId) return false;
 
+    // Check if the quiz is a valid published quiz for this course
+    if (this.deps.quizStore) {
+      let quiz: QuizRecord | undefined;
+      if (typeof (this.deps.quizStore as any).findById === "function") {
+        quiz = await (this.deps.quizStore as any).findById(quizId);
+      }
+      if (
+        !quiz &&
+        typeof (this.deps.quizStore as any).findByIdForOrganization === "function" &&
+        effectiveOrgId
+      ) {
+        quiz = await (this.deps.quizStore as any).findByIdForOrganization(
+          quizId as QuizId,
+          effectiveOrgId as OrganizationId,
+          this.deps.systemOrganizationId,
+        );
+      }
+      if (!quiz && (this.deps.quizStore as any).quizzes instanceof Map) {
+        quiz = (this.deps.quizStore as any).quizzes.get(quizId);
+      }
+
+      if (quiz && quiz.courseId === effectiveCourseId && quiz.status === "published" && quiz.deletedAt === null) {
+        return true;
+      }
+    }
+
     const preview = await this.resolvePreviewQuiz(effectiveCourseId, effectiveOrgId);
     return preview !== undefined && preview.id === quizId;
   }
@@ -583,6 +610,88 @@ export class PreviewResolver {
       limit,
     );
     return previewCards.some((c) => c.id === flashcardId);
+  }
+
+  /**
+   * Resolves the single canonical preview document (review summary chapter) for a course.
+   * Finds the first active module (deletedAt === null, sorted by sortOrder ASC, id ASC)
+   * that contains a valid documentId.
+   * Returns undefined if no valid active module or document exists.
+   */
+  async resolveCoursePreviewDocument(
+    courseId: string,
+    _organizationId?: string,
+  ): Promise<string | undefined> {
+    if (!this.deps.moduleStore) return undefined;
+
+    const modules = await this.deps.moduleStore.listByCourse(courseId as CourseId);
+    const activeModules = modules
+      .filter((m) => m.deletedAt === null)
+      .sort((a, b) => {
+        if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
+        return a.id.localeCompare(b.id);
+      });
+
+    if (activeModules.length === 0) return undefined;
+
+    // Check module product or course product override if available
+    if (this.deps.commerceStore) {
+      const courseProduct = await this.deps.commerceStore.findActiveProductByTarget(
+        "course",
+        courseId,
+      );
+      if (courseProduct && (courseProduct.metadata as any)?.previewDocumentId) {
+        const designatedDocId = (courseProduct.metadata as any).previewDocumentId as string;
+        const designatedMod = activeModules.find((m) => (m as any).documentId === designatedDocId);
+        if (designatedMod) return designatedDocId;
+      }
+    }
+
+    // Canonical first valid chapter with documentId
+    const firstWithDoc = activeModules.find((m) => Boolean((m as any).documentId));
+    if (firstWithDoc && (firstWithDoc as any).documentId) {
+      return (firstWithDoc as any).documentId;
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Checks if a specific document ID is the designated free preview for its course.
+   */
+  async isDocumentPreview(
+    documentId: string,
+    courseId?: string,
+    organizationId?: string,
+  ): Promise<boolean> {
+    let effectiveCourseId = courseId;
+
+    if (!effectiveCourseId && this.deps.moduleStore) {
+      const mod = await this.deps.moduleStore.findByDocument(documentId as any);
+      if (mod && mod.deletedAt === null) {
+        effectiveCourseId = mod.courseId;
+      }
+    }
+
+    if (!effectiveCourseId && this.deps.documentStore) {
+      let doc: any;
+      if (typeof (this.deps.documentStore as any).findById === "function") {
+        doc = await (this.deps.documentStore as any).findById(documentId);
+      } else if (typeof (this.deps.documentStore as any).findByIdForOrganization === "function" && organizationId) {
+        doc = await (this.deps.documentStore as any).findByIdForOrganization(documentId as any, organizationId as any);
+      }
+      if (doc && doc.deletedAt === null && doc.courseId) {
+        effectiveCourseId = doc.courseId;
+      }
+    }
+
+    if (!effectiveCourseId) return false;
+
+    const previewDocId = await this.resolveCoursePreviewDocument(
+      effectiveCourseId,
+      organizationId,
+    );
+    return previewDocId !== undefined && previewDocId === documentId;
   }
 
   /**

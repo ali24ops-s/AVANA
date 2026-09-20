@@ -101,4 +101,107 @@ describe("PR6-8 Frontend API Clients", () => {
     const queueRes = await studyApi.getFlashcardReviewQueue(mockOrgId, mockCourseId);
     expect(queueRes.due_cards).toEqual([]);
   });
+
+  it("studyApi handles getDailyStudyPlan, regenerateDailyPlan, and updateStudyTaskStatus", async () => {
+    const studyApi = createStudyApi(apiClient);
+
+    // 1. getDailyStudyPlan
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        request_id: "req-plan",
+        plan: {
+          id: "plan-1",
+          userId: "user-1",
+          planDate: "2026-09-18",
+          status: "in_progress",
+          targetDurationMinutes: 45,
+          completedDurationMinutes: 0,
+          remainingDurationMinutes: 45,
+          tasks: [],
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      }),
+    });
+
+    const planRes = await studyApi.getDailyStudyPlan({ timezone: "Asia/Tehran", targetMinutes: 45 });
+    expect(planRes.plan.id).toBe("plan-1");
+    const expectedTz = encodeURIComponent("Asia/Tehran");
+    expect(global.fetch).toHaveBeenCalledWith(
+      `${mockBaseUrl}/v1/study/daily-plan?timezone=${expectedTz}&targetMinutes=45`,
+      expect.objectContaining({ method: "GET" }),
+    );
+
+    // 2. regenerateDailyPlan
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        request_id: "req-regen",
+        plan: {
+          id: "plan-1",
+          userId: "user-1",
+          planDate: "2026-09-18",
+          status: "in_progress",
+          targetDurationMinutes: 60,
+          completedDurationMinutes: 0,
+          remainingDurationMinutes: 60,
+          tasks: [],
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      }),
+    });
+
+    const regenRes = await studyApi.regenerateDailyPlan({ targetMinutes: 60 });
+    expect(regenRes.plan.targetDurationMinutes).toBe(60);
+    expect(global.fetch).toHaveBeenCalledWith(
+      `${mockBaseUrl}/v1/study/daily-plan/regenerate`,
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ targetMinutes: 60 }),
+      }),
+    );
+
+    // 3. updateStudyTaskStatus
+    const taskId = "task-123";
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        request_id: "req-patch",
+        task: {
+          id: taskId,
+          planId: "plan-1",
+          userId: "user-1",
+          taskType: "read_lesson",
+          status: "completed",
+          title: "درس ۱",
+          description: null,
+          priority: 1,
+          estimatedMinutes: 20,
+          completedAt: new Date().toISOString(),
+          courseId: null,
+          moduleId: null,
+          lessonId: null,
+          quizId: null,
+          metadata: {},
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      }),
+    });
+
+    const updateRes = await studyApi.updateStudyTaskStatus(taskId, { status: "completed" });
+    expect(updateRes.task.status).toBe("completed");
+    expect(global.fetch).toHaveBeenCalledWith(
+      `${mockBaseUrl}/v1/study/daily-plan/tasks/${taskId}`,
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ status: "completed" }),
+      }),
+    );
+  });
 });

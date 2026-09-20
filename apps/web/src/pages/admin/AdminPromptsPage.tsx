@@ -22,6 +22,7 @@ import {
   AdminStatusBadge,
 } from "../../components/admin/AdminUI";
 import { api, type AdminPromptRecord } from "../../lib/api/admin";
+import { toPersianDigits } from "@avana/domain";
 
 export function AdminPromptsPage() {
   const [prompts, setPrompts] = useState<AdminPromptRecord[]>([]);
@@ -139,7 +140,7 @@ export function AdminPromptsPage() {
 
         <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[var(--color-primary-default)]/10 border border-[var(--color-primary-default)]/20 text-[var(--color-primary-default)] text-xs font-mono">
           <Sparkles className="w-4 h-4 text-[var(--color-primary-default)]" />
-          <span>تعداد پرامپت‌های فعال: {prompts.length}</span>
+          <span>تعداد پرامپت‌های فعال: {toPersianDigits(prompts.length)}</span>
         </div>
       </div>
 
@@ -372,7 +373,7 @@ export function AdminPromptsPage() {
               <div className="space-y-2">
                 <div className="flex items-center gap-2 text-sm font-semibold text-[var(--color-text)]">
                   <Tag className="w-4 h-4 text-[var(--color-primary-default)]" />
-                  متغیرهای استفاده‌شده در پرامپت ({selectedPrompt.variables.length} متغیر)
+                  متغیرهای استفاده‌شده در پرامپت ({toPersianDigits(selectedPrompt.variables.length)} متغیر)
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {selectedPrompt.variables.map((variable) => (

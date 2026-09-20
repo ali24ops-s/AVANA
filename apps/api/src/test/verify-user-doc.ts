@@ -1,6 +1,7 @@
 import { GenerationService } from "../modules/generation/generation-service.js";
-import { GeminiModelGateway } from "../modules/generation/gateway/gemini.js";
+import { createModelGateway } from "../modules/generation/gateway/index.js";
 import { createDbClient } from "@avana/database/client";
+import { loadApiConfig } from "../config.js";
 import {
   DrizzleDocumentStore,
   DrizzleDocumentChunkStore,
@@ -8,22 +9,29 @@ import {
 import {
   DrizzleGeneratedContentStore,
   DrizzleGeneratedContentCitationStore,
+  DrizzleGenerationChunkStore,
 } from "../modules/generation/drizzle-stores.js";
 import { defaultPolicy, type CourseId, type DocumentId, type OrganizationId, type UserId } from "@avana/domain";
 import { DrizzleOrganizationStore } from "../modules/organizations/drizzle-stores.js";
 
 async function testRealGemini() {
-  const { db, close } = createDbClient(process.env.DATABASE_URL!);
+  const config = loadApiConfig();
+  const { db, close } = createDbClient(config.database.url);
   const docStore = new DrizzleDocumentStore(db);
   const chunkStore = new DrizzleDocumentChunkStore(db);
   const genStore = new DrizzleGeneratedContentStore(db);
   const citStore = new DrizzleGeneratedContentCitationStore(db);
   const orgStore = new DrizzleOrganizationStore(db);
+  const generationChunkStore = new DrizzleGenerationChunkStore(db);
 
-  console.log("Using API key present:", !!process.env.GEMINI_API_KEY, "model: gemini-3.6-flash");
-  const gateway = new GeminiModelGateway({
-    apiKey: process.env.GEMINI_API_KEY!,
-    modelName: "gemini-3.6-flash",
+  const adminProvider = config.generation.aiProvider === "mock" ? "mock" : "gemini";
+  console.log("Configured admin AI provider:", adminProvider, "model:", config.generation.geminiModel);
+  const gateway = createModelGateway({
+    provider: adminProvider,
+    enableFallback: false,
+    geminiApiKey: config.generation.geminiApiKey,
+    geminiApiKeys: config.generation.geminiApiKeys,
+    geminiModel: config.generation.geminiModel,
   });
 
   const service = new GenerationService(
@@ -34,12 +42,20 @@ async function testRealGemini() {
     chunkStore,
     defaultPolicy,
     undefined,
-    orgStore,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    generationChunkStore,
   );
 
-  const docId = "a2a8caed-5f6c-460a-8324-3802c176bf46" as DocumentId;
+  const docId = "86c1cdb8-5fdf-4b20-b01c-4161a5b3d0a1" as DocumentId;
   const orgId = "b4a0b464-16db-4087-92b7-163a1e6f6776" as OrganizationId;
-  const courseId = "3a6d05f7-f61b-4470-9b72-6b56686bb09e" as CourseId;
+  const courseId = "90b7d8c1-abb1-4ca0-b313-19966bd39d46" as CourseId;
 
   const doc = await docStore.findByIdForOrganization(docId, orgId);
   if (doc) {
@@ -48,23 +64,47 @@ async function testRealGemini() {
 
   console.log("Calling Gemini for real user document:", docId);
   const result = await service.generateForDocument(
-    { userId: "80d0c7fa-94fe-4f30-ba2a-90f04080e324" as UserId, role: "organization_admin" },
+    { userId: "79bda286-08a4-4a16-9340-4106864e0732" as UserId, role: "organization_admin", organizationId: orgId },
     orgId,
     docId,
     {
-      types: ["lesson", "flashcard", "quiz"],
-      promptVersion: "v2-gemini-live",
+      types: ["lesson"],
       courseId,
+      force: true,
+      generationContext: "admin",
     },
   );
 
+  console.log("\n================ REGENERATION RESULT ================");
   console.log("Gemini result count:", result.contents.length);
   for (const c of result.contents) {
     console.log("=== TYPE:", c.type, "MODEL:", c.model, "===");
-    console.log(JSON.stringify(c.payload, null, 2));
+    if (c.type === "lesson") {
+      const payload = c.payload as any;
+      console.log("Root payload chemicalStructures count:", (payload.chemicalStructures || []).length);
+      console.log("Sessions count:", (payload.sessions || []).length);
+      if (payload.sessions) {
+        payload.sessions.forEach((s: any, idx: number) => {
+          console.log(`\n--- Session ${idx + 1}: ${s.title} ---`);
+          console.log(`Chemical structures metadata count: ${(s.chemicalStructures || []).length}`);
+          if (s.chemicalStructures && s.chemicalStructures.length > 0) {
+            console.log("Chemical structures metadata:", JSON.stringify(s.chemicalStructures, null, 2));
+          }
+          const matches = s.contentMarkdown.match(/```(chemical|smiles)[\s\S]*?```/g) || [];
+          console.log(`Chemical blocks in markdown count: ${matches.length}`);
+          matches.forEach((m: string, mIdx: number) => {
+            console.log(`\n[Block ${mIdx + 1}]:\n${m}`);
+          });
+        });
+      }
+    }
   }
 
   await close();
+  process.exit(0);
 }
 
-testRealGemini().catch(console.error);
+testRealGemini().catch((err) => {
+  console.error("Error during generation:", err);
+  process.exit(1);
+});

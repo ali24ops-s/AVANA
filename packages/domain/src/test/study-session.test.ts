@@ -8,6 +8,9 @@ import {
   calculateWeeklyStudyTimeSummary,
   getWeeklyStudyComparison,
   calculateStreakSummary,
+  getActivityLevel,
+  getJalaliDateInfo,
+  calculateActivityHeatmap,
   type StudySessionRecord,
 } from "../study-session.js";
 
@@ -469,4 +472,204 @@ describe("Study Session Domain Primitives", () => {
       expect(resultLA.currentStreak).toBe(1);
     });
   });
+
+  describe("Activity Heatmap Domain Engine", () => {
+    describe("Activity Level Thresholds", () => {
+      it("maps seconds to discrete levels 0-4 correctly", () => {
+        expect(getActivityLevel(0)).toBe(0);
+        expect(getActivityLevel(-10)).toBe(0);
+
+        // Level 1: > 0 and < 900s (15 min)
+        expect(getActivityLevel(1)).toBe(1);
+        expect(getActivityLevel(300)).toBe(1); // 5 min
+        expect(getActivityLevel(899)).toBe(1);
+
+        // Level 2: >= 900s (15 min) and < 1800s (30 min)
+        expect(getActivityLevel(900)).toBe(2);
+        expect(getActivityLevel(1200)).toBe(2); // 20 min
+        expect(getActivityLevel(1799)).toBe(2);
+
+        // Level 3: >= 1800s (30 min) and < 3600s (60 min)
+        expect(getActivityLevel(1800)).toBe(3);
+        expect(getActivityLevel(2700)).toBe(3); // 45 min
+        expect(getActivityLevel(3599)).toBe(3);
+
+        // Level 4: >= 3600s (60 min)
+        expect(getActivityLevel(3600)).toBe(4);
+        expect(getActivityLevel(7200)).toBe(4); // 2 hours
+      });
+    });
+
+    describe("Jalali Date Info & Year Transitions", () => {
+      it("formats Persian date info correctly for standard days", () => {
+        // 2026-09-20 is 1405-06-29 (29 Shahrivar 1405)
+        const date = new Date("2026-09-20T10:00:00Z");
+        const info = getJalaliDateInfo(date, "Asia/Tehran");
+        expect(info.year).toBe(1405);
+        expect(info.month).toBe(6);
+        expect(info.day).toBe(29);
+        expect(info.monthName).toBe("شهریور");
+        expect(info.formatted).toContain("شهریور");
+      });
+
+      it("handles Nowruz boundary transition correctly", () => {
+        // 2026-03-20 is 1404-12-29 (29 Esfand 1404)
+        // 2026-03-21 is 1405-01-01 (1 Farvardin 1405)
+        const esfand = new Date("2026-03-20T10:00:00Z");
+        const esfandInfo = getJalaliDateInfo(esfand, "Asia/Tehran");
+        expect(esfandInfo.monthName).toBe("اسفند");
+
+        const farvardin = new Date("2026-03-21T10:00:00Z");
+        const farvardinInfo = getJalaliDateInfo(farvardin, "Asia/Tehran");
+        expect(farvardinInfo.monthName).toBe("فروردین");
+        expect(farvardinInfo.day).toBe(1);
+      });
+    });
+
+    describe("calculateActivityHeatmap", () => {
+      it("returns zero activity empty state when no sessions exist", () => {
+        const refDate = new Date("2026-09-20T12:00:00Z");
+        const heatmap = calculateActivityHeatmap([], refDate, "Asia/Tehran", 26);
+
+        expect(heatmap.weeks).toHaveLength(26);
+        expect(heatmap.totalActiveDays).toBe(0);
+        expect(heatmap.activeDaysThisYear).toBe(0);
+        expect(heatmap.currentStreak).toBe(0);
+        expect(heatmap.longestStreak).toBe(0);
+        expect(heatmap.totalStudySeconds).toBe(0);
+        expect(heatmap.monthLabels.length).toBeGreaterThan(0);
+
+        // Verify every week has 7 days starting with Saturday (0) to Friday (6)
+        for (const week of heatmap.weeks) {
+          expect(week).toHaveLength(7);
+          expect(week[0].dayOfWeek).toBe(0); // شنبه
+          expect(week[0].weekdayName).toBe("شنبه");
+          expect(week[6].dayOfWeek).toBe(6); // جمعه
+          expect(week[6].weekdayName).toBe("جمعه");
+          for (const day of week) {
+            expect(day.level).toBe(0);
+            expect(day.seconds).toBe(0);
+          }
+        }
+      });
+
+      it("aggregates multiple sessions in the same day and assigns level by effective duration", () => {
+        // 2026-09-20: 3 sessions (300s + 600s + 1200s = 2100s -> 35 min -> Level 3)
+        const refDate = new Date("2026-09-20T12:00:00Z");
+        const sessions: StudySessionRecord[] = [
+          {
+            id: "s1",
+            userId: "u1",
+            activityType: "lesson",
+            startedAt: "2026-09-20T08:00:00Z",
+            lastActivityAt: "2026-09-20T08:05:00Z",
+            durationSeconds: 300,
+            createdAt: "",
+            updatedAt: "",
+          },
+          {
+            id: "s2",
+            userId: "u1",
+            activityType: "flashcard",
+            startedAt: "2026-09-20T10:00:00Z",
+            lastActivityAt: "2026-09-20T10:10:00Z",
+            durationSeconds: 600,
+            createdAt: "",
+            updatedAt: "",
+          },
+          {
+            id: "s3",
+            userId: "u1",
+            activityType: "exam",
+            startedAt: "2026-09-20T14:00:00Z",
+            lastActivityAt: "2026-09-20T14:20:00Z",
+            durationSeconds: 1200,
+            createdAt: "",
+            updatedAt: "",
+          },
+        ];
+
+        const heatmap = calculateActivityHeatmap(sessions, refDate, "Asia/Tehran", 10);
+        expect(heatmap.totalStudySeconds).toBe(2100);
+        expect(heatmap.activeDaysThisYear).toBe(1);
+        expect(heatmap.currentStreak).toBe(1);
+
+        // Find today's cell
+        const currentWeek = heatmap.weeks[heatmap.weeks.length - 1];
+        const todayCell = currentWeek.find((d) => d.isToday);
+        expect(todayCell).toBeDefined();
+        expect(todayCell!.seconds).toBe(2100);
+        expect(todayCell!.minutes).toBe(35);
+        expect(todayCell!.sessionCount).toBe(3);
+        expect(todayCell!.level).toBe(3);
+      });
+
+      it("does not give artificial high level to sessions with zero duration", () => {
+        const refDate = new Date("2026-09-20T12:00:00Z");
+        const sessions: StudySessionRecord[] = [
+          {
+            id: "s0",
+            userId: "u1",
+            activityType: "lesson",
+            startedAt: "2026-09-20T08:00:00Z",
+            lastActivityAt: "2026-09-20T08:00:00Z",
+            durationSeconds: 0,
+            createdAt: "",
+            updatedAt: "",
+          },
+        ];
+
+        const heatmap = calculateActivityHeatmap(sessions, refDate, "Asia/Tehran", 10);
+        const currentWeek = heatmap.weeks[heatmap.weeks.length - 1];
+        const todayCell = currentWeek.find((d) => d.isToday);
+        expect(todayCell!.level).toBe(0);
+        expect(todayCell!.sessionCount).toBe(1);
+      });
+
+      it("correctly handles timezone boundaries near midnight", () => {
+        // 2026-09-20 20:45 UTC is 2026-09-21 00:15 in Tehran (+3:30)
+        const lateNightSession: StudySessionRecord[] = [
+          {
+            id: "s-late",
+            userId: "u1",
+            activityType: "lesson",
+            startedAt: "2026-09-20T20:45:00Z",
+            lastActivityAt: "2026-09-20T21:05:00Z",
+            durationSeconds: 1200,
+            createdAt: "",
+            updatedAt: "",
+          },
+        ];
+
+        // In Tehran, session date is 2026-09-21
+        const refDateTehran = new Date("2026-09-21T06:00:00Z");
+        const heatmapTehran = calculateActivityHeatmap(
+          lateNightSession,
+          refDateTehran,
+          "Asia/Tehran",
+          4,
+        );
+
+        const tehranWeek = heatmapTehran.weeks[heatmapTehran.weeks.length - 1];
+        const cell21 = tehranWeek.find((d) => d.date === "2026-09-21");
+        const cell20 = tehranWeek.find((d) => d.date === "2026-09-20");
+
+        expect(cell21!.seconds).toBe(1200);
+        expect(cell21!.level).toBe(2);
+        expect(cell20!.seconds).toBe(0);
+        expect(cell20!.level).toBe(0);
+      });
+
+      it("preserves deterministic calculations given fixed referenceDate", () => {
+        const refDate = new Date("2026-08-15T12:00:00Z");
+        const res1 = calculateActivityHeatmap([], refDate, "Asia/Tehran", 20);
+        const res2 = calculateActivityHeatmap([], refDate, "Asia/Tehran", 20);
+
+        expect(res1.currentPersianYear).toBe(res2.currentPersianYear);
+        expect(res1.weeks.length).toBe(res2.weeks.length);
+        expect(res1.weeks[0][0].date).toBe(res2.weeks[0][0].date);
+      });
+    });
+  });
 });
+

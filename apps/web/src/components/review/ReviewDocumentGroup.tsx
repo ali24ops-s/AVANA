@@ -22,6 +22,7 @@ import type {
   ReviewQueueResource,
   GeneratedContentType,
 } from "@avana/contracts";
+import { toPersianDigits } from "@avana/domain";
 
 export interface ReviewDocumentGroupProps {
   group: ReviewDocumentGroupResource;
@@ -183,13 +184,13 @@ export function ReviewDocumentGroup({
                   {filename}
                 </h4>
                 <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] border border-[var(--color-border)]">
-                  {group.stats.total} خروجی
+                  {toPersianDigits(group.stats.total)} خروجی
                 </span>
               </div>
 
               {doc?.created_at && (
                 <p className="text-xs text-[var(--color-text-muted)]">
-                  بارگذاری: {new Date(doc.created_at).toLocaleDateString("fa-IR")}
+                  بارگذاری: {toPersianDigits(new Date(doc.created_at).toLocaleDateString("fa-IR"))}
                 </p>
               )}
             </div>
@@ -200,22 +201,22 @@ export function ReviewDocumentGroup({
             <div className="flex items-center gap-1.5 flex-wrap text-xs">
               {group.stats.pending > 0 && (
                 <span className="px-2.5 py-1 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 font-bold border border-amber-500/20">
-                  {group.stats.pending} در انتظار بازبینی
+                  {toPersianDigits(group.stats.pending)} در انتظار بازبینی
                 </span>
               )}
               {group.stats.approved > 0 && (
                 <span className="px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold border border-emerald-500/20">
-                  {group.stats.approved} تأیید شده
+                  {toPersianDigits(group.stats.approved)} تأیید شده
                 </span>
               )}
               {group.stats.rejected > 0 && (
                 <span className="px-2.5 py-1 rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400 font-bold border border-rose-500/20">
-                  {group.stats.rejected} رد شده
+                  {toPersianDigits(group.stats.rejected)} رد شده
                 </span>
               )}
               {group.stats.needsRevision > 0 && (
                 <span className="px-2.5 py-1 rounded-lg bg-sky-500/10 text-sky-600 dark:text-sky-400 font-bold border border-sky-500/20">
-                  {group.stats.needsRevision} ویرایش‌شده
+                  {toPersianDigits(group.stats.needsRevision)} ویرایش‌شده
                 </span>
               )}
             </div>
@@ -293,7 +294,7 @@ export function ReviewDocumentGroup({
                         </span>
                         {getStatusBadge(item.status)}
                         <span className="text-xs text-[var(--color-text-muted)]">
-                          {new Date(item.updated_at).toLocaleDateString("fa-IR")}
+                          {toPersianDigits(new Date(item.updated_at).toLocaleDateString("fa-IR"))}
                         </span>
                       </div>
                       <h5 className="text-sm font-bold text-[var(--color-text)] truncate group-hover:text-[var(--color-primary-default)] transition-colors">
@@ -354,7 +355,7 @@ export function ReviewDocumentGroup({
               <p className="text-xs text-[var(--color-text-muted)] leading-relaxed">
                 آیا از تأیید تمامی پیش‌نویس‌های در انتظار بازبینی (
                 <strong className="text-[var(--color-text)] font-bold">
-                  {group.stats.pending} مورد
+                  {toPersianDigits(group.stats.pending)} مورد
                 </strong>
                 ) متعلق به منبع «
                 <strong className="text-[var(--color-text)] font-bold">
@@ -397,7 +398,7 @@ export function ReviewDocumentGroup({
                 ) : (
                   <>
                     <CheckCheck className="w-3.5 h-3.5" />
-                    <span>تأیید و افزودن به دوره ({group.stats.pending})</span>
+                    <span>تأیید و افزودن به دوره ({toPersianDigits(group.stats.pending)})</span>
                   </>
                 )}
               </button>

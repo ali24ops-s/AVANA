@@ -6,6 +6,7 @@ import { createDocumentsApi } from "../../lib/api/documents.js";
 import { DocumentUploader } from "./DocumentUploader.js";
 import { DocumentStatusCard } from "./DocumentStatusCard.js";
 import type { DocumentResource } from "@avana/contracts";
+import { toPersianDigits } from "@avana/domain";
 
 export interface CourseDocumentsViewProps {
   organizationId: string;
@@ -72,7 +73,7 @@ export function CourseDocumentsView({
             اسناد و منابع بارگذاری‌شده
           </h3>
           <span className="text-xs font-semibold text-[var(--color-text-muted)] bg-[var(--color-surface)] px-3 py-1 rounded-xl border border-[var(--color-border)]">
-            {documentsList.length} سند
+            {toPersianDigits(documentsList.length)} سند
           </span>
         </div>
 

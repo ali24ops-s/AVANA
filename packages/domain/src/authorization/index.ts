@@ -16,37 +16,4 @@ export type {
 
 export { RoleBasedPolicy, defaultPolicy } from "./policy.js";
 
-export type { AuditAction, AuditEntityType, AuditEvent } from "./audit.js";
-
-export {
-  auditOrgCreated,
-  auditOrgUpdated,
-  auditOrgDeleted,
-  auditMembershipCreated,
-  auditMembershipRoleChanged,
-  auditMembershipRemoved,
-  auditCourseCreated,
-  auditCourseUpdated,
-  auditCourseArchived,
-  auditModuleCreated,
-  auditModuleUpdated,
-  auditModuleDeleted,
-  auditLessonCreated,
-  auditLessonUpdated,
-  auditLessonPublished,
-  auditLessonDeleted,
-  auditLessonCompleted,
-  auditLessonProgressUpdated,
-  auditDocumentUploaded,
-  auditDocumentProcessed,
-  auditDocumentFailed,
-  auditDocumentDeleted,
-  auditContentGenerated,
-  auditContentAccepted,
-  auditContentRejected,
-  auditContentRegenerated,
-  auditContentEdited,
-  auditGenerationFailed,
-  auditFlashcardReviewed,
-  auditQuizAttempted,
-} from "./audit.js";
+export * from "./audit.js";

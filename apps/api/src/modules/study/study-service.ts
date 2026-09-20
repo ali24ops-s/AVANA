@@ -20,7 +20,6 @@ import {
   type QuizAttemptId,
   type QuizId,
   type QuizQuestionId,
-  type ResourceAccessResult,
   type StudySessionRecord,
   type StartStudySessionInput,
   type WeeklyStudyTimeSummary,
@@ -36,6 +35,8 @@ import {
   getPersianWeekDates,
   calculateWeeklyStudyTimeSummary,
   calculateStreakSummary,
+  calculateActivityHeatmap,
+  type ActivityHeatmapSummary,
   evaluateQuestionAnswer,
   type QuestionEvaluationResult,
   seededRandomShuffle,
@@ -1216,8 +1217,8 @@ export class StudyService {
       throw new DomainError("not_found", "مطالعه یافت نشد");
     }
 
-    // If reached end, auto-mark completed
-    if (updated.currentIndex >= updated.totalCards || updated.completedCards >= updated.totalCards) {
+    // If all cards graduated, auto-mark completed
+    if (updated.totalCards > 0 && updated.completedCards >= updated.totalCards) {
       const completed = await this.flashcardStudySessionStore.updateStatus(
         sessionId,
         "completed",
@@ -1423,8 +1424,8 @@ export class StudyService {
     } else {
       if (previewLessonId) {
         const matchingQuestions = allQuestions.filter((q) => q.lessonId === previewLessonId);
-        const otherQuestions = allQuestions.filter((q) => q.lessonId !== previewLessonId);
-        eligibleQuestions = [...matchingQuestions, ...otherQuestions];
+        const unattachedQuestions = allQuestions.filter((q) => !q.lessonId);
+        eligibleQuestions = [...matchingQuestions, ...unattachedQuestions];
       } else {
         eligibleQuestions = allQuestions;
       }
@@ -1458,7 +1459,7 @@ export class StudyService {
     actor: Actor,
     organizationId: OrganizationId,
     quizId: QuizId,
-    options?: { moduleId?: string; previewSessionId?: string },
+    options?: { moduleId?: string; previewLessonId?: string; previewSessionId?: string },
   ): Promise<
     QuizRecord & {
       questions: Array<Omit<QuizQuestionRecord, "correctAnswer" | "explanation">>;
@@ -1474,9 +1475,9 @@ export class StudyService {
     if (!quiz) throw new DomainError("not_found", "Quiz not found");
     if (quiz.status !== "published") throw new DomainError("not_found", "Quiz not found");
 
-    let access: ResourceAccessResult | undefined;
+    let isPreview = false;
     if (this.entitlementService) {
-      access = await this.entitlementService.checkAccess(actor, {
+      const access = await this.entitlementService.checkAccess(actor, {
         userId: actor.userId,
         resourceType: "quiz",
         resourceId: quizId,
@@ -1484,11 +1485,8 @@ export class StudyService {
         moduleId: (options?.moduleId as ModuleId) ?? undefined,
         previewSessionId: options?.previewSessionId,
       });
-      if (!access.granted) {
-        throw new DomainError(
-          "forbidden",
-          "برای دسترسی به این آزمون، ابتدا باید دوره یا اشتراک را خریداری کنید.",
-        );
+      if (!access.granted || access.reason === "free_preview") {
+        isPreview = true;
       }
     }
 
@@ -1504,15 +1502,16 @@ export class StudyService {
     }
 
     let questions = await this.quizQuestionStore.listByQuiz(quizId);
-    if (access?.reason === "free_preview") {
+    if (isPreview) {
       try {
         const preview = await this.getPreviewQuiz(
           actor,
           organizationId,
-          (quiz.courseId ?? (quiz as any).course_id) as CourseId,
+          (quiz.courseId ?? (quiz as { course_id?: CourseId }).course_id) as CourseId,
           {
             quizId,
             moduleId: options?.moduleId,
+            previewLessonId: options?.previewLessonId,
             previewSessionId: options?.previewSessionId,
             limit: 5,
           },
@@ -1534,7 +1533,7 @@ export class StudyService {
     const sanitized = enriched.map(
       ({ correctAnswer: _correctAnswer, explanation: _explanation, ...q }) => q,
     );
-    return { ...quiz, questions: sanitized, is_preview: access?.reason === "free_preview" };
+    return { ...quiz, questions: sanitized, is_preview: isPreview };
   }
   /**
    * Get dynamic topic & section/chapter hierarchy summary with question counts from DB.
@@ -1582,6 +1581,7 @@ export class StudyService {
     type CourseSummary = {
       courseId: string;
       courseTitle: string;
+      hasAccess: boolean;
       questionCount: number;
       easyCount: number;
       mediumCount: number;
@@ -1609,7 +1609,24 @@ export class StudyService {
       }>;
     }> = [];
 
+    const accessSnapshot = this.entitlementService
+      ? await this.entitlementService.createAccessSnapshot(actor)
+      : null;
+
     for (const c of coursesInfo) {
+      let hasAccess = true;
+      if (this.entitlementService && accessSnapshot) {
+        const access = await this.entitlementService.checkAccess(
+          actor,
+          {
+            userId: actor.userId,
+            resourceType: "course",
+            resourceId: c.id,
+          },
+          accessSnapshot,
+        );
+        hasAccess = access.granted;
+      }
       const courseModules = this.moduleStore
         ? await this.moduleStore.listByCourse(c.id as CourseId)
         : [];
@@ -1792,6 +1809,7 @@ export class StudyService {
         coursesResult.push({
           courseId: c.id,
           courseTitle: c.name,
+          hasAccess,
           questionCount: cQ,
           easyCount: cEasy,
           mediumCount: cMed,
@@ -1845,9 +1863,18 @@ export class StudyService {
           ],
         };
 
+        const orphanHasAccess = !this.entitlementService
+          ? true
+          : Boolean(
+              actor.role === "platform_admin" ||
+              actor.role === "organization_admin" ||
+              accessSnapshot?.hasActiveSubscription,
+            );
+
         coursesResult.push({
           courseId: `course-top-${tName}`,
           courseTitle: tName,
+          hasAccess: orphanHasAccess,
           questionCount: tObj.count,
           easyCount: tObj.easy,
           mediumCount: tObj.med,
@@ -2336,6 +2363,81 @@ export class StudyService {
       }
     }
 
+    // Enforce access control: user must have active access (subscription, course purchase, admin/creator)
+    // to all selected courses / modules to start a free practice exam attempt.
+    if (this.entitlementService) {
+      const accessSnapshot = await this.entitlementService.createAccessSnapshot(actor);
+      if (!accessSnapshot.hasActiveSubscription && actor.role !== "platform_admin") {
+        const targetCourseIds = new Set<string>(selectedCourseIds);
+
+        if (this.moduleStore && selectedModuleIds.size > 0) {
+          for (const modId of selectedModuleIds) {
+            const mRecord = await this.moduleStore.findById(modId as ModuleId).catch(() => undefined);
+            if (mRecord?.courseId) {
+              targetCourseIds.add(mRecord.courseId);
+            }
+          }
+        }
+
+        if (this.lessonStore && selectedLessonIds.size > 0) {
+          for (const lesId of selectedLessonIds) {
+            const lRecord = await this.lessonStore.findById(lesId as LessonId).catch(() => undefined);
+            if (lRecord?.moduleId && this.moduleStore) {
+              const mRecord = await this.moduleStore.findById(lRecord.moduleId).catch(() => undefined);
+              if (mRecord?.courseId) {
+                targetCourseIds.add(mRecord.courseId);
+              }
+            }
+          }
+        }
+
+        if (targetCourseIds.size === 0 && rawSelection.length > 0) {
+          // Check if any free text topic matches an inaccessible course in the organization
+          if (this.courseStore) {
+            const orgCourses = await this.courseStore.listByOrganization(organizationId, actor.userId, this.systemOrganizationId).catch(() => []);
+            for (const c of orgCourses) {
+              const cTitle = (c as { title?: string }).title || c.name;
+              if (cTitle && (matchTopics.has(cTitle) || freeTextTopics.has(cTitle))) {
+                targetCourseIds.add(c.id);
+              }
+            }
+          }
+        }
+
+        // If targetCourseIds is still empty (e.g. empty selection or global pool request),
+        // enforce access across all organization courses so unauthorized users cannot bypass course scope
+        if (targetCourseIds.size === 0) {
+          if (this.courseStore) {
+            const orgCourses = await this.courseStore.listByOrganization(organizationId, actor.userId, this.systemOrganizationId).catch(() => []);
+            for (const c of orgCourses) {
+              targetCourseIds.add(c.id);
+            }
+          }
+        }
+
+        if (targetCourseIds.size > 0) {
+          for (const cId of targetCourseIds) {
+            const access = await this.entitlementService.checkAccess(actor, {
+              userId: actor.userId,
+              resourceType: "course",
+              resourceId: cId,
+            }, accessSnapshot);
+            if (!access.granted) {
+              throw new DomainError(
+                "forbidden",
+                "برای شرکت در آزمون این دوره نیاز به اشتراک فعال یا خرید آزمون ویژه دارید.",
+              );
+            }
+          }
+        } else {
+          throw new DomainError(
+            "forbidden",
+            "برای شرکت در آزمون این دوره نیاز به اشتراک فعال یا خرید آزمون ویژه دارید.",
+          );
+        }
+      }
+    }
+
     // Fetch candidate questions from DB
     const allQuestions = await this.quizQuestionStore.listByFilter({
       organizationId,
@@ -2445,6 +2547,30 @@ export class StudyService {
       }
     }
 
+    // Defense-in-depth: For users without global access, filter candidate questions to strictly authorized courses
+    if (this.entitlementService) {
+      const accessSnapshot = await this.entitlementService.createAccessSnapshot(actor);
+      if (!accessSnapshot.hasActiveSubscription && actor.role !== "platform_admin") {
+        const enrichedCandidates = await this.resolveQuestionHierarchyContext(candidateQuestions);
+        const authorizedCandidates: typeof candidateQuestions = [];
+        for (let i = 0; i < candidateQuestions.length; i++) {
+          const eq = enrichedCandidates[i];
+          const courseId = eq?.course?.id;
+          if (courseId) {
+            const access = await this.entitlementService.checkAccess(actor, {
+              userId: actor.userId,
+              resourceType: "course",
+              resourceId: courseId,
+            }, accessSnapshot);
+            if (access.granted) {
+              authorizedCandidates.push(candidateQuestions[i]);
+            }
+          }
+        }
+        candidateQuestions = authorizedCandidates;
+      }
+    }
+
     if (candidateQuestions.length < requestedCount) {
       throw new DomainError(
         "bad_request",
@@ -2504,15 +2630,18 @@ export class StudyService {
 
   /**
    * Helper to resolve all questions in question bank that match an item criteria:
-   * topic, moduleId, lessonId, courseId, difficulty.
+   * topic, moduleId/moduleIds, lessonId/lessonIds, courseId/courseIds, difficulty.
    */
   async resolveCandidateQuestionsForPool(
     organizationId: OrganizationId,
     item: {
       topic?: string;
       moduleId?: string;
+      moduleIds?: string[];
       lessonId?: string;
+      lessonIds?: string[];
       courseId?: string;
+      courseIds?: string[];
       difficulty?: string;
     },
     allQuestionsCache?: QuizQuestionRecord[],
@@ -2540,30 +2669,67 @@ export class StudyService {
     if (item.lessonId) {
       targetLessonIds.add(item.lessonId);
     }
-    let targetModuleDocumentId: string | null = null;
-    if (item.moduleId && this.lessonStore) {
-      const modLessons = await this.lessonStore
-        .listByModule(item.moduleId as any)
-        .catch(() => []);
-      for (const l of modLessons) targetLessonIds.add(l.id);
-    }
-    if (item.moduleId && this.moduleStore) {
-      const mod = await this.moduleStore
-        .findById(item.moduleId as any)
-        .catch(() => null);
-      if (mod?.documentId) {
-        targetModuleDocumentId = mod.documentId;
+    if (item.lessonIds) {
+      for (const lId of item.lessonIds) {
+        if (lId) targetLessonIds.add(lId);
       }
     }
-    if (item.courseId && !item.moduleId && this.moduleStore && this.lessonStore) {
-      const courseModules = await this.moduleStore
-        .listByCourse(item.courseId as any)
-        .catch(() => []);
-      for (const m of courseModules) {
+
+    const effectiveModuleIds = new Set<string>();
+    if (item.moduleId) effectiveModuleIds.add(item.moduleId);
+    if (item.moduleIds) {
+      for (const mId of item.moduleIds) {
+        if (mId) effectiveModuleIds.add(mId);
+      }
+    }
+
+    const targetModuleDocumentIds = new Set<string>();
+
+    if (effectiveModuleIds.size > 0 && this.lessonStore) {
+      for (const modId of effectiveModuleIds) {
         const modLessons = await this.lessonStore
-          .listByModule(m.id)
+          .listByModule(modId as ModuleId)
           .catch(() => []);
         for (const l of modLessons) targetLessonIds.add(l.id);
+      }
+    }
+    if (effectiveModuleIds.size > 0 && this.moduleStore) {
+      for (const modId of effectiveModuleIds) {
+        const mod = await this.moduleStore
+          .findById(modId as ModuleId)
+          .catch(() => null);
+        if (mod?.documentId) {
+          targetModuleDocumentIds.add(mod.documentId);
+        }
+      }
+    }
+
+    const effectiveCourseIds = new Set<string>();
+    if (item.courseId) effectiveCourseIds.add(item.courseId);
+    if (item.courseIds) {
+      for (const cId of item.courseIds) {
+        if (cId) effectiveCourseIds.add(cId);
+      }
+    }
+
+    if (
+      effectiveCourseIds.size > 0 &&
+      effectiveModuleIds.size === 0 &&
+      !item.lessonId &&
+      !item.lessonIds?.length &&
+      this.moduleStore &&
+      this.lessonStore
+    ) {
+      for (const cId of effectiveCourseIds) {
+        const courseModules = await this.moduleStore
+          .listByCourse(cId as CourseId)
+          .catch(() => []);
+        for (const m of courseModules) {
+          const modLessons = await this.lessonStore
+            .listByModule(m.id)
+            .catch(() => []);
+          for (const l of modLessons) targetLessonIds.add(l.id);
+        }
       }
     }
 
@@ -2587,7 +2753,13 @@ export class StudyService {
         if (!matchesDiff) return false;
       }
 
-      if (item.lessonId || item.moduleId || item.courseId) {
+      const hasScopeFilter =
+        item.lessonId ||
+        (item.lessonIds && item.lessonIds.length > 0) ||
+        effectiveModuleIds.size > 0 ||
+        effectiveCourseIds.size > 0;
+
+      if (hasScopeFilter) {
         let matchesScope = false;
         if (q.lessonId && targetLessonIds.has(q.lessonId)) {
           matchesScope = true;
@@ -2595,16 +2767,19 @@ export class StudyService {
           const parentQuiz = quizMap.get(q.quizId);
           if (parentQuiz) {
             if (
-              item.moduleId &&
-              targetModuleDocumentId &&
-              parentQuiz.documentId === targetModuleDocumentId
+              effectiveModuleIds.size > 0 &&
+              targetModuleDocumentIds.size > 0 &&
+              parentQuiz.documentId &&
+              targetModuleDocumentIds.has(parentQuiz.documentId)
             ) {
               matchesScope = true;
             } else if (
-              item.courseId &&
-              !item.moduleId &&
+              effectiveCourseIds.size > 0 &&
+              effectiveModuleIds.size === 0 &&
               !item.lessonId &&
-              parentQuiz.courseId === item.courseId
+              !item.lessonIds?.length &&
+              parentQuiz.courseId &&
+              effectiveCourseIds.has(parentQuiz.courseId)
             ) {
               matchesScope = true;
             }
@@ -2675,7 +2850,7 @@ export class StudyService {
         )
       : [];
 
-    const blueprintItems =
+    const blueprintItems: ExamBlueprintItem[] =
       input.blueprint && input.blueprint.length > 0
         ? input.blueprint
         : [
@@ -2683,8 +2858,11 @@ export class StudyService {
               name: input.scope?.topics?.[0] || "کل مباحث",
               topic: input.scope?.topics?.[0],
               moduleId: input.scope?.moduleId,
+              moduleIds: input.scope?.moduleIds || (input.scope?.moduleId ? [input.scope.moduleId] : undefined),
               lessonId: input.scope?.lessonId,
+              lessonIds: input.scope?.lessonIds || (input.scope?.lessonId ? [input.scope.lessonId] : undefined),
               courseId: input.scope?.courseId,
+              courseIds: input.scope?.courseIds || (input.scope?.courseId ? [input.scope.courseId] : undefined),
               difficulty: input.difficulty,
               count: input.questionCount,
             },
@@ -2707,8 +2885,11 @@ export class StudyService {
         {
           topic: item.topic,
           moduleId: item.moduleId,
+          moduleIds: item.moduleIds,
           lessonId: item.lessonId,
+          lessonIds: item.lessonIds,
           courseId: item.courseId,
+          courseIds: item.courseIds,
           difficulty: item.difficulty || input.difficulty,
         },
         allQuestions,
@@ -2789,7 +2970,7 @@ export class StudyService {
         )
       : [];
 
-    const blueprintItems =
+    const blueprintItems: ExamBlueprintItem[] =
       metadata.blueprint && metadata.blueprint.length > 0
         ? metadata.blueprint
         : [
@@ -2797,8 +2978,11 @@ export class StudyService {
               name: metadata.scope?.topics?.[0] || product.title,
               topic: metadata.scope?.topics?.[0],
               moduleId: metadata.scope?.moduleId,
+              moduleIds: metadata.scope?.moduleIds || (metadata.scope?.moduleId ? [metadata.scope.moduleId] : undefined),
               lessonId: metadata.scope?.lessonId,
+              lessonIds: metadata.scope?.lessonIds || (metadata.scope?.lessonId ? [metadata.scope.lessonId] : undefined),
               courseId: metadata.scope?.courseId,
+              courseIds: metadata.scope?.courseIds || (metadata.scope?.courseId ? [metadata.scope.courseId] : undefined),
               difficulty,
               count: questionCount,
             },
@@ -2813,8 +2997,11 @@ export class StudyService {
         {
           topic: item.topic,
           moduleId: item.moduleId,
+          moduleIds: item.moduleIds,
           lessonId: item.lessonId,
+          lessonIds: item.lessonIds,
           courseId: item.courseId,
+          courseIds: item.courseIds,
           difficulty: item.difficulty || difficulty,
         },
         allQuestions,
@@ -2876,6 +3063,57 @@ export class StudyService {
     return { attempt: attemptRecord, questions: enrichedSelected };
   }
 
+  private async checkSpecialExamAccess(
+    actor: Actor,
+    attempt: QuizAttemptRecord,
+    metrics: Record<string, unknown>,
+  ): Promise<void> {
+    if (!metrics.isSpecialExam || actor.role === "platform_admin") {
+      return;
+    }
+    let hasEntitlement = false;
+    if (this.entitlementService) {
+      if (metrics.productId) {
+        const access = await this.entitlementService.checkAccess(actor, {
+          userId: actor.userId,
+          resourceType: "special_exam",
+          resourceId: metrics.productId as string,
+        });
+        hasEntitlement = access.granted;
+      }
+      if (!hasEntitlement) {
+        const access = await this.entitlementService.checkAccess(actor, {
+          userId: actor.userId,
+          resourceType: "special_exam",
+          resourceId: attempt.id,
+        });
+        hasEntitlement = access.granted;
+      }
+      if (!hasEntitlement && metrics.retakeOfAttemptId) {
+        const accessRetake = await this.entitlementService.checkAccess(actor, {
+          userId: actor.userId,
+          resourceType: "special_exam",
+          resourceId: metrics.retakeOfAttemptId as string,
+        });
+        hasEntitlement = accessRetake.granted;
+      }
+      if (!hasEntitlement && metrics.orderId) {
+        const accessOrder = await this.entitlementService.checkAccess(actor, {
+          userId: actor.userId,
+          resourceType: "special_exam",
+          resourceId: metrics.orderId as string,
+        });
+        hasEntitlement = accessOrder.granted;
+      }
+    }
+    if (!hasEntitlement) {
+      throw new DomainError(
+        "forbidden",
+        "دسترسی به این آزمون ویژه نیازمند خرید معتبر است.",
+      );
+    }
+  }
+
   /**
    * Save user answers during an in-progress exam attempt.
    * Merges partial or full answers into the attempt record for real-time persistence and refresh resilience.
@@ -2895,23 +3133,7 @@ export class StudyService {
     }
 
     const metrics = (attempt.metrics ?? {}) as Record<string, unknown>;
-    if (metrics.isSpecialExam && actor.role !== "platform_admin") {
-      let hasEntitlement = false;
-      if (this.entitlementService) {
-        const access = await this.entitlementService.checkAccess(actor, {
-          userId: actor.userId,
-          resourceType: "special_exam",
-          resourceId: attempt.id,
-        });
-        hasEntitlement = access.granted;
-      }
-      if (!hasEntitlement) {
-        throw new DomainError(
-          "forbidden",
-          "دسترسی به این آزمون ویژه نیازمند خرید معتبر است.",
-        );
-      }
-    }
+    await this.checkSpecialExamAccess(actor, attempt, metrics);
 
     if (attempt.status === "completed" || attempt.completedAt != null) {
       throw new DomainError("bad_request", "امکان تغییر پاسخ‌های آزمون پایان‌یافته وجود ندارد.");
@@ -2967,33 +3189,7 @@ export class StudyService {
     }
 
     const previousMetrics = ((previousAttempt.metrics ?? {}) as Record<string, unknown>);
-    if (previousMetrics.isSpecialExam && actor.role !== "platform_admin") {
-      let hasEntitlement = false;
-      if (this.entitlementService) {
-        if (previousMetrics.productId) {
-          const access = await this.entitlementService.checkAccess(actor, {
-            userId: actor.userId,
-            resourceType: "special_exam",
-            resourceId: previousMetrics.productId as string,
-          });
-          hasEntitlement = access.granted;
-        }
-        if (!hasEntitlement) {
-          const accessPrev = await this.entitlementService.checkAccess(actor, {
-            userId: actor.userId,
-            resourceType: "special_exam",
-            resourceId: previousAttempt.id,
-          });
-          hasEntitlement = accessPrev.granted;
-        }
-      }
-      if (!hasEntitlement) {
-        throw new DomainError(
-          "forbidden",
-          "دسترسی به این آزمون ویژه نیازمند خرید معتبر است.",
-        );
-      }
-    }
+    await this.checkSpecialExamAccess(actor, previousAttempt, previousMetrics);
 
     // Resolve questions from snapshot or question IDs or quiz
     let questions: QuizQuestionRecord[] = [];
@@ -3026,11 +3222,13 @@ export class StudyService {
     const now = new Date().toISOString();
 
     // Clone metrics, preserving configuration (such as timeLimitMinutes, isSpecialExam, productId, orderId),
-    // while resetting elapsedSeconds and tagging retake reference
-    const { elapsedSeconds: _prevElapsed, ...cleanMetrics } = previousMetrics;
+    // while resetting elapsedSeconds and tagging root retake reference
+    const rootAttemptId = (previousMetrics.retakeOfAttemptId as string) || previousAttempt.id;
+    const cleanMetrics = { ...previousMetrics };
+    delete cleanMetrics.elapsedSeconds;
     const newMetrics: Record<string, unknown> = {
       ...cleanMetrics,
-      retakeOfAttemptId: previousAttempt.id,
+      retakeOfAttemptId: rootAttemptId,
       total: enrichedQuestions.length,
     };
 
@@ -3086,23 +3284,7 @@ export class StudyService {
     }
 
     const metrics = (attempt.metrics ?? {}) as Record<string, unknown>;
-    if (metrics.isSpecialExam && actor.role !== "platform_admin") {
-      let hasEntitlement = false;
-      if (this.entitlementService) {
-        const access = await this.entitlementService.checkAccess(actor, {
-          userId: actor.userId,
-          resourceType: "special_exam",
-          resourceId: attempt.id,
-        });
-        hasEntitlement = access.granted;
-      }
-      if (!hasEntitlement) {
-        throw new DomainError(
-          "forbidden",
-          "دسترسی به این آزمون ویژه نیازمند خرید معتبر است.",
-        );
-      }
-    }
+    await this.checkSpecialExamAccess(actor, attempt, metrics);
 
     let questions: QuizQuestionRecord[] = [];
     if (attempt.questionSnapshot && Array.isArray(attempt.questionSnapshot) && attempt.questionSnapshot.length > 0) {
@@ -3186,23 +3368,7 @@ export class StudyService {
     }
 
     const existingMetrics = (attempt.metrics ?? {}) as Record<string, unknown>;
-    if (existingMetrics.isSpecialExam && actor.role !== "platform_admin") {
-      let hasEntitlement = false;
-      if (this.entitlementService) {
-        const access = await this.entitlementService.checkAccess(actor, {
-          userId: actor.userId,
-          resourceType: "special_exam",
-          resourceId: attempt.id,
-        });
-        hasEntitlement = access.granted;
-      }
-      if (!hasEntitlement) {
-        throw new DomainError(
-          "forbidden",
-          "دسترسی به این آزمون ویژه نیازمند خرید معتبر است.",
-        );
-      }
-    }
+    await this.checkSpecialExamAccess(actor, attempt, existingMetrics);
 
     let questions: QuizQuestionRecord[] = [];
     if (attempt.questionSnapshot && Array.isArray(attempt.questionSnapshot) && attempt.questionSnapshot.length > 0) {
@@ -3218,6 +3384,41 @@ export class StudyService {
 
     if (questions.length === 0) {
       throw new DomainError("unprocessable", "Quiz attempt has no questions");
+    }
+
+    if (attempt.status === "completed" || attempt.completedAt != null) {
+      const enrichedQuestions = await this.resolveQuestionHierarchyContext(questions);
+      const answersMap = (attempt.answers as Record<string, unknown>) || {};
+      const questionResults: Record<string, QuestionEvaluationResult> = {};
+      let correctCount = 0;
+      let incorrectCount = 0;
+      let unansweredCount = 0;
+      let partialCount = 0;
+
+      for (const q of enrichedQuestions) {
+        const val = answersMap[q.id] ?? null;
+        const evaluation = evaluateQuestionAnswer(val, q);
+        questionResults[q.id] = evaluation;
+        if (evaluation.status === "correct") correctCount++;
+        else if (evaluation.status === "partial") partialCount++;
+        else if (evaluation.status === "unanswered") unansweredCount++;
+        else incorrectCount++;
+      }
+
+      return {
+        attemptId: attempt.id,
+        quizId: attempt.quizId || "configured-exam",
+        score: attempt.score,
+        correct: (existingMetrics.correct as number) ?? correctCount,
+        incorrect: (existingMetrics.incorrect as number) ?? incorrectCount,
+        unanswered: (existingMetrics.unanswered as number) ?? unansweredCount,
+        partial: (existingMetrics.partial as number) ?? partialCount,
+        total: questions.length,
+        answers: answersMap,
+        questionResults,
+        completedAt: attempt.completedAt || new Date().toISOString(),
+        questions: enrichedQuestions,
+      };
     }
 
     let correctCount = 0;
@@ -3325,7 +3526,10 @@ export class StudyService {
     await this.authorizeRead(actor, organizationId);
 
     const attempts = await this.quizAttemptStore.listByUser(actor.userId);
-    const sortedAttempts = attempts.slice(0, limit);
+    const visibleAttempts = attempts.filter(
+      (a) => (a.metrics as { hiddenFromRecent?: boolean } | null)?.hiddenFromRecent !== true,
+    );
+    const sortedAttempts = visibleAttempts.slice(0, limit);
 
     const items: ExamHistoryItem[] = sortedAttempts.map((a) => {
       const metrics = (a.metrics as {
@@ -3375,6 +3579,115 @@ export class StudyService {
     return { items };
   }
 
+  /**
+   * Hide an exam attempt from recent exam history (soft-hide without modifying attempt results, snapshot, answers or purchases).
+   */
+  async hideExamAttemptFromHistory(
+    actor: Actor,
+    organizationId: OrganizationId,
+    attemptId: QuizAttemptId,
+  ): Promise<{ success: boolean; attemptId: string }> {
+    await this.authorizeRead(actor, organizationId);
+
+    const attempt = await this.quizAttemptStore.findById(attemptId);
+    if (!attempt || (attempt.userId !== actor.userId && actor.role !== "platform_admin")) {
+      throw new DomainError("not_found", "Quiz attempt not found");
+    }
+
+    const existingMetrics = (attempt.metrics ?? {}) as Record<string, unknown>;
+    const updatedMetrics = {
+      ...existingMetrics,
+      hiddenFromRecent: true,
+      hiddenFromRecentAt: new Date().toISOString(),
+    };
+
+    const updatedAttempt: QuizAttemptRecord = {
+      ...attempt,
+      metrics: updatedMetrics,
+    };
+
+    await this.quizAttemptStore.update(updatedAttempt);
+
+    return {
+      success: true,
+      attemptId: attempt.id,
+    };
+  }
+
+  /**
+   * Resolves the set of all legitimate preview question IDs for a quiz/course.
+   * Includes questions from canonical preview lessons of any active module in the course,
+   * the course-level preview lesson, and standard preview fallback questions.
+   */
+  async resolveEligiblePreviewQuestionIds(
+    _actor: Actor,
+    _organizationId: OrganizationId,
+    courseId: CourseId,
+    _quizId: QuizId,
+    allQuizQuestions: QuizQuestionRecord[],
+  ): Promise<Set<string>> {
+    const allowedIds = new Set<string>();
+    const previewLessonIds = new Set<string>();
+
+    if (this.moduleStore && this.entitlementService) {
+      const modules = await this.moduleStore.listByCourse(courseId).catch(() => []);
+      for (const m of modules) {
+        if (m.deletedAt === null) {
+          let prevId = m.previewLessonId;
+          if (!prevId && this.entitlementService) {
+            const prevLesson = await this.entitlementService
+              .getPreviewResolver()
+              .resolvePreviewLesson(m.id)
+              .catch(() => undefined);
+            prevId = prevLesson?.id;
+          }
+          if (!prevId && this.lessonStore) {
+            const modLessons = await this.lessonStore.listByModule(m.id).catch(() => []);
+            const activeLessons = modLessons.filter(
+              (l) => l.deletedAt === null && (!l.publicationStatus || l.publicationStatus === "published"),
+            );
+            if (activeLessons.length > 0) {
+              prevId = activeLessons[0].id;
+            }
+          }
+          if (prevId) {
+            previewLessonIds.add(prevId);
+          }
+        }
+      }
+    }
+
+    if (this.entitlementService) {
+      const coursePrevLesson = await this.entitlementService
+        .getPreviewResolver()
+        .resolveCoursePreviewLesson(courseId)
+        .catch(() => undefined);
+      if (coursePrevLesson) {
+        previewLessonIds.add(coursePrevLesson.id);
+      }
+    }
+
+    // Any question in this quiz linked to an authorized preview lesson or unattached is allowed
+    for (const q of allQuizQuestions) {
+      if (q.lessonId) {
+        if (previewLessonIds.has(q.lessonId)) {
+          allowedIds.add(q.id);
+        }
+      } else {
+        allowedIds.add(q.id);
+      }
+    }
+
+    // If no preview lessons were configured at all in the course and all questions are unassigned, allow first 5 questions
+    if (allowedIds.size === 0 && previewLessonIds.size === 0) {
+      for (const q of allQuizQuestions.slice(0, 5)) {
+        allowedIds.add(q.id);
+      }
+    }
+
+    return allowedIds;
+  }
+
   /** Submit a quiz attempt. Scores the answers and persists the result. */
   async submitQuizAttempt(
     actor: Actor,
@@ -3420,16 +3733,28 @@ export class StudyService {
 
     if (isPreviewAttempt) {
       // In preview mode, restrict attempt strictly to the preview questions
-      const preview = await this.getPreviewQuiz(actor, organizationId, quiz.courseId as CourseId, { quizId: input.quizId as QuizId });
-      const previewIds = new Set(preview.quiz?.questions.map((q) => q.id) ?? []);
-      questions = questions.filter((q) => previewIds.has(q.id));
+      const effectiveCourseId = (quiz.courseId ?? (quiz as { course_id?: CourseId }).course_id) as CourseId;
+      const allowedPreviewIds = await this.resolveEligiblePreviewQuestionIds(
+        actor,
+        organizationId,
+        effectiveCourseId,
+        input.quizId as QuizId,
+        questions,
+      );
+
       for (const a of input.answers) {
-        if (!previewIds.has(a.questionId)) {
+        if (!allowedPreviewIds.has(a.questionId)) {
           throw new DomainError(
             "forbidden",
             "برای شرکت در آزمون کامل، فعال‌سازی اشتراک یا خرید دوره الزامی است.",
           );
         }
+      }
+
+      const answeredIds = new Set(input.answers.map((a) => a.questionId));
+      questions = questions.filter((q) => answeredIds.has(q.id) || (input.answers.length === 0 && allowedPreviewIds.has(q.id)));
+      if (questions.length === 0) {
+        throw new DomainError("unprocessable", "سؤال معتبری برای پیش‌نمایش یافت نشد.");
       }
     }
 
@@ -3503,8 +3828,7 @@ export class StudyService {
         questionResults,
         completedAt: now,
         questions,
-        is_preview: true,
-      } as any;
+      };
     }
 
     const attempt: QuizAttemptRecord = {
@@ -4155,6 +4479,7 @@ export class StudyService {
     lastWeek: WeeklyStudyTimeSummary["lastWeek"];
     changePercent: WeeklyStudyTimeSummary["changePercent"];
     daily: WeeklyStudyTimeSummary["daily"];
+    heatmap: ActivityHeatmapSummary;
   }> {
     const validTz = validateTimezone(timezone);
     const now = new Date();
@@ -4178,6 +4503,12 @@ export class StudyService {
       now,
       validTz,
     );
+    const heatmap = calculateActivityHeatmap(
+      allUserSessions,
+      now,
+      validTz,
+      52,
+    );
 
     return {
       stats: {
@@ -4192,6 +4523,7 @@ export class StudyService {
       lastWeek: weeklySummary.lastWeek,
       changePercent: weeklySummary.changePercent,
       daily: weeklySummary.daily,
+      heatmap,
     };
   }
 }

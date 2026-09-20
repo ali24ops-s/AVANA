@@ -136,6 +136,28 @@ describe("PR-8: Authorization and tenancy policy", () => {
       await app.close();
     });
 
+    it("creates an organization with Persian name without ID injection in name", async () => {
+      const app = createApp({ config });
+      const { token } = await signIn(app, "persian@example.com");
+
+      const res = await app.inject({
+        method: "POST",
+        url: "/v1/organizations",
+        cookies: { avana_session: token },
+        payload: { name: "فضای یادگیری" },
+      });
+      expect(res.statusCode).toBe(201);
+      const body = JSON.parse(res.body);
+      expect(body.organization.name).toBe("فضای یادگیری");
+      expect(body.organization.id).toBeDefined();
+      expect(body.organization.name).not.toMatch(/[0-9a-fA-F]{8}/);
+
+      const storedOrg = await orgStore.findById(body.organization.id);
+      expect(storedOrg?.name).toBe("فضای یادگیری");
+      expect(storedOrg?.slug).toBe("فضای-یادگیری");
+      await app.close();
+    });
+
     it("rejects unauthenticated request", async () => {
       const app = createApp({ config });
       await registerModules(app);

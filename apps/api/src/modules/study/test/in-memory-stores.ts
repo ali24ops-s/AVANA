@@ -38,7 +38,11 @@ import type {
   FlashcardStudySessionRecord,
   FlashcardStudySessionCardRecord,
   FlashcardSessionStatus,
+  DailyStudyPlan,
+  StudyTask,
+  StudyTaskStatus,
 } from "@avana/domain";
+import type { DailyStudyPlanStore } from "../study-store.js";
 
 // ---------------------------------------------------------------------------
 // InMemoryFlashcardStore
@@ -870,6 +874,167 @@ export class InMemoryFlashcardStudySessionStore
   clear(): void {
     this.sessions.clear();
     this.sessionCards.clear();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// In-Memory Daily Study Plan Store
+// ---------------------------------------------------------------------------
+
+export class InMemoryDailyStudyPlanStore implements DailyStudyPlanStore {
+  public plans = new Map<string, DailyStudyPlan>();
+  public tasks = new Map<string, StudyTask>();
+
+  async findByUserAndDate(
+    userId: UserId,
+    planDate: string,
+  ): Promise<DailyStudyPlan | undefined> {
+    for (const p of this.plans.values()) {
+      if (p.userId === userId && p.planDate === planDate) {
+        return { ...p };
+      }
+    }
+    return undefined;
+  }
+
+  async findById(id: string): Promise<DailyStudyPlan | undefined> {
+    const p = this.plans.get(id);
+    return p ? { ...p } : undefined;
+  }
+
+  async createPlanWithTasks(
+    plan: Omit<DailyStudyPlan, "createdAt" | "updatedAt">,
+    tasks: Array<Omit<StudyTask, "createdAt" | "updatedAt">>,
+  ): Promise<{ plan: DailyStudyPlan; tasks: StudyTask[] }> {
+    const existing = await this.findByUserAndDate(
+      plan.userId as UserId,
+      plan.planDate,
+    );
+    if (existing) {
+      const existingTasks = await this.listTasksByPlan(existing.id);
+      return { plan: existing, tasks: existingTasks };
+    }
+
+    const now = new Date().toISOString();
+    const createdPlan: DailyStudyPlan = {
+      ...plan,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.plans.set(createdPlan.id, createdPlan);
+
+    const createdTasks: StudyTask[] = tasks.map((t) => ({
+      ...t,
+      createdAt: now,
+      updatedAt: now,
+    }));
+
+    for (const t of createdTasks) {
+      this.tasks.set(t.id, t);
+    }
+
+    return {
+      plan: { ...createdPlan },
+      tasks: createdTasks.map((t) => ({ ...t })),
+    };
+  }
+
+  async listTasksByPlan(planId: string): Promise<StudyTask[]> {
+    const res: StudyTask[] = [];
+    for (const t of this.tasks.values()) {
+      if (t.planId === planId) {
+        res.push({ ...t });
+      }
+    }
+    return res.sort((a, b) => a.priority - b.priority);
+  }
+
+  async listTasksByUserAndDate(
+    userId: UserId,
+    planDate: string,
+  ): Promise<StudyTask[]> {
+    const plan = await this.findByUserAndDate(userId, planDate);
+    if (!plan) return [];
+    return this.listTasksByPlan(plan.id);
+  }
+
+  async findTaskById(taskId: string): Promise<StudyTask | undefined> {
+    const t = this.tasks.get(taskId);
+    return t ? { ...t } : undefined;
+  }
+
+  async updatePlan(plan: DailyStudyPlan): Promise<DailyStudyPlan> {
+    const updated: DailyStudyPlan = {
+      ...plan,
+      updatedAt: new Date().toISOString(),
+    };
+    this.plans.set(updated.id, updated);
+    return { ...updated };
+  }
+
+  async updateTask(task: StudyTask): Promise<StudyTask> {
+    const updated: StudyTask = {
+      ...task,
+      updatedAt: new Date().toISOString(),
+    };
+    this.tasks.set(updated.id, updated);
+    return { ...updated };
+  }
+
+  async updateTaskStatus(
+    taskId: string,
+    status: StudyTaskStatus,
+    completedAt?: string | null,
+  ): Promise<StudyTask | undefined> {
+    const task = this.tasks.get(taskId);
+    if (!task) return undefined;
+
+    const updated: StudyTask = {
+      ...task,
+      status,
+      completedAt: completedAt !== undefined ? completedAt : task.completedAt,
+      updatedAt: new Date().toISOString(),
+    };
+    this.tasks.set(taskId, updated);
+    return { ...updated };
+  }
+
+  async replaceTasksForPlan(
+    planId: string,
+    newTasks: Array<Omit<StudyTask, "createdAt" | "updatedAt">>,
+  ): Promise<StudyTask[]> {
+    for (const [id, t] of this.tasks.entries()) {
+      if (t.planId === planId && t.status !== "completed") {
+        this.tasks.delete(id);
+      }
+    }
+
+    const now = new Date().toISOString();
+    const inserted: StudyTask[] = newTasks.map((t) => ({
+      ...t,
+      createdAt: now,
+      updatedAt: now,
+    }));
+
+    for (const t of inserted) {
+      this.tasks.set(t.id, t);
+    }
+
+    return inserted.map((t) => ({ ...t }));
+  }
+
+  async deletePlan(id: string): Promise<void> {
+    this.plans.delete(id);
+    for (const [taskId, t] of this.tasks.entries()) {
+      if (t.planId === id) {
+        this.tasks.delete(taskId);
+      }
+    }
+  }
+
+  clear(): void {
+    this.plans.clear();
+    this.tasks.clear();
   }
 }
 

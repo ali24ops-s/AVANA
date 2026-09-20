@@ -110,8 +110,31 @@ export type TriggerGenerationResponse = {
   status: string;
 };
 
+export type GenerationCostEstimateResponse = {
+  request_id: string;
+  estimated_price_toman: number;
+  formatted_price: string;
+  currency: string;
+  disclaimer: string;
+};
+
 export function createGenerationApi(client: ApiClient) {
   return {
+    /**
+     * POST /v1/organizations/:organizationId/courses/:courseId/documents/:documentId/estimate-cost
+     * Returns pre-generation cost estimate in Toman based on selected content types.
+     */
+    estimateGenerationCost(
+      organizationId: string,
+      documentId: string,
+      courseId?: string | null,
+      data?: { types?: string[]; lesson?: boolean; flashcards?: boolean; exam?: boolean; review_summary?: boolean },
+    ): Promise<GenerationCostEstimateResponse> {
+      const url = courseId
+        ? `/v1/organizations/${organizationId}/courses/${courseId}/documents/${documentId}/estimate-cost`
+        : `/v1/organizations/${organizationId}/documents/${documentId}/estimate-cost`;
+      return client.post<GenerationCostEstimateResponse>(url, data ?? {});
+    },
     /**
      * GET /v1/organizations/:organizationId/documents/:documentId/content-status
      * Returns true DB status for lesson, flashcards, exam, and review summary.

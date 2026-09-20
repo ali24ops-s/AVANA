@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../lib/api/admin";
+import { toPersianDigits } from "@avana/domain";
 import { Cpu, Clock, CheckCircle, AlertTriangle, BarChart3, Sparkles } from "lucide-react";
 import { AdminLoadingState, AdminErrorState } from "../../components/admin/AdminUI";
 
@@ -70,24 +71,24 @@ export function AdminAiAnalyticsPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           title="کل پردازش‌ها"
-          value={data.overview.totalJobs.toLocaleString("fa-IR")}
+          value={toPersianDigits(data.overview.totalJobs.toLocaleString("fa-IR"))}
           icon={<Cpu className="w-5 h-5 text-[var(--color-primary-default)]" />}
         />
         <StatCard
           title="نرخ موفقیت"
-          value={`${data.overview.successRate.toFixed(1)}%`}
+          value={`${toPersianDigits(data.overview.successRate.toFixed(1))}٪`}
           icon={<CheckCircle className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />}
           highlightColor="text-emerald-600 dark:text-emerald-400"
         />
         <StatCard
           title="خطاها"
-          value={data.overview.failed.toLocaleString("fa-IR")}
+          value={toPersianDigits(data.overview.failed.toLocaleString("fa-IR"))}
           icon={<AlertTriangle className="w-5 h-5 text-rose-500" />}
           highlightColor={data.overview.failed > 0 ? "text-rose-500" : undefined}
         />
         <StatCard
           title="میانگین زمان پردازش"
-          value={`${(data.overview.averageDurationMs / 1000).toFixed(1)}s`}
+          value={`${toPersianDigits((data.overview.averageDurationMs / 1000).toFixed(1))} ثانیه`}
           icon={<Clock className="w-5 h-5 text-amber-500" />}
         />
       </div>
@@ -101,20 +102,20 @@ export function AdminAiAnalyticsPage() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="p-4 rounded-xl bg-[var(--color-surface-subtle)] border border-[var(--color-border)]">
               <p className="text-xs font-medium text-[var(--color-text-muted)]">توکن‌های ورودی (Input)</p>
-              <p className="text-xl font-bold text-[var(--color-text)] mt-1.5" dir="ltr">
-                {data.tokens.input.toLocaleString()}
+              <p className="text-xl font-bold text-[var(--color-text)] mt-1.5">
+                {toPersianDigits(data.tokens.input.toLocaleString("fa-IR"))}
               </p>
             </div>
             <div className="p-4 rounded-xl bg-[var(--color-surface-subtle)] border border-[var(--color-border)]">
               <p className="text-xs font-medium text-[var(--color-text-muted)]">توکن‌های خروجی (Output)</p>
-              <p className="text-xl font-bold text-[var(--color-text)] mt-1.5" dir="ltr">
-                {data.tokens.output.toLocaleString()}
+              <p className="text-xl font-bold text-[var(--color-text)] mt-1.5">
+                {toPersianDigits(data.tokens.output.toLocaleString("fa-IR"))}
               </p>
             </div>
             <div className="p-4 rounded-xl bg-[var(--color-surface-subtle)] border border-[var(--color-border)]">
               <p className="text-xs font-medium text-[var(--color-text-muted)]">کل توکن‌ها (Total)</p>
-              <p className="text-xl font-bold text-[var(--color-primary-default)] mt-1.5" dir="ltr">
-                {data.tokens.total.toLocaleString()}
+              <p className="text-xl font-bold text-[var(--color-primary-default)] mt-1.5">
+                {toPersianDigits(data.tokens.total.toLocaleString("fa-IR"))}
               </p>
             </div>
           </div>
@@ -144,10 +145,10 @@ export function AdminAiAnalyticsPage() {
               {Object.entries(data.byType).map(([type, stats]) => (
                 <tr key={type} className="hover:bg-[var(--color-surface-subtle)] transition-colors">
                   <td className="px-4 py-3 font-medium text-[var(--color-text)]">{type}</td>
-                  <td className="px-4 py-3" dir="ltr">{stats.total.toLocaleString("fa-IR")}</td>
-                  <td className="px-4 py-3 text-emerald-600 dark:text-emerald-400 font-bold" dir="ltr">{stats.success.toLocaleString("fa-IR")}</td>
-                  <td className="px-4 py-3 text-[var(--color-text-muted)] font-medium" dir="ltr">
-                    {stats.total > 0 ? ((stats.success / stats.total) * 100).toFixed(1) + "%" : "0%"}
+                  <td className="px-4 py-3">{toPersianDigits(stats.total.toLocaleString("fa-IR"))}</td>
+                  <td className="px-4 py-3 text-emerald-600 dark:text-emerald-400 font-bold">{toPersianDigits(stats.success.toLocaleString("fa-IR"))}</td>
+                  <td className="px-4 py-3 text-[var(--color-text-muted)] font-medium">
+                    {stats.total > 0 ? `${toPersianDigits(((stats.success / stats.total) * 100).toFixed(1))}٪` : "۰٪"}
                   </td>
                 </tr>
               ))}

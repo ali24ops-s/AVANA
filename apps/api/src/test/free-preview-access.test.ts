@@ -650,7 +650,7 @@ describe("Free Preview Comprehensive Suite (Deterministic, Entitlement, Security
       expect(q2Attempt.id).toBe(quiz2Id);
 
       // All 10 flashcards accessible
-      const allCards = await studyService.listFlashcardsForReview(studentUser, systemOrgId, courseId);
+      const allCards = await studyService.getExamModeFlashcards(studentUser, systemOrgId, [courseId], 50);
       expect(allCards.length).toBe(10);
     });
   });

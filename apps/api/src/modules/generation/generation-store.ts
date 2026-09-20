@@ -153,6 +153,15 @@ export interface GeneratedContentStore {
     type: GeneratedContentType,
     organizationId: OrganizationId,
   ): Promise<void>;
+
+  /**
+   * Atomically mark an existing non-regenerating content as 'regenerating'.
+   * Returns true if status was updated, false if already regenerating or not found.
+   */
+  markRegenerating(
+    id: GeneratedContentId,
+    organizationId: OrganizationId,
+  ): Promise<boolean>;
 }
 
 export interface GeneratedContentCitationStore {

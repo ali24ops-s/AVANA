@@ -16,6 +16,8 @@ vi.mock("../hooks/useCommerce.js", () => ({
   useCardToCardInfo: vi.fn(),
   useSubmitCardToCardPayment: vi.fn(),
   useExtractCardToCardPayment: vi.fn(),
+  useUploadPaymentReceipt: vi.fn(),
+  useValidateCoupon: vi.fn(),
 }));
 
 // Mock auth provider
@@ -83,10 +85,20 @@ describe("Pricing & Card-to-Card UX Refactor Suite", () => {
   const mockCheckoutMutate = vi.fn();
   const mockC2cMutate = vi.fn();
   const mockExtractMutate = vi.fn();
+  const mockUploadReceiptMutateAsync = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
     document.body.style.overflow = "";
+    window.scrollTo = vi.fn();
+
+    global.URL.createObjectURL = vi.fn(() => "blob:http://localhost/receipt-preview.png");
+    global.URL.revokeObjectURL = vi.fn();
+
+    vi.mocked(useCommerceHooks.useUploadPaymentReceipt).mockReturnValue({
+      mutateAsync: mockUploadReceiptMutateAsync,
+      isPending: false,
+    } as any);
 
     vi.mocked(authProviderHooks.useAuth).mockReturnValue({
       isAuthenticated: true,
@@ -126,6 +138,11 @@ describe("Pricing & Card-to-Card UX Refactor Suite", () => {
         instructions: "لطفاً مبلغ دقیق اشتراک را به شماره کارت فوق واریز کرده و سپس اطلاعات پرداخت را ثبت نمایید.",
       } as any,
       isLoading: false,
+    } as any);
+
+    vi.mocked(useCommerceHooks.useValidateCoupon).mockReturnValue({
+      mutateAsync: vi.fn().mockResolvedValue({ valid: false }),
+      isPending: false,
     } as any);
   });
 
@@ -433,5 +450,202 @@ describe("Pricing & Card-to-Card UX Refactor Suite", () => {
     ).toBeDefined();
     expect(screen.queryByText(/۴۸ ساعت/)).toBeNull();
   });
-});
 
+  it("11. CardToCardPaymentPage renders exact custom top-up amount and wallet labels for wallet_topup", () => {
+    renderWithRouter(["/checkout/card-to-card?productId=wallet_topup&amount=500000"]);
+
+    // 1. Destination card displays the exact 500,000 toman amount, NOT subscription price or 0
+    expect(screen.getByText("مبلغ شارژ کیف پول:")).toBeDefined();
+    expect(screen.getAllByText(/۵۰۰٬۰۰۰/).length).toBeGreaterThanOrEqual(2);
+
+    // 2. Summary displays wallet top-up title and amount
+    expect(screen.getByText("خلاصه درخواست شارژ")).toBeDefined();
+    expect(screen.getAllByText("شارژ کیف پول").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("بدون انقضا (دائمی)")).toBeDefined();
+    expect(screen.getByText("مبلغ شارژ:")).toBeDefined();
+
+    // 3. Subscription-only benefits must NOT be rendered
+    expect(screen.queryByText("مزایای اشتراک آوانا پلاس:")).toBeNull();
+    expect(screen.getByText("مزایای اعتبار کیف پول آوانا:")).toBeDefined();
+
+    // 4. Instructions and submit button are tailored for wallet top-up
+    expect(
+      screen.getByText(/لطفاً مبلغ شارژ فوق را به شماره کارت بالا واریز کنید/),
+    ).toBeDefined();
+    expect(
+      screen.getByText("ورود دستی اطلاعات"),
+    ).toBeDefined();
+    fireEvent.click(screen.getByText("ورود دستی اطلاعات"));
+
+    expect(
+      screen.getByText("تأیید اطلاعات و ثبت درخواست شارژ"),
+    ).toBeDefined();
+    expect(
+      screen.getByText(/با ثبت پرداخت، اطلاعات واریز جهت بررسی و تأیید ادمین ارسال می‌شود/),
+    ).toBeDefined();
+  });
+
+  it("12. CardToCardPaymentPage does not fallback to subscription when productId=wallet_topup", () => {
+    renderWithRouter(["/checkout/card-to-card?productId=wallet_topup&amount=10000"]);
+
+    // Must display 10,000 Tomans
+    expect(screen.getAllByText(/۱۰٬۰۰۰/).length).toBeGreaterThanOrEqual(2);
+    // Must NOT display any subscription title as the chosen product
+    expect(screen.queryByText("اشتراک ۱ ماهه")).toBeNull();
+    expect(screen.queryByText("اشتراک ۳ ماهه")).toBeNull();
+    expect(screen.queryByText("اشتراک ۱ ساله")).toBeNull();
+  });
+
+  it("13. CardToCardPaymentPage uploads receipt image and submits payment with receipt_url", async () => {
+    mockUploadReceiptMutateAsync.mockResolvedValue({
+      receipt_url: "/v1/commerce/receipts/receipts%2Ftest-receipt-123.jpg",
+      storage_key: "receipts/test-receipt-123.jpg",
+    });
+
+    renderWithRouter(["/checkout/card-to-card?productId=prod-sub-monthly"]);
+
+    // Go to manual form
+    const manualBtn = screen.getByText("ورود دستی اطلاعات");
+    fireEvent.click(manualBtn);
+
+    // Verify upload dropzone exists
+    expect(screen.getByText(/تصویر فیش واریزی/)).toBeDefined();
+    expect(screen.getByText(/برای انتخاب عکس فیش یا ثبت با دوربین کلیک کنید/)).toBeDefined();
+
+    // Fill required fields
+    const trackingInput = screen.getByPlaceholderText("مثال: ۱۲۳۴۵۶۷۸۹");
+    fireEvent.change(trackingInput, { target: { value: "TRK-RECEIPT-999" } });
+
+    const last4Input = screen.getByPlaceholderText("مثال: ۵۶۷۸");
+    fireEvent.change(last4Input, { target: { value: "1234" } });
+
+    // Select a receipt file
+    const fileInput = screen.getByTestId("receipt-file-input") as HTMLInputElement;
+    expect(fileInput).toBeDefined();
+
+    const testFile = new File(["dummy receipt image content"], "my-receipt.png", { type: "image/png" });
+    fireEvent.change(fileInput, { target: { files: [testFile] } });
+
+    // Preview should appear
+    expect(screen.getByText("my-receipt.png")).toBeDefined();
+    expect(screen.getByTitle("تغییر تصویر")).toBeDefined();
+    expect(screen.getByTitle("حذف تصویر")).toBeDefined();
+
+    // Wait for async upload on selection to resolve
+    await vi.waitFor(() => {
+      expect(mockUploadReceiptMutateAsync).toHaveBeenCalledWith(testFile);
+      expect(screen.getByText("آماده ارسال")).toBeDefined();
+    });
+
+    // Submit form
+    const submitBtn = screen.getByText("تأیید اطلاعات و فعال‌سازی فوری");
+    fireEvent.click(submitBtn);
+
+    await vi.waitFor(() => {
+      expect(mockC2cMutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          product_id: "prod-sub-monthly",
+          tracking_number: "TRK-RECEIPT-999",
+          source_card_last4: "1234",
+          receipt_url: "/v1/commerce/receipts/receipts%2Ftest-receipt-123.jpg",
+        }),
+        expect.any(Object),
+      );
+    });
+  });
+
+  it("14. CardToCardPaymentPage allows removing uploaded receipt image before submit", async () => {
+    mockUploadReceiptMutateAsync.mockResolvedValue({
+      receipt_url: "/v1/commerce/receipts/receipts%2Ftest-receipt-123.jpg",
+      storage_key: "receipts/test-receipt-123.jpg",
+    });
+
+    renderWithRouter(["/checkout/card-to-card?productId=prod-sub-monthly"]);
+
+    const manualBtn = screen.getByText("ورود دستی اطلاعات");
+    fireEvent.click(manualBtn);
+
+    const fileInput = screen.getByTestId("receipt-file-input") as HTMLInputElement;
+    const testFile = new File(["dummy receipt image content"], "my-receipt.png", { type: "image/png" });
+    fireEvent.change(fileInput, { target: { files: [testFile] } });
+
+    expect(screen.getByText("my-receipt.png")).toBeDefined();
+
+    // Click remove button
+    const removeBtn = screen.getByTitle("حذف تصویر");
+    fireEvent.click(removeBtn);
+
+    // Dropzone should be back
+    expect(screen.queryByText("my-receipt.png")).toBeNull();
+    expect(screen.getByText(/برای انتخاب عکس فیش یا ثبت با دوربین کلیک کنید/)).toBeDefined();
+  });
+
+  it("15. CardToCardPaymentPage shows validation errors for invalid file format or size over 5MB", () => {
+    renderWithRouter(["/checkout/card-to-card?productId=prod-sub-monthly"]);
+
+    const manualBtn = screen.getByText("ورود دستی اطلاعات");
+    fireEvent.click(manualBtn);
+
+    const fileInput = screen.getByTestId("receipt-file-input") as HTMLInputElement;
+
+    // Test invalid format (PDF)
+    const pdfFile = new File(["dummy pdf"], "receipt.pdf", { type: "application/pdf" });
+    fireEvent.change(fileInput, { target: { files: [pdfFile] } });
+
+    expect(
+      screen.getByText("فرمت فایل نامعتبر است. لطفاً تصویری با فرمت JPG، PNG یا WebP انتخاب کنید."),
+    ).toBeDefined();
+
+    // Test oversized file (> 5MB)
+    const largeBlob = new Blob([new Uint8Array(6 * 1024 * 1024)], { type: "image/jpeg" });
+    const largeFile = new File([largeBlob], "huge-receipt.jpg", { type: "image/jpeg" });
+    fireEvent.change(fileInput, { target: { files: [largeFile] } });
+
+    expect(
+      screen.getByText("حجم تصویر بیش از ۵ مگابایت است. لطفاً تصویر کم‌حجم‌تری انتخاب نمایید."),
+    ).toBeDefined();
+  });
+
+  it("16. PricingPage automatically scrolls to top (0, 0) on load/navigation", () => {
+    const scrollSpy = vi.fn();
+    window.scrollTo = scrollSpy;
+
+    renderWithRouter(["/pricing"]);
+
+    expect(scrollSpy).toHaveBeenCalledWith(0, 0);
+  });
+
+  it("17. PricingPage displays wallet gift credit callouts and plan highlights for each subscription plan", () => {
+    renderWithRouter(["/pricing"]);
+
+    // Monthly gift: 40,000 Tomans
+    expect(screen.getAllByText(/۴۰٬۰۰۰ تومان اعتبار کیف پول/).length).toBeGreaterThanOrEqual(1);
+    // Quarterly gift: 100,000 Tomans
+    expect(screen.getAllByText(/۱۰۰٬۰۰۰ تومان اعتبار کیف پول/).length).toBeGreaterThanOrEqual(1);
+    // Yearly gift: 200,000 Tomans
+    expect(screen.getAllByText(/۲۰۰٬۰۰۰ تومان اعتبار کیف پول/).length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("18. PricingModal displays gift credit bonuses inside plan cards and selected plan summary", () => {
+    renderWithRouter(["/modal-test"]);
+
+    // Plan card badges
+    expect(screen.getByText("۴۰٬۰۰۰ تومان هدیه کیف پول")).toBeDefined();
+    expect(screen.getByText("۱۰۰٬۰۰۰ تومان هدیه کیف پول")).toBeDefined();
+    expect(screen.getByText("۲۰۰٬۰۰۰ تومان هدیه کیف پول")).toBeDefined();
+
+    // Selected plan summary includes gift credit
+    expect(screen.getByText(/شامل ۴۰٬۰۰۰ تومان اعتبار هدیه کیف پول پس از فعال‌سازی/)).toBeDefined();
+  });
+
+  it("19. CardToCardPaymentPage displays gift credit in order summary and benefits list", () => {
+    renderWithRouter(["/checkout/card-to-card?productId=prod-sub-monthly"]);
+
+    // Order summary row
+    expect(screen.getByText("هدیه اشتراک:")).toBeDefined();
+    expect(screen.getByText("۴۰٬۰۰۰ تومان اعتبار کیف پول")).toBeDefined();
+
+    // Benefits list item
+    expect(screen.getByText("۴۰٬۰۰۰ تومان اعتبار هدیه کیف پول (ویژه تولید محتوا)")).toBeDefined();
+  });
+});

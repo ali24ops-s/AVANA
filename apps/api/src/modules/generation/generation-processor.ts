@@ -22,25 +22,33 @@
  */
 
 import { Worker, type Job } from "bullmq";
-import type {
-  Actor,
-  CourseId,
-  DocumentId,
-  GenerationJobId,
-  OrganizationId,
+import {
+  DomainError,
+  type Actor,
+  type CourseId,
+  type DocumentId,
+  type GenerationJobId,
+  type OrganizationId,
+  type GeneratedContentType,
 } from "@avana/domain";
-import type { GeneratedContentType } from "@avana/domain";
 import {
   GenerationService,
   GenerationStoppedError,
   GenerationDeletedError,
 } from "./generation-service.js";
 import type { GenerationJobStore } from "./generation-jobs-store.js";
-import type { GenerationJobPayload } from "./generation-queue.js";
+import type { GenerationJobPayload, GenerationContext } from "./generation-queue.js";
+import type { WalletService } from "../wallet/wallet-service.js";
+import type { WalletStore } from "../wallet/wallet-store.js";
+import { refundGenerationJobDebit } from "./generation-refund-helper.js";
 
 export type GenerationProcessorDeps = {
-  generationService: GenerationService;
+  generationService?: GenerationService;
+  adminGenerationService?: GenerationService;
+  userGenerationService?: GenerationService;
   generationJobStore: GenerationJobStore;
+  walletService?: WalletService;
+  walletStore?: WalletStore;
 };
 
 /**
@@ -60,6 +68,10 @@ function toPayload(job: Job): GenerationJobPayload {
     generationKey:
       typeof data.generationKey === "string" ? data.generationKey : undefined,
     force: typeof data.force === "boolean" ? data.force : undefined,
+    generationContext:
+      data.generationContext === "admin" || data.generationContext === "public"
+        ? (data.generationContext as GenerationContext)
+        : undefined,
   };
 }
 
@@ -201,6 +213,26 @@ function resolveErrorCode(err: unknown): string {
 }
 
 /**
+ * Helper to atomically refund a generation debit if one exists for the given job.
+ */
+async function refundGenerationDebit(
+  deps: GenerationProcessorDeps,
+  jobId: GenerationJobId,
+  payload: GenerationJobPayload,
+  reason: string,
+): Promise<void> {
+  await refundGenerationJobDebit({
+    walletService: deps.walletService,
+    walletStore: deps.walletStore,
+    jobId,
+    actorUserId: payload.actorUserId,
+    documentId: payload.documentId,
+    organizationId: payload.organizationId,
+    reason,
+  });
+}
+
+/**
  * The BullMQ processor function for a single generation job.
  *
  * @throws on failure so BullMQ retries with its configured backoff.
@@ -209,14 +241,35 @@ export async function processGenerationJob(
   job: Job,
   deps: GenerationProcessorDeps,
 ): Promise<{ job_id: GenerationJobId; status: "succeeded" | "stopped" | "deleted" }> {
-  const { generationService, generationJobStore } = deps;
   const payload = toPayload(job);
   const jobId = job.id as unknown as GenerationJobId;
+  const { generationJobStore } = deps;
 
-  process.stdout.write(`[GENERATION] job claimed: ${jobId} (doc: ${payload.documentId})\n`);
+  const isActorAdmin =
+    payload.actorRole === "platform_admin" ||
+    payload.actorRole === "organization_admin" ||
+    payload.actorRole === "course_editor";
+  const effectiveContext: GenerationContext =
+    payload.generationContext ?? (isActorAdmin ? "admin" : "public");
+
+  const service =
+    effectiveContext === "admin"
+      ? (deps.adminGenerationService ?? deps.generationService)
+      : (deps.userGenerationService ?? deps.generationService);
+
+  if (!service) {
+    throw new DomainError(
+      "bad_request",
+      `No GenerationService configured for generation context '${effectiveContext}'`,
+    );
+  }
+
+  process.stdout.write(
+    `[GENERATION] job claimed: ${jobId} (doc: ${payload.documentId}, context: ${effectiveContext})\n`,
+  );
 
   // 1. Pre-execution check: is job already stopping, stopped, deleting, or deleted?
-  const existingJob = await generationJobStore.findByIdForOrganization(
+  const existingJob = await deps.generationJobStore.findByIdForOrganization(
     jobId,
     payload.organizationId,
   );
@@ -227,23 +280,24 @@ export async function processGenerationJob(
   if (existingJob.status === "stopped" || existingJob.status === "stopping") {
     process.stdout.write(`[GENERATION] job ${jobId} is in status '${existingJob.status}'. Finalizing stop.\n`);
     const now = new Date().toISOString();
-    await generationJobStore.update({
+    await deps.generationJobStore.update({
       ...existingJob,
       status: "stopped",
       leaseExpiresAt: null,
       completedAt: now,
       updatedAt: now,
     });
+    await refundGenerationDebit(deps, jobId, payload, "job_stopped_pre_execution");
     return { job_id: jobId, status: "stopped" };
   }
 
   // Mark running (idempotent — reuses existing started_at) and acquire 10-minute lease.
-  const { leaseExpiresAt } = await markRunning(generationJobStore, jobId, payload);
+  const { leaseExpiresAt } = await markRunning(deps.generationJobStore, jobId, payload);
   process.stdout.write(`[GENERATION] lease acquired: ${jobId} (expires: ${leaseExpiresAt})\n`);
-  process.stdout.write(`[GENERATION] generation started: ${jobId} (types: ${payload.types.join(",")})\n`);
+  process.stdout.write(`[GENERATION] generation started: ${jobId} (types: ${payload.types.join(",")}, context: ${effectiveContext})\n`);
 
   try {
-    await generationService.generateForDocument(
+    await service.generateForDocument(
       toActor(payload),
       payload.organizationId,
       payload.documentId,
@@ -254,6 +308,7 @@ export async function processGenerationJob(
         courseId: payload.courseId,
         force: payload.force,
         jobId,
+        generationContext: effectiveContext,
       },
     );
 
@@ -264,6 +319,7 @@ export async function processGenerationJob(
     );
     if (finalJob?.status === "stopped") {
       process.stdout.write(`[GENERATION] job finished in stopped state: ${jobId}\n`);
+      await refundGenerationDebit(deps, jobId, payload, "job_stopped_post_execution");
       return { job_id: jobId, status: "stopped" };
     }
     if (finalJob?.status === "deleted" || !finalJob) {
@@ -280,6 +336,7 @@ export async function processGenerationJob(
       (err instanceof Error && err.name === "GenerationStoppedError")
     ) {
       process.stdout.write(`[GENERATION] job caught stopped error: ${jobId}\n`);
+      await refundGenerationDebit(deps, jobId, payload, "job_stopped_error");
       return { job_id: jobId, status: "stopped" };
     }
     if (
@@ -292,6 +349,7 @@ export async function processGenerationJob(
 
     const { errorCode, errorMessage } = await markFailed(generationJobStore, jobId, payload, err);
     process.stderr.write(`[GENERATION] job failed: ${jobId} (error: ${errorMessage}, code: ${errorCode})\n`);
+    await refundGenerationDebit(deps, jobId, payload, `job_failed:${errorCode}`);
     throw err;
   }
 }

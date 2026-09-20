@@ -66,8 +66,8 @@ describe("Review Summary HTTP Routes", () => {
   beforeEach(async () => {
     config = makeTestConfig();
     sessionStore = new InMemorySessionStore();
-    userStore = new InMemoryUserStore();
     orgStore = new InMemoryOrganizationStore();
+    userStore = new InMemoryUserStore(orgStore);
     courseStore = new InMemoryCourseStore();
     moduleStore = new InMemoryModuleStore();
     lessonStore = new InMemoryLessonStore();
@@ -366,5 +366,91 @@ describe("Review Summary HTTP Routes", () => {
     expect(getOrgScopedRes.statusCode).toBe(200);
     const getOrgScopedBody = JSON.parse(getOrgScopedRes.body);
     expect(getOrgScopedBody.content.id).toBe(postBody.content.id);
+  });
+
+  it("returns 403 Forbidden when a student attempts to directly generate review summary", async () => {
+    const app = await buildTestApp();
+    const { organizationId, courseId } = await setupUserAndOrg(app);
+
+    // Create a student user who is not an editor or admin of the organization
+    const studentRes = await app.inject({
+      method: "POST",
+      url: "/v1/auth/sign-in",
+      payload: { email: "pure-student@example.com", name: "Pure Student" },
+    });
+    expect(studentRes.statusCode).toBe(200);
+    const studentToken = extractSessionToken(studentRes)!;
+
+    const docId = randomUUID() as DocumentId;
+    const chunkId = randomUUID() as DocumentChunkId;
+    const now = new Date().toISOString();
+
+    await documentStore.create({
+      id: docId,
+      organizationId,
+      courseId,
+      ownerUserId: randomUUID() as UserId,
+      originalName: "cardio-summary.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 2048,
+      sha256: "c".repeat(64),
+      storageKey: `uploads/${docId}.pdf`,
+      pageCount: 10,
+      status: "extracted",
+      errorCode: null,
+      retryCount: 0,
+      qualityScore: null,
+      qualityLevel: null,
+      qualityReport: null,
+      qualityAnalyzedAt: null,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    });
+
+    await documentChunkStore.createMany([
+      {
+        id: chunkId,
+        documentId: docId,
+        sequence: 0,
+        content: "Cardiology content for student test.",
+        startPage: 1,
+        endPage: 1,
+        heading: "Cardiology Overview",
+        tokenEstimate: 50,
+      },
+    ]);
+
+    // Student calls course-scoped endpoint -> 403 Forbidden
+    const postCourseRes = await app.inject({
+      method: "POST",
+      url: `/v1/organizations/${organizationId}/courses/${courseId}/documents/${docId}/review-summary`,
+      headers: {
+        "content-type": "application/json",
+        cookie: `avana_session=${studentToken}`,
+      },
+      payload: {},
+    });
+    expect(postCourseRes.statusCode).toBe(403);
+    const postCourseBody = JSON.parse(postCourseRes.body);
+    expect(postCourseBody.error.message).toContain(
+      "Direct review summary generation is restricted to course editors and administrators",
+    );
+
+    // Student calls org-scoped endpoint -> 403 Forbidden
+    const postOrgRes = await app.inject({
+      method: "POST",
+      url: `/v1/organizations/${organizationId}/documents/${docId}/review-summary`,
+      headers: {
+        "content-type": "application/json",
+        cookie: `avana_session=${studentToken}`,
+      },
+      payload: {},
+    });
+    expect(postOrgRes.statusCode).toBe(403);
+    const postOrgBody = JSON.parse(postOrgRes.body);
+    expect(postOrgBody.error.message).toContain(
+      "Direct review summary generation is restricted to course editors and administrators",
+    );
   });
 });

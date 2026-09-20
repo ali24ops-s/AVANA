@@ -130,6 +130,24 @@
       "import": "./dist/modules/notifications/notification-service.js",
       "default": "./src/modules/notifications/notification-service.ts"
     },
+    "./wallet": {
+      "types": "./src/modules/wallet/index.ts",
+      "development": "./src/modules/wallet/index.ts",
+      "import": "./dist/modules/wallet/index.js",
+      "default": "./src/modules/wallet/index.ts"
+    },
+    "./wallet/wallet-store": {
+      "types": "./src/modules/wallet/wallet-store.ts",
+      "development": "./src/modules/wallet/wallet-store.ts",
+      "import": "./dist/modules/wallet/wallet-store.js",
+      "default": "./src/modules/wallet/wallet-store.ts"
+    },
+    "./wallet/wallet-service": {
+      "types": "./src/modules/wallet/wallet-service.ts",
+      "development": "./src/modules/wallet/wallet-service.ts",
+      "import": "./dist/modules/wallet/wallet-service.js",
+      "default": "./src/modules/wallet/wallet-service.ts"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {

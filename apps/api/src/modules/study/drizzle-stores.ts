@@ -17,6 +17,8 @@ import {
   studySessions,
   flashcardStudySessions,
   flashcardStudySessionCards,
+  dailyStudyPlans,
+  studyTasks,
 } from "@avana/database/schema";
 import type {
   FlashcardRecord,
@@ -33,6 +35,7 @@ import type {
   QuizAttemptStore,
   StudySessionStore,
   FlashcardStudySessionStore,
+  DailyStudyPlanStore,
 } from "./study-store.js";
 import type {
   CourseId,
@@ -52,6 +55,11 @@ import type {
   FlashcardSessionStatus,
   LessonId,
   StudyActivityType,
+  DailyStudyPlan,
+  StudyTask,
+  StudyTaskType,
+  StudyTaskStatus,
+  StudyPlanStatus,
 } from "@avana/domain";
 
 // ---------------------------------------------------------------------------
@@ -1025,8 +1033,8 @@ export class DrizzleQuizAttemptStore implements QuizAttemptStore {
         answers: record.answers,
         questionSnapshot: record.questionSnapshot ?? null,
         metrics: record.metrics ?? null,
-        status: record.status ?? "completed",
-        completedAt: record.completedAt ? new Date(record.completedAt) : new Date(),
+        status: record.status ?? "in_progress",
+        completedAt: record.completedAt ? new Date(record.completedAt) : null,
       })
       .where(eq(quizAttempts.id, record.id))
       .returning();
@@ -1388,4 +1396,323 @@ export class DrizzleFlashcardStudySessionStore
   }
 }
 
+// ---------------------------------------------------------------------------
+// Daily Study Planner Mappers & Drizzle Store
+// ---------------------------------------------------------------------------
 
+function toDailyStudyPlanRecord(row: {
+  id: string;
+  userId: string;
+  planDate: string;
+  status: string;
+  targetDurationMinutes: number;
+  completedDurationMinutes: number;
+  createdAt: Date;
+  updatedAt: Date;
+}): DailyStudyPlan {
+  return {
+    id: row.id,
+    userId: row.userId,
+    planDate:
+      typeof row.planDate === "string"
+        ? row.planDate
+        : new Date(row.planDate).toISOString().split("T")[0],
+    status: row.status as StudyPlanStatus,
+    targetDurationMinutes: row.targetDurationMinutes,
+    completedDurationMinutes: row.completedDurationMinutes,
+    createdAt:
+      row.createdAt instanceof Date
+        ? row.createdAt.toISOString()
+        : String(row.createdAt),
+    updatedAt:
+      row.updatedAt instanceof Date
+        ? row.updatedAt.toISOString()
+        : String(row.updatedAt),
+  };
+}
+
+function toStudyTaskRecord(row: {
+  id: string;
+  planId: string;
+  userId: string;
+  taskType: string;
+  status: string;
+  title: string;
+  description: string | null;
+  courseId: string | null;
+  moduleId: string | null;
+  lessonId: string | null;
+  quizId: string | null;
+  priority: number;
+  estimatedMinutes: number;
+  completedAt: Date | string | null;
+  metadata: unknown;
+  createdAt: Date;
+  updatedAt: Date;
+}): StudyTask {
+  return {
+    id: row.id,
+    planId: row.planId,
+    userId: row.userId,
+    taskType: row.taskType as StudyTaskType,
+    status: row.status as StudyTaskStatus,
+    title: row.title,
+    description: row.description ?? null,
+    courseId: row.courseId ?? null,
+    moduleId: row.moduleId ?? null,
+    lessonId: row.lessonId ?? null,
+    quizId: row.quizId ?? null,
+    priority: row.priority,
+    estimatedMinutes: row.estimatedMinutes,
+    completedAt:
+      row.completedAt instanceof Date
+        ? row.completedAt.toISOString()
+        : (row.completedAt ?? null),
+    metadata: (row.metadata as Record<string, unknown>) ?? {},
+    createdAt:
+      row.createdAt instanceof Date
+        ? row.createdAt.toISOString()
+        : String(row.createdAt),
+    updatedAt:
+      row.updatedAt instanceof Date
+        ? row.updatedAt.toISOString()
+        : String(row.updatedAt),
+  };
+}
+
+export class DrizzleDailyStudyPlanStore implements DailyStudyPlanStore {
+  constructor(private readonly db: DbClient) {}
+
+  async findByUserAndDate(
+    userId: UserId,
+    planDate: string,
+  ): Promise<DailyStudyPlan | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(dailyStudyPlans)
+      .where(
+        and(
+          eq(dailyStudyPlans.userId, userId),
+          eq(dailyStudyPlans.planDate, planDate),
+        ),
+      );
+
+    return row ? toDailyStudyPlanRecord(row) : undefined;
+  }
+
+  async findById(id: string): Promise<DailyStudyPlan | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(dailyStudyPlans)
+      .where(eq(dailyStudyPlans.id, id));
+
+    return row ? toDailyStudyPlanRecord(row) : undefined;
+  }
+
+  async createPlanWithTasks(
+    plan: Omit<DailyStudyPlan, "createdAt" | "updatedAt">,
+    tasks: Array<Omit<StudyTask, "createdAt" | "updatedAt">>,
+  ): Promise<{ plan: DailyStudyPlan; tasks: StudyTask[] }> {
+    const now = new Date();
+
+    // Insert plan with ON CONFLICT DO NOTHING to handle concurrent calls
+    const [planRow] = await this.db
+      .insert(dailyStudyPlans)
+      .values({
+        id: plan.id,
+        userId: plan.userId,
+        planDate: plan.planDate,
+        status: plan.status,
+        targetDurationMinutes: plan.targetDurationMinutes,
+        completedDurationMinutes: plan.completedDurationMinutes,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoNothing()
+      .returning();
+
+    if (!planRow) {
+      // Race condition occurred: plan already exists, fetch it
+      const existingPlan = await this.findByUserAndDate(
+        plan.userId as UserId,
+        plan.planDate,
+      );
+      if (existingPlan) {
+        const existingTasks = await this.listTasksByPlan(existingPlan.id);
+        return { plan: existingPlan, tasks: existingTasks };
+      }
+    }
+
+    const createdPlan = toDailyStudyPlanRecord(
+      planRow ?? (await this.findById(plan.id))!,
+    );
+
+    if (tasks.length === 0) {
+      return { plan: createdPlan, tasks: [] };
+    }
+
+    const taskRows = await this.db
+      .insert(studyTasks)
+      .values(
+        tasks.map((t) => ({
+          id: t.id,
+          planId: createdPlan.id,
+          userId: t.userId,
+          taskType: t.taskType,
+          status: t.status,
+          title: t.title,
+          description: t.description ?? null,
+          courseId: t.courseId ?? null,
+          moduleId: t.moduleId ?? null,
+          lessonId: t.lessonId ?? null,
+          quizId: t.quizId ?? null,
+          priority: t.priority,
+          estimatedMinutes: t.estimatedMinutes,
+          completedAt: t.completedAt ? new Date(t.completedAt) : null,
+          metadata: t.metadata ?? {},
+          createdAt: now,
+          updatedAt: now,
+        })),
+      )
+      .returning();
+
+    return {
+      plan: createdPlan,
+      tasks: taskRows.map(toStudyTaskRecord),
+    };
+  }
+
+  async listTasksByPlan(planId: string): Promise<StudyTask[]> {
+    const rows = await this.db
+      .select()
+      .from(studyTasks)
+      .where(eq(studyTasks.planId, planId))
+      .orderBy(asc(studyTasks.priority));
+
+    return rows.map(toStudyTaskRecord);
+  }
+
+  async listTasksByUserAndDate(
+    userId: UserId,
+    planDate: string,
+  ): Promise<StudyTask[]> {
+    const plan = await this.findByUserAndDate(userId, planDate);
+    if (!plan) return [];
+    return this.listTasksByPlan(plan.id);
+  }
+
+  async findTaskById(taskId: string): Promise<StudyTask | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(studyTasks)
+      .where(eq(studyTasks.id, taskId));
+
+    return row ? toStudyTaskRecord(row) : undefined;
+  }
+
+  async updatePlan(plan: DailyStudyPlan): Promise<DailyStudyPlan> {
+    const now = new Date();
+    const [row] = await this.db
+      .update(dailyStudyPlans)
+      .set({
+        status: plan.status,
+        targetDurationMinutes: plan.targetDurationMinutes,
+        completedDurationMinutes: plan.completedDurationMinutes,
+        updatedAt: now,
+      })
+      .where(eq(dailyStudyPlans.id, plan.id))
+      .returning();
+
+    return row ? toDailyStudyPlanRecord(row) : plan;
+  }
+
+  async updateTask(task: StudyTask): Promise<StudyTask> {
+    const now = new Date();
+    const [row] = await this.db
+      .update(studyTasks)
+      .set({
+        status: task.status,
+        title: task.title,
+        description: task.description ?? null,
+        priority: task.priority,
+        estimatedMinutes: task.estimatedMinutes,
+        completedAt: task.completedAt ? new Date(task.completedAt) : null,
+        metadata: task.metadata ?? {},
+        updatedAt: now,
+      })
+      .where(eq(studyTasks.id, task.id))
+      .returning();
+
+    return row ? toStudyTaskRecord(row) : task;
+  }
+
+  async updateTaskStatus(
+    taskId: string,
+    status: StudyTaskStatus,
+    completedAt?: string | null,
+  ): Promise<StudyTask | undefined> {
+    const now = new Date();
+    const [row] = await this.db
+      .update(studyTasks)
+      .set({
+        status,
+        completedAt: completedAt ? new Date(completedAt) : null,
+        updatedAt: now,
+      })
+      .where(eq(studyTasks.id, taskId))
+      .returning();
+
+    return row ? toStudyTaskRecord(row) : undefined;
+  }
+
+  async replaceTasksForPlan(
+    planId: string,
+    tasks: Array<Omit<StudyTask, "createdAt" | "updatedAt">>,
+  ): Promise<StudyTask[]> {
+    const now = new Date();
+
+    // Delete tasks that are not completed (preserve completed tasks history)
+    await this.db
+      .delete(studyTasks)
+      .where(
+        and(
+          eq(studyTasks.planId, planId),
+          sql`${studyTasks.status} != 'completed'`,
+        ),
+      );
+
+    if (tasks.length === 0) {
+      return this.listTasksByPlan(planId);
+    }
+
+    await this.db
+      .insert(studyTasks)
+      .values(
+        tasks.map((t) => ({
+          id: t.id,
+          planId: t.planId,
+          userId: t.userId,
+          taskType: t.taskType,
+          status: t.status,
+          title: t.title,
+          description: t.description ?? null,
+          courseId: t.courseId ?? null,
+          moduleId: t.moduleId ?? null,
+          lessonId: t.lessonId ?? null,
+          quizId: t.quizId ?? null,
+          priority: t.priority,
+          estimatedMinutes: t.estimatedMinutes,
+          completedAt: t.completedAt ? new Date(t.completedAt) : null,
+          metadata: t.metadata ?? {},
+          createdAt: now,
+          updatedAt: now,
+        })),
+      );
+
+    return this.listTasksByPlan(planId);
+  }
+
+  async deletePlan(id: string): Promise<void> {
+    await this.db.delete(dailyStudyPlans).where(eq(dailyStudyPlans.id, id));
+  }
+}

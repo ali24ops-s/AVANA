@@ -74,6 +74,7 @@ export class EntitlementService {
         commerceStore: deps.commerceStore,
         lessonStore: deps.lessonStore,
         moduleStore: deps.moduleStore,
+        documentStore: deps.documentStore,
         quizStore: deps.quizStore,
         flashcardStore: deps.flashcardStore,
         courseStore: deps.courseStore,
@@ -548,6 +549,23 @@ export class EntitlementService {
             availablePurchaseOptions: [],
           };
         }
+      } else if (
+        (input.resourceType === "document" || (input.resourceType as string) === "review_summary") &&
+        input.resourceId
+      ) {
+        const isPreview = await this.previewResolver.isDocumentPreview(
+          input.resourceId,
+          effectiveCourseId,
+        );
+        if (isPreview) {
+          return {
+            granted: true,
+            reason: "free_preview",
+            accessSource: "free_preview",
+            expiresAt: null,
+            availablePurchaseOptions: [],
+          };
+        }
       }
     }
 
@@ -615,7 +633,7 @@ export class EntitlementService {
         courseId = asCourseId(input.resourceId as any);
         if (courseStore) {
           const c = await courseStore.findById(courseId);
-          if (c) creatorUserId = (c as any).ownerUserId ?? undefined;
+          if (c) creatorUserId = ((c as any).ownerUserId ?? (c as any).createdBy) as UserId | undefined;
         }
       } else if (input.resourceType === "content_pack") {
         contentPackId = asContentPackId(input.resourceId as any);
@@ -730,7 +748,7 @@ export class EntitlementService {
 
       if (courseId && !creatorUserId && courseStore) {
         const c = await courseStore.findById(courseId);
-        if (c) creatorUserId = (c as any).ownerUserId ?? undefined;
+        if (c) creatorUserId = ((c as any).ownerUserId ?? (c as any).createdBy) as UserId | undefined;
       }
     } catch {
       // In case of parsing or resolution error, fallback gracefully
@@ -801,7 +819,7 @@ export class EntitlementService {
     p: ProductRecord,
   ): ResourceAccessResult["availablePurchaseOptions"][0] {
     return {
-      type: p.type,
+      type: p.type as ResourceAccessResult["availablePurchaseOptions"][0]["type"],
       productId: p.id,
       code: p.code,
       title: p.title,

@@ -48,6 +48,17 @@ import { randomUUID } from "node:crypto";
 // Helpers
 // ---------------------------------------------------------------------------
 
+function toISOStringSafe(val: unknown): string | null {
+  if (val == null) return null;
+  if (val instanceof Date) return val.toISOString();
+  if (typeof val === "string") return val;
+  try {
+    return new Date(val as string | number).toISOString();
+  } catch {
+    return String(val);
+  }
+}
+
 /**
  * Map a database session row to the SessionRecord domain shape.
  * Converts Date objects to ISO strings for consistency with in-memory stores.
@@ -57,22 +68,22 @@ function toSessionRecord(row: {
   userId: string;
   tokenHash: string;
   deviceId?: string | null;
-  expiresAt: Date;
-  revokedAt: Date | null;
+  expiresAt: Date | string;
+  revokedAt?: Date | string | null;
   revocationReason?: string | null;
-  lastUsedAt: Date | null;
-  createdAt: Date;
+  lastUsedAt?: Date | string | null;
+  createdAt: Date | string;
 }): SessionRecord {
   return {
     id: row.id,
     userId: row.userId as UserId,
     tokenHash: row.tokenHash,
     deviceId: row.deviceId ?? null,
-    expiresAt: row.expiresAt.toISOString(),
-    revokedAt: row.revokedAt?.toISOString() ?? null,
+    expiresAt: toISOStringSafe(row.expiresAt) || new Date().toISOString(),
+    revokedAt: toISOStringSafe(row.revokedAt),
     revocationReason: row.revocationReason ?? null,
-    lastUsedAt: row.lastUsedAt?.toISOString() ?? null,
-    createdAt: row.createdAt.toISOString(),
+    lastUsedAt: toISOStringSafe(row.lastUsedAt),
+    createdAt: toISOStringSafe(row.createdAt) || new Date().toISOString(),
   };
 }
 
@@ -84,11 +95,11 @@ function toUserDevice(row: {
   deviceName: string | null;
   userAgent: string | null;
   lastIp: string | null;
-  firstSeenAt: Date;
-  lastSeenAt: Date;
-  revokedAt: Date | null;
-  createdAt: Date;
-  updatedAt: Date;
+  firstSeenAt: Date | string;
+  lastSeenAt: Date | string;
+  revokedAt?: Date | string | null;
+  createdAt: Date | string;
+  updatedAt: Date | string;
 }): UserDevice {
   return {
     id: row.id,
@@ -98,11 +109,11 @@ function toUserDevice(row: {
     deviceName: row.deviceName,
     userAgent: row.userAgent,
     lastIp: row.lastIp,
-    firstSeenAt: row.firstSeenAt.toISOString(),
-    lastSeenAt: row.lastSeenAt.toISOString(),
-    revokedAt: row.revokedAt?.toISOString() ?? null,
-    createdAt: row.createdAt.toISOString(),
-    updatedAt: row.updatedAt.toISOString(),
+    firstSeenAt: toISOStringSafe(row.firstSeenAt) || new Date().toISOString(),
+    lastSeenAt: toISOStringSafe(row.lastSeenAt) || new Date().toISOString(),
+    revokedAt: toISOStringSafe(row.revokedAt),
+    createdAt: toISOStringSafe(row.createdAt) || new Date().toISOString(),
+    updatedAt: toISOStringSafe(row.updatedAt) || new Date().toISOString(),
   };
 }
 
@@ -116,8 +127,8 @@ function toUserRecord(
     name: string;
     globalRole?: string | null;
     phoneNumber?: string | null;
-    emailVerifiedAt?: Date | null;
-    phoneVerifiedAt?: Date | null;
+    emailVerifiedAt?: Date | string | null;
+    phoneVerifiedAt?: Date | string | null;
   },
   effectiveRole: Role = "student",
 ): UserRecord {
@@ -128,9 +139,9 @@ function toUserRecord(
     role: effectiveRole,
     globalRole: row.globalRole ?? null,
     phoneNumber: row.phoneNumber ?? null,
-    emailVerifiedAt: row.emailVerifiedAt?.toISOString() ?? null,
+    emailVerifiedAt: toISOStringSafe(row.emailVerifiedAt),
     emailVerified: row.emailVerifiedAt != null,
-    phoneVerifiedAt: row.phoneVerifiedAt?.toISOString() ?? null,
+    phoneVerifiedAt: toISOStringSafe(row.phoneVerifiedAt),
     phoneVerified: row.phoneVerifiedAt != null,
   };
 }
@@ -422,7 +433,6 @@ export class DrizzleDeviceStore implements DeviceStore {
       ip,
       tokenHash,
       expiresAt,
-      isPlatformAdmin,
     } = params;
     const now = new Date();
 
@@ -481,58 +491,32 @@ export class DrizzleDeviceStore implements DeviceStore {
           .limit(1);
 
         if (occupiedRows.length > 0) {
-          if (isPlatformAdmin) {
-            // Controlled recovery/takeover for platform_admin when slot belongs to same user:
-            // Revoke the old active device record for this slot to maintain audit history
-            await tx
-              .update(userDevices)
-              .set({
-                revokedAt: now,
-                updatedAt: now,
-              })
-              .where(eq(userDevices.id, occupiedRows[0].id));
-
-            // Register the new device for the slot (preserving persistent client device ID if present)
-            const canonicalDeviceId = resolveCanonicalDeviceId(incomingDeviceId);
-            const [newDeviceRow] = await tx
-              .insert(userDevices)
-              .values({
-                userId,
-                deviceId: canonicalDeviceId,
-                deviceType,
-                deviceName: deviceName ?? null,
-                userAgent: userAgent ?? null,
-                lastIp: ip ?? null,
-              })
-              .returning();
-            finalDevice = toUserDevice(newDeviceRow);
-            isNewDevice = true;
-          } else {
-            // Case C: Slot is already occupied for regular user!
-            // DO NOT revoke existing session, DO NOT register device.
-            return {
-              status: "LIMIT_REACHED",
-              deviceType,
-              existingDevice: toUserDevice(occupiedRows[0]),
-            };
-          }
-        } else {
-          // Case B: Slot is free -> register new device under lock (preserving persistent client device ID if present)
-          const canonicalDeviceId = resolveCanonicalDeviceId(incomingDeviceId);
-          const [newDeviceRow] = await tx
-            .insert(userDevices)
-            .values({
-              userId,
-              deviceId: canonicalDeviceId,
-              deviceType,
-              deviceName: deviceName ?? null,
-              userAgent: userAgent ?? null,
-              lastIp: ip ?? null,
+          // Controlled slot takeover on successful authentication (Newest-Login-Wins per device slot):
+          // Revoke the old active device record for this specific slot to maintain audit history
+          await tx
+            .update(userDevices)
+            .set({
+              revokedAt: now,
+              updatedAt: now,
             })
-            .returning();
-          finalDevice = toUserDevice(newDeviceRow);
-          isNewDevice = true;
+            .where(eq(userDevices.id, occupiedRows[0].id));
         }
+
+        // Register the new device for the slot (preserving persistent client device ID if present)
+        const canonicalDeviceId = resolveCanonicalDeviceId(incomingDeviceId);
+        const [newDeviceRow] = await tx
+          .insert(userDevices)
+          .values({
+            userId,
+            deviceId: canonicalDeviceId,
+            deviceType,
+            deviceName: deviceName ?? null,
+            userAgent: userAgent ?? null,
+            lastIp: ip ?? null,
+          })
+          .returning();
+        finalDevice = toUserDevice(newDeviceRow);
+        isNewDevice = true;
       }
 
       // 3. Atomically revoke all active sessions for this user under lock

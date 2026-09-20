@@ -36,6 +36,7 @@ import {
   FileText,
 } from "lucide-react";
 import { BrandLogo } from "../components/brand/BrandLogo.js";
+import { toPersianDigits } from "@avana/domain";
 
 /**
  * Maintainable date configuration for Terms of Service updates.
@@ -459,7 +460,7 @@ export function TermsPage() {
                             : "bg-[var(--color-surface-warm)] text-[var(--color-text-muted)]"
                         }`}
                       >
-                        بخش {sec.number}
+                        بخش {toPersianDigits(sec.number)}
                       </span>
                     </button>
                   );
@@ -488,7 +489,7 @@ export function TermsPage() {
                       </div>
                       <div className="space-y-1">
                         <div className="inline-flex items-center gap-2 text-xs font-bold text-amber-700">
-                          <span>بخش {section.number}</span>
+                          <span>بخش {toPersianDigits(section.number)}</span>
                           <span>•</span>
                           <span className="bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full text-[10px] font-black border border-amber-300">
                             اخطار ویژه و بسیار مهم
@@ -552,7 +553,7 @@ export function TermsPage() {
                     </div>
                     <div>
                       <span className="text-[11px] font-bold text-[#008080] block">
-                        بخش {section.number}
+                        بخش {toPersianDigits(section.number)}
                       </span>
                       <h2
                         id={`heading-${section.id}`}

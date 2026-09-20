@@ -5,7 +5,10 @@ import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { LandingPage } from "../components/LandingPage.js";
 import { FutureKnowledgeNetwork } from "../components/future/FutureKnowledgeNetwork.js";
 
-let mockAuth = {
+let mockAuth: {
+  user: { id: string; email: string } | null;
+  isAuthenticated: boolean;
+} = {
   user: null,
   isAuthenticated: false,
 };
@@ -20,6 +23,7 @@ const renderLandingPage = () => {
       <Routes>
         <Route path="/" element={<LandingPage />} />
         <Route path="/about" element={<div>About Page</div>} />
+        <Route path="/blog" element={<div>Blog Page</div>} />
         <Route path="/sign-in" element={<div>Sign In Page</div>} />
         <Route path="/courses" element={<div>Courses Page</div>} />
         <Route path="/library" element={<div>Library Page</div>} />
@@ -52,13 +56,11 @@ describe("LandingPage (صفحه اصلی آوانا) Reference Design Complete S
     expect(mainHeading).toHaveTextContent("یادگیریش با آوانا.");
   });
 
-  it("2. Verifies Hero section contents, supporting text, and transformation outputs", () => {
+  it("2. Verifies Hero section contents, CTAs, and transformation outputs", () => {
     renderLandingPage();
 
-    // Subtitle
-    expect(
-      screen.getByText(/آوانا منابع درسی‌ات را به درسنامه، فلش‌کارت، آزمون و مرور سریع تبدیل می‌کند/)
-    ).toBeInTheDocument();
+    // Primary CTA
+    expect(screen.getAllByText("شروع با آوانا").length).toBeGreaterThan(0);
 
     // Secondary CTA
     expect(screen.getByText("آوانا چطور کار می‌کند؟")).toBeInTheDocument();
@@ -73,12 +75,12 @@ describe("LandingPage (صفحه اصلی آوانا) Reference Design Complete S
     expect(screen.getByText("جزوه + PDF + عکس + نمونه سؤال")).toBeInTheDocument();
   });
 
-  it("3. Verifies Problem Section: 'منابع زیادند. وقت کم است.' and scattered desk items", () => {
+  it("3. Verifies Problem Section: 'منابع زیادند، وقت کم است!' and scattered desk items", () => {
     renderLandingPage();
 
     expect(screen.getByText("چالش اصلی دانشجو")).toBeInTheDocument();
-    expect(screen.getByText("منابع زیادند.")).toBeInTheDocument();
-    expect(screen.getByText("وقت کم است.")).toBeInTheDocument();
+    expect(screen.getByText("منابع زیادند،")).toBeInTheDocument();
+    expect(screen.getByText("وقت کم است!")).toBeInTheDocument();
     expect(
       screen.getByText(/جزوه، PDF، عکس‌ها، فایل‌ها و منابع مختلف در جاهای مختلف پراکنده‌اند/)
     ).toBeInTheDocument();
@@ -100,9 +102,6 @@ describe("LandingPage (صفحه اصلی آوانا) Reference Design Complete S
       screen.getByText(/آوانا، این پراکندگی را تبدیل به/)
     ).toBeInTheDocument();
     expect(screen.getAllByText(/مسیر یادگیری/).length).toBeGreaterThan(0);
-    expect(
-      screen.getByText(/منابع درسی‌ات را یک‌جا جمع می‌کند و آن‌ها را به یک مسیر هوشمند/)
-    ).toBeInTheDocument();
 
     // 3 Step elements
     expect(screen.getAllByText("منابع پراکنده").length).toBeGreaterThan(0);
@@ -113,10 +112,10 @@ describe("LandingPage (صفحه اصلی آوانا) Reference Design Complete S
     renderLandingPage();
 
     expect(
-      screen.getByText(/جزوه فقط برای خواندن نیست./)
+      screen.getByText("جزوه فقط برای خواندن نیست.")
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/با آوانا، تبدیل به یادگیری می‌شود./)
+      screen.getByText("با آوانا، تبدیل به یادگیری می‌شود.")
     ).toBeInTheDocument();
 
     // Checkbook content
@@ -193,15 +192,11 @@ describe("LandingPage (صفحه اصلی آوانا) Reference Design Complete S
     expect(screen.getByText("شروع مرور سریع")).toBeInTheDocument();
   });
 
-  it("9. Verifies Complete AVANA Loop Section: 4 orbital nodes and center brand mark", () => {
+  it("9. Verifies Complete AVANA Loop / Smart Learning Signature section is removed from Landing Page", () => {
     renderLandingPage();
 
-    expect(screen.getByText("چرخه یکپارچه")).toBeInTheDocument();
-    expect(screen.getByText("یادگیری آوانا")).toBeInTheDocument();
-    expect(screen.getByText("۱. منبع درسی")).toBeInTheDocument();
-    expect(screen.getByText("۲. یادگیری عمیق")).toBeInTheDocument();
-    expect(screen.getByText("۳. تمرین و آزمون")).toBeInTheDocument();
-    expect(screen.getByText("۴. مرور هوشمند")).toBeInTheDocument();
+    expect(screen.queryByText("امضای یادگیری هوشمند")).not.toBeInTheDocument();
+    expect(screen.queryByText("چرخه یکپارچه")).not.toBeInTheDocument();
   });
 
   it("10. Verifies Final CTA and Footer links", () => {
@@ -230,7 +225,7 @@ describe("LandingPage (صفحه اصلی آوانا) Reference Design Complete S
 
     // Authenticated user
     mockAuth = {
-      user: { id: "user-1", email: "test@avana.ir" } as any,
+      user: { id: "user-1", email: "test@avana.ir" },
       isAuthenticated: true,
     };
 
@@ -276,5 +271,20 @@ describe("LandingPage (صفحه اصلی آوانا) Reference Design Complete S
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "باز کردن منو" })).toBeInTheDocument();
     });
+  });
+
+  it("14. Navigation Header & Footer: renders expected public links and does not render disabled About links", () => {
+    renderLandingPage();
+
+    const blogLinks = screen.getAllByRole("link", { name: "وبلاگ" });
+    expect(blogLinks.length).toBeGreaterThan(0);
+    expect(blogLinks[0]).toHaveAttribute("href", "/blog");
+
+    const pricingLinks = screen.getAllByRole("link", { name: "قیمت‌گذاری" });
+    expect(pricingLinks.length).toBeGreaterThan(0);
+
+    // Verify "درباره ما" and "درباره آوانا" are not rendered in header or footer
+    expect(screen.queryByRole("link", { name: "درباره ما" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "درباره آوانا" })).not.toBeInTheDocument();
   });
 });

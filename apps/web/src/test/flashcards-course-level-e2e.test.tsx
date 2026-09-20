@@ -135,7 +135,7 @@ describe("End-to-End Course-Level Flashcards Flow Verification", () => {
     // Assertion 1: Course is visible in UI
     await waitFor(() => {
       expect(screen.getByText("Cardiology Course Level")).toBeDefined();
-      expect(screen.getByText("10 کارت")).toBeDefined();
+      expect(screen.getByText("۱۰ کارت")).toBeDefined();
     });
 
     // Assertion 2: Course is selectable

@@ -21,7 +21,6 @@ import { AuthenticatedShell } from "../components/shell/AuthenticatedShell.js";
 import { SignInPage } from "../components/shell/SignInPage.js";
 import { RegisterPage } from "../components/shell/RegisterPage.js";
 import { LandingPage } from "../components/LandingPage.js";
-import { AboutPage } from "../pages/AboutPage.js";
 import { HomePage } from "../pages/HomePage.js";
 import { CourseListPage } from "../pages/CourseListPage.js";
 import { LearningPage } from "../pages/LearningPage.js";
@@ -37,12 +36,20 @@ import { PricingPage } from "../pages/PricingPage.js";
 import { TermsPage } from "../pages/TermsPage.js";
 import { UserSubscriptionPage } from "../pages/account/UserSubscriptionPage.js";
 import { UserPurchasesPage } from "../pages/account/UserPurchasesPage.js";
+import { UserWalletPage } from "../pages/account/UserWalletPage.js";
+import { UserReferralPage } from "../pages/account/UserReferralPage.js";
+import { UserSupportPage } from "../pages/account/UserSupportPage.js";
 import { CardToCardPaymentPage } from "../pages/CardToCardPaymentPage.js";
 
 // Admin Imports
 import { AdminLayout } from "../components/shell/AdminLayout.js";
 import { AdminDashboardPage } from "../pages/admin/AdminDashboardPage.js";
+import { AdminSupportPage } from "../pages/admin/support/AdminSupportPage.js";
+
 import { AdminUsersPage } from "../pages/admin/AdminUsersPage.js";
+import { AdminUserSubscriptionsPage } from "../pages/admin/users/AdminUserSubscriptionsPage.js";
+import { AdminUserPurchasesPage } from "../pages/admin/users/AdminUserPurchasesPage.js";
+import { AdminUserWalletTopupsPage } from "../pages/admin/users/AdminUserWalletTopupsPage.js";
 import { AdminGenerationPage } from "../pages/admin/AdminGenerationPage.js";
 import { AdminIntegrityPage } from "../pages/admin/AdminIntegrityPage.js";
 import { AdminCoursesPage } from "../pages/admin/AdminCoursesPage.js";
@@ -64,6 +71,8 @@ import { AdminPaymentsPage } from "../pages/admin/commerce/AdminPaymentsPage.js"
 import { AdminSubscriptionsPage } from "../pages/admin/commerce/AdminSubscriptionsPage.js";
 import { AdminEntitlementsPage } from "../pages/admin/commerce/AdminEntitlementsPage.js";
 import { AdminProductsPage } from "../pages/admin/commerce/AdminProductsPage.js";
+import { AdminPromotionsPage } from "../pages/admin/commerce/AdminPromotionsPage.js";
+import { AdminReferralsPage } from "../pages/admin/commerce/AdminReferralsPage.js";
 import { AdminContentStudioPage } from "../pages/admin/AdminContentStudioPage.js";
 import { AdminCourseHubPage } from "../pages/admin/AdminCourseHubPage.js";
 import { AdminCommunityContentPage } from "../pages/admin/AdminCommunityContentPage.js";
@@ -72,6 +81,7 @@ import { AdminCommunityContentPage } from "../pages/admin/AdminCommunityContentP
 import { BlogListPage } from "../pages/blog/BlogListPage.js";
 import { BlogDetailPage } from "../pages/blog/BlogDetailPage.js";
 import { BlogCategoryPage } from "../pages/blog/BlogCategoryPage.js";
+import { BlogTagPage } from "../pages/blog/BlogTagPage.js";
 import { AdminBlogListPage } from "../pages/admin/blog/AdminBlogListPage.js";
 import { AdminBlogEditPage } from "../pages/admin/blog/AdminBlogEditPage.js";
 import { AdminBlogPreviewPage } from "../pages/admin/blog/AdminBlogPreviewPage.js";
@@ -109,11 +119,11 @@ export const router = createBrowserRouter(
     },
     {
       path: "/about",
-      element: <AboutPage />,
+      element: <Navigate to="/" replace />,
     },
     {
       path: "/about-us",
-      element: <Navigate to="/about" replace />,
+      element: <Navigate to="/" replace />,
     },
     {
       path: "/sign-in",
@@ -150,6 +160,10 @@ export const router = createBrowserRouter(
     {
       path: "/blog/category/:slug",
       element: <BlogCategoryPage />,
+    },
+    {
+      path: "/blog/tag/:slug",
+      element: <BlogTagPage />,
     },
 
     // Protected routes (require authentication)
@@ -229,6 +243,27 @@ export const router = createBrowserRouter(
               element: <Navigate to="/account/purchases" replace />,
             },
             {
+              path: "account/wallet",
+              element: <UserWalletPage />,
+            },
+            {
+              path: "account/referral",
+              element: <UserReferralPage />,
+            },
+            {
+              path: "settings/referral",
+              element: <Navigate to="/account/referral" replace />,
+            },
+            {
+              path: "account/support",
+              element: <UserSupportPage />,
+            },
+            {
+              path: "settings/support",
+              element: <Navigate to="/account/support" replace />,
+            },
+
+            {
               path: "checkout/callback",
               element: <CheckoutCallbackPage />,
             },
@@ -272,6 +307,10 @@ export const router = createBrowserRouter(
               element: <AdminPaymentsPage />,
             },
             {
+              path: "commerce/referrals",
+              element: <AdminReferralsPage />,
+            },
+            {
               path: "commerce/subscriptions",
               element: <AdminSubscriptionsPage />,
             },
@@ -282,6 +321,10 @@ export const router = createBrowserRouter(
             {
               path: "commerce/products",
               element: <AdminProductsPage />,
+            },
+            {
+              path: "commerce/promotions",
+              element: <AdminPromotionsPage />,
             },
             {
               path: "analytics",
@@ -344,8 +387,28 @@ export const router = createBrowserRouter(
               element: <AdminCommunityContentPage />,
             },
             {
+              path: "support",
+              element: <AdminSupportPage />,
+            },
+            {
+              path: "support/:id",
+              element: <AdminSupportPage />,
+            },
+            {
               path: "users",
               element: <AdminUsersPage />,
+            },
+            {
+              path: "users/subscriptions",
+              element: <AdminUserSubscriptionsPage />,
+            },
+            {
+              path: "users/purchases",
+              element: <AdminUserPurchasesPage />,
+            },
+            {
+              path: "users/wallet-topups",
+              element: <AdminUserWalletTopupsPage />,
             },
             {
               path: "generation",

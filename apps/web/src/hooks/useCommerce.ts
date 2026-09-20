@@ -153,6 +153,16 @@ export function useExtractCardToCardPayment() {
 }
 
 /**
+ * Mutation to upload a card-to-card payment receipt image.
+ */
+export function useUploadPaymentReceipt() {
+  const api = getCommerceApi();
+  return useMutation({
+    mutationFn: (file: File) => api.uploadReceipt(file),
+  });
+}
+
+/**
  * Mutation to submit card-to-card payment with instant subscription activation.
  */
 export function useSubmitCardToCardPayment() {
@@ -168,5 +178,16 @@ export function useSubmitCardToCardPayment() {
       queryClient.invalidateQueries({ queryKey: ["my-orders"] });
       queryClient.invalidateQueries({ queryKey: ["access-check"] });
     },
+  });
+}
+
+/**
+ * Mutation to validate coupon code for a product.
+ */
+export function useValidateCoupon() {
+  const api = getCommerceApi();
+  return useMutation({
+    mutationFn: (data: import("../lib/api/commerce.js").ValidateCouponRequest) =>
+      api.validateCoupon(data),
   });
 }

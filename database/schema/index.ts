@@ -1,3 +1,4 @@
+/* eslint-disable no-secrets/no-secrets */
 import { sql } from "drizzle-orm";
 import {
   pgTable,
@@ -10,6 +11,7 @@ import {
   integer,
   boolean,
   numeric,
+  date,
   primaryKey,
   foreignKey,
   uniqueIndex,
@@ -155,6 +157,7 @@ export const courses = pgTable(
     status: varchar("status", { length: 30 }).notNull().default("published"),
     isOfficial: boolean("is_official").notNull().default(false),
     examDate: timestamp("exam_date", { withTimezone: true }),
+    examScope: jsonb("exam_scope"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -247,6 +250,40 @@ export const auditLogs = pgTable(
 // ---------------------------------------------------------------------------
 
 /**
+ * SubCourseGroups table.
+ *
+ * Categorization/grouping for chapters (modules) within a course.
+ */
+export const subCourseGroups = pgTable(
+  "sub_course_groups",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    courseId: uuid("course_id")
+      .notNull()
+      .references(() => courses.id, { onDelete: "cascade" }),
+    title: varchar("title", { length: 255 }).notNull(),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (table) => ({
+    courseOrderIdx: index("idx_sub_course_groups_course_order").on(
+      table.courseId,
+      table.sortOrder,
+    ),
+    courseGroupUniqueIdx: uniqueIndex("idx_sub_course_groups_course_id").on(
+      table.courseId,
+      table.id,
+    ),
+  }),
+);
+
+/**
  * Modules table.
  *
  * A module is a major topic within a course (e.g. "Drug Classifications").
@@ -262,6 +299,12 @@ export const modules = pgTable(
     documentId: uuid("document_id").references(() => documents.id, {
       onDelete: "set null",
     }),
+    subCourseGroupId: uuid("sub_course_group_id").references(
+      () => subCourseGroups.id,
+      {
+        onDelete: "set null",
+      },
+    ),
     title: varchar("title", { length: 255 }).notNull(),
     description: text("description"),
     sortOrder: integer("sort_order").notNull().default(0),
@@ -285,6 +328,9 @@ export const modules = pgTable(
     ),
     previewLessonIdx: index("idx_modules_preview_lesson").on(
       table.previewLessonId,
+    ),
+    subCourseGroupIdx: index("idx_modules_sub_course_group").on(
+      table.subCourseGroupId,
     ),
   }),
 );
@@ -1492,6 +1538,59 @@ export const contentPackUsages = pgTable(
   }),
 );
 
+/**
+ * Course Publications table.
+ *
+ * Immutable, reviewable publication snapshots of user-generated courses
+ * submitted for Avana Library distribution.
+ */
+export const coursePublications = pgTable(
+  "course_publications",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    courseId: uuid("course_id")
+      .notNull()
+      .references(() => courses.id, { onDelete: "cascade" }),
+    creatorUserId: uuid("creator_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    organizationId: uuid("organization_id").references(
+      () => organizations.id,
+      { onDelete: "set null" },
+    ),
+    title: varchar("title", { length: 255 }).notNull(),
+    description: text("description"),
+    subject: varchar("subject", { length: 255 }),
+    version: integer("version").notNull().default(1),
+    status: varchar("status", { length: 30 })
+      .notNull()
+      .default("pending_review"),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    metadata: jsonb("metadata").notNull().default({}),
+    snapshot: jsonb("snapshot").notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (table) => ({
+    courseStatusIdx: index("idx_course_publications_course_status").on(
+      table.courseId,
+      table.status,
+    ),
+    statusIdx: index("idx_course_publications_status").on(table.status),
+    creatorIdx: index("idx_course_publications_creator").on(
+      table.creatorUserId,
+    ),
+  }),
+);
+
+export type CoursePublication = typeof coursePublications.$inferSelect;
+export type NewCoursePublication = typeof coursePublications.$inferInsert;
+
 // ---------------------------------------------------------------------------
 // Monetization, Subscriptions, and Entitlements
 // ---------------------------------------------------------------------------
@@ -2044,3 +2143,576 @@ export const contentReports = pgTable(
 
 export type ContentReport = typeof contentReports.$inferSelect;
 export type NewContentReport = typeof contentReports.$inferInsert;
+
+/**
+ * System Configurations Table.
+ * Key-value storage for platform and financial baseline configurations.
+ */
+export const systemConfigurations = pgTable("system_configurations", {
+  key: varchar("key", { length: 100 }).primaryKey(),
+  value: jsonb("value").notNull(),
+  description: text("description"),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedBy: uuid("updated_by").references(() => users.id, {
+    onDelete: "set null",
+  }),
+});
+
+export type SystemConfiguration = typeof systemConfigurations.$inferSelect;
+export type NewSystemConfiguration = typeof systemConfigurations.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Avana Credits & Wallet System (Migration 0047)
+// ---------------------------------------------------------------------------
+
+export const wallets = pgTable(
+  "wallets",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .unique()
+      .references(() => users.id, { onDelete: "cascade" }),
+    balance: integer("balance").notNull().default(0),
+    currency: varchar("currency", { length: 10 }).notNull().default("toman"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    userIdx: uniqueIndex("idx_wallets_user_id").on(table.userId),
+    balanceCheck: check(
+      "chk_wallets_balance_non_negative",
+      sql`${table.balance} >= 0`,
+    ),
+  }),
+);
+
+export const walletTransactions = pgTable(
+  "wallet_transactions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    walletId: uuid("wallet_id")
+      .notNull()
+      .references(() => wallets.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    type: varchar("type", { length: 30 }).notNull(),
+    amount: integer("amount").notNull(),
+    balanceBefore: integer("balance_before").notNull(),
+    balanceAfter: integer("balance_after").notNull(),
+    source: varchar("source", { length: 50 }).notNull(),
+    referenceType: varchar("reference_type", { length: 50 }).notNull(),
+    referenceId: varchar("reference_id", { length: 255 }).notNull(),
+    idempotencyKey: varchar("idempotency_key", { length: 255 }).unique(),
+    metadata: jsonb("metadata").notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    walletIdx: index("idx_wallet_tx_wallet_id").on(table.walletId),
+    userIdx: index("idx_wallet_tx_user_id").on(table.userId),
+    referenceIdx: index("idx_wallet_tx_reference").on(
+      table.referenceType,
+      table.referenceId,
+    ),
+    idempotencyIdx: uniqueIndex("idx_wallet_tx_idempotency").on(
+      table.idempotencyKey,
+    ),
+    amountCheck: check(
+      "chk_wallet_tx_amount_positive",
+      sql`${table.amount} > 0`,
+    ),
+  }),
+);
+
+export type Wallet = typeof wallets.$inferSelect;
+export type NewWallet = typeof wallets.$inferInsert;
+export type WalletTransaction = typeof walletTransactions.$inferSelect;
+export type NewWalletTransaction = typeof walletTransactions.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Promotions, Coupons, Restrictions & Redemptions (Migration 0051)
+// ---------------------------------------------------------------------------
+
+export const promotions = pgTable(
+  "promotions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    name: varchar("name", { length: 255 }).notNull(),
+    description: text("description"),
+    benefitType: varchar("benefit_type", { length: 50 }).notNull(),
+    benefitValue: integer("benefit_value").notNull(),
+    maxDiscountAmount: integer("max_discount_amount"),
+    minOrderAmount: integer("min_order_amount"),
+    totalUsageLimit: integer("total_usage_limit"),
+    perUserUsageLimit: integer("per_user_usage_limit"),
+    active: boolean("active").notNull().default(true),
+    startsAt: timestamp("starts_at", { withTimezone: true }),
+    endsAt: timestamp("ends_at", { withTimezone: true }),
+    metadata: jsonb("metadata").notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (table) => ({
+    activeDatesIdx: index("idx_promotions_active_dates")
+      .on(table.active, table.startsAt, table.endsAt)
+      .where(sql`${table.deletedAt} IS NULL`),
+  }),
+);
+
+export const promotionCodes = pgTable(
+  "promotion_codes",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    promotionId: uuid("promotion_id")
+      .notNull()
+      .references(() => promotions.id, { onDelete: "cascade" }),
+    code: varchar("code", { length: 100 }).notNull(),
+    maxUses: integer("max_uses"),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (table) => ({
+    promotionIdIdx: index("idx_promotion_codes_promotion_id").on(table.promotionId),
+    uniqueActiveCodeIdx: uniqueIndex("idx_promotion_codes_unique_active")
+      .on(sql`UPPER(${table.code})`)
+      .where(sql`${table.deletedAt} IS NULL`),
+  }),
+);
+
+export const promotionProducts = pgTable(
+  "promotion_products",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    promotionId: uuid("promotion_id")
+      .notNull()
+      .references(() => promotions.id, { onDelete: "cascade" }),
+    productId: uuid("product_id").references(() => products.id, {
+      onDelete: "cascade",
+    }),
+    productType: varchar("product_type", { length: 50 }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    lookupIdx: index("idx_promotion_products_lookup").on(
+      table.promotionId,
+      table.productId,
+      table.productType,
+    ),
+    targetCheck: check(
+      "chk_promotion_products_target",
+      sql`${table.productId} IS NOT NULL OR ${table.productType} IS NOT NULL`,
+    ),
+  }),
+);
+
+export const promotionUsers = pgTable(
+  "promotion_users",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    promotionId: uuid("promotion_id")
+      .notNull()
+      .references(() => promotions.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    lookupIdx: index("idx_promotion_users_lookup").on(
+      table.promotionId,
+      table.userId,
+    ),
+    uniqueUserPromotion: uniqueIndex("uq_promotion_users").on(
+      table.promotionId,
+      table.userId,
+    ),
+  }),
+);
+
+export const promotionRedemptions = pgTable(
+  "promotion_redemptions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    promotionId: uuid("promotion_id")
+      .notNull()
+      .references(() => promotions.id, { onDelete: "cascade" }),
+    codeId: uuid("code_id")
+      .notNull()
+      .references(() => promotionCodes.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    paymentId: uuid("payment_id").references(() => payments.id, {
+      onDelete: "set null",
+    }),
+    benefitType: varchar("benefit_type", { length: 50 }).notNull(),
+    benefitValue: integer("benefit_value").notNull(),
+    discountAmount: integer("discount_amount").notNull().default(0),
+    cashbackAmount: integer("cashback_amount").notNull().default(0),
+    orderOriginalAmount: integer("order_original_amount").notNull(),
+    orderFinalAmount: integer("order_final_amount").notNull(),
+    status: varchar("status", { length: 30 }).notNull().default("pending"),
+    reservationExpiresAt: timestamp("reservation_expires_at", {
+      withTimezone: true,
+    }).notNull(),
+    promotionSnapshot: jsonb("promotion_snapshot").notNull().default({}),
+    redeemedAt: timestamp("redeemed_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    orderIdx: index("idx_redemptions_order_id").on(table.orderId),
+    userPromotionIdx: index("idx_redemptions_user_promotion").on(
+      table.userId,
+      table.promotionId,
+      table.status,
+    ),
+    statusExpiresIdx: index("idx_redemptions_status_expires").on(
+      table.status,
+      table.reservationExpiresAt,
+    ),
+    promotionActiveIdx: index("idx_redemptions_promotion_active").on(
+      table.promotionId,
+      table.status,
+    ),
+  }),
+);
+
+export type Promotion = typeof promotions.$inferSelect;
+export type NewPromotion = typeof promotions.$inferInsert;
+export type PromotionCode = typeof promotionCodes.$inferSelect;
+export type NewPromotionCode = typeof promotionCodes.$inferInsert;
+export type PromotionProduct = typeof promotionProducts.$inferSelect;
+export type NewPromotionProduct = typeof promotionProducts.$inferInsert;
+export type PromotionUser = typeof promotionUsers.$inferSelect;
+export type NewPromotionUser = typeof promotionUsers.$inferInsert;
+export type PromotionRedemption = typeof promotionRedemptions.$inferSelect;
+export type NewPromotionRedemption = typeof promotionRedemptions.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Referral System (Migration 0052)
+// ---------------------------------------------------------------------------
+
+export const referralCodes = pgTable(
+  "referral_codes",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    code: varchar("code", { length: 50 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    userIdx: uniqueIndex("idx_referral_codes_user_id").on(table.userId),
+    uniqueCodeIdx: uniqueIndex("idx_referral_codes_code_unique").on(
+      sql`UPPER(${table.code})`,
+    ),
+  }),
+);
+
+export const referrals = pgTable(
+  "referrals",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    inviterUserId: uuid("inviter_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    invitedUserId: uuid("invited_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    referralCodeId: uuid("referral_code_id")
+      .notNull()
+      .references(() => referralCodes.id, { onDelete: "restrict" }),
+    status: varchar("status", { length: 30 }).default("pending").notNull(),
+    qualifyingOrderId: uuid("qualifying_order_id").references(() => orders.id, {
+      onDelete: "set null",
+    }),
+    qualifyingPaymentId: uuid("qualifying_payment_id").references(
+      () => payments.id,
+      { onDelete: "set null" },
+    ),
+    qualifiedAt: timestamp("qualified_at", { withTimezone: true }),
+    rewardType: varchar("reward_type", { length: 50 })
+      .default("wallet_credit")
+      .notNull(),
+    rewardAmount: integer("reward_amount").default(0).notNull(),
+    rewardStatus: varchar("reward_status", { length: 30 })
+      .default("pending")
+      .notNull(),
+    rewardedAt: timestamp("rewarded_at", { withTimezone: true }),
+    walletTransactionId: uuid("wallet_transaction_id").references(
+      () => walletTransactions.id,
+      { onDelete: "set null" },
+    ),
+    metadata: jsonb("metadata").default({}).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    invitedUserUniqueIdx: uniqueIndex("idx_referrals_invited_user_unique").on(
+      table.invitedUserId,
+    ),
+    inviterStatusIdx: index("idx_referrals_inviter_status").on(
+      table.inviterUserId,
+      table.status,
+    ),
+    statusIdx: index("idx_referrals_status").on(table.status),
+    noSelfReferralCheck: check(
+      "chk_referrals_no_self_referral",
+      sql`${table.inviterUserId} != ${table.invitedUserId}`,
+    ),
+  }),
+);
+
+export type ReferralCode = typeof referralCodes.$inferSelect;
+export type NewReferralCode = typeof referralCodes.$inferInsert;
+export type Referral = typeof referrals.$inferSelect;
+export type NewReferral = typeof referrals.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Daily Study Planner (Migration 0053)
+// ---------------------------------------------------------------------------
+
+export const dailyStudyPlans = pgTable(
+  "daily_study_plans",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    planDate: date("plan_date").notNull(),
+    status: varchar("status", { length: 30 }).notNull().default("in_progress"),
+    targetDurationMinutes: integer("target_duration_minutes")
+      .notNull()
+      .default(45),
+    completedDurationMinutes: integer("completed_duration_minutes")
+      .notNull()
+      .default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    userDateUniqueIdx: uniqueIndex("idx_daily_study_plans_user_date").on(
+      table.userId,
+      table.planDate,
+    ),
+    userStatusIdx: index("idx_daily_study_plans_user_status").on(
+      table.userId,
+      table.status,
+    ),
+    planDateIdx: index("idx_daily_study_plans_date").on(table.planDate),
+  }),
+);
+
+export const studyTasks = pgTable(
+  "study_tasks",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    planId: uuid("plan_id")
+      .notNull()
+      .references(() => dailyStudyPlans.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    taskType: varchar("task_type", { length: 50 }).notNull(),
+    status: varchar("status", { length: 30 }).notNull().default("pending"),
+    title: varchar("title", { length: 255 }).notNull(),
+    description: text("description"),
+    courseId: uuid("course_id").references(() => courses.id, {
+      onDelete: "set null",
+    }),
+    moduleId: uuid("module_id").references(() => modules.id, {
+      onDelete: "set null",
+    }),
+    lessonId: uuid("lesson_id").references(() => lessons.id, {
+      onDelete: "set null",
+    }),
+    quizId: uuid("quiz_id").references(() => quizzes.id, {
+      onDelete: "set null",
+    }),
+    priority: integer("priority").notNull().default(0),
+    estimatedMinutes: integer("estimated_minutes").notNull().default(15),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    metadata: jsonb("metadata").notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    planPriorityIdx: index("idx_study_tasks_plan_priority").on(
+      table.planId,
+      table.priority,
+    ),
+    userStatusIdx: index("idx_study_tasks_user_status").on(
+      table.userId,
+      table.status,
+    ),
+    lessonIdx: index("idx_study_tasks_lesson").on(table.lessonId),
+    quizIdx: index("idx_study_tasks_quiz").on(table.quizId),
+    courseIdx: index("idx_study_tasks_course").on(table.courseId),
+  }),
+);
+
+export type DailyStudyPlanRecord = typeof dailyStudyPlans.$inferSelect;
+export type NewDailyStudyPlanRecord = typeof dailyStudyPlans.$inferInsert;
+export type StudyTaskRecord = typeof studyTasks.$inferSelect;
+export type NewStudyTaskRecord = typeof studyTasks.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Support & Feedback System (Migration 0055)
+// ---------------------------------------------------------------------------
+
+export const feedbacks = pgTable(
+  "feedbacks",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    type: varchar("type", { length: 50 }).notNull(),
+    category: varchar("category", { length: 50 }).notNull(),
+    title: varchar("title", { length: 255 }).notNull(),
+    description: text("description").notNull(),
+    attachmentUrl: varchar("attachment_url", { length: 512 }),
+    status: varchar("status", { length: 30 }).notNull().default("new"),
+    adminResponse: text("admin_response"),
+    respondedAt: timestamp("responded_at", { withTimezone: true }),
+    respondedBy: uuid("responded_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    userIdx: index("idx_feedbacks_user_id").on(table.userId),
+    statusIdx: index("idx_feedbacks_status").on(table.status),
+    typeIdx: index("idx_feedbacks_type").on(table.type),
+    categoryIdx: index("idx_feedbacks_category").on(table.category),
+    createdAtIdx: index("idx_feedbacks_created_at").on(table.createdAt),
+  }),
+);
+
+export const supportTickets = pgTable(
+  "support_tickets",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    category: varchar("category", { length: 50 }).notNull(),
+    priority: varchar("priority", { length: 30 }).notNull().default("medium"),
+    status: varchar("status", { length: 30 }).notNull().default("open"),
+    title: varchar("title", { length: 255 }).notNull(),
+    description: text("description").notNull(),
+    attachmentUrl: varchar("attachment_url", { length: 512 }),
+    lastActivityAt: timestamp("last_activity_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    userIdx: index("idx_support_tickets_user_id").on(table.userId),
+    statusIdx: index("idx_support_tickets_status").on(table.status),
+    priorityIdx: index("idx_support_tickets_priority").on(table.priority),
+    categoryIdx: index("idx_support_tickets_category").on(table.category),
+    lastActivityIdx: index("idx_support_tickets_last_activity").on(
+      table.lastActivityAt,
+    ),
+    createdAtIdx: index("idx_support_tickets_created_at").on(table.createdAt),
+  }),
+);
+
+export const supportMessages = pgTable(
+  "support_messages",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    ticketId: uuid("ticket_id")
+      .notNull()
+      .references(() => supportTickets.id, { onDelete: "cascade" }),
+    senderId: uuid("sender_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    senderRole: varchar("sender_role", { length: 30 }).notNull().default("user"),
+    body: text("body").notNull(),
+    attachmentUrl: varchar("attachment_url", { length: 512 }),
+    isInternalNote: boolean("is_internal_note").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    ticketIdx: index("idx_support_messages_ticket_id").on(table.ticketId),
+    senderIdx: index("idx_support_messages_sender_id").on(table.senderId),
+    internalNoteIdx: index("idx_support_messages_internal_note").on(
+      table.ticketId,
+      table.isInternalNote,
+    ),
+    createdAtIdx: index("idx_support_messages_created_at").on(table.createdAt),
+  }),
+);
+
+export type FeedbackRecord = typeof feedbacks.$inferSelect;
+export type NewFeedbackRecord = typeof feedbacks.$inferInsert;
+export type SupportTicketRecord = typeof supportTickets.$inferSelect;
+export type NewSupportTicketRecord = typeof supportTickets.$inferInsert;
+export type SupportMessageRecord = typeof supportMessages.$inferSelect;
+export type NewSupportMessageRecord = typeof supportMessages.$inferInsert;
+

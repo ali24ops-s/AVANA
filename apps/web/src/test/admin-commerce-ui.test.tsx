@@ -10,7 +10,7 @@ import { AdminProductsPage } from "../pages/admin/commerce/AdminProductsPage.js"
 import { AdminProductEditModal } from "../components/admin/commerce/AdminProductEditModal.js";
 import { AdminCancelSubscriptionModal } from "../components/admin/commerce/AdminCancelSubscriptionModal.js";
 import { UserCommerceDrawer } from "../components/admin/commerce/UserCommerceDrawer.js";
-import { formatToman } from "../components/admin/commerce/commerceUtils.js";
+import { formatAmountOnly } from "../components/admin/commerce/commerceUtils.js";
 import { useAdmin } from "../hooks/useAdmin.js";
 
 vi.mock("../hooks/useAdmin.js", () => ({
@@ -31,6 +31,8 @@ describe("Admin Commerce & Monetization Frontend Suite", () => {
     getUserCommerceProfile: vi.fn(),
     listCourses: vi.fn(),
     listUsers: vi.fn(),
+    getContentGenerationPricing: vi.fn(),
+    getSubscriptionCreditBonuses: vi.fn(),
   };
 
   beforeEach(() => {
@@ -43,6 +45,22 @@ describe("Admin Commerce & Monetization Frontend Suite", () => {
     mockAdminApi.listCommercePayments.mockResolvedValue({ payments: [], totalCount: 0 });
     mockAdminApi.listCommerceSubscriptions.mockResolvedValue({ subscriptions: [], totalCount: 0 });
     mockAdminApi.listCommerceEntitlements.mockResolvedValue({ entitlements: [], totalCount: 0 });
+    mockAdminApi.getContentGenerationPricing.mockResolvedValue({
+      referenceDocumentId: "ref-doc-1",
+      referenceFileName: "40.pdf",
+      referenceCourseName: "فارماکولوژی",
+      referenceUsableTokens: 35572,
+      lessonBaselinePriceToman: 15000,
+      flashcardBaselinePriceToman: 7000,
+      examBaselinePriceToman: 9000,
+      summaryFixedPriceToman: 4000,
+      currency: "toman",
+    });
+    mockAdminApi.getSubscriptionCreditBonuses.mockResolvedValue({
+      monthly: 40000,
+      quarterly: 100000,
+      annual: 200000,
+    });
   });
 
   afterEach(() => {
@@ -109,12 +127,12 @@ describe("Admin Commerce & Monetization Frontend Suite", () => {
       </MemoryRouter>
     );
 
-    expect(screen.getByText("مدیریت سفارش‌ها (Orders)")).toBeDefined();
+    expect(screen.getByText("مدیریت سفارش‌ها")).toBeDefined();
 
     await waitFor(() => {
       expect(screen.getByText("ORD-2026-99")).toBeDefined();
       expect(screen.getAllByText("student@test.com").length).toBeGreaterThanOrEqual(1);
-      expect(screen.getByText("۹۹٬۰۰۰ تومان")).toBeDefined();
+      expect(screen.getByText("۹۹٬۰۰۰")).toBeDefined();
       expect(screen.getAllByText("پرداخت شده").length).toBeGreaterThanOrEqual(1);
     });
   });
@@ -147,7 +165,7 @@ describe("Admin Commerce & Monetization Frontend Suite", () => {
       </MemoryRouter>
     );
 
-    expect(screen.getByText("دفتر کل حقوق دسترسی (User Entitlements)")).toBeDefined();
+    expect(screen.getByText("حقوق دسترسی (Entitlements)")).toBeDefined();
 
     await waitFor(() => {
       expect(screen.getByText("فیزیولوژی پزشکی قلب")).toBeDefined();
@@ -156,7 +174,7 @@ describe("Admin Commerce & Monetization Frontend Suite", () => {
     });
   });
 
-  test("4. AdminProductsPage displays subscription products and handles edit modal", async () => {
+  test("4. AdminProductsPage displays subscription products and course products properly", async () => {
     const subProduct = {
       id: "prod-sub-1",
       code: "sub_monthly",
@@ -172,8 +190,23 @@ describe("Admin Commerce & Monetization Frontend Suite", () => {
       createdAt: new Date().toISOString(),
     };
 
+    const courseProduct = {
+      id: "prod-course-1",
+      code: "course_pharma",
+      type: "course",
+      title: "دوره جامع فارماکولوژی",
+      description: "توضیحات دوره",
+      price: 350000,
+      currency: "toman",
+      targetType: "course",
+      targetId: "c-101",
+      durationDays: null,
+      active: true,
+      createdAt: new Date().toISOString(),
+    };
+
     mockAdminApi.listCommerceProducts.mockResolvedValue({
-      products: [subProduct],
+      products: [subProduct, courseProduct],
     });
 
     render(
@@ -182,11 +215,16 @@ describe("Admin Commerce & Monetization Frontend Suite", () => {
       </MemoryRouter>
     );
 
-    expect(screen.getByText("کاتالوگ و قیمت‌گذاری محصولات (Products Catalog)")).toBeDefined();
+    expect(screen.getByText("کاتالوگ و قیمت‌گذاری محصولات")).toBeDefined();
 
     await waitFor(() => {
+      // Subscriptions in dedicated section
       expect(screen.getByText("اشتراک ماهانه آوانا")).toBeDefined();
-      expect(screen.getByText(formatToman(99000))).toBeDefined();
+      expect(screen.getByText("معادل: ۹۹٬۰۰۰ تومان")).toBeDefined();
+
+      // Courses in table
+      expect(screen.getByText("دوره جامع فارماکولوژی")).toBeDefined();
+      expect(screen.getByText(formatAmountOnly(350000))).toBeDefined();
     });
   });
 
@@ -362,7 +400,7 @@ describe("Admin Commerce & Monetization Frontend Suite", () => {
       </MemoryRouter>
     );
 
-    expect(screen.getByText("اشتراک‌های کاربران (User Subscriptions)")).toBeDefined();
+    expect(screen.getAllByText("اشتراک‌های کاربران").length).toBeGreaterThanOrEqual(1);
 
     await waitFor(() => {
       expect(screen.getByText("کاربر فعال")).toBeDefined();
@@ -477,7 +515,7 @@ describe("Admin Commerce & Monetization Frontend Suite", () => {
       </MemoryRouter>
     );
 
-    expect(screen.getByText("تراکنش‌ها و پرداخت‌ها (Payments & Gateways)")).toBeDefined();
+    expect(screen.getAllByText("تراکنش‌ها و پرداخت‌ها").length).toBeGreaterThanOrEqual(1);
 
     // Verify c2c row items
     await waitFor(() => {
@@ -513,5 +551,93 @@ describe("Admin Commerce & Monetization Frontend Suite", () => {
         "فیش واریزی در حساب بانکی مطابقت ندارد."
       );
     });
+  });
+
+  test("10. AdminPaymentsPage renders receipt badge, opens receipt lightbox and inspection modal with preview", async () => {
+    mockAdminApi.listCommercePayments.mockResolvedValue({
+      payments: [
+        {
+          id: "pay-c2c-with-receipt",
+          orderId: "ord-1",
+          orderNumber: "ORD-C2C-101",
+          userId: "user-1",
+          userName: "کاربر با رسید",
+          userEmail: "receipt-user@test.com",
+          productTitle: "اشتراک ۳ ماهه",
+          amount: 198000,
+          currency: "toman",
+          gateway: "card_to_card",
+          authority: null,
+          transactionId: "TRK-RECEIPT-1",
+          status: "pending_admin_review",
+          trackingNumber: "TRK-RECEIPT-1",
+          sourceCardLast4: "9988",
+          payerName: "سارا حسینی",
+          receiptUrl: "/v1/commerce/receipts/receipts%2Frec-123.png",
+          initialValidationResult: { valid: true },
+          rejectionReason: null,
+          reviewedAt: null,
+          reviewedBy: null,
+          paidAt: new Date().toISOString(),
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: "pay-c2c-no-receipt",
+          orderId: "ord-2",
+          orderNumber: "ORD-C2C-102",
+          userId: "user-2",
+          userName: "کاربر بدون رسید",
+          userEmail: "no-receipt@test.com",
+          productTitle: "اشتراک ۱ ماهه",
+          amount: 99000,
+          currency: "toman",
+          gateway: "card_to_card",
+          authority: null,
+          transactionId: "TRK-NO-RECEIPT-2",
+          status: "pending_admin_review",
+          trackingNumber: "TRK-NO-RECEIPT-2",
+          sourceCardLast4: "1122",
+          payerName: "رضا کریمی",
+          receiptUrl: null,
+          initialValidationResult: { valid: true },
+          rejectionReason: null,
+          reviewedAt: null,
+          reviewedBy: null,
+          paidAt: new Date().toISOString(),
+          createdAt: new Date().toISOString(),
+        },
+      ],
+      totalCount: 2,
+    });
+
+    render(
+      <MemoryRouter>
+        <AdminPaymentsPage />
+      </MemoryRouter>
+    );
+
+    // Verify receipt button exists for payment with receipt and "بدون فیش" badge exists for payment without receipt
+    await waitFor(() => {
+      expect(screen.getByText("TRK-RECEIPT-1")).toBeDefined();
+      expect(screen.getByText("TRK-NO-RECEIPT-2")).toBeDefined();
+      expect(screen.getByRole("button", { name: /فیش/i })).toBeDefined();
+      expect(screen.getByText("بدون فیش")).toBeDefined();
+    });
+
+    // 1. Click "فیش" button to open lightbox modal
+    fireEvent.click(screen.getByRole("button", { name: /فیش/i }));
+    expect(screen.getByText("تصویر فیش پرداخت بانکی")).toBeDefined();
+    expect(screen.getByText("دانلود / نمایش اصلی")).toBeDefined();
+
+    // Close lightbox
+    fireEvent.click(screen.getByTitle("بستن"));
+
+    // 2. Click "جزئیات" on the payment with receipt to inspect
+    const detailButtons = screen.getAllByRole("button", { name: /جزئیات/i });
+    fireEvent.click(detailButtons[0]);
+
+    expect(screen.getByText("جزئیات پرداخت و متن استخراج‌شده")).toBeDefined();
+    expect(screen.getByText("فیش پرداخت پیوست شده است")).toBeDefined();
+    expect(screen.getByText("مشاهده فیش")).toBeDefined();
   });
 });

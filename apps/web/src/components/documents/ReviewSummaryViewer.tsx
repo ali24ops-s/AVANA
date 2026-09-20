@@ -15,6 +15,7 @@ import {
   Scale,
   BrainCircuit,
   GraduationCap,
+  Lock,
 } from "lucide-react";
 import { Card, Button, Badge } from "@avana/ui";
 import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
@@ -26,7 +27,9 @@ import {
   type ReviewSummaryPayload,
   flattenReviewSummarySections,
   cleanEducationalTitle,
+  toPersianDigits,
 } from "@avana/domain";
+import { RichContent } from "../markdown/MarkdownRenderer.js";
 
 export interface ReviewSummaryViewerProps {
   organizationId: string;
@@ -35,6 +38,7 @@ export interface ReviewSummaryViewerProps {
   documentTitle?: string;
   onNavigateToFlashcards?: () => void;
   onNavigateToQuiz?: () => void;
+  onUnlock?: () => void;
 }
 
 export function ReviewSummaryViewer({
@@ -44,6 +48,7 @@ export function ReviewSummaryViewer({
   documentTitle,
   onNavigateToFlashcards,
   onNavigateToQuiz,
+  onUnlock,
 }: ReviewSummaryViewerProps) {
   const queryClient = useQueryClient();
   const apiClient = createApiClient({ baseUrl: getApiBaseUrl() });
@@ -83,7 +88,7 @@ export function ReviewSummaryViewer({
     [payload?.sections],
   );
 
-  const isGenerating = generateMutation.isPending;
+  const isGenerating = generateMutation.isPending || content?.status === "regenerating";
   const isLoading = reviewSummaryQuery.isLoading;
   const isError = reviewSummaryQuery.isError || generateMutation.error;
   const errorMessage =
@@ -129,6 +134,46 @@ export function ReviewSummaryViewer({
 
   // 3. Error state
   if (isError && !payload) {
+    const isForbidden =
+      errorMessage.includes("403") ||
+      errorMessage.toLowerCase().includes("forbidden") ||
+      errorMessage.includes("خرید دوره") ||
+      errorMessage.includes("اشتراک") ||
+      errorMessage.includes("اعضای ویژه");
+
+    if (isForbidden) {
+      return (
+        <Card className="flex flex-col items-center justify-center p-10 sm:p-14 text-center space-y-5 font-sans" dir="rtl">
+          <div className="w-16 h-16 rounded-button bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center shadow-xs">
+            <Lock className="w-8 h-8" />
+          </div>
+          <div className="space-y-2 max-w-lg">
+            <div className="flex items-center justify-center gap-2">
+              <Badge variant="warning" size="sm">
+                مخصوص نسخه کامل دوره
+              </Badge>
+            </div>
+            <h3 className="text-lg sm:text-xl font-black text-[var(--color-text)]">
+              خلاصه مروری این فصل قفل است
+            </h3>
+            <p className="text-xs sm:text-sm text-[var(--color-text-muted)] leading-relaxed">
+              برای دسترسی به خلاصه مروری جامع این فصل، نکات کلیدی و نکات مهم آزمونی، دوره مربوطه را تهیه نمایید یا اشتراک آوانا پلاس را فعال کنید.
+            </p>
+          </div>
+          {onUnlock && (
+            <Button
+              variant="primary"
+              size="md"
+              onClick={onUnlock}
+              leftIcon={<Lock className="w-4 h-4" />}
+            >
+              <span>مشاهده تعرفه‌ها و خرید دوره</span>
+            </Button>
+          )}
+        </Card>
+      );
+    }
+
     return (
       <Card className="flex flex-col items-center justify-center p-10 text-center space-y-4 font-sans" dir="rtl">
         <div className="w-12 h-12 rounded-button bg-[var(--color-error-soft)] dark:bg-red-950/40 text-[var(--color-error)] flex items-center justify-center">
@@ -218,7 +263,7 @@ export function ReviewSummaryViewer({
                 خلاصه مروری (Review Summary)
               </Badge>
               <Badge variant="warning" size="md" icon={<Clock className="w-3.5 h-3.5" />}>
-                زمان مطالعه تقریبی: {estimatedMins.toLocaleString("fa-IR")} دقیقه
+                زمان مطالعه تقریبی: {toPersianDigits(estimatedMins)} دقیقه
               </Badge>
               <Badge variant="secondary" size="md" icon={<GraduationCap className="w-3.5 h-3.5" />}>
                 مناسب برای: مرور سریع قبل از آزمون
@@ -263,9 +308,9 @@ export function ReviewSummaryViewer({
               خلاصه یک‌دقیقه‌ای (Quick Core Overview)
             </h2>
           </div>
-          <p className="text-xs sm:text-sm text-[var(--color-text)] leading-relaxed font-medium">
-            {payload.overview}
-          </p>
+          <div className="text-xs sm:text-sm text-[var(--color-text)] leading-relaxed font-medium">
+            <RichContent content={payload.overview} />
+          </div>
         </Card>
       )}
 
@@ -285,14 +330,16 @@ export function ReviewSummaryViewer({
                 <span>نکات کلیدی و مفاهیم اصلی</span>
               </h3>
               <Badge variant="neutral" size="sm">
-                {categories.keyPoints.length.toLocaleString("fa-IR")} نکته
+                {toPersianDigits(categories.keyPoints.length)} نکته
               </Badge>
             </div>
             <ul className="space-y-3 ps-1">
               {categories.keyPoints.map((pt, pIdx) => (
                 <li key={pIdx} className="flex items-start gap-3 text-xs sm:text-sm text-[var(--color-text)]">
                   <span className="w-2 h-2 rounded-full bg-[var(--color-primary)] shrink-0 mt-2 shadow-xs" />
-                  <span className="leading-relaxed font-medium">{pt}</span>
+                  <span className="leading-relaxed font-medium flex-1">
+                    <RichContent inline content={pt} />
+                  </span>
                 </li>
               ))}
             </ul>
@@ -313,14 +360,16 @@ export function ReviewSummaryViewer({
                     <span>مکانیسم‌های سلولی / مولکولی</span>
                   </h3>
                   <Badge variant="secondary" size="sm">
-                    {categories.mechanisms.length.toLocaleString("fa-IR")} مکانیسم
+                    {toPersianDigits(categories.mechanisms.length)} مکانیسم
                   </Badge>
                 </div>
                 <ul className="space-y-2.5 text-xs sm:text-sm text-[var(--color-text)] ps-1">
                   {categories.mechanisms.map((m, mIdx) => (
                     <li key={mIdx} className="flex items-start gap-2.5">
                       <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-secondary-dark)] dark:bg-[var(--color-secondary-blue)] shrink-0 mt-1.5" />
-                      <span className="leading-relaxed">{m}</span>
+                      <span className="leading-relaxed flex-1">
+                        <RichContent inline content={m} />
+                      </span>
                     </li>
                   ))}
                 </ul>
@@ -338,14 +387,16 @@ export function ReviewSummaryViewer({
                     <span>دسته‌بندی و طبقه‌بندی ساختاری</span>
                   </h3>
                   <Badge variant="neutral" size="sm">
-                    {categories.classifications.length.toLocaleString("fa-IR")} دسته
+                    {toPersianDigits(categories.classifications.length)} دسته
                   </Badge>
                 </div>
                 <ul className="space-y-2.5 text-xs sm:text-sm text-[var(--color-text)] ps-1">
                   {categories.classifications.map((c, cIdx) => (
                     <li key={cIdx} className="flex items-start gap-2.5">
                       <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-text-muted)] shrink-0 mt-1.5" />
-                      <span className="leading-relaxed">{c}</span>
+                      <span className="leading-relaxed flex-1">
+                        <RichContent inline content={c} />
+                      </span>
                     </li>
                   ))}
                 </ul>
@@ -365,7 +416,7 @@ export function ReviewSummaryViewer({
                 <span>مقایسه‌ها و تفاوت‌های کلیدی (Key Distinctions)</span>
               </h3>
               <Badge variant="primary" size="sm">
-                {categories.comparisons.length.toLocaleString("fa-IR")} مورد مقایسه
+                {toPersianDigits(categories.comparisons.length)} مورد مقایسه
               </Badge>
             </div>
 
@@ -377,7 +428,7 @@ export function ReviewSummaryViewer({
                       key={compIdx}
                       className="p-3.5 rounded-button bg-[var(--color-surface-warm)] text-xs text-[var(--color-text)] leading-relaxed font-medium border border-[var(--color-border)]"
                     >
-                      {comp}
+                      <RichContent inline content={comp} />
                     </div>
                   );
                 }
@@ -387,16 +438,16 @@ export function ReviewSummaryViewer({
                     className="p-4 rounded-button bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-xs space-y-1.5"
                   >
                     <div className="flex items-center gap-2 font-bold text-[var(--color-text)] text-xs sm:text-sm">
-                      <span>{comp.conceptA}</span>
+                      <RichContent inline content={comp.conceptA} />
                       <span className="text-[var(--color-primary-dark)] dark:text-[var(--color-primary-light)] font-black px-1.5 py-0.5 rounded-sm bg-[var(--color-primary-soft)] text-[11px]">
                         vs
                       </span>
-                      <span>{comp.conceptB}</span>
+                      <RichContent inline content={comp.conceptB} />
                     </div>
-                    <p className="text-[var(--color-text-muted)] leading-relaxed font-medium">
+                    <div className="text-[var(--color-text-muted)] leading-relaxed font-medium">
                       <span className="font-bold text-[var(--color-text)]">وجه تمایز: </span>
-                      {comp.keyDifferences}
-                    </p>
+                      <RichContent inline content={comp.keyDifferences} />
+                    </div>
                   </div>
                 );
               })}
@@ -415,7 +466,7 @@ export function ReviewSummaryViewer({
                 <span>نکات حفظی و اعداد مهم</span>
               </h3>
               <Badge variant="warning" size="sm">
-                {categories.memorizationPoints.length.toLocaleString("fa-IR")} نکته حفظی
+                {toPersianDigits(categories.memorizationPoints.length)} نکته حفظی
               </Badge>
             </div>
 
@@ -423,7 +474,9 @@ export function ReviewSummaryViewer({
               {categories.memorizationPoints.map((mem, memIdx) => (
                 <li key={memIdx} className="flex items-start gap-2.5">
                   <span className="w-2 h-2 rounded-full bg-[var(--color-warning)] shrink-0 mt-1.5" />
-                  <span className="leading-relaxed font-semibold">{mem}</span>
+                  <span className="leading-relaxed font-semibold flex-1">
+                    <RichContent inline content={mem} />
+                  </span>
                 </li>
               ))}
             </ul>
@@ -441,14 +494,16 @@ export function ReviewSummaryViewer({
                 <span>نکات مهم و پرتکرار آزمونی</span>
               </h3>
               <Badge variant="error" size="sm">
-                {categories.examPoints.length.toLocaleString("fa-IR")} نکته تست‌خیز
+                {toPersianDigits(categories.examPoints.length)} نکته تست‌خیز
               </Badge>
             </div>
             <ul className="space-y-2.5 text-xs sm:text-sm text-[var(--color-text)] ps-1">
               {categories.examPoints.map((ex, exIdx) => (
                 <li key={exIdx} className="flex items-start gap-2.5">
                   <span className="w-2 h-2 rounded-full bg-[var(--color-error)] shrink-0 mt-1.5" />
-                  <span className="leading-relaxed font-bold">{ex}</span>
+                  <span className="leading-relaxed font-bold flex-1">
+                    <RichContent inline content={ex} />
+                  </span>
                 </li>
               ))}
             </ul>
@@ -469,7 +524,9 @@ export function ReviewSummaryViewer({
             {payload.finalTakeaways.map((takeaway, tIdx) => (
               <li key={tIdx} className="flex items-start gap-2.5">
                 <CheckCircle2 className="w-4 h-4 text-[var(--color-primary)] shrink-0 mt-0.5" />
-                <span className="leading-relaxed font-medium">{takeaway}</span>
+                <span className="leading-relaxed font-medium flex-1">
+                  <RichContent inline content={takeaway} />
+                </span>
               </li>
             ))}
           </ul>

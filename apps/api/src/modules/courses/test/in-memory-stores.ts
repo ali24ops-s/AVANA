@@ -9,8 +9,13 @@ import type {
   CourseId,
   OrganizationId,
   UserId,
+  CoursePublicationRecord,
 } from "@avana/domain";
-import type { CourseRecord, CourseStore } from "../course-store.js";
+import type {
+  CourseRecord,
+  CourseStore,
+  CoursePublicationStore,
+} from "../course-store.js";
 
 export class InMemoryCourseStore implements CourseStore {
   private courses: Map<string, CourseRecord> = new Map();
@@ -230,5 +235,168 @@ export class InMemoryCourseStore implements CourseStore {
   }
 }
 
+export class InMemoryCoursePublicationStore implements CoursePublicationStore {
+  private publications: Map<string, CoursePublicationRecord> = new Map();
+  private creatorProfiles: Map<string, { id: string; name: string }> = new Map();
 
+  setCreatorProfile(userId: string, name: string) {
+    this.creatorProfiles.set(userId, { id: userId, name });
+  }
 
+  async create(
+    publication: CoursePublicationRecord,
+  ): Promise<CoursePublicationRecord> {
+    this.publications.set(publication.id, { ...publication });
+    return { ...publication };
+  }
+
+  async findById(
+    id: import("@avana/domain").CoursePublicationId,
+  ): Promise<import("@avana/domain").CoursePublicationRecord | undefined> {
+    const pub = this.publications.get(id);
+    if (!pub || pub.deletedAt !== null) return undefined;
+    return { ...pub };
+  }
+
+  async findLatestByCourse(
+    courseId: import("@avana/domain").CourseId,
+  ): Promise<import("@avana/domain").CoursePublicationRecord | undefined> {
+    const pubs = Array.from(this.publications.values())
+      .filter((p) => p.courseId === courseId && p.deletedAt === null)
+      .sort((a, b) => {
+        if (b.version !== a.version) return b.version - a.version;
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
+    return pubs[0] ? { ...pubs[0] } : undefined;
+  }
+
+  async findPublishedByCourse(
+    courseId: import("@avana/domain").CourseId,
+  ): Promise<import("@avana/domain").CoursePublicationRecord | undefined> {
+    const pubs = Array.from(this.publications.values())
+      .filter((p) => p.courseId === courseId && p.status === "published" && p.deletedAt === null)
+      .sort((a, b) => b.version - a.version);
+    return pubs[0] ? { ...pubs[0] } : undefined;
+  }
+
+  async updateStatus(
+    id: import("@avana/domain").CoursePublicationId,
+    status: import("@avana/domain").CoursePublicationStatus,
+    metadata: import("@avana/domain").CoursePublicationMetadata,
+    publishedAt?: string | null,
+  ): Promise<import("@avana/domain").CoursePublicationRecord> {
+    const pub = this.publications.get(id);
+    if (!pub) {
+      throw new Error(`Course publication ${id} not found`);
+    }
+    const updated: import("@avana/domain").CoursePublicationRecord = {
+      ...pub,
+      status,
+      metadata,
+      publishedAt: publishedAt !== undefined ? publishedAt : pub.publishedAt,
+      updatedAt: new Date().toISOString(),
+    };
+    this.publications.set(id, updated);
+    return { ...updated };
+  }
+
+  async listAll(options: {
+    status?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<{
+    items: import("@avana/domain").CoursePublicationRecord[];
+    totalCount: number;
+  }> {
+    let pubs = Array.from(this.publications.values()).filter(
+      (p) => p.deletedAt === null,
+    );
+
+    if (options.status && options.status !== "all") {
+      pubs = pubs.filter((p) => p.status === options.status);
+    }
+
+    if (options.search && options.search.trim().length > 0) {
+      const q = options.search.trim().toLowerCase();
+      pubs = pubs.filter(
+        (p) =>
+          p.title.toLowerCase().includes(q) ||
+          p.description?.toLowerCase().includes(q) ||
+          p.subject?.toLowerCase().includes(q),
+      );
+    }
+
+    pubs.sort(
+      (a, b) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    );
+
+    const page = Math.max(1, options.page ?? 1);
+    const limit = Math.max(1, options.limit ?? 20);
+    const start = (page - 1) * limit;
+
+    return {
+      items: pubs.slice(start, start + limit).map((p) => ({ ...p })),
+      totalCount: pubs.length,
+    };
+  }
+
+  async listPublished(options: {
+    q?: string;
+    subject?: string;
+    sort?: "popular" | "newest";
+    page?: number;
+    limit?: number;
+  }): Promise<{
+    items: import("@avana/domain").CoursePublicationRecord[];
+    totalCount: number;
+  }> {
+    let pubs = Array.from(this.publications.values()).filter(
+      (p) => p.status === "published" && p.deletedAt === null,
+    );
+
+    if (options.subject && options.subject !== "all") {
+      pubs = pubs.filter((p) => p.subject === options.subject);
+    }
+
+    if (options.q && options.q.trim().length > 0) {
+      const q = options.q.trim().toLowerCase();
+      pubs = pubs.filter(
+        (p) =>
+          p.title.toLowerCase().includes(q) ||
+          p.description?.toLowerCase().includes(q) ||
+          p.subject?.toLowerCase().includes(q),
+      );
+    }
+
+    if (options.sort === "newest") {
+      pubs.sort(
+        (a, b) =>
+          new Date(b.publishedAt ?? b.createdAt).getTime() -
+          new Date(a.publishedAt ?? a.createdAt).getTime(),
+      );
+    } else {
+      pubs.sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      );
+    }
+
+    const page = Math.max(1, options.page ?? 1);
+    const limit = Math.max(1, options.limit ?? 20);
+    const start = (page - 1) * limit;
+
+    return {
+      items: pubs.slice(start, start + limit).map((p) => ({ ...p })),
+      totalCount: pubs.length,
+    };
+  }
+
+  async getCreatorPublicInfo(
+    creatorUserId: import("@avana/domain").UserId | null,
+  ): Promise<{ id: string; name: string } | null> {
+    if (!creatorUserId) return null;
+    return this.creatorProfiles.get(creatorUserId) ?? { id: creatorUserId, name: "کاربر آوانا" };
+  }
+}

@@ -17,6 +17,10 @@ export interface TabsProps {
   className?: string;
 }
 
+const formatTabBadge = (badge: string | number) => {
+  return String(badge).replace(/[0-9]/g, (d) => "۰۱۲۳۴۵۶۷۸۹"[parseInt(d, 10)]);
+};
+
 export const Tabs: React.FC<TabsProps> = ({
   items,
   defaultTabId,
@@ -64,7 +68,7 @@ export const Tabs: React.FC<TabsProps> = ({
                       isActive ? "bg-[#e0f2f2] text-[#006666]" : "bg-slate-200 dark:bg-slate-800 text-[var(--color-text-muted)]"
                     }`}
                   >
-                    {tab.badge}
+                    {formatTabBadge(tab.badge)}
                   </span>
                 )}
               </button>
@@ -105,7 +109,7 @@ export const Tabs: React.FC<TabsProps> = ({
                     isActive ? "bg-[#e0f2f2] text-[#006666]" : "bg-[var(--color-surface-warm)] text-[var(--color-text-muted)]"
                   }`}
                 >
-                  {tab.badge}
+                  {formatTabBadge(tab.badge)}
                 </span>
               )}
             </button>

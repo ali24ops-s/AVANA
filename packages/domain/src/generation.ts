@@ -16,6 +16,7 @@ import type {
   GenerationJobId,
   OrganizationId,
 } from "./ids.js";
+import type { ChemicalStructure } from "./chemistry/types.js";
 
 // ---------------------------------------------------------------------------
 // Incremental / Resumable Generation Primitives
@@ -385,6 +386,7 @@ export type LessonSession = {
   contentMarkdown: string;
   citationChunkIds?: string[];
   estimatedMinutes?: number;
+  chemicalStructures?: ChemicalStructure[];
 };
 
 export type LessonPayload = {
@@ -399,6 +401,7 @@ export type LessonPayload = {
   contentMarkdown: string;
   citationChunkIds: string[];
   coverageReport?: DocumentCoverageReport;
+  chemicalStructures?: ChemicalStructure[];
 };
 
 export type FlashcardPayload = {

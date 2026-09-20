@@ -16,6 +16,7 @@ import {
   nextReviewInterval,
   nextDueAt,
   formatReviewIntervalHint,
+  isFlashcardGraduatedInSession,
 } from "../study.js";
 import {
   auditFlashcardReviewed,
@@ -233,5 +234,44 @@ describe("PR6-7 Audit Helpers", () => {
       correct: 4,
       total: 5,
     });
+  });
+});
+
+describe("Flashcard Session Graduation Logic (isFlashcardGraduatedInSession)", () => {
+  it("never graduates an empty or 'again' rating", () => {
+    expect(isFlashcardGraduatedInSession([])).toBe(false);
+    expect(isFlashcardGraduatedInSession(["again"])).toBe(false);
+    expect(isFlashcardGraduatedInSession(["good", "again"])).toBe(false);
+    expect(isFlashcardGraduatedInSession(["hard", "hard", "hard", "again"])).toBe(false);
+  });
+
+  it("handles Hard ratings (Scenario 1-4: exactly 4 evaluations required to graduate)", () => {
+    // 1st Hard -> Not completed
+    expect(isFlashcardGraduatedInSession(["hard"])).toBe(false);
+    // 2nd Hard -> Not completed
+    expect(isFlashcardGraduatedInSession(["hard", "hard"])).toBe(false);
+    // 3rd Hard -> Not completed
+    expect(isFlashcardGraduatedInSession(["hard", "hard", "hard"])).toBe(false);
+    // 4th Hard -> Completed!
+    expect(isFlashcardGraduatedInSession(["hard", "hard", "hard", "hard"])).toBe(true);
+    // 5th Hard -> Completed
+    expect(isFlashcardGraduatedInSession(["hard", "hard", "hard", "hard", "hard"])).toBe(true);
+  });
+
+  it("handles Good ratings (Scenario 5: 1st Good is NOT completed, 2nd Good graduates)", () => {
+    // 1st Good -> Not completed, stays in session
+    expect(isFlashcardGraduatedInSession(["good"])).toBe(false);
+    // 2nd Good -> Completed!
+    expect(isFlashcardGraduatedInSession(["good", "good"])).toBe(true);
+    // Again followed by Good -> 2 evaluations, completes!
+    expect(isFlashcardGraduatedInSession(["again", "good"])).toBe(true);
+    // Hard followed by Good -> 2 evaluations, completes!
+    expect(isFlashcardGraduatedInSession(["hard", "good"])).toBe(true);
+  });
+
+  it("handles Easy ratings (graduates immediately on 1st evaluation)", () => {
+    expect(isFlashcardGraduatedInSession(["easy"])).toBe(true);
+    expect(isFlashcardGraduatedInSession(["again", "easy"])).toBe(true);
+    expect(isFlashcardGraduatedInSession(["hard", "easy"])).toBe(true);
   });
 });

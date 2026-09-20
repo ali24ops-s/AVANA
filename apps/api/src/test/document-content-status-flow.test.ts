@@ -315,8 +315,35 @@ describe("Document Content Status & DB Source of Truth Flow", () => {
     expect(status.lesson.generated).toBe(true);
     expect(status.flashcards.generated).toBe(true);
     expect(status.exam.generated).toBe(true);
-    expect(status.all_generated).toBe(true);
-    expect(status.can_generate).toBe(false);
+    expect(status.review_summary?.generated).toBe(false);
+    expect(status.all_generated).toBe(false);
+    expect(status.can_generate).toBe(true);
+
+    // Insert review summary as 4th item
+    await generatedContentStore.create({
+      id: "gen-sum-1" as GeneratedContentId,
+      documentId: docId,
+      organizationId: orgId,
+      type: "review_summary",
+      status: "draft",
+      payload: { summary: "Review summary content" } as GeneratedContentPayload,
+      confidenceScore: 0.95,
+      reviewNotes: null,
+      reviewedByUserId: null,
+      reviewedAt: null,
+      deletedAt: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    const statusAll = await generationService.getDocumentContentStatus(
+      actor,
+      orgId,
+      docId,
+      courseId,
+    );
+    expect(statusAll.all_generated).toBe(true);
+    expect(statusAll.can_generate).toBe(false);
   });
 
   // -------------------------------------------------------------------------

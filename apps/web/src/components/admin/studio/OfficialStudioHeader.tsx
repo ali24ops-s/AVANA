@@ -11,6 +11,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import type { OfficialCourse } from "../../../lib/api/admin.js";
+import { toPersianDigits } from "@avana/domain";
 
 export interface OfficialStudioHeaderProps {
   course: OfficialCourse;
@@ -151,31 +152,31 @@ export function OfficialStudioHeader({
         <div className="flex flex-wrap items-center gap-2 sm:gap-2.5 bg-[var(--color-surface-warm)]/50 p-2.5 rounded-xl border border-[var(--color-border)]">
           <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)] text-xs">
             <Layers className="w-3.5 h-3.5 text-[var(--color-primary-default)]" />
-            <span className="font-bold">{course.moduleCount}</span>
+            <span className="font-bold">{toPersianDigits(course.moduleCount)}</span>
             <span className="text-[11px] text-[var(--color-text-muted)]">فصل</span>
           </div>
 
           <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)] text-xs">
             <BookOpen className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" />
-            <span className="font-bold">{course.lessonCount}</span>
+            <span className="font-bold">{toPersianDigits(course.lessonCount)}</span>
             <span className="text-[11px] text-[var(--color-text-muted)]">درس</span>
           </div>
 
           <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)] text-xs">
             <Sparkles className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
-            <span className="font-bold">{course.flashcardCount}</span>
+            <span className="font-bold">{toPersianDigits(course.flashcardCount)}</span>
             <span className="text-[11px] text-[var(--color-text-muted)]">فلش‌کارت</span>
           </div>
 
           <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)] text-xs">
             <HelpCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-            <span className="font-bold">{course.quizQuestionCount}</span>
+            <span className="font-bold">{toPersianDigits(course.quizQuestionCount)}</span>
             <span className="text-[11px] text-[var(--color-text-muted)]">سؤال تستی</span>
           </div>
 
           {course.product && (
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-300 text-xs font-bold">
-              <span>{course.product.price.toLocaleString("fa-IR")} تومان</span>
+              <span>{toPersianDigits(course.product.price.toLocaleString("fa-IR"))} تومان</span>
               <span className="text-[10px] opacity-80">
                 {course.product.active ? "(فعال)" : "(پیش‌نویس قیمت)"}
               </span>

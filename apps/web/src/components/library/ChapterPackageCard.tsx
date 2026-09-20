@@ -24,7 +24,12 @@ import {
   AlertCircle,
 } from "lucide-react";
 import type { ChapterPackageItem } from "@avana/domain";
-import { toPersianDigits, formatPersianOf } from "@avana/domain";
+import {
+  toPersianDigits,
+  formatPersianOf,
+  cleanEducationalTitle,
+  cleanEducationalDescription,
+} from "@avana/domain";
 import { formatToman } from "../commerce/userCommerceUtils.js";
 import { Card, Badge, Button } from "@avana/ui";
 
@@ -158,20 +163,21 @@ export function ChapterPackageCard({
 
         {/* Chapter Title */}
         <h3 className="text-base font-bold text-[var(--color-text)] group-hover:text-primary transition-colors line-clamp-1 mb-1">
-          {packageItem.title}
+          {cleanEducationalTitle(packageItem.title, "فصل: مبحث آموزشی جامع")}
         </h3>
 
         {/* Course Title Lineage */}
         <div className="flex items-center gap-1.5 text-xs text-[var(--color-text-muted)] mb-3">
           <GraduationCap className="w-3.5 h-3.5 text-primary shrink-0" />
-          <span className="truncate">دوره: {packageItem.courseTitle}</span>
+          <span className="truncate">دوره: {cleanEducationalTitle(packageItem.courseTitle, "دوره آموزشی جامع")}</span>
         </div>
 
         {/* Description */}
         <p className="text-xs text-[var(--color-text-muted)] line-clamp-2 leading-relaxed mb-4 min-h-[2rem]">
-          {packageItem.description && packageItem.description.trim().length > 0
-            ? packageItem.description
-            : "بسته آموزشی جامع فصل شامل درسنامه ساختاریافته، خلاصه نکات کلیدی، فلش‌کارت‌های مرور فعال و آزمون تستی."}
+          {cleanEducationalDescription(
+            packageItem.description,
+            "بسته آموزشی جامع فصل شامل درسنامه ساختاریافته، خلاصه نکات کلیدی، فلش‌کارت‌های مرور فعال و آزمون تستی.",
+          )}
         </p>
 
         {/* Free Preview Explanatory Notice */}
@@ -184,7 +190,7 @@ export function ChapterPackageCard({
         {/* 4 Educational Content Items in Package */}
         <div className="grid grid-cols-2 gap-2 mb-4">
           {/* 1. Lesson (درسنامه) */}
-          {contents.lesson.exists && (
+          {contents.lesson?.exists && (
             <div
               data-testid="item-lesson"
               className="flex items-center justify-between p-2 rounded-[10px] bg-[#e8f4fb] border border-[#a7d0e6] text-xs text-[#2b6d8f]"
@@ -192,7 +198,7 @@ export function ChapterPackageCard({
               <div className="flex items-center gap-2 min-w-0">
                 <BookOpen className="w-3.5 h-3.5 text-[#5ba0c4] shrink-0" />
                 <span className="truncate">
-                  درسنامه {contents.lesson.count > 1 ? `(${contents.lesson.count} جلسه)` : ""}
+                  درسنامه {(contents.lesson.count ?? 0) > 1 ? `(${contents.lesson.count} جلسه)` : ""}
                 </span>
               </div>
               {!hasAccess && packageItem.preview?.lesson?.available && (
@@ -204,7 +210,7 @@ export function ChapterPackageCard({
           )}
 
           {/* 2. Summary (خلاصه) */}
-          {contents.summary.exists && (
+          {contents.summary?.exists && (
             <div
               data-testid="item-summary"
               className="flex items-center gap-2 p-2 rounded-[10px] bg-[#e0f2f2] border border-[#b3d9d9] text-xs text-[#006666]"
@@ -215,14 +221,14 @@ export function ChapterPackageCard({
           )}
 
           {/* 3. Flashcards (فلش‌کارت) */}
-          {contents.flashcards.exists && (
+          {contents.flashcards?.exists && (
             <div
               data-testid="item-flashcards"
               className="flex items-center justify-between p-2 rounded-[10px] bg-[#fdf2e4] border border-[#e8c18a] text-xs text-[#8f5e27]"
             >
               <div className="flex items-center gap-2 min-w-0">
                 <Layers className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                <span className="truncate">{stats.flashcardCount} فلش‌کارت</span>
+                <span className="truncate">{toPersianDigits(stats.flashcardCount)} فلش‌کارت</span>
               </div>
               {!hasAccess && packageItem.preview?.flashcards?.available && (
                 <span className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#e8c18a]/40 text-[#8f5e27]">
@@ -233,14 +239,14 @@ export function ChapterPackageCard({
           )}
 
           {/* 4. Quiz (آزمون) */}
-          {contents.quiz.exists && (
+          {contents.quiz?.exists && (
             <div
               data-testid="item-quiz"
               className="flex items-center justify-between p-2 rounded-[10px] bg-[#f3e8ff] border border-[#d8b4fe] text-xs text-[#7c3aed]"
             >
               <div className="flex items-center gap-2 min-w-0">
                 <HelpCircle className="w-3.5 h-3.5 text-purple-500 shrink-0" />
-                <span className="truncate">{stats.quizQuestionCount} سوال آزمون</span>
+                <span className="truncate">{toPersianDigits(stats.quizQuestionCount)} سوال آزمون</span>
               </div>
               {!hasAccess && packageItem.preview?.quiz?.available && (
                 <span className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#d8b4fe]/40 text-[#7c3aed]">

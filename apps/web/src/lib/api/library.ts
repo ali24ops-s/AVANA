@@ -50,6 +50,8 @@ export interface LibraryCourseItem {
   subject: string | null;
   module_count: number;
   content_count: number;
+  flashcard_count?: number;
+  quiz_question_count?: number;
   progress?: {
     completed_lessons: number;
     total_lessons: number;
@@ -58,6 +60,7 @@ export interface LibraryCourseItem {
   access?: ResourceAccessSummary;
   purchase?: ResourcePurchaseSummary;
   preview?: import("@avana/domain").ContentPreviewMetadata;
+  packages?: import("@avana/domain").ChapterPackageItem[];
   href: string;
   created_at: string;
   updated_at: string;

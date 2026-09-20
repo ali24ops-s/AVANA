@@ -72,6 +72,7 @@ export function createAuthApi(client: ApiClient) {
       phoneNumber?: string,
       firstName?: string,
       lastName?: string,
+      referralCode?: string,
     ): Promise<RegisterResponse> {
       const body: RegisterRequest = {
         email,
@@ -80,6 +81,7 @@ export function createAuthApi(client: ApiClient) {
         phoneNumber,
         firstName,
         lastName,
+        referralCode,
       };
       return client.post<RegisterResponse>("/v1/auth/register", body);
     },

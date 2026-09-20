@@ -64,3 +64,9 @@ export {
   DrizzleLessonAnnotationStore,
   DrizzleContentReportStore,
 } from "./annotation-store.js";
+export {
+  StudyPlannerService,
+  type StudyPlannerServiceDeps,
+} from "./study-planner-service.js";
+export type { DailyStudyPlanStore } from "./study-store.js";
+export { DrizzleDailyStudyPlanStore } from "./drizzle-stores.js";

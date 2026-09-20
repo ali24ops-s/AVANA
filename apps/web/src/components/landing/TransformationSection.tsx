@@ -53,16 +53,6 @@ export function TransformationSection() {
           آوانا، این پراکندگی را تبدیل به{" "}
           <span className="text-[#008080]">مسیر یادگیری</span> می‌کند.
         </motion.h2>
-
-        <motion.p
-          initial={{ opacity: 0, y: 15 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.6, delay: 0.2 }}
-          className="mt-3 text-base sm:text-lg text-[#3d4f55] leading-relaxed"
-        >
-          منابع درسی‌ات را یک‌جا جمع می‌کند و آن‌ها را به یک مسیر هوشمند برای یادگیری، تمرین و مرور تبدیل می‌کند.
-        </motion.p>
       </div>
 
       {/* TRANSFORMATION FLOW PIPELINE */}

@@ -13,6 +13,7 @@ import type {
   AuditEvent,
   CourseId,
   CourseStatus,
+  ExamScope,
   OrganizationId,
   UserId,
 } from "@avana/domain";
@@ -26,6 +27,7 @@ export type CourseRecord = {
   status?: CourseStatus;
   isOfficial?: boolean;
   examDate: string | null;
+  examScope?: ExamScope | null;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
@@ -98,5 +100,55 @@ export interface CourseStore {
 
   /** Permanently delete a course record by ID. */
   delete?(courseId: CourseId): Promise<void>;
+}
+
+export interface CoursePublicationStore {
+  /** Create a new course publication snapshot record. */
+  create(publication: import("@avana/domain").CoursePublicationRecord): Promise<import("@avana/domain").CoursePublicationRecord>;
+
+  /** Find a publication record by ID. */
+  findById(id: import("@avana/domain").CoursePublicationId): Promise<import("@avana/domain").CoursePublicationRecord | undefined>;
+
+  /** Find the latest publication record for a course. */
+  findLatestByCourse(courseId: CourseId): Promise<import("@avana/domain").CoursePublicationRecord | undefined>;
+
+  /** Find the currently published version for a course. */
+  findPublishedByCourse(courseId: CourseId): Promise<import("@avana/domain").CoursePublicationRecord | undefined>;
+
+  /** Update publication status and metadata. */
+  updateStatus(
+    id: import("@avana/domain").CoursePublicationId,
+    status: import("@avana/domain").CoursePublicationStatus,
+    metadata: import("@avana/domain").CoursePublicationMetadata,
+    publishedAt?: string | null,
+  ): Promise<import("@avana/domain").CoursePublicationRecord>;
+
+  /** List all course publications for admin review. */
+  listAll(options: {
+    status?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<{
+    items: import("@avana/domain").CoursePublicationRecord[];
+    totalCount: number;
+  }>;
+
+  /** List published course publications for the public library. */
+  listPublished(options: {
+    q?: string;
+    subject?: string;
+    sort?: "popular" | "newest";
+    page?: number;
+    limit?: number;
+  }): Promise<{
+    items: import("@avana/domain").CoursePublicationRecord[];
+    totalCount: number;
+  }>;
+
+  /** Fetch creator public information (name only, no email/private info). */
+  getCreatorPublicInfo(
+    creatorUserId: UserId | null,
+  ): Promise<{ id: string; name: string } | null>;
 }
 

@@ -37,6 +37,9 @@ import {
   InMemorySessionStore,
   InMemoryUserStore,
 } from "../modules/identity/test/in-memory-stores.js";
+import { InMemoryWalletStore } from "../modules/wallet/wallet-store.js";
+import { WalletService } from "../modules/wallet/wallet-service.js";
+import { hashToken } from "../modules/identity/session-service.js";
 import { GeminiModelGateway } from "../modules/generation/gateway/gemini.js";
 import {
   OpenRouterModelGateway,
@@ -190,6 +193,7 @@ describe("AI Provider Architecture & Request-Path Isolation Tests", () => {
         content: "محتوای بخش اول سند داروسازی و آنتی‌بیوتیک‌ها.",
         pageNumber: 1,
         tokenCount: 20,
+        tokenEstimate: 20,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       },
@@ -700,7 +704,7 @@ describe("AI Provider Architecture & Request-Path Isolation Tests", () => {
       });
 
       const sessionStore = new InMemorySessionStore();
-      const userStore = new InMemoryUserStore();
+      const userStore = new InMemoryUserStore(organizationStore);
       const config = loadApiConfig();
 
       const genService = new GenerationService(
@@ -721,6 +725,8 @@ describe("AI Provider Architecture & Request-Path Isolation Tests", () => {
       );
 
       const queue = new InMemoryGenerationQueue(generationJobStore, genService);
+      const walletStore = new InMemoryWalletStore();
+      const walletService = new WalletService(walletStore);
 
       const app = createApp({ config });
       await app.register(v1Routes, {
@@ -746,39 +752,45 @@ describe("AI Provider Architecture & Request-Path Isolation Tests", () => {
         queue,
         gateway: userGateway,
         assistantGateway: userGateway,
+        walletStore,
+        walletService,
       });
 
-      // Register platform admin user and get session
-      const regRes = await app.inject({
-        method: "POST",
-        url: "/v1/auth/register",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          email: "admin_doc_gen@avana.ai",
-          password: "password123456",
-          name: "Admin Doc Gen",
-          phoneNumber: "09121110099",
-        }),
+      // Create student user with a session and funded wallet
+      const studentSessionToken = "student-session-secret-token-123";
+      await userStore.createUserWithPassword({
+        email: "student_doc_gen@avana.ai",
+        passwordHash: "dummy-hash",
+        name: "Student Doc Gen",
+        phoneNumber: "09121110099",
+        globalRole: null,
       });
-      expect(regRes.statusCode).toBe(200);
-      const cookie = regRes.cookies.find((c) => c.name === "avana_session");
-      const sessionCookie = `avana_session=${cookie?.value}`;
+      const createdUser = (await userStore.findByEmail("student_doc_gen@avana.ai"))!;
+      organizationStore.addMembership({
+        id: randomUUID(),
+        organizationId: orgId,
+        userId: createdUser.id,
+        role: "student",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+      await sessionStore.insert({
+        userId: createdUser.id,
+        tokenHash: hashToken(studentSessionToken),
+        expiresAt: new Date(Date.now() + 86400000).toISOString(),
+      });
+      await walletStore.createWallet({
+        userId: createdUser.id,
+        balance: 100_000,
+        currency: "toman",
+        status: "active",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
 
-      const createdUser = await userStore.findByEmail("admin_doc_gen@avana.ai");
-      if (createdUser) {
-        createdUser.role = "platform_admin";
-        createdUser.globalRole = "platform_admin";
-        organizationStore.addMembership({
-          id: randomUUID(),
-          organizationId: orgId,
-          userId: createdUser.id,
-          role: "platform_admin",
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        });
-      }
+      const sessionCookie = `avana_session=${studentSessionToken}`;
 
-      // Trigger document generation from platform_admin on the main site endpoint
+      // Trigger document generation from student on the main site endpoint
       const genRes = await app.inject({
         method: "POST",
         url: `/v1/organizations/${orgId}/courses/${courseId}/documents/${documentId}/generate`,

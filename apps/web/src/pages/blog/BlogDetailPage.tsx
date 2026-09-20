@@ -9,7 +9,6 @@ import {
   Check,
   ArrowRight,
   ArrowLeft,
-  Sparkles,
   ChevronLeft,
   List,
   AlertTriangle,
@@ -20,6 +19,7 @@ import { MarkdownRenderer } from "../../components/markdown/MarkdownRenderer.js"
 import { BlogSEO } from "../../components/blog/BlogSEO.js";
 import { AboutNavbar } from "../../components/about/AboutNavbar.js";
 import { Footer } from "../../components/landing/Footer.js";
+import { toPersianDigits } from "@avana/domain";
 
 interface TocItem {
   id: string;
@@ -148,7 +148,7 @@ export function BlogDetailPage() {
       {/* Navigation */}
       <AboutNavbar />
 
-      <main className="pt-28 pb-20 px-4 sm:px-6 lg:px-8 max-w-5xl mx-auto space-y-10">
+      <main className="pt-28 pb-20 px-4 sm:px-6 lg:px-8 max-w-6xl mx-auto space-y-10">
         {/* Breadcrumb Navigation */}
         <nav aria-label="مسیر راهنما" className="flex items-center gap-2 text-xs text-[var(--color-text-muted)] flex-wrap">
           <Link to="/" className="hover:text-[#008080] transition-colors">
@@ -192,15 +192,15 @@ export function BlogDetailPage() {
             </span>
             <span className="text-xs text-[var(--color-text-muted)] flex items-center gap-1">
               <Clock className="w-3.5 h-3.5" />
-              <span>{post.readingTimeMinutes} دقیقه زمان مطالعه</span>
+              <span>{toPersianDigits(post.readingTimeMinutes)} دقیقه زمان مطالعه</span>
             </span>
             <span className="text-xs text-[var(--color-text-muted)] flex items-center gap-1">
               <Eye className="w-3.5 h-3.5" />
-              <span>{post.viewCount.toLocaleString("fa-IR")} بازدید</span>
+              <span>{toPersianDigits(post.viewCount)} بازدید</span>
             </span>
           </div>
 
-          <h1 className="text-2xl sm:text-4xl lg:text-5xl font-black text-[var(--color-text)] leading-tight tracking-tight">
+          <h1 className="text-xl sm:text-3xl lg:text-4xl font-extrabold text-[var(--color-text)] leading-snug sm:leading-tight tracking-tight">
             {post.title}
           </h1>
 
@@ -260,12 +260,13 @@ export function BlogDetailPage() {
               <div className="flex flex-wrap items-center gap-2 pt-4">
                 <span className="text-xs font-semibold text-[var(--color-text-muted)]">برچسب‌ها:</span>
                 {post.tags.map((tag) => (
-                  <span
+                  <Link
                     key={tag.id}
-                    className="px-3 py-1 rounded-[8px] text-xs font-medium bg-[var(--color-surface-warm)] text-[var(--color-text)] border border-[var(--color-border)] hover:border-[#008080]/40 transition-colors"
+                    to={`/blog/tag/${tag.slug}`}
+                    className="px-3 py-1 rounded-[8px] text-xs font-medium bg-[var(--color-surface-warm)] text-[var(--color-text)] border border-[var(--color-border)] hover:border-[#008080]/40 hover:text-[#008080] transition-colors"
                   >
                     #{tag.name}
-                  </span>
+                  </Link>
                 ))}
               </div>
             )}
@@ -304,29 +305,6 @@ export function BlogDetailPage() {
                 >
                   واتس‌اپ
                 </a>
-              </div>
-            </div>
-
-            {/* Call to Action Box */}
-            <div className="relative rounded-[16px] overflow-hidden p-8 border border-[var(--color-border)] shadow-xs bg-gradient-to-br from-teal-50/80 via-[var(--color-surface)] to-[var(--color-surface)] space-y-4">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold bg-[#008080]/10 text-[#008080] border border-[#008080]/20">
-                <Sparkles className="w-3.5 h-3.5 text-[#008080]" />
-                <span>شروع یادگیری با آوانا</span>
-              </div>
-              <h3 className="text-xl sm:text-2xl font-black text-[var(--color-text)]">
-                آماده تسلط کامل بر دروس و امتحانات داروسازی هستید؟
-              </h3>
-              <p className="text-xs sm:text-sm text-[var(--color-text-muted)] leading-relaxed max-w-xl">
-                با عضویت در آوانا، به هزاران فلش‌کارت هوشمند مبتنی بر سیستم لایتنر، آزمون‌های آزمایشی استاندارد و دستیار هوشمند مطالعه دسترسی خواهید داشت.
-              </p>
-              <div className="pt-2">
-                <Link
-                  to="/courses"
-                  className="inline-flex items-center gap-2 px-6 py-3 rounded-[10px] font-bold text-xs sm:text-sm bg-[#008080] hover:bg-[#006666] active:bg-[#005050] text-white shadow-xs transition-all active:scale-95"
-                >
-                  <span>مشاهده دوره‌ها و شروع رایگان</span>
-                  <ArrowLeft className="w-4 h-4" />
-                </Link>
               </div>
             </div>
           </article>
@@ -401,7 +379,7 @@ export function BlogDetailPage() {
                   </div>
 
                   <div className="text-[10px] text-[var(--color-text-muted)] flex items-center justify-between pt-2 border-t border-[var(--color-border)]">
-                    <span>{related.readingTimeMinutes} دقیقه مطالعه</span>
+                    <span>{toPersianDigits(related.readingTimeMinutes)} دقیقه مطالعه</span>
                     <span className="text-[#008080] font-semibold flex items-center gap-1">
                       <span>مطالعه</span>
                       <ArrowLeft className="w-3 h-3" />

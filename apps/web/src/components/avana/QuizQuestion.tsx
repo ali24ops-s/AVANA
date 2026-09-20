@@ -1,6 +1,7 @@
 import React from "react";
 import { Card, Badge, Button } from "@/components/ui";
 import { formatPersianOf } from "@avana/domain";
+import { RichContent } from "../markdown/MarkdownRenderer.js";
 
 export interface QuizOption {
   id: string;
@@ -48,9 +49,9 @@ export const QuizQuestion: React.FC<QuizQuestionProps> = ({
       </div>
 
       <div className="space-y-4">
-        <h3 className="text-base sm:text-lg font-bold text-[var(--color-text)] leading-relaxed">
-          {questionText}
-        </h3>
+        <div className="text-base sm:text-lg font-bold text-[var(--color-text)] leading-relaxed">
+          <RichContent content={questionText} />
+        </div>
 
         <div className="flex flex-col gap-2.5">
           {options.map((opt, idx) => {
@@ -79,7 +80,7 @@ export const QuizQuestion: React.FC<QuizQuestionProps> = ({
                 onClick={() => onSelectOption(opt.id)}
                 className={`p-3.5 sm:p-4 rounded-[10px] min-h-[48px] border flex items-center justify-between text-start transition-all duration-150 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#008080] disabled:cursor-default ${optionStyle}`}
               >
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 flex-1 min-w-0">
                   <span
                     className={`w-7 h-7 rounded-[6px] border text-xs font-bold flex items-center justify-center shrink-0 transition-colors ${
                       isSelected && !showFeedback
@@ -89,7 +90,9 @@ export const QuizQuestion: React.FC<QuizQuestionProps> = ({
                   >
                     {String.fromCharCode(1575 + idx)} {/* الف، ب، ج، د */}
                   </span>
-                  <span className="text-xs sm:text-sm font-medium">{opt.text}</span>
+                  <span className="text-xs sm:text-sm font-medium flex-1">
+                    <RichContent inline content={opt.text} />
+                  </span>
                 </div>
 
                 {showFeedback && isCorrect && (
@@ -114,7 +117,9 @@ export const QuizQuestion: React.FC<QuizQuestionProps> = ({
             <span>💡</span>
             <span>پاسخ تشریحی:</span>
           </span>
-          <p className="text-[var(--color-text-muted)] leading-relaxed">{explanation}</p>
+          <div className="text-[var(--color-text-muted)] leading-relaxed">
+            <RichContent content={explanation} />
+          </div>
         </div>
       )}
 

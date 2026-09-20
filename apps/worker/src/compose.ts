@@ -25,6 +25,7 @@ import {
 import { DrizzleCourseStore } from "@avana/api/courses/drizzle-stores";
 import { GenerationRecoveryService } from "@avana/api/generation/generation-recovery-service";
 import {
+  createModelGateway,
   OpenRouterModelGateway,
   type ModelGateway,
 } from "@avana/api/generation/gateway";
@@ -33,13 +34,21 @@ import { DrizzleAuditStore } from "@avana/api/observability/drizzle-stores";
 import { AuditService } from "@avana/api/observability/audit-service";
 import { DrizzleNotificationStore } from "@avana/api/notifications/drizzle-stores";
 import { NotificationService } from "@avana/api/notifications/notification-service";
+import { DrizzleWalletStore } from "@avana/api/wallet/wallet-store";
+import { WalletService } from "@avana/api/wallet/wallet-service";
 import type { WorkerConfig } from "./config.js";
 
 export interface WorkerDependencies {
+  adminGenerationService: GenerationService;
+  userGenerationService: GenerationService;
   generationService: GenerationService;
   generationJobStore: DrizzleGenerationJobStore;
   generationChunkStore: DrizzleGenerationChunkStore;
   recoveryService: GenerationRecoveryService;
+  walletService: WalletService;
+  walletStore: DrizzleWalletStore;
+  adminGateway: ModelGateway;
+  userGateway: ModelGateway;
   gateway: ModelGateway;
   close: () => Promise<void>;
 }
@@ -49,8 +58,9 @@ export interface WorkerDependencies {
  */
 export async function composeWorker(
   config: WorkerConfig,
+  customDb?: { db: ReturnType<typeof createDbClient>["db"]; close: () => Promise<void> },
 ): Promise<WorkerDependencies> {
-  const { db, close } = createDbClient(config.database.url);
+  const { db, close } = customDb ?? createDbClient(config.database.url);
 
   // Stores (Drizzle-backed, matching production API).
   const courseStore = new DrizzleCourseStore(db);
@@ -61,10 +71,21 @@ export async function composeWorker(
     new DrizzleGeneratedContentCitationStore(db);
   const generationJobStore = new DrizzleGenerationJobStore(db);
   const generationChunkStore = new DrizzleGenerationChunkStore(db);
+  const walletStore = new DrizzleWalletStore(db);
+
+  // Admin Model gateway: strictly Gemini with multi-key pool, zero fallback to external providers.
+  const adminProvider = config.generation.aiProvider === "mock" ? "mock" : "gemini";
+  const adminGateway: ModelGateway = createModelGateway({
+    provider: adminProvider,
+    enableFallback: false,
+    geminiApiKey: config.generation.geminiApiKey,
+    geminiApiKeys: config.generation.geminiApiKeys,
+    geminiModel: config.generation.geminiModel,
+  });
 
   // User-facing content generation gateway: OpenRouter (DeepSeek)
   // Zero fallback to Gemini or Cloudflare.
-  const gateway: ModelGateway = new OpenRouterModelGateway({
+  const userGateway: ModelGateway = new OpenRouterModelGateway({
     apiKey: config.userAi.openrouterApiKey,
     modelName: config.userAi.openrouterModel,
     httpReferer: config.userAi.httpReferer,
@@ -74,6 +95,9 @@ export async function composeWorker(
   // Audit service.
   const auditStore = new DrizzleAuditStore(db);
   const auditService = new AuditService(auditStore);
+
+  // Wallet service for user balance mutations and generation debit refunds.
+  const walletService = new WalletService(walletStore, auditService);
 
   // Recovery service for automatic startup and background stale reconciliation.
   const recoveryService = new GenerationRecoveryService(
@@ -85,13 +109,20 @@ export async function composeWorker(
     generationJobStore,
     generationChunkStore,
     auditService,
+    undefined,
+    undefined,
+    walletService,
+    walletStore,
   );
 
-  // Reuse the existing worker-ready GenerationService unchanged.
-  const generationService = new GenerationService(
+  const notificationStore = new DrizzleNotificationStore(db);
+  const notificationService = new NotificationService(notificationStore);
+
+  // Admin GenerationService (strictly Gemini)
+  const adminGenerationService = new GenerationService(
     generatedContentStore,
     generatedContentCitationStore,
-    gateway,
+    adminGateway,
     documentStore,
     documentChunkStore,
     defaultPolicy,
@@ -107,17 +138,42 @@ export async function composeWorker(
     generationChunkStore,
     generationJobStore,
   );
+  adminGenerationService.setNotificationService(notificationService);
 
-  const notificationStore = new DrizzleNotificationStore(db);
-  const notificationService = new NotificationService(notificationStore);
-  generationService.setNotificationService(notificationService);
+  // User GenerationService (strictly OpenRouter / DeepSeek)
+  const userGenerationService = new GenerationService(
+    generatedContentStore,
+    generatedContentCitationStore,
+    userGateway,
+    documentStore,
+    documentChunkStore,
+    defaultPolicy,
+    auditService,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    generationChunkStore,
+    generationJobStore,
+  );
+  userGenerationService.setNotificationService(notificationService);
 
   return {
-    generationService,
+    adminGenerationService,
+    userGenerationService,
+    generationService: userGenerationService,
     generationJobStore,
     generationChunkStore,
     recoveryService,
-    gateway,
+    walletService,
+    walletStore,
+    adminGateway,
+    userGateway,
+    gateway: userGateway,
     close,
   };
 }

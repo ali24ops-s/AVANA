@@ -81,10 +81,10 @@ describe("Pre-Exam Configuration Chapter-Level Presentation & Lesson Ownership I
 
     // 2. Invariant 1: Chapters (Modules) are displayed directly under Course with their aggregated question counts
     expect(screen.getByText("سیستم عصبی خودکار")).toBeInTheDocument();
-    expect(screen.getByText("45 سؤال")).toBeInTheDocument();
+    expect(screen.getByText(/[۴4][۵5] س[وؤ]ال/)).toBeInTheDocument();
 
     expect(screen.getByText("داروهای قلبی‌عروقی")).toBeInTheDocument();
-    expect(screen.getByText("30 سؤال")).toBeInTheDocument();
+    expect(screen.getByText(/[۳3][۰0] س[وؤ]ال/)).toBeInTheDocument();
 
     // 3. Invariant 2: Child Lessons are NOT rendered in the UI (neither split lessons nor single lesson 1)
     expect(screen.queryByText("جلسه اول: داروهای کولینرژیک")).not.toBeInTheDocument();
@@ -181,10 +181,10 @@ describe("Pre-Exam Configuration Chapter-Level Presentation & Lesson Ownership I
     fireEvent.click(chapterElement);
 
     // Summary should show 0 دوره، 1 بخش (selected by chapter)
-    expect(screen.getByText("0 دوره، 1 بخش")).toBeInTheDocument();
+    expect(screen.getByText(/[۰0] دوره، [۱1] بخش/)).toBeInTheDocument();
 
     // Eligible questions should be 45
-    expect(screen.getByText(/۴۵ سوال/)).toBeInTheDocument();
+    expect(screen.getAllByText(/[۴4][۵5] س[وؤ]ال/).length).toBeGreaterThanOrEqual(1);
 
     // Click Start Exam
     const startButton = screen.getByRole("button", { name: /شروع آزمون/i });

@@ -19,12 +19,12 @@ export const FILES_ENABLED: boolean =
  * Feature: User Content Generation
  *
  * Controls user-facing content generation flow for regular users.
- * - Default: false (temporarily in "Coming Soon" / به‌زودی state for regular users)
- * - Can be re-enabled by setting VITE_FEATURE_CONTENT_GENERATION=true in the environment.
+ * - Default: true (active for regular users)
+ * - Can be disabled by setting VITE_FEATURE_CONTENT_GENERATION=false in the environment.
  * - Administrative and content manager roles always retain access.
  */
 export const CONTENT_GENERATION_ENABLED: boolean =
-  import.meta.env.VITE_FEATURE_CONTENT_GENERATION === "true";
+  import.meta.env.VITE_FEATURE_CONTENT_GENERATION !== "false";
 
 /**
  * Feature: Local Worker Mode

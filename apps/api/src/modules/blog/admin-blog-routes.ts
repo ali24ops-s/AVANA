@@ -266,8 +266,69 @@ export const adminBlogRoutes: FastifyPluginAsync<AdminBlogRouteOptions> = async 
   /**
    * GET /v1/admin/blog/tags
    */
-  app.get("/v1/admin/blog/tags", async (_request, reply) => {
-    const tags = await blogService.listPopularTags(100);
+  app.get("/v1/admin/blog/tags", async (request, reply) => {
+    const query = request.query as { search?: string };
+    const tags = await blogService.listTagsAdmin(query.search);
     return reply.send({ tags });
+  });
+
+  /**
+   * POST /v1/admin/blog/tags
+   */
+  app.post("/v1/admin/blog/tags", async (request, reply) => {
+    const body = request.body as {
+      name: string;
+      slug?: string;
+    };
+
+    if (!body || !body.name) {
+      return reply.status(400).send({
+        error: { code: "bad_request", message: "نام برچسب الزامی است." },
+      });
+    }
+
+    try {
+      const tag = await blogService.createTag(body.name, body.slug);
+      return reply.status(201).send({ tag });
+    } catch (err: any) {
+      return reply.status(400).send({
+        error: { code: "bad_request", message: err.message || "خطا در ایجاد برچسب" },
+      });
+    }
+  });
+
+  /**
+   * PATCH /v1/admin/blog/tags/:id
+   */
+  app.patch("/v1/admin/blog/tags/:id", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as {
+      name: string;
+      slug?: string;
+    };
+
+    if (!body || !body.name) {
+      return reply.status(400).send({
+        error: { code: "bad_request", message: "نام برچسب الزامی است." },
+      });
+    }
+
+    try {
+      const tag = await blogService.updateTag(id, body.name, body.slug);
+      return reply.send({ tag });
+    } catch (err: any) {
+      return reply.status(400).send({
+        error: { code: "bad_request", message: err.message || "خطا در ویرایش برچسب" },
+      });
+    }
+  });
+
+  /**
+   * DELETE /v1/admin/blog/tags/:id
+   */
+  app.delete("/v1/admin/blog/tags/:id", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const success = await blogService.deleteTag(id);
+    return reply.send({ success });
   });
 };

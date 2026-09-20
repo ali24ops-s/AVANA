@@ -46,10 +46,9 @@ export function ProblemSection() {
           </div>
 
           {/* Heading */}
-          <h2 className="font-headline text-3xl sm:text-4xl lg:text-[42px] leading-[1.25] font-black text-[#1a2226] tracking-tight">
-            منابع زیادند.
-            <br />
-            <span className="text-[#008080]">وقت کم است.</span>
+          <h2 className="font-headline text-3xl sm:text-4xl lg:text-[42px] leading-[1.25] font-black text-[#1a2226] tracking-tight whitespace-normal sm:whitespace-nowrap">
+            منابع زیادند،{" "}
+            <span className="text-[#008080]">وقت کم است!</span>
           </h2>
 
           {/* Paragraph */}

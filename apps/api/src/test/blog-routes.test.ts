@@ -260,6 +260,65 @@ describe("Blog Routes & Authorization E2E", () => {
       });
       expect(deleteRes.statusCode).toBe(200);
       expect(deleteRes.json().success).toBe(true);
+
+      // 7. Admin Tag CRUD
+      const createTagRes = await app.inject({
+        method: "POST",
+        url: "/v1/admin/blog/tags",
+        cookies: adminCookie,
+        payload: { name: "تگ ادمین", slug: "admin-tag" },
+      });
+      expect(createTagRes.statusCode).toBe(201);
+      const tagId = createTagRes.json().tag.id;
+
+      const listTagsRes = await app.inject({
+        method: "GET",
+        url: "/v1/admin/blog/tags",
+        cookies: adminCookie,
+      });
+      expect(listTagsRes.statusCode).toBe(200);
+      expect(listTagsRes.json().tags.some((t: any) => t.id === tagId)).toBe(true);
+
+      const updateTagRes = await app.inject({
+        method: "PATCH",
+        url: `/v1/admin/blog/tags/${tagId}`,
+        cookies: adminCookie,
+        payload: { name: "تگ ویرایش شده", slug: "edited-tag" },
+      });
+      expect(updateTagRes.statusCode).toBe(200);
+      expect(updateTagRes.json().tag.name).toBe("تگ ویرایش شده");
+
+      const deleteTagRes = await app.inject({
+        method: "DELETE",
+        url: `/v1/admin/blog/tags/${tagId}`,
+        cookies: adminCookie,
+      });
+      expect(deleteTagRes.statusCode).toBe(200);
+      expect(deleteTagRes.json().success).toBe(true);
+    });
+
+    test("GET /v1/blog/tags/:slug returns tag and filtered published posts", async () => {
+      const { app, blogStore } = await setupTestApp();
+
+      const tag = await blogStore.createTag("فارماکولوژی", "pharmacology");
+      await blogStore.createPost("author-1", {
+        title: "مقاله با تگ",
+        slug: "post-with-tag",
+        content: "محتوا...",
+        status: "published",
+        tagNames: ["فارماکولوژی"],
+      });
+
+      const res = await app.inject({
+        method: "GET",
+        url: `/v1/blog/tags/${tag.slug}`,
+      });
+
+      expect(res.statusCode).toBe(200);
+      const data = res.json();
+      expect(data.tag.slug).toBe("pharmacology");
+      expect(data.posts).toHaveLength(1);
+      expect(data.posts[0].slug).toBe("post-with-tag");
     });
   });
 });

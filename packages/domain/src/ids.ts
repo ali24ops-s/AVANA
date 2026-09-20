@@ -46,6 +46,15 @@ export type PaymentId = Brand<UUID, "paymentId">;
 export type UserSubscriptionId = Brand<UUID, "userSubscriptionId">;
 export type UserEntitlementId = Brand<UUID, "userEntitlementId">;
 export type NotificationId = Brand<UUID, "notificationId">;
+export type SubCourseGroupId = Brand<UUID, "subCourseGroupId">;
+export type CoursePublicationId = Brand<UUID, "coursePublicationId">;
+export type WalletId = Brand<UUID, "walletId">;
+export type WalletTransactionId = Brand<UUID, "walletTransactionId">;
+export type PromotionId = Brand<UUID, "promotionId">;
+export type PromotionCodeId = Brand<UUID, "promotionCodeId">;
+export type PromotionRedemptionId = Brand<UUID, "promotionRedemptionId">;
+export type ReferralId = Brand<UUID, "referralId">;
+export type ReferralCodeId = Brand<UUID, "referralCodeId">;
 
 export function asUserId(id: UUID): UserId {
   return id as UserId;
@@ -57,6 +66,10 @@ export function asOrganizationId(id: UUID): OrganizationId {
 
 export function asCourseId(id: UUID): CourseId {
   return id as CourseId;
+}
+
+export function asSubCourseGroupId(id: UUID): SubCourseGroupId {
+  return id as SubCourseGroupId;
 }
 
 export function asModuleId(id: UUID): ModuleId {
@@ -104,6 +117,10 @@ export function asQuizAttemptId(id: UUID): QuizAttemptId {
 }
 
 export function isCourseId(value: string): value is CourseId {
+  return isUUID(value);
+}
+
+export function isSubCourseGroupId(value: string): value is SubCourseGroupId {
   return isUUID(value);
 }
 
@@ -163,6 +180,16 @@ export function parseCourseId(value: string, fieldName = "courseId"): CourseId {
     throw new Error(`Invalid UUID for ${fieldName}`);
   }
   return value as CourseId;
+}
+
+export function parseSubCourseGroupId(
+  value: string,
+  fieldName = "subCourseGroupId",
+): SubCourseGroupId {
+  if (!isSubCourseGroupId(value)) {
+    throw new Error(`Invalid UUID for ${fieldName}`);
+  }
+  return value as SubCourseGroupId;
 }
 
 export function parseModuleId(value: string, fieldName = "moduleId"): ModuleId {
@@ -425,4 +452,147 @@ export function parseUserEntitlementId(
   return value as UserEntitlementId;
 }
 
+export function asWalletId(id: UUID): WalletId {
+  return id as WalletId;
+}
 
+export function asWalletTransactionId(id: UUID): WalletTransactionId {
+  return id as WalletTransactionId;
+}
+
+export function isWalletId(value: string): value is WalletId {
+  return isUUID(value);
+}
+
+export function isWalletTransactionId(
+  value: string,
+): value is WalletTransactionId {
+  return isUUID(value);
+}
+
+export function parseWalletId(value: string, fieldName = "walletId"): WalletId {
+  if (!isWalletId(value)) {
+    throw new Error(`Invalid UUID for ${fieldName}`);
+  }
+  return value as WalletId;
+}
+
+export function parseWalletTransactionId(
+  value: string,
+  fieldName = "walletTransactionId",
+): WalletTransactionId {
+  if (!isWalletTransactionId(value)) {
+    throw new Error(`Invalid UUID for ${fieldName}`);
+  }
+  return value as WalletTransactionId;
+}
+
+export function asCoursePublicationId(id: UUID): CoursePublicationId {
+  return id as CoursePublicationId;
+}
+
+export function isCoursePublicationId(value: string): value is CoursePublicationId {
+  return isUUID(value);
+}
+
+export function parseCoursePublicationId(
+  value: string,
+  fieldName = "coursePublicationId",
+): CoursePublicationId {
+  if (!isCoursePublicationId(value)) {
+    throw new Error(`Invalid UUID for ${fieldName}`);
+  }
+  return value as CoursePublicationId;
+}
+
+export function asPromotionId(id: UUID): PromotionId {
+  return id as PromotionId;
+}
+
+export function isPromotionId(value: string): value is PromotionId {
+  return isUUID(value);
+}
+
+export function parsePromotionId(
+  value: string,
+  fieldName = "promotionId",
+): PromotionId {
+  if (!isPromotionId(value)) {
+    throw new Error(`Invalid UUID for ${fieldName}`);
+  }
+  return value as PromotionId;
+}
+
+export function asPromotionCodeId(id: UUID): PromotionCodeId {
+  return id as PromotionCodeId;
+}
+
+export function isPromotionCodeId(value: string): value is PromotionCodeId {
+  return isUUID(value);
+}
+
+export function parsePromotionCodeId(
+  value: string,
+  fieldName = "promotionCodeId",
+): PromotionCodeId {
+  if (!isPromotionCodeId(value)) {
+    throw new Error(`Invalid UUID for ${fieldName}`);
+  }
+  return value as PromotionCodeId;
+}
+
+export function asPromotionRedemptionId(id: UUID): PromotionRedemptionId {
+  return id as PromotionRedemptionId;
+}
+
+export function isPromotionRedemptionId(
+  value: string,
+): value is PromotionRedemptionId {
+  return isUUID(value);
+}
+
+export function parsePromotionRedemptionId(
+  value: string,
+  fieldName = "promotionRedemptionId",
+): PromotionRedemptionId {
+  if (!isPromotionRedemptionId(value)) {
+    throw new Error(`Invalid UUID for ${fieldName}`);
+  }
+  return value as PromotionRedemptionId;
+}
+
+export function asReferralId(id: UUID): ReferralId {
+  return id as ReferralId;
+}
+
+export function isReferralId(value: string): value is ReferralId {
+  return isUUID(value);
+}
+
+export function parseReferralId(
+  value: string,
+  fieldName = "referralId",
+): ReferralId {
+  if (!isReferralId(value)) {
+    throw new Error(`Invalid UUID for ${fieldName}`);
+  }
+  return value as ReferralId;
+}
+
+export function asReferralCodeId(id: UUID): ReferralCodeId {
+  return id as ReferralCodeId;
+}
+
+export function isReferralCodeId(value: string): value is ReferralCodeId {
+  return isUUID(value);
+}
+
+export function parseReferralCodeId(
+  value: string,
+  fieldName = "referralCodeId",
+): ReferralCodeId {
+  if (!isReferralCodeId(value)) {
+    throw new Error(`Invalid UUID for ${fieldName}`);
+  }
+  return value as ReferralCodeId;
+}

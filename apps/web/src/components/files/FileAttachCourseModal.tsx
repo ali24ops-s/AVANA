@@ -2,6 +2,7 @@ import { useState } from "react";
 import { BookOpen, Loader2 } from "lucide-react";
 import { Dialog, DialogHeader, DialogContent, AvanaSelect } from "@avana/ui";
 import type { CourseResource } from "@avana/contracts";
+import { toPersianDigits } from "@avana/domain";
 
 export interface FileAttachCourseModalProps {
   isOpen: boolean;
@@ -36,7 +37,7 @@ export function FileAttachCourseModal({
       isOpen={isOpen}
       onClose={() => !isSaving && onClose()}
       maxWidth="md"
-      ariaLabel={count > 1 ? `اتصال ${count.toLocaleString("fa-IR")} فایل به دوره` : "اتصال / تغییر دوره فایل"}
+      ariaLabel={count > 1 ? `اتصال ${toPersianDigits(count)} فایل به دوره` : "اتصال / تغییر دوره فایل"}
     >
       {/* Header */}
       <DialogHeader onClose={!isSaving ? onClose : undefined}>
@@ -47,7 +48,7 @@ export function FileAttachCourseModal({
           <div>
             <h3 className="text-base font-bold text-[var(--color-text)]">
               {count > 1
-                ? `اتصال ${count.toLocaleString("fa-IR")} فایل به دوره`
+                ? `اتصال ${toPersianDigits(count)} فایل به دوره`
                 : "اتصال / تغییر دوره فایل"}
             </h3>
             <p className="text-xs text-[var(--color-text-muted)] mt-0.5">

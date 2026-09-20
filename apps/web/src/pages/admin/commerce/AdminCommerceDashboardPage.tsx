@@ -27,6 +27,8 @@ import {
 } from "../../../components/admin/commerce/commerceUtils.js";
 import { AdminGrantModal } from "../../../components/admin/commerce/AdminGrantModal.js";
 import { AdminCommerceNavigation } from "../../../components/admin/commerce/AdminCommerceNavigation.js";
+import { PageHeader } from "../../../components/ui/index.js";
+import { toPersianDigits } from "@avana/domain";
 
 export function AdminCommerceDashboardPage() {
   const adminApi = useAdmin();
@@ -51,8 +53,9 @@ export function AdminCommerceDashboardPage() {
       setStats(statsRes);
       setRecentOrders(ordersRes.orders);
       setRecentPayments(paymentsRes.payments);
-    } catch (err: any) {
-      setErrorMsg(err.message || "خطا در دریافت اطلاعات مالی و درآمد");
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "خطا در دریافت اطلاعات مالی و درآمد";
+      setErrorMsg(message);
     } finally {
       setIsLoading(false);
     }
@@ -65,35 +68,33 @@ export function AdminCommerceDashboardPage() {
   return (
     <div className="space-y-6" dir="rtl">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-[var(--color-text)] flex items-center gap-2.5">
-            <CircleDollarSign className="w-7 h-7 text-[var(--color-primary-default)]" />
-            داشبورد فروش و درآمد آوانا
-          </h1>
-          <p className="text-sm text-[var(--color-text-muted)] mt-1">
-            مشاهده شاخص‌های کلیدی مالی، حجم فروش اشتراک‌ها، دوره‌ها و مدیریت دسترسی‌ها
-          </p>
-        </div>
+      <PageHeader
+        title="داشبورد فروش و درآمد آوانا"
+        badge={{
+          text: "مدیریت مالی و بازرگانی",
+          icon: <CircleDollarSign className="w-3.5 h-3.5 shrink-0" />,
+        }}
+        description="مشاهده شاخص‌های کلیدی مالی، حجم فروش اشتراک‌ها، دوره‌ها و مدیریت دسترسی‌ها"
+        actions={
+          <>
+            <Link
+              to="/admin/commerce/products"
+              className="flex items-center gap-2 px-4 py-2.5 bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] text-[var(--color-primary-default)] border border-[var(--color-border)] rounded-xl text-sm font-medium transition-colors"
+            >
+              <ShoppingBag className="w-4 h-4 text-[var(--color-primary-default)]" />
+              <span>مدیریت محصولات و قیمت‌ها</span>
+            </Link>
 
-        <div className="flex items-center gap-3">
-          <Link
-            to="/admin/commerce/products"
-            className="flex items-center gap-2 px-4 py-2.5 bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] text-[var(--color-primary-default)] border border-[var(--color-border)] rounded-xl text-sm font-medium transition-colors"
-          >
-            <ShoppingBag className="w-4 h-4 text-[var(--color-primary-default)]" />
-            <span>مدیریت محصولات و قیمت‌ها</span>
-          </Link>
-
-          <button
-            onClick={() => setIsGrantModalOpen(true)}
-            className="flex items-center gap-2 px-4 py-2.5 bg-[var(--color-primary-default)] hover:bg-[var(--color-primary-hover)] text-[var(--color-primary-contrast)] rounded-xl text-sm font-medium transition-colors shadow-sm"
-          >
-            <PlusCircle className="w-4 h-4" />
-            <span>اعطای دسترسی مستقیم</span>
-          </button>
-        </div>
-      </div>
+            <button
+              onClick={() => setIsGrantModalOpen(true)}
+              className="flex items-center gap-2 px-4 py-2.5 bg-[var(--color-primary-default)] hover:bg-[var(--color-primary-hover)] text-[var(--color-primary-contrast)] rounded-xl text-sm font-medium transition-colors shadow-sm"
+            >
+              <PlusCircle className="w-4 h-4" />
+              <span>اعطای دسترسی مستقیم</span>
+            </button>
+          </>
+        }
+      />
 
       {/* Commerce Workspace Navigation Tabs */}
       <AdminCommerceNavigation />
@@ -122,7 +123,7 @@ export function AdminCommerceDashboardPage() {
           </div>
           <div className="mt-2 flex items-center gap-1.5 text-xs text-[var(--color-text-muted)]">
             <span className="text-[var(--color-primary-default)] font-medium">سفارش‌های موفق:</span>
-            <span>{isLoading ? "..." : stats?.successfulOrders?.toLocaleString("fa-IR")}</span>
+            <span>{isLoading ? "..." : toPersianDigits(stats?.successfulOrders?.toLocaleString("fa-IR"))}</span>
           </div>
         </div>
 
@@ -155,7 +156,7 @@ export function AdminCommerceDashboardPage() {
           </div>
           <div className="mt-3">
             <span className="text-2xl font-black text-[var(--color-text)]">
-              {isLoading ? "..." : (stats?.activeSubscriptions ?? 0).toLocaleString("fa-IR")}
+              {isLoading ? "..." : toPersianDigits((stats?.activeSubscriptions ?? 0).toLocaleString("fa-IR"))}
             </span>
           </div>
           <div className="mt-2 flex items-center gap-1 text-xs text-[var(--color-text-muted)]">
@@ -173,7 +174,7 @@ export function AdminCommerceDashboardPage() {
           </div>
           <div className="mt-3">
             <span className="text-2xl font-black text-[var(--color-text)]">
-              {isLoading ? "..." : (stats?.lifetimePurchases ?? 0).toLocaleString("fa-IR")}
+              {isLoading ? "..." : toPersianDigits((stats?.lifetimePurchases ?? 0).toLocaleString("fa-IR"))}
             </span>
           </div>
           <div className="mt-2 flex items-center gap-1 text-xs text-[var(--color-text-muted)]">

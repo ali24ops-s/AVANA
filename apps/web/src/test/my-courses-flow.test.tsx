@@ -13,7 +13,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { CourseListPage } from "../pages/CourseListPage.js";
+import { CourseListPage, formatWorkspaceName } from "../pages/CourseListPage.js";
 import { AuthProvider } from "../providers/AuthProvider.js";
 
 beforeEach(() => {
@@ -174,7 +174,7 @@ describe("My Courses (دوره‌های من) Complete Frontend Flow", () => {
     fireEvent.click(confirmButton);
 
     // Modal closes and course 1 appears in My Courses
-    expect(await screen.findByText(/1 دوره در لیست شما/)).toBeDefined();
+    expect(await screen.findByText(/1|۱\s*دوره در لیست شما/)).toBeDefined();
   });
 
 
@@ -399,5 +399,114 @@ describe("My Courses (دوره‌های من) Complete Frontend Flow", () => {
       expect(screen.queryByText("دوره‌های مورد علاقه‌ات را انتخاب کن")).toBeNull();
     });
   });
-});
 
+  describe("Workspace name presentation & legacy ID sanitization regression tests", () => {
+    it("formatWorkspaceName sanitizes legacy ID patterns and preserves normal names", () => {
+      // Input: "فضای یادگیری 79bda286" -> Expected: "فضای یادگیری"
+      expect(formatWorkspaceName("فضای یادگیری 79bda286")).toBe("فضای یادگیری");
+      // Input with full UUID legacy pattern
+      expect(formatWorkspaceName("فضای یادگیری 79bda286-08a4-4a16-9340-4106864e0732")).toBe("فضای یادگیری");
+      // Persian clean name preserved
+      expect(formatWorkspaceName("فضای یادگیری آوانا")).toBe("فضای یادگیری آوانا");
+      // Persian name with number preserved
+      expect(formatWorkspaceName("فضای یادگیری 2")).toBe("فضای یادگیری 2");
+      // Non-matching course/workspace title preserved
+      expect(formatWorkspaceName("درس زیست 12345678")).toBe("درس زیست 12345678");
+    });
+
+    it("renders legacy organization name 'فضای یادگیری 79bda286' cleanly as 'فضای یادگیری' in UI header", async () => {
+      const queryClient = createTestQueryClient();
+
+      vi.spyOn(globalThis, "fetch").mockImplementation((url) => {
+        const urlStr = url.toString();
+
+        if (urlStr.includes("/v1/me")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: () =>
+              Promise.resolve({
+                user: { id: "user-1", email: "student@example.com", name: "دانشجو" },
+                memberships: [{ organization_id: orgId, role: "student" }],
+              }),
+            text: () =>
+              Promise.resolve(
+                JSON.stringify({
+                  user: { id: "user-1", email: "student@example.com", name: "دانشجو" },
+                  memberships: [{ organization_id: orgId, role: "student" }],
+                }),
+              ),
+          } as Response);
+        }
+
+        if (urlStr.includes("/v1/organizations") && !urlStr.includes("/courses")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: () =>
+              Promise.resolve({
+                items: [{ id: orgId, name: "فضای یادگیری 79bda286" }],
+              }),
+            text: () =>
+              Promise.resolve(
+                JSON.stringify({
+                  items: [{ id: orgId, name: "فضای یادگیری 79bda286" }],
+                }),
+              ),
+          } as Response);
+        }
+
+        if (urlStr.includes(`/v1/organizations/${orgId}/courses/my`)) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve({ items: [course1] }),
+            text: () => Promise.resolve(JSON.stringify({ items: [course1] })),
+          } as Response);
+        }
+
+        if (urlStr.includes(`/v1/organizations/${orgId}/courses`)) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve({ items: [course1, course2] }),
+            text: () => Promise.resolve(JSON.stringify({ items: [course1, course2] })),
+          } as Response);
+        }
+
+        if (urlStr.includes("/v1/learning/courses/")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve({ total_lessons: 5, completed_lessons: 2, percentage: 40 }),
+            text: () => Promise.resolve(JSON.stringify({ total_lessons: 5, completed_lessons: 2, percentage: 40 })),
+          } as Response);
+        }
+
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({}),
+          text: () => Promise.resolve(JSON.stringify({})),
+        } as Response);
+      });
+
+      render(
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter initialEntries={["/courses"]}>
+            <AuthProvider>
+              <CourseListPage />
+            </AuthProvider>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+
+      // Visible text in header should be "فضای یادگیری"
+      expect(await screen.findByText("فضای یادگیری")).toBeDefined();
+      // Should NOT contain the technical ID "79bda286" anywhere
+      expect(screen.queryByText("فضای یادگیری 79bda286")).toBeNull();
+      // Course is still rendered using the underlying organization ID
+      expect(await screen.findByText("فارماکولوژی ۱")).toBeDefined();
+    });
+  });
+});

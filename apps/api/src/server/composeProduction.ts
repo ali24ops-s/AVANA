@@ -37,9 +37,13 @@ export interface ProductionDependencies {
   close: () => Promise<void>;
 }
 import { DrizzleOrganizationStore } from "../modules/organizations/drizzle-stores.js";
-import { DrizzleCourseStore } from "../modules/courses/drizzle-stores.js";
+import {
+  DrizzleCourseStore,
+  DrizzleCoursePublicationStore,
+} from "../modules/courses/drizzle-stores.js";
 import {
   DrizzleModuleStore,
+  DrizzleSubCourseGroupStore,
   DrizzleLessonStore,
   DrizzleProgressStore,
   DrizzleDocumentStore,
@@ -85,11 +89,17 @@ import {
   MockPaymentGateway,
   ZarinpalPaymentGateway,
 } from "../modules/commerce/index.js";
+import { DrizzleWalletStore } from "../modules/wallet/index.js";
+import { DrizzleReferralStore } from "../modules/referral/index.js";
 import { DrizzleBlogStore } from "../modules/blog/index.js";
 import {
   DrizzleNotificationStore,
   NotificationService,
 } from "../modules/notifications/index.js";
+import {
+  DrizzleSupportStore,
+  SupportService,
+} from "../modules/support/index.js";
 import { LocalStorageProvider } from "../modules/storage/index.js";
 import { seedLocalDevData } from "../dev/seed.js";
 import type { V1RouteOptions } from "../routes/v1.js";
@@ -328,7 +338,9 @@ export async function composeProduction(
   }
   const organizationStore = new DrizzleOrganizationStore(db);
   const courseStore = new DrizzleCourseStore(db);
+  const coursePublicationStore = new DrizzleCoursePublicationStore(db);
   const moduleStore = new DrizzleModuleStore(db);
+  const subCourseGroupStore = new DrizzleSubCourseGroupStore(db);
   const lessonStore = new DrizzleLessonStore(db);
   const progressStore = new DrizzleProgressStore(db);
   const documentStore = new DrizzleDocumentStore(db);
@@ -402,6 +414,8 @@ export async function composeProduction(
 
   // Commerce & Monetization Stores & Payment Gateway
   const commerceStore = new DrizzleCommerceStore(db);
+  const walletStore = new DrizzleWalletStore(db);
+  const referralStore = new DrizzleReferralStore(db);
   let paymentGateway: MockPaymentGateway | ZarinpalPaymentGateway;
   if (
     config.commerce.onlinePaymentEnabled &&
@@ -418,19 +432,30 @@ export async function composeProduction(
     });
   }
 
+  const supportStore = new DrizzleSupportStore(db);
+  const supportService = new SupportService(
+    supportStore,
+    notificationService,
+    auditService,
+  );
+
   const v1Options: V1RouteOptions = {
     config,
     sessionStore,
     userStore,
     notificationStore,
     notificationService,
+    supportStore,
+    supportService,
     deviceStore,
     emailVerificationStore,
     emailService,
     smsProvider,
     organizationStore,
     courseStore,
+    coursePublicationStore,
     moduleStore,
+    subCourseGroupStore,
     lessonStore,
     progressStore,
     documentStore,
@@ -463,6 +488,8 @@ export async function composeProduction(
     contentPackUsageStore,
     searchStore,
     commerceStore,
+    walletStore,
+    referralStore,
     paymentGateway,
     blogStore,
     db,

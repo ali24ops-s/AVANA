@@ -22,6 +22,8 @@ import {
   normalizeGenerationStage,
   type CanonicalGenerationStage,
   CANONICAL_STAGE_LABELS_FA,
+  formatPersianOf,
+  toPersianDigits,
 } from "@avana/domain";
 import type { ActiveGenerationItem } from "../../lib/api/generation.js";
 
@@ -92,9 +94,9 @@ function formatLastActivity(isoString?: string | null): string {
     if (isNaN(date.getTime())) return "—";
     const diffSeconds = Math.round((Date.now() - date.getTime()) / 1000);
     if (diffSeconds < 5) return "هم‌اکنون";
-    if (diffSeconds < 60) return `${diffSeconds} ثانیه پیش`;
+    if (diffSeconds < 60) return `${toPersianDigits(diffSeconds)} ثانیه پیش`;
     const diffMinutes = Math.floor(diffSeconds / 60);
-    if (diffMinutes < 60) return `${diffMinutes} دقیقه پیش`;
+    if (diffMinutes < 60) return `${toPersianDigits(diffMinutes)} دقیقه پیش`;
     return date.toLocaleTimeString("fa-IR", { hour: "2-digit", minute: "2-digit" });
   } catch {
     return "—";
@@ -334,13 +336,13 @@ export function GenerationDetailsModal({
                     <Loader2 className="w-4 h-4 animate-spin text-[var(--color-primary-default)]" />
                     <span>
                       {currentItem.stageLabel || CANONICAL_STAGE_LABELS_FA[normalizedStage] || "در حال پردازش پایپ‌لاین تولید محتوا"}
-                      {currentItem.progress ? ` (${currentItem.progress.current}/${currentItem.progress.total})` : ""}
+                      {currentItem.progress ? ` (${formatPersianOf(currentItem.progress.current, currentItem.progress.total)})` : ""}
                     </span>
                   </span>
                 )}
               </div>
               <span className="font-mono font-bold text-[var(--color-primary-default)] text-sm">
-                {percentage}٪
+                {toPersianDigits(percentage)}٪
               </span>
             </div>
 

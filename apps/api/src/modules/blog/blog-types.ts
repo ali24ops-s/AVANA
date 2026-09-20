@@ -19,6 +19,7 @@ export interface BlogTagRecord {
   id: string;
   name: string;
   slug: string;
+  postCount?: number;
   createdAt: Date;
   updatedAt: Date;
 }

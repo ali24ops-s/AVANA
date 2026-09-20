@@ -63,7 +63,12 @@ export interface AdminCourseRecord {
   };
 }
 
-import type { DocumentGenerationProgressResource } from "@avana/domain";
+import type {
+  DocumentGenerationProgressResource,
+  ContentGenerationPricingConfig,
+  UpdateContentGenerationPricingInput,
+  SubscriptionCreditBonusesConfig,
+} from "@avana/domain";
 
 export interface AdminDocumentRecord {
   id: string;
@@ -171,9 +176,17 @@ export interface AdminCourseHierarchyLesson {
   createdAt: string;
 }
 
+export interface AdminCourseHierarchyGroup {
+  id: string;
+  title: string;
+  sortOrder: number;
+}
+
 export interface AdminCourseHierarchyModule {
   id: string;
   title: string;
+  sortOrder: number;
+  subCourseGroupId?: string | null;
   lessons: AdminCourseHierarchyLesson[];
 }
 
@@ -181,6 +194,7 @@ export interface AdminCourseHierarchy {
   id: string;
   name: string;
   subject: string | null;
+  groups?: AdminCourseHierarchyGroup[];
   modules: AdminCourseHierarchyModule[];
   courseFlashcardCount?: number;
   courseQuizCount?: number;
@@ -277,7 +291,9 @@ export interface AdminPaymentRecord {
   userId: string;
   userName?: string;
   userEmail: string;
+  productId?: string;
   productTitle?: string;
+  productType?: string;
   amount: number;
   currency: string;
   gateway: string;
@@ -412,7 +428,7 @@ export interface AdminStore {
   // Monetization & Commerce
   getCommerceStats(): Promise<AdminCommerceStats>;
   listCommerceOrders(params: { page: number; pageSize: number; search?: string; status?: string; from?: string; to?: string }): Promise<AdminOrdersList>;
-  listCommercePayments(params: { page: number; pageSize: number; search?: string; gateway?: string; status?: string; from?: string; to?: string }): Promise<AdminPaymentsList>;
+  listCommercePayments(params: { page: number; pageSize: number; search?: string; gateway?: string; status?: string; from?: string; to?: string; category?: string; productType?: string }): Promise<AdminPaymentsList>;
   listCommerceSubscriptions(params: { page: number; pageSize: number; search?: string; status?: string }): Promise<AdminSubscriptionsList>;
   listCommerceEntitlements(params: { page: number; pageSize: number; search?: string; resourceType?: string; sourceType?: string; status?: string }): Promise<AdminEntitlementsList>;
   listCommerceProducts(): Promise<AdminProductRecord[]>;
@@ -440,6 +456,169 @@ export interface AdminStore {
     search?: string;
   }): Promise<{ items: AdminRejectedContentRecord[]; totalCount: number }>;
   getUserCommerceProfile(userId: string): Promise<AdminUserCommerceProfile>;
+  getContentGenerationPricing(): Promise<ContentGenerationPricingConfig>;
+  updateContentGenerationPricing(
+    adminId: string,
+    input: UpdateContentGenerationPricingInput,
+  ): Promise<ContentGenerationPricingConfig>;
+  getSubscriptionCreditBonuses(): Promise<SubscriptionCreditBonusesConfig>;
+  updateSubscriptionCreditBonuses(
+    adminId: string,
+    input: Partial<SubscriptionCreditBonusesConfig>,
+  ): Promise<SubscriptionCreditBonusesConfig>;
+
+  // Promotions & Coupons Management
+  listCommercePromotions(params: {
+    page: number;
+    pageSize: number;
+    search?: string;
+    status?: string;
+    benefitType?: string;
+  }): Promise<{ items: AdminPromotionListItem[]; totalCount: number }>;
+  getCommercePromotion(id: string): Promise<AdminPromotionDetail | null>;
+  createCommercePromotion(
+    adminId: string,
+    input: CreateAdminPromotionInput,
+  ): Promise<AdminPromotionDetail>;
+  updateCommercePromotion(
+    adminId: string,
+    id: string,
+    patch: UpdateAdminPromotionInput,
+  ): Promise<AdminPromotionDetail>;
+  toggleCommercePromotionActive(
+    adminId: string,
+    id: string,
+    active: boolean,
+  ): Promise<AdminPromotionDetail>;
+  deleteCommercePromotion(adminId: string, id: string): Promise<boolean>;
+  bulkGenerateCommercePromotionCodes(
+    adminId: string,
+    id: string,
+    input: { count: number; prefix?: string; length?: number },
+  ): Promise<{ generatedCount: number; sampleCodes: string[] }>;
+  listCommercePromotionRedemptions(
+    id: string,
+    params: { page: number; pageSize: number },
+  ): Promise<{ items: AdminPromotionRedemptionListItem[]; totalCount: number }>;
+}
+
+export interface AdminPromotionListItem {
+  id: string;
+  name: string;
+  description: string | null;
+  benefitType: string;
+  benefitValue: number;
+  maxDiscountAmount: number | null;
+  minOrderAmount: number | null;
+  totalUsageLimit: number | null;
+  perUserUsageLimit: number | null;
+  active: boolean;
+  startsAt: string | null;
+  endsAt: string | null;
+  codesCount: number;
+  primaryCode: string | null;
+  totalRedemptions: number;
+  totalDiscountGranted: number;
+  totalCashbackGranted: number;
+  createdAt: string;
+}
+
+export interface AdminPromotionDetail {
+  id: string;
+  name: string;
+  description: string | null;
+  benefitType: string;
+  benefitValue: number;
+  maxDiscountAmount: number | null;
+  minOrderAmount: number | null;
+  totalUsageLimit: number | null;
+  perUserUsageLimit: number | null;
+  active: boolean;
+  startsAt: string | null;
+  endsAt: string | null;
+  codes: {
+    id: string;
+    code: string;
+    maxUses: number | null;
+    active: boolean;
+    createdAt: string;
+  }[];
+  productRestrictions: {
+    id: string;
+    productId: string | null;
+    productType: string | null;
+  }[];
+  userRestrictions: {
+    id: string;
+    userId: string;
+    userName?: string;
+    userEmail?: string;
+  }[];
+  stats: {
+    totalRedemptions: number;
+    completedRedemptions: number;
+    pendingRedemptions: number;
+    totalDiscountGranted: number;
+    totalCashbackGranted: number;
+    remainingUsage: number | null;
+  };
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateAdminPromotionInput {
+  name: string;
+  description?: string | null;
+  benefitType: string;
+  benefitValue: number;
+  maxDiscountAmount?: number | null;
+  minOrderAmount?: number | null;
+  totalUsageLimit?: number | null;
+  perUserUsageLimit?: number | null;
+  active?: boolean;
+  startsAt?: string | null;
+  endsAt?: string | null;
+  code?: string;
+  productRestrictions?: { productId?: string; productType?: string }[];
+  userRestrictions?: string[];
+  metadata?: Record<string, unknown>;
+}
+
+export interface UpdateAdminPromotionInput {
+  name?: string;
+  description?: string | null;
+  benefitType?: string;
+  benefitValue?: number;
+  maxDiscountAmount?: number | null;
+  minOrderAmount?: number | null;
+  totalUsageLimit?: number | null;
+  perUserUsageLimit?: number | null;
+  active?: boolean;
+  startsAt?: string | null;
+  endsAt?: string | null;
+  productRestrictions?: { productId?: string; productType?: string }[];
+  userRestrictions?: string[];
+  metadata?: Record<string, unknown>;
+}
+
+export interface AdminPromotionRedemptionListItem {
+  id: string;
+  userId: string;
+  userName?: string;
+  userEmail?: string;
+  orderId: string;
+  orderNumber: string;
+  code: string;
+  benefitType: string;
+  benefitValue: number;
+  discountAmount: number;
+  cashbackAmount: number;
+  orderOriginalAmount: number;
+  orderFinalAmount: number;
+  status: string;
+  redeemedAt: string;
+  completedAt: string | null;
 }
 
 export interface AdminRejectedContentRecord {

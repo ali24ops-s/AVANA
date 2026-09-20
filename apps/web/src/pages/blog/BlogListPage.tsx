@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   Search,
   BookOpen,
@@ -12,6 +12,8 @@ import {
   ChevronRight,
   AlertTriangle,
   RotateCcw,
+  Tag,
+  X,
 } from "lucide-react";
 import {
   usePublicBlogPosts,
@@ -20,11 +22,14 @@ import {
 import { BlogSEO } from "../../components/blog/BlogSEO.js";
 import { AboutNavbar } from "../../components/about/AboutNavbar.js";
 import { Footer } from "../../components/landing/Footer.js";
-import { formatPersianOf } from "@avana/domain";
+import { formatPersianOf, toPersianDigits } from "@avana/domain";
 import { Input } from "@avana/ui";
 import type { BlogPostSummary } from "../../lib/api/blog.js";
 
 export function BlogListPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTag = searchParams.get("tag") || "";
+
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("");
@@ -40,6 +45,7 @@ export function BlogListPage() {
     pageSize,
     search: search.trim() || undefined,
     category: selectedCategory || undefined,
+    tag: activeTag || undefined,
     sortBy: "publishedAt",
     sortOrder: "desc",
   });
@@ -50,9 +56,9 @@ export function BlogListPage() {
   const totalCount = postsData?.totalCount || 0;
   const totalPages = postsData?.totalPages || 1;
 
-  // Select featured post: the first post on page 1 without search filter
+  // Select featured post: the first post on page 1 without search/category/tag filter
   const featuredPost: BlogPostSummary | null =
-    !search && !selectedCategory && page === 1 && posts.length > 0
+    !search && !selectedCategory && !activeTag && page === 1 && posts.length > 0
       ? posts[0]
       : null;
 
@@ -61,6 +67,13 @@ export function BlogListPage() {
 
   const handleCategorySelect = (slug: string) => {
     setSelectedCategory(slug === selectedCategory ? "" : slug);
+    setPage(1);
+  };
+
+  const handleRemoveTag = () => {
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete("tag");
+    setSearchParams(nextParams);
     setPage(1);
   };
 
@@ -141,7 +154,7 @@ export function BlogListPage() {
                 : "bg-[var(--color-surface)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] border border-[var(--color-border)] shadow-xs"
             }`}
           >
-            همه مقالات ({totalCount})
+            همه مقالات ({toPersianDigits(totalCount)})
           </button>
           {categories.map((cat) => {
             const isSelected = selectedCategory === cat.slug;
@@ -158,12 +171,30 @@ export function BlogListPage() {
               >
                 {cat.name}
                 {cat.postCount !== undefined && cat.postCount > 0 && (
-                  <span className="mr-1.5 opacity-70">({cat.postCount})</span>
+                  <span className="mr-1.5 opacity-70">({toPersianDigits(cat.postCount)})</span>
                 )}
               </button>
             );
           })}
         </section>
+
+        {/* Active Tag Filter Indicator */}
+        {activeTag && (
+          <div className="flex items-center justify-center gap-2 -mt-6">
+            <span className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold bg-[#008080]/10 text-[#008080] border border-[#008080]/20 shadow-xs">
+              <Tag className="w-3.5 h-3.5" />
+              <span>فیلتر برچسب: #{activeTag}</span>
+              <button
+                type="button"
+                onClick={handleRemoveTag}
+                className="hover:bg-[#008080]/20 p-0.5 rounded-full transition-colors cursor-pointer"
+                aria-label="حذف فیلتر برچسب"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </span>
+          </div>
+        )}
 
         {/* Featured Article Card */}
         {featuredPost && (
@@ -197,11 +228,11 @@ export function BlogListPage() {
                   )}
                   <span className="flex items-center gap-1">
                     <Clock className="w-3.5 h-3.5 text-[var(--color-text-muted)]" />
-                    <span>{featuredPost.readingTimeMinutes} دقیقه مطالعه</span>
+                    <span>{toPersianDigits(featuredPost.readingTimeMinutes)} دقیقه مطالعه</span>
                   </span>
                   <span className="flex items-center gap-1">
                     <Eye className="w-3.5 h-3.5 text-[var(--color-text-muted)]" />
-                    <span>{featuredPost.viewCount.toLocaleString("fa-IR")} بازدید</span>
+                    <span>{toPersianDigits(featuredPost.viewCount)} بازدید</span>
                   </span>
                 </div>
 
@@ -244,15 +275,17 @@ export function BlogListPage() {
             <h2 className="text-xl font-bold text-[var(--color-text)] flex items-center gap-2">
               <BookOpen className="w-5 h-5 text-[#008080]" />
               <span>
-                {selectedCategory
-                  ? `مقالات دسته ${categories.find((c) => c.slug === selectedCategory)?.name || ""}`
-                  : search
-                    ? `نتایج جستجو برای: «${search}»`
-                    : "تازه‌ترین مقالات آموزشی"}
+                {activeTag
+                  ? `مقالات دارای برچسب «#${activeTag}»`
+                  : selectedCategory
+                    ? `مقالات دسته ${categories.find((c) => c.slug === selectedCategory)?.name || ""}`
+                    : search
+                      ? `نتایج جستجو برای: «${search}»`
+                      : "تازه‌ترین مقالات آموزشی"}
               </span>
             </h2>
             <span className="text-xs text-[var(--color-text-muted)]">
-              {totalCount} مقاله منتشر شده
+              {toPersianDigits(totalCount)} مقاله منتشر شده
             </span>
           </div>
 
@@ -296,15 +329,16 @@ export function BlogListPage() {
               <p className="text-xs text-[var(--color-text-muted)] leading-relaxed">
                 هنوز مقاله‌ای مطابق با فیلتر یا عبارت جستجوی شما منتشر نشده است.
               </p>
-              {(search || selectedCategory) && (
+              {(search || selectedCategory || activeTag) && (
                 <button
                   type="button"
                   onClick={() => {
                     setSearch("");
                     setSelectedCategory("");
+                    if (activeTag) handleRemoveTag();
                     setPage(1);
                   }}
-                  className="mt-2 text-xs font-bold text-[#008080] hover:underline"
+                  className="mt-2 text-xs font-bold text-[#008080] hover:underline cursor-pointer"
                 >
                   مشاهده همه مقالات
                 </button>
@@ -353,7 +387,7 @@ export function BlogListPage() {
                         </span>
                         <span className="flex items-center gap-1">
                           <Clock className="w-3 h-3" />
-                          <span>{post.readingTimeMinutes} دقیقه مطالعه</span>
+                          <span>{toPersianDigits(post.readingTimeMinutes)} دقیقه مطالعه</span>
                         </span>
                       </div>
 
@@ -371,7 +405,7 @@ export function BlogListPage() {
                     <div className="pt-3 border-t border-[var(--color-border)] flex items-center justify-between text-xs">
                       <span className="text-[var(--color-text-muted)] flex items-center gap-1 text-[11px]">
                         <Eye className="w-3.5 h-3.5 text-[var(--color-text-muted)]" />
-                        <span>{post.viewCount.toLocaleString("fa-IR")} بازدید</span>
+                        <span>{toPersianDigits(post.viewCount)} بازدید</span>
                       </span>
 
                       <Link

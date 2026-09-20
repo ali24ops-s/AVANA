@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useAdmin } from "../../hooks/useAdmin.js";
 import { ShieldAlert, AlertTriangle, CheckCircle } from "lucide-react";
+import { toPersianDigits } from "@avana/domain";
 
 export function AdminIntegrityPage() {
   const adminApi = useAdmin();
@@ -50,7 +51,7 @@ export function AdminIntegrityPage() {
         )}
         <div>
           <h3 className="font-bold text-base sm:text-lg mb-1">
-            {totalIssues > 0 ? `${totalIssues} مشکل در یکپارچگی داده‌ها پیدا شد` : 'هیچ مشکلی در سلامت داده‌ها یافت نشد.'}
+            {totalIssues > 0 ? `${toPersianDigits(totalIssues)} مشکل در یکپارچگی داده‌ها پیدا شد` : 'هیچ مشکلی در سلامت داده‌ها یافت نشد.'}
           </h3>
           <p className="text-xs sm:text-sm leading-relaxed opacity-90">
             این مرکز رکوردهای یتیم (Orphan) و مغایرت‌های ساختاری دیتابیس را بر اساس Schema پروژه بررسی می‌کند.
@@ -68,7 +69,7 @@ export function AdminIntegrityPage() {
                 ? 'bg-amber-500/10 border-amber-500/20 text-amber-600 dark:text-amber-400'
                 : 'bg-[var(--color-surface-subtle)] border-[var(--color-border)] text-[var(--color-text-muted)]'
             }`} dir="ltr">
-              {check.value.toLocaleString("fa-IR")}
+              {toPersianDigits(check.value.toLocaleString("fa-IR"))}
             </span>
           </div>
         ))}

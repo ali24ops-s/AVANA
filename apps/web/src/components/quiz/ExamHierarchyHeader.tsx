@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { ChevronDown } from "lucide-react";
-import type { ExamCoverageCourse } from "@avana/domain";
+import { type ExamCoverageCourse, toPersianDigits } from "@avana/domain";
 import { isInternalIdentifier } from "../../lib/utils/exam-title-formatter.js";
 
 export interface ExamHierarchyHeaderProps {
@@ -134,7 +134,7 @@ export function ExamHierarchyHeader({
                   <div className="text-[11px] font-semibold text-[var(--color-text-muted)] border-b border-[var(--color-border)] pb-2 mb-2 flex items-center justify-between">
                     <span>فصل‌های شامل سؤال:</span>
                     <span className="text-[var(--color-primary)] font-mono text-[10px]">
-                      {validModules.length} فصل
+                      {toPersianDigits(validModules.length)} فصل
                     </span>
                   </div>
 

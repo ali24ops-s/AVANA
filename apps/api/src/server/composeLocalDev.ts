@@ -23,6 +23,7 @@ import { InMemoryOrganizationStore } from "../modules/organizations/test/in-memo
 import { InMemoryCourseStore } from "../modules/courses/test/in-memory-stores.js";
 import {
   InMemoryModuleStore,
+  InMemorySubCourseGroupStore,
   InMemoryLessonStore,
   InMemoryProgressStore,
   InMemoryDocumentStore,
@@ -57,6 +58,8 @@ import {
 } from "../modules/generation/index.js";
 import { defaultPolicy } from "@avana/domain";
 import { LocalStorageProvider } from "../modules/storage/index.js";
+import { InMemoryCommerceStore } from "../modules/commerce/index.js";
+import { InMemoryWalletStore } from "../modules/wallet/index.js";
 import { InMemoryAuditStore } from "../observability/test/in-memory-stores.js";
 import { AuditService } from "../observability/audit-service.js";
 import { InMemoryAdminStore } from "../modules/admin/index.js";
@@ -64,6 +67,14 @@ import {
   InMemoryContentPackStore,
   InMemoryContentPackUsageStore,
 } from "../modules/library/index.js";
+import {
+  InMemoryNotificationStore,
+  NotificationService,
+} from "../modules/notifications/index.js";
+import {
+  InMemorySupportStore,
+  SupportService,
+} from "../modules/support/index.js";
 import { seedLocalDevData } from "../dev/seed.js";
 import type { V1RouteOptions } from "../routes/v1.js";
 import type { ApiConfig } from "../config.js";
@@ -101,6 +112,7 @@ export async function composeLocalDev(
       : new ConsoleSmsProvider();
   const courseStore = new InMemoryCourseStore();
   const moduleStore = new InMemoryModuleStore();
+  const subCourseGroupStore = new InMemorySubCourseGroupStore(moduleStore);
   const lessonStore = new InMemoryLessonStore();
   const progressStore = new InMemoryProgressStore();
   const documentStore = new InMemoryDocumentStore();
@@ -125,6 +137,12 @@ export async function composeLocalDev(
 
   // Admin store
   const adminStore = new InMemoryAdminStore();
+  adminStore.setLearningStores({
+    courseStore,
+    moduleStore,
+    subCourseGroupStore,
+    lessonStore,
+  });
 
   // Library & Content Pack stores
   const contentPackUsageStore = new InMemoryContentPackUsageStore();
@@ -187,10 +205,25 @@ export async function composeLocalDev(
     config.storage.local.directory,
   );
 
+  // Notification store & service
+  const notificationStore = new InMemoryNotificationStore();
+  const notificationService = new NotificationService(notificationStore);
+  // Support store & service
+  const supportStore = new InMemorySupportStore(userStore);
+  const supportService = new SupportService(
+    supportStore,
+    notificationService,
+    auditService,
+  );
+
   const v1Options: V1RouteOptions = {
     config,
     sessionStore,
     userStore,
+    notificationStore,
+    notificationService,
+    supportStore,
+    supportService,
     deviceStore,
     emailVerificationStore,
     emailService,
@@ -198,6 +231,7 @@ export async function composeLocalDev(
     organizationStore,
     courseStore,
     moduleStore,
+    subCourseGroupStore,
     lessonStore,
     progressStore,
     documentStore,
@@ -225,6 +259,8 @@ export async function composeLocalDev(
     adminStore,
     contentPackStore,
     contentPackUsageStore,
+    commerceStore: new InMemoryCommerceStore(),
+    walletStore: new InMemoryWalletStore(),
   };
 
   // Seed demo data for local development — awaited before routes register

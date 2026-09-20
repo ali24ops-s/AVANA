@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ShieldCheck,
@@ -9,6 +9,7 @@ import {
   Loader2,
   Archive,
   DollarSign,
+  Sparkles,
 } from "lucide-react";
 import {
   api,
@@ -16,7 +17,7 @@ import {
   type OfficialReviewWorkspace,
   type ConsistencyValidationReport,
 } from "../../../lib/api/admin.js";
-import { toPersianDigits } from "@avana/domain";
+import { toPersianDigits, calculateCoursePricingBreakdown } from "@avana/domain";
 
 export interface PublicationActionCenterProps {
   course: OfficialCourse;
@@ -72,6 +73,35 @@ export function PublicationActionCenter({
   const isReadyForApproval =
     Boolean(workspace?.readyForApproval) && unresolvedCount === 0;
 
+  const hasReviewSummary = Boolean(
+    workspace?.draftContents?.some(
+      (d) =>
+        d.contentType === "review_summary" &&
+        d.status !== "rejected",
+    ),
+  );
+
+  const pricingMetrics = useMemo(() => {
+    return {
+      lessonCount: consistencyReport?.lessonCount ?? course.lessonCount ?? 1,
+      flashcardCount: consistencyReport?.flashcardCount ?? course.flashcardCount ?? 0,
+      questionCount: consistencyReport?.quizQuestionCount ?? course.quizQuestionCount ?? 0,
+      hasReviewSummary,
+    };
+  }, [
+    consistencyReport?.lessonCount,
+    consistencyReport?.flashcardCount,
+    consistencyReport?.quizQuestionCount,
+    course.lessonCount,
+    course.flashcardCount,
+    course.quizQuestionCount,
+    hasReviewSummary,
+  ]);
+
+  const pricingBreakdown = useMemo(() => {
+    return calculateCoursePricingBreakdown(pricingMetrics);
+  }, [pricingMetrics]);
+
   // 1. Approve Course Mutation
   const approveMutation = useMutation({
     mutationFn: async () => {
@@ -92,7 +122,7 @@ export function PublicationActionCenter({
     },
     onSuccess: (data) => {
       setApproveSuccessMsg(
-        `دوره با موفقیت تایید شد! (${data.materialized?.modules ?? 0} فصل، ${data.materialized?.lessons ?? 0} درس، ${data.materialized?.flashcards ?? 0} فلش‌کارت، ${data.materialized?.questions ?? 0} سؤال تستی)`,
+        `دوره با موفقیت تایید شد! (${toPersianDigits(data.materialized?.modules ?? 0)} فصل، ${toPersianDigits(data.materialized?.lessons ?? 0)} درس، ${toPersianDigits(data.materialized?.flashcards ?? 0)} فلش‌کارت، ${toPersianDigits(data.materialized?.questions ?? 0)} سؤال تستی)`,
       );
       void queryClient.invalidateQueries({ queryKey: ["official-courses"] });
       void queryClient.invalidateQueries({
@@ -292,6 +322,54 @@ export function PublicationActionCenter({
             <span>{pricingError}</span>
           </div>
         )}
+
+        {/* Suggested Course Price Recommendation Box */}
+        <div
+          data-testid="suggested-course-price-card"
+          className="p-4 rounded-xl bg-[var(--color-surface-warm)] border border-[var(--color-border)] space-y-3"
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-xs font-bold text-[var(--color-text)]">
+              <Sparkles className="w-4 h-4 text-[var(--color-primary-default)]" />
+              <span>قیمت پیشنهادی آوانا</span>
+            </div>
+            <div className="flex items-baseline gap-1.5">
+              <span
+                data-testid="suggested-price-value"
+                className="text-base font-extrabold text-[var(--color-primary-default)]"
+              >
+                {toPersianDigits(pricingBreakdown.suggestedCoursePrice.toLocaleString("fa-IR"))}
+              </span>
+              <span className="text-[11px] text-[var(--color-text-muted)]">تومان</span>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-[var(--color-border)]/60 text-[11px] text-[var(--color-text-muted)]">
+            <div className="flex flex-wrap items-center gap-3">
+              <span>
+                قیمت پایه محاسباتی:{" "}
+                <strong
+                  data-testid="base-price-value"
+                  className="text-[var(--color-text)] font-semibold"
+                >
+                  {toPersianDigits(pricingBreakdown.basePrice.toLocaleString("fa-IR"))} تومان
+                </strong>
+              </span>
+              <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 font-bold text-[10px]">
+                ۱۵٪ کمتر از قیمت محاسبه‌شده
+              </span>
+            </div>
+
+            <button
+              type="button"
+              data-testid="apply-suggested-price-btn"
+              onClick={() => setPriceInput(pricingBreakdown.suggestedCoursePrice)}
+              className="text-[11px] font-bold text-[var(--color-primary-default)] hover:underline flex items-center gap-1 transition-colors"
+            >
+              استفاده از قیمت پیشنهادی
+            </button>
+          </div>
+        </div>
 
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
           <div className="flex-1">

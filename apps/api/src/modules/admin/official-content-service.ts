@@ -23,8 +23,10 @@ import {
   type OrganizationId,
   calculateDefaultContentPrice,
   calculateContentPricingBreakdown,
+  calculateCoursePricingBreakdown,
   isCompleteReviewSummary,
   type ContentPricingBreakdown,
+  type CoursePricingBreakdown,
 } from "@avana/domain";
 import type { CourseStore, CourseRecord } from "../courses/course-store.js";
 import type { GenerationService } from "../generation/generation-service.js";
@@ -61,7 +63,7 @@ import {
   documents,
   auditLogs,
 } from "@avana/database/schema";
-import { eq, and, isNull, inArray, sql } from "drizzle-orm";
+import { eq, and, or, isNull, inArray, sql } from "drizzle-orm";
 
 export interface CreateOfficialCourseInput {
   name: string;
@@ -246,18 +248,26 @@ export class OfficialContentService {
 
       const [modulesList, productRow] = await Promise.all([
         this.moduleStore.listByCourse(c.id),
-        this.db
-          .select()
-          .from(products)
-          .where(
-            and(
-              eq(products.targetType, "course"),
-              eq(products.targetId, c.id),
-              isNull(products.deletedAt),
-            ),
-          )
-          .limit(1)
-          .then((rows) => rows[0]),
+        this.db && typeof this.db.select === "function"
+          ? this.db
+              .select()
+              .from(products)
+              .where(
+                and(
+                  or(
+                    eq(products.code, `course_${c.id}`),
+                    and(
+                      eq(products.targetType, "course"),
+                      eq(products.targetId, c.id),
+                    ),
+                  ),
+                  isNull(products.deletedAt),
+                ),
+              )
+              .limit(1)
+              .then((rows) => rows[0])
+              .catch(() => null)
+          : Promise.resolve(null),
       ]);
 
       const activeModules = modulesList.filter((m) => !m.deletedAt);
@@ -265,8 +275,8 @@ export class OfficialContentService {
 
       const [lessonsList, flashcardsList, quizzesList] = await Promise.all([
         moduleIds.length > 0 ? this.lessonStore.listByModules(moduleIds) : [],
-        this.flashcardStore.listByCourse(c.id, this.systemOrganizationId),
-        this.quizStore.listByCourse(c.id, this.systemOrganizationId),
+        this.flashcardStore ? this.flashcardStore.listByCourse(c.id, this.systemOrganizationId) : [],
+        this.quizStore ? this.quizStore.listByCourse(c.id, this.systemOrganizationId) : [],
       ]);
 
       const activeLessons = lessonsList.filter((l) => !l.deletedAt);
@@ -275,9 +285,11 @@ export class OfficialContentService {
 
       // Quiz questions count
       let questionCount = 0;
-      for (const q of activeQuizzes) {
-        const questions = await this.quizQuestionStore.listByQuiz(q.id);
-        questionCount += questions.length;
+      if (this.quizQuestionStore) {
+        for (const q of activeQuizzes) {
+          const questions = await this.quizQuestionStore.listByQuiz(q.id);
+          questionCount += questions.length;
+        }
       }
 
       results.push({
@@ -873,12 +885,195 @@ export class OfficialContentService {
     const breakdown = calculateContentPricingBreakdown(metrics);
 
     const code = `content_${lessonId}`;
-    const existingProduct = await this.db
-      .select()
-      .from(products)
-      .where(and(eq(products.code, code), isNull(products.deletedAt)))
-      .limit(1)
-      .then((rows) => rows[0]);
+    const existingProduct =
+      this.db && typeof this.db.select === "function"
+        ? await this.db
+            .select()
+            .from(products)
+            .where(
+              and(
+                or(
+                  eq(products.code, code),
+                  and(
+                    eq(products.targetType, "content"),
+                    eq(products.targetId, lessonId),
+                  ),
+                ),
+                isNull(products.deletedAt),
+              ),
+            )
+            .limit(1)
+            .then((rows) => rows[0])
+            .catch(() => null)
+        : null;
+
+    return {
+      ...breakdown,
+      currentProduct: existingProduct
+        ? {
+            id: existingProduct.id,
+            code: existingProduct.code,
+            title: existingProduct.title,
+            price: existingProduct.price,
+            currency: existingProduct.currency,
+            active: existingProduct.active,
+          }
+        : null,
+    };
+  }
+
+  /**
+   * Calculate content volume metrics for an entire course (and its modules/documents).
+   */
+  async calculateVolumeMetricsForCourse(courseId: CourseId): Promise<{
+    lessonCount: number;
+    flashcardCount: number;
+    questionCount: number;
+    hasReviewSummary: boolean;
+  }> {
+    const course = await this.courseStore.findById(courseId);
+    if (!course || course.deletedAt) {
+      return { lessonCount: 1, flashcardCount: 0, questionCount: 0, hasReviewSummary: false };
+    }
+
+    const modulesList = await this.moduleStore.listByCourse(courseId);
+    const activeModules = modulesList.filter((m) => !m.deletedAt);
+    const moduleIds = activeModules.map((m) => m.id);
+
+    const [lessonsList, flashcardsList, quizzesList] = await Promise.all([
+      moduleIds.length > 0 ? this.lessonStore.listByModules(moduleIds) : [],
+      this.flashcardStore ? this.flashcardStore.listByCourse(courseId, this.systemOrganizationId) : [],
+      this.quizStore ? this.quizStore.listByCourse(courseId, this.systemOrganizationId) : [],
+    ]);
+
+    const activeLessons = lessonsList.filter((l) => !l.deletedAt);
+    const activeFlashcards = flashcardsList.filter((f) => !f.deletedAt);
+    const activeQuizzes = quizzesList.filter((q) => !q.deletedAt);
+
+    let questionCount = 0;
+    if (this.quizQuestionStore) {
+      for (const q of activeQuizzes) {
+        const questions = await this.quizQuestionStore.listByQuiz(q.id);
+        questionCount += questions.length;
+      }
+    }
+
+    // Check review summary existence across course documents and drafts
+    let hasReviewSummary = false;
+    if (this.generatedContentStore && this.documentStore) {
+      const courseDocs = await this.documentStore.listByOrganization(this.systemOrganizationId, courseId);
+      const draftsFromDocs = (
+        await Promise.all(
+          courseDocs.map((d: { id: string }) =>
+            this.generatedContentStore.listByDocument(d.id, this.systemOrganizationId),
+          ),
+        )
+      ).flat();
+      const draftsFromCourse = await this.generatedContentStore.listByCourse(
+        courseId,
+        this.systemOrganizationId,
+      );
+      for (const d of [...draftsFromDocs, ...draftsFromCourse]) {
+        if (d.type === "review_summary" && !d.deletedAt && d.status !== "rejected" && isCompleteReviewSummary(d.payload)) {
+          hasReviewSummary = true;
+          break;
+        }
+      }
+    }
+
+    let lessonCount = activeLessons.length;
+    let flashcardCount = activeFlashcards.length;
+
+    // Fallback if not yet materialized to database: inspect generatedContent drafts
+    if (lessonCount === 0 || flashcardCount === 0 || questionCount === 0) {
+      if (this.generatedContentStore && this.documentStore) {
+        const courseDocs = await this.documentStore.listByOrganization(this.systemOrganizationId, courseId);
+        const allDrafts = (
+          await Promise.all([
+            ...courseDocs.map((d: { id: string }) =>
+              this.generatedContentStore.listByDocument(d.id, this.systemOrganizationId),
+            ),
+            this.generatedContentStore.listByCourse(courseId, this.systemOrganizationId),
+          ])
+        ).flat();
+
+        for (const draft of allDrafts) {
+          if (draft.deletedAt || draft.status === "rejected") continue;
+          const payload = draft.payload as Record<string, unknown>;
+
+          if (lessonCount === 0 && draft.type === "lesson" && Array.isArray(payload?.sessions)) {
+            lessonCount += (payload.sessions as unknown[]).length;
+          } else if (flashcardCount === 0 && draft.type === "flashcard") {
+            const rawCards = Array.isArray(payload?.cards)
+              ? payload.cards
+              : Array.isArray(payload?.flashcards)
+              ? payload.flashcards
+              : payload?.question && payload?.answer
+              ? [payload]
+              : [];
+            flashcardCount += rawCards.length;
+          } else if (questionCount === 0 && draft.type === "quiz") {
+            const rawQuestions = Array.isArray(payload?.questions)
+              ? (payload.questions as unknown[])
+              : Array.isArray((payload?.quiz as Record<string, unknown>)?.questions)
+              ? ((payload.quiz as Record<string, unknown>).questions as unknown[])
+              : [];
+            questionCount += rawQuestions.length;
+          }
+        }
+      }
+    }
+
+    return {
+      lessonCount: Math.max(1, lessonCount),
+      flashcardCount,
+      questionCount,
+      hasReviewSummary,
+    };
+  }
+
+  /**
+   * Get volume-based suggested pricing and breakdown for a course (with authoritative 15% discount).
+   */
+  async getSuggestedPriceForCourse(
+    actor: Actor,
+    courseId: CourseId,
+  ): Promise<CoursePricingBreakdown & {
+    currentProduct: {
+      id: string;
+      code: string;
+      title: string;
+      price: number;
+      currency: string;
+      active: boolean;
+    } | null;
+  }> {
+    this.requireContentManager(actor);
+    const metrics = await this.calculateVolumeMetricsForCourse(courseId);
+    const breakdown = calculateCoursePricingBreakdown(metrics);
+
+    const code = `course_${courseId}`;
+    const existingProduct =
+      this.db && typeof this.db.select === "function"
+        ? await this.db
+            .select()
+            .from(products)
+            .where(
+              and(
+                or(
+                  eq(products.code, code),
+                  and(
+                    eq(products.targetType, "course"),
+                    eq(products.targetId, courseId),
+                  ),
+                ),
+                isNull(products.deletedAt),
+              ),
+            )
+            .limit(1)
+            .then((rows) => rows[0])
+            .catch(() => null)
+        : null;
 
     return {
       ...breakdown,
@@ -1326,20 +1521,28 @@ export class OfficialContentService {
     const [lessonsList, flashcardsList, quizzesList, productRow] =
       await Promise.all([
         moduleIds.length > 0 ? this.lessonStore.listByModules(moduleIds) : [],
-        this.flashcardStore.listByCourse(courseId, this.systemOrganizationId),
-        this.quizStore.listByCourse(courseId, this.systemOrganizationId),
-        this.db
-          .select()
-          .from(products)
-          .where(
-            and(
-              eq(products.targetType, "course"),
-              eq(products.targetId, courseId),
-              isNull(products.deletedAt),
-            ),
-          )
-          .limit(1)
-          .then((rows) => rows[0]),
+        this.flashcardStore ? this.flashcardStore.listByCourse(courseId, this.systemOrganizationId) : [],
+        this.quizStore ? this.quizStore.listByCourse(courseId, this.systemOrganizationId) : [],
+        this.db && typeof this.db.select === "function"
+          ? this.db
+              .select()
+              .from(products)
+              .where(
+                and(
+                  or(
+                    eq(products.code, `course_${courseId}`),
+                    and(
+                      eq(products.targetType, "course"),
+                      eq(products.targetId, courseId),
+                    ),
+                  ),
+                  isNull(products.deletedAt),
+                ),
+              )
+              .limit(1)
+              .then((rows) => rows[0])
+              .catch(() => null)
+          : Promise.resolve(null),
       ]);
 
     const activeLessons = lessonsList.filter(
@@ -1448,8 +1651,13 @@ export class OfficialContentService {
       })
       .where(
         and(
-          eq(products.targetType, "course"),
-          eq(products.targetId, courseId),
+          or(
+            eq(products.code, `course_${courseId}`),
+            and(
+              eq(products.targetType, "course"),
+              eq(products.targetId, courseId),
+            ),
+          ),
           isNull(products.deletedAt),
         ),
       )

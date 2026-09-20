@@ -15,11 +15,10 @@ import { Link } from "react-router-dom";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { useQuery, useQueries, useQueryClient } from "@tanstack/react-query";
 import {
-  BookOpen,
-  CheckCircle2,
   FileText,
   GraduationCap,
   Clock,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Loader2,
@@ -27,15 +26,11 @@ import {
   Flame,
   Calendar,
   ArrowLeft,
-  Check,
   Sparkles,
   Plus,
   X,
   AlertCircle,
-  Layers,
-  Eye,
-  PlusCircle,
-  Users,
+  Trash2,
 } from "lucide-react";
 import { createApiClient, getApiBaseUrl } from "../lib/api/client.js";
 import { createOrganizationApi } from "../lib/api/organizations.js";
@@ -53,47 +48,45 @@ import {
 import { PersianDatePicker } from "../components/ui/PersianDatePicker.js";
 import { useDailyMotivationalQuote } from "../utils/dailyQuote.js";
 import { StudyAssistantModal } from "../components/ai/StudyAssistantModal.js";
-import { useLibraryPacks } from "../hooks/useLibrary.js";
-import { PackDetailModal } from "../components/library/PackDetailModal.js";
-import { AddToCourseModal } from "../components/library/AddToCourseModal.js";
+import { StudyPlanner } from "../components/planner/StudyPlanner.js";
+import { ExamDeleteConfirmModal } from "../components/courses/ExamDeleteConfirmModal.js";
+import { CourseCard } from "../components/avana/CourseCard.js";
+import { StudyActivityHeatmap } from "../components/dashboard/StudyActivityHeatmap.js";
 import type { CourseResource } from "@avana/contracts";
-import type {
-  PublicContentPackItemSummary,
-  PublicContentPackDetailResource,
-} from "@avana/domain";
 
 export function HomePage() {
+  const queryClient = useQueryClient();
   const { user, memberships } = useAuth();
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isAddExamOpen, setIsAddExamOpen] = useState(false);
   const [selectedCourseIdForExam, setSelectedCourseIdForExam] = useState<string | undefined>();
-
-  // Selected pack for Detail Preview Modal
-  const [detailPackId, setDetailPackId] = useState<string | null>(null);
-  const [isDetailOpen, setIsDetailOpen] = useState(false);
-
-  // Selected pack for Add-to-Course Modal
-  const [targetPack, setTargetPack] = useState<
-    PublicContentPackItemSummary | PublicContentPackDetailResource | null
-  >(null);
-  const [isAddOpen, setIsAddOpen] = useState(false);
-
-  const handleViewPackDetails = (pack: PublicContentPackItemSummary) => {
-    setDetailPackId(pack.id);
-    setIsDetailOpen(true);
-  };
-
-  const handleAddToCourse = (
-    pack: PublicContentPackItemSummary | PublicContentPackDetailResource,
-  ) => {
-    setTargetPack(pack);
-    setIsAddOpen(true);
-  };
+  const [examToDelete, setExamToDelete] = useState<CourseResource | null>(null);
 
   const apiClient = createApiClient({ baseUrl: getApiBaseUrl() });
   const orgApi = createOrganizationApi(apiClient);
   const courseApi = createCourseApi(apiClient);
   const studyApi = createStudyApi(apiClient);
+
+  const handleDeleteExam = async () => {
+    if (!examToDelete) return;
+    const targetOrgId =
+      (examToDelete as { organization_id?: string })?.organization_id ||
+      organization?.id;
+
+    if (!targetOrgId) {
+      throw new Error("شناسه سازمان یادگیری یافت نشد.");
+    }
+
+    await courseApi.updateCourse(targetOrgId, examToDelete.id, {
+      exam_at: null,
+      exam_scope: null,
+    });
+
+    await queryClient.invalidateQueries({ queryKey: ["my-courses"] });
+    await queryClient.invalidateQueries({ queryKey: ["all-courses"] });
+    await queryClient.invalidateQueries({ queryKey: ["course"] });
+    await queryClient.invalidateQueries({ queryKey: ["daily-study-plan"] });
+  };
 
   // Fetch real active study time for current week
   const studyTimeQuery = useQuery({
@@ -198,9 +191,10 @@ export function HomePage() {
             isLoading={coursesQuery.isLoading || orgQuery.isLoading}
           />
 
-          {/* Stats Grid (4 Cards) */}
-          <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="bg-[var(--color-surface)] p-4 rounded-card border border-[var(--color-border)] shadow-xs flex flex-col items-center justify-center text-center hover:bg-[var(--color-surface-warm)] transition-colors">
+          {/* Stats Section: Weekly Study Time (1 col) + Activity Heatmap (3 cols) */}
+          <section className="grid grid-cols-1 md:grid-cols-4 gap-4 items-stretch">
+            {/* 1. Weekly Study Time Card */}
+            <div className="md:col-span-1 bg-[var(--color-surface)] p-4 rounded-card border border-[var(--color-border)] shadow-xs flex flex-col items-center justify-center text-center hover:bg-[var(--color-surface-warm)] transition-colors">
               <Clock className="w-7 h-7 text-primary mb-2" />
               {studyTimeQuery.isLoading ? (
                 <div className="h-7 flex items-center justify-center">
@@ -245,56 +239,18 @@ export function HomePage() {
               )}
             </div>
 
-            <div className="bg-[var(--color-surface)] p-4 rounded-card border border-[var(--color-border)] shadow-xs flex flex-col items-center justify-center text-center hover:bg-[var(--color-surface-warm)] transition-colors">
-              <CheckCircle2 className="w-7 h-7 text-primary mb-2" />
-              {studyTimeQuery.isLoading ? (
-                <div className="h-7 flex items-center justify-center">
-                  <Loader2 className="w-4 h-4 animate-spin text-primary" />
-                </div>
-              ) : (
-                <span className="text-lg font-bold text-[var(--color-text)]">
-                  {toPersianDigits(studyTimeQuery.data?.stats?.completedLessons ?? 0)}
-                </span>
-              )}
-              <span className="text-xs text-[var(--color-text-muted)] mt-1">
-                درس‌های تکمیل‌شده
-              </span>
-            </div>
-
-            <div className="bg-[var(--color-surface)] p-4 rounded-card border border-[var(--color-border)] shadow-xs flex flex-col items-center justify-center text-center hover:bg-[var(--color-surface-warm)] transition-colors">
-              <FileText className="w-7 h-7 text-primary mb-2" />
-              {studyTimeQuery.isLoading ? (
-                <div className="h-7 flex items-center justify-center">
-                  <Loader2 className="w-4 h-4 animate-spin text-primary" />
-                </div>
-              ) : (
-                <span className="text-lg font-bold text-[var(--color-text)]">
-                  {toPersianDigits(studyTimeQuery.data?.stats?.completedExams ?? 0)}
-                </span>
-              )}
-              <span className="text-xs text-[var(--color-text-muted)] mt-1">آزمون‌ها</span>
-            </div>
-
-            <div className="bg-[var(--color-surface)] p-4 rounded-card border border-[var(--color-border)] shadow-xs flex flex-col items-center justify-center text-center hover:bg-[var(--color-surface-warm)] transition-colors">
-              <Flame className="w-7 h-7 text-amber-500 mb-2" />
-              {studyTimeQuery.isLoading ? (
-                <div className="h-7 flex items-center justify-center">
-                  <Loader2 className="w-4 h-4 animate-spin text-amber-500" />
-                </div>
-              ) : (
-                <span className="text-lg font-bold text-[var(--color-text)]">
-                  {toPersianDigits(studyTimeQuery.data?.stats?.currentStreak ?? 0)} روز
-                </span>
-              )}
-              <span className="text-xs text-[var(--color-text-muted)] mt-1">streak</span>
+            {/* 2. Wide Activity Heatmap Card */}
+            <div className="md:col-span-3">
+              <StudyActivityHeatmap
+                isLoading={studyTimeQuery.isLoading}
+                heatmapData={studyTimeQuery.data?.heatmap}
+                className="h-full"
+              />
             </div>
           </section>
 
-          {/* Popular Content Packs Section (محبوب‌ترین بسته‌های محتوای آموزشی) */}
-          <PopularContentPacksSection
-            onViewDetails={handleViewPackDetails}
-            onAddToCourse={handleAddToCourse}
-          />
+          {/* Popular Courses Section (دوره‌های محبوب) */}
+          <PopularCoursesSection organizationId={organization?.id} />
         </div>
 
         {/* Right / Side Column (4 cols) */}
@@ -343,63 +299,8 @@ export function HomePage() {
             </div>
           </section>
 
-          {/* Today's Study Plan */}
-          <section className="bg-[var(--color-surface)] p-6 rounded-card border border-[var(--color-border)] shadow-xs space-y-4 relative overflow-hidden">
-            <h3 className="text-base font-bold text-[var(--color-text)] flex items-center gap-2">
-              <Calendar className="w-5 h-5 text-primary" />
-              <span>برنامه مطالعه امروز</span>
-            </h3>
-
-            <div className="relative">
-              {/* Blurred items mockup */}
-              <ul className="space-y-2.5 filter blur-[3px] opacity-40 select-none pointer-events-none" aria-hidden="true">
-                <li className="flex items-start gap-3 p-3 rounded-card border border-transparent">
-                  <div className="w-5 h-5 rounded-input border-2 border-[var(--color-border)] flex items-center justify-center mt-0.5 shrink-0" />
-                  <div>
-                    <p className="text-xs font-medium text-[var(--color-text)]">
-                      مرور فلش‌کارت‌های آناتومی
-                    </p>
-                    <p className="text-[11px] text-[var(--color-text-muted)] mt-0.5">
-                      ۳۰ کارت • ۱۵ دقیقه
-                    </p>
-                  </div>
-                </li>
-
-                <li className="flex items-start gap-3 p-3 rounded-card bg-[var(--avana-accent-soft)] border border-primary/20">
-                  <div className="w-5 h-5 rounded-input bg-primary border-2 border-primary flex items-center justify-center mt-0.5 text-[var(--color-primary-foreground)] shrink-0">
-                    <Check className="w-3.5 h-3.5 stroke-[3]" />
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium text-[var(--color-text-muted)] line-through">
-                      کوییز فیزیولوژی قلب
-                    </p>
-                    <p className="text-[11px] text-primary mt-0.5">
-                      تکمیل شده • نمره: ۱۸/۲۰
-                    </p>
-                  </div>
-                </li>
-
-                <li className="flex items-start gap-3 p-3 rounded-card border border-transparent">
-                  <div className="w-5 h-5 rounded-input border-2 border-[var(--color-border)] flex items-center justify-center mt-0.5 shrink-0" />
-                  <div>
-                    <p className="text-xs font-medium text-[var(--color-text)]">
-                      مطالعه فصل ۵ فارماکولوژی
-                    </p>
-                    <p className="text-[11px] text-[var(--color-text-muted)] mt-0.5">
-                      صفحات ۱۲۰-۱۴۵
-                    </p>
-                  </div>
-                </li>
-              </ul>
-
-              {/* Coming soon overlay */}
-              <div className="absolute inset-0 flex items-center justify-center bg-[var(--color-scrim)]/20 backdrop-blur-[1px] rounded-card">
-                <span className="px-5 py-2 rounded-full bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)] text-sm font-bold shadow-card">
-                  به‌زودی
-                </span>
-              </div>
-            </div>
-          </section>
+          {/* Today's Study Plan (Real Planner Component) */}
+          <StudyPlanner />
 
           {/* Upcoming Exams Section (Replaced Content Recommendations) */}
           <section className="bg-[var(--color-surface)] p-6 rounded-card border border-[var(--color-border)] shadow-xs space-y-4">
@@ -433,23 +334,23 @@ export function HomePage() {
                   const urgencyTheme =
                     daysRemaining < 3
                       ? {
-                          badge: "bg-rose-500/20 text-rose-300 border-rose-500/30",
-                          iconBox: "bg-rose-950/40 border-rose-500/30 text-rose-400",
+                          badge: "bg-[var(--avana-error-bg)] text-[var(--avana-error-text)] border-[var(--avana-error-border)]",
+                          iconBox: "bg-[var(--avana-error-bg)] border-[var(--avana-error-border)] text-[var(--avana-error)]",
                         }
                       : daysRemaining < 7
                         ? {
-                            badge: "bg-amber-500/20 text-amber-300 border-amber-500/30",
-                            iconBox: "bg-amber-950/40 border-amber-500/30 text-amber-400",
+                            badge: "bg-[var(--avana-warning-bg)] text-[var(--avana-warning-text)] border-[var(--avana-warning-border)]",
+                            iconBox: "bg-[var(--avana-warning-bg)] border-[var(--avana-warning-border)] text-[var(--avana-warning)]",
                           }
                         : {
-                            badge: "bg-teal-500/20 text-teal-300 border-teal-500/30",
-                            iconBox: "bg-teal-950/40 border-teal-500/30 text-teal-400",
+                            badge: "bg-[var(--color-primary-soft)] text-primary border-primary/20",
+                            iconBox: "bg-[var(--color-primary-light)] border-primary/20 text-primary",
                           };
 
                   return (
                     <div
                       key={course.id}
-                      className="glass-panel bg-[var(--color-surface-warm)] p-3.5 rounded-card border border-[var(--color-border)] flex items-center justify-between gap-3 hover:bg-[var(--color-surface)] transition-colors group"
+                      className="bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] p-3.5 rounded-card border border-[var(--color-border)] hover:border-[var(--color-border-hover)] flex items-center justify-between gap-3 transition-colors group"
                     >
                       <div className="flex items-center gap-3 min-w-0">
                         <div
@@ -487,10 +388,22 @@ export function HomePage() {
                             setSelectedCourseIdForExam(course.id);
                             setIsAddExamOpen(true);
                           }}
-                          className="!p-1 !h-auto text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+                          className="!p-1 !h-auto text-[var(--color-text-muted)] hover:text-primary transition-colors"
                           title="ویرایش تاریخ امتحان"
                           aria-label={`ویرایش امتحان ${course.title}`}
                           leftIcon={<FileText className="w-3.5 h-3.5" />}
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setExamToDelete(course);
+                          }}
+                          className="!p-1 !h-auto text-[var(--color-text-muted)] hover:text-rose-500 hover:bg-rose-500/10 transition-colors"
+                          title="حذف ثبت امتحان"
+                          aria-label={`حذف ثبت امتحان ${course.title}`}
+                          leftIcon={<Trash2 className="w-3.5 h-3.5" />}
                         />
                       </div>
                     </div>
@@ -498,14 +411,14 @@ export function HomePage() {
                 })}
               </div>
             ) : (
-              <div className="py-6 flex flex-col items-center justify-center text-center p-4 rounded-card border border-dashed border-[var(--color-border)] bg-[var(--color-surface-warm)]">
-                <div className="w-10 h-10 rounded-full bg-[var(--color-surface)] border border-[var(--color-border)] flex items-center justify-center text-primary mb-2.5">
+              <div className="py-6 flex flex-col items-center justify-center text-center p-5 rounded-card border border-dashed border-[var(--color-border)] bg-[var(--color-surface-warm)]">
+                <div className="w-10 h-10 rounded-full bg-[var(--color-surface)] border border-[var(--color-border)] flex items-center justify-center text-primary mb-2.5 shadow-xs">
                   <Calendar className="w-5 h-5" />
                 </div>
                 <p className="text-xs font-bold text-[var(--color-text)]">
                   هیچ امتحانی ثبت نشده است
                 </p>
-                <p className="text-[11px] text-[var(--color-text-muted)] mt-1 max-w-[220px] leading-relaxed">
+                <p className="text-[11px] text-[var(--color-text-muted)] mt-1 max-w-[240px] leading-relaxed">
                   با ثبت تاریخ آزمون‌ها، زمان‌بندی و مطالعه خود را مدیریت کنید.
                 </p>
                 <Button
@@ -544,30 +457,15 @@ export function HomePage() {
         organizationId={organization?.id}
         courses={availableCourses}
         initialCourseId={selectedCourseIdForExam}
+        onDeleteExam={(course) => setExamToDelete(course)}
       />
 
-      {/* Pack Detail Preview Modal */}
-      <PackDetailModal
-        packId={detailPackId}
-        open={isDetailOpen}
-        onClose={() => {
-          setIsDetailOpen(false);
-          setDetailPackId(null);
-        }}
-        onAddToCourse={(pack) => {
-          setIsDetailOpen(false);
-          handleAddToCourse(pack);
-        }}
-      />
-
-      {/* Add To Course Selection Modal */}
-      <AddToCourseModal
-        pack={targetPack}
-        open={isAddOpen}
-        onClose={() => {
-          setIsAddOpen(false);
-          setTargetPack(null);
-        }}
+      {/* Delete Exam Confirmation Modal */}
+      <ExamDeleteConfirmModal
+        open={!!examToDelete}
+        courseTitle={examToDelete?.title || ""}
+        onClose={() => setExamToDelete(null)}
+        onConfirm={handleDeleteExam}
       />
     </div>
   );
@@ -579,6 +477,7 @@ interface AddExamModalProps {
   organizationId?: string;
   courses: CourseResource[];
   initialCourseId?: string;
+  onDeleteExam?: (course: CourseResource) => void;
 }
 
 function AddExamModal({
@@ -587,16 +486,30 @@ function AddExamModal({
   organizationId,
   courses,
   initialCourseId,
+  onDeleteExam,
 }: AddExamModalProps) {
   const queryClient = useQueryClient();
   const [selectedCourseId, setSelectedCourseId] = useState(initialCourseId || "");
   const [examDate, setExamDate] = useState("");
+  const [selectedModuleIds, setSelectedModuleIds] = useState<string[]>([]);
+  const [isScopeExpanded, setIsScopeExpanded] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Fetch course structure (modules & lessons) when modal is open and course is selected
+  const learningApi = createLearningApi(createApiClient({ baseUrl: getApiBaseUrl() }));
+  const courseLearnQuery = useQuery({
+    queryKey: ["course-learn", selectedCourseId],
+    queryFn: () => learningApi.getCourseLearning(selectedCourseId),
+    enabled: isOpen && !!selectedCourseId,
+  });
+
+  const availableModules = courseLearnQuery.data?.modules ?? [];
 
   // Sync state when modal opens or initialCourseId changes
   useEffect(() => {
     if (isOpen) {
+      setIsScopeExpanded(false);
       const courseId = initialCourseId || (courses.length > 0 ? courses[0].id : "");
       setSelectedCourseId(courseId);
       const found = courses.find((c) => c.id === courseId);
@@ -613,11 +526,17 @@ function AddExamModal({
       } else {
         setExamDate("");
       }
+
+      if (found?.exam_scope?.moduleIds && Array.isArray(found.exam_scope.moduleIds)) {
+        setSelectedModuleIds(found.exam_scope.moduleIds);
+      } else {
+        setSelectedModuleIds([]);
+      }
       setError(null);
     }
   }, [isOpen, initialCourseId, courses]);
 
-  // When course selection changes, prefill if that course has an exam date
+  // When course selection changes, prefill if that course has an exam date & scope
   const handleCourseChange = (newCourseId: string) => {
     setSelectedCourseId(newCourseId);
     const found = courses.find((c) => c.id === newCourseId);
@@ -633,6 +552,12 @@ function AddExamModal({
       }
     } else {
       setExamDate("");
+    }
+
+    if (found?.exam_scope?.moduleIds && Array.isArray(found.exam_scope.moduleIds)) {
+      setSelectedModuleIds(found.exam_scope.moduleIds);
+    } else {
+      setSelectedModuleIds([]);
     }
   };
 
@@ -687,6 +612,10 @@ function AddExamModal({
 
       await courseApi.updateCourse(targetOrgId, selectedCourseId, {
         exam_at: isoDate,
+        exam_scope:
+          selectedModuleIds.length > 0
+            ? { moduleIds: selectedModuleIds }
+            : null,
       });
 
       // Ensure course is in user's enrolled courses list if not already
@@ -699,6 +628,7 @@ function AddExamModal({
       await queryClient.invalidateQueries({ queryKey: ["my-courses"] });
       await queryClient.invalidateQueries({ queryKey: ["all-courses"] });
       await queryClient.invalidateQueries({ queryKey: ["course"] });
+      await queryClient.invalidateQueries({ queryKey: ["daily-study-plan"] });
 
       onClose();
     } catch (err: unknown) {
@@ -714,18 +644,18 @@ function AddExamModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[var(--color-scrim)]/80 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[var(--color-scrim)]/40 backdrop-blur-xs"
       role="dialog"
       aria-modal="true"
       aria-labelledby="add-exam-modal-title"
     >
-      <div className="w-full max-w-md bg-[var(--color-surface)] border border-[var(--color-border)] rounded-dialog shadow-card overflow-hidden">
+      <div className="w-full max-w-lg bg-[var(--color-surface)] border border-[var(--color-border)] rounded-dialog shadow-modal overflow-hidden max-h-[90vh] flex flex-col">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-[var(--color-border)] flex items-center justify-between bg-[var(--color-surface-warm)]">
+        <div className="px-6 py-4 border-b border-[var(--color-border)] flex items-center justify-between bg-[var(--color-surface-warm)] shrink-0">
           <div className="flex items-center gap-2 text-primary">
             <GraduationCap className="w-5 h-5" />
             <h3 id="add-exam-modal-title" className="text-base font-bold text-[var(--color-text)]">
-              {selectedCourse?.exam_at ? "ویرایش تاریخ امتحان" : "افزودن تاریخ امتحان"}
+              {selectedCourse?.exam_at ? "ویرایش تاریخ و مباحث امتحان" : "افزودن تاریخ امتحان"}
             </h3>
           </div>
           <Button
@@ -740,7 +670,7 @@ function AddExamModal({
         </div>
 
         {/* Form */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="p-6 space-y-4 overflow-y-auto flex-1">
           {error && (
             <div className="p-3 rounded-card bg-[var(--avana-error-bg)] border border-[var(--avana-error-border)] text-[var(--avana-error)] text-xs flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0" />
@@ -761,7 +691,7 @@ function AddExamModal({
                 id="exam-course-select"
                 value={selectedCourseId}
                 onChange={(e) => handleCourseChange(e.target.value)}
-                className="w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded-input px-3.5 py-2.5 text-xs md:text-sm text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors"
+                className="w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded-input px-3.5 py-2.5 text-xs md:text-sm text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors cursor-pointer"
                 required
               >
                 <option value="">-- یک درس را انتخاب کنید --</option>
@@ -790,25 +720,164 @@ function AddExamModal({
             />
           </div>
 
-          {/* Footer Actions */}
-          <div className="pt-3 flex items-center justify-end gap-3 border-t border-[var(--color-border)]">
-            <Button
+          {/* Exam Scope (Modules Selection) */}
+          <div className="pt-2 border-t border-[var(--color-border)]">
+            <button
               type="button"
-              onClick={onClose}
-              variant="ghost"
-              size="sm"
+              onClick={() => setIsScopeExpanded((prev) => !prev)}
+              aria-expanded={isScopeExpanded}
+              aria-controls="exam-scope-panel"
+              className="w-full flex items-center justify-between p-2.5 rounded-card bg-[var(--color-surface-warm)] hover:bg-[var(--color-surface-hover,var(--color-border)/20)] border border-[var(--color-border)] transition-colors text-right cursor-pointer group"
             >
-              انصراف
-            </Button>
-            <Button
-              type="submit"
-              disabled={isSubmitting || courses.length === 0}
-              isLoading={isSubmitting}
-              variant="primary"
-              size="sm"
-            >
-              ثبت امتحان
-            </Button>
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-xs font-semibold text-[var(--color-text)] group-hover:text-primary transition-colors">
+                  مباحث و سرفصل‌های امتحان (اختیاری)
+                </span>
+                {selectedModuleIds.length > 0 && (
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 font-bold shrink-0">
+                    {toPersianDigits(selectedModuleIds.length)} مورد انتخاب شده
+                  </span>
+                )}
+              </div>
+              <ChevronDown
+                className={`w-4 h-4 text-[var(--color-text-muted)] group-hover:text-[var(--color-text)] transition-transform duration-200 shrink-0 ${
+                  isScopeExpanded ? "rotate-180" : ""
+                }`}
+              />
+            </button>
+
+            <AnimatePresence initial={false}>
+              {isScopeExpanded && (
+                <motion.div
+                  id="exam-scope-panel"
+                  key="exam-scope-content"
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.2, ease: "easeInOut" }}
+                  className="overflow-hidden space-y-2 pt-2.5"
+                >
+                  <div className="flex items-center justify-between">
+                    <p className="text-[11px] text-[var(--color-text-muted)] leading-relaxed">
+                      سرفصل‌هایی که در این امتحان مورد آزمون قرار می‌گیرند را مشخص کنید تا در برنامه‌ریزی روزانه اولویت فوریتی دریافت کنند.
+                    </p>
+                    {availableModules.length > 0 && (
+                      <div className="flex items-center gap-2 shrink-0 mr-2">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedModuleIds(availableModules.map((m) => m.id))}
+                          className="text-[11px] text-primary hover:underline font-medium cursor-pointer"
+                        >
+                          انتخاب همه
+                        </button>
+                        <span className="text-[var(--color-border)] text-xs">|</span>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedModuleIds([])}
+                          className="text-[11px] text-[var(--color-text-muted)] hover:underline font-medium cursor-pointer"
+                        >
+                          حذف همه
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {courseLearnQuery.isLoading ? (
+                    <div className="p-4 flex items-center justify-center bg-[var(--color-surface-warm)] rounded-card border border-[var(--color-border)]">
+                      <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                      <span className="text-xs text-[var(--color-text-muted)] mr-2">
+                        در حال بارگذاری سرفصل‌های دوره...
+                      </span>
+                    </div>
+                  ) : availableModules.length > 0 ? (
+                    <div className="max-h-48 overflow-y-auto space-y-1.5 p-2 bg-[var(--color-surface-warm)] rounded-card border border-[var(--color-border)]">
+                      {availableModules.map((m) => {
+                        const isSelected = selectedModuleIds.includes(m.id);
+                        const lessonCount = m.lessons?.length ?? 0;
+                        return (
+                          <label
+                            key={m.id}
+                            className={`flex items-center justify-between p-2 rounded-button border text-xs cursor-pointer transition-colors ${
+                              isSelected
+                                ? "bg-[var(--color-surface)] border-primary/40 text-[var(--color-text)] shadow-xs"
+                                : "bg-[var(--color-surface)] border-transparent text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:border-[var(--color-border)]"
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 min-w-0 flex-1">
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setSelectedModuleIds((prev) => [...prev, m.id]);
+                                  } else {
+                                    setSelectedModuleIds((prev) =>
+                                      prev.filter((id) => id !== m.id),
+                                    );
+                                  }
+                                }}
+                                className="rounded border-[var(--color-border)] text-primary focus:ring-primary h-4 w-4"
+                              />
+                              <span className="font-medium truncate">{m.title}</span>
+                            </div>
+                            <span className="text-[10px] text-[var(--color-text-muted)] shrink-0 mr-2">
+                              {toPersianDigits(lessonCount)} درس
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-[var(--color-text-muted)] p-2.5 bg-[var(--color-surface-warm)] rounded-card border border-[var(--color-border)]">
+                      {selectedCourseId
+                        ? "سرفصلی برای این دوره ثبت نشده است."
+                        : "ابتدا دوره مورد نظر را انتخاب کنید."}
+                    </p>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
+          {/* Footer Actions */}
+          <div className="pt-3 flex items-center justify-between gap-3 border-t border-[var(--color-border)]">
+            <div>
+              {selectedCourse?.exam_at && onDeleteExam && (
+                <Button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    onDeleteExam(selectedCourse);
+                  }}
+                  disabled={isSubmitting}
+                  variant="ghost"
+                  size="sm"
+                  className="!text-rose-500 hover:!text-rose-600 hover:!bg-rose-500/10"
+                  leftIcon={<Trash2 className="w-3.5 h-3.5" />}
+                >
+                  حذف تاریخ امتحان
+                </Button>
+              )}
+            </div>
+            <div className="flex items-center gap-3">
+              <Button
+                type="button"
+                onClick={onClose}
+                variant="ghost"
+                size="sm"
+              >
+                انصراف
+              </Button>
+              <Button
+                type="submit"
+                disabled={isSubmitting || courses.length === 0}
+                isLoading={isSubmitting}
+                variant="primary"
+                size="sm"
+              >
+                ثبت امتحان
+              </Button>
+            </div>
           </div>
         </form>
       </div>
@@ -850,36 +919,54 @@ function createCarouselVariants(shouldReduceMotion: boolean | null) {
 }
 
 /**
- * Popular Content Packs section component for Dashboard (محبوب‌ترین بسته‌های محتوای آموزشی).
- * Displays up to 8 top popular published content packs across Avana, showing 2 packs at a time
+ * Popular Courses section component for Dashboard (دوره‌های محبوب).
+ * Displays up to 8 top popular published courses across Avana, showing 2 courses at a time
  * with automatic rotation every 5 seconds, smooth transition, and pausing on hover.
  */
-function PopularContentPacksSection({
-  onViewDetails,
-  onAddToCourse,
+function PopularCoursesSection({
+  organizationId: propOrgId,
 }: {
-  onViewDetails: (pack: PublicContentPackItemSummary) => void;
-  onAddToCourse: (pack: PublicContentPackItemSummary) => void;
+  organizationId?: string;
 }) {
   const [currentGroupIndex, setCurrentGroupIndex] = useState(0);
   const [direction, setDirection] = useState(1);
   const [isPaused, setIsPaused] = useState(false);
   const shouldReduceMotion = useReducedMotion();
+  const { memberships } = useAuth();
 
-  const packsQuery = useLibraryPacks({
-    sort: "popular",
-    limit: 8,
+  const apiClient = createApiClient({ baseUrl: getApiBaseUrl() });
+  const orgApi = createOrganizationApi(apiClient);
+  const courseApi = createCourseApi(apiClient);
+
+  // Fetch organization if not provided via props
+  const orgQuery = useQuery({
+    queryKey: ["organizations"],
+    queryFn: () => orgApi.listOrganizations(),
+    enabled: !propOrgId,
   });
 
-  const packs = packsQuery.data?.items ?? [];
+  const organizationId =
+    propOrgId ||
+    orgQuery.data?.items?.[0]?.id ||
+    memberships?.[0]?.organization_id;
 
-  // Group packs into pairs of 2
-  const packPairs: PublicContentPackItemSummary[][] = [];
-  for (let i = 0; i < packs.length; i += 2) {
-    packPairs.push(packs.slice(i, i + 2));
+  const popularCoursesQuery = useQuery({
+    queryKey: ["popular-courses", organizationId],
+    queryFn: () => courseApi.listPopularCourses(organizationId!),
+    enabled: !!organizationId,
+  });
+
+  const courses =
+    (popularCoursesQuery.data?.items as CourseResource[] | undefined) ?? [];
+  const activeCourses = courses.filter((c) => !c.archived).slice(0, 8);
+
+  // Group courses into pairs of 2
+  const coursePairs: CourseResource[][] = [];
+  for (let i = 0; i < activeCourses.length; i += 2) {
+    coursePairs.push(activeCourses.slice(i, i + 2));
   }
 
-  const totalGroups = packPairs.length;
+  const totalGroups = coursePairs.length;
   const safeGroupIndex =
     totalGroups > 0 ? currentGroupIndex % totalGroups : 0;
 
@@ -908,18 +995,18 @@ function PopularContentPacksSection({
       className="space-y-4"
       onMouseEnter={() => setIsPaused(true)}
       onMouseLeave={() => setIsPaused(false)}
-      data-testid="popular-content-packs-section"
+      data-testid="popular-courses-section"
     >
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <div>
           <div className="flex items-center gap-2">
-            <Layers className="w-5 h-5 text-primary" />
+            <Flame className="w-5 h-5 text-amber-500" />
             <h3 className="text-lg font-bold text-[var(--color-text)]">
-              محبوب‌ترین بسته‌های محتوای آموزشی
+              دوره‌های محبوب
             </h3>
           </div>
           <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
-            بسته‌های آموزشی پرمخاطب که بیشترین استفاده را توسط کاربران آوانا داشته‌اند
+            دوره‌هایی که بیشترین استفاده و استقبال را توسط کاربران آوانا داشته‌اند
           </p>
         </div>
 
@@ -930,7 +1017,7 @@ function PopularContentPacksSection({
                 {formatPersianOf(safeGroupIndex + 1, totalGroups)}
               </span>
               <div className="flex items-center gap-1">
-                {packPairs.map((_, i) => (
+                {coursePairs.map((_, i) => (
                   <motion.button
                     key={i}
                     type="button"
@@ -950,7 +1037,7 @@ function PopularContentPacksSection({
           )}
 
           <Link
-            to="/library"
+            to="/courses"
             className="text-primary text-xs font-semibold hover:underline flex items-center gap-1"
           >
             <span>مشاهده همه</span>
@@ -959,7 +1046,7 @@ function PopularContentPacksSection({
         </div>
       </div>
 
-      {packsQuery.isLoading ? (
+      {popularCoursesQuery.isLoading ? (
         <div className="bg-[var(--color-surface)] p-8 rounded-card border border-[var(--color-border)] flex justify-center items-center min-h-[160px]">
           <Loader2 className="w-6 h-6 animate-spin text-primary" />
         </div>
@@ -975,28 +1062,23 @@ function PopularContentPacksSection({
               exit="exit"
               className="grid grid-cols-1 md:grid-cols-2 gap-4"
             >
-              {packPairs[safeGroupIndex].map((pack) => (
-                <PopularContentPackCard
-                  key={pack.id}
-                  pack={pack}
-                  onViewDetails={onViewDetails}
-                  onAddToCourse={onAddToCourse}
-                />
+              {coursePairs[safeGroupIndex].map((course) => (
+                <PopularCourseCard key={course.id} course={course} />
               ))}
             </motion.div>
           </AnimatePresence>
         </div>
       ) : (
         <div className="bg-[var(--color-surface)] p-8 rounded-card border border-[var(--color-border)] flex flex-col items-center justify-center text-center p-6 min-h-[160px]">
-          <Layers className="w-8 h-8 text-[var(--color-text-muted)] mb-2" />
+          <GraduationCap className="w-8 h-8 text-[var(--color-text-muted)] mb-2" />
           <p className="text-sm text-[var(--color-text)] font-semibold">
-            هنوز بسته آموزشی در کتابخانه منتشر نشده است
+            هنوز دوره‌ای در دسترس نیست
           </p>
           <Link
-            to="/library"
+            to="/courses"
             className="mt-3 text-xs text-primary font-bold hover:underline inline-flex items-center gap-1"
           >
-            <span>+ مشاهده کتابخانه محتوا</span>
+            <span>+ مشاهده دوره‌ها</span>
             <ChevronLeft className="w-3.5 h-3.5" />
           </Link>
         </div>
@@ -1006,105 +1088,19 @@ function PopularContentPacksSection({
 }
 
 /**
- * Individual content pack card component for Dashboard ("محبوب‌ترین بسته‌های محتوای آموزشی").
- * Displays subject, title, description, educational stats, usage count,
- * and direct actions ("مشاهده محتوا" & "افزودن به دوره").
+ * Single Popular Course Card for Dashboard.
  */
-function PopularContentPackCard({
-  pack,
-  onViewDetails,
-  onAddToCourse,
-}: {
-  pack: PublicContentPackItemSummary;
-  onViewDetails: (pack: PublicContentPackItemSummary) => void;
-  onAddToCourse: (pack: PublicContentPackItemSummary) => void;
-}) {
-  const sessionCount = pack.stats?.session_count ?? 0;
-  const flashcardCount = pack.stats?.flashcard_count ?? 0;
-  const estimatedReadingMinutes = pack.stats?.estimated_reading_minutes ?? 10;
-  const usageCount = pack.usage_count ?? 0;
-
+function PopularCourseCard({ course }: { course: CourseResource }) {
+  const rawCourse = course as { cover_image?: string; thumbnail_url?: string };
   return (
-    <div
-      className="bg-[var(--color-surface)] p-4 sm:p-5 rounded-card border border-[var(--color-border)] shadow-xs flex flex-col justify-between hover:border-primary/40 hover:shadow-card transition-all group min-h-[180px]"
-      dir="rtl"
-    >
-      <div>
-        {/* Top Header: Subject Badge & Usage Count */}
-        <div className="flex items-start justify-between gap-2 mb-2.5">
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-[var(--avana-accent-soft)] text-primary border border-primary/20 truncate max-w-[140px]">
-            <Sparkles className="w-3 h-3 shrink-0" />
-            <span className="truncate">{pack.subject || "عمومی / پزشکی"}</span>
-          </span>
-
-          <span
-            className="inline-flex items-center gap-1 text-[10px] text-[var(--color-text-muted)] font-medium bg-[var(--color-surface-warm)] px-2.5 py-0.5 rounded-full border border-[var(--color-border)] shrink-0 whitespace-nowrap"
-            title="تعداد دفعات افزوده‌شده به دوره‌ها"
-          >
-            <Users className="w-3 h-3 text-primary shrink-0" />
-            <span>{toPersianDigits(usageCount)} افزوده‌شده</span>
-          </span>
-        </div>
-
-        {/* Title */}
-        <h4
-          className="text-sm font-bold text-[var(--color-text)] group-hover:text-primary transition-colors line-clamp-1 mb-1.5 leading-snug"
-          title={pack.title}
-        >
-          {pack.title}
-        </h4>
-
-        {/* Description */}
-        <p className="text-xs text-[var(--color-text-muted)] line-clamp-2 leading-relaxed mb-3 min-h-[2rem]">
-          {pack.description && pack.description.trim().length > 0
-            ? pack.description
-            : "مجموعه آموزشی جامع شامل درسنامه‌ها، فلش‌کارت‌های مرور فعال و آزمون‌های ارزیابی آنلاین."}
-        </p>
-
-        {/* Educational Content Stats Grid */}
-        <div className="grid grid-cols-3 gap-1.5 mb-3 text-[11px] text-[var(--color-text)]">
-          <div className="flex items-center gap-1 p-1.5 rounded-card bg-[var(--color-surface-warm)] border border-[var(--color-border)]">
-            <BookOpen className="w-3 h-3 text-primary shrink-0" />
-            <span className="truncate">{toPersianDigits(sessionCount)} درس</span>
-          </div>
-
-          <div className="flex items-center gap-1 p-1.5 rounded-card bg-[var(--color-surface-warm)] border border-[var(--color-border)]">
-            <Layers className="w-3 h-3 text-primary shrink-0" />
-            <span className="truncate">{toPersianDigits(flashcardCount)} کارت</span>
-          </div>
-
-          <div className="flex items-center gap-1 p-1.5 rounded-card bg-[var(--color-surface-warm)] border border-[var(--color-border)]">
-            <Clock className="w-3 h-3 text-primary shrink-0" />
-            <span className="truncate">~{toPersianDigits(estimatedReadingMinutes)}د</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Action Footer */}
-      <div className="pt-2.5 border-t border-[var(--color-border)] flex items-center gap-2">
-        <Button
-          type="button"
-          onClick={() => onViewDetails(pack)}
-          variant="outline"
-          size="sm"
-          className="flex-1"
-        >
-          <Eye className="w-3.5 h-3.5" />
-          <span>مشاهده</span>
-        </Button>
-
-        <Button
-          type="button"
-          onClick={() => onAddToCourse(pack)}
-          variant="primary"
-          size="sm"
-          className="flex-1"
-        >
-          <PlusCircle className="w-3.5 h-3.5" />
-          <span>افزودن</span>
-        </Button>
-      </div>
-    </div>
+    <CourseCard
+      id={course.id}
+      title={course.title}
+      subject={course.subject}
+      coverImage={rawCourse.cover_image || rawCourse.thumbnail_url}
+      href={`/courses/${course.id}`}
+      variant="compact"
+    />
   );
 }
 

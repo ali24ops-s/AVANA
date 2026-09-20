@@ -303,22 +303,14 @@ export class InMemoryDeviceStore implements DeviceStore {
             d.deviceType === params.deviceType &&
             !d.revokedAt
           ) {
-            if (params.isPlatformAdmin) {
-              // Controlled recovery/takeover for platform_admin
-              d.revokedAt = new Date().toISOString();
-              d.updatedAt = d.revokedAt;
-              break;
-            } else {
-              return {
-                status: "LIMIT_REACHED",
-                deviceType: params.deviceType,
-                existingDevice: d,
-              };
-            }
+            // Controlled slot takeover on successful authentication (Newest-Login-Wins per device slot)
+            d.revokedAt = new Date().toISOString();
+            d.updatedAt = d.revokedAt;
+            break;
           }
         }
 
-        // Case B: Slot is free (or vacated for admin) -> register new device (preserving persistent client device ID)
+        // Case B: Slot is free (or vacated on takeover) -> register new device (preserving persistent client device ID)
         const canonicalDeviceId = resolveCanonicalDeviceId(params.incomingDeviceId);
         const newDevice = await this.registerDevice({
           userId: params.userId,

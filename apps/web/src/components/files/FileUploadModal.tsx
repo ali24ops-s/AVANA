@@ -12,6 +12,7 @@ import {
 import { getFileIcon, formatBytes } from "./FileTable.js";
 import { generateUUID } from "../../lib/api/client.js";
 import type { CourseResource, ContentModuleResource } from "@avana/contracts";
+import { toPersianDigits } from "@avana/domain";
 
 export interface FileUploadModalProps {
   isOpen: boolean;
@@ -212,7 +213,7 @@ export function FileUploadModal({
                 value={selectedCourseId}
                 onChange={(e) => void handleCourseChange(e.target.value)}
                 disabled={isUploading}
-                className="w-full bg-white border border-[var(--color-border)] rounded-xl px-3 py-2 text-[var(--color-text)] text-xs focus:outline-none focus:ring-1 focus:ring-[#008080]"
+                className="w-full bg-white border border-[var(--color-border)] rounded-xl ps-3 pe-8 py-2 text-[var(--color-text)] text-xs focus:outline-none focus:ring-1 focus:ring-[#008080] cursor-pointer"
               >
                 <option value="">بدون اتصال به دوره (فایل آزاد)</option>
                 {courses.map((c) => (
@@ -233,7 +234,7 @@ export function FileUploadModal({
                 value={selectedModuleId}
                 onChange={(e) => setSelectedModuleId(e.target.value)}
                 disabled={!selectedCourseId || isUploading || loadingModules}
-                className="w-full bg-white border border-[var(--color-border)] rounded-xl px-3 py-2 text-[var(--color-text)] text-xs focus:outline-none focus:ring-1 focus:ring-[#008080] disabled:opacity-50"
+                className="w-full bg-white border border-[var(--color-border)] rounded-xl ps-3 pe-8 py-2 text-[var(--color-text)] text-xs focus:outline-none focus:ring-1 focus:ring-[#008080] disabled:opacity-50 cursor-pointer"
               >
                 <option value="">
                   {loadingModules ? "در حال بارگذاری سرفصل‌ها..." : "انتخاب سرفصل (اختیاری)"}
@@ -287,7 +288,7 @@ export function FileUploadModal({
           {queue.length > 0 && (
             <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
               <div className="flex items-center justify-between text-xs text-[var(--color-text-muted)] px-1">
-                <span>فایل‌های انتخاب‌شده ({queue.length.toLocaleString("fa-IR")})</span>
+                <span>فایل‌های انتخاب‌شده ({toPersianDigits(queue.length)})</span>
                 {!isUploading && (
                   <button
                     type="button"

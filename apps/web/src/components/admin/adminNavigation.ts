@@ -7,6 +7,7 @@ import {
   Newspaper,
   BrainCircuit,
   ShieldCheck,
+  LifeBuoy,
 } from "lucide-react";
 
 export interface AdminNavItem {
@@ -25,7 +26,7 @@ export interface AdminNavGroup {
 }
 
 /**
- * 7 Primary Workspaces for platform_admin
+ * 8 Primary Workspaces for platform_admin
  */
 export const PLATFORM_ADMIN_NAV_ITEMS: AdminNavItem[] = [
   {
@@ -49,6 +50,14 @@ export const PLATFORM_ADMIN_NAV_ITEMS: AdminNavItem[] = [
       "/admin/documents",
       "/admin/community-content",
     ],
+  },
+  {
+    id: "support",
+    name: "پشتیبانی و بازخورد",
+    href: "/admin/support",
+    icon: LifeBuoy,
+    description: "تیکت‌های پشتیبانی، مکالمه با کاربران و بررسی بازخوردها",
+    matchPrefixes: ["/admin/support"],
   },
   {
     id: "users",
@@ -321,11 +330,49 @@ export function getAdminPageInfo(currentPathname: string): {
     };
   }
 
+  // Support & Feedback
+  if (currentPathname === "/admin/support" || currentPathname.startsWith("/admin/support/")) {
+    return {
+      title: "پشتیبانی و بازخورد",
+      breadcrumbs: [rootCrumb, { label: "پشتیبانی و بازخورد", isCurrent: true }],
+    };
+  }
+
   // 3. Users & Permissions
   if (currentPathname === "/admin/users") {
     return {
-      title: "کاربران و دسترسی‌ها",
+      title: "مدیریت کاربران",
       breadcrumbs: [rootCrumb, { label: "کاربران و دسترسی‌ها", isCurrent: true }],
+    };
+  }
+  if (currentPathname === "/admin/users/subscriptions") {
+    return {
+      title: "پرداخت اشتراک‌ها",
+      breadcrumbs: [
+        rootCrumb,
+        { label: "مدیریت کاربران", href: "/admin/users" },
+        { label: "پرداخت اشتراک‌ها", isCurrent: true },
+      ],
+    };
+  }
+  if (currentPathname === "/admin/users/purchases") {
+    return {
+      title: "خرید محصولات",
+      breadcrumbs: [
+        rootCrumb,
+        { label: "مدیریت کاربران", href: "/admin/users" },
+        { label: "خرید محصولات", isCurrent: true },
+      ],
+    };
+  }
+  if (currentPathname === "/admin/users/wallet-topups") {
+    return {
+      title: "شارژ کیف پول",
+      breadcrumbs: [
+        rootCrumb,
+        { label: "مدیریت کاربران", href: "/admin/users" },
+        { label: "شارژ کیف پول", isCurrent: true },
+      ],
     };
   }
   if (currentPathname.startsWith("/admin/users/")) {

@@ -40,6 +40,11 @@ export interface BlogStore {
 
   // Tag management
   getOrCreateTags(tagNames: string[]): Promise<BlogTagRecord[]>;
+  getTagBySlug(slug: string): Promise<BlogTagRecord | null>;
+  listTagsWithCounts(search?: string): Promise<BlogTagRecord[]>;
+  createTag(name: string, slug: string): Promise<BlogTagRecord>;
+  updateTag(id: string, name: string, slug: string): Promise<BlogTagRecord>;
+  deleteTag(id: string): Promise<boolean>;
 }
 
 export class InMemoryBlogStore implements BlogStore {
@@ -467,6 +472,78 @@ export class InMemoryBlogStore implements BlogStore {
         post.categoryId = null;
       }
     }
+    return true;
+  }
+
+  async getTagBySlug(slug: string): Promise<BlogTagRecord | null> {
+    const cleanSlug = slug.trim();
+    const tag = Array.from(this.tags.values()).find(
+      (t) => t.slug === cleanSlug || t.name === cleanSlug,
+    );
+    if (!tag) return null;
+    const count = this.postTags.filter((pt) => {
+      if (pt.tagId !== tag.id) return false;
+      const post = this.posts.get(pt.postId);
+      return post && post.status === "published";
+    }).length;
+    return { ...tag, postCount: count };
+  }
+
+  async listTagsWithCounts(search?: string): Promise<BlogTagRecord[]> {
+    let tagList = Array.from(this.tags.values());
+    if (search && search.trim().length > 0) {
+      const term = search.toLowerCase().trim();
+      tagList = tagList.filter(
+        (t) => t.name.toLowerCase().includes(term) || t.slug.toLowerCase().includes(term),
+      );
+    }
+
+    return tagList.map((tag) => {
+      const count = this.postTags.filter((pt) => {
+        if (pt.tagId !== tag.id) return false;
+        const post = this.posts.get(pt.postId);
+        return post && post.status === "published";
+      }).length;
+      return { ...tag, postCount: count };
+    }).sort((a, b) => (b.postCount || 0) - (a.postCount || 0) || a.name.localeCompare(b.name));
+  }
+
+  async createTag(name: string, slug: string): Promise<BlogTagRecord> {
+    const existing = Array.from(this.tags.values()).find(
+      (t) => t.name.toLowerCase() === name.toLowerCase() || t.slug === slug,
+    );
+    if (existing) {
+      return existing;
+    }
+    const now = new Date();
+    const newTag: BlogTagRecord = {
+      id: randomUUID(),
+      name,
+      slug,
+      postCount: 0,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.tags.set(newTag.id, newTag);
+    return newTag;
+  }
+
+  async updateTag(id: string, name: string, slug: string): Promise<BlogTagRecord> {
+    const tag = this.tags.get(id);
+    if (!tag) throw new Error(`Tag with id ${id} not found`);
+    const now = new Date();
+    tag.name = name;
+    tag.slug = slug;
+    tag.updatedAt = now;
+    this.tags.set(id, tag);
+    return tag;
+  }
+
+  async deleteTag(id: string): Promise<boolean> {
+    const exists = this.tags.has(id);
+    if (!exists) return false;
+    this.tags.delete(id);
+    this.postTags = this.postTags.filter((pt) => pt.tagId !== id);
     return true;
   }
 

@@ -23,6 +23,8 @@ import {
   DomainError,
   normalizeQuestionOptions,
   canonicalizeAndShuffleQuestion,
+  cleanEducationalTitle,
+  cleanEducationalDescription,
 } from "@avana/domain";
 import type {
   ContentPackStore,
@@ -696,12 +698,12 @@ export class InMemoryContentPackStore implements ContentPackStore {
             if (matchesQuery) {
               contentResults.push({
                 id: les.id,
-                title: les.title,
+                title: cleanEducationalTitle(les.title, "درسنامه آموزشی"),
                 type: "lesson",
                 courseId: course.id,
-                courseTitle: course.name,
+                courseTitle: cleanEducationalTitle(course.name, "دوره آموزشی جامع"),
                 moduleId: mod.id,
-                moduleTitle: mod.title,
+                moduleTitle: cleanEducationalTitle(mod.title, "فصل آموزشی"),
                 lessonId: les.id,
                 estimatedMinutes: les.estimatedMinutes ?? null,
                 completed,
@@ -727,11 +729,13 @@ export class InMemoryContentPackStore implements ContentPackStore {
             totalLessons > 0 ? Math.round((completedLessons / totalLessons) * 100) : 0;
           courseResults.push({
             id: course.id,
-            title: course.name,
-            description: course.description ?? null,
+            title: cleanEducationalTitle(course.name, "دوره آموزشی جامع"),
+            description: cleanEducationalDescription(course.description, null),
             subject: course.subject ?? null,
             moduleCount: courseModules.length,
             contentCount: totalLessons,
+            flashcardCount: 0,
+            quizQuestionCount: 0,
             progress: {
               completedLessons,
               totalLessons,
@@ -894,9 +898,12 @@ export class InMemoryContentPackStore implements ContentPackStore {
           id: attachedPack?.id ?? mod.id,
           moduleId: mod.id,
           courseId: course.id,
-          courseTitle: course.name,
-          title: mod.title,
-          description: mod.description ?? attachedPack?.description ?? null,
+          courseTitle: cleanEducationalTitle(course.name, "دوره آموزشی جامع"),
+          title: cleanEducationalTitle(mod.title, "فصل: مبحث آموزشی جامع"),
+          description: cleanEducationalDescription(
+            mod.description ?? attachedPack?.description,
+            "بسته آموزشی جامع فصل شامل درسنامه ساختاریافته، خلاصه نکات کلیدی، فلش‌کارت‌های مرور فعال و آزمون تستی.",
+          ),
           subject: course.subject ?? attachedPack?.subject ?? null,
           sortOrder: mod.sortOrder,
           documentId: mod.documentId ?? null,

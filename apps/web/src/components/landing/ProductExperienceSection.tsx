@@ -23,6 +23,7 @@ import {
   Brain,
 } from "lucide-react";
 import { Badge, Tabs } from "@avana/ui";
+import { toPersianDigits } from "@avana/domain";
 
 type ExperienceTab = "flashcard" | "ai" | "hierarchy" | "quiz";
 
@@ -289,7 +290,7 @@ export function ProductExperienceSection() {
                 >
                   <CheckCircle2 className="w-4 h-4 text-[#008080] shrink-0" />
                   <span>
-                    الگوریتم مرور فاصله‌دار (SRS): این کارت برای <strong>{srsScheduledDays} روز دیگر</strong> در نوبت یادآوری هوشمند قرار گرفت.
+                    الگوریتم مرور فاصله‌دار (SRS): این کارت برای <strong>{toPersianDigits(srsScheduledDays)} روز دیگر</strong> در نوبت یادآوری هوشمند قرار گرفت.
                   </span>
                 </motion.div>
               )}
@@ -349,7 +350,7 @@ export function ProductExperienceSection() {
                       className="p-2.5 rounded-[10px] bg-[var(--avana-bg-default)] border border-[var(--avana-border-default)] text-xs text-[var(--avana-text-secondary)] flex items-start gap-2.5"
                     >
                       <span className="w-5 h-5 rounded-full bg-[#008080]/10 text-[#008080] border border-[#008080]/20 flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
-                        {sIdx + 1}
+                        {toPersianDigits(sIdx + 1)}
                       </span>
                       <p className="leading-relaxed">{step}</p>
                     </div>

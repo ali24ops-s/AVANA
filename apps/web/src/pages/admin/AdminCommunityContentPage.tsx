@@ -548,7 +548,7 @@ export function AdminCommunityContentPage() {
                 <div className="flex items-center gap-3 text-xs text-[var(--color-text-muted)] mt-1">
                   <span>توسط: {detailData?.pack?.creator?.name || "کاربر آوانا"}</span>
                   {detailData?.pack?.subject && <span>• رشته: {detailData.pack.subject}</span>}
-                  <span>• {detailData?.itemsCount ?? 0} آیتم محتوایی</span>
+                  <span>• {toPersianDigits(detailData?.itemsCount ?? 0)} آیتم محتوایی</span>
                 </div>
               </div>
               <button
@@ -608,7 +608,7 @@ export function AdminCommunityContentPage() {
                           </div>
                           <div className="text-xs text-[var(--color-text-muted)] mt-0.5 flex items-center gap-2">
                             <span>
-                              حجم: {Math.round(detailData.sourceDocument.sizeBytes / 1024)} کیلوبایت
+                              حجم: {toPersianDigits(Math.round(detailData.sourceDocument.sizeBytes / 1024))} کیلوبایت
                             </span>
                             <span>•</span>
                             <span>فرمت: {detailData.sourceDocument.mimeType}</span>
@@ -646,33 +646,33 @@ export function AdminCommunityContentPage() {
                         detailData.preview?.lesson
                           ? {
                               id: "lesson",
-                              label: `درس‌ها (${
+                              label: `درس‌ها (${toPersianDigits(
                                 detailData.preview.lesson.sessionCount ??
                                 detailData.preview.lesson.sessions?.length ??
                                 (detailData.preview.lesson.contentMarkdown ? 1 : 0)
-                              })`,
+                              )})`,
                               icon: <BookOpen className="w-4 h-4" />,
                             }
                           : null,
                         detailData.preview?.flashcard
                           ? {
                               id: "flashcard",
-                              label: `فلش‌کارت‌ها (${
+                              label: `فلش‌کارت‌ها (${toPersianDigits(
                                 detailData.preview.flashcard.totalCards ??
                                 detailData.preview.flashcard.cards?.length ??
                                 0
-                              })`,
+                              )})`,
                               icon: <Layers className="w-4 h-4" />,
                             }
                           : null,
                         detailData.preview?.quiz
                           ? {
                               id: "quiz",
-                              label: `آزمون تستی (${
+                              label: `آزمون تستی (${toPersianDigits(
                                 detailData.preview.quiz.totalQuestions ??
                                 detailData.preview.quiz.questions?.length ??
                                 0
-                              })`,
+                              )})`,
                               icon: <HelpCircle className="w-4 h-4" />,
                             }
                           : null,
@@ -854,9 +854,11 @@ export function AdminCommunityContentPage() {
                               {detailData.preview.flashcard.title || "فلش‌کارت‌های آموزشی"}
                             </h4>
                             <span className="text-xs text-[var(--color-text-muted)]">
-                              {detailData.preview.flashcard.totalCards ||
+                              {toPersianDigits(
+                                detailData.preview.flashcard.totalCards ||
                                 detailData.preview.flashcard.cards?.length ||
-                                0}{" "}
+                                0
+                              )}{" "}
                               کارت
                             </span>
                           </div>
@@ -923,9 +925,11 @@ export function AdminCommunityContentPage() {
                               {detailData.preview.quiz.title || "آزمون ارزیابی"}
                             </h4>
                             <span className="text-xs text-[var(--color-text-muted)]">
-                              {detailData.preview.quiz.totalQuestions ||
+                              {toPersianDigits(
+                                detailData.preview.quiz.totalQuestions ||
                                 detailData.preview.quiz.questions?.length ||
-                                0}{" "}
+                                0
+                              )}{" "}
                               سوال
                             </span>
                           </div>
@@ -943,7 +947,7 @@ export function AdminCommunityContentPage() {
                                 >
                                   <div className="flex items-start justify-between gap-3">
                                     <div className="font-bold text-[var(--color-text)] text-sm leading-snug">
-                                      <span className="text-[var(--color-primary-default)] ms-1.5">{i + 1}.</span>
+                                      <span className="text-[var(--color-primary-default)] ms-1.5">{toPersianDigits(i + 1)}.</span>
                                       <RichContent content={q.question || "سوال تستی"} inline />
                                     </div>
                                     {q.category && (

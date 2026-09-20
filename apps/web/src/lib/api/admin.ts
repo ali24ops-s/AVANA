@@ -8,6 +8,17 @@ export type {
   ContentReportStatus,
   ContentReportCategory,
 } from "@avana/contracts";
+import type {
+  CoursePricingBreakdown,
+  ContentGenerationPricingConfig,
+  UpdateContentGenerationPricingInput,
+  SubscriptionCreditBonusesConfig,
+} from "@avana/domain";
+export type {
+  ContentGenerationPricingConfig,
+  UpdateContentGenerationPricingInput,
+  SubscriptionCreditBonusesConfig,
+};
 
 export interface DashboardStats {
   totalUsers: number;
@@ -200,7 +211,9 @@ export interface AdminPaymentRecord {
   userId: string;
   userName?: string;
   userEmail: string;
+  productId?: string;
   productTitle?: string;
+  productType?: string;
   amount: number;
   currency: string;
   gateway: string;
@@ -348,6 +361,7 @@ export interface AdminResetDevicesResponse {
 export function createAdminApi(client: {
   get: <T>(path: string, options?: ApiRequestOptions) => Promise<T>;
   post: <T>(path: string, data?: unknown, options?: ApiRequestOptions) => Promise<T>;
+  put: <T>(path: string, data?: unknown, options?: ApiRequestOptions) => Promise<T>;
   patch: <T>(path: string, data?: unknown, options?: ApiRequestOptions) => Promise<T>;
   delete: <T>(path: string, options?: ApiRequestOptions) => Promise<T>;
 }) {
@@ -504,6 +518,8 @@ export function createAdminApi(client: {
       status?: string;
       from?: string;
       to?: string;
+      category?: string;
+      productType?: string;
     } = {}): Promise<AdminPaymentsList> {
       const page = params.page || 1;
       const pageSize = params.pageSize || 20;
@@ -513,6 +529,8 @@ export function createAdminApi(client: {
       if (params.status && params.status !== "all") queryStr += `&status=${encodeURIComponent(params.status)}`;
       if (params.from) queryStr += `&from=${encodeURIComponent(params.from)}`;
       if (params.to) queryStr += `&to=${encodeURIComponent(params.to)}`;
+      if (params.category) queryStr += `&category=${encodeURIComponent(params.category)}`;
+      if (params.productType && params.productType !== "all") queryStr += `&productType=${encodeURIComponent(params.productType)}`;
       return client.get<AdminPaymentsList>(`/v1/admin/commerce/payments?${queryStr}`);
     },
 
@@ -647,6 +665,142 @@ export function createAdminApi(client: {
       return client.get<AdminUserCommerceProfile>(`/v1/admin/users/${userId}/commerce`);
     },
 
+    async getContentGenerationPricing(): Promise<ContentGenerationPricingConfig> {
+      return client.get<ContentGenerationPricingConfig>("/v1/admin/commerce/content-pricing");
+    },
+
+    async updateContentGenerationPricing(
+      payload: UpdateContentGenerationPricingInput
+    ): Promise<{ success: boolean; pricing: ContentGenerationPricingConfig }> {
+      return client.put<{ success: boolean; pricing: ContentGenerationPricingConfig }>(
+        "/v1/admin/commerce/content-pricing",
+        payload
+      );
+    },
+
+    async getSubscriptionCreditBonuses(): Promise<SubscriptionCreditBonusesConfig> {
+      return client.get<SubscriptionCreditBonusesConfig>("/v1/admin/commerce/subscription-bonuses");
+    },
+
+    async updateSubscriptionCreditBonuses(
+      payload: Partial<SubscriptionCreditBonusesConfig>
+    ): Promise<{ success: boolean; bonuses: SubscriptionCreditBonusesConfig }> {
+      return client.put<{ success: boolean; bonuses: SubscriptionCreditBonusesConfig }>(
+        "/v1/admin/commerce/subscription-bonuses",
+        payload
+      );
+    },
+
+    // -------------------------------------------------------------------------
+    // Commerce Promotions / Discounts
+    // -------------------------------------------------------------------------
+    async listCommercePromotions(params?: {
+      page?: number;
+      pageSize?: number;
+      search?: string;
+      active?: boolean;
+      benefitType?: string;
+    }): Promise<{ items: AdminPromotionListItem[]; promotions: AdminPromotionListItem[]; totalCount: number }> {
+      const searchParams = new URLSearchParams();
+      if (params?.page) searchParams.set("page", String(params.page));
+      if (params?.pageSize) searchParams.set("pageSize", String(params.pageSize));
+      if (params?.search) searchParams.set("search", params.search);
+      if (params?.active !== undefined) searchParams.set("active", String(params.active));
+      if (params?.benefitType) searchParams.set("benefitType", params.benefitType);
+      const res = await client.get<{ items: AdminPromotionListItem[]; totalCount: number }>(
+        `/v1/admin/commerce/promotions?${searchParams.toString()}`,
+      );
+      return {
+        items: res.items || [],
+        promotions: res.items || [],
+        totalCount: res.totalCount || (res.items || []).length,
+      };
+    },
+
+    async getCommercePromotion(id: string): Promise<AdminPromotionDetail> {
+      return client.get<AdminPromotionDetail>(
+        `/v1/admin/commerce/promotions/${encodeURIComponent(id)}`,
+      );
+    },
+
+    async createCommercePromotion(
+      input: CreateAdminPromotionInput,
+    ): Promise<AdminPromotionDetail> {
+      return client.post<AdminPromotionDetail>(
+        "/v1/admin/commerce/promotions",
+        input,
+      );
+    },
+
+    async updateCommercePromotion(
+      id: string,
+      input: UpdateAdminPromotionInput,
+    ): Promise<AdminPromotionDetail> {
+      return client.patch<AdminPromotionDetail>(
+        `/v1/admin/commerce/promotions/${encodeURIComponent(id)}`,
+        input,
+      );
+    },
+
+    async toggleCommercePromotionActive(
+      id: string,
+      active: boolean,
+    ): Promise<AdminPromotionDetail> {
+      return client.patch<AdminPromotionDetail>(
+        `/v1/admin/commerce/promotions/${encodeURIComponent(id)}/toggle-active`,
+        { active },
+      );
+    },
+
+    async deleteCommercePromotion(id: string): Promise<{ success: boolean }> {
+      return client.delete<{ success: boolean }>(
+        `/v1/admin/commerce/promotions/${encodeURIComponent(id)}`,
+      );
+    },
+
+    async bulkGenerateCommercePromotionCodes(
+      id: string,
+      params: { count: number; prefix?: string; length?: number; codeLength?: number; maxUses?: number | null },
+    ): Promise<{ codes: string[]; count: number }> {
+      return client.post<{ codes: string[]; count: number }>(
+        `/v1/admin/commerce/promotions/${encodeURIComponent(id)}/generate-codes`,
+        {
+          count: params.count,
+          prefix: params.prefix,
+          length: params.length || params.codeLength,
+          maxUses: params.maxUses ?? undefined,
+        },
+      );
+    },
+
+    async listCommercePromotionRedemptions(
+      idOrParams?: string | { promotionId?: string; id?: string; page?: number; pageSize?: number; limit?: number },
+      params?: { page?: number; pageSize?: number; limit?: number },
+    ): Promise<{ items: AdminPromotionRedemptionListItem[]; redemptions: AdminPromotionRedemptionListItem[]; totalCount: number }> {
+      let promoId: string | undefined;
+      let p = params;
+      if (typeof idOrParams === "string") {
+        promoId = idOrParams;
+      } else if (typeof idOrParams === "object" && idOrParams !== null) {
+        promoId = idOrParams.promotionId || idOrParams.id;
+        p = idOrParams;
+      }
+      const searchParams = new URLSearchParams();
+      if (p?.page) searchParams.set("page", String(p.page));
+      if (p?.pageSize || p?.limit) searchParams.set("pageSize", String(p?.pageSize || p?.limit));
+
+      const url = promoId
+        ? `/v1/admin/commerce/promotions/${encodeURIComponent(promoId)}/redemptions?${searchParams.toString()}`
+        : `/v1/admin/commerce/promotions/redemptions?${searchParams.toString()}`;
+
+      const res = await client.get<{ items: AdminPromotionRedemptionListItem[]; totalCount: number }>(url);
+      return {
+        items: res.items || [],
+        redemptions: res.items || [],
+        totalCount: res.totalCount || (res.items || []).length,
+      };
+    },
+
     // -------------------------------------------------------------------------
     // Official Content Studio
     // -------------------------------------------------------------------------
@@ -715,6 +869,14 @@ export function createAdminApi(client: {
       );
     },
 
+    async getOfficialCoursePricingSuggestion(
+      courseId: string,
+    ): Promise<CoursePricingSuggestionResponse> {
+      return client.get<CoursePricingSuggestionResponse>(
+        `/v1/admin/content-studio/courses/${courseId}/pricing-suggestion`,
+      );
+    },
+
     async setLessonPricing(
       lessonId: string,
       data: { price: number; title?: string; description?: string; active?: boolean },
@@ -766,6 +928,48 @@ export function createAdminApi(client: {
         `/v1/admin/content/courses/${courseId}/hierarchy`,
       );
     },
+
+    async createSubCourseGroup(
+      courseId: string,
+      data: { title: string },
+    ): Promise<{ success: boolean; group: AdminCourseHierarchyGroup }> {
+      return client.post(`/v1/admin/content/courses/${courseId}/groups`, data);
+    },
+
+    async updateSubCourseGroup(
+      courseId: string,
+      groupId: string,
+      data: { title?: string; sortOrder?: number },
+    ): Promise<{ success: boolean; group: AdminCourseHierarchyGroup }> {
+      return client.patch(`/v1/admin/content/courses/${courseId}/groups/${groupId}`, data);
+    },
+
+    async deleteSubCourseGroup(
+      courseId: string,
+      groupId: string,
+    ): Promise<{ success: boolean }> {
+      return client.delete(`/v1/admin/content/courses/${courseId}/groups/${groupId}`);
+    },
+
+    async reorderSubCourseGroups(
+      courseId: string,
+      groupIds: string[],
+    ): Promise<{ success: boolean }> {
+      if (client.put) {
+        return client.put(`/v1/admin/content/courses/${courseId}/groups/reorder`, { groupIds });
+      }
+      return client.post(`/v1/admin/content/courses/${courseId}/groups/reorder`, { groupIds });
+    },
+
+    async reorderCourseModules(
+      courseId: string,
+      items: Array<{ id: string; sortOrder: number; subCourseGroupId?: string | null }>,
+    ): Promise<{ success: boolean }> {
+      if (client.put) {
+        return client.put(`/v1/admin/content/courses/${courseId}/modules/reorder`, { items });
+      }
+      return client.post(`/v1/admin/content/courses/${courseId}/modules/reorder`, { items });
+    },
   };
 }
 
@@ -788,6 +992,11 @@ export interface OfficialCourseProduct {
   price: number;
   currency: string;
   active: boolean;
+}
+
+export interface CoursePricingSuggestionResponse extends CoursePricingBreakdown {
+  success: boolean;
+  currentProduct: OfficialCourseProduct | null;
 }
 
 export interface OfficialCourse {
@@ -841,6 +1050,15 @@ export interface ConsistencyValidationReport {
   errors: string[];
 }
 
+export interface AdminCourseHierarchyGroup {
+  id: string;
+  courseId: string;
+  title: string;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface AdminCourseHierarchyLesson {
   id: string;
   title: string;
@@ -854,6 +1072,8 @@ export interface AdminCourseHierarchyLesson {
 export interface AdminCourseHierarchyModule {
   id: string;
   title: string;
+  sortOrder?: number;
+  subCourseGroupId?: string | null;
   lessons: AdminCourseHierarchyLesson[];
 }
 
@@ -861,6 +1081,7 @@ export interface AdminCourseHierarchy {
   id: string;
   name: string;
   subject: string | null;
+  groups?: AdminCourseHierarchyGroup[];
   modules: AdminCourseHierarchyModule[];
 }
 
@@ -1031,6 +1252,273 @@ export async function executeContentImport(
     throw new Error(errData?.message || "اجرای ورود اطلاعات با خطا مواجه شد.");
   }
 
+  return res.json();
+}
+
+// ---------------------------------------------------------------------------
+// Promotions / Discount Codes API
+// ---------------------------------------------------------------------------
+
+export type AdminPromotionRecord = AdminPromotionListItem;
+export type AdminPromotionRedemptionRecord = AdminPromotionRedemptionListItem;
+
+export interface AdminPromotionListItem {
+  id: string;
+  name: string;
+  description: string | null;
+  benefitType: "percentage_discount" | "fixed_discount" | "percentage_cashback" | "fixed_cashback";
+  benefitValue: number;
+  maxDiscountAmount: number | null;
+  minOrderAmount: number | null;
+  totalUsageLimit: number | null;
+  perUserUsageLimit: number | null;
+  active: boolean;
+  startsAt: string | null;
+  endsAt: string | null;
+  codesCount: number;
+  primaryCode: string | null;
+  totalRedemptions: number;
+  totalDiscountGranted: number;
+  totalCashbackGranted: number;
+  createdAt: string;
+}
+
+export interface AdminPromotionDetail {
+  id: string;
+  name: string;
+  description: string | null;
+  benefitType: "percentage_discount" | "fixed_discount" | "percentage_cashback" | "fixed_cashback";
+  benefitValue: number;
+  maxDiscountAmount: number | null;
+  minOrderAmount: number | null;
+  totalUsageLimit: number | null;
+  perUserUsageLimit: number | null;
+  active: boolean;
+  startsAt: string | null;
+  endsAt: string | null;
+  codes: {
+    id: string;
+    code: string;
+    maxUses: number | null;
+    active: boolean;
+    createdAt: string;
+  }[];
+  productRestrictions: {
+    id: string;
+    productId: string | null;
+    productType: string | null;
+  }[];
+  userRestrictions: {
+    id: string;
+    userId: string;
+    userName?: string;
+    userEmail?: string;
+  }[];
+  stats: {
+    totalRedemptions: number;
+    completedRedemptions: number;
+    pendingRedemptions: number;
+    totalDiscountGranted: number;
+    totalCashbackGranted: number;
+    remainingUsage: number | null;
+  };
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateAdminPromotionInput {
+  name: string;
+  description?: string | null;
+  benefitType: string;
+  benefitValue: number;
+  maxDiscountAmount?: number | null;
+  minOrderAmount?: number | null;
+  totalUsageLimit?: number | null;
+  perUserUsageLimit?: number | null;
+  active?: boolean;
+  startsAt?: string | null;
+  endsAt?: string | null;
+  code?: string;
+  productRestrictions?: { productId?: string; productType?: string }[];
+  userRestrictions?: string[];
+  metadata?: Record<string, unknown>;
+}
+
+export interface UpdateAdminPromotionInput {
+  name?: string;
+  description?: string | null;
+  benefitType?: string;
+  benefitValue?: number;
+  maxDiscountAmount?: number | null;
+  minOrderAmount?: number | null;
+  totalUsageLimit?: number | null;
+  perUserUsageLimit?: number | null;
+  active?: boolean;
+  startsAt?: string | null;
+  endsAt?: string | null;
+  productRestrictions?: { productId?: string; productType?: string }[];
+  userRestrictions?: string[];
+  metadata?: Record<string, unknown>;
+}
+
+export interface AdminPromotionRedemptionListItem {
+  id: string;
+  userId: string;
+  userName?: string;
+  userEmail?: string;
+  orderId: string;
+  orderNumber: string;
+  code: string;
+  benefitType: string;
+  benefitValue: number;
+  discountAmount: number;
+  cashbackAmount: number;
+  orderOriginalAmount: number;
+  orderFinalAmount: number;
+  status: string;
+  redeemedAt: string;
+  completedAt: string | null;
+}
+
+export async function getAdminPromotions(params?: {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+  active?: boolean;
+  benefitType?: string;
+}): Promise<{ items: AdminPromotionListItem[]; totalCount: number }> {
+  const baseUrl = getApiBaseUrl();
+  const searchParams = new URLSearchParams();
+  if (params?.page) searchParams.set("page", String(params.page));
+  if (params?.pageSize) searchParams.set("pageSize", String(params.pageSize));
+  if (params?.search) searchParams.set("search", params.search);
+  if (params?.active !== undefined) searchParams.set("active", String(params.active));
+  if (params?.benefitType) searchParams.set("benefitType", params.benefitType);
+
+  const res = await fetch(`${baseUrl}/v1/admin/commerce/promotions?${searchParams.toString()}`, {
+    credentials: "include",
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => null);
+    throw new Error(err?.message || "خطا در دریافت لیست پروموشن‌ها");
+  }
+  return res.json();
+}
+
+export async function getAdminPromotion(id: string): Promise<AdminPromotionDetail> {
+  const baseUrl = getApiBaseUrl();
+  const res = await fetch(`${baseUrl}/v1/admin/commerce/promotions/${encodeURIComponent(id)}`, {
+    credentials: "include",
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => null);
+    throw new Error(err?.message || "خطا در دریافت اطلاعات پروموشن");
+  }
+  return res.json();
+}
+
+export async function createAdminPromotion(
+  input: CreateAdminPromotionInput,
+): Promise<AdminPromotionDetail> {
+  const baseUrl = getApiBaseUrl();
+  const res = await fetch(`${baseUrl}/v1/admin/commerce/promotions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => null);
+    throw new Error(err?.message || "خطا در ایجاد پروموشن");
+  }
+  return res.json();
+}
+
+export async function updateAdminPromotion(
+  id: string,
+  input: UpdateAdminPromotionInput,
+): Promise<AdminPromotionDetail> {
+  const baseUrl = getApiBaseUrl();
+  const res = await fetch(`${baseUrl}/v1/admin/commerce/promotions/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => null);
+    throw new Error(err?.message || "خطا در ویرایش پروموشن");
+  }
+  return res.json();
+}
+
+export async function toggleAdminPromotionActive(
+  id: string,
+  active: boolean,
+): Promise<AdminPromotionDetail> {
+  const baseUrl = getApiBaseUrl();
+  const res = await fetch(`${baseUrl}/v1/admin/commerce/promotions/${encodeURIComponent(id)}/toggle-active`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ active }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => null);
+    throw new Error(err?.message || "خطا در تغییر وضعیت پروموشن");
+  }
+  return res.json();
+}
+
+export async function deleteAdminPromotion(id: string): Promise<{ success: boolean }> {
+  const baseUrl = getApiBaseUrl();
+  const res = await fetch(`${baseUrl}/v1/admin/commerce/promotions/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => null);
+    throw new Error(err?.message || "خطا در حذف پروموشن");
+  }
+  return res.json();
+}
+
+export async function bulkGenerateAdminPromotionCodes(
+  id: string,
+  params: { count: number; prefix?: string; length?: number; maxUses?: number },
+): Promise<{ codes: string[]; count: number }> {
+  const baseUrl = getApiBaseUrl();
+  const res = await fetch(`${baseUrl}/v1/admin/commerce/promotions/${encodeURIComponent(id)}/generate-codes`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(params),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => null);
+    throw new Error(err?.message || "خطا در تولید گروهی کدها");
+  }
+  return res.json();
+}
+
+export async function getAdminPromotionRedemptions(
+  id: string,
+  params?: { page?: number; pageSize?: number },
+): Promise<{ items: AdminPromotionRedemptionListItem[]; totalCount: number }> {
+  const baseUrl = getApiBaseUrl();
+  const searchParams = new URLSearchParams();
+  if (params?.page) searchParams.set("page", String(params.page));
+  if (params?.pageSize) searchParams.set("pageSize", String(params.pageSize));
+
+  const res = await fetch(
+    `${baseUrl}/v1/admin/commerce/promotions/${encodeURIComponent(id)}/redemptions?${searchParams.toString()}`,
+    { credentials: "include" },
+  );
+  if (!res.ok) {
+    const err = await res.json().catch(() => null);
+    throw new Error(err?.message || "خطا در دریافت لیست استفاده‌ها");
+  }
   return res.json();
 }
 

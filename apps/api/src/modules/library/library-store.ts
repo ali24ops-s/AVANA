@@ -60,6 +60,8 @@ export type LibraryCourseResource = {
   subject: string | null;
   moduleCount: number;
   contentCount: number;
+  flashcardCount?: number;
+  quizQuestionCount?: number;
   progress?: {
     completedLessons: number;
     totalLessons: number;

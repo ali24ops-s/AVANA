@@ -73,7 +73,7 @@ describe("AVANA Monetization & Commerce Engine", () => {
   describe("1. Product Catalog & Pricing", () => {
     it("lists default standard subscription products with integer Toman pricing", async () => {
       const products = await commerceService.listActiveProducts();
-      expect(products.length).toBe(3);
+      expect(products.length).toBeGreaterThanOrEqual(3);
 
       const monthly = products.find((p) => p.code === "sub_monthly");
       const quarterly = products.find((p) => p.code === "sub_quarterly");

@@ -71,8 +71,18 @@ export type AuditAction =
   | "entitlement.granted"
   | "content_pack.approved"
   | "content_pack.rejected"
+  | "course.submitted_for_publication"
+  | "course_publication.approved"
+  | "course_publication.rejected"
   | "admin.reset_user_devices"
-  | "user_device.revoked";
+  | "user_device.revoked"
+  | "wallet.credited"
+  | "wallet.debited"
+  | "wallet.refunded"
+  | "referral.attached"
+  | "referral.qualified"
+  | "referral.rewarded"
+  | "referral.abuse_rejected";
 
 export type AuditEntityType =
   | "organization"
@@ -80,6 +90,7 @@ export type AuditEntityType =
   | "user"
   | "user_device"
   | "course"
+  | "course_publication"
   | "module"
   | "lesson"
   | "lesson_progress"
@@ -97,7 +108,11 @@ export type AuditEntityType =
   | "payment"
   | "user_subscription"
   | "user_entitlement"
-  | "content_pack";
+  | "content_pack"
+  | "wallet"
+  | "referral"
+  | "support_ticket"
+  | "feedback";
 
 /**
  * Structured audit event payload.
@@ -870,3 +885,88 @@ export function auditQuizAttempted(
     createdAt: utcNow(),
   };
 }
+
+export function auditTicketStatusChanged(
+  actorId: UserId,
+  ticketId: string,
+  oldStatus: string,
+  newStatus: string,
+): AuditEvent {
+  return {
+    actorId,
+    organizationId: null,
+    action: "course.updated" as AuditAction,
+    entityType: "support_ticket",
+    entityId: ticketId,
+    details: { oldStatus, newStatus },
+    createdAt: utcNow(),
+  };
+}
+
+export function auditTicketPriorityChanged(
+  actorId: UserId,
+  ticketId: string,
+  oldPriority: string,
+  newPriority: string,
+): AuditEvent {
+  return {
+    actorId,
+    organizationId: null,
+    action: "course.updated" as AuditAction,
+    entityType: "support_ticket",
+    entityId: ticketId,
+    details: { oldPriority, newPriority },
+    createdAt: utcNow(),
+  };
+}
+
+export function auditTicketCategoryChanged(
+  actorId: UserId,
+  ticketId: string,
+  oldCategory: string,
+  newCategory: string,
+): AuditEvent {
+  return {
+    actorId,
+    organizationId: null,
+    action: "course.updated" as AuditAction,
+    entityType: "support_ticket",
+    entityId: ticketId,
+    details: { oldCategory, newCategory },
+    createdAt: utcNow(),
+  };
+}
+
+export function auditTicketReplied(
+  actorId: UserId,
+  ticketId: string,
+  messageId: string,
+  isInternalNote: boolean,
+): AuditEvent {
+  return {
+    actorId,
+    organizationId: null,
+    action: "course.updated" as AuditAction,
+    entityType: "support_ticket",
+    entityId: ticketId,
+    details: { messageId, isInternalNote },
+    createdAt: utcNow(),
+  };
+}
+
+export function auditFeedbackResponded(
+  actorId: UserId,
+  feedbackId: string,
+  status: string,
+): AuditEvent {
+  return {
+    actorId,
+    organizationId: null,
+    action: "course.updated" as AuditAction,
+    entityType: "feedback",
+    entityId: feedbackId,
+    details: { status },
+    createdAt: utcNow(),
+  };
+}
+

@@ -11,6 +11,7 @@
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { DbClient } from "@avana/database/client";
 import {
+  subCourseGroups,
   modules,
   lessons,
   lessonProgress,
@@ -21,6 +22,8 @@ import type {
   ModuleRecord,
   LessonRecord,
   LessonProgressRecord,
+  SubCourseGroupRecord,
+  SubCourseGroupStore,
   ModuleStore,
   LessonStore,
   ProgressStore,
@@ -36,6 +39,7 @@ import type {
   LessonId,
   ModuleId,
   OrganizationId,
+  SubCourseGroupId,
   UserId,
 } from "@avana/domain";
 
@@ -43,10 +47,31 @@ import type {
 // Helpers
 // ---------------------------------------------------------------------------
 
+function toSubCourseGroupRecord(row: {
+  id: string;
+  courseId: string;
+  title: string;
+  sortOrder: number;
+  createdAt: Date;
+  updatedAt: Date;
+  deletedAt: Date | null;
+}): SubCourseGroupRecord {
+  return {
+    id: row.id as SubCourseGroupId,
+    courseId: row.courseId as CourseId,
+    title: row.title,
+    sortOrder: row.sortOrder,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+    deletedAt: row.deletedAt?.toISOString() ?? null,
+  };
+}
+
 function toModuleRecord(row: {
   id: string;
   courseId: string;
   documentId?: string | null;
+  subCourseGroupId?: string | null;
   title: string;
   description: string | null;
   sortOrder: number;
@@ -59,6 +84,7 @@ function toModuleRecord(row: {
     id: row.id as ModuleId,
     courseId: row.courseId as CourseId,
     documentId: (row.documentId as DocumentId) ?? null,
+    subCourseGroupId: (row.subCourseGroupId as SubCourseGroupId) ?? null,
     title: row.title,
     description: row.description,
     sortOrder: row.sortOrder,
@@ -254,6 +280,7 @@ export class DrizzleModuleStore implements ModuleStore {
         id: module.id,
         courseId: module.courseId,
         documentId: module.documentId ?? null,
+        subCourseGroupId: module.subCourseGroupId ?? null,
         title: module.title,
         description: module.description,
         sortOrder: module.sortOrder,
@@ -271,6 +298,7 @@ export class DrizzleModuleStore implements ModuleStore {
       .update(modules)
       .set({
         documentId: module.documentId ?? null,
+        subCourseGroupId: module.subCourseGroupId !== undefined ? (module.subCourseGroupId ?? null) : undefined,
         title: module.title,
         description: module.description,
         sortOrder: module.sortOrder,
@@ -291,6 +319,29 @@ export class DrizzleModuleStore implements ModuleStore {
       .where(eq(modules.id, moduleId));
   }
 
+  async reorder(
+    courseId: CourseId,
+    items: Array<{
+      id: ModuleId;
+      sortOrder: number;
+      subCourseGroupId?: SubCourseGroupId | null;
+    }>,
+  ): Promise<void> {
+    for (const item of items) {
+      const updatePayload: Record<string, unknown> = {
+        sortOrder: item.sortOrder,
+        updatedAt: new Date(),
+      };
+      if (item.subCourseGroupId !== undefined) {
+        updatePayload.subCourseGroupId = item.subCourseGroupId ?? null;
+      }
+      await this.db
+        .update(modules)
+        .set(updatePayload)
+        .where(and(eq(modules.id, item.id), eq(modules.courseId, courseId)));
+    }
+  }
+
   async updatePreviewLessonId(moduleId: ModuleId, previewLessonId: LessonId | null): Promise<void> {
     await this.db
       .update(modules)
@@ -309,6 +360,89 @@ export class DrizzleModuleStore implements ModuleStore {
     }
     const current = await this.findById(moduleId);
     return (current?.previewLessonId as LessonId) || previewLessonId;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// DrizzleSubCourseGroupStore
+// ---------------------------------------------------------------------------
+
+export class DrizzleSubCourseGroupStore implements SubCourseGroupStore {
+  constructor(private readonly db: DbClient) {}
+
+  async listByCourse(courseId: CourseId): Promise<SubCourseGroupRecord[]> {
+    const rows = await this.db
+      .select()
+      .from(subCourseGroups)
+      .where(and(eq(subCourseGroups.courseId, courseId), isNull(subCourseGroups.deletedAt)))
+      .orderBy(subCourseGroups.sortOrder);
+
+    return rows.map(toSubCourseGroupRecord);
+  }
+
+  async findById(id: SubCourseGroupId): Promise<SubCourseGroupRecord | undefined> {
+    const row = await this.db
+      .select()
+      .from(subCourseGroups)
+      .where(and(eq(subCourseGroups.id, id), isNull(subCourseGroups.deletedAt)))
+      .limit(1)
+      .then((rows) => rows[0]);
+
+    if (!row) return undefined;
+    return toSubCourseGroupRecord(row);
+  }
+
+  async create(group: SubCourseGroupRecord): Promise<SubCourseGroupRecord> {
+    const [row] = await this.db
+      .insert(subCourseGroups)
+      .values({
+        id: group.id,
+        courseId: group.courseId,
+        title: group.title,
+        sortOrder: group.sortOrder,
+        createdAt: new Date(group.createdAt),
+        updatedAt: new Date(group.updatedAt),
+      })
+      .returning();
+
+    return toSubCourseGroupRecord(row);
+  }
+
+  async update(group: SubCourseGroupRecord): Promise<SubCourseGroupRecord> {
+    const [row] = await this.db
+      .update(subCourseGroups)
+      .set({
+        title: group.title,
+        sortOrder: group.sortOrder,
+        updatedAt: new Date(group.updatedAt),
+        deletedAt: group.deletedAt ? new Date(group.deletedAt) : null,
+      })
+      .where(eq(subCourseGroups.id, group.id))
+      .returning();
+
+    return toSubCourseGroupRecord(row);
+  }
+
+  async delete(id: SubCourseGroupId): Promise<void> {
+    // Unlink modules belonging to this group
+    await this.db
+      .update(modules)
+      .set({ subCourseGroupId: null, updatedAt: new Date() })
+      .where(eq(modules.subCourseGroupId, id));
+
+    await this.db
+      .update(subCourseGroups)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(eq(subCourseGroups.id, id));
+  }
+
+  async reorder(courseId: CourseId, groupIds: SubCourseGroupId[]): Promise<void> {
+    for (let i = 0; i < groupIds.length; i++) {
+      await this.db
+        .update(subCourseGroups)
+        .set({ sortOrder: i, updatedAt: new Date() })
+        .where(and(eq(subCourseGroups.id, groupIds[i]!), eq(subCourseGroups.courseId, courseId)));
+    }
   }
 }
 
@@ -694,6 +828,36 @@ export class DrizzleDocumentStore implements DocumentStore {
       .returning();
 
     return toDocumentRecord(row);
+  }
+
+  async reserveForGeneration(
+    id: DocumentId,
+    organizationId: OrganizationId,
+  ): Promise<{ previousStatus: DocumentRecord["status"]; document: DocumentRecord } | undefined> {
+    const existing = await this.findByIdForOrganization(id, organizationId);
+    if (!existing || existing.status === "pending_generation" || existing.status === "generating") {
+      return undefined;
+    }
+    const previousStatus = existing.status;
+    const now = new Date().toISOString();
+    const [row] = await this.db
+      .update(documents)
+      .set({
+        status: "pending_generation",
+        updatedAt: new Date(now),
+      })
+      .where(
+        and(
+          eq(documents.id, id),
+          eq(documents.organizationId, organizationId),
+          isNull(documents.deletedAt),
+          sql`${documents.status} NOT IN ('pending_generation', 'generating')`,
+        ),
+      )
+      .returning();
+
+    if (!row) return undefined;
+    return { previousStatus, document: toDocumentRecord(row) };
   }
 
   async delete(documentId: DocumentId): Promise<void> {

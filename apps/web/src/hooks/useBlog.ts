@@ -87,6 +87,19 @@ export function useBlogTags() {
   });
 }
 
+export function useTagWithPosts(
+  slug: string | undefined | null,
+  params?: { page?: number; pageSize?: number },
+) {
+  const api = getBlogApi();
+  return useQuery({
+    queryKey: ["blog-tag-posts", slug, params?.page ?? 1, params?.pageSize ?? 10],
+    queryFn: () => api.getTagBySlug(slug!, params),
+    enabled: Boolean(slug && slug.trim().length > 0),
+    staleTime: 30_000,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Admin Blog Hooks
 // ---------------------------------------------------------------------------
@@ -156,6 +169,15 @@ export function useAdminBlogCategories() {
   });
 }
 
+export function useAdminBlogTags(params?: { search?: string }) {
+  const api = getBlogApi();
+  return useQuery({
+    queryKey: ["admin-blog-tags", params?.search ?? ""],
+    queryFn: () => api.getAdminTags(params),
+    staleTime: 15_000,
+  });
+}
+
 export function useCreateBlogPost() {
   const queryClient = useQueryClient();
   const api = getBlogApi();
@@ -165,8 +187,10 @@ export function useCreateBlogPost() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["admin-blog-posts"] });
       void queryClient.invalidateQueries({ queryKey: ["admin-blog-stats"] });
+      void queryClient.invalidateQueries({ queryKey: ["admin-blog-tags"] });
       void queryClient.invalidateQueries({ queryKey: ["public-blog-posts"] });
       void queryClient.invalidateQueries({ queryKey: ["blog-categories"] });
+      void queryClient.invalidateQueries({ queryKey: ["blog-tags"] });
     },
   });
 }
@@ -182,9 +206,11 @@ export function useUpdateBlogPost() {
       void queryClient.invalidateQueries({ queryKey: ["admin-blog-posts"] });
       void queryClient.invalidateQueries({ queryKey: ["admin-blog-stats"] });
       void queryClient.invalidateQueries({ queryKey: ["admin-blog-post", variables.id] });
+      void queryClient.invalidateQueries({ queryKey: ["admin-blog-tags"] });
       void queryClient.invalidateQueries({ queryKey: ["public-blog-posts"] });
       void queryClient.invalidateQueries({ queryKey: ["public-blog-post"] });
       void queryClient.invalidateQueries({ queryKey: ["blog-categories"] });
+      void queryClient.invalidateQueries({ queryKey: ["blog-tags"] });
     },
   });
 }
@@ -198,8 +224,10 @@ export function useDeleteBlogPost() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["admin-blog-posts"] });
       void queryClient.invalidateQueries({ queryKey: ["admin-blog-stats"] });
+      void queryClient.invalidateQueries({ queryKey: ["admin-blog-tags"] });
       void queryClient.invalidateQueries({ queryKey: ["public-blog-posts"] });
       void queryClient.invalidateQueries({ queryKey: ["blog-categories"] });
+      void queryClient.invalidateQueries({ queryKey: ["blog-tags"] });
     },
   });
 }
@@ -214,8 +242,10 @@ export function usePublishBlogPost() {
       void queryClient.invalidateQueries({ queryKey: ["admin-blog-posts"] });
       void queryClient.invalidateQueries({ queryKey: ["admin-blog-stats"] });
       void queryClient.invalidateQueries({ queryKey: ["admin-blog-post", id] });
+      void queryClient.invalidateQueries({ queryKey: ["admin-blog-tags"] });
       void queryClient.invalidateQueries({ queryKey: ["public-blog-posts"] });
       void queryClient.invalidateQueries({ queryKey: ["blog-categories"] });
+      void queryClient.invalidateQueries({ queryKey: ["blog-tags"] });
     },
   });
 }
@@ -230,8 +260,10 @@ export function useUnpublishBlogPost() {
       void queryClient.invalidateQueries({ queryKey: ["admin-blog-posts"] });
       void queryClient.invalidateQueries({ queryKey: ["admin-blog-stats"] });
       void queryClient.invalidateQueries({ queryKey: ["admin-blog-post", id] });
+      void queryClient.invalidateQueries({ queryKey: ["admin-blog-tags"] });
       void queryClient.invalidateQueries({ queryKey: ["public-blog-posts"] });
       void queryClient.invalidateQueries({ queryKey: ["blog-categories"] });
+      void queryClient.invalidateQueries({ queryKey: ["blog-tags"] });
     },
   });
 }
@@ -246,6 +278,86 @@ export function useCreateBlogCategory() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["admin-blog-categories"] });
       void queryClient.invalidateQueries({ queryKey: ["blog-categories"] });
+    },
+  });
+}
+
+export function useUpdateBlogCategory() {
+  const queryClient = useQueryClient();
+  const api = getBlogApi();
+
+  return useMutation({
+    mutationFn: ({
+      id,
+      data,
+    }: {
+      id: string;
+      data: { name: string; slug?: string; description?: string; sortOrder?: number };
+    }) => api.updateCategory(id, data),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["admin-blog-categories"] });
+      void queryClient.invalidateQueries({ queryKey: ["blog-categories"] });
+      void queryClient.invalidateQueries({ queryKey: ["admin-blog-posts"] });
+      void queryClient.invalidateQueries({ queryKey: ["public-blog-posts"] });
+    },
+  });
+}
+
+export function useDeleteBlogCategory() {
+  const queryClient = useQueryClient();
+  const api = getBlogApi();
+
+  return useMutation({
+    mutationFn: (id: string) => api.deleteCategory(id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["admin-blog-categories"] });
+      void queryClient.invalidateQueries({ queryKey: ["blog-categories"] });
+      void queryClient.invalidateQueries({ queryKey: ["admin-blog-posts"] });
+      void queryClient.invalidateQueries({ queryKey: ["public-blog-posts"] });
+    },
+  });
+}
+
+export function useCreateBlogTag() {
+  const queryClient = useQueryClient();
+  const api = getBlogApi();
+
+  return useMutation({
+    mutationFn: (data: { name: string; slug?: string }) => api.createTag(data),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["admin-blog-tags"] });
+      void queryClient.invalidateQueries({ queryKey: ["blog-tags"] });
+    },
+  });
+}
+
+export function useUpdateBlogTag() {
+  const queryClient = useQueryClient();
+  const api = getBlogApi();
+
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: { name: string; slug?: string } }) =>
+      api.updateTag(id, data),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["admin-blog-tags"] });
+      void queryClient.invalidateQueries({ queryKey: ["blog-tags"] });
+      void queryClient.invalidateQueries({ queryKey: ["admin-blog-posts"] });
+      void queryClient.invalidateQueries({ queryKey: ["public-blog-posts"] });
+    },
+  });
+}
+
+export function useDeleteBlogTag() {
+  const queryClient = useQueryClient();
+  const api = getBlogApi();
+
+  return useMutation({
+    mutationFn: (id: string) => api.deleteTag(id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["admin-blog-tags"] });
+      void queryClient.invalidateQueries({ queryKey: ["blog-tags"] });
+      void queryClient.invalidateQueries({ queryKey: ["admin-blog-posts"] });
+      void queryClient.invalidateQueries({ queryKey: ["public-blog-posts"] });
     },
   });
 }

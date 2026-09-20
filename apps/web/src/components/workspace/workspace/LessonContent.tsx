@@ -277,7 +277,9 @@ export function LessonContent({
                     >
                       •
                     </span>
-                    <span>{item}</span>
+                    <span className="flex-1">
+                      <RichContent inline content={item} />
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -292,7 +294,9 @@ export function LessonContent({
                     className="flex items-start gap-3 bg-white/50 dark:bg-black/20 rounded-lg p-3"
                   >
                     <Sparkles className="w-4 h-4 text-purple-500 mt-1 flex-shrink-0" />
-                    <span className="italic">{tip}</span>
+                    <span className="italic flex-1">
+                      <RichContent inline content={tip} />
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -301,9 +305,9 @@ export function LessonContent({
             {/* Memory Trick Special */}
             {section.trick && (
               <div className="mt-4 bg-amber-100/60 dark:bg-amber-900/30 rounded-xl p-4 border border-amber-300/50 dark:border-amber-700/50">
-                <pre className="whitespace-pre-wrap font-sans text-base leading-relaxed">
-                  {section.trick}
-                </pre>
+                <div className="text-base leading-relaxed">
+                  <RichContent content={section.trick} />
+                </div>
               </div>
             )}
 
@@ -316,9 +320,9 @@ export function LessonContent({
               >
                 <div className="flex items-start gap-3">
                   <span className="text-xl">{section.highlight.icon}</span>
-                  <p className="text-sm font-medium text-indigo-800 dark:text-indigo-200">
-                    {section.highlight.text}
-                  </p>
+                  <div className="text-sm font-medium text-indigo-800 dark:text-indigo-200 flex-1">
+                    <RichContent content={section.highlight.text} />
+                  </div>
                 </div>
               </motion.div>
             )}

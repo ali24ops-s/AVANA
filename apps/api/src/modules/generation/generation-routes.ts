@@ -22,12 +22,18 @@ import {
   type DocumentId,
   type GeneratedContentId,
   type GeneratedContentType,
+  type GenerationJobId,
   type OrganizationId,
   parseDocumentId,
   parseGeneratedContentId,
   parseGenerationJobId,
   defaultPolicy,
+  type ModelPricingConfig,
+  type ReferencePricingBaseline,
 } from "@avana/domain";
+import type { WalletService } from "../wallet/wallet-service.js";
+import type { WalletStore } from "../wallet/wallet-store.js";
+import { refundGenerationJobDebit } from "./generation-refund-helper.js";
 import { GenerationService } from "./generation-service.js";
 import type { AuthMiddlewareDeps } from "../../http/authMiddleware.js";
 import { makeAuthMiddleware } from "../../http/authMiddleware.js";
@@ -48,7 +54,7 @@ import type {
   QuizQuestionStore,
 } from "../study/study-store.js";
 import type { GenerationJobStore } from "./generation-jobs-store.js";
-import type { GenerationQueue } from "./generation-queue.js";
+import type { GenerationQueue, GenerationContext } from "./generation-queue.js";
 import type { GenerationChunkStore } from "./generation-chunk-store.js";
 import type {
   GenerationProgressStore,
@@ -58,6 +64,7 @@ import type { ModelGateway } from "./gateway/index.js";
 import type { AuditService } from "../../observability/audit-service.js";
 import type { OrganizationStore } from "../organizations/organization-store.js";
 import type { NotificationService } from "../notifications/notification-service.js";
+import type { EntitlementService } from "../commerce/entitlement-service.js";
 
 export interface GenerationRouteOptions {
   sessionService: AuthMiddlewareDeps["sessionService"];
@@ -69,6 +76,7 @@ export interface GenerationRouteOptions {
   generationJobStore: GenerationJobStore;
   queue: GenerationQueue;
   gateway: ModelGateway;
+  adminGateway?: ModelGateway;
   organizationStore?: OrganizationStore;
   auditService?: AuditService;
   courseStore?: CourseStore;
@@ -82,6 +90,11 @@ export interface GenerationRouteOptions {
   generationProgressStore?: GenerationProgressStore;
   generationProgressService?: GenerationProgressService;
   notificationService?: NotificationService;
+  pricingConfig?: ModelPricingConfig;
+  referencePricingProvider?: () => Promise<ReferencePricingBaseline>;
+  walletService?: WalletService;
+  walletStore?: WalletStore;
+  entitlementService?: EntitlementService;
 }
 
 const UUID_RE =
@@ -100,7 +113,10 @@ export const generationRoutes: FastifyPluginAsync<
     generationJobStore,
     queue,
     gateway,
+    adminGateway,
     auditService,
+    walletService,
+    walletStore,
   } = opts;
 
   const { requireAuth } = makeAuthMiddleware({ sessionService, userStore });
@@ -124,7 +140,45 @@ export const generationRoutes: FastifyPluginAsync<
     generationJobStore,
     opts.generationProgressService,
     opts.notificationService,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    opts.pricingConfig,
+    opts.referencePricingProvider,
+    opts.entitlementService,
   );
+
+  const adminService = adminGateway
+    ? new GenerationService(
+        generatedContentStore,
+        generatedContentCitationStore,
+        adminGateway,
+        documentStore,
+        documentChunkStore,
+        defaultPolicy,
+        auditService,
+        opts.organizationStore,
+        opts.moduleStore,
+        opts.lessonStore,
+        opts.flashcardStore,
+        opts.quizStore,
+        opts.quizQuestionStore,
+        opts.courseStore,
+        opts.systemOrganizationId,
+        opts.generationChunkStore,
+        generationJobStore,
+        opts.generationProgressService,
+        opts.notificationService,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        opts.pricingConfig,
+        opts.referencePricingProvider,
+        opts.entitlementService,
+      )
+    : undefined;
 
   /**
    * Helper to extract actor from authenticated request.
@@ -222,6 +276,81 @@ export const generationRoutes: FastifyPluginAsync<
   );
 
   // -----------------------------------------------------------------------
+  // POST /v1/organizations/:organizationId/courses/:courseId/documents/:documentId/estimate-cost
+  // POST /v1/organizations/:organizationId/documents/:documentId/estimate-cost
+  // -----------------------------------------------------------------------
+  const handleEstimateCost = async (request: unknown) => {
+    const req = request as {
+      params: {
+        organizationId: string;
+        courseId?: string;
+        documentId: string;
+      };
+      body?: {
+        types?: string[];
+        lesson?: boolean;
+        flashcards?: boolean;
+        exam?: boolean;
+        review_summary?: boolean;
+      };
+      id: string;
+    };
+    const actor = getActor(req);
+    const organizationId = getOrganizationId(req.params);
+    const documentId = getDocumentId(req.params);
+    const courseId = req.params.courseId ? getCourseId(req.params) : undefined;
+
+    const body = req.body ?? {};
+    let requestedTypes: GeneratedContentType[] = [];
+    if (Array.isArray(body.types) && body.types.length > 0) {
+      requestedTypes = body.types as GeneratedContentType[];
+    } else {
+      if (body.lesson === true) requestedTypes.push("lesson");
+      if (body.flashcards === true) requestedTypes.push("flashcard");
+      if (body.exam === true) requestedTypes.push("quiz");
+      if (body.review_summary === true) requestedTypes.push("review_summary");
+    }
+    if (requestedTypes.length === 0) {
+      requestedTypes = ["lesson", "flashcard", "quiz", "review_summary"];
+    }
+
+    const estimate = await service.estimateCostForDocument(
+      actor,
+      organizationId,
+      documentId,
+      requestedTypes,
+      courseId,
+    );
+
+    return {
+      request_id: req.id,
+      estimated_price_toman: estimate.userPrice.totalPriceToman,
+      formatted_price: estimate.userPrice.formattedTotalPrice,
+      currency: estimate.currency,
+      disclaimer: estimate.disclaimer,
+      stage_prices: {
+        lesson: estimate.userPrice.stagePrices.lesson?.roundedPriceToman,
+        flashcard: estimate.userPrice.stagePrices.flashcard?.roundedPriceToman,
+        quiz: estimate.userPrice.stagePrices.quiz?.roundedPriceToman,
+        review_summary:
+          estimate.userPrice.stagePrices.review_summary?.roundedPriceToman,
+      },
+    };
+  };
+
+  app.post(
+    "/v1/organizations/:organizationId/courses/:courseId/documents/:documentId/estimate-cost",
+    { preHandler: [requireAuth] },
+    handleEstimateCost,
+  );
+
+  app.post(
+    "/v1/organizations/:organizationId/documents/:documentId/estimate-cost",
+    { preHandler: [requireAuth] },
+    handleEstimateCost,
+  );
+
+  // -----------------------------------------------------------------------
   // POST /v1/organizations/:organizationId/courses/:courseId/documents/:documentId/generate
   // -----------------------------------------------------------------------
   app.post(
@@ -313,29 +442,135 @@ export const generationRoutes: FastifyPluginAsync<
         );
       }
 
+      const isActorAdmin =
+        actor.role === "platform_admin" ||
+        actor.role === "organization_admin" ||
+        actor.role === "course_editor";
+      const generationContext: GenerationContext = isActorAdmin ? "admin" : "public";
+
+      // 1. Concurrency control: atomically reserve document for generation.
+      // If already generating or pending_generation, reject with HTTP 409 conflict.
+      let reservation: { previousStatus: typeof doc.status; document: typeof doc } | undefined;
+      if (documentStore.reserveForGeneration) {
+        reservation = await documentStore.reserveForGeneration(documentId, organizationId);
+      } else {
+        if (doc.status === "generating" || doc.status === "pending_generation") {
+          reservation = undefined;
+        } else {
+          const prev = doc.status;
+          const updatedDoc = await documentStore.update({
+            ...doc,
+            status: "pending_generation",
+            updatedAt: new Date().toISOString(),
+          });
+          reservation = { previousStatus: prev, document: updatedDoc };
+        }
+      }
+
+      if (!reservation) {
+        throw new DomainError(
+          "conflict",
+          "این سند در حال حاضر در حال پردازش یا تولید محتوا است. لطفاً منتظر بمانید.",
+        );
+      }
+
+      // Pre-generate generation job ID so the exact same ID is used for debit, job row, queue, and refund.
+      const jobId = randomUUID() as GenerationJobId;
       const generationKey = `doc:${documentId}:async:${randomUUID()}`;
+
+      // 2. Billing: For public generation, charge user wallet via calculateReferenceBasedUserPrice
+      if (generationContext === "public") {
+        if (!walletService) {
+          throw new DomainError("bad_request", "Wallet service is not configured");
+        }
+
+        const estimate = await service.estimateCostForDocument(
+          actor,
+          organizationId,
+          documentId,
+          nonExistingTypes,
+          courseId,
+        );
+
+        const chargedAmountToman = estimate.userPrice.totalPriceToman;
+
+        if (chargedAmountToman > 0) {
+          try {
+            await walletService.debit({
+              userId: actor.userId,
+              amount: chargedAmountToman,
+              source: "content_generation",
+              referenceType: "generation_job",
+              referenceId: jobId,
+              idempotencyKey: `generation-debit:${jobId}`,
+              metadata: {
+                jobId,
+                documentId,
+                courseId,
+                organizationId,
+                types: nonExistingTypes,
+                chargedAmountToman,
+              },
+            });
+          } catch (debitErr) {
+            // Restore document status to its state prior to reservation
+            await documentStore.update({
+              ...reservation.document,
+              status: reservation.previousStatus,
+              updatedAt: new Date().toISOString(),
+            });
+            throw debitErr;
+          }
+        }
+      }
 
       // Synchronously mark generation progress as queued so immediate GET /generation/active
       // or frontend invalidations instantly see the queued item before worker starts.
       await service.progressService.queue(documentId, organizationId);
-      if (doc.status !== "generating" && doc.status !== "pending_generation") {
+
+      // 3. Enqueue generation job with pre-allocated jobId
+      let result;
+      try {
+        result = await queue.enqueueGenerationJob({
+          jobId,
+          actorUserId: actor.userId,
+          actorRole: actor.role,
+          organizationId,
+          documentId,
+          courseId: courseId as never,
+          types: nonExistingTypes,
+          promptVersion: body.prompt_version,
+          generationKey,
+          generationContext,
+        });
+      } catch (enqueueErr) {
+        // Enqueue compensation: refund debit if public generation was charged
+        if (generationContext === "public" && walletService && walletStore) {
+          await refundGenerationJobDebit({
+            walletService,
+            walletStore,
+            jobId,
+            actorUserId: actor.userId,
+            documentId,
+            organizationId,
+            reason: "enqueue_failed",
+          });
+        }
+
+        // Restore document status and mark progress failed
         await documentStore.update({
-          ...doc,
-          status: "pending_generation",
+          ...reservation.document,
+          status: reservation.previousStatus,
           updatedAt: new Date().toISOString(),
         });
-      }
+        await service.progressService.fail(
+          documentId,
+          organizationId,
+          enqueueErr instanceof Error ? enqueueErr.message : "خطا در صف‌بندی عملیات تولید محتوا.",
+        );
 
-      const result = await queue.enqueueGenerationJob({
-        actorUserId: actor.userId,
-        actorRole: actor.role,
-        organizationId,
-        documentId,
-        courseId: courseId as never,
-        types: nonExistingTypes,
-        promptVersion: body.prompt_version,
-        generationKey,
-      });
+        throw enqueueErr;
+      }
 
       // Async job accepted — return 202 with the job id the client polls.
       reply.code(202);
@@ -561,7 +796,23 @@ export const generationRoutes: FastifyPluginAsync<
     const documentId = getDocumentId(req.params);
     const courseId = req.params.courseId ? getCourseId(req.params) : undefined;
 
-    const content = await service.generateReviewSummaryDirect(
+    const isActorAdmin =
+      actor.role === "platform_admin" ||
+      actor.role === "organization_admin" ||
+      actor.role === "course_editor";
+
+    if (!isActorAdmin) {
+      throw new DomainError(
+        "forbidden",
+        "Direct review summary generation is restricted to course editors and administrators",
+      );
+    }
+
+    const generationContext: GenerationContext = "admin";
+
+    const targetService = adminService ? adminService : service;
+
+    const content = await targetService.generateReviewSummaryDirect(
       actor,
       organizationId,
       documentId,
@@ -569,6 +820,7 @@ export const generationRoutes: FastifyPluginAsync<
         force: req.body?.force ?? false,
         promptVersion: req.body?.prompt_version,
         courseId,
+        generationContext,
       },
     );
 
@@ -728,6 +980,19 @@ export const generationRoutes: FastifyPluginAsync<
       documentId,
     );
 
+    // Immediate refund if the job was stopped while queued (or completed stop)
+    if (result.status === "stopped" && result.jobId && walletService && walletStore) {
+      await refundGenerationJobDebit({
+        walletService,
+        walletStore,
+        jobId: result.jobId,
+        actorUserId: actor.userId,
+        documentId,
+        organizationId,
+        reason: "user_stopped_generation",
+      });
+    }
+
     return {
       request_id: req.id,
       status: result.status,
@@ -769,6 +1034,18 @@ export const generationRoutes: FastifyPluginAsync<
         organizationId,
         jobId,
       );
+
+      // Immediate refund if the job was stopped while queued (or completed stop)
+      if (result.status === "stopped" && walletService && walletStore) {
+        await refundGenerationJobDebit({
+          walletService,
+          walletStore,
+          jobId,
+          actorUserId: actor.userId,
+          organizationId,
+          reason: "user_stopped_generation",
+        });
+      }
 
       return {
         request_id: request.id,

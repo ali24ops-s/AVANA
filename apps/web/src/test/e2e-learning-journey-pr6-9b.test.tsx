@@ -8,6 +8,7 @@ import { CourseListPage } from "../pages/CourseListPage.js";
 import { FlashcardExperience } from "../components/flashcards/FlashcardExperience.js";
 import { QuizExperience } from "../components/quiz/QuizExperience.js";
 import { StudyAnalyticsView } from "../components/analytics/StudyAnalyticsView.js";
+import { toPersianDigits } from "@avana/domain";
 import type {
   CourseLearnResponse,
   FlashcardResource,
@@ -557,9 +558,9 @@ describe("PR6-9B: End-to-End Student Learning Journey", () => {
 
     // Verify analytics values and progressbars
     await waitFor(() => {
-      expect(screen.getByText("60%")).toBeDefined(); // Lesson progress
-      expect(screen.getByText("80%")).toBeDefined(); // Flashcard mastery
-      expect(screen.getByText("88%")).toBeDefined(); // Quiz average
+      expect(screen.getByText(`${toPersianDigits(60)}٪`)).toBeDefined(); // Lesson progress
+      expect(screen.getByText(`${toPersianDigits(80)}٪`)).toBeDefined(); // Flashcard mastery
+      expect(screen.getByText(`${toPersianDigits(88)}٪`)).toBeDefined(); // Quiz average
       expect(screen.getByText("Coronary Circulation")).toBeDefined(); // Weak area
       expect(screen.getByText("Review Cardiac Electrophysiology flashcards")).toBeDefined();
     });

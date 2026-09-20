@@ -1,5 +1,6 @@
 import {
   asNotificationId,
+  formatTomanPrice,
   type NotificationAction,
   type NotificationId,
   type NotificationItem,
@@ -56,6 +57,19 @@ export interface NotifyPurchaseCompletedDetails {
 export interface NotifyPaymentFailedDetails {
   paymentId: string;
   orderId: string;
+  reason?: string;
+}
+
+export interface NotifyWalletTopupApprovedDetails {
+  paymentId: string;
+  orderId: string;
+  amount: number;
+}
+
+export interface NotifyWalletTopupRejectedDetails {
+  paymentId: string;
+  orderId: string;
+  amount: number;
   reason?: string;
 }
 
@@ -297,6 +311,54 @@ export class NotificationService {
   }
 
   /**
+   * Notify user when wallet top-up is approved by admin.
+   * Strictly idempotent via payment ID.
+   */
+  async notifyWalletTopupApproved(
+    userId: UserId,
+    details: NotifyWalletTopupApprovedDetails,
+  ): Promise<NotificationItem | null> {
+    const formattedAmount = formatTomanPrice(details.amount);
+    return await this.createForUser(userId, {
+      type: "wallet_topup_approved",
+      title: "شارژ کیف پول تأیید شد",
+      message: `شارژ کیف پول به مبلغ ${formattedAmount} با موفقیت تأیید و اعمال شد.`,
+      actionUrl: "/account/wallet",
+      metadata: {
+        paymentId: details.paymentId,
+        orderId: details.orderId,
+        amount: details.amount,
+      },
+      idempotencyKey: `wallet_topup:${details.paymentId}:approved`,
+    });
+  }
+
+  /**
+   * Notify user when wallet top-up is rejected by admin.
+   * Strictly idempotent via payment ID.
+   */
+  async notifyWalletTopupRejected(
+    userId: UserId,
+    details: NotifyWalletTopupRejectedDetails,
+  ): Promise<NotificationItem | null> {
+    const formattedAmount = formatTomanPrice(details.amount);
+    const reasonText = details.reason?.trim() ? ` علت: ${details.reason.trim()}` : "";
+    return await this.createForUser(userId, {
+      type: "wallet_topup_rejected",
+      title: "شارژ کیف پول رد شد",
+      message: `درخواست شارژ کیف پول به مبلغ ${formattedAmount} رد شد.${reasonText}`,
+      actionUrl: "/account/wallet",
+      metadata: {
+        paymentId: details.paymentId,
+        orderId: details.orderId,
+        amount: details.amount,
+        reason: details.reason ?? null,
+      },
+      idempotencyKey: `wallet_topup:${details.paymentId}:rejected`,
+    });
+  }
+
+  /**
    * Notify user when requested content generation completes and is ready for use/view.
    * Strictly idempotent via generation job ID / document ID.
    */
@@ -407,6 +469,29 @@ export class NotificationService {
         newStatus,
       },
       idempotencyKey: `report:${reportId}:${newStatus}`,
+    });
+  }
+
+  /**
+   * Notify inviter when referral reward is granted to their wallet.
+   * Strictly idempotent via referral ID.
+   */
+  async notifyReferralRewardEarned(
+    userId: UserId,
+    details: { referralId: string; amount: number; invitedUserId?: string },
+  ): Promise<NotificationItem | null> {
+    const formattedAmount = formatTomanPrice(details.amount);
+    return await this.createForUser(userId, {
+      type: "referral_reward_earned",
+      title: "پاداش دعوت از دوستان",
+      message: `مبلغ ${formattedAmount} اعتبار هدیه به دلیل ثبت اولین خرید دوست شما به کیف پول شما واریز گردید.`,
+      actionUrl: "/account/wallet",
+      metadata: {
+        referralId: details.referralId,
+        amount: details.amount,
+        invitedUserId: details.invitedUserId ?? null,
+      },
+      idempotencyKey: `referral_reward:${details.referralId}:notification`,
     });
   }
 }

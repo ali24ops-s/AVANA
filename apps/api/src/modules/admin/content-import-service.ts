@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import path from "node:path";
 import JSZip from "jszip";
-import { eq, and, isNull, sql } from "drizzle-orm";
+import { eq, and, isNull, inArray, sql } from "drizzle-orm";
 import type { DbClient } from "@avana/database/client";
 import {
   courses,
@@ -449,11 +449,14 @@ export class ContentImportService {
       modulesByCourseAndTitle.set(`${m.courseId}:${m.title.trim().toLowerCase()}`, m);
     }
 
+    const moduleResolutions = new Map<string, string>(); // exportId -> targetModuleId
+
     for (const m of modulesList) {
       const imp = importedByExportId.get(`module:${m.exportId}`);
       if (imp && modulesById.has(imp.targetEntityId)) {
         // 1. Provenance exists -> EXISTING
         const targetMod = modulesById.get(imp.targetEntityId)!;
+        moduleResolutions.set(m.exportId, targetMod.id);
         resolutions.push({
           entityType: "module",
           exportId: m.exportId,
@@ -479,6 +482,7 @@ export class ContentImportService {
         const matched = courseDocMatch || courseTitleMatch;
 
         if (matched) {
+          moduleResolutions.set(m.exportId, matched.id);
           resolutions.push({
             entityType: "module",
             exportId: m.exportId,
@@ -498,21 +502,29 @@ export class ContentImportService {
       }
     }
 
-    // 7.4 Lesson Duplicate Detection
+    // 7.4 Lesson Duplicate Detection (Tier 1: imported_entities, Tier 2: targetModuleId + normalized title)
     const dbTargetLessons = await this.db
       .select()
       .from(lessons)
       .where(isNull(lessons.deletedAt));
 
     const lessonsById = new Map<string, typeof lessons.$inferSelect>();
+    const lessonsByModuleAndTitle = new Map<string, typeof lessons.$inferSelect>();
     for (const l of dbTargetLessons) {
       lessonsById.set(l.id, l);
+      if (l.moduleId) {
+        lessonsByModuleAndTitle.set(`${l.moduleId}:${l.title.trim().toLowerCase()}`, l);
+      }
     }
+
+    const lessonResolutions = new Map<string, string>(); // exportId -> targetLessonId
 
     for (const l of lessonsList) {
       const imp = importedByExportId.get(`lesson:${l.exportId}`);
       if (imp && lessonsById.has(imp.targetEntityId)) {
+        // Tier 1: Match by prior import provenance
         const targetLes = lessonsById.get(imp.targetEntityId)!;
+        lessonResolutions.set(l.exportId, targetLes.id);
         if (imp.contentHash === l.contentHash) {
           resolutions.push({
             entityType: "lesson",
@@ -538,23 +550,67 @@ export class ContentImportService {
           });
         }
       } else {
-        resolutions.push({
-          entityType: "lesson",
-          exportId: l.exportId,
-          status: "NEW",
-          titleOrName: l.title,
-        });
+        // Tier 2: Match by natural key (targetModuleId + normalized title)
+        const targetModuleId = moduleResolutions.get(l.moduleExportId);
+        const naturalMatch = targetModuleId
+          ? lessonsByModuleAndTitle.get(`${targetModuleId}:${l.title.trim().toLowerCase()}`)
+          : undefined;
+
+        if (naturalMatch) {
+          lessonResolutions.set(l.exportId, naturalMatch.id);
+          const currentMarkdownHash = sha256Hex(
+            JSON.stringify({
+              title: naturalMatch.title.trim().toLowerCase(),
+              contentMarkdown: (naturalMatch.contentMarkdown || "").trim(),
+            }),
+          );
+
+          if (currentMarkdownHash === l.contentHash) {
+            resolutions.push({
+              entityType: "lesson",
+              exportId: l.exportId,
+              status: "EXISTING",
+              targetEntityId: naturalMatch.id,
+              titleOrName: l.title,
+            });
+          } else {
+            resolutions.push({
+              entityType: "lesson",
+              exportId: l.exportId,
+              status: "CONFLICT",
+              targetEntityId: naturalMatch.id,
+              conflictReason: "Lesson markdown content differs from existing lesson",
+              titleOrName: l.title,
+            });
+            conflicts.push({
+              entityType: "lesson",
+              exportId: l.exportId,
+              titleOrName: l.title,
+              reason: "متن درس با نسخه موجود در دیتابیس متفاوت است",
+            });
+          }
+        } else {
+          resolutions.push({
+            entityType: "lesson",
+            exportId: l.exportId,
+            status: "NEW",
+            titleOrName: l.title,
+          });
+        }
       }
     }
 
-    // 7.5 Flashcards Duplicate Detection
+    // 7.5 Flashcards Duplicate Detection (Tier 1: imported_entities, Tier 2: course + lesson + question)
     const dbTargetFlashcards = await this.db
       .select()
       .from(flashcards)
       .where(and(eq(flashcards.organizationId, organizationId), isNull(flashcards.deletedAt)));
     const fcById = new Map<string, typeof flashcards.$inferSelect>();
+    const fcByCourseLessonQuestion = new Map<string, typeof flashcards.$inferSelect>();
     for (const fc of dbTargetFlashcards) {
       fcById.set(fc.id, fc);
+      const lessonKey = fc.lessonId || "null";
+      fcByCourseLessonQuestion.set(`${fc.courseId}:${lessonKey}:${fc.question.trim().toLowerCase()}`, fc);
     }
 
     for (const fc of flashcardsList) {
@@ -568,12 +624,30 @@ export class ContentImportService {
           titleOrName: fc.question.slice(0, 40),
         });
       } else {
-        resolutions.push({
-          entityType: "flashcard",
-          exportId: fc.exportId,
-          status: "NEW",
-          titleOrName: fc.question.slice(0, 40),
-        });
+        const targetCourseId = courseResolutions.get(fc.courseExportId);
+        const targetLessonId = fc.lessonExportId ? lessonResolutions.get(fc.lessonExportId) : undefined;
+        const lessonKey = targetLessonId || "null";
+
+        const naturalMatch = targetCourseId
+          ? fcByCourseLessonQuestion.get(`${targetCourseId}:${lessonKey}:${fc.question.trim().toLowerCase()}`)
+          : undefined;
+
+        if (naturalMatch) {
+          resolutions.push({
+            entityType: "flashcard",
+            exportId: fc.exportId,
+            status: "EXISTING",
+            targetEntityId: naturalMatch.id,
+            titleOrName: fc.question.slice(0, 40),
+          });
+        } else {
+          resolutions.push({
+            entityType: "flashcard",
+            exportId: fc.exportId,
+            status: "NEW",
+            titleOrName: fc.question.slice(0, 40),
+          });
+        }
       }
     }
 
@@ -593,9 +667,12 @@ export class ContentImportService {
       quizzesByCourseAndTitle.set(`${q.courseId}:${q.title.trim().toLowerCase()}`, q);
     }
 
+    const quizResolutions = new Map<string, string>(); // exportId -> targetQuizId
+
     for (const q of quizzesList) {
       const imp = importedByExportId.get(`quiz:${q.exportId}`);
       if (imp && quizzesById.has(imp.targetEntityId)) {
+        quizResolutions.set(q.exportId, imp.targetEntityId);
         resolutions.push({
           entityType: "quiz",
           exportId: q.exportId,
@@ -612,6 +689,7 @@ export class ContentImportService {
         const matched = docMatch || titleMatch;
 
         if (matched) {
+          quizResolutions.set(q.exportId, matched.id);
           resolutions.push({
             entityType: "quiz",
             exportId: q.exportId,
@@ -630,10 +708,22 @@ export class ContentImportService {
       }
     }
 
-    // 7.7 Quiz Questions Duplicate Detection
+    // 7.7 Quiz Questions Duplicate Detection (Tier 1: imported_entities, Tier 2: targetQuizId + question)
+    const quizIdsInOrg = dbTargetQuizzes.map((q) => q.id);
+    const dbTargetQuestions = quizIdsInOrg.length > 0
+      ? await this.db.select().from(quizQuestions).where(inArray(quizQuestions.quizId, quizIdsInOrg))
+      : [];
+
+    const qqById = new Map<string, typeof quizQuestions.$inferSelect>();
+    const qqByQuizAndQuestion = new Map<string, typeof quizQuestions.$inferSelect>();
+    for (const qq of dbTargetQuestions) {
+      qqById.set(qq.id, qq);
+      qqByQuizAndQuestion.set(`${qq.quizId}:${qq.question.trim().toLowerCase()}`, qq);
+    }
+
     for (const qq of questionsList) {
       const imp = importedByExportId.get(`quiz_question:${qq.exportId}`);
-      if (imp) {
+      if (imp && qqById.has(imp.targetEntityId)) {
         resolutions.push({
           entityType: "quiz_question",
           exportId: qq.exportId,
@@ -642,12 +732,27 @@ export class ContentImportService {
           titleOrName: (qq.question || "").slice(0, 40),
         });
       } else {
-        resolutions.push({
-          entityType: "quiz_question",
-          exportId: qq.exportId,
-          status: "NEW",
-          titleOrName: (qq.question || "").slice(0, 40),
-        });
+        const targetQuizId = quizResolutions.get(qq.quizExportId);
+        const naturalMatch = targetQuizId
+          ? qqByQuizAndQuestion.get(`${targetQuizId}:${qq.question.trim().toLowerCase()}`)
+          : undefined;
+
+        if (naturalMatch) {
+          resolutions.push({
+            entityType: "quiz_question",
+            exportId: qq.exportId,
+            status: "EXISTING",
+            targetEntityId: naturalMatch.id,
+            titleOrName: (qq.question || "").slice(0, 40),
+          });
+        } else {
+          resolutions.push({
+            entityType: "quiz_question",
+            exportId: qq.exportId,
+            status: "NEW",
+            titleOrName: (qq.question || "").slice(0, 40),
+          });
+        }
       }
     }
 
@@ -836,6 +941,18 @@ export class ContentImportService {
 
     try {
       await this.db.transaction(async (tx) => {
+        // Optional PostgreSQL advisory lock per organization to serialize concurrent imports
+        try {
+          const txWithExec = tx as { execute?: (query: unknown) => Promise<unknown> };
+          if (typeof txWithExec.execute === "function") {
+            await txWithExec.execute(
+              sql`SELECT pg_advisory_xact_lock(hashtext(${organizationId}))`,
+            );
+          }
+        } catch {
+          // Advisory lock is PostgreSQL-specific; ignored in mock/test DBs
+        }
+
         // 1. Create content_import_batches record
         await tx.insert(contentImportBatches).values({
           id: batchId,
@@ -849,12 +966,57 @@ export class ContentImportService {
           createdBy: actorId,
         });
 
-        // 2. Insert Documents & Files
+        // Query live imported_entities inside this transaction
+        const liveExistingImports = await tx
+          .select()
+          .from(importedEntities)
+          .where(eq(importedEntities.organizationId, organizationId));
+
+        const liveImportedByExportId = new Map<string, typeof importedEntities.$inferSelect>();
+        for (const imp of liveExistingImports) {
+          liveImportedByExportId.set(`${imp.entityType}:${imp.exportId}`, imp);
+        }
+
+        // 2. Insert / Deduplicate Documents & Files
+        const liveTargetDocs = await tx
+          .select()
+          .from(documents)
+          .where(and(eq(documents.organizationId, organizationId), isNull(documents.deletedAt)));
+
+        const liveDocsBySha = new Map<string, typeof documents.$inferSelect>();
+        const liveDocsById = new Map<string, typeof documents.$inferSelect>();
+        for (const d of liveTargetDocs) {
+          liveDocsBySha.set(d.sha256, d);
+          liveDocsById.set(d.id, d);
+        }
+
         for (const doc of parsedData.documents) {
-          const res = resolutionMap.get(`document:${doc.exportId}`);
-          if (res?.status === "EXISTING" && res.targetEntityId) {
-            targetIdMap.set(doc.exportId, res.targetEntityId);
+          const imp = liveImportedByExportId.get(`document:${doc.exportId}`);
+          const planRes = resolutionMap.get(`document:${doc.exportId}`);
+          const naturalMatch = liveDocsBySha.get(doc.sha256);
+
+          let existingDocId: string | undefined = undefined;
+          if (imp && liveDocsById.has(imp.targetEntityId)) {
+            existingDocId = imp.targetEntityId;
+          } else if (naturalMatch) {
+            existingDocId = naturalMatch.id;
+          } else if (planRes?.status === "EXISTING" && planRes.targetEntityId && liveDocsById.has(planRes.targetEntityId)) {
+            existingDocId = planRes.targetEntityId;
+          }
+
+          if (existingDocId) {
+            targetIdMap.set(doc.exportId, existingDocId);
             totalSkipped++;
+            newProvenanceRecords.push({
+              id: crypto.randomUUID(),
+              organizationId,
+              batchId,
+              entityType: "document",
+              exportId: doc.exportId,
+              targetEntityId: existingDocId,
+              contentHash: doc.contentHash,
+              naturalKey: doc.sha256,
+            });
             continue;
           }
 
@@ -876,7 +1038,7 @@ export class ContentImportService {
             newlySavedStorageKeys.push(storageKey);
           }
 
-          await tx.insert(documents).values({
+          const newDocRecord = {
             id: newDocId,
             organizationId,
             courseId: null, // Will be bound if course is created
@@ -891,9 +1053,13 @@ export class ContentImportService {
             qualityScore: doc.qualityScore,
             qualityLevel: doc.qualityLevel,
             qualityReport: doc.qualityReport,
-          });
+          };
+
+          await tx.insert(documents).values(newDocRecord);
 
           targetIdMap.set(doc.exportId, newDocId);
+          liveDocsById.set(newDocId, newDocRecord as unknown as typeof documents.$inferSelect);
+          liveDocsBySha.set(doc.sha256, newDocRecord as unknown as typeof documents.$inferSelect);
           totalCreated++;
 
           newProvenanceRecords.push({
@@ -914,9 +1080,14 @@ export class ContentImportService {
           const targetDocId = targetIdMap.get(ch.documentExportId);
           if (!targetDocId) continue;
 
-          // Check if document was existing; if doc is new, insert chunks
-          const docRes = resolutionMap.get(`document:${ch.documentExportId}`);
-          if (docRes?.status === "EXISTING") continue;
+          // Check if document was existing in live DB
+          const docImp = liveImportedByExportId.get(`document:${ch.documentExportId}`);
+          const docNatural = parsedData.documents.find((d) => d.exportId === ch.documentExportId);
+          const isDocExisting = (docImp && liveDocsById.has(docImp.targetEntityId)) || (docNatural && liveDocsBySha.has(docNatural.sha256));
+          if (isDocExisting && targetDocId !== ch.documentExportId) {
+            // Document already exists in DB with chunks; skip inserting duplicate chunks
+            continue;
+          }
 
           const newChunkId = crypto.randomUUID();
           await tx.insert(documentChunks).values({
@@ -936,20 +1107,43 @@ export class ContentImportService {
           chunkExportToId.set(ch.exportId, newChunkId);
         }
 
-        // 3. Insert Courses
+        // 3. Insert / Deduplicate Courses
+        const liveTargetCourses = await tx
+          .select()
+          .from(courses)
+          .where(and(eq(courses.organizationId, organizationId), isNull(courses.deletedAt)));
+
+        const liveCoursesByName = new Map<string, typeof courses.$inferSelect>();
+        const liveCoursesById = new Map<string, typeof courses.$inferSelect>();
+        for (const c of liveTargetCourses) {
+          liveCoursesByName.set(c.name.trim().toLowerCase(), c);
+          liveCoursesById.set(c.id, c);
+        }
+
         for (const c of parsedData.courses) {
-          const res = resolutionMap.get(`course:${c.exportId}`);
-          if (res?.status === "EXISTING" && res.targetEntityId) {
-            targetIdMap.set(c.exportId, res.targetEntityId);
+          const imp = liveImportedByExportId.get(`course:${c.exportId}`);
+          const planRes = resolutionMap.get(`course:${c.exportId}`);
+          const naturalMatch = liveCoursesByName.get(c.name.trim().toLowerCase());
+
+          let existingCourseId: string | undefined = undefined;
+          if (imp && liveCoursesById.has(imp.targetEntityId)) {
+            existingCourseId = imp.targetEntityId;
+          } else if (naturalMatch) {
+            existingCourseId = naturalMatch.id;
+          } else if (planRes?.status === "EXISTING" && planRes.targetEntityId && liveCoursesById.has(planRes.targetEntityId)) {
+            existingCourseId = planRes.targetEntityId;
+          }
+
+          if (existingCourseId) {
+            targetIdMap.set(c.exportId, existingCourseId);
             totalSkipped++;
-            // Still register provenance if not already registered
             newProvenanceRecords.push({
               id: crypto.randomUUID(),
               organizationId,
               batchId,
               entityType: "course",
               exportId: c.exportId,
-              targetEntityId: res.targetEntityId,
+              targetEntityId: existingCourseId,
               contentHash: c.contentHash,
               naturalKey: c.name.trim().toLowerCase(),
             });
@@ -957,7 +1151,7 @@ export class ContentImportService {
           }
 
           const newCourseId = crypto.randomUUID();
-          await tx.insert(courses).values({
+          const newCourseRecord = {
             id: newCourseId,
             organizationId,
             name: c.name,
@@ -966,9 +1160,13 @@ export class ContentImportService {
             status: c.status || "published",
             isOfficial: Boolean(c.isOfficial),
             examDate: c.examDate ? new Date(c.examDate) : null,
-          });
+          };
+
+          await tx.insert(courses).values(newCourseRecord);
 
           targetIdMap.set(c.exportId, newCourseId);
+          liveCoursesById.set(newCourseId, newCourseRecord as unknown as typeof courses.$inferSelect);
+          liveCoursesByName.set(c.name.trim().toLowerCase(), newCourseRecord as unknown as typeof courses.$inferSelect);
           totalCreated++;
 
           newProvenanceRecords.push({
@@ -997,25 +1195,24 @@ export class ContentImportService {
           }
         }
 
-        // 4. Insert Modules
-        for (const m of parsedData.modules) {
-          const res = resolutionMap.get(`module:${m.exportId}`);
-          if (res?.status === "EXISTING" && res.targetEntityId) {
-            targetIdMap.set(m.exportId, res.targetEntityId);
-            totalSkipped++;
-            newProvenanceRecords.push({
-              id: crypto.randomUUID(),
-              organizationId,
-              batchId,
-              entityType: "module",
-              exportId: m.exportId,
-              targetEntityId: res.targetEntityId,
-              contentHash: m.contentHash,
-              naturalKey: `${m.courseExportId}:${m.title.trim().toLowerCase()}`,
-            });
-            continue;
-          }
+        // 4. Insert / Deduplicate Modules
+        const liveTargetModules = await tx
+          .select()
+          .from(modules)
+          .where(isNull(modules.deletedAt));
 
+        const liveModulesById = new Map<string, typeof modules.$inferSelect>();
+        const liveModulesByCourseAndDoc = new Map<string, typeof modules.$inferSelect>();
+        const liveModulesByCourseAndTitle = new Map<string, typeof modules.$inferSelect>();
+        for (const m of liveTargetModules) {
+          liveModulesById.set(m.id, m);
+          if (m.courseId && m.documentId) {
+            liveModulesByCourseAndDoc.set(`${m.courseId}:${m.documentId}`, m);
+          }
+          liveModulesByCourseAndTitle.set(`${m.courseId}:${m.title.trim().toLowerCase()}`, m);
+        }
+
+        for (const m of parsedData.modules) {
           const targetCourseId = targetIdMap.get(m.courseExportId);
           if (!targetCourseId) {
             throw new Error(`Missing target course ID for module '${m.title}'`);
@@ -1025,17 +1222,59 @@ export class ContentImportService {
             ? targetIdMap.get(m.documentExportId) || null
             : null;
 
+          const imp = liveImportedByExportId.get(`module:${m.exportId}`);
+          const planRes = resolutionMap.get(`module:${m.exportId}`);
+          const docMatch = targetCourseId && targetDocId
+            ? liveModulesByCourseAndDoc.get(`${targetCourseId}:${targetDocId}`)
+            : undefined;
+          const titleMatch = targetCourseId
+            ? liveModulesByCourseAndTitle.get(`${targetCourseId}:${m.title.trim().toLowerCase()}`)
+            : undefined;
+          const naturalMatch = docMatch || titleMatch;
+
+          let existingModuleId: string | undefined = undefined;
+          if (imp && liveModulesById.has(imp.targetEntityId)) {
+            existingModuleId = imp.targetEntityId;
+          } else if (naturalMatch) {
+            existingModuleId = naturalMatch.id;
+          } else if (planRes?.status === "EXISTING" && planRes.targetEntityId && liveModulesById.has(planRes.targetEntityId)) {
+            existingModuleId = planRes.targetEntityId;
+          }
+
+          if (existingModuleId) {
+            targetIdMap.set(m.exportId, existingModuleId);
+            totalSkipped++;
+            newProvenanceRecords.push({
+              id: crypto.randomUUID(),
+              organizationId,
+              batchId,
+              entityType: "module",
+              exportId: m.exportId,
+              targetEntityId: existingModuleId,
+              contentHash: m.contentHash,
+              naturalKey: `${m.courseExportId}:${m.title.trim().toLowerCase()}`,
+            });
+            continue;
+          }
+
           const newModuleId = crypto.randomUUID();
-          await tx.insert(modules).values({
+          const newModuleRecord = {
             id: newModuleId,
             courseId: targetCourseId,
             documentId: targetDocId,
             title: m.title,
             description: m.description,
             sortOrder: m.sortOrder,
-          });
+          };
+
+          await tx.insert(modules).values(newModuleRecord);
 
           targetIdMap.set(m.exportId, newModuleId);
+          liveModulesById.set(newModuleId, newModuleRecord as unknown as typeof modules.$inferSelect);
+          liveModulesByCourseAndTitle.set(`${targetCourseId}:${m.title.trim().toLowerCase()}`, newModuleRecord as unknown as typeof modules.$inferSelect);
+          if (targetDocId) {
+            liveModulesByCourseAndDoc.set(`${targetCourseId}:${targetDocId}`, newModuleRecord as unknown as typeof modules.$inferSelect);
+          }
           totalCreated++;
 
           newProvenanceRecords.push({
@@ -1050,11 +1289,44 @@ export class ContentImportService {
           });
         }
 
-        // 5. Insert Lessons
+        // 5. Insert / Deduplicate Lessons
+        const liveTargetLessons = await tx
+          .select()
+          .from(lessons)
+          .where(isNull(lessons.deletedAt));
+
+        const liveLessonsById = new Map<string, typeof lessons.$inferSelect>();
+        const liveLessonsByModuleAndTitle = new Map<string, typeof lessons.$inferSelect>();
+        for (const l of liveTargetLessons) {
+          liveLessonsById.set(l.id, l);
+          if (l.moduleId) {
+            liveLessonsByModuleAndTitle.set(`${l.moduleId}:${l.title.trim().toLowerCase()}`, l);
+          }
+        }
+
         for (const l of parsedData.lessons) {
-          const res = resolutionMap.get(`lesson:${l.exportId}`);
-          if (res?.status === "EXISTING" && res.targetEntityId) {
-            targetIdMap.set(l.exportId, res.targetEntityId);
+          const targetModuleId = targetIdMap.get(l.moduleExportId);
+          if (!targetModuleId) {
+            throw new Error(`Missing target module ID for lesson '${l.title}'`);
+          }
+
+          const imp = liveImportedByExportId.get(`lesson:${l.exportId}`);
+          const planRes = resolutionMap.get(`lesson:${l.exportId}`);
+          const naturalMatch = targetModuleId
+            ? liveLessonsByModuleAndTitle.get(`${targetModuleId}:${l.title.trim().toLowerCase()}`)
+            : undefined;
+
+          let existingLessonId: string | undefined = undefined;
+          if (imp && liveLessonsById.has(imp.targetEntityId)) {
+            existingLessonId = imp.targetEntityId;
+          } else if (naturalMatch) {
+            existingLessonId = naturalMatch.id;
+          } else if (planRes?.status === "EXISTING" && planRes.targetEntityId && liveLessonsById.has(planRes.targetEntityId)) {
+            existingLessonId = planRes.targetEntityId;
+          }
+
+          if (existingLessonId) {
+            targetIdMap.set(l.exportId, existingLessonId);
             totalSkipped++;
             newProvenanceRecords.push({
               id: crypto.randomUUID(),
@@ -1062,20 +1334,15 @@ export class ContentImportService {
               batchId,
               entityType: "lesson",
               exportId: l.exportId,
-              targetEntityId: res.targetEntityId,
+              targetEntityId: existingLessonId,
               contentHash: l.contentHash,
               naturalKey: `${l.moduleExportId}:${l.title.trim().toLowerCase()}`,
             });
             continue;
           }
 
-          const targetModuleId = targetIdMap.get(l.moduleExportId);
-          if (!targetModuleId) {
-            throw new Error(`Missing target module ID for lesson '${l.title}'`);
-          }
-
           const newLessonId = crypto.randomUUID();
-          await tx.insert(lessons).values({
+          const newLessonRecord = {
             id: newLessonId,
             moduleId: targetModuleId,
             title: l.title,
@@ -1084,9 +1351,13 @@ export class ContentImportService {
             sortOrder: l.sortOrder,
             estimatedMinutes: l.estimatedMinutes,
             publicationStatus: l.publicationStatus || "published",
-          });
+          };
+
+          await tx.insert(lessons).values(newLessonRecord);
 
           targetIdMap.set(l.exportId, newLessonId);
+          liveLessonsById.set(newLessonId, newLessonRecord as unknown as typeof lessons.$inferSelect);
+          liveLessonsByModuleAndTitle.set(`${targetModuleId}:${l.title.trim().toLowerCase()}`, newLessonRecord as unknown as typeof lessons.$inferSelect);
           totalCreated++;
 
           newProvenanceRecords.push({
@@ -1101,26 +1372,27 @@ export class ContentImportService {
           });
         }
 
-        // 6. Insert Generated Contents & Citations
+        // 6. Insert / Deduplicate Generated Contents & Citations
+        const liveTargetGenContents = await tx
+          .select()
+          .from(generatedContents)
+          .where(and(eq(generatedContents.organizationId, organizationId), isNull(generatedContents.deletedAt)));
+
+        const liveGenById = new Map<string, typeof generatedContents.$inferSelect>();
+        const liveGenByDocTypeKey = new Map<string, typeof generatedContents.$inferSelect>();
+        const liveGenByCourseDocType = new Map<string, typeof generatedContents.$inferSelect>();
+        for (const gc of liveTargetGenContents) {
+          liveGenById.set(gc.id, gc);
+          if (gc.documentId && gc.type && gc.generationKey) {
+            liveGenByDocTypeKey.set(`${gc.documentId}:${gc.type}:${gc.generationKey}`, gc);
+          }
+          if (gc.courseId && gc.documentId && gc.type) {
+            liveGenByCourseDocType.set(`${gc.courseId}:${gc.documentId}:${gc.type}`, gc);
+          }
+        }
+
         const genExportToId = new Map<string, string>();
         for (const gc of parsedData.generatedContents) {
-          const res = resolutionMap.get(`generated_content:${gc.exportId}`);
-          if (res?.status === "EXISTING" && res.targetEntityId) {
-            targetIdMap.set(gc.exportId, res.targetEntityId);
-            genExportToId.set(gc.exportId, res.targetEntityId);
-            totalSkipped++;
-            newProvenanceRecords.push({
-              id: crypto.randomUUID(),
-              organizationId,
-              batchId,
-              entityType: "generated_content",
-              exportId: gc.exportId,
-              targetEntityId: res.targetEntityId,
-              contentHash: gc.contentHash,
-            });
-            continue;
-          }
-
           const targetCourseId = targetIdMap.get(gc.courseExportId);
           if (!targetCourseId) continue;
 
@@ -1131,8 +1403,43 @@ export class ContentImportService {
             ? targetIdMap.get(gc.materializedLessonExportId) || null
             : null;
 
+          const imp = liveImportedByExportId.get(`generated_content:${gc.exportId}`);
+          const planRes = resolutionMap.get(`generated_content:${gc.exportId}`);
+          const keyMatch = targetDocId && gc.type && gc.generationKey
+            ? liveGenByDocTypeKey.get(`${targetDocId}:${gc.type}:${gc.generationKey}`)
+            : undefined;
+          const courseDocMatch = targetCourseId && targetDocId && gc.type
+            ? liveGenByCourseDocType.get(`${targetCourseId}:${targetDocId}:${gc.type}`)
+            : undefined;
+          const naturalMatch = keyMatch || courseDocMatch;
+
+          let existingGenId: string | undefined = undefined;
+          if (imp && liveGenById.has(imp.targetEntityId)) {
+            existingGenId = imp.targetEntityId;
+          } else if (naturalMatch) {
+            existingGenId = naturalMatch.id;
+          } else if (planRes?.status === "EXISTING" && planRes.targetEntityId && liveGenById.has(planRes.targetEntityId)) {
+            existingGenId = planRes.targetEntityId;
+          }
+
+          if (existingGenId) {
+            targetIdMap.set(gc.exportId, existingGenId);
+            genExportToId.set(gc.exportId, existingGenId);
+            totalSkipped++;
+            newProvenanceRecords.push({
+              id: crypto.randomUUID(),
+              organizationId,
+              batchId,
+              entityType: "generated_content",
+              exportId: gc.exportId,
+              targetEntityId: existingGenId,
+              contentHash: gc.contentHash,
+            });
+            continue;
+          }
+
           const newGenId = crypto.randomUUID();
-          await tx.insert(generatedContents).values({
+          const newGenRecord = {
             id: newGenId,
             organizationId,
             courseId: targetCourseId,
@@ -1145,10 +1452,13 @@ export class ContentImportService {
             model: gc.model,
             tokenUsage: gc.tokenUsage as unknown as Record<string, unknown>,
             generationKey: gc.generationKey,
-          });
+          };
+
+          await tx.insert(generatedContents).values(newGenRecord);
 
           targetIdMap.set(gc.exportId, newGenId);
           genExportToId.set(gc.exportId, newGenId);
+          liveGenById.set(newGenId, newGenRecord as unknown as typeof generatedContents.$inferSelect);
           totalCreated++;
 
           newProvenanceRecords.push({
@@ -1174,15 +1484,20 @@ export class ContentImportService {
           }
         }
 
-        // 7. Insert Flashcards
-        for (const fc of parsedData.flashcards) {
-          const res = resolutionMap.get(`flashcard:${fc.exportId}`);
-          if (res?.status === "EXISTING" && res.targetEntityId) {
-            targetIdMap.set(fc.exportId, res.targetEntityId);
-            totalSkipped++;
-            continue;
-          }
+        // 7. Insert / Deduplicate Flashcards
+        const liveTargetFlashcards = await tx
+          .select()
+          .from(flashcards)
+          .where(and(eq(flashcards.organizationId, organizationId), isNull(flashcards.deletedAt)));
+        const liveFcById = new Map<string, typeof flashcards.$inferSelect>();
+        const liveFcByCourseLessonQuestion = new Map<string, typeof flashcards.$inferSelect>();
+        for (const fc of liveTargetFlashcards) {
+          liveFcById.set(fc.id, fc);
+          const lessonKey = fc.lessonId || "null";
+          liveFcByCourseLessonQuestion.set(`${fc.courseId}:${lessonKey}:${fc.question.trim().toLowerCase()}`, fc);
+        }
 
+        for (const fc of parsedData.flashcards) {
           const targetCourseId = targetIdMap.get(fc.courseExportId);
           if (!targetCourseId) continue;
 
@@ -1196,8 +1511,37 @@ export class ContentImportService {
             ? targetIdMap.get(fc.generatedContentExportId) || null
             : null;
 
+          const imp = liveImportedByExportId.get(`flashcard:${fc.exportId}`);
+          const planRes = resolutionMap.get(`flashcard:${fc.exportId}`);
+          const lessonKey = targetLessonId || "null";
+          const naturalMatch = liveFcByCourseLessonQuestion.get(`${targetCourseId}:${lessonKey}:${fc.question.trim().toLowerCase()}`);
+
+          let existingCardId: string | undefined = undefined;
+          if (imp && liveFcById.has(imp.targetEntityId)) {
+            existingCardId = imp.targetEntityId;
+          } else if (naturalMatch) {
+            existingCardId = naturalMatch.id;
+          } else if (planRes?.status === "EXISTING" && planRes.targetEntityId && liveFcById.has(planRes.targetEntityId)) {
+            existingCardId = planRes.targetEntityId;
+          }
+
+          if (existingCardId) {
+            targetIdMap.set(fc.exportId, existingCardId);
+            totalSkipped++;
+            newProvenanceRecords.push({
+              id: crypto.randomUUID(),
+              organizationId,
+              batchId,
+              entityType: "flashcard",
+              exportId: fc.exportId,
+              targetEntityId: existingCardId,
+              contentHash: fc.contentHash,
+            });
+            continue;
+          }
+
           const newCardId = crypto.randomUUID();
-          await tx.insert(flashcards).values({
+          const newCardRecord = {
             id: newCardId,
             organizationId,
             courseId: targetCourseId,
@@ -1211,9 +1555,13 @@ export class ContentImportService {
             difficulty: fc.difficulty || "medium",
             intervalDays: fc.intervalDays || 0,
             easeFactor: String(fc.easeFactor || "2.5"),
-          });
+          };
+
+          await tx.insert(flashcards).values(newCardRecord);
 
           targetIdMap.set(fc.exportId, newCardId);
+          liveFcById.set(newCardId, newCardRecord as unknown as typeof flashcards.$inferSelect);
+          liveFcByCourseLessonQuestion.set(`${targetCourseId}:${lessonKey}:${fc.question.trim().toLowerCase()}`, newCardRecord as unknown as typeof flashcards.$inferSelect);
           totalCreated++;
 
           newProvenanceRecords.push({
@@ -1227,25 +1575,23 @@ export class ContentImportService {
           });
         }
 
-        // 8. Insert Quizzes
-        for (const q of parsedData.quizzes) {
-          const res = resolutionMap.get(`quiz:${q.exportId}`);
-          if (res?.status === "EXISTING" && res.targetEntityId) {
-            targetIdMap.set(q.exportId, res.targetEntityId);
-            totalSkipped++;
-            newProvenanceRecords.push({
-              id: crypto.randomUUID(),
-              organizationId,
-              batchId,
-              entityType: "quiz",
-              exportId: q.exportId,
-              targetEntityId: res.targetEntityId,
-              contentHash: q.contentHash,
-              naturalKey: `${q.courseExportId}:${q.title.trim().toLowerCase()}`,
-            });
-            continue;
+        // 8. Insert / Deduplicate Quizzes
+        const liveTargetQuizzes = await tx
+          .select()
+          .from(quizzes)
+          .where(and(eq(quizzes.organizationId, organizationId), isNull(quizzes.deletedAt)));
+        const liveQuizzesById = new Map<string, typeof quizzes.$inferSelect>();
+        const liveQuizzesByCourseAndDoc = new Map<string, typeof quizzes.$inferSelect>();
+        const liveQuizzesByCourseAndTitle = new Map<string, typeof quizzes.$inferSelect>();
+        for (const q of liveTargetQuizzes) {
+          liveQuizzesById.set(q.id, q);
+          if (q.courseId && q.documentId) {
+            liveQuizzesByCourseAndDoc.set(`${q.courseId}:${q.documentId}`, q);
           }
+          liveQuizzesByCourseAndTitle.set(`${q.courseId}:${q.title.trim().toLowerCase()}`, q);
+        }
 
+        for (const q of parsedData.quizzes) {
           const targetCourseId = targetIdMap.get(q.courseExportId);
           if (!targetCourseId) continue;
 
@@ -1253,8 +1599,39 @@ export class ContentImportService {
             ? targetIdMap.get(q.documentExportId) || null
             : null;
 
+          const imp = liveImportedByExportId.get(`quiz:${q.exportId}`);
+          const planRes = resolutionMap.get(`quiz:${q.exportId}`);
+          const docMatch = targetCourseId && targetDocId ? liveQuizzesByCourseAndDoc.get(`${targetCourseId}:${targetDocId}`) : undefined;
+          const titleMatch = liveQuizzesByCourseAndTitle.get(`${targetCourseId}:${q.title.trim().toLowerCase()}`);
+          const naturalMatch = docMatch || titleMatch;
+
+          let existingQuizId: string | undefined = undefined;
+          if (imp && liveQuizzesById.has(imp.targetEntityId)) {
+            existingQuizId = imp.targetEntityId;
+          } else if (naturalMatch) {
+            existingQuizId = naturalMatch.id;
+          } else if (planRes?.status === "EXISTING" && planRes.targetEntityId && liveQuizzesById.has(planRes.targetEntityId)) {
+            existingQuizId = planRes.targetEntityId;
+          }
+
+          if (existingQuizId) {
+            targetIdMap.set(q.exportId, existingQuizId);
+            totalSkipped++;
+            newProvenanceRecords.push({
+              id: crypto.randomUUID(),
+              organizationId,
+              batchId,
+              entityType: "quiz",
+              exportId: q.exportId,
+              targetEntityId: existingQuizId,
+              contentHash: q.contentHash,
+              naturalKey: `${q.courseExportId}:${q.title.trim().toLowerCase()}`,
+            });
+            continue;
+          }
+
           const newQuizId = crypto.randomUUID();
-          await tx.insert(quizzes).values({
+          const newQuizRecord = {
             id: newQuizId,
             organizationId,
             courseId: targetCourseId,
@@ -1263,9 +1640,16 @@ export class ContentImportService {
             topic: q.topic,
             difficulty: q.difficulty || "medium",
             status: q.status || "published",
-          });
+          };
+
+          await tx.insert(quizzes).values(newQuizRecord);
 
           targetIdMap.set(q.exportId, newQuizId);
+          liveQuizzesById.set(newQuizId, newQuizRecord as unknown as typeof quizzes.$inferSelect);
+          liveQuizzesByCourseAndTitle.set(`${targetCourseId}:${q.title.trim().toLowerCase()}`, newQuizRecord as unknown as typeof quizzes.$inferSelect);
+          if (targetDocId) {
+            liveQuizzesByCourseAndDoc.set(`${targetCourseId}:${targetDocId}`, newQuizRecord as unknown as typeof quizzes.$inferSelect);
+          }
           totalCreated++;
 
           newProvenanceRecords.push({
@@ -1279,15 +1663,19 @@ export class ContentImportService {
           });
         }
 
-        // 9. Insert Quiz Questions
-        for (const qq of parsedData.questions) {
-          const res = resolutionMap.get(`quiz_question:${qq.exportId}`);
-          if (res?.status === "EXISTING" && res.targetEntityId) {
-            targetIdMap.set(qq.exportId, res.targetEntityId);
-            totalSkipped++;
-            continue;
-          }
+        // 9. Insert / Deduplicate Quiz Questions
+        const liveQuizIdsInOrg = liveTargetQuizzes.map((q) => q.id);
+        const liveTargetQuestions = liveQuizIdsInOrg.length > 0
+          ? await tx.select().from(quizQuestions).where(inArray(quizQuestions.quizId, liveQuizIdsInOrg))
+          : [];
+        const liveQqById = new Map<string, typeof quizQuestions.$inferSelect>();
+        const liveQqByQuizAndQuestion = new Map<string, typeof quizQuestions.$inferSelect>();
+        for (const qq of liveTargetQuestions) {
+          liveQqById.set(qq.id, qq);
+          liveQqByQuizAndQuestion.set(`${qq.quizId}:${qq.question.trim().toLowerCase()}`, qq);
+        }
 
+        for (const qq of parsedData.questions) {
           const targetQuizId = targetIdMap.get(qq.quizExportId);
           if (!targetQuizId) continue;
 
@@ -1298,8 +1686,36 @@ export class ContentImportService {
             ? targetIdMap.get(qq.generatedContentExportId) || null
             : null;
 
+          const imp = liveImportedByExportId.get(`quiz_question:${qq.exportId}`);
+          const planRes = resolutionMap.get(`quiz_question:${qq.exportId}`);
+          const naturalMatch = liveQqByQuizAndQuestion.get(`${targetQuizId}:${qq.question.trim().toLowerCase()}`);
+
+          let existingQuestionId: string | undefined = undefined;
+          if (imp && liveQqById.has(imp.targetEntityId)) {
+            existingQuestionId = imp.targetEntityId;
+          } else if (naturalMatch) {
+            existingQuestionId = naturalMatch.id;
+          } else if (planRes?.status === "EXISTING" && planRes.targetEntityId && liveQqById.has(planRes.targetEntityId)) {
+            existingQuestionId = planRes.targetEntityId;
+          }
+
+          if (existingQuestionId) {
+            targetIdMap.set(qq.exportId, existingQuestionId);
+            totalSkipped++;
+            newProvenanceRecords.push({
+              id: crypto.randomUUID(),
+              organizationId,
+              batchId,
+              entityType: "quiz_question",
+              exportId: qq.exportId,
+              targetEntityId: existingQuestionId,
+              contentHash: qq.contentHash,
+            });
+            continue;
+          }
+
           const newQuestionId = crypto.randomUUID();
-          await tx.insert(quizQuestions).values({
+          const newQuestionRecord = {
             id: newQuestionId,
             quizId: targetQuizId,
             lessonId: targetLessonId,
@@ -1312,9 +1728,13 @@ export class ContentImportService {
             correctAnswer: qq.correctAnswer as unknown as Record<string, unknown>,
             explanation: qq.explanation,
             sortOrder: qq.sortOrder,
-          });
+          };
+
+          await tx.insert(quizQuestions).values(newQuestionRecord);
 
           targetIdMap.set(qq.exportId, newQuestionId);
+          liveQqById.set(newQuestionId, newQuestionRecord as unknown as typeof quizQuestions.$inferSelect);
+          liveQqByQuizAndQuestion.set(`${targetQuizId}:${qq.question.trim().toLowerCase()}`, newQuestionRecord as unknown as typeof quizQuestions.$inferSelect);
           totalCreated++;
 
           newProvenanceRecords.push({

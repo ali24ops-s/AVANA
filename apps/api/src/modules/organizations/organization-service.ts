@@ -25,11 +25,14 @@ import type {
 } from "./organization-store.js";
 import type { AuditService } from "../../observability/audit-service.js";
 
-function generateSlug(name: string): string {
+export function generateSlug(name: string): string {
   return name
+    .trim()
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/[^\p{L}\p{N}-]+/gu, "")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "")
     .slice(0, 100);
 }
 
@@ -50,8 +53,11 @@ export class OrganizationService {
   async createOrganization(
     actor: Actor,
     name: string,
+    customSlug?: string,
   ): Promise<OrganizationRecord> {
-    const slug = generateSlug(name);
+    const slug = customSlug
+      ? generateSlug(customSlug) || customSlug.slice(0, 100)
+      : generateSlug(name);
     if (!slug) {
       throw new DomainError("bad_request", "Invalid organization name");
     }

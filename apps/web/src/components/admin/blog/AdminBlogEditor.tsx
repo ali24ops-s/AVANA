@@ -22,10 +22,15 @@ import {
   Clock,
   Sparkles,
   Globe,
+  Tag as TagIcon,
+  X,
+  Plus,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { AvanaSelect, SegmentedControl } from "@avana/ui";
+import { useAdminBlogTags } from "../../../hooks/useBlog.js";
 import { MarkdownRenderer } from "../../markdown/MarkdownRenderer.js";
+import { toPersianDigits } from "@avana/domain";
 import type {
   BlogPostDetail,
   CreateBlogPostRequest,
@@ -55,9 +60,12 @@ export function AdminBlogEditor({
   const [content, setContent] = useState(initialPost?.content || "");
   const [featuredImage, setFeaturedImage] = useState(initialPost?.featuredImage || "");
   const [categoryId, setCategoryId] = useState(initialPost?.category?.id || "");
-  const [tagsInput, setTagsInput] = useState(
-    initialPost?.tags ? initialPost.tags.map((t) => t.name).join(", ") : "",
+  const [selectedTags, setSelectedTags] = useState<string[]>(
+    initialPost?.tags ? initialPost.tags.map((t) => t.name) : [],
   );
+  const [tagInputText, setTagInputText] = useState("");
+  const { data: adminTagsData } = useAdminBlogTags();
+  const availableTags = adminTagsData?.tags || [];
   const status = initialPost?.status || "draft";
   const [readingTime, setReadingTime] = useState(
     initialPost?.readingTimeMinutes ? String(initialPost.readingTimeMinutes) : "",
@@ -122,12 +130,23 @@ export function AdminBlogEditor({
     return Object.keys(errs).length === 0;
   };
 
-  const buildPayload = (overrideStatus?: "draft" | "published"): CreateBlogPostRequest => {
-    const tagNames = tagsInput
-      .split(/[,،]+/)
-      .map((t) => t.trim())
-      .filter(Boolean);
+  const handleAddTag = (nameToAdd: string) => {
+    const clean = nameToAdd.trim().replace(/^#+/, "");
+    if (!clean) return;
+    const exists = selectedTags.some(
+      (t) => t.toLowerCase() === clean.toLowerCase(),
+    );
+    if (!exists) {
+      setSelectedTags([...selectedTags, clean]);
+    }
+    setTagInputText("");
+  };
 
+  const handleRemoveTag = (index: number) => {
+    setSelectedTags(selectedTags.filter((_, idx) => idx !== index));
+  };
+
+  const buildPayload = (overrideStatus?: "draft" | "published"): CreateBlogPostRequest => {
     const parsedReadingTime = readingTime.trim() ? parseInt(readingTime, 10) : undefined;
 
     return {
@@ -138,7 +157,7 @@ export function AdminBlogEditor({
       featuredImage: featuredImage.trim() || undefined,
       status: overrideStatus || status,
       categoryId: categoryId || undefined,
-      tagNames,
+      tagNames: selectedTags,
       readingTimeMinutes: parsedReadingTime && !isNaN(parsedReadingTime) ? parsedReadingTime : undefined,
       seoTitle: seoTitle.trim() || undefined,
       seoDescription: seoDescription.trim() || undefined,
@@ -344,18 +363,85 @@ export function AdminBlogEditor({
 
           {/* Tags & Estimated Reading Time */}
           <div className="bg-[var(--color-surface)] p-5 rounded-2xl border border-[var(--color-border)] shadow-sm space-y-4">
-            <div>
-              <label className="block text-xs font-bold text-[var(--color-text)] mb-1.5">
+            {/* Tag Selection Chips and Input */}
+            <div className="space-y-2">
+              <label className="block text-xs font-bold text-[var(--color-text)]">
                 برچسب‌ها (تگ‌ها)
               </label>
-              <input
-                type="text"
-                value={tagsInput}
-                onChange={(e) => setTagsInput(e.target.value)}
-                placeholder="فارماکولوژی، داروسازی، امتحان، فلشکارت"
-                className="w-full bg-[var(--color-surface-warm)] border border-[var(--color-border)] rounded-xl px-3 py-2 text-xs text-[var(--color-text)] placeholder-[var(--color-text-muted)] focus:outline-none focus:border-[var(--color-primary-default)]"
-              />
-              <p className="text-[10px] text-[var(--color-text-muted)] mt-1">با کاما یا ویرگول جدا کنید</p>
+
+              {/* Selected Tag Chips */}
+              {selectedTags.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5 p-2 rounded-xl bg-[var(--color-surface-warm)] border border-[var(--color-border)]">
+                  {selectedTags.map((tag, idx) => (
+                    <span
+                      key={idx}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)] shadow-2xs"
+                    >
+                      <span>#{tag}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveTag(idx)}
+                        className="p-0.5 rounded text-[var(--color-text-muted)] hover:text-rose-500 transition-colors cursor-pointer"
+                        title="حذف برچسب"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* Tag Input Box */}
+              <div className="flex items-center gap-1.5">
+                <div className="relative flex-1">
+                  <input
+                    type="text"
+                    value={tagInputText}
+                    onChange={(e) => setTagInputText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === ",") {
+                        e.preventDefault();
+                        handleAddTag(tagInputText);
+                      }
+                    }}
+                    placeholder="تایپ نام تگ و Enter..."
+                    className="w-full bg-[var(--color-surface-warm)] border border-[var(--color-border)] rounded-xl ps-8 pe-3 py-2 text-xs text-[var(--color-text)] placeholder-[var(--color-text-muted)] focus:outline-none focus:border-[var(--color-primary-default)]"
+                  />
+                  <TagIcon className="w-3.5 h-3.5 text-[var(--color-text-muted)] absolute start-2.5 top-2.5" />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleAddTag(tagInputText)}
+                  disabled={!tagInputText.trim()}
+                  className="px-3 py-2 rounded-xl bg-[var(--color-surface-warm)] hover:bg-[var(--color-primary-default)] hover:text-[var(--color-primary-contrast)] border border-[var(--color-border)] text-xs font-bold transition-all disabled:opacity-40 cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              {/* Quick suggestions from existing tags */}
+              {availableTags.length > 0 && (
+                <div className="pt-1">
+                  <span className="text-[10px] text-[var(--color-text-muted)] block mb-1">
+                    برچسب‌های پرکاربرد (کلیک برای افزودن):
+                  </span>
+                  <div className="flex flex-wrap gap-1 max-h-20 overflow-y-auto">
+                    {availableTags
+                      .filter((t) => !selectedTags.some((st) => st.toLowerCase() === t.name.toLowerCase()))
+                      .slice(0, 10)
+                      .map((tag) => (
+                        <button
+                          key={tag.id}
+                          type="button"
+                          onClick={() => handleAddTag(tag.name)}
+                          className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] hover:text-[var(--color-primary-default)] hover:border-[var(--color-primary-default)]/30 border border-[var(--color-border)] transition-colors cursor-pointer"
+                        >
+                          +{tag.name}
+                        </button>
+                      ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div>
@@ -439,7 +525,7 @@ export function AdminBlogEditor({
             <button
               type="button"
               onClick={() => insertFormatting("# ", "", "عنوان اصلی")}
-              title="تیتر اصلی (Heading 1)"
+              title="تیتر اصلی (Heading ۱)"
               className="p-2 rounded-lg text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)] transition-colors"
             >
               <Heading1 className="w-4 h-4" />
@@ -447,7 +533,7 @@ export function AdminBlogEditor({
             <button
               type="button"
               onClick={() => insertFormatting("## ", "", "زیرعنوان")}
-              title="زیرعنوان (Heading 2)"
+              title="زیرعنوان (Heading ۲)"
               className="p-2 rounded-lg text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)] transition-colors"
             >
               <Heading2 className="w-4 h-4" />
@@ -455,7 +541,7 @@ export function AdminBlogEditor({
             <button
               type="button"
               onClick={() => insertFormatting("### ", "", "عنوان بخش")}
-              title="تیتر سطح ۳ (Heading 3)"
+              title="تیتر سطح ۳ (Heading ۳)"
               className="p-2 rounded-lg text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)] transition-colors"
             >
               <Heading3 className="w-4 h-4" />
@@ -609,7 +695,7 @@ export function AdminBlogEditor({
                   <span>پیش‌نمایش زنده خروجی (MarkdownRenderer)</span>
                 </span>
                 <span className="text-[11px] text-[var(--color-text-muted)]">
-                  {content.trim() ? `${content.trim().split(/\s+/).length} کلمه` : "خالی"}
+                  {content.trim() ? `${toPersianDigits(content.trim().split(/\s+/).length)} کلمه` : "خالی"}
                 </span>
               </div>
 

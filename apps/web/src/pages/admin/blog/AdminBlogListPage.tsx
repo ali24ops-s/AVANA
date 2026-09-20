@@ -30,10 +30,15 @@ import {
   AdminErrorState,
   AdminEmptyState,
 } from "../../../components/admin/AdminUI.js";
-import { AvanaSelect } from "@avana/ui";
+import { AvanaSelect, SegmentedControl } from "@avana/ui";
+import { AdminBlogCategoriesManager } from "../../../components/admin/blog/AdminBlogCategoriesManager.js";
+import { AdminBlogTagsManager } from "../../../components/admin/blog/AdminBlogTagsManager.js";
+import { Tag as TagIcon, FolderOpen } from "lucide-react";
 import type { BlogPostSummary } from "../../../lib/api/blog.js";
+import { toPersianDigits } from "@avana/domain";
 
 export function AdminBlogListPage() {
+  const [activeTab, setActiveTab] = useState<"posts" | "categories" | "tags">("posts");
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "published" | "draft">("all");
@@ -108,13 +113,61 @@ export function AdminBlogListPage() {
         </Link>
       </div>
 
-      {/* Metrics Cards */}
+      {/* Navigation Tabs */}
+      <div className="flex items-center gap-2 border-b border-[var(--color-border)] pb-2">
+        <button
+          type="button"
+          onClick={() => setActiveTab("posts")}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+            activeTab === "posts"
+              ? "bg-[var(--color-primary-default)] text-[var(--color-primary-contrast)] shadow-xs"
+              : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-warm)]"
+          }`}
+        >
+          <BookOpen className="w-4 h-4" />
+          <span>مقالات ({stats ? toPersianDigits(stats.totalPosts) : "..."})</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("categories")}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+            activeTab === "categories"
+              ? "bg-[var(--color-primary-default)] text-[var(--color-primary-contrast)] shadow-xs"
+              : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-warm)]"
+          }`}
+        >
+          <FolderOpen className="w-4 h-4" />
+          <span>دسته‌بندی‌ها ({toPersianDigits(categories.length)})</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("tags")}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+            activeTab === "tags"
+              ? "bg-[var(--color-primary-default)] text-[var(--color-primary-contrast)] shadow-xs"
+              : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-warm)]"
+          }`}
+        >
+          <TagIcon className="w-4 h-4" />
+          <span>برچسب‌ها (Tags)</span>
+        </button>
+      </div>
+
+      {activeTab === "categories" ? (
+        <AdminBlogCategoriesManager />
+      ) : activeTab === "tags" ? (
+        <AdminBlogTagsManager />
+      ) : (
+        <>
+          {/* Metrics Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="border border-[var(--color-border)] p-5 rounded-2xl bg-[var(--color-surface)] shadow-sm flex items-center justify-between">
           <div>
             <p className="text-xs font-semibold text-[var(--color-text-muted)]">کل مقالات</p>
             <p className="text-2xl font-black text-[var(--color-text)] mt-1">
-              {stats ? stats.totalPosts : "..."}
+              {stats ? toPersianDigits(stats.totalPosts) : "..."}
             </p>
           </div>
           <div className="w-10 h-10 rounded-xl bg-[var(--color-primary-default)]/10 border border-[var(--color-primary-default)]/20 flex items-center justify-center text-[var(--color-primary-default)]">
@@ -126,7 +179,7 @@ export function AdminBlogListPage() {
           <div>
             <p className="text-xs font-semibold text-[var(--color-text-muted)]">مقالات منتشر شده</p>
             <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-1">
-              {stats ? stats.publishedPosts : "..."}
+              {stats ? toPersianDigits(stats.publishedPosts) : "..."}
             </p>
           </div>
           <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-500">
@@ -138,7 +191,7 @@ export function AdminBlogListPage() {
           <div>
             <p className="text-xs font-semibold text-[var(--color-text-muted)]">پیش‌نویس‌ها (Draft)</p>
             <p className="text-2xl font-black text-amber-600 dark:text-amber-400 mt-1">
-              {stats ? stats.draftPosts : "..."}
+              {stats ? toPersianDigits(stats.draftPosts) : "..."}
             </p>
           </div>
           <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-500">
@@ -150,7 +203,7 @@ export function AdminBlogListPage() {
           <div>
             <p className="text-xs font-semibold text-[var(--color-text-muted)]">مجموع بازدیدها</p>
             <p className="text-2xl font-black text-[var(--color-primary-default)] mt-1">
-              {stats ? stats.totalViews.toLocaleString("fa-IR") : "..."}
+              {stats ? toPersianDigits(stats.totalViews.toLocaleString("fa-IR")) : "..."}
             </p>
           </div>
           <div className="w-10 h-10 rounded-xl bg-[var(--color-primary-default)]/10 border border-[var(--color-primary-default)]/20 flex items-center justify-center text-[var(--color-primary-default)]">
@@ -162,7 +215,7 @@ export function AdminBlogListPage() {
       {/* Filter & Search Bar */}
       <div className="border border-[var(--color-border)] p-4 rounded-2xl bg-[var(--color-surface)] shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
         {/* Search */}
-        <div className="relative w-full md:w-80">
+        <div className="relative w-full md:w-80 flex items-center">
           <input
             type="text"
             placeholder="جستجو در عنوان یا اسلاگ..."
@@ -173,7 +226,7 @@ export function AdminBlogListPage() {
             }}
             className="w-full bg-[var(--color-surface-warm)] border border-[var(--color-border)] rounded-xl ps-10 pe-4 py-2.5 text-xs text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:border-[var(--color-primary-default)]"
           />
-          <Search className="w-4 h-4 text-[var(--color-text-muted)] absolute start-3.5 top-3" />
+          <Search className="w-4 h-4 text-[var(--color-text-muted)] absolute start-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
         </div>
 
         {/* Dropdowns */}
@@ -280,18 +333,18 @@ export function AdminBlogListPage() {
                       <td className="px-4 py-4 whitespace-nowrap">
                         <div className="flex items-center gap-1.5 text-[var(--color-text)]">
                           <Eye className="w-3.5 h-3.5 text-[var(--color-primary-default)]" />
-                          <span>{post.viewCount.toLocaleString("fa-IR")} بازدید</span>
+                          <span>{toPersianDigits(post.viewCount.toLocaleString("fa-IR"))} بازدید</span>
                         </div>
                         <div className="text-[11px] text-[var(--color-text-muted)] mt-0.5 flex items-center gap-1">
                           <Clock className="w-3 h-3" />
-                          <span>{post.readingTimeMinutes} دقیقه مطالعه</span>
+                          <span>{toPersianDigits(post.readingTimeMinutes)} دقیقه مطالعه</span>
                         </div>
                       </td>
 
                       {/* Dates */}
                       <td className="px-4 py-4 whitespace-nowrap text-[11px] text-[var(--color-text-muted)]">
                         {post.publishedAt ? (
-                          <div>{new Date(post.publishedAt).toLocaleDateString("fa-IR")}</div>
+                          <div>{toPersianDigits(new Date(post.publishedAt).toLocaleDateString("fa-IR"))}</div>
                         ) : (
                           <span className="text-[var(--color-text-muted)]">هنوز منتشر نشده</span>
                         )}
@@ -381,6 +434,8 @@ export function AdminBlogListPage() {
         onCancel={() => setDeletingPost(null)}
         isProcessing={deleteMutation.isPending}
       />
+        </>
+      )}
     </div>
   );
 }

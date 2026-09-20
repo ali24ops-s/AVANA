@@ -27,9 +27,18 @@ import type { GenerationJobStore } from "./generation-jobs-store.js";
 import type { GenerationService } from "./generation-service.js";
 
 /**
+ * /**
+ * Execution context for generation jobs (Admin vs Public).
+ * - admin: strictly Gemini only (zero DeepSeek fallback).
+ * - public: user-facing generation via OpenRouter / DeepSeek.
+ */
+export type GenerationContext = "admin" | "public";
+
+/**
  * Payload handed to the queue for a generation job.
  */
 export type GenerationJobPayload = {
+  jobId?: GenerationJobId;
   actorUserId: Actor["userId"];
   actorRole: Actor["role"];
   organizationId: OrganizationId;
@@ -39,6 +48,7 @@ export type GenerationJobPayload = {
   promptVersion?: string;
   generationKey?: string;
   force?: boolean;
+  generationContext?: GenerationContext;
 };
 
 /**
@@ -72,23 +82,47 @@ export interface GenerationQueue {
  */
 export class InMemoryGenerationQueue implements GenerationQueue {
   private generationService?: GenerationService;
+  private adminGenerationService?: GenerationService;
+  private userGenerationService?: GenerationService;
 
   constructor(
     private readonly jobStore: GenerationJobStore,
-    generationService?: GenerationService,
+    generationServiceOrDeps?:
+      | GenerationService
+      | {
+          adminGenerationService?: GenerationService;
+          userGenerationService?: GenerationService;
+          generationService?: GenerationService;
+        },
   ) {
-    this.generationService = generationService;
+    if (generationServiceOrDeps) {
+      if ("generateForDocument" in generationServiceOrDeps) {
+        this.generationService = generationServiceOrDeps;
+      } else {
+        this.adminGenerationService = generationServiceOrDeps.adminGenerationService;
+        this.userGenerationService = generationServiceOrDeps.userGenerationService;
+        this.generationService = generationServiceOrDeps.generationService;
+      }
+    }
   }
 
   setGenerationService(service: GenerationService): void {
     this.generationService = service;
   }
 
+  setAdminGenerationService(service: GenerationService): void {
+    this.adminGenerationService = service;
+  }
+
+  setUserGenerationService(service: GenerationService): void {
+    this.userGenerationService = service;
+  }
+
   async enqueueGenerationJob(
     payload: GenerationJobPayload,
   ): Promise<EnqueueGenerationResult> {
     const now = new Date().toISOString();
-    const jobId = this.newJobId();
+    const jobId = payload.jobId ?? this.newJobId();
     const record = {
       id: jobId,
       organizationId: payload.organizationId,
@@ -109,8 +143,20 @@ export class InMemoryGenerationQueue implements GenerationQueue {
     };
     await this.jobStore.create(record as never);
 
-    if (this.generationService) {
-      const service = this.generationService;
+    const isActorAdmin =
+      payload.actorRole === "platform_admin" ||
+      payload.actorRole === "organization_admin" ||
+      payload.actorRole === "course_editor";
+    const effectiveContext: GenerationContext =
+      payload.generationContext ?? (isActorAdmin ? "admin" : "public");
+
+    const targetService =
+      effectiveContext === "admin"
+        ? (this.adminGenerationService ?? this.generationService)
+        : (this.userGenerationService ?? this.generationService);
+
+    if (targetService) {
+      const service = targetService;
       setTimeout(async () => {
         try {
           const currentJob = await this.jobStore.findByIdForOrganization(
@@ -144,12 +190,13 @@ export class InMemoryGenerationQueue implements GenerationQueue {
             payload.organizationId,
             payload.documentId,
             {
-              courseId: payload.courseId,
               types: payload.types,
               promptVersion: payload.promptVersion,
               generationKey: payload.generationKey,
               force: payload.force,
+              courseId: payload.courseId,
               jobId: record.id,
+              generationContext: effectiveContext,
             },
           );
 

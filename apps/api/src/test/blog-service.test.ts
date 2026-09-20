@@ -200,5 +200,69 @@ describe("BlogService Unit & Business Logic Tests", () => {
       expect((await service.listAllPostsAdmin({})).posts).toHaveLength(0);
       expect((await service.listPublishedPosts({})).posts).toHaveLength(0);
     });
+
+    it("retains articles and sets categoryId to null when a category is deleted", async () => {
+      const cat = await service.createCategory("دسته موقت", "temp-cat");
+      const post = await service.createPost("author-1", {
+        title: "مقاله با دسته موقت",
+        content: "محتوا...",
+        status: "published",
+        categoryId: cat.id,
+      });
+
+      expect(post.categoryId).toBe(cat.id);
+
+      // Delete category
+      const deleted = await service.deleteCategory(cat.id);
+      expect(deleted).toBe(true);
+
+      // Verify article is NOT deleted, but category is now null
+      const updatedPost = await service.getPostByIdAdmin(post.id);
+      expect(updatedPost).not.toBeNull();
+      expect(updatedPost?.categoryId).toBeNull();
+      expect(updatedPost?.category).toBeNull();
+    });
+
+    it("supports tag CRUD, slug uniqueness, and post counts", async () => {
+      const tag1 = await service.createTag("فارماکوکینتیک", "pharmacokinetics");
+      expect(tag1.id).toBeDefined();
+      expect(tag1.slug).toBe("pharmacokinetics");
+
+      // Duplicate creation returns existing tag
+      const tag1Dup = await service.createTag("فارماکوکینتیک", "pharmacokinetics");
+      expect(tag1Dup.id).toBe(tag1.id);
+
+      // Create post with this tag
+      await service.createPost("author-1", {
+        title: "بررسی فارماکوکینتیک",
+        content: "محتوا...",
+        status: "published",
+        tagNames: ["فارماکوکینتیک"],
+      });
+
+      // Check tag with count
+      const tagsWithCount = await service.listTagsAdmin();
+      const found = tagsWithCount.find((t) => t.id === tag1.id);
+      expect(found).toBeDefined();
+      expect(found?.postCount).toBe(1);
+
+      // Get tag by slug
+      const tagBySlug = await service.getTagBySlug("pharmacokinetics");
+      expect(tagBySlug).not.toBeNull();
+      expect(tagBySlug?.name).toBe("فارماکوکینتیک");
+      expect(tagBySlug?.postCount).toBe(1);
+
+      // Update tag
+      const updatedTag = await service.updateTag(tag1.id, "فارماکوکینتیک بالینی", "clinical-pharmacokinetics");
+      expect(updatedTag.name).toBe("فارماکوکینتیک بالینی");
+      expect(updatedTag.slug).toBe("clinical-pharmacokinetics");
+
+      // Delete tag - article remains
+      const deletedTag = await service.deleteTag(tag1.id);
+      expect(deletedTag).toBe(true);
+
+      const adminPosts = await service.listAllPostsAdmin({});
+      expect(adminPosts.posts).toHaveLength(1);
+    });
   });
 });

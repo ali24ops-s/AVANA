@@ -68,16 +68,10 @@ export function LivingTextbookSection() {
           </div>
 
           {/* Heading */}
-          <h2 className="font-headline text-3xl sm:text-4xl lg:text-[42px] leading-[1.25] font-black text-[#1a2226] tracking-tight">
-            جزوه فقط برای خواندن نیست.
-            <br />
-            <span className="text-[#008080]">با آوانا، تبدیل به یادگیری می‌شود.</span>
+          <h2 className="font-headline text-2xl sm:text-3xl lg:text-[36px] leading-[1.3] font-black text-[#1a2226] tracking-tight">
+            <span className="block sm:whitespace-nowrap">جزوه فقط برای خواندن نیست.</span>
+            <span className="block sm:whitespace-nowrap text-[#008080]">با آوانا، تبدیل به یادگیری می‌شود.</span>
           </h2>
-
-          {/* Subtitle */}
-          <p className="text-base sm:text-lg leading-relaxed text-[#3d4f55]">
-            محتوای درسی‌ات را بخوان، خطوط مهم را انتخاب کن، و ببین چطور آوانا در همان لحظه آن را به توضیح روان، فلش‌کارت حافظه و سؤال امتحانی تبدیل می‌کند.
-          </p>
 
           {/* Key capability highlights */}
           <div className="space-y-3 pt-2">

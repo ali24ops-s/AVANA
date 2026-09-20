@@ -28,6 +28,7 @@ import {
   Lightbulb,
 } from "lucide-react";
 import { Badge } from "@avana/ui";
+import { toPersianDigits } from "@avana/domain";
 
 interface Step {
   id: number;
@@ -169,7 +170,7 @@ export function HowItWorksSection() {
               <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black shrink-0 ${
                 isActive ? "bg-white text-[#008080]" : "bg-[var(--avana-bg-default)] text-[var(--avana-text-muted)]"
               }`}>
-                ۰{step.id}
+                {toPersianDigits(step.id).padStart(2, "۰")}
               </span>
               <span className="truncate">{step.shortTitle}</span>
             </button>
@@ -193,7 +194,7 @@ export function HowItWorksSection() {
               >
                 <div className="flex items-center gap-3">
                   <div className="inline-flex items-center justify-center w-10 h-10 rounded-[10px] font-black text-lg text-white bg-[#008080] shadow-xs shrink-0">
-                    {currentStep.id}
+                    {toPersianDigits(currentStep.id)}
                   </div>
                   <h3 className="font-headline text-xl sm:text-2xl font-extrabold text-[var(--avana-text-primary)] leading-tight">
                     {currentStep.title}

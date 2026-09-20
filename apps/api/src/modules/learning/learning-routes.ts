@@ -30,6 +30,7 @@ import type {
   ModuleStore,
   LessonStore,
   ProgressStore,
+  SubCourseGroupStore,
 } from "./learning-store.js";
 import type { AuditService } from "../../observability/audit-service.js";
 import type { EntitlementService } from "../commerce/entitlement-service.js";
@@ -42,6 +43,7 @@ export interface LearningRouteOptions {
   moduleStore: ModuleStore;
   lessonStore: LessonStore;
   progressStore: ProgressStore;
+  subCourseGroupStore?: SubCourseGroupStore;
   auditService?: AuditService;
   systemOrganizationId?: OrganizationId;
   entitlementService?: EntitlementService;
@@ -59,6 +61,7 @@ export const learningRoutes: FastifyPluginAsync<LearningRouteOptions> = async (
     moduleStore,
     lessonStore,
     progressStore,
+    subCourseGroupStore,
     auditService,
     systemOrganizationId,
     entitlementService,
@@ -75,6 +78,7 @@ export const learningRoutes: FastifyPluginAsync<LearningRouteOptions> = async (
     auditService,
     systemOrganizationId,
     entitlementService,
+    subCourseGroupStore,
   );
 
   /**

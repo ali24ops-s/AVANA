@@ -253,7 +253,7 @@ export function AdminContentReportsPanel({
         </div>
 
         {/* Text Filter */}
-        <div className="relative w-full md:w-72">
+        <div className="relative w-full md:w-72 flex items-center">
           <input
             type="text"
             placeholder="جستجو در متن یا درسنامه..."
@@ -261,7 +261,7 @@ export function AdminContentReportsPanel({
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full bg-[var(--color-surface-subtle)] border border-[var(--color-border)] rounded-xl ps-4 pe-10 py-2 text-xs sm:text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-default)] transition-all"
           />
-          <Search className="w-4 h-4 text-[var(--color-text-muted)] absolute end-3 top-2.5 pointer-events-none" />
+          <Search className="w-4 h-4 text-[var(--color-text-muted)] absolute end-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
         </div>
       </div>
 

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useSearchParams, useNavigate } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import {
   Search,
   X,
@@ -7,6 +7,8 @@ import {
   Clock,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   AlertCircle,
   RefreshCw,
   Library as LibraryIcon,
@@ -14,11 +16,13 @@ import {
   Layers,
   BookOpen,
   HelpCircle,
-  Sparkles,
 } from "lucide-react";
-import { useLibraryResources, useCoursePackages } from "../hooks/useLibrary.js";
+import {
+  useLibraryResources,
+  useCoursePackages,
+  useLibraryPack,
+} from "../hooks/useLibrary.js";
 import { CourseLibraryCard } from "../components/library/CourseLibraryCard.js";
-import { SpecialExamLibraryCard } from "../components/library/SpecialExamLibraryCard.js";
 import { ChapterPackageCard } from "../components/library/ChapterPackageCard.js";
 import { ChapterPackageModal } from "../components/library/ChapterPackageModal.js";
 import { PaywallModal } from "../components/commerce/index.js";
@@ -35,13 +39,16 @@ import type {
   ChapterPackageItem,
   CourseWithChapterPackages,
 } from "@avana/domain";
-import { formatPersianOf } from "@avana/domain";
+import {
+  formatPersianOf,
+  toPersianDigits,
+  cleanEducationalTitle,
+} from "@avana/domain";
 import type {
   LibraryCourseItem,
-  LibrarySpecialExamItem,
 } from "../lib/api/library.js";
 
-type LibraryTab = "all" | "courses" | "special_exams" | "packs";
+type LibraryTab = "all" | "courses" | "packs";
 
 const PRESET_SUBJECTS = [
   { value: "all", label: "همه موضوعات" },
@@ -61,12 +68,54 @@ const PRESET_SUBJECTS = [
   { value: "پزشکی عمومی", label: "پزشکی عمومی" },
 ];
 
+const INITIAL_VISIBLE_PACKS_COUNT = 3;
+
+const ANIMATED_WORDS = ["همه‌چیز", "برای", "یادگیری", "کامل."];
+
+function LoopingWordReveal() {
+  const [visibleCount, setVisibleCount] = useState(0);
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>;
+    if (visibleCount < ANIMATED_WORDS.length) {
+      timer = setTimeout(() => {
+        setVisibleCount((prev) => prev + 1);
+      }, 350);
+    } else {
+      timer = setTimeout(() => {
+        setVisibleCount(0);
+      }, 3000);
+    }
+    return () => clearTimeout(timer);
+  }, [visibleCount]);
+
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 min-h-[1.75rem]"
+      aria-label="همه‌چیز برای یادگیری کامل."
+    >
+      {ANIMATED_WORDS.map((word, index) => (
+        <span
+          key={index}
+          className={`inline-block transition-all duration-300 ease-out transform ${
+            index < visibleCount
+              ? "opacity-100 translate-y-0 scale-100"
+              : "opacity-0 translate-y-1 scale-95 pointer-events-none"
+          }`}
+        >
+          {word}
+        </span>
+      ))}
+    </span>
+  );
+}
+
 export function LibraryPage() {
-  const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const urlPackId = searchParams.get("packId") || searchParams.get("packageId");
 
   const [activeTab, setActiveTab] = useState<LibraryTab>("all");
+  const [expandedCourseIds, setExpandedCourseIds] = useState<Set<string>>(() => new Set());
   const [searchInput, setSearchInput] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [selectedSubject, setSelectedSubject] = useState("all");
@@ -167,15 +216,12 @@ export function LibraryPage() {
     setIsChapterModalOpen(true);
   };
 
-  const handleBuySpecialExam = (exam: LibrarySpecialExamItem) => {
-    navigate(`/checkout/card-to-card?productId=${encodeURIComponent(exam.productId)}`);
-  };
-
   // Debounce search input (350ms)
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedQuery(searchInput.trim());
       setCurrentPage(1);
+      setExpandedCourseIds(new Set());
     }, 350);
     return () => clearTimeout(timer);
   }, [searchInput]);
@@ -188,9 +234,7 @@ export function LibraryPage() {
         ? "all"
         : activeTab === "courses"
           ? "courses"
-          : activeTab === "special_exams"
-            ? "special_exams"
-            : undefined,
+          : undefined,
     subject: selectedSubject !== "all" ? selectedSubject : undefined,
     sort: selectedSort,
     page: currentPage,
@@ -206,49 +250,155 @@ export function LibraryPage() {
     limit: 12,
   });
 
+  // Query all course packages when urlPackId is provided to ensure it is found regardless of pagination
+  const targetedCoursePackagesQuery = useCoursePackages(
+    urlPackId ? { limit: 100 } : { limit: 0 },
+  );
+
+  // Query single standalone content pack if packId is present in URL
+  const singlePackQuery = useLibraryPack(urlPackId);
+
   // Auto-open detail if urlPackId is provided
   useEffect(() => {
-    if (urlPackId && coursePackagesQuery.data?.courses) {
-      for (const course of coursePackagesQuery.data.courses) {
-        const found = course.packages.find(
-          (p) =>
-            p.id === urlPackId ||
-            p.moduleId === urlPackId ||
-            p.contentPackId === urlPackId,
-        );
-        if (found) {
-          setSelectedChapterPackage(found);
-          setIsChapterModalOpen(true);
-          break;
-        }
+    if (!urlPackId) return;
+
+    // 1. Check in regular and targeted coursePackages
+    const searchCourses = [
+      ...(coursePackagesQuery.data?.courses || []),
+      ...(targetedCoursePackagesQuery.data?.courses || []),
+    ];
+
+    for (const course of searchCourses) {
+      const found = course.packages.find(
+        (p) =>
+          p.id === urlPackId ||
+          p.moduleId === urlPackId ||
+          p.contentPackId === urlPackId,
+      );
+      if (found) {
+        setSelectedChapterPackage(found);
+        setSelectedCourseForPreview(null);
+        setIsChapterModalOpen(true);
+        return;
       }
     }
-  }, [urlPackId, coursePackagesQuery.data?.courses]);
+
+    // 2. Check in single standalone pack query
+    if (singlePackQuery.data?.pack) {
+      const pack = singlePackQuery.data.pack;
+      const converted: ChapterPackageItem = {
+        id: pack.id,
+        moduleId: pack.id,
+        courseId: "",
+        courseTitle: pack.title,
+        title: pack.title,
+        description: pack.description,
+        subject: pack.subject,
+        sortOrder: 0,
+        documentId: null,
+        contentPackId: pack.id,
+        contents: {
+          lesson: {
+            exists: Boolean(pack.preview?.lesson),
+            count: pack.stats?.session_count || (pack.preview?.lesson ? 1 : 0),
+            estimatedMinutes: pack.stats?.estimated_reading_minutes || 10,
+            title: pack.preview?.lesson?.title,
+          },
+          summary: {
+            exists: Boolean(pack.preview?.review_summary),
+            title: pack.preview?.review_summary?.title,
+            overview: pack.preview?.review_summary?.overview,
+            estimatedMinutes: pack.preview?.review_summary?.estimatedReadingMinutes,
+          },
+          flashcards: {
+            exists: Boolean(pack.preview?.flashcard),
+            count: pack.stats?.flashcard_count || pack.preview?.flashcard?.totalCards || 0,
+          },
+          quiz: {
+            exists: Boolean(pack.preview?.quiz),
+            title: pack.preview?.quiz?.title,
+            questionCount: pack.stats?.quiz_question_count || pack.preview?.quiz?.totalQuestions || 0,
+          },
+        },
+        stats: {
+          totalItems:
+            (pack.stats?.session_count || 0) +
+            (pack.stats?.flashcard_count || 0) +
+            (pack.stats?.quiz_question_count || 0) +
+            (pack.preview?.review_summary ? 1 : 0),
+          lessonCount: pack.stats?.session_count || 0,
+          flashcardCount: pack.stats?.flashcard_count || 0,
+          quizQuestionCount: pack.stats?.quiz_question_count || 0,
+          hasSummary: Boolean(pack.preview?.review_summary),
+          estimatedReadingMinutes: pack.stats?.estimated_reading_minutes || 0,
+        },
+        completeness: "partial",
+        access: {
+          isFree: pack.pricing?.is_free ?? true,
+          isPurchased: false,
+          hasAccess: true,
+          accessSource: "free",
+        },
+        purchase: {
+          price: pack.pricing?.price ?? 0,
+          currency: pack.pricing?.currency ?? "toman",
+          canPurchase: !(pack.pricing?.is_free ?? true),
+          productId: pack.pricing?.product_id ?? null,
+        },
+        pricing: pack.pricing,
+        createdAt: pack.published_at || new Date().toISOString(),
+        updatedAt: pack.published_at || new Date().toISOString(),
+      };
+      setSelectedChapterPackage(converted);
+      setSelectedCourseForPreview(null);
+      setIsChapterModalOpen(true);
+    }
+  }, [
+    urlPackId,
+    coursePackagesQuery.data?.courses,
+    targetedCoursePackagesQuery.data?.courses,
+    singlePackQuery.data?.pack,
+  ]);
 
   const handleTabChange = (tab: LibraryTab) => {
     setActiveTab(tab);
     setCurrentPage(1);
+    setExpandedCourseIds(new Set());
   };
 
   const handleSubjectChange = (subjectVal: string | string[]) => {
     const val = Array.isArray(subjectVal) ? subjectVal[0] || "all" : subjectVal;
     setSelectedSubject(val);
     setCurrentPage(1);
+    setExpandedCourseIds(new Set());
   };
 
   const handleSortChange = (sort: "popular" | "newest") => {
     setSelectedSort(sort);
     setCurrentPage(1);
+    setExpandedCourseIds(new Set());
   };
 
   const handleClearSearch = () => {
     setSearchInput("");
     setDebouncedQuery("");
     setCurrentPage(1);
+    setExpandedCourseIds(new Set());
+  };
+
+  const toggleCourseExpand = (courseId: string) => {
+    setExpandedCourseIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(courseId)) {
+        next.delete(courseId);
+      } else {
+        next.add(courseId);
+      }
+      return next;
+    });
   };
 
   const courses = resourcesQuery.data?.courses ?? [];
-  const specialExams = resourcesQuery.data?.special_exams ?? [];
   const coursePackages = coursePackagesQuery.data?.courses ?? [];
   const totalChapterPackages = coursePackages.reduce(
     (sum, c) => sum + (c.packages?.length || 0),
@@ -273,22 +423,11 @@ export function LibraryPage() {
           page: currentPage,
           limit: 12,
           total_count:
-            activeTab === "courses"
-              ? (resourcesQuery.data?.pagination?.total_courses ?? 0)
-              : activeTab === "special_exams"
-                ? (resourcesQuery.data?.pagination?.total_special_exams ?? specialExams.length)
-                : ((resourcesQuery.data?.pagination?.total_courses ?? 0) +
-                  (resourcesQuery.data?.pagination?.total_special_exams ?? specialExams.length)),
+            resourcesQuery.data?.pagination?.total_courses ?? courses.length,
           total_pages:
             Math.ceil(
-              (activeTab === "courses"
-                ? (resourcesQuery.data?.pagination?.total_courses ?? 0)
-                : activeTab === "special_exams"
-                  ? (resourcesQuery.data?.pagination?.total_special_exams ?? specialExams.length)
-                  : Math.max(
-                      resourcesQuery.data?.pagination?.total_courses ?? 0,
-                      resourcesQuery.data?.pagination?.total_special_exams ?? specialExams.length,
-                    )) / 12,
+              (resourcesQuery.data?.pagination?.total_courses ??
+                courses.length) / 12,
             ) || 1,
         };
 
@@ -309,62 +448,76 @@ export function LibraryPage() {
 
   const totalItemsInView =
     activeTab === "all"
-      ? courses.length + specialExams.length + totalChapterPackages
+      ? courses.length + totalChapterPackages
       : activeTab === "courses"
         ? courses.length
-        : activeTab === "special_exams"
-          ? specialExams.length
-          : totalChapterPackages;
+        : totalChapterPackages;
 
   return (
     <div className="space-y-8 pb-16 w-full" dir="rtl">
       {/* 1. Hero Header Banner */}
-      <Card variant="solid" className="relative overflow-hidden p-6 sm:p-8 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-[16px] shadow-subtle">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-center">
-          {/* Right: Primary Hero Content */}
-          <div className="lg:col-span-7 space-y-3.5">
-            <Badge variant="primary" icon={<LibraryIcon className="w-3.5 h-3.5" />}>
-              کتابخانه جامع یادگیری و محتوای آموزشی آوانا
-            </Badge>
+      <Card
+        variant="solid"
+        className="relative overflow-hidden p-6 sm:p-8 bg-gradient-to-br from-[var(--color-surface)] via-[var(--color-surface-warm)]/70 to-[var(--color-surface)] border border-[var(--color-border)] rounded-[20px] shadow-card group"
+      >
+        {/* Top Highlight Accent Line */}
+        <div className="absolute top-0 inset-x-0 h-[2.5px] bg-gradient-to-r from-transparent via-primary/80 to-transparent" />
 
-            <h1 className="text-h1 font-bold text-[var(--color-text)]">
+        {/* Ambient Glow Orbs */}
+        <div className="absolute -top-16 -start-16 w-80 h-80 rounded-full bg-primary/10 blur-3xl pointer-events-none transition-all duration-700 group-hover:bg-primary/15" />
+        <div className="absolute -bottom-16 -end-16 w-80 h-80 rounded-full bg-[#38bdf8]/10 dark:bg-teal-500/10 blur-3xl pointer-events-none" />
+        <div className="absolute top-1/2 left-1/3 -translate-y-1/2 w-64 h-64 rounded-full bg-amber-500/5 blur-3xl pointer-events-none" />
+
+        {/* Subtle Geometric / Dot Pattern Overlay */}
+        <div
+          className="absolute inset-0 opacity-[0.035] dark:opacity-[0.07] pointer-events-none"
+          style={{
+            backgroundImage: `radial-gradient(var(--color-primary, #008080) 1px, transparent 1px)`,
+            backgroundSize: "20px 20px",
+            maskImage: "radial-gradient(ellipse 85% 70% at 50% 50%, black 40%, transparent 100%)",
+            WebkitMaskImage: "radial-gradient(ellipse 85% 70% at 50% 50%, black 40%, transparent 100%)",
+          }}
+        />
+
+        {/* Decorative Background Knowledge Wave Lines */}
+        <svg
+          className="absolute start-0 bottom-0 w-full h-24 opacity-[0.04] dark:opacity-[0.08] pointer-events-none text-primary"
+          viewBox="0 0 1200 120"
+          preserveAspectRatio="none"
+          fill="none"
+        >
+          <path
+            d="M0,0 C150,90 350,-40 500,45 C650,130 900,10 1200,50 L1200,120 L0,120 Z"
+            fill="currentColor"
+          />
+        </svg>
+
+        <div className="relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-center">
+          {/* Right: Primary Hero Content */}
+          <div className="lg:col-span-7 space-y-3 sm:space-y-4">
+            <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight text-[var(--color-text)] leading-tight">
               کتابخانه آوانا
             </h1>
 
-            <p className="text-sm sm:text-base text-[var(--color-text-muted)] leading-relaxed max-w-xl">
-              مطالب آموزشی، دوره‌های معتبر و درسنامه‌های دانشگاهی را مرور و مطالعه کن، یا بسته‌های آموزشی آماده هر فصل را برای یادگیری کامل باز کن.
-            </p>
-
-            {/* Educational Highlights Meta Strip */}
-            <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[8px] bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-[var(--color-text-secondary)] font-medium">
-                <BookOpen className="w-3.5 h-3.5 text-primary" />
-                <span>درسنامه‌های استاندارد</span>
-              </span>
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[8px] bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-[var(--color-text-secondary)] font-medium">
-                <Layers className="w-3.5 h-3.5 text-amber-500" />
-                <span>فلش‌کارت‌های مرور فعال</span>
-              </span>
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[8px] bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-[var(--color-text-secondary)] font-medium">
-                <HelpCircle className="w-3.5 h-3.5 text-[#5ba0c4]" />
-                <span>آزمون‌های جامع فصلی</span>
-              </span>
+            <div className="space-y-1.5 max-w-2xl">
+              <p className="text-base sm:text-lg text-[var(--color-text-muted)] font-medium leading-relaxed">
+                از درسنامه‌های معتبر دانشگاهی تا بسته‌های آموزشی فصل‌به‌فصل؛
+              </p>
+              <div className="text-lg sm:text-xl font-bold text-primary dark:text-teal-400 flex items-center gap-2">
+                <LoopingWordReveal />
+              </div>
             </div>
           </div>
 
           {/* Left: Dedicated Educational Library Visual Composition */}
           <div className="lg:col-span-5 relative flex items-center justify-center lg:justify-end py-2 lg:py-0">
-            {/* Subtle soft backdrop ambient accents */}
-            <div className="absolute -top-6 -start-6 w-36 h-36 rounded-full bg-primary/5 blur-2xl pointer-events-none" />
-            <div className="absolute -bottom-6 -end-6 w-36 h-36 rounded-full bg-[#A7D0E6]/15 blur-2xl pointer-events-none" />
-
             {/* Layered Cards Stack */}
             <div className="relative w-full max-w-sm select-none pointer-events-none space-y-0">
               {/* 1. Base Layer: Curated Course Module (درسنامه جامع) */}
-              <div className="relative z-10 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-[14px] p-3.5 shadow-subtle space-y-2">
+              <div className="relative z-10 bg-[var(--color-surface)]/90 backdrop-blur-sm border border-[var(--color-border)] rounded-[14px] p-3.5 shadow-subtle space-y-2">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2 min-w-0">
-                    <div className="w-7 h-7 rounded-[8px] bg-[#e0f2f2] border border-[#b3d9d9] flex items-center justify-center text-[#006666] shrink-0">
+                    <div className="w-7 h-7 rounded-[8px] bg-[#e0f2f2] dark:bg-teal-950/60 border border-[#b3d9d9] dark:border-teal-800/60 flex items-center justify-center text-[#006666] dark:text-teal-300 shrink-0">
                       <BookOpen className="w-3.5 h-3.5" />
                     </div>
                     <div className="min-w-0">
@@ -376,22 +529,22 @@ export function LibraryPage() {
                       </span>
                     </div>
                   </div>
-                  <span className="shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#e0f2f2] text-[#006666] border border-[#b3d9d9]">
+                  <span className="shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#e0f2f2] text-[#006666] dark:bg-teal-950/70 dark:text-teal-200 border border-[#b3d9d9] dark:border-teal-800">
                     درسنامه
                   </span>
                 </div>
 
                 {/* Subtle structured lines preview */}
                 <div className="space-y-1.5 pt-0.5">
-                  <div className="h-1.5 rounded-[4px] bg-[#EEF1F3] w-5/6" />
-                  <div className="h-1.5 rounded-[4px] bg-[#EEF1F3] w-2/3" />
+                  <div className="h-1.5 rounded-[4px] bg-[var(--color-surface-warm)] border border-[var(--color-border)]/50 w-5/6" />
+                  <div className="h-1.5 rounded-[4px] bg-[var(--color-surface-warm)] border border-[var(--color-border)]/50 w-2/3" />
                 </div>
               </div>
 
               {/* 2. Middle Layer: Spaced Repetition (فلش‌کارت مرور) */}
-              <div className="relative z-20 -mt-2 ms-4 sm:ms-6 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-[14px] p-3 shadow-subtle flex items-center justify-between gap-3">
+              <div className="relative z-20 -mt-2 ms-4 sm:ms-6 bg-[var(--color-surface)]/90 backdrop-blur-sm border border-[var(--color-border)] rounded-[14px] p-3 shadow-subtle flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="w-7 h-7 rounded-[8px] bg-[#fdf2e4] border border-[#e8c18a] flex items-center justify-center text-[#8f5e27] shrink-0">
+                  <div className="w-7 h-7 rounded-[8px] bg-[#fdf2e4] dark:bg-amber-950/50 border border-[#e8c18a] dark:border-amber-800/60 flex items-center justify-center text-[#8f5e27] dark:text-amber-300 shrink-0">
                     <Layers className="w-3.5 h-3.5" />
                   </div>
                   <div className="min-w-0">
@@ -403,15 +556,15 @@ export function LibraryPage() {
                     </span>
                   </div>
                 </div>
-                <span className="shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#fdf2e4] text-[#8f5e27] border border-[#e8c18a]">
+                <span className="shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#fdf2e4] text-[#8f5e27] dark:bg-amber-950/70 dark:text-amber-200 border border-[#e8c18a] dark:border-amber-800">
                   فلش‌کارت
                 </span>
               </div>
 
               {/* 3. Fore Layer: Assessment (آزمون خودارزیابی) */}
-              <div className="relative z-30 -mt-2 me-4 sm:me-6 bg-[var(--color-surface)] border border-[#a7d0e6] rounded-[14px] p-3 shadow-subtle flex items-center justify-between gap-3">
+              <div className="relative z-30 -mt-2 me-4 sm:me-6 bg-[var(--color-surface)]/90 backdrop-blur-sm border border-[#a7d0e6] dark:border-sky-800/60 rounded-[14px] p-3 shadow-subtle flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="w-7 h-7 rounded-[8px] bg-[#e8f4fb] border border-[#a7d0e6] flex items-center justify-center text-[#2b6d8f] shrink-0">
+                  <div className="w-7 h-7 rounded-[8px] bg-[#e8f4fb] dark:bg-sky-950/50 border border-[#a7d0e6] dark:border-sky-800/60 flex items-center justify-center text-[#2b6d8f] dark:text-sky-300 shrink-0">
                     <HelpCircle className="w-3.5 h-3.5" />
                   </div>
                   <div className="min-w-0">
@@ -423,7 +576,7 @@ export function LibraryPage() {
                     </span>
                   </div>
                 </div>
-                <span className="shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#e8f4fb] text-[#2b6d8f] border border-[#a7d0e6]">
+                <span className="shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#e8f4fb] text-[#2b6d8f] dark:bg-sky-950/70 dark:text-sky-200 border border-[#a7d0e6] dark:border-sky-800">
                   آزمون
                 </span>
               </div>
@@ -456,17 +609,6 @@ export function LibraryPage() {
             className="rounded-[10px]"
           >
             دوره‌ها
-          </Button>
-
-          <Button
-            data-testid="tab-special-exams"
-            size="sm"
-            variant={activeTab === "special_exams" ? "primary" : "ghost"}
-            onClick={() => handleTabChange("special_exams")}
-            leftIcon={<Sparkles className="w-4 h-4 text-amber-500" />}
-            className="rounded-[10px]"
-          >
-            آزمون‌های ویژه
           </Button>
 
           <Button
@@ -614,54 +756,6 @@ export function LibraryPage() {
           />
         )}
 
-        {/* Course Packages (بسته‌های آموزشی آماده) */}
-        {!isLoading && !isError && (activeTab === "all" || activeTab === "packs") && coursePackages.length > 0 && (
-          <div className="space-y-6" data-testid="library-packs-section">
-            <div className="flex items-center justify-between" data-testid="public-content-packs-section">
-              <h2 className="text-h2 text-[var(--color-text)] flex items-center gap-2">
-                <Layers className="w-5 h-5 text-amber-400" />
-                <span>بسته‌های آموزشی آماده سرفصل‌ها</span>
-              </h2>
-            </div>
-            <div className="space-y-8">
-              {coursePackages.map((course: CourseWithChapterPackages) => (
-                <Card
-                  key={course.id}
-                  data-testid={`course-package-group-${course.id}`}
-                  variant="solid"
-                  className="space-y-5"
-                >
-                  {/* Course Group Header */}
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-[var(--color-border)]">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <GraduationCap className="w-5 h-5 text-primary shrink-0" />
-                        <h3 className="text-h3 text-[var(--color-text)]">{course.title}</h3>
-                        {course.subject && <Badge variant="primary">{course.subject}</Badge>}
-                      </div>
-                      <p className="text-xs text-[var(--color-text-muted)]">
-                        {course.packages.length} فصل دارای بسته آموزشی
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Chapter Packages Grid */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {course.packages.map((pkg: ChapterPackageItem) => (
-                      <ChapterPackageCard
-                        key={pkg.id}
-                        packageItem={pkg}
-                        onView={() => handleViewPackage(pkg)}
-                        onBuy={() => handleBuyPackage(pkg)}
-                      />
-                    ))}
-                  </div>
-                </Card>
-              ))}
-            </div>
-          </div>
-        )}
-
         {/* Courses Grid */}
         {!isLoading && !isError && (activeTab === "all" || activeTab === "courses") && courses.length > 0 && (
           <div className="space-y-4" data-testid="library-courses-section">
@@ -684,28 +778,82 @@ export function LibraryPage() {
           </div>
         )}
 
-        {/* Special Exams Grid */}
-        {!isLoading && !isError && (activeTab === "all" || activeTab === "special_exams") && specialExams.length > 0 && (
-          <div className="space-y-4" data-testid="library-special-exams-section">
-            {activeTab === "all" && (
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <h2 className="text-h2 text-[var(--color-text)] flex items-center gap-2">
-                  <Sparkles className="w-5 h-5 text-amber-500" />
-                  <span>آزمون‌های ویژه</span>
-                </h2>
-                <span className="text-xs text-[var(--color-text-muted)]">
-                  تولید هوشمند و تصادفی سؤالات با هر بار خرید از بانک سؤالات
-                </span>
-              </div>
-            )}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-              {specialExams.map((exam: LibrarySpecialExamItem) => (
-                <SpecialExamLibraryCard
-                  key={exam.id}
-                  exam={exam}
-                  onBuy={handleBuySpecialExam}
-                />
-              ))}
+        {/* Course Packages (بسته‌های آموزشی آماده) */}
+        {!isLoading && !isError && (activeTab === "all" || activeTab === "packs") && coursePackages.length > 0 && (
+          <div className="space-y-6" data-testid="library-packs-section">
+            <div className="flex items-center justify-between" data-testid="public-content-packs-section">
+              <h2 className="text-h2 text-[var(--color-text)] flex items-center gap-2">
+                <Layers className="w-5 h-5 text-amber-400" />
+                <span>بسته‌های آموزشی آماده سرفصل‌ها</span>
+              </h2>
+            </div>
+            <div className="space-y-8">
+              {coursePackages.map((course: CourseWithChapterPackages) => {
+                const isExpanded = expandedCourseIds.has(course.id);
+                const totalCoursePackages = course.packages?.length ?? 0;
+                const hasMorePackages = totalCoursePackages > INITIAL_VISIBLE_PACKS_COUNT;
+                const visiblePackages =
+                  hasMorePackages && !isExpanded
+                    ? course.packages.slice(0, INITIAL_VISIBLE_PACKS_COUNT)
+                    : course.packages;
+
+                return (
+                  <Card
+                    key={course.id}
+                    data-testid={`course-package-group-${course.id}`}
+                    variant="solid"
+                    className="space-y-5"
+                  >
+                    {/* Course Group Header */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-[var(--color-border)]">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <GraduationCap className="w-5 h-5 text-primary shrink-0" />
+                          <h3 className="text-h3 text-[var(--color-text)]">{cleanEducationalTitle(course.title, "دوره آموزشی جامع")}</h3>
+                          {course.subject && <Badge variant="primary">{course.subject}</Badge>}
+                        </div>
+                        <p className="text-xs text-[var(--color-text-muted)]">
+                          {toPersianDigits(course.totalPackages ?? totalCoursePackages)} فصل دارای بسته آموزشی
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Chapter Packages Grid */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                      {visiblePackages.map((pkg: ChapterPackageItem) => (
+                        <ChapterPackageCard
+                          key={pkg.id}
+                          packageItem={pkg}
+                          onView={() => handleViewPackage(pkg)}
+                          onBuy={() => handleBuyPackage(pkg)}
+                        />
+                      ))}
+                    </div>
+
+                    {/* Per-Course Expand / Collapse CTA when this course has > 3 packages */}
+                    {hasMorePackages && (
+                      <div className="flex justify-center pt-2">
+                        <Button
+                          data-testid={`toggle-course-packs-${course.id}`}
+                          variant={isExpanded ? "ghost" : "outline"}
+                          size="sm"
+                          onClick={() => toggleCourseExpand(course.id)}
+                          rightIcon={
+                            isExpanded ? (
+                              <ChevronUp className="w-4 h-4" />
+                            ) : (
+                              <ChevronDown className="w-4 h-4" />
+                            )
+                          }
+                          className="rounded-[10px] text-xs font-semibold"
+                        >
+                          {isExpanded ? "نمایش کمتر" : "مشاهده همه فصل‌ها"}
+                        </Button>
+                      </div>
+                    )}
+                  </Card>
+                );
+              })}
             </div>
           </div>
         )}
@@ -746,6 +894,12 @@ export function LibraryPage() {
             setIsChapterModalOpen(false);
             setSelectedChapterPackage(null);
             setSelectedCourseForPreview(null);
+            if (searchParams.has("packId") || searchParams.has("packageId")) {
+              const newParams = new URLSearchParams(searchParams);
+              newParams.delete("packId");
+              newParams.delete("packageId");
+              setSearchParams(newParams, { replace: true });
+            }
           }}
           packageItem={selectedChapterPackage}
           courseItem={selectedCourseForPreview}

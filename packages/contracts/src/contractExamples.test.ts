@@ -144,3 +144,81 @@ describe("contracts (PR6-4) - generated content type examples", () => {
     expect(response.contents[0].type).toBe("lesson");
   });
 });
+
+describe("contracts (Phase 3) - daily study planner type examples", () => {
+  it("models a daily study plan response and task resource", () => {
+    const task: import("./study-planner.js").StudyTaskResource = {
+      id: "550e8400-e29b-41d4-a716-446655440020",
+      planId: "550e8400-e29b-41d4-a716-446655440021",
+      userId: "550e8400-e29b-41d4-a716-446655440022",
+      taskType: "read_lesson",
+      status: "pending",
+      title: "مطالعه درس: فارماکولوژی",
+      description: "درس در دوره فارماکولوژی",
+      priority: 1,
+      estimatedMinutes: 20,
+      completedAt: null,
+      courseId: "550e8400-e29b-41d4-a716-446655440023",
+      moduleId: "550e8400-e29b-41d4-a716-446655440024",
+      lessonId: "550e8400-e29b-41d4-a716-446655440025",
+      quizId: null,
+      metadata: { isPartiallyStudied: false },
+      createdAt: "2026-09-18T00:00:00.000Z",
+      updatedAt: "2026-09-18T00:00:00.000Z",
+    };
+
+    const response: import("./study-planner.js").DailyStudyPlanResponse = {
+      request_id: "550e8400-e29b-41d4-a716-446655440026",
+      plan: {
+        id: "550e8400-e29b-41d4-a716-446655440021",
+        userId: "550e8400-e29b-41d4-a716-446655440022",
+        planDate: "2026-09-18",
+        status: "pending",
+        targetDurationMinutes: 45,
+        completedDurationMinutes: 0,
+        remainingDurationMinutes: 45,
+        tasks: [task],
+        createdAt: "2026-09-18T00:00:00.000Z",
+        updatedAt: "2026-09-18T00:00:00.000Z",
+      },
+    };
+
+    expect(response.plan.status).toBe("pending");
+    expect(response.plan.tasks).toHaveLength(1);
+    expect(response.plan.tasks[0].taskType).toBe("read_lesson");
+    expect(response.plan.remainingDurationMinutes).toBe(45);
+  });
+
+  it("models update task status request and response", () => {
+    const request: import("./study-planner.js").UpdateStudyTaskStatusRequest = {
+      status: "completed",
+    };
+
+    const response: import("./study-planner.js").UpdateStudyTaskStatusResponse = {
+      request_id: "550e8400-e29b-41d4-a716-446655440027",
+      task: {
+        id: "550e8400-e29b-41d4-a716-446655440020",
+        planId: "550e8400-e29b-41d4-a716-446655440021",
+        userId: "550e8400-e29b-41d4-a716-446655440022",
+        taskType: "read_lesson",
+        status: "completed",
+        title: "مطالعه درس: فارماکولوژی",
+        description: null,
+        priority: 1,
+        estimatedMinutes: 20,
+        completedAt: "2026-09-18T10:00:00.000Z",
+        courseId: null,
+        moduleId: null,
+        lessonId: null,
+        quizId: null,
+        metadata: {},
+        createdAt: "2026-09-18T00:00:00.000Z",
+        updatedAt: "2026-09-18T10:00:00.000Z",
+      },
+    };
+
+    expect(request.status).toBe("completed");
+    expect(response.task.status).toBe("completed");
+    expect(response.task.completedAt).toBe("2026-09-18T10:00:00.000Z");
+  });
+});

@@ -5,6 +5,8 @@ import {
   cleanEducationalTitle,
   formatModuleTitle,
   resolveCanonicalContentTitle,
+  isFilenameOrPlaceholderDescription,
+  cleanEducationalDescription,
 } from "../title-invariants.js";
 
 describe("AVANA Content Title Invariants", () => {
@@ -144,6 +146,36 @@ describe("AVANA Content Title Invariants", () => {
         },
       });
       expect(title).toBe("خلاصه مروری: داروهای ضد تشنج و صرع");
+    });
+  });
+
+  describe("Description and Extracted File Sanitizers", () => {
+    it("identifies 'مباحث و جلسات آموزشی استخراجشده از 32.pdf' as filename-like and placeholder", () => {
+      const dirtyStr1 = "مباحث و جلسات آموزشی استخراجشده از 32.pdf";
+      const dirtyStr2 = "مباحث و جلسات آموزشی استخراج‌شده از 32.pdf";
+      const dirtyStr3 = "مباحث و جلسات آموزشی استخراج شده از 32.pdf";
+      const dirtyStr4 = "مباحث و جلسات آموزشی استخراج‌شده";
+
+      expect(isFilenameLike(dirtyStr1)).toBe(true);
+      expect(isFilenameLike(dirtyStr2)).toBe(true);
+      expect(isFilenameLike(dirtyStr3)).toBe(true);
+      expect(isFilenameLike(dirtyStr4)).toBe(true);
+
+      expect(isFilenameOrPlaceholderDescription(dirtyStr1)).toBe(true);
+      expect(isFilenameOrPlaceholderDescription(dirtyStr2)).toBe(true);
+      expect(isFilenameOrPlaceholderDescription(dirtyStr3)).toBe(true);
+      expect(isFilenameOrPlaceholderDescription(dirtyStr4)).toBe(true);
+
+      expect(cleanEducationalTitle(dirtyStr1)).toBe("مبحث آموزشی جامع");
+      expect(cleanEducationalDescription(dirtyStr1)).toBe(
+        "بسته آموزشی جامع فصل شامل درسنامه ساختاریافته، خلاصه نکات کلیدی، فلش‌کارت‌های مرور فعال و آزمون تستی.",
+      );
+    });
+
+    it("preserves real scholarly descriptions", () => {
+      const realDesc = "این فصل به بررسی دقیق پاتوفیزیولوژی، علائم بالینی و پروتکل‌های درمانی آریتمی‌های قلبی می‌پردازد.";
+      expect(isFilenameOrPlaceholderDescription(realDesc)).toBe(false);
+      expect(cleanEducationalDescription(realDesc)).toBe(realDesc);
     });
   });
 });

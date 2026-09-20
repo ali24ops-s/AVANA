@@ -218,22 +218,44 @@ describe("Smart Content Multi-Turn Generation (User Bug Scenario)", () => {
     const docAfterStep2 = await docStore.findByIdForOrganization(docId, orgId);
     expect(docAfterStep2?.status).toBe("review_pending");
 
-    // Check Content Status after Step 2
+    // Check Content Status after Step 2 (3 of 4 generated)
     contentStatus = await service.getDocumentContentStatus(actor, orgId, docId, courseId);
     expect(contentStatus.lesson.generated).toBe(true);
     expect(contentStatus.flashcards.generated).toBe(true);
     expect(contentStatus.flashcards.count).toBeGreaterThanOrEqual(1);
     expect(contentStatus.exam.generated).toBe(true);
     expect(contentStatus.exam.count).toBeGreaterThanOrEqual(1);
-    expect(contentStatus.all_generated).toBe(true);
-    expect(contentStatus.can_generate).toBe(false);
+    expect(contentStatus.review_summary?.generated).toBe(false);
+    expect(contentStatus.all_generated).toBe(false);
+    expect(contentStatus.can_generate).toBe(true);
 
-    // Verify all 3 drafts exist in GeneratedContentStore
+    // Verify 3 drafts exist in GeneratedContentStore
     const drafts = await genStore.listByDocument(docId, orgId);
     expect(drafts.filter((d) => d.deletedAt === null)).toHaveLength(3);
     expect(drafts.some((d) => d.type === "lesson")).toBe(true);
     expect(drafts.some((d) => d.type === "flashcard")).toBe(true);
     expect(drafts.some((d) => d.type === "quiz")).toBe(true);
+
+    // Step 3: Generate Review Summary (completing all 4 of 4)
+    await genStore.create({
+      id: "gen-sum-1" as import("@avana/domain").GeneratedContentId,
+      documentId: docId,
+      organizationId: orgId,
+      type: "review_summary",
+      status: "draft",
+      payload: { summary: "Summary" } as import("@avana/domain").GeneratedContentPayload,
+      confidenceScore: 0.95,
+      reviewNotes: null,
+      reviewedByUserId: null,
+      reviewedAt: null,
+      deletedAt: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    const finalStatus = await service.getDocumentContentStatus(actor, orgId, docId, courseId);
+    expect(finalStatus.all_generated).toBe(true);
+    expect(finalStatus.can_generate).toBe(false);
   });
 
   it("properly transitions job and document to 'failed' on unhandled error and never hangs in generating", async () => {

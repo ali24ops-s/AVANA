@@ -11,6 +11,7 @@ import {
   ShieldAlert,
   Loader2,
 } from "lucide-react";
+import { toPersianDigits } from "@avana/domain";
 
 export function AdminBlogPreviewPage() {
   const { id } = useParams<{ id: string }>();
@@ -120,7 +121,7 @@ export function AdminBlogPreviewPage() {
           )}
           <span className="flex items-center gap-1">
             <Clock className="w-3.5 h-3.5 text-[var(--color-text-muted)]" />
-            <span>{post.readingTimeMinutes} دقیقه مطالعه</span>
+            <span>{toPersianDigits(post.readingTimeMinutes)} دقیقه مطالعه</span>
           </span>
           <span className="flex items-center gap-1">
             <Calendar className="w-3.5 h-3.5 text-[var(--color-text-muted)]" />

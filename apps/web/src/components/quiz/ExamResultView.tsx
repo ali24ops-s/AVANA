@@ -230,8 +230,8 @@ export function ExamResultView({
         </div>
 
         <div className="inline-flex items-center gap-2 px-8 py-3 rounded-2xl bg-[var(--color-background)] border border-[var(--color-border)] shadow-inner">
-          <span className="text-4xl font-black text-[var(--color-primary)] font-mono" dir="ltr">
-            {scorePct}%
+          <span className="text-4xl font-black text-[var(--color-primary)] font-mono">
+            {toPersianDigits(scorePct)}٪
           </span>
         </div>
 
@@ -338,8 +338,8 @@ export function ExamResultView({
                     </div>
 
                     <div className="flex items-center gap-3 shrink-0 self-end sm:self-center">
-                      <span className={`text-lg font-black font-mono ${percentColor}`} dir="ltr">
-                        {toPersianDigits(t.percent)}%
+                      <span className={`text-lg font-black font-mono ${percentColor}`}>
+                        {toPersianDigits(t.percent)}٪
                       </span>
                       {t.studyUrl && (
                         <Link
@@ -446,7 +446,7 @@ export function ExamResultView({
 
                         <div className="flex items-center gap-2 shrink-0">
                           <span className="text-xs font-bold font-mono text-[#7f3131]">
-                            {toPersianDigits(w.percent)}%
+                            {toPersianDigits(w.percent)}٪
                           </span>
                           {w.studyUrl && (
                             <Link
@@ -511,7 +511,7 @@ export function ExamResultView({
 
                         <div className="flex items-center gap-2 shrink-0">
                           <span className="text-xs font-bold font-mono text-[#2a624b]">
-                            {toPersianDigits(s.percent)}%
+                            {toPersianDigits(s.percent)}٪
                           </span>
                           {s.studyUrl && (
                             <Link
@@ -633,7 +633,7 @@ export function ExamResultView({
                   {status === "partial" && (
                     <Badge variant="warning" size="md" className="gap-1 px-2.5 py-0.5">
                       <span className="material-symbols-outlined text-[14px]">remove</span>
-                      <span>پاسخ ناقص ({toPersianDigits(Math.round(evaluation.scoreRatio * 100))}%)</span>
+                      <span>پاسخ ناقص ({toPersianDigits(Math.round(evaluation.scoreRatio * 100))}٪)</span>
                     </Badge>
                   )}
                 </div>
@@ -670,7 +670,7 @@ export function ExamResultView({
                           className={`p-3.5 rounded-xl text-xs border flex items-center justify-between gap-3 transition-colors ${style}`}
                         >
                           <div className="flex items-center gap-2 flex-1">
-                            <span className="font-mono font-bold">{cIdx + 1}.</span>
+                            <span className="font-mono font-bold">{toPersianDigits(cIdx + 1)}.</span>
                             <div className="flex-1">
                               <RichContent content={choice} inline />
                             </div>

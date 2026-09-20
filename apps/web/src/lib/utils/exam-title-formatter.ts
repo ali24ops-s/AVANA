@@ -1,3 +1,5 @@
+import { toPersianDigits } from "@avana/domain";
+
 /**
  * Utility functions for formatting and sanitizing exam and quiz display titles.
  * Prevents internal UUIDs and database entity IDs from ever leaking into the UI.
@@ -163,7 +165,7 @@ export function formatSpecialExamDescription(
   questionCount: number = 25,
   isCourseExam: boolean = false,
 ): string {
-  const countStr = questionCount.toLocaleString("fa-IR");
+  const countStr = toPersianDigits(questionCount);
 
   if (isCourseExam) {
     return `آزمون شبیه‌ساز و تخصصی ${countStr} سؤالی از کلیه مباحث این دوره`;

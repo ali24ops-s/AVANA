@@ -38,7 +38,7 @@ describe("Phase 2F — Canonical Tabs & SegmentedControl (@avana/ui)", () => {
     );
 
     expect(screen.getByText("تب اول")).toBeInTheDocument();
-    expect(screen.getByText("5")).toBeInTheDocument();
+    expect(screen.getByText("۵")).toBeInTheDocument();
     expect(screen.getByText("تب دوم")).toBeInTheDocument();
     expect(screen.getByText("جدید")).toBeInTheDocument();
 

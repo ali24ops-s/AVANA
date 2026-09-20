@@ -28,6 +28,7 @@ import {
   formatSpecialExamDescription,
   cleanChapterTitle,
 } from "../../lib/utils/exam-title-formatter.js";
+import { toPersianDigits } from "@avana/domain";
 
 export interface SpecialExamLibraryCardProps {
   exam: LibrarySpecialExamItem;
@@ -136,7 +137,7 @@ export function SpecialExamLibraryCard({
             ))}
             {filteredTopics.length > 3 && (
               <span className="text-[10px] text-[var(--color-text-muted)] self-center">
-                +{filteredTopics.length - 3} مبحث دیگر
+                +{toPersianDigits(filteredTopics.length - 3)} مبحث دیگر
               </span>
             )}
           </div>

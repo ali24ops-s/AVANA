@@ -95,7 +95,7 @@ export function FlashcardFormEditor({
                     )
                   }
                   className="text-[11px] font-semibold bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg px-2 py-1 text-[var(--color-text)] focus:outline-none focus:ring-1 focus:ring-[var(--color-primary-default)]"
-                  aria-label={`درجه سختی کارت ${idx + 1}`}
+                  aria-label={`درجه سختی کارت ${toPersianDigits(idx + 1)}`}
                 >
                   <option value="easy">آسان</option>
                   <option value="medium">متوسط</option>

@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { motion } from "framer-motion";
 import { SectionHeading } from "./shared/SectionHeading.js";
+import { toPersianDigits } from "@avana/domain";
 import {
   Compass,
   Network,
@@ -198,7 +199,7 @@ export const AboutPhilosophySection: React.FC = () => {
           <div className="p-4 rounded-[12px] bg-[var(--color-surface-warm)] border border-[var(--color-border)]">
             <div className="flex items-center justify-between mb-3 text-xs text-[var(--color-text-muted)]">
               <span>فاصله مرور بهینه:</span>
-              <span className="text-purple-700 font-bold">روز {reviewDay}ام پس از یادگیری</span>
+              <span className="text-purple-700 font-bold">روز {toPersianDigits(reviewDay)}ام پس از یادگیری</span>
             </div>
 
             <div className="flex gap-2 mb-3">
@@ -212,7 +213,7 @@ export const AboutPhilosophySection: React.FC = () => {
                       : "bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
                   }`}
                 >
-                  روز {day}
+                  روز {toPersianDigits(day)}
                 </button>
               ))}
             </div>

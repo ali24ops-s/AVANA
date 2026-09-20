@@ -8,16 +8,13 @@
 
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import {
   BookOpen,
   Loader2,
   AlertCircle,
   FileQuestion,
-  GraduationCap,
-  ChevronLeft,
   Plus,
-  Trash2,
 } from "lucide-react";
 import { useAuth } from "../providers/AuthProvider.js";
 import { createApiClient, getApiBaseUrl } from "../lib/api/client.js";
@@ -26,15 +23,29 @@ import { createCourseApi } from "../lib/api/courses.js";
 import { createLearningApi } from "../lib/api/learning.js";
 import { CourseSelectionModal } from "../components/courses/CourseSelectionModal.js";
 import { CourseDeleteConfirmModal } from "../components/courses/CourseDeleteConfirmModal.js";
+import { CreateCourseModal } from "../components/courses/CreateCourseModal.js";
 import { toPersianDigits } from "@avana/domain";
 import {
   useCommerceProducts,
   useMyEntitlements,
   useMySubscription,
 } from "../hooks/useCommerce.js";
-import { formatToman } from "../components/commerce/userCommerceUtils.js";
 import { Button } from "@avana/ui";
+import { BookPlus } from "lucide-react";
+import { MyCourseCardAdapter } from "../components/avana/CourseCard.js";
 import type { OrganizationResource, CourseResource, CourseListResponse } from "@avana/contracts";
+
+/**
+ * Normalizes legacy organization names created with appended technical user ID slices
+ * (e.g. "فضای یادگیری 79bda286") to a clean user-facing title ("فضای یادگیری").
+ */
+export function formatWorkspaceName(name: string | undefined | null): string {
+  if (!name) return "";
+  if (/^فضای یادگیری\s+[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})?$/.test(name.trim())) {
+    return "فضای یادگیری";
+  }
+  return name;
+}
 
 /**
  * Hook to fetch the first organization for the current user.
@@ -107,11 +118,13 @@ export function CourseListPage() {
 
   // Modal and Onboarding State
   const [isSelectionModalOpen, setIsSelectionModalOpen] = useState(false);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [hasAttemptedAutoModal, setHasAttemptedAutoModal] = useState(false);
   const [courseToDelete, setCourseToDelete] = useState<CourseResource | null>(
     null,
   );
 
+  const navigate = useNavigate();
   const apiClient = createApiClient({ baseUrl: getApiBaseUrl() });
   const courseApi = createCourseApi(apiClient);
 
@@ -267,15 +280,24 @@ export function CourseListPage() {
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-h1 text-[var(--color-text)]">دوره‌های من</h1>
-          <p className="text-[var(--color-text-muted)] mt-1 text-xs">{organization.name}</p>
+          <p className="text-[var(--color-text-muted)] mt-1 text-xs">{formatWorkspaceName(organization.name)}</p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           {myCourses.length > 0 && (
             <span className="text-xs font-bold text-[#006666] dark:text-teal-200 bg-primary/10 px-3 py-1.5 rounded-full border border-primary/30">
-              {myCourses.length} دوره در لیست شما
+              {toPersianDigits(myCourses.length)} دوره در لیست شما
             </span>
           )}
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setIsCreateModalOpen(true)}
+            leftIcon={<BookPlus className="w-4 h-4 text-[#008080]" />}
+          >
+            ایجاد دوره شخصی
+          </Button>
 
           <Button
             variant="primary"
@@ -283,7 +305,7 @@ export function CourseListPage() {
             onClick={() => setIsSelectionModalOpen(true)}
             leftIcon={<Plus className="w-4 h-4" />}
           >
-            افزودن دوره
+            افزودن دوره از کتابخانه
           </Button>
         </div>
       </div>
@@ -293,16 +315,26 @@ export function CourseListPage() {
         <StateCard
           icon={BookOpen}
           title="هنوز دوره‌ای به لیست شما اضافه نشده است"
-          description="دوره‌های موردنظر خود را انتخاب کنید تا در اینجا نمایش داده شوند."
+          description="می‌توانید یک دوره شخصی جدید بسازید یا دوره‌های آماده را از کتابخانه انتخاب کنید."
           action={
-            <Button
-              variant="primary"
-              size="md"
-              onClick={() => setIsSelectionModalOpen(true)}
-              leftIcon={<Plus className="w-4 h-4" />}
-            >
-              افزودن دوره
-            </Button>
+            <div className="flex items-center gap-3">
+              <Button
+                variant="primary"
+                size="md"
+                onClick={() => setIsCreateModalOpen(true)}
+                leftIcon={<BookPlus className="w-4 h-4" />}
+              >
+                ایجاد دوره شخصی جدید
+              </Button>
+              <Button
+                variant="outline"
+                size="md"
+                onClick={() => setIsSelectionModalOpen(true)}
+                leftIcon={<Plus className="w-4 h-4" />}
+              >
+                انتخاب از کتابخانه
+              </Button>
+            </div>
           }
         />
       )}
@@ -318,6 +350,21 @@ export function CourseListPage() {
             />
           ))}
         </div>
+      )}
+
+      {/* Create Course Modal */}
+      {organization && (
+        <CreateCourseModal
+          isOpen={isCreateModalOpen}
+          onClose={() => setIsCreateModalOpen(false)}
+          organizationId={organization.id}
+          onCreated={(newId) => {
+            void queryClient.invalidateQueries({
+              queryKey: ["my-courses", organization.id],
+            });
+            navigate(`/courses/${newId}`);
+          }}
+        />
       )}
 
       {/* Selection Modal */}
@@ -352,8 +399,7 @@ export function CourseListPage() {
 }
 
 /**
- * Course card component with link to detail view.
- * Displays progress bar, lesson count, and delete action.
+ * Course card wrapper for CourseListPage delegating to canonical CourseCard.
  */
 function CourseCard({
   course,
@@ -375,6 +421,8 @@ function CourseCard({
     typeof progress?.percentage === "number" ? progress.percentage : 0;
   const totalLessons =
     typeof progress?.total_lessons === "number" ? progress.total_lessons : 0;
+  const completedLessons =
+    typeof progress?.completed_lessons === "number" ? progress.completed_lessons : 0;
 
   // Resolve product for this course
   const courseProduct = (productsData?.items ?? []).find(
@@ -389,117 +437,27 @@ function CourseCard({
   // Check if user has active subscription
   const hasSubscription = subData?.subscription?.status === "active";
 
-  const handleBuyCourse = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
+  const handleBuyCourse = () => {
     if (courseProduct) {
       navigate(`/checkout/card-to-card?productId=${encodeURIComponent(courseProduct.id)}`);
     }
   };
 
   return (
-    <div className="bg-[var(--color-surface)] rounded-card border border-[var(--color-border)] p-5 hover:border-primary/50 shadow-sm transition-all group relative flex flex-col justify-between">
-      <div>
-        <div className="flex items-start justify-between mb-3">
-          <div className="w-10 h-10 rounded-button bg-primary/10 border border-primary/20 text-primary flex items-center justify-center group-hover:scale-105 transition-transform">
-            <GraduationCap className="w-5 h-5" />
-          </div>
-
-          <div className="flex items-center gap-2 flex-wrap justify-end">
-            {isPurchased ? (
-              <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 font-bold border border-emerald-500/30">
-                خریداری شده
-              </span>
-            ) : hasSubscription ? (
-              <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-primary/10 text-primary font-bold border border-primary/30">
-                در دسترس با اشتراک
-              </span>
-            ) : courseProduct ? (
-              <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-amber-500/15 text-amber-800 dark:text-amber-300 font-bold border border-amber-500/30">
-                {formatToman(courseProduct.price)}
-              </span>
-            ) : null}
-
-            {course.archived && (
-              <span className="text-xs px-2.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 font-bold border border-amber-300 dark:border-amber-800/60">
-                بایگانی شده
-              </span>
-            )}
-
-            {onDelete && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  onDelete();
-                }}
-                className="!p-1.5 !h-auto text-[var(--color-text-muted)] hover:text-red-500 hover:bg-red-500/10"
-                title="حذف از دوره‌های من"
-                aria-label="حذف از دوره‌های من"
-                leftIcon={<Trash2 className="w-4 h-4" />}
-              />
-            )}
-          </div>
-        </div>
-
-        <Link to={`/courses/${course.id}`} className="block">
-          <h3 className="font-bold text-[var(--color-text)] group-hover:text-primary transition-colors line-clamp-1">
-            {course.title}
-          </h3>
-        </Link>
-
-        {/* Progress Bar Section */}
-        <div className="mt-3.5 space-y-1.5">
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-[var(--color-text-muted)] text-[11px]">پیشرفت</span>
-            <span className="font-bold text-primary text-[11px]" dir="ltr">
-              {isProgressLoading ? "..." : `${percentage}%`}
-            </span>
-          </div>
-          <div
-            className="w-full h-2 bg-[var(--color-surface-warm)] rounded-full overflow-hidden border border-[var(--color-border)]"
-            role="progressbar"
-            aria-label="پیشرفت دوره"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={percentage}
-          >
-            <div
-              className="h-full bg-primary rounded-full transition-all duration-500"
-              style={{ width: `${isProgressLoading ? 0 : percentage}%` }}
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Footer Section */}
-      <div className="mt-4 pt-3 border-t border-[var(--color-border)] flex items-center justify-between text-xs text-[var(--color-text-muted)]">
-        <span>{isProgressLoading ? "... درس" : `${toPersianDigits(totalLessons)} درس`}</span>
-
-        <div className="flex items-center gap-2">
-          {!isPurchased && !hasSubscription && courseProduct && (
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={handleBuyCourse}
-              className="!h-7 !px-2.5 !text-[11px]"
-            >
-              خرید دوره
-            </Button>
-          )}
-
-          <Link
-            to={`/courses/${course.id}`}
-            className="text-primary font-semibold flex items-center gap-1 group-hover:underline"
-          >
-            <span>{isPurchased || hasSubscription || !courseProduct ? "ورود" : "پیش‌نمایش"}</span>
-            <ChevronLeft className="w-3.5 h-3.5" />
-          </Link>
-        </div>
-      </div>
-    </div>
+    <MyCourseCardAdapter
+      course={course}
+      progress={{
+        percentage,
+        total_lessons: totalLessons,
+        completed_lessons: completedLessons,
+        isLoading: isProgressLoading,
+      }}
+      isPurchased={isPurchased}
+      hasSubscription={hasSubscription}
+      price={courseProduct?.price}
+      onBuy={courseProduct ? handleBuyCourse : undefined}
+      onDelete={onDelete}
+    />
   );
 }
 

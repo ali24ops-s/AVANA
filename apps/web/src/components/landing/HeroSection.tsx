@@ -92,13 +92,8 @@ export function HeroSection() {
             <span className="text-[#008080]">یادگیریش با آوانا.</span>
           </h1>
 
-          {/* Subtitle */}
-          <p className="text-base sm:text-lg leading-relaxed text-[#3d4f55] max-w-xl font-normal">
-            آوانا منابع درسی‌ات را به درسنامه، فلش‌کارت، آزمون و مرور سریع تبدیل می‌کند.
-          </p>
-
           {/* CTAs */}
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 pt-2">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
             <Link
               to={ctaHref}
               className="h-12 px-7 rounded-xl font-bold text-sm sm:text-base flex items-center justify-center gap-2.5 cursor-pointer active:scale-[0.98] transition-all duration-200 bg-[#008080] hover:bg-[#007575] active:bg-[#006060] text-white shadow-md shadow-[#008080]/20 hover:-translate-y-0.5"

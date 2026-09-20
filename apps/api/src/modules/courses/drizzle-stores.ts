@@ -15,15 +15,22 @@ import {
   auditLogs,
   organizationMemberships,
   courseMemberships,
+  coursePublications,
+  users,
 } from "@avana/database/schema";
 import type {
   CourseRecord,
   CreateCourseRecords,
   CourseStore,
+  CoursePublicationStore,
 } from "./course-store.js";
 import type {
   AuditEvent,
   CourseId,
+  CoursePublicationId,
+  CoursePublicationMetadata,
+  CoursePublicationRecord,
+  CoursePublicationStatus,
   OrganizationId,
   UserId,
 } from "@avana/domain";
@@ -37,10 +44,11 @@ type CourseRowInput = {
   organizationId: string;
   name: string;
   description?: string | null;
-  subject: string | null;
+  subject?: string | null;
   status?: string | null;
   isOfficial?: boolean | null;
   examDate: Date | string | null;
+  examScope?: unknown;
   createdAt: Date | string;
   updatedAt: Date | string;
   deletedAt: Date | string | null;
@@ -52,13 +60,14 @@ function toCourseRecord(row: CourseRowInput): CourseRecord {
     organizationId: row.organizationId as OrganizationId,
     name: row.name,
     description: row.description ?? null,
-    subject: row.subject,
+    subject: row.subject ?? null,
     status: (row.status as any) ?? "published",
     isOfficial: Boolean(row.isOfficial),
     examDate:
       row.examDate instanceof Date
         ? row.examDate.toISOString()
         : row.examDate ?? null,
+    examScope: (row.examScope as any) ?? null,
     createdAt:
       row.createdAt instanceof Date
         ? row.createdAt.toISOString()
@@ -96,6 +105,7 @@ export class DrizzleCourseStore implements CourseStore {
           examDate: records.course.examDate
             ? new Date(records.course.examDate)
             : null,
+          examScope: records.course.examScope ?? null,
           createdAt: new Date(records.course.createdAt),
           updatedAt: new Date(records.course.updatedAt),
         })
@@ -153,6 +163,7 @@ export class DrizzleCourseStore implements CourseStore {
         status: courses.status,
         isOfficial: courses.isOfficial,
         examDate: courses.examDate,
+        examScope: courses.examScope,
         createdAt: courses.createdAt,
         updatedAt: courses.updatedAt,
         deletedAt: courses.deletedAt,
@@ -202,6 +213,7 @@ export class DrizzleCourseStore implements CourseStore {
         status: courses.status,
         isOfficial: courses.isOfficial,
         examDate: courses.examDate,
+        examScope: courses.examScope,
         createdAt: courses.createdAt,
         updatedAt: courses.updatedAt,
         deletedAt: courses.deletedAt,
@@ -222,6 +234,7 @@ export class DrizzleCourseStore implements CourseStore {
         status: course.status ?? "published",
         isOfficial: course.isOfficial ?? false,
         examDate: course.examDate ? new Date(course.examDate) : null,
+        examScope: course.examScope !== undefined ? course.examScope : null,
         updatedAt: new Date(course.updatedAt),
       })
       .where(eq(courses.id, course.id))
@@ -279,6 +292,7 @@ export class DrizzleCourseStore implements CourseStore {
         status: courses.status,
         isOfficial: courses.isOfficial,
         examDate: courses.examDate,
+        examScope: courses.examScope,
         createdAt: courses.createdAt,
         updatedAt: courses.updatedAt,
         deletedAt: courses.deletedAt,
@@ -421,4 +435,237 @@ export class DrizzleCourseStore implements CourseStore {
   }
 }
 
+// ---------------------------------------------------------------------------
+// DrizzleCoursePublicationStore
+// ---------------------------------------------------------------------------
 
+function toCoursePublicationRecord(row: typeof coursePublications.$inferSelect): CoursePublicationRecord {
+  return {
+    id: row.id as CoursePublicationId,
+    courseId: row.courseId as CourseId,
+    creatorUserId: (row.creatorUserId as UserId) ?? null,
+    organizationId: (row.organizationId as OrganizationId) ?? null,
+    title: row.title,
+    description: row.description,
+    subject: row.subject,
+    version: row.version,
+    status: row.status as CoursePublicationStatus,
+    publishedAt: row.publishedAt instanceof Date ? row.publishedAt.toISOString() : (row.publishedAt ?? null),
+    metadata: (row.metadata as CoursePublicationMetadata) ?? {},
+    snapshot: (row.snapshot as any) ?? { chapters: [], stats: {} },
+    createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : new Date(row.createdAt).toISOString(),
+    updatedAt: row.updatedAt instanceof Date ? row.updatedAt.toISOString() : new Date(row.updatedAt).toISOString(),
+    deletedAt: row.deletedAt instanceof Date ? row.deletedAt.toISOString() : (row.deletedAt ?? null),
+  };
+}
+
+export class DrizzleCoursePublicationStore implements CoursePublicationStore {
+  constructor(private readonly db: DbClient) {}
+
+  async create(publication: CoursePublicationRecord): Promise<CoursePublicationRecord> {
+    const [row] = await this.db
+      .insert(coursePublications)
+      .values({
+        id: publication.id,
+        courseId: publication.courseId,
+        creatorUserId: publication.creatorUserId,
+        organizationId: publication.organizationId,
+        title: publication.title,
+        description: publication.description,
+        subject: publication.subject,
+        version: publication.version,
+        status: publication.status,
+        publishedAt: publication.publishedAt ? new Date(publication.publishedAt) : null,
+        metadata: publication.metadata,
+        snapshot: publication.snapshot,
+        createdAt: new Date(publication.createdAt),
+        updatedAt: new Date(publication.updatedAt),
+        deletedAt: publication.deletedAt ? new Date(publication.deletedAt) : null,
+      })
+      .returning();
+
+    return toCoursePublicationRecord(row);
+  }
+
+  async findById(id: CoursePublicationId): Promise<CoursePublicationRecord | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(coursePublications)
+      .where(and(eq(coursePublications.id, id), isNull(coursePublications.deletedAt)));
+
+    return row ? toCoursePublicationRecord(row) : undefined;
+  }
+
+  async findLatestByCourse(courseId: CourseId): Promise<CoursePublicationRecord | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(coursePublications)
+      .where(and(eq(coursePublications.courseId, courseId), isNull(coursePublications.deletedAt)))
+      .orderBy(sql`${coursePublications.version} DESC, ${coursePublications.createdAt} DESC`)
+      .limit(1);
+
+    return row ? toCoursePublicationRecord(row) : undefined;
+  }
+
+  async findPublishedByCourse(courseId: CourseId): Promise<CoursePublicationRecord | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(coursePublications)
+      .where(
+        and(
+          eq(coursePublications.courseId, courseId),
+          eq(coursePublications.status, "published"),
+          isNull(coursePublications.deletedAt),
+        ),
+      )
+      .orderBy(sql`${coursePublications.version} DESC`)
+      .limit(1);
+
+    return row ? toCoursePublicationRecord(row) : undefined;
+  }
+
+  async updateStatus(
+    id: CoursePublicationId,
+    status: CoursePublicationStatus,
+    metadata: CoursePublicationMetadata,
+    publishedAt?: string | null,
+  ): Promise<CoursePublicationRecord> {
+    const updateValues: Record<string, unknown> = {
+      status,
+      metadata,
+      updatedAt: new Date(),
+    };
+    if (publishedAt !== undefined) {
+      updateValues.publishedAt = publishedAt ? new Date(publishedAt) : null;
+    }
+
+    const [row] = await this.db
+      .update(coursePublications)
+      .set(updateValues)
+      .where(eq(coursePublications.id, id))
+      .returning();
+
+    if (!row) {
+      throw new Error(`Course publication ${id} not found`);
+    }
+
+    return toCoursePublicationRecord(row);
+  }
+
+  async listAll(options: {
+    status?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<{ items: CoursePublicationRecord[]; totalCount: number }> {
+    const page = Math.max(1, options.page ?? 1);
+    const limit = Math.max(1, Math.min(100, options.limit ?? 20));
+    const offset = (page - 1) * limit;
+
+    const conditions = [isNull(coursePublications.deletedAt)];
+
+    if (options.status && options.status !== "all") {
+      conditions.push(eq(coursePublications.status, options.status));
+    }
+
+    if (options.search && options.search.trim().length > 0) {
+      const term = `%${options.search.trim()}%`;
+      conditions.push(
+        or(
+          sql`${coursePublications.title} ILIKE ${term}`,
+          sql`${coursePublications.description} ILIKE ${term}`,
+          sql`${coursePublications.subject} ILIKE ${term}`,
+        )!,
+      );
+    }
+
+    const whereClause = and(...conditions);
+
+    const [countResult] = await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(coursePublications)
+      .where(whereClause);
+
+    const rows = await this.db
+      .select()
+      .from(coursePublications)
+      .where(whereClause)
+      .orderBy(sql`${coursePublications.createdAt} DESC`)
+      .limit(limit)
+      .offset(offset);
+
+    return {
+      items: rows.map(toCoursePublicationRecord),
+      totalCount: countResult?.count ?? 0,
+    };
+  }
+
+  async listPublished(options: {
+    q?: string;
+    subject?: string;
+    sort?: "popular" | "newest";
+    page?: number;
+    limit?: number;
+  }): Promise<{ items: CoursePublicationRecord[]; totalCount: number }> {
+    const page = Math.max(1, options.page ?? 1);
+    const limit = Math.max(1, Math.min(100, options.limit ?? 20));
+    const offset = (page - 1) * limit;
+
+    const conditions = [
+      eq(coursePublications.status, "published"),
+      isNull(coursePublications.deletedAt),
+    ];
+
+    if (options.subject && options.subject !== "all") {
+      conditions.push(eq(coursePublications.subject, options.subject));
+    }
+
+    if (options.q && options.q.trim().length > 0) {
+      const term = `%${options.q.trim()}%`;
+      conditions.push(
+        or(
+          sql`${coursePublications.title} ILIKE ${term}`,
+          sql`${coursePublications.description} ILIKE ${term}`,
+          sql`${coursePublications.subject} ILIKE ${term}`,
+        )!,
+      );
+    }
+
+    const whereClause = and(...conditions);
+
+    const [countResult] = await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(coursePublications)
+      .where(whereClause);
+
+    const orderBy =
+      options.sort === "newest"
+        ? sql`${coursePublications.publishedAt} DESC NULLS LAST, ${coursePublications.createdAt} DESC`
+        : sql`${coursePublications.createdAt} DESC`;
+
+    const rows = await this.db
+      .select()
+      .from(coursePublications)
+      .where(whereClause)
+      .orderBy(orderBy)
+      .limit(limit)
+      .offset(offset);
+
+    return {
+      items: rows.map(toCoursePublicationRecord),
+      totalCount: countResult?.count ?? 0,
+    };
+  }
+
+  async getCreatorPublicInfo(
+    creatorUserId: UserId | null,
+  ): Promise<{ id: string; name: string } | null> {
+    if (!creatorUserId) return null;
+    const [user] = await this.db
+      .select({ id: users.id, name: users.name })
+      .from(users)
+      .where(eq(users.id, creatorUserId));
+    if (!user) return null;
+    return { id: user.id, name: user.name };
+  }
+}

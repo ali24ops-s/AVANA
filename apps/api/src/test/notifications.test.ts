@@ -420,4 +420,63 @@ describe("AVANA Notifications System Test Suite", () => {
     const list = await notificationService.listForUser(userId);
     expect(list.total).toBe(1);
   });
+
+  // =========================================================================
+  // 7. Wallet Top-up Notifications & Idempotency
+  // =========================================================================
+  it("creates idempotent notifications for wallet top-up approval and rejection", async () => {
+    const userId = asUserId(randomUUID());
+    const paymentId = randomUUID();
+    const orderId = randomUUID();
+
+    // Top-up approved notification
+    const approvedNotif1 = await notificationService.notifyWalletTopupApproved(
+      userId,
+      {
+        paymentId,
+        orderId,
+        amount: 50_000,
+      },
+    );
+
+    expect(approvedNotif1).not.toBeNull();
+    expect(approvedNotif1?.type).toBe("wallet_topup_approved");
+    expect(approvedNotif1?.title).toBe("شارژ کیف پول تأیید شد");
+    expect(approvedNotif1?.message).toContain("۵۰,۰۰۰ تومان");
+    expect(approvedNotif1?.action?.url).toBe("/account/wallet");
+
+    // Retry / duplicate approval
+    const approvedNotif2 = await notificationService.notifyWalletTopupApproved(
+      userId,
+      {
+        paymentId,
+        orderId,
+        amount: 50_000,
+      },
+    );
+    expect(approvedNotif2?.id).toBe(approvedNotif1?.id);
+
+    // Rejection notification for another payment
+    const rejectedPaymentId = randomUUID();
+    const rejectedNotif1 = await notificationService.notifyWalletTopupRejected(
+      userId,
+      {
+        paymentId: rejectedPaymentId,
+        orderId: randomUUID(),
+        amount: 100_000,
+        reason: "شماره پیگیری نامعتبر است",
+      },
+    );
+
+    expect(rejectedNotif1).not.toBeNull();
+    expect(rejectedNotif1?.type).toBe("wallet_topup_rejected");
+    expect(rejectedNotif1?.title).toBe("شارژ کیف پول رد شد");
+    expect(rejectedNotif1?.message).toContain("۱۰۰,۰۰۰ تومان");
+    expect(rejectedNotif1?.message).toContain("شماره پیگیری نامعتبر است");
+    expect(rejectedNotif1?.action?.url).toBe("/account/wallet");
+
+    // Total notifications for user should be 2
+    const userNotifs = await notificationService.listForUser(userId);
+    expect(userNotifs.total).toBe(2);
+  });
 });

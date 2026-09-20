@@ -23,8 +23,12 @@ import type {
   FlashcardStudySessionDetailResponse,
   UpdateFlashcardStudySessionProgressRequest,
   UpdateFlashcardStudySessionProgressResponse,
+  DailyStudyPlanResponse,
+  RegenerateDailyPlanRequest,
+  UpdateStudyTaskStatusRequest,
+  UpdateStudyTaskStatusResponse,
 } from "@avana/contracts";
-import type { ExamCoverageCourse } from "@avana/domain";
+import type { ExamCoverageCourse, ActivityHeatmapSummary } from "@avana/domain";
 import type { ApiClient } from "./client.js";
 
 export function createStudyApi(client: ApiClient) {
@@ -237,6 +241,7 @@ export function createStudyApi(client: ApiClient) {
       courses: Array<{
         courseId: string;
         courseTitle: string;
+        hasAccess?: boolean;
         questionCount: number;
         easyCount: number;
         mediumCount: number;
@@ -349,6 +354,17 @@ export function createStudyApi(client: ApiClient) {
         ? `/v1/organizations/${organizationId}/study/exams/history?limit=${limit}`
         : `/v1/organizations/${organizationId}/study/exams/history`;
       return client.get(url);
+    },
+
+    /**
+     * DELETE /v1/organizations/:organizationId/study/exams/history/:attemptId
+     * Removes an exam attempt from recent exams list (soft-hide).
+     */
+    removeExamAttemptFromHistory(
+      organizationId: string,
+      attemptId: string,
+    ): Promise<{ request_id: string; success: boolean; attemptId: string }> {
+      return client.delete(`/v1/organizations/${organizationId}/study/exams/history/${attemptId}`);
     },
 
     /**
@@ -758,6 +774,7 @@ export function createStudyApi(client: ApiClient) {
         seconds: number;
         minutes: number;
       }>;
+      heatmap?: ActivityHeatmapSummary;
     }> {
       const tz = timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Tehran";
       return client.get(`/v1/dashboard/stats?timezone=${encodeURIComponent(tz)}`);
@@ -793,9 +810,56 @@ export function createStudyApi(client: ApiClient) {
         seconds: number;
         minutes: number;
       }>;
+      heatmap?: ActivityHeatmapSummary;
     }> {
       const tz = timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Tehran";
       return client.get(`/v1/dashboard/study-time?timezone=${encodeURIComponent(tz)}`);
+    },
+
+    /**
+     * GET /v1/study/daily-plan
+     * Returns (or lazily creates) the daily study plan for today.
+     */
+    getDailyStudyPlan(options?: {
+      timezone?: string;
+      targetMinutes?: number;
+    }): Promise<DailyStudyPlanResponse> {
+      const params = new URLSearchParams();
+      if (options?.timezone) {
+        params.set("timezone", options.timezone);
+      }
+      if (options?.targetMinutes !== undefined) {
+        params.set("targetMinutes", String(options.targetMinutes));
+      }
+      const qs = params.toString() ? `?${params.toString()}` : "";
+      return client.get<DailyStudyPlanResponse>(`/v1/study/daily-plan${qs}`);
+    },
+
+    /**
+     * POST /v1/study/daily-plan/regenerate
+     * Regenerates uncompleted tasks for today while preserving completed tasks.
+     */
+    regenerateDailyPlan(
+      data?: RegenerateDailyPlanRequest,
+    ): Promise<DailyStudyPlanResponse> {
+      return client.post<DailyStudyPlanResponse>(
+        "/v1/study/daily-plan/regenerate",
+        data ?? {},
+      );
+    },
+
+    /**
+     * PATCH /v1/study/daily-plan/tasks/:taskId
+     * Updates status of an individual study task.
+     */
+    updateStudyTaskStatus(
+      taskId: string,
+      data: UpdateStudyTaskStatusRequest,
+    ): Promise<UpdateStudyTaskStatusResponse> {
+      return client.patch<UpdateStudyTaskStatusResponse>(
+        `/v1/study/daily-plan/tasks/${taskId}`,
+        data,
+      );
     },
   };
 }

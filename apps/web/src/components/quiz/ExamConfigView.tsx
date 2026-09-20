@@ -1,14 +1,17 @@
 import { useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import {
   CategoryIcon,
   NumberIcon,
   TrendingUpIcon,
   PlayIcon,
 } from "./ExamIcons.js";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, CreditCard, ChevronDown, Wallet, Info, Trash2 } from "lucide-react";
 import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
 import { createStudyApi } from "../../lib/api/study.js";
+import { createCommerceApi } from "../../lib/api/commerce.js";
+import { createWalletApi } from "../../lib/api/wallet.js";
 import {
   TaxonomySelector,
   type TaxonomyCourse,
@@ -53,6 +56,7 @@ type RawCourseItem = {
   courseId?: string;
   title?: string;
   courseTitle?: string;
+  hasAccess?: boolean;
   questionCount?: number;
   itemCount?: number;
   modules?: RawModuleItem[];
@@ -64,8 +68,19 @@ export function ExamConfigView({
   onStartExam,
   onSelectAttempt,
 }: ExamConfigViewProps) {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const apiClient = createApiClient({ baseUrl: getApiBaseUrl() });
   const studyApi = createStudyApi(apiClient);
+  const commerceApi = useMemo(() => createCommerceApi(apiClient), [apiClient]);
+  const walletApi = useMemo(() => createWalletApi(apiClient), [apiClient]);
+
+  // Fetch user's wallet balance
+  const walletQuery = useQuery({
+    queryKey: ["wallet-balance"],
+    queryFn: () => walletApi.getMyWallet(),
+    staleTime: 15_000,
+  });
 
   // Fetch real hierarchical topics and question counts from DB
   const topicsQuery = useQuery({
@@ -87,6 +102,23 @@ export function ExamConfigView({
   const [difficulty, setDifficulty] = useState<string>("medium");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isStarting, setIsStarting] = useState<boolean>(false);
+
+  const [attemptToDelete, setAttemptToDelete] = useState<{ attemptId: string; topic: string } | null>(null);
+  const [isDeletingAttempt, setIsDeletingAttempt] = useState<boolean>(false);
+
+  const handleConfirmDeleteAttempt = async () => {
+    if (!attemptToDelete || !organizationId) return;
+    try {
+      setIsDeletingAttempt(true);
+      await studyApi.removeExamAttemptFromHistory(organizationId, attemptToDelete.attemptId);
+      setAttemptToDelete(null);
+      void queryClient.invalidateQueries({ queryKey: ["exam-history", organizationId] });
+    } catch (err) {
+      console.error("Failed to remove exam attempt from history", err);
+    } finally {
+      setIsDeletingAttempt(false);
+    }
+  };
 
   // Map module ID -> array of underlying lesson IDs so question/lesson ownership is preserved
   const moduleToLessonsMap = useMemo(() => {
@@ -142,6 +174,7 @@ export function ExamConfigView({
         return {
           id: c.courseId || c.id || "",
           title: c.courseTitle || c.title || "",
+          hasAccess: c.hasAccess !== false,
           itemCount: c.questionCount ?? c.itemCount,
           modules: validModules,
           hasRawModules: Array.isArray(rawModules) && rawModules.length > 0,
@@ -160,6 +193,19 @@ export function ExamConfigView({
         return true;
       });
   }, [topicsQuery.data]);
+
+  // Split courses strictly into Accessible ("دوره‌های من") vs Inaccessible ("دوره‌های دیگر")
+  const accessibleCourses = useMemo(
+    () => taxonomyCourses.filter((c) => c.hasAccess === true),
+    [taxonomyCourses],
+  );
+
+  const otherCourses = useMemo(
+    () => taxonomyCourses.filter((c) => c.hasAccess !== true),
+    [taxonomyCourses],
+  );
+
+  const [isOtherCoursesOpen, setIsOtherCoursesOpen] = useState<boolean>(false);
 
   const handleTaxonomyChange = (selection: {
     courseIds: Set<string>;
@@ -188,11 +234,69 @@ export function ExamConfigView({
 
   // Compute Selection Summary string
   const selectionSummaryText = useMemo(() => {
-    return `${selectedCourses.size} دوره، ${selectedModules.size} بخش`;
+    return `${toPersianDigits(selectedCourses.size)} دوره، ${toPersianDigits(selectedModules.size)} بخش`;
   }, [selectedCourses, selectedModules]);
 
   // Dynamic estimated time calculation (~1.5 minutes per question)
   const estimatedMinutes = Math.max(5, Math.round(questionCount * 1.5));
+
+  // Find selected courses and determine access status across all selections
+  const selectedCoursesList = useMemo(() => {
+    if (selectedCourses.size > 0) {
+      return taxonomyCourses.filter((c) => selectedCourses.has(c.id));
+    }
+    if (selectedModules.size > 0) {
+      return taxonomyCourses.filter((c) =>
+        c.modules.some((m) => selectedModules.has(m.id)),
+      );
+    }
+    return [];
+  }, [taxonomyCourses, selectedCourses, selectedModules]);
+
+  const activeCourse = selectedCoursesList[0];
+  const hasAccess =
+    selectedCoursesList.length > 0
+      ? selectedCoursesList.every((c) => c.hasAccess === true)
+      : true;
+
+  // Selected module IDs array belonging to the active course for special exam purchase
+  const activeCourseModuleIdsArray = useMemo(() => {
+    if (!activeCourse) return [];
+    return Array.from(selectedModules)
+      .filter((modId) => activeCourse.modules.some((m) => m.id === modId))
+      .sort();
+  }, [selectedModules, activeCourse]);
+
+  // Authoritative price and pool preview query for unpurchased courses
+  const previewQuery = useQuery({
+    queryKey: [
+      "special-exam-preview",
+      organizationId,
+      activeCourse?.id,
+      activeCourseModuleIdsArray.join(","),
+      questionCount,
+      difficulty,
+    ],
+    queryFn: () =>
+      commerceApi.previewSpecialExam({
+        organizationId,
+        courseId: activeCourse!.id,
+        moduleIds: activeCourseModuleIdsArray,
+        questionCount,
+        difficulty,
+      }),
+    enabled: Boolean(!hasAccess && activeCourse && activeCourseModuleIdsArray.length > 0),
+  });
+
+  const examPrice = previewQuery.data?.price ?? (questionCount * 500);
+  const walletBalance = walletQuery.data?.balance ?? 0;
+  const isBalanceInsufficient =
+    !hasAccess &&
+    Boolean(
+      walletQuery.data &&
+      !walletQuery.isLoading &&
+      walletBalance < examPrice,
+    );
 
   const handleStartClick = async () => {
     setErrorMsg(null);
@@ -239,6 +343,62 @@ export function ExamConfigView({
     }
   };
 
+  const handleSpecialExamOrder = async () => {
+    if (!activeCourse) return;
+    setErrorMsg(null);
+    setIsStarting(true);
+    try {
+      const activeLessonIds = new Set<string>();
+      for (const modId of selectedModules) {
+        const lessonIds = moduleToLessonsMap.get(modId);
+        if (lessonIds) {
+          for (const lId of lessonIds) {
+            activeLessonIds.add(lId);
+          }
+        }
+      }
+
+      const activeTopics = [
+        ...Array.from(selectedCourses),
+        ...Array.from(selectedModules),
+        ...Array.from(activeLessonIds),
+      ];
+
+      const res = await commerceApi.createSpecialExamOrder({
+        organizationId,
+        courseId: activeCourse.id,
+        moduleIds: activeCourseModuleIdsArray,
+        questionCount,
+        difficulty,
+        gateway: "wallet",
+      });
+
+      if (res.attempt_id && res.attempt) {
+        onStartExam({
+          attemptId: res.attempt_id,
+          questions: (res.questions || (res.attempt as any).questionSnapshot || []) as Array<Record<string, unknown>>,
+          topics: activeTopics,
+          difficulty,
+          requestedCount: questionCount,
+        });
+        return;
+      }
+
+      // Fallback if not wallet
+      navigate(
+        `/checkout/card-to-card?productId=${encodeURIComponent(res.product.id)}`,
+      );
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : undefined;
+      setErrorMsg(
+        msg ||
+          "امکان پرداخت و ساخت آزمون سفارشی وجود ندارد. لطفاً دوباره تلاش کنید.",
+      );
+    } finally {
+      setIsStarting(false);
+    }
+  };
+
   return (
     <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8 font-sans" dir="rtl">
       {/* Header */}
@@ -260,37 +420,104 @@ export function ExamConfigView({
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Left Column: Hierarchical Taxonomy Selector */}
         <div className="lg:col-span-2 space-y-8">
-          {/* 1. Hierarchical Topic Selection Section */}
-          <section className="bg-[var(--color-surface)] rounded-2xl p-6 md:p-8 border border-[var(--color-border)] shadow-xs space-y-6">
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-3">
-                <span className="p-2 rounded-lg bg-[var(--color-primary-soft)] text-[var(--color-primary)]">
-                  <CategoryIcon className="w-6 h-6" />
-                </span>
-                <div>
-                  <h2 className="text-lg font-bold text-[var(--color-text)]">انتخاب دوره‌ها و بخش‌های آزمون</h2>
-                  <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
-                    ساختار استاندارد Course → Module (دوره → فصل)
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {topicsQuery.isLoading ? (
+          {topicsQuery.isLoading ? (
+            <section className="bg-[var(--color-surface)] rounded-2xl p-6 md:p-8 border border-[var(--color-border)] shadow-xs">
               <LoadingState message="در حال بارگذاری بخش‌ها و تعداد سوالات دیتابیس..." />
-            ) : (
-              <TaxonomySelector
-                courses={taxonomyCourses}
-                selectedCourseIds={selectedCourses}
-                selectedModuleIds={selectedModules}
-                selectedLessonIds={selectedLessons}
-                onSelectionChange={handleTaxonomyChange}
-                emptyMessage="برای این دوره هنوز سرفصل یا آزمونی ثبت نشده است."
-                itemLabelSingular="سؤال"
-                hideLessons={true}
-              />
-            )}
-          </section>
+            </section>
+          ) : (
+            <>
+              {/* 1. Accessible Courses Section ("دوره‌های من") */}
+              {accessibleCourses.length > 0 && (
+                <section className="bg-[var(--color-surface)] rounded-2xl p-6 md:p-8 border border-[var(--color-border)] shadow-xs space-y-6">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-3">
+                      <span className="p-2 rounded-lg bg-[var(--color-primary-soft)] text-[var(--color-primary)]">
+                        <CategoryIcon className="w-6 h-6" />
+                      </span>
+                      <div>
+                        <h2 className="text-lg font-bold text-[var(--color-text)]">دوره‌های من</h2>
+                        <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
+                          دوره‌های دارای دسترسی برای شروع جلسه تمرینی
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <TaxonomySelector
+                    courses={accessibleCourses}
+                    selectedCourseIds={selectedCourses}
+                    selectedModuleIds={selectedModules}
+                    selectedLessonIds={selectedLessons}
+                    onSelectionChange={handleTaxonomyChange}
+                    emptyMessage="دوره‌ای با دسترسی فعال یافت نشد."
+                    itemLabelSingular="سؤال"
+                    hideLessons={true}
+                  />
+                </section>
+              )}
+
+              {/* 2. Inaccessible Courses Section ("دوره‌های دیگر" - Collapsed by default) */}
+              {otherCourses.length > 0 && (
+                <section className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] shadow-xs overflow-hidden transition-all">
+                  <button
+                    type="button"
+                    onClick={() => setIsOtherCoursesOpen((prev) => !prev)}
+                    className="w-full p-6 md:p-8 flex items-center justify-between text-start hover:bg-[var(--color-surface-warm)]/50 transition-colors cursor-pointer"
+                    aria-expanded={isOtherCoursesOpen}
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="p-2 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                        <span className="material-symbols-outlined text-2xl">auto_stories</span>
+                      </span>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h2 className="text-lg font-bold text-[var(--color-text)]">دوره‌های دیگر</h2>
+                          <Badge variant="warning" size="sm">
+                            {toPersianDigits(otherCourses.length)} دوره
+                          </Badge>
+                        </div>
+                        <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
+                          برای این دوره‌ها می‌توانید آزمون سفارشی بسازید.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 text-[var(--color-text-muted)]">
+                      <span className="text-xs font-semibold hidden sm:inline">
+                        {isOtherCoursesOpen ? "بستن لیست" : "مشاهده و ساخت آزمون"}
+                      </span>
+                      <ChevronDown
+                        className={`w-5 h-5 transition-transform duration-200 ${
+                          isOtherCoursesOpen ? "rotate-180 text-[var(--color-primary)]" : ""
+                        }`}
+                      />
+                    </div>
+                  </button>
+
+                  {isOtherCoursesOpen && (
+                    <div className="p-6 md:p-8 pt-0 border-t border-[var(--color-border)]/60">
+                      <TaxonomySelector
+                        courses={otherCourses}
+                        selectedCourseIds={selectedCourses}
+                        selectedModuleIds={selectedModules}
+                        selectedLessonIds={selectedLessons}
+                        onSelectionChange={handleTaxonomyChange}
+                        emptyMessage="دوره‌ای یافت نشد."
+                        itemLabelSingular="سؤال"
+                        hideLessons={true}
+                      />
+                    </div>
+                  )}
+                </section>
+              )}
+
+              {accessibleCourses.length === 0 && otherCourses.length === 0 && (
+                <section className="bg-[var(--color-surface)] rounded-2xl p-8 border border-dashed border-[var(--color-border)] text-center">
+                  <p className="text-sm font-semibold text-[var(--color-text)]">هیچ دوره‌ای در دسترس نیست.</p>
+                </section>
+              )}
+            </>
+          )}
 
           {/* 2 & 3: Questions Count & Difficulty */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -320,7 +547,7 @@ export function ExamConfigView({
                           : "text-[var(--color-text-muted)] opacity-40 cursor-not-allowed"
                       }`}
                     >
-                      {num}
+                      {toPersianDigits(num)}
                     </button>
                   );
                 })}
@@ -365,9 +592,18 @@ export function ExamConfigView({
         {/* Right Sidebar Column: Summary & CTA */}
         <div className="lg:col-span-1">
           <div className="bg-[var(--color-surface)] rounded-2xl p-6 md:p-8 sticky top-28 border-t-4 border-t-[var(--color-primary)] border border-[var(--color-border)] shadow-xs">
-            <h3 className="text-lg font-bold text-[var(--color-text)] mb-6 border-b border-[var(--color-border)] pb-4">
-              خلاصه تنظیمات آزمون
-            </h3>
+            <div className="flex items-center justify-between border-b border-[var(--color-border)] pb-4 mb-6">
+              <h3 className="text-lg font-bold text-[var(--color-text)]">
+                {hasAccess ? "خلاصه تنظیمات آزمون" : "خلاصه آزمون سفارشی"}
+              </h3>
+              <Badge
+                variant={hasAccess ? "success" : "warning"}
+                size="sm"
+              >
+                {hasAccess ? "تمرینی / رایگان" : "آزمون سفارشی"}
+              </Badge>
+            </div>
+
             <div className="space-y-4 mb-8">
               <div className="flex justify-between items-center text-sm">
                 <span className="text-[var(--color-text-muted)]">مباحث انتخاب شده:</span>
@@ -399,22 +635,115 @@ export function ExamConfigView({
                   ⏱ {toPersianDigits(estimatedMinutes)} دقیقه
                 </span>
               </div>
+
+              {!hasAccess && (
+                <>
+                  <div className="flex justify-between items-center text-sm pt-4 border-t border-[var(--color-border)]">
+                    <span className="text-[var(--color-text-muted)] font-semibold">موجودی کیف پول:</span>
+                    <span className="text-[var(--color-text)] font-bold font-mono text-sm">
+                      {walletQuery.isLoading ? (
+                        <span className="text-xs text-[var(--color-text-muted)]">در حال دریافت...</span>
+                      ) : (
+                        `${toPersianDigits(walletBalance.toLocaleString("fa-IR"))} تومان`
+                      )}
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-[var(--color-text-muted)] font-semibold">هزینه آزمون:</span>
+                    <span className="text-amber-600 dark:text-amber-400 font-bold font-mono text-base">
+                      {previewQuery.isLoading ? (
+                        <span className="text-xs text-[var(--color-text-muted)]">در حال استعلام...</span>
+                      ) : previewQuery.isError ? (
+                        <span className="text-xs text-[var(--avana-error)]">موجودی ناکافی سؤالات</span>
+                      ) : previewQuery.data ? (
+                        `${toPersianDigits(previewQuery.data.price.toLocaleString("fa-IR"))} تومان`
+                      ) : (
+                        "—"
+                      )}
+                    </span>
+                  </div>
+
+                  {isBalanceInsufficient && (
+                    <div
+                      data-testid="insufficient-wallet-warning"
+                      className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-700 dark:text-rose-300 text-xs space-y-1"
+                    >
+                      <div className="flex items-center gap-1.5 font-bold">
+                        <Wallet className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
+                        <span>موجودی کیف پول شما کافی نیست.</span>
+                      </div>
+                      <p className="text-[11px] text-[var(--color-text-muted)] leading-relaxed">
+                        هزینه آزمون {toPersianDigits(examPrice.toLocaleString("fa-IR"))} تومان است. لطفاً ابتدا کیف پول خود را شارژ کنید.
+                      </p>
+                    </div>
+                  )}
+
+                  <Alert
+                    variant="info"
+                    icon={<Info className="w-4 h-4 text-sky-600 dark:text-sky-400 shrink-0" />}
+                    className="mt-2"
+                  >
+                    سوالات آزمون به‌صورت تصادفی از بانک سوالات انتخاب می‌شوند؛ بنابراین در هر بار خرید و شروع آزمون، ترکیب سوالات می‌تواند متفاوت باشد.
+                  </Alert>
+                </>
+              )}
             </div>
 
-            <Button
-              type="button"
-              variant="primary"
-              size="lg"
-              fullWidth
-              isLoading={isStarting}
-              disabled={isStarting || selectedModules.size === 0}
-              onClick={handleStartClick}
-              leftIcon={<PlayIcon className="w-5 h-5" />}
-            >
-              {isStarting ? "در حال آماده‌سازی..." : "شروع آزمون"}
-            </Button>
+            {hasAccess ? (
+              <Button
+                type="button"
+                variant="primary"
+                size="lg"
+                fullWidth
+                isLoading={isStarting}
+                disabled={isStarting || selectedModules.size === 0}
+                onClick={handleStartClick}
+                leftIcon={<PlayIcon className="w-5 h-5" />}
+              >
+                {isStarting ? "در حال آماده‌سازی..." : "شروع آزمون"}
+              </Button>
+            ) : isBalanceInsufficient ? (
+              <Button
+                type="button"
+                variant="primary"
+                size="lg"
+                fullWidth
+                onClick={() => navigate("/account/wallet")}
+                leftIcon={<Wallet className="w-5 h-5" />}
+              >
+                شارژ کیف پول
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                variant="primary"
+                size="lg"
+                fullWidth
+                isLoading={isStarting || previewQuery.isLoading || walletQuery.isLoading}
+                disabled={
+                  isStarting ||
+                  selectedModules.size === 0 ||
+                  previewQuery.isLoading ||
+                  walletQuery.isLoading ||
+                  previewQuery.isError ||
+                  previewQuery.data?.valid === false
+                }
+                onClick={handleSpecialExamOrder}
+                leftIcon={<Wallet className="w-5 h-5" />}
+              >
+                {isStarting
+                  ? "در حال ایجاد آزمون..."
+                  : "پرداخت از کیف پول و شروع آزمون"}
+              </Button>
+            )}
+
             <p className="text-xs text-[var(--color-text-muted)] text-center mt-4 leading-relaxed">
-              آزمون بلافاصله پس از کلیک آغاز می‌شود و در سوابق شما ثبت می‌گردد.
+              {hasAccess
+                ? "آزمون بلافاصله پس از کلیک آغاز می‌شود و در سوابق شما ثبت می‌گردد."
+                : isBalanceInsufficient
+                ? "برای شروع این آزمون، ابتدا کیف پول خود را شارژ کنید."
+                : "مبلغ از کیف پول کسر شده و آزمون بلافاصله آغاز می‌گردد."}
             </p>
           </div>
         </div>
@@ -476,13 +805,31 @@ export function ExamConfigView({
                         </Badge>
                         {item.isSpecialExam && (
                           <Badge variant="primary" size="sm">
-                            آزمون ویژه
+                            آزمون سفارشی
                           </Badge>
                         )}
                       </div>
-                      <span className="text-[11px] text-[var(--color-text-muted)] font-mono" dir="ltr">
-                        {formattedDate}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] text-[var(--color-text-muted)] font-mono" dir="ltr">
+                          {formattedDate}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setAttemptToDelete({
+                              attemptId: item.attemptId,
+                              topic: item.topic || "آزمون چندگزینه‌ای",
+                            });
+                          }}
+                          aria-label="حذف از آزمون‌های اخیر"
+                          data-testid={`delete-attempt-${item.attemptId}`}
+                          className="text-[var(--color-text-muted)] hover:text-[var(--avana-error)] p-1 rounded-lg hover:bg-[var(--avana-error)]/10 transition-colors"
+                          title="حذف از آزمون‌های اخیر"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
 
                     <h4 className="text-sm font-bold text-[var(--color-text)] line-clamp-2 group-hover:text-[var(--color-primary)] transition-colors mt-1">
@@ -527,6 +874,57 @@ export function ExamConfigView({
           </div>
         )}
       </section>
+
+      {/* Delete Recent Exam Confirmation Modal */}
+      {attemptToDelete && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-modal-title"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs font-sans animate-fadeIn"
+          dir="rtl"
+        >
+          <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl max-w-md w-full p-6 shadow-xl space-y-5 text-right">
+            <div className="flex items-center gap-3 text-[var(--avana-error)]">
+              <span className="p-2.5 rounded-xl bg-rose-500/10 flex items-center justify-center">
+                <Trash2 className="w-5 h-5 text-rose-600 dark:text-rose-400" />
+              </span>
+              <h3 id="delete-modal-title" className="text-base font-bold text-[var(--color-text)]">
+                حذف از آزمون‌های اخیر
+              </h3>
+            </div>
+
+            <p className="text-sm text-[var(--color-text-muted)] leading-relaxed">
+              آیا می‌خواهید آزمون <strong className="text-[var(--color-text)]">«{attemptToDelete.topic}»</strong> از لیست آزمون‌های اخیر شما حذف شود؟
+            </p>
+            <p className="text-xs text-[var(--color-text-muted)] bg-[var(--color-background)] p-3 rounded-xl border border-[var(--color-border)] leading-relaxed">
+              ℹ️ این اقدام سابقه آزمون را تنها از لیست سوابق اخیر شما مخفی می‌کند و به پیشرفت و اطلاعات ثبت‌شده شما آسیبی نمی‌زند.
+            </p>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <Button
+                type="button"
+                variant="tertiary"
+                size="sm"
+                disabled={isDeletingAttempt}
+                onClick={() => setAttemptToDelete(null)}
+              >
+                انصراف
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                isLoading={isDeletingAttempt}
+                disabled={isDeletingAttempt}
+                onClick={handleConfirmDeleteAttempt}
+              >
+                {isDeletingAttempt ? "در حال حذف..." : "حذف از لیست"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

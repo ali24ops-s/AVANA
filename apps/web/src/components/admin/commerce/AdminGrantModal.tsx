@@ -10,6 +10,8 @@ import {
   X,
   Clock,
   Infinity as InfinityIcon,
+  Search,
+  Loader2,
 } from "lucide-react";
 import type { AdminUserRecord, AdminCourseRecord } from "../../../lib/api/admin.js";
 
@@ -199,7 +201,8 @@ export function AdminGrantModal({
                 <span>{defaultUserEmail || defaultUserId}</span>
               </div>
             ) : (
-              <div className="relative">
+              <div className="relative flex items-center">
+                <Search className="w-4 h-4 text-[var(--color-text-muted)] absolute start-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                 <input
                   type="text"
                   placeholder="جستجوی ایمیل یا نام کاربر..."
@@ -208,12 +211,10 @@ export function AdminGrantModal({
                     setUserSearchQuery(e.target.value);
                     setSelectedUserId("");
                   }}
-                  className="w-full bg-[var(--color-surface-warm)] border border-[var(--color-border)] rounded-xl px-4 py-2.5 text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:border-[var(--color-primary-default)]"
+                  className="w-full bg-[var(--color-surface-warm)] border border-[var(--color-border)] rounded-xl ps-10 pe-10 py-2.5 text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:border-[var(--color-primary-default)]"
                 />
                 {isSearchingUsers && (
-                  <span className="absolute start-3 top-3 text-xs text-[var(--color-text-muted)]">
-                    در حال جستجو...
-                  </span>
+                  <Loader2 className="w-4 h-4 text-[var(--color-primary-default)] animate-spin absolute end-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                 )}
                 {userSearchResults.length > 0 && !selectedUserId && (
                   <div className="absolute z-20 top-full mt-1 w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl shadow-xl overflow-hidden divide-y divide-[var(--color-border)]">

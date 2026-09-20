@@ -26,9 +26,10 @@ import { createOrganizationApi } from "../../lib/api/organizations.js";
 import { createCourseApi } from "../../lib/api/courses.js";
 import { useAddContentPack } from "../../hooks/useLibrary.js";
 import { ApiError } from "../../lib/api/errors.js";
-import type {
-  PublicContentPackItemSummary,
-  PublicContentPackDetailResource,
+import {
+  type PublicContentPackItemSummary,
+  type PublicContentPackDetailResource,
+  toPersianDigits,
 } from "@avana/domain";
 import type { AddPackToCourseResponse } from "../../lib/api/library.js";
 import type { CourseResource } from "@avana/contracts";
@@ -262,13 +263,13 @@ export function AddToCourseModal({
                     </p>
                     <ul className="mt-2 space-y-1 text-[var(--color-text-muted)] font-medium list-disc list-inside">
                       {result.materialized.lessons_created > 0 && (
-                        <li>{result.materialized.lessons_created} جلسه درسنامه اختصاصی</li>
+                        <li>{toPersianDigits(result.materialized.lessons_created)} جلسه درسنامه اختصاصی</li>
                       )}
                       {result.materialized.flashcards_created > 0 && (
-                        <li>{result.materialized.flashcards_created} فلش‌کارت در صف مرور هوشمند</li>
+                        <li>{toPersianDigits(result.materialized.flashcards_created)} فلش‌کارت در صف مرور هوشمند</li>
                       )}
                       {result.materialized.quiz_questions_created > 0 && (
-                        <li>{result.materialized.quiz_questions_created} سوال آزمون تستی آماده</li>
+                        <li>{toPersianDigits(result.materialized.quiz_questions_created)} سوال آزمون تستی آماده</li>
                       )}
                       {result.materialized.review_summary_created && (
                         <li>خلاصه مروری و جمع‌بندی نکات کلیدی</li>

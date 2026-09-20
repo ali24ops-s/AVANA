@@ -350,14 +350,14 @@ export function AdminGenerationPage() {
                         <td className="px-6 py-4 text-[var(--color-text-muted)]">
                           <div className="flex flex-col">
                             <span>
-                              {new Date(job.createdAt).toLocaleDateString(
+                              {toPersianDigits(new Date(job.createdAt).toLocaleDateString(
                                 "fa-IR",
-                              )}
+                              ))}
                             </span>
                             <span className="text-xs text-[var(--color-text-muted)]">
-                              {new Date(job.createdAt).toLocaleTimeString(
+                              {toPersianDigits(new Date(job.createdAt).toLocaleTimeString(
                                 "fa-IR",
-                              )}
+                              ))}
                             </span>
                           </div>
                         </td>
@@ -538,14 +538,14 @@ export function AdminGenerationPage() {
                             {item.reviewedAt ? (
                               <div className="flex flex-col">
                                 <span>
-                                  {new Date(item.reviewedAt).toLocaleDateString(
+                                  {toPersianDigits(new Date(item.reviewedAt).toLocaleDateString(
                                     "fa-IR",
-                                  )}
+                                  ))}
                                 </span>
                                 <span className="text-[10px]">
-                                  {new Date(item.reviewedAt).toLocaleTimeString(
+                                  {toPersianDigits(new Date(item.reviewedAt).toLocaleTimeString(
                                     "fa-IR",
-                                  )}
+                                  ))}
                                 </span>
                               </div>
                             ) : (

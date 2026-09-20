@@ -2,9 +2,11 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAdmin } from "../../hooks/useAdmin.js";
 import { Search, ChevronRight, ChevronLeft, ShieldAlert, UserX, AlertCircle, Loader2, CreditCard, Laptop } from "lucide-react";
+import { formatPersianOf, toPersianDigits } from "@avana/domain";
 import type { AdminUserRecord } from "../../lib/api/admin.js";
 import { UserCommerceDrawer } from "../../components/admin/commerce/UserCommerceDrawer.js";
 import { UserDevicesDrawer } from "../../components/admin/devices/UserDevicesDrawer.js";
+import { AdminUsersNavigation } from "../../components/admin/users/AdminUsersNavigation.js";
 
 const ROLES = [
   { value: "all", label: "همه نقش‌ها" },
@@ -80,10 +82,12 @@ export function AdminUsersPage() {
         <h1 className="text-2xl font-bold text-[var(--color-text)]">مدیریت کاربران</h1>
         <p className="text-sm text-[var(--color-text-muted)]">جستجو، فیلتر و مدیریت نقش کاربران پلتفرم</p>
       </div>
+
+      <AdminUsersNavigation />
       
       {/* Search & Filters */}
       <div className="border border-[var(--color-border)] rounded-2xl p-4 bg-[var(--color-surface)] shadow-sm flex flex-col md:flex-row gap-4">
-        <div className="relative flex-grow">
+        <div className="relative flex-grow flex items-center">
           <input
             type="text"
             placeholder="جستجو با ایمیل یا نام..."
@@ -95,7 +99,7 @@ export function AdminUsersPage() {
             aria-label="جستجوی کاربران"
             className="w-full bg-[var(--color-surface-warm)] border border-[var(--color-border)] rounded-xl ps-10 pe-4 py-2.5 text-sm text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary-default)] transition-colors placeholder:text-[var(--color-text-muted)]"
           />
-          <Search className="w-4 h-4 text-[var(--color-text-muted)] absolute start-3 top-3.5" aria-hidden="true" />
+          <Search className="w-4 h-4 text-[var(--color-text-muted)] absolute start-3.5 top-1/2 -translate-y-1/2 pointer-events-none" aria-hidden="true" />
         </div>
         
         <div className="flex flex-wrap sm:flex-nowrap gap-3">
@@ -107,7 +111,7 @@ export function AdminUsersPage() {
                 setRoleFilter(e.target.value);
                 setPage(1);
               }}
-              className="w-full bg-[var(--color-surface-warm)] border border-[var(--color-border)] rounded-xl px-3 py-2.5 text-sm text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary-default)] transition-colors"
+              className="w-full bg-[var(--color-surface-warm)] border border-[var(--color-border)] rounded-xl ps-3 pe-8 py-2.5 text-sm text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary-default)] transition-colors cursor-pointer"
             >
               {ROLES.map(r => (
                 <option key={r.value} value={r.value}>{r.label}</option>
@@ -123,7 +127,7 @@ export function AdminUsersPage() {
                 setStatusFilter(e.target.value);
                 setPage(1);
               }}
-              className="w-full bg-[var(--color-surface-warm)] border border-[var(--color-border)] rounded-xl px-3 py-2.5 text-sm text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary-default)] transition-colors"
+              className="w-full bg-[var(--color-surface-warm)] border border-[var(--color-border)] rounded-xl ps-3 pe-8 py-2.5 text-sm text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary-default)] transition-colors cursor-pointer"
             >
               {STATUSES.map(s => (
                 <option key={s.value} value={s.value}>{s.label}</option>
@@ -258,7 +262,7 @@ export function AdminUsersPage() {
         {/* Pagination */}
         <div className="flex flex-col sm:flex-row items-center justify-between px-6 py-4 border-t border-[var(--color-border)] bg-[var(--color-surface-warm)] gap-4">
           <span className="text-sm text-[var(--color-text-muted)]">
-            مجموع: {data?.totalCount || 0} کاربر
+            مجموع: {toPersianDigits(data?.totalCount || 0)} کاربر
           </span>
           
           {totalPages > 1 && (
@@ -273,7 +277,7 @@ export function AdminUsersPage() {
               </button>
               
               <span className="text-sm text-[var(--color-text)] px-3 font-medium min-w-[5rem] text-center" aria-current="page">
-                {page} / {totalPages}
+                {formatPersianOf(page, totalPages)}
               </span>
               
               <button
@@ -328,7 +332,7 @@ export function AdminUsersPage() {
                   id="newRoleSelect"
                   value={newRole} 
                   onChange={(e) => setNewRole(e.target.value)}
-                  className="w-full bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-[var(--color-text)] text-sm rounded-xl p-3 focus:ring-1 focus:ring-[var(--color-primary-default)] focus:border-[var(--color-primary-default)] transition-shadow outline-none"
+                  className="w-full bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-[var(--color-text)] text-sm rounded-xl ps-3 pe-8 py-3 focus:ring-1 focus:ring-[var(--color-primary-default)] focus:border-[var(--color-primary-default)] transition-shadow outline-none cursor-pointer"
                 >
                   {ROLES.filter(r => r.value !== "all").map(r => (
                     <option key={r.value} value={r.value}>{r.label}</option>

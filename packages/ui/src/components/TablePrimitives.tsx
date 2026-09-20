@@ -100,7 +100,7 @@ export const TableHead: React.FC<TableHeadProps> = ({
 }) => {
   return (
     <th
-      className={`px-4 py-3.5 text-start font-semibold whitespace-nowrap text-xs text-[var(--color-text-muted)] ${className}`}
+      className={`px-4 py-3.5 text-start font-semibold whitespace-nowrap text-xs text-[var(--color-text-muted)] [unicode-bidi:isolate] ${className}`}
       {...props}
     >
       {children}
@@ -120,7 +120,7 @@ export const TableCell: React.FC<TableCellProps> = ({
 }) => {
   return (
     <td
-      className={`px-4 py-3.5 align-middle text-start text-[var(--color-text)] ${className}`}
+      className={`px-4 py-3.5 align-middle text-start text-[var(--color-text)] break-words [unicode-bidi:isolate] ${className}`}
       {...props}
     >
       {children}

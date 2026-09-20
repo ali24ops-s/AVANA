@@ -38,6 +38,9 @@ import type { GenerationChunkStore } from "./generation-chunk-store.js";
 import type { GenerationProgressStore } from "./generation-progress-store.js";
 import type { GenerationProgressService } from "./generation-progress-service.js";
 import type { AuditService } from "../../observability/audit-service.js";
+import type { WalletService } from "../wallet/wallet-service.js";
+import type { WalletStore } from "../wallet/wallet-store.js";
+import { refundGenerationJobDebit } from "./generation-refund-helper.js";
 import type { DbClient } from "@avana/database/client";
 import {
   courses,
@@ -97,7 +100,22 @@ export class GenerationRecoveryService {
     _auditService?: AuditService,
     private readonly generationProgressStore?: GenerationProgressStore,
     _generationProgressService?: GenerationProgressService,
+    private readonly walletService?: WalletService,
+    private readonly walletStore?: WalletStore,
   ) {}
+
+  /**
+   * Helper to refund any original debit for a recovered stale job.
+   */
+  private async refundRecoveredJob(jobId: string, actorUserId?: string): Promise<void> {
+    await refundGenerationJobDebit({
+      walletService: this.walletService,
+      walletStore: this.walletStore,
+      jobId,
+      actorUserId,
+      reason: "stale_lease_expired_recovery",
+    });
+  }
 
   /**
    * Check if a course is actively generating with a fresh heartbeat or valid lease.
@@ -455,6 +473,12 @@ export class GenerationRecoveryService {
             .returning({ id: generationJobs.id });
 
           recoveredJobsCount += staleJobsRes?.length || 0;
+
+          if (staleJobsRes && staleJobsRes.length > 0) {
+            for (const j of staleJobsRes) {
+              await this.refundRecoveredJob(j.id);
+            }
+          }
         }
 
         // 3. Find all documents belonging to this course
@@ -464,7 +488,7 @@ export class GenerationRecoveryService {
           .where(and(eq(documents.courseId, courseId), isNull(documents.deletedAt)));
 
         for (const doc of courseDocs) {
-          if (doc.status === "generating") {
+          if (doc.status === "generating" || doc.status === "pending_generation") {
             // Check if document has generated contents
             const docContents = await tx
               .select({ id: generatedContents.id })
@@ -599,12 +623,13 @@ export class GenerationRecoveryService {
             j.status = "failed";
             j.errorCode = "STALE_LEASE_EXPIRED";
             recoveredJobsCount++;
+            await this.refundRecoveredJob(j.id);
           }
         }
       }
 
       for (const d of docs) {
-        if (d.status === "generating") {
+        if (d.status === "generating" || d.status === "pending_generation") {
           let newStatus: DocumentRecord["status"] = "extracted";
           let hasDrafts = false;
           if (this.generatedContentStore) {
@@ -679,13 +704,28 @@ export class GenerationRecoveryService {
       };
     }
 
-    if (doc.status !== "generating") {
+    if (doc.status !== "generating" && doc.status !== "pending_generation") {
       return {
         documentId,
         recovered: false,
         previousStatus: doc.status,
         newStatus: doc.status,
-        reason: `سند در وضعیت generating نیست (وضعیت فعلی: ${doc.status}).`,
+        reason: `سند در وضعیت generating یا pending_generation نیست (وضعیت فعلی: ${doc.status}).`,
+      };
+    }
+
+    const now = new Date();
+    const staleThreshold = new Date(now.getTime() - maxAgeMs);
+
+    // If document is pending_generation, ensure its reservation lease has actually expired
+    if (doc.status === "pending_generation" && new Date(doc.updatedAt) >= staleThreshold) {
+      return {
+        documentId,
+        recovered: false,
+        activelyRunning: true,
+        previousStatus: doc.status,
+        newStatus: doc.status,
+        reason: "رزرو اولیه سند هنوز معتبر است و مهلت آن منقضی نشده است.",
       };
     }
 
@@ -699,14 +739,13 @@ export class GenerationRecoveryService {
         documentId,
         recovered: false,
         activelyRunning: true,
-        previousStatus: "generating",
+        previousStatus: doc.status,
         reason: "تولید محتوا برای سند با heartbeat فعال در حال اجراست.",
       };
     }
 
     const actorId = options.actorId ?? "system-watchdog";
-    const nowIso = new Date().toISOString();
-    const now = new Date();
+    const nowIso = now.toISOString();
 
     let recoveredJobsCount = 0;
     let recoveredChunksCount = 0;
@@ -761,6 +800,12 @@ export class GenerationRecoveryService {
             .returning({ id: generationJobs.id });
 
           recoveredJobsCount = staleJobsRes?.length || 0;
+
+          if (staleJobsRes && staleJobsRes.length > 0) {
+            for (const j of staleJobsRes) {
+              await this.refundRecoveredJob(j.id);
+            }
+          }
         }
 
         // 3. Determine target document status
@@ -816,7 +861,7 @@ export class GenerationRecoveryService {
             entityId: documentId,
             details: {
               documentId,
-              previousStatus: "generating",
+              previousStatus: doc.status,
               newStatus: targetDocStatus,
               recoveredJobsCount,
               recoveredChunksCount,
@@ -840,6 +885,28 @@ export class GenerationRecoveryService {
             };
             await this.generationChunkStore.upsert(updated);
             recoveredChunksCount++;
+          }
+        }
+      }
+
+      if (this.generationJobStore && typeof (this.generationJobStore as any).getAll === "function") {
+        const allJobs = (this.generationJobStore as any).getAll() as any[];
+        for (const j of allJobs) {
+          if (
+            j.documentId === documentId &&
+            (j.status === "processing" || j.status === "queued" || j.status === "running")
+          ) {
+            const updated = {
+              ...j,
+              status: "failed" as const,
+              errorCode: "STALE_LEASE_EXPIRED",
+              updatedAt: nowIso,
+            };
+            if (typeof this.generationJobStore.update === "function") {
+              await this.generationJobStore.update(updated);
+            }
+            recoveredJobsCount++;
+            await this.refundRecoveredJob(j.id);
           }
         }
       }
@@ -869,7 +936,7 @@ export class GenerationRecoveryService {
     return {
       documentId,
       recovered: true,
-      previousStatus: "generating",
+      previousStatus: doc.status,
       newStatus: targetDocStatus,
       recoveredJobsCount,
       recoveredChunksCount,
@@ -933,6 +1000,12 @@ export class GenerationRecoveryService {
 
         recoveredJobsCount = updatedJobs.length;
 
+        if (updatedJobs && updatedJobs.length > 0) {
+          for (const j of updatedJobs) {
+            await this.refundRecoveredJob(j.id);
+          }
+        }
+
         // 2. Reconcile stale generation chunks
         const chunksConditions = [
           eq(generationChunks.status, "running"),
@@ -979,6 +1052,11 @@ export class GenerationRecoveryService {
       if (this.generationJobStore?.reconcileStaleJobs) {
         const res = await this.generationJobStore.reconcileStaleJobs({ organizationId, maxAgeMs });
         recoveredJobsCount = res.reconciledCount;
+        if (res.jobIds && res.jobIds.length > 0) {
+          for (const jId of res.jobIds) {
+            await this.refundRecoveredJob(jId);
+          }
+        }
       }
     }
 
@@ -992,7 +1070,9 @@ export class GenerationRecoveryService {
     organizationId?: OrganizationId,
     maxAgeMs = DEFAULT_GENERATION_STALE_THRESHOLD_MS,
   ): Promise<StaleReconciliationSummary> {
-    const timestamp = new Date().toISOString();
+    const now = new Date();
+    const staleThreshold = new Date(now.getTime() - maxAgeMs);
+    const timestamp = now.toISOString();
 
     // 1. Reconcile stale jobs and chunks first
     const { recoveredJobsCount, recoveredChunksCount } =
@@ -1026,9 +1106,15 @@ export class GenerationRecoveryService {
         }
       }
 
-      // 3. Find any standalone generating documents not covered by courses
+      // 3. Find any standalone generating or stale pending_generation documents not covered by courses
       const docConditions = [
-        eq(documents.status, "generating"),
+        or(
+          eq(documents.status, "generating"),
+          and(
+            eq(documents.status, "pending_generation"),
+            lt(documents.updatedAt, staleThreshold),
+          ),
+        ),
         isNull(documents.deletedAt),
       ];
       if (organizationId) {
@@ -1048,6 +1134,27 @@ export class GenerationRecoveryService {
         );
         if (res.recovered) {
           reconciledDocuments.push(res);
+        }
+      }
+    } else {
+      // In-memory fallback
+      if (this.documentStore && typeof (this.documentStore as any).getAll === "function") {
+        const allDocs = (this.documentStore as any).getAll() as DocumentRecord[];
+        for (const d of allDocs) {
+          if (organizationId && d.organizationId !== organizationId) continue;
+          if (
+            d.status === "generating" ||
+            (d.status === "pending_generation" && new Date(d.updatedAt) < staleThreshold)
+          ) {
+            const res = await this.reconcileStaleDocument(
+              d.organizationId,
+              d.id,
+              { maxAgeMs },
+            );
+            if (res.recovered) {
+              reconciledDocuments.push(res);
+            }
+          }
         }
       }
     }

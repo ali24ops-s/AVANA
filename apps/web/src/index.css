@@ -418,6 +418,7 @@ optgroup,
   border: 2px solid var(--color-border);
   background-color: var(--color-surface);
   box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.06);
+  direction: rtl;
 }
 
 .prose th,
@@ -426,6 +427,13 @@ optgroup,
   text-align: right;
   border-bottom: 1px solid var(--color-border);
   color: var(--color-text);
+  direction: rtl;
+  unicode-bidi: isolate;
+  overflow-wrap: break-word;
+}
+
+.prose td p {
+  margin-bottom: 0;
 }
 
 .prose th {

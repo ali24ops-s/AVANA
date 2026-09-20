@@ -27,6 +27,9 @@ import type {
   QuestionLessonInfo,
   QuestionChapterInfo,
   QuestionCourseInfo,
+  DailyStudyPlan,
+  StudyTask,
+  StudyTaskStatus,
 } from "@avana/domain";
 
 // ---------------------------------------------------------------------------
@@ -341,3 +344,53 @@ export interface FlashcardStudySessionStore {
   ): Promise<FlashcardStudySessionRecord | undefined>;
 }
 
+export interface DailyStudyPlanStore {
+  /** Find a plan for a specific user on a given calendar date (YYYY-MM-DD). */
+  findByUserAndDate(
+    userId: UserId,
+    planDate: string,
+  ): Promise<DailyStudyPlan | undefined>;
+
+  /** Find a plan by its unique ID. */
+  findById(id: string): Promise<DailyStudyPlan | undefined>;
+
+  /**
+   * Atomically creates a daily study plan with its initial study tasks.
+   * Handles unique constraint gracefully if concurrent call occurs.
+   */
+  createPlanWithTasks(
+    plan: Omit<DailyStudyPlan, "createdAt" | "updatedAt">,
+    tasks: Array<Omit<StudyTask, "createdAt" | "updatedAt">>,
+  ): Promise<{ plan: DailyStudyPlan; tasks: StudyTask[] }>;
+
+  /** List all tasks belonging to a specific plan, ordered by priority. */
+  listTasksByPlan(planId: string): Promise<StudyTask[]>;
+
+  /** List all tasks for a user on a specific date. */
+  listTasksByUserAndDate(userId: UserId, planDate: string): Promise<StudyTask[]>;
+
+  /** Find a specific task by ID. */
+  findTaskById(taskId: string): Promise<StudyTask | undefined>;
+
+  /** Update an existing plan header (e.g. status, completedDurationMinutes). */
+  updatePlan(plan: DailyStudyPlan): Promise<DailyStudyPlan>;
+
+  /** Update an existing task. */
+  updateTask(task: StudyTask): Promise<StudyTask>;
+
+  /** Update task status (e.g. completed, skipped) and completedAt timestamp. */
+  updateTaskStatus(
+    taskId: string,
+    status: StudyTaskStatus,
+    completedAt?: string | null,
+  ): Promise<StudyTask | undefined>;
+
+  /** Atomically replace pending/unfinished tasks with a fresh task list during plan regeneration. */
+  replaceTasksForPlan(
+    planId: string,
+    tasks: Array<Omit<StudyTask, "createdAt" | "updatedAt">>,
+  ): Promise<StudyTask[]>;
+
+  /** Delete a plan (cascades to tasks). */
+  deletePlan(id: string): Promise<void>;
+}

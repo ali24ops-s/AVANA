@@ -12,12 +12,15 @@ import type {
   LessonId,
   ModuleId,
   OrganizationId,
+  SubCourseGroupId,
   UserId,
 } from "@avana/domain";
 import type {
   ModuleRecord,
   LessonRecord,
   LessonProgressRecord,
+  SubCourseGroupRecord,
+  SubCourseGroupStore,
   ModuleStore,
   LessonStore,
   ProgressStore,
@@ -27,8 +30,71 @@ import type {
   DocumentChunkStore,
 } from "../learning-store.js";
 
+export class InMemorySubCourseGroupStore implements SubCourseGroupStore {
+  private groups: Map<string, SubCourseGroupRecord> = new Map();
+
+  constructor(private moduleStore?: InMemoryModuleStore) {}
+
+  setModuleStore(moduleStore: InMemoryModuleStore) {
+    this.moduleStore = moduleStore;
+  }
+
+  async listByCourse(courseId: CourseId): Promise<SubCourseGroupRecord[]> {
+    return Array.from(this.groups.values())
+      .filter((g) => g.courseId === courseId && g.deletedAt === null)
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+      .map((g) => ({ ...g }));
+  }
+
+  async findById(id: SubCourseGroupId): Promise<SubCourseGroupRecord | undefined> {
+    const record = this.groups.get(id);
+    return record && record.deletedAt === null ? { ...record } : undefined;
+  }
+
+  async create(group: SubCourseGroupRecord): Promise<SubCourseGroupRecord> {
+    this.groups.set(group.id, { ...group });
+    return { ...group };
+  }
+
+  async update(group: SubCourseGroupRecord): Promise<SubCourseGroupRecord> {
+    this.groups.set(group.id, { ...group });
+    return { ...group };
+  }
+
+  async delete(id: SubCourseGroupId): Promise<void> {
+    const existing = this.groups.get(id);
+    if (existing) {
+      existing.deletedAt = new Date().toISOString();
+      this.groups.set(id, { ...existing });
+    }
+    // Unlink modules belonging to this group
+    if (this.moduleStore) {
+      for (const mod of this.moduleStore.getAllModulesInternal()) {
+        if (mod.subCourseGroupId === id) {
+          mod.subCourseGroupId = null;
+          mod.updatedAt = new Date().toISOString();
+        }
+      }
+    }
+  }
+
+  async reorder(courseId: CourseId, groupIds: SubCourseGroupId[]): Promise<void> {
+    for (let i = 0; i < groupIds.length; i++) {
+      const g = this.groups.get(groupIds[i]!);
+      if (g && g.courseId === courseId) {
+        g.sortOrder = i;
+        g.updatedAt = new Date().toISOString();
+      }
+    }
+  }
+}
+
 export class InMemoryModuleStore implements ModuleStore {
   private modules: Map<string, ModuleRecord> = new Map();
+
+  getAllModulesInternal(): ModuleRecord[] {
+    return Array.from(this.modules.values());
+  }
 
   takeSnapshot(): Map<string, ModuleRecord> {
     const map = new Map<string, ModuleRecord>();
@@ -48,6 +114,7 @@ export class InMemoryModuleStore implements ModuleStore {
   async listByCourse(courseId: CourseId): Promise<ModuleRecord[]> {
     return Array.from(this.modules.values())
       .filter((m) => m.courseId === courseId && m.deletedAt === null)
+      .sort((a, b) => a.sortOrder - b.sortOrder)
       .map((m) => ({ ...m }));
   }
 
@@ -107,6 +174,27 @@ export class InMemoryModuleStore implements ModuleStore {
     if (existing) {
       existing.deletedAt = new Date().toISOString();
       this.modules.set(moduleId, { ...existing });
+    }
+  }
+
+  async reorder(
+    courseId: CourseId,
+    items: Array<{
+      id: ModuleId;
+      sortOrder: number;
+      subCourseGroupId?: SubCourseGroupId | null;
+    }>,
+  ): Promise<void> {
+    for (const item of items) {
+      const mod = this.modules.get(item.id);
+      if (mod && mod.courseId === courseId) {
+        mod.sortOrder = item.sortOrder;
+        if (item.subCourseGroupId !== undefined) {
+          mod.subCourseGroupId = item.subCourseGroupId;
+        }
+        mod.updatedAt = new Date().toISOString();
+        this.modules.set(mod.id, { ...mod });
+      }
     }
   }
 
@@ -389,6 +477,30 @@ export class InMemoryDocumentStore implements DocumentStore {
   async update(document: DocumentRecord): Promise<DocumentRecord> {
     this.documents.set(document.id, { ...document });
     return { ...document };
+  }
+
+  async reserveForGeneration(
+    id: DocumentId,
+    organizationId: OrganizationId,
+  ): Promise<{ previousStatus: DocumentRecord["status"]; document: DocumentRecord } | undefined> {
+    const record = this.documents.get(id);
+    if (
+      !record ||
+      record.organizationId !== organizationId ||
+      record.deletedAt ||
+      record.status === "pending_generation" ||
+      record.status === "generating"
+    ) {
+      return undefined;
+    }
+    const previousStatus = record.status;
+    const updated: DocumentRecord = {
+      ...record,
+      status: "pending_generation",
+      updatedAt: new Date().toISOString(),
+    };
+    this.documents.set(id, updated);
+    return { previousStatus, document: { ...updated } };
   }
 
   async delete(documentId: DocumentId): Promise<void> {

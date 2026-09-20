@@ -21,7 +21,11 @@ import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
 import { createStudyApi } from "../../lib/api/study.js";
 import { useStudySessionTracker } from "../../hooks/useStudySessionTracker.js";
 import type { FlashcardResource, FlashcardRating } from "@avana/contracts";
-import { formatReviewIntervalHint, toPersianDigits } from "@avana/domain";
+import {
+  formatReviewIntervalHint,
+  toPersianDigits,
+  isFlashcardGraduatedInSession,
+} from "@avana/domain";
 import { RichContent } from "../markdown/MarkdownRenderer.js";
 
 export interface FlashcardExperienceProps {
@@ -85,6 +89,7 @@ export function FlashcardExperience({
   const [flipTimestamp, setFlipTimestamp] = useState<number>(0);
   const [sessionStartTime] = useState<number>(Date.now());
   const [results, setResults] = useState<ReviewResult[]>([]);
+  const [cardEvaluations, setCardEvaluations] = useState<Record<string, FlashcardRating[]>>({});
   const [isCompleted, setIsCompleted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedRating, setSelectedRating] = useState<FlashcardRating | null>(null);
@@ -151,12 +156,37 @@ export function FlashcardExperience({
     enabled: !!organizationId,
   });
 
+  const [activeQueue, setActiveQueue] = useState<FlashcardResource[]>([]);
+
+  // Guarantee clean state and queue when course scope or session parameters change
+  const effectiveCourseIdsKey = effectiveCourseIds.join(",");
+  useEffect(() => {
+    setActiveQueue([]);
+    setCurrentIndex(0);
+    setResults([]);
+    setCardEvaluations({});
+    setIsCompleted(false);
+    setIsFlipped(false);
+    setFlipTimestamp(0);
+    setSelectedRating(null);
+  }, [effectiveCourseIdsKey, sessionId, mode, customMode]);
+
   const sessionCards = sessionQuery.data?.cards as FlashcardResource[] | undefined;
   const dueCards = sessionId
     ? (sessionCards ?? [])
     : (queueQuery.data?.due_cards ?? []);
-  const rawCurrentCard = dueCards[currentIndex] as FlashcardResource | undefined;
-  const effectiveIsPreview = isPreview || (queueQuery.data as any)?.is_preview === true;
+
+  useEffect(() => {
+    if (dueCards.length > 0 && activeQueue.length === 0) {
+      setActiveQueue(dueCards);
+    }
+  }, [dueCards, activeQueue.length]);
+
+  const effectiveCards = activeQueue.length > 0 ? activeQueue : dueCards;
+  const rawCurrentCard = effectiveCards[currentIndex] as FlashcardResource | undefined;
+  const effectiveIsPreview =
+    isPreview ||
+    (queueQuery.data as { is_preview?: boolean } | undefined)?.is_preview === true;
 
   // Initialize index & results when resuming a persistent study session
   useEffect(() => {
@@ -181,16 +211,30 @@ export function FlashcardExperience({
         targetIdx = validBefore;
       }
       
-      // Hydrate previously reviewed cards into results state from snapshot
-      const initialResults: ReviewResult[] = allSessionCards
-        .filter((sc) => sc.status === "reviewed" && sc.flashcard_id)
-        .map((sc) => ({
-          cardId: sc.flashcard_id!,
-          rating: (sc.rating as FlashcardRating) || "good",
-          reactionMs: (sc as { reaction_ms?: number; reactionMs?: number }).reaction_ms ?? (sc as { reaction_ms?: number; reactionMs?: number }).reactionMs ?? 0,
-        }));
+      // Hydrate previously reviewed cards into results & cardEvaluations state from snapshot
+      const initialResults: ReviewResult[] = [];
+      const initialEvaluations: Record<string, FlashcardRating[]> = {};
+
+      for (const sc of allSessionCards) {
+        if (sc.flashcard_id && sc.status === "reviewed") {
+          const rating = (sc.rating as FlashcardRating) || "good";
+          initialResults.push({
+            cardId: sc.flashcard_id,
+            rating,
+            reactionMs:
+              (sc as { reaction_ms?: number; reactionMs?: number }).reaction_ms ??
+              (sc as { reaction_ms?: number; reactionMs?: number }).reactionMs ??
+              0,
+          });
+          if (!initialEvaluations[sc.flashcard_id]) {
+            initialEvaluations[sc.flashcard_id] = [];
+          }
+          initialEvaluations[sc.flashcard_id].push(rating);
+        }
+      }
 
       setResults(initialResults);
+      setCardEvaluations(initialEvaluations);
       setCurrentIndex(targetIdx);
       setHasInitializedSession(true);
 
@@ -212,12 +256,13 @@ export function FlashcardExperience({
       cardId?: string;
       rating?: FlashcardRating;
       reactionMs?: number;
+      completedCards?: number;
     }) => {
       if (sessionId) {
         let dbCurrentIndex = vars.newIndex;
         const allSessionCards = sessionQuery.data?.session_cards;
         if (allSessionCards && allSessionCards.length > 0 && sessionCards) {
-          const nextCard = dueCards[vars.newIndex];
+          const nextCard = effectiveCards[vars.newIndex];
           if (nextCard) {
             const foundIdx = allSessionCards.findIndex((sc: { flashcard_id?: string | null }) => sc.flashcard_id === nextCard.id);
             if (foundIdx !== -1) {
@@ -238,6 +283,7 @@ export function FlashcardExperience({
             card_id: vars.cardId,
             rating: vars.rating,
             reaction_ms: vars.reactionMs,
+            completed_cards: vars.completedCards,
           },
         );
       }
@@ -272,7 +318,7 @@ export function FlashcardExperience({
   useStudySessionTracker({
     activityType: "flashcard",
     courseId: courseId || (effectiveCourseIds.length === 1 ? effectiveCourseIds[0] : undefined),
-    enabled: dueCards.length > 0 && !isCompleted,
+    enabled: effectiveCards.length > 0 && !isCompleted,
   });
 
   // In-place editing state
@@ -404,20 +450,38 @@ export function FlashcardExperience({
               rating,
               reactionMs,
             };
-            setResults((prev) => {
-              const existingIdx = prev.findIndex((r) => r.cardId === currentCard.id);
-              if (existingIdx >= 0) {
-                const copy = [...prev];
-                copy[existingIdx] = newResult;
-                return copy;
-              }
-              return [...prev, newResult];
-            });
+            setResults((prev) => [...prev, newResult]);
+
+            const prevRatings = cardEvaluations[currentCard.id] || [];
+            const newRatings = [...prevRatings, rating];
+            setCardEvaluations((prev) => ({
+              ...prev,
+              [currentCard.id]: newRatings,
+            }));
+
+            const isGraduated = isFlashcardGraduatedInSession(newRatings);
+
+            let currentList = activeQueue.length > 0 ? activeQueue : dueCards;
+            if (!isGraduated) {
+              currentList = [...currentList, currentCard];
+              setActiveQueue(currentList);
+            }
+
             setSelectedRating(null);
             setIsSubmitting(false);
 
             const nextIndex = currentIndex + 1;
-            const nextCard = dueCards[nextIndex];
+            const nextCard = currentList[nextIndex];
+
+            const updatedEvaluations = {
+              ...cardEvaluations,
+              [currentCard.id]: newRatings,
+            };
+            const updatedFinishedCount = dueCards.filter(
+              (c) =>
+                updatedEvaluations[c.id] &&
+                isFlashcardGraduatedInSession(updatedEvaluations[c.id]),
+            ).length;
 
             if (sessionId) {
               updateSessionProgressMutation.mutate({
@@ -426,10 +490,11 @@ export function FlashcardExperience({
                 cardId: currentCard.id,
                 rating,
                 reactionMs,
+                completedCards: updatedFinishedCount,
               });
             }
 
-            if (nextIndex < dueCards.length) {
+            if (nextIndex < currentList.length) {
               setIsFlipped(false);
               setFlipTimestamp(0);
               setCurrentIndex(nextIndex);
@@ -457,19 +522,24 @@ export function FlashcardExperience({
       reviewMutation,
       flipTimestamp,
       currentIndex,
+      activeQueue,
       dueCards,
+      cardEvaluations,
       sessionId,
       updateSessionProgressMutation,
       completeSessionMutation,
       organizationId,
       queryClient,
+      effectiveCourseIds,
+      courseId,
     ],
   );
 
   const handlePrevCard = useCallback(() => {
+    const currentList = activeQueue.length > 0 ? activeQueue : dueCards;
     if (currentIndex > 0 && !isSubmitting && !reviewMutation.isPending) {
       const prevIdx = currentIndex - 1;
-      const prevCard = dueCards[prevIdx];
+      const prevCard = currentList[prevIdx];
       setCurrentIndex(prevIdx);
       setIsFlipped(false);
       setFlipTimestamp(0);
@@ -480,15 +550,16 @@ export function FlashcardExperience({
         });
       }
     }
-  }, [currentIndex, dueCards, isSubmitting, reviewMutation.isPending, sessionId, updateSessionProgressMutation]);
+  }, [currentIndex, activeQueue, dueCards, isSubmitting, reviewMutation.isPending, sessionId, updateSessionProgressMutation]);
 
   const handleNextCard = useCallback(() => {
+    const currentList = activeQueue.length > 0 ? activeQueue : dueCards;
     if (isSubmitting || reviewMutation.isPending) return;
     if (!isFlipped) {
       handleFlip();
-    } else if (currentIndex + 1 < dueCards.length) {
+    } else if (currentIndex + 1 < currentList.length) {
       const nextIdx = currentIndex + 1;
-      const nextCard = dueCards[nextIdx];
+      const nextCard = currentList[nextIdx];
       setCurrentIndex(nextIdx);
       setIsFlipped(false);
       setFlipTimestamp(0);
@@ -499,35 +570,70 @@ export function FlashcardExperience({
         });
       }
     }
-  }, [currentIndex, dueCards, isFlipped, handleFlip, isSubmitting, reviewMutation.isPending, sessionId, updateSessionProgressMutation]);
+  }, [currentIndex, activeQueue, dueCards, isFlipped, handleFlip, isSubmitting, reviewMutation.isPending, sessionId, updateSessionProgressMutation]);
 
-  // Keyboard shortcuts (Space: Flip, 1: Again, 2: Hard, 3: Good, 4: Easy)
+  // Keyboard shortcuts (Physical keys: Space -> Flip, F/ب -> Again, D/ی -> Hard, S/س -> Good, A/ش -> Easy, ArrowRight -> Prev, ArrowLeft -> Next)
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (isCompleted || !currentCard || isSubmitting || isEditing) return;
 
       // Prevent triggering shortcuts when typing in inputs/textareas
+      const activeEl = document.activeElement as HTMLElement | null;
       if (
-        document.activeElement &&
-        ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName)
+        activeEl &&
+        (["INPUT", "TEXTAREA", "SELECT"].includes(activeEl.tagName) ||
+          activeEl.isContentEditable)
       ) {
         return;
       }
 
-      if (e.key === " " || e.key === "Enter") {
+      const code = e.code;
+      const key = e.key;
+
+      const isSpaceKey = code === "Space" || key === " " || key === "Spacebar";
+      const isArrowRight = code === "ArrowRight" || key === "ArrowRight";
+      const isArrowLeft = code === "ArrowLeft" || key === "ArrowLeft";
+
+      const isAgainKey = code === "KeyF" || key === "ب" || key === "f" || key === "F";
+      const isHardKey =
+        code === "KeyD" ||
+        key === "ی" ||
+        key === "ي" ||
+        key === "ى" ||
+        key === "d" ||
+        key === "D";
+      const isGoodKey = code === "KeyS" || key === "س" || key === "s" || key === "S";
+      const isEasyKey = code === "KeyA" || key === "ش" || key === "a" || key === "A";
+
+      if (isSpaceKey) {
         e.preventDefault();
         handleFlip();
-      } else if (isFlipped) {
-        if (e.key === "1") {
+        return;
+      }
+
+      if (isArrowRight) {
+        e.preventDefault();
+        handlePrevCard();
+        return;
+      }
+
+      if (isArrowLeft) {
+        e.preventDefault();
+        handleNextCard();
+        return;
+      }
+
+      if (isFlipped) {
+        if (isAgainKey) {
           e.preventDefault();
           handleRating("again");
-        } else if (e.key === "2") {
+        } else if (isHardKey) {
           e.preventDefault();
           handleRating("hard");
-        } else if (e.key === "3") {
+        } else if (isGoodKey) {
           e.preventDefault();
           handleRating("good");
-        } else if (e.key === "4") {
+        } else if (isEasyKey) {
           e.preventDefault();
           handleRating("easy");
         }
@@ -535,22 +641,35 @@ export function FlashcardExperience({
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [isFlipped, isCompleted, currentCard, isSubmitting, isEditing, handleFlip, handleRating]);
+  }, [
+    isFlipped,
+    isCompleted,
+    currentCard,
+    isSubmitting,
+    isEditing,
+    handleFlip,
+    handleRating,
+    handlePrevCard,
+    handleNextCard,
+  ]);
 
   // Dynamic calculations for stats panel
   const totalSessionCards = sessionId
     ? (sessionQuery.data?.session?.total_cards ?? dueCards.length)
     : dueCards.length;
 
-  const finishedCount = results.length;
+  const finishedCount = dueCards.filter(
+    (c) => cardEvaluations[c.id] && isFlashcardGraduatedInSession(cardEvaluations[c.id]),
+  ).length;
 
-  const unseenCount = sessionId
-    ? Math.max(0, totalSessionCards - finishedCount)
-    : dueCards.filter((c) => !c.interval_days || c.interval_days === 0).length;
+  const reviewCount = dueCards.filter(
+    (c) =>
+      cardEvaluations[c.id] &&
+      cardEvaluations[c.id].length > 0 &&
+      !isFlashcardGraduatedInSession(cardEvaluations[c.id]),
+  ).length;
 
-  const reviewCount = sessionId
-    ? results.filter((r) => r.rating === "again" || r.rating === "hard").length
-    : Math.max(0, dueCards.length - unseenCount - results.length);
+  const unseenCount = Math.max(0, totalSessionCards - finishedCount - reviewCount);
 
   const isDataLoading = (sessionId ? sessionQuery.isLoading : queueQuery.isLoading) || summaryQuery.isLoading;
   const isDataError = sessionId ? sessionQuery.isError : queueQuery.isError;
@@ -559,7 +678,7 @@ export function FlashcardExperience({
   // Loading state
   if (isDataLoading) {
     return (
-      <div className="flex flex-col items-center justify-center py-28 gap-4 min-h-[60vh]">
+      <div className="w-full h-full h-[100dvh] flex flex-col items-center justify-center p-4">
         <LoadingState message="در حال دریافت کارت‌های مرور..." />
       </div>
     );
@@ -568,44 +687,46 @@ export function FlashcardExperience({
   // Error state
   if (isDataError) {
     return (
-      <Card variant="solid" className="max-w-md mx-auto my-16 p-8 bg-[var(--color-surface)] rounded-[16px] border border-[var(--color-border)] text-center space-y-5 shadow-[var(--shadow-card)]">
-        <AlertCircle className="w-12 h-12 text-[var(--color-error)] mx-auto" />
-        <h3 className="text-lg font-bold text-[var(--color-text)]">
-          خطا در بارگذاری فلش‌کارت‌ها
-        </h3>
-        <p className="text-xs text-[var(--color-text-muted)]">
-          {dataErrorMessage}
-        </p>
-        <div className="flex items-center justify-center gap-3 pt-2">
-          <Button
-            type="button"
-            variant="primary"
-            size="sm"
-            onClick={() => {
-              if (sessionId) {
-                void sessionQuery.refetch();
-              } else {
-                void queueQuery.refetch();
-              }
-              void summaryQuery.refetch();
-            }}
-            className="rounded-[10px]"
-          >
-            تلاش مجدد
-          </Button>
-          {onBack && (
+      <div className="w-full h-full h-[100dvh] flex items-center justify-center p-4 overflow-y-auto">
+        <Card variant="solid" className="max-w-md w-full p-6 sm:p-8 bg-[var(--color-surface)] rounded-[16px] border border-[var(--color-border)] text-center space-y-5 shadow-[var(--shadow-card)]">
+          <AlertCircle className="w-12 h-12 text-[var(--color-error)] mx-auto" />
+          <h3 className="text-lg font-bold text-[var(--color-text)]">
+            خطا در بارگذاری فلش‌کارت‌ها
+          </h3>
+          <p className="text-xs text-[var(--color-text-muted)]">
+            {dataErrorMessage}
+          </p>
+          <div className="flex items-center justify-center gap-3 pt-2">
             <Button
               type="button"
-              variant="outline"
+              variant="primary"
               size="sm"
-              onClick={onBack}
+              onClick={() => {
+                if (sessionId) {
+                  void sessionQuery.refetch();
+                } else {
+                  void queueQuery.refetch();
+                }
+                void summaryQuery.refetch();
+              }}
               className="rounded-[10px]"
             >
-              بازگشت به داشبورد
+              تلاش مجدد
             </Button>
-          )}
-        </div>
-      </Card>
+            {onBack && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={onBack}
+                className="rounded-[10px]"
+              >
+                بازگشت به داشبورد
+              </Button>
+            )}
+          </div>
+        </Card>
+      </div>
     );
   }
 
@@ -628,48 +749,50 @@ export function FlashcardExperience({
     }
 
     return (
-      <Card variant="solid" className="max-w-lg mx-auto my-16 p-10 bg-[var(--color-surface)] rounded-[16px] border border-[var(--color-border)] text-center space-y-6 shadow-[var(--shadow-card)]">
-        <div className="w-16 h-16 rounded-[12px] bg-[var(--color-primary-soft)] text-[var(--color-primary)] border border-[var(--color-primary-muted)] flex items-center justify-center mx-auto">
-          <Sparkles className="w-8 h-8" />
-        </div>
-        <div>
-          <h3 className="text-xl font-bold text-[var(--color-text)]">
-            مرور کارت‌ها به پایان رسید!
-          </h3>
-          <p className="text-xs text-[var(--color-text-muted)] mt-2 leading-relaxed">
-            در حال حاضر کارتی برای مرور زمان‌بندی نشده است.
-          </p>
-        </div>
-        <div className="p-4 bg-[var(--color-surface-hover)] rounded-[12px] border border-[var(--color-border)] text-xs text-[var(--color-text-muted)]">
-          تعداد کل فلش‌کارت‌های این محدوده:{" "}
-          <span className="font-bold text-[var(--color-primary)] text-sm">{totalCount}</span>
-        </div>
-        <div className="flex items-center justify-center gap-3 pt-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              void queueQuery.refetch();
-              void summaryQuery.refetch();
-            }}
-            className="rounded-[10px]"
-          >
-            تازه‌سازی صف مرور
-          </Button>
-          {onBack && (
+      <div className="w-full h-full h-[100dvh] flex items-center justify-center p-4 overflow-y-auto">
+        <Card variant="solid" className="max-w-lg w-full p-6 sm:p-10 bg-[var(--color-surface)] rounded-[16px] border border-[var(--color-border)] text-center space-y-6 shadow-[var(--shadow-card)]">
+          <div className="w-16 h-16 rounded-[12px] bg-[var(--color-primary-soft)] text-[var(--color-primary)] border border-[var(--color-primary-muted)] flex items-center justify-center mx-auto">
+            <Sparkles className="w-8 h-8" />
+          </div>
+          <div>
+            <h3 className="text-xl font-bold text-[var(--color-text)]">
+              مرور کارت‌ها به پایان رسید!
+            </h3>
+            <p className="text-xs text-[var(--color-text-muted)] mt-2 leading-relaxed">
+              در حال حاضر کارتی برای مرور زمان‌بندی نشده است.
+            </p>
+          </div>
+          <div className="p-4 bg-[var(--color-surface-hover)] rounded-[12px] border border-[var(--color-border)] text-xs text-[var(--color-text-muted)]">
+            تعداد کل فلش‌کارت‌های این محدوده:{" "}
+            <span className="font-bold text-[var(--color-primary)] text-sm">{toPersianDigits(totalCount)}</span>
+          </div>
+          <div className="flex items-center justify-center gap-3 pt-2">
             <Button
               type="button"
-              variant="primary"
+              variant="outline"
               size="sm"
-              onClick={onBack}
+              onClick={() => {
+                void queueQuery.refetch();
+                void summaryQuery.refetch();
+              }}
               className="rounded-[10px]"
             >
-              بازگشت به داشبورد
+              تازه‌سازی صف مرور
             </Button>
-          )}
-        </div>
-      </Card>
+            {onBack && (
+              <Button
+                type="button"
+                variant="primary"
+                size="sm"
+                onClick={onBack}
+                className="rounded-[10px]"
+              >
+                بازگشت به داشبورد
+              </Button>
+            )}
+          </div>
+        </Card>
+      </div>
     );
   }
 
@@ -686,191 +809,207 @@ export function FlashcardExperience({
     const durationMinutes = Math.floor(durationSeconds / 60);
 
     return (
-      <Card variant="solid" className="max-w-xl mx-auto my-12 p-8 bg-[var(--color-surface)] rounded-[16px] border border-[var(--color-border)] text-center space-y-6 shadow-[var(--shadow-card)]">
-        <div className="w-20 h-20 rounded-full bg-[var(--color-primary-soft)] text-[var(--color-primary)] border border-[var(--color-primary-muted)] flex items-center justify-center mx-auto shadow-sm">
-          <Award className="w-10 h-10" />
-        </div>
-
-        <div>
-          <h3 className="text-2xl font-extrabold text-[var(--color-text)]">
-            مرور تمام شد!
-          </h3>
-          <p className="text-xs text-[var(--color-text-muted)] mt-2 leading-relaxed">
-            جلسه مرور با موفقیت به پایان رسید!
-          </p>
-        </div>
-
-        <div className="p-5 bg-[var(--color-surface-hover)] rounded-[14px] border border-[var(--color-border)] text-xs space-y-4">
-          <div className="text-xl font-black text-[var(--color-primary)] pb-3 border-b border-[var(--color-border)]">
-            {toPersianDigits(results.length)} کارت مرور شد
+      <div className="w-full h-full h-[100dvh] flex items-center justify-center p-4 overflow-y-auto">
+        <Card variant="solid" className="max-w-xl w-full p-6 sm:p-8 bg-[var(--color-surface)] rounded-[16px] border border-[var(--color-border)] text-center space-y-6 shadow-[var(--shadow-card)]">
+          <div className="w-20 h-20 rounded-full bg-[var(--color-primary-soft)] text-[var(--color-primary)] border border-[var(--color-primary-muted)] flex items-center justify-center mx-auto shadow-sm">
+            <Award className="w-10 h-10" />
           </div>
 
-          <div className="grid grid-cols-4 gap-2 text-center py-1">
-            <div className="bg-[var(--color-error-soft)] p-2.5 rounded-[10px] border border-[var(--color-error-muted)]">
-              <span className="text-xs font-bold text-[var(--color-error)]">Again</span>
-              <p className="text-base font-black text-[var(--color-error)] mt-0.5">{toPersianDigits(againCount)}</p>
-            </div>
-            <div className="bg-[var(--color-warning-soft)] p-2.5 rounded-[10px] border border-[var(--color-warning-muted)]">
-              <span className="text-xs font-bold text-[var(--color-warning)]">Hard</span>
-              <p className="text-base font-black text-[var(--color-warning)] mt-0.5">{toPersianDigits(hardCount)}</p>
-            </div>
-            <div className="bg-[var(--color-secondary-light)] p-2.5 rounded-[10px] border border-[var(--color-secondary)]">
-              <span className="text-xs font-bold text-[var(--color-secondary-dark)]">Good</span>
-              <p className="text-base font-black text-[var(--color-secondary-dark)] mt-0.5">{toPersianDigits(goodCount)}</p>
-            </div>
-            <div className="bg-[var(--color-success-soft)] p-2.5 rounded-[10px] border border-[var(--color-success-muted)]">
-              <span className="text-xs font-bold text-[var(--color-success)]">Easy</span>
-              <p className="text-base font-black text-[var(--color-success)] mt-0.5">{toPersianDigits(easyCount)}</p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3 pt-2 text-right">
-            <div>
-              <span className="text-[var(--color-text-muted)]">دقت پاسخ‌دهی:</span>{" "}
-              <span className="font-bold text-[var(--color-text)]">{toPersianDigits(accuracy)}%</span>
-            </div>
-            <div>
-              <span className="text-[var(--color-text-muted)]">زمان مطالعه:</span>{" "}
-              <span className="font-bold text-[var(--color-text)]">
-                {durationMinutes > 0 ? `${toPersianDigits(durationMinutes)} دقیقه` : `${toPersianDigits(durationSeconds)} ثانیه`}
-              </span>
-            </div>
-            <div>
-              <span className="text-[var(--color-text-muted)]">کارت‌های ضعیف:</span>{" "}
-              <span className="font-bold text-[var(--color-error)]">{toPersianDigits(againCount)}</span>
-            </div>
-            <div>
-              <span className="text-[var(--color-text-muted)]">کارت‌های باقی‌مانده:</span>{" "}
-              <span className="font-bold text-[var(--color-text)]">
-                {toPersianDigits(summaryQuery.data?.total_due || 0)}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {effectiveIsPreview && (
-          <div className="p-6 rounded-2xl bg-gradient-to-br from-teal-500/15 via-indigo-500/10 to-purple-500/15 border border-teal-500/30 text-center space-y-3.5 shadow-sm">
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-teal-400/20 text-teal-600 dark:text-teal-300 text-xs font-bold">
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>پایان پیش‌نمایش فلش‌کارت‌ها</span>
-            </div>
-            <h4 className="text-base font-bold text-[var(--color-text)]">
-              تمام ۵ فلش‌کارت نمونه را مرور کردید!
-            </h4>
-            <p className="text-xs text-[var(--color-text-secondary)] max-w-md mx-auto leading-relaxed">
-              برای دسترسی به تمام فلش‌کارت‌های دوره‌ها، مرور فاصله‌دار هوشمند لایتنر (Spaced Repetition) و تثبیت دائمی یادگیری در حافظه بلندمدت، دوره را تهیه کنید.
+          <div>
+            <h3 className="text-2xl font-extrabold text-[var(--color-text)]">
+              مرور تمام شد!
+            </h3>
+            <p className="text-xs text-[var(--color-text-muted)] mt-2 leading-relaxed">
+              جلسه مرور با موفقیت به پایان رسید!
             </p>
-            {onUnlock && (
-              <div className="pt-2">
-                <Button
-                  type="button"
-                  variant="primary"
-                  size="md"
-                  onClick={onUnlock}
-                  className="rounded-[10px]"
-                >
-                  خرید و دسترسی به تمام فلش‌کارت‌ها
-                </Button>
-              </div>
-            )}
           </div>
-        )}
 
-        <div className="flex items-center justify-center gap-4">
-          <Button
-            type="button"
-            variant="outline"
-            size="md"
-            onClick={() => {
-              setIsCompleted(false);
-              setCurrentIndex(0);
-              setIsFlipped(false);
-              setResults([]);
-              void queueQuery.refetch();
-            }}
-            className="rounded-[10px] gap-2"
-          >
-            <RotateCcw className="w-4 h-4" />
-            <span>تکرار جلسه</span>
-          </Button>
-          {onBack && (
+          <div className="p-5 bg-[var(--color-surface-hover)] rounded-[14px] border border-[var(--color-border)] text-xs space-y-4">
+            <div className="text-xl font-black text-[var(--color-primary)] pb-3 border-b border-[var(--color-border)]">
+              {toPersianDigits(results.length)} کارت مرور شد
+            </div>
+
+            <div className="grid grid-cols-4 gap-2 text-center py-1">
+              <div className="bg-[var(--color-error-soft)] p-2.5 rounded-[10px] border border-[var(--color-error-muted)]">
+                <span className="text-xs font-bold text-[var(--color-error)]">Again</span>
+                <p className="text-lg font-black text-[var(--color-error)] mt-1">{toPersianDigits(againCount)}</p>
+              </div>
+              <div className="bg-[var(--color-warning-soft)] p-2.5 rounded-[10px] border border-[var(--color-warning-muted)]">
+                <span className="text-xs font-bold text-[var(--color-warning)]">Hard</span>
+                <p className="text-lg font-black text-[var(--color-warning)] mt-1">{toPersianDigits(hardCount)}</p>
+              </div>
+              <div className="bg-[var(--color-secondary-light)] p-2.5 rounded-[10px] border border-[var(--color-secondary)]">
+                <span className="text-xs font-bold text-[var(--color-secondary-dark)]">Good</span>
+                <p className="text-lg font-black text-[var(--color-secondary-dark)] mt-1">{toPersianDigits(goodCount)}</p>
+              </div>
+              <div className="bg-[var(--color-success-soft)] p-2.5 rounded-[10px] border border-[var(--color-success-muted)]">
+                <span className="text-xs font-bold text-[var(--color-success)]">Easy</span>
+                <p className="text-lg font-black text-[var(--color-success)] mt-1">{toPersianDigits(easyCount)}</p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-around pt-2 text-[var(--color-text-muted)] text-xs">
+              <div>
+                <span>دقت یادگیری: </span>
+                <span className="font-bold text-[var(--color-primary)]">{toPersianDigits(accuracy)}٪</span>
+              </div>
+              <div className="h-4 w-px bg-[var(--color-border)]" />
+              <div>
+                <span>مدت زمان: </span>
+                <span className="font-bold text-[var(--color-text)]">
+                  {durationMinutes > 0 ? `${toPersianDigits(durationMinutes)} دقیقه` : `${toPersianDigits(durationSeconds)} ثانیه`}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {effectiveIsPreview && (
+            <div className="p-6 rounded-2xl bg-gradient-to-br from-teal-500/15 via-indigo-500/10 to-purple-500/15 border border-teal-500/30 text-center space-y-3.5 shadow-sm">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-teal-400/20 text-teal-600 dark:text-teal-300 text-xs font-bold">
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>پایان پیش‌نمایش فلش‌کارت‌ها</span>
+              </div>
+              <h4 className="text-base font-bold text-[var(--color-text)]">
+                تمام ۵ فلش‌کارت نمونه را مرور کردید!
+              </h4>
+              <p className="text-xs text-[var(--color-text-secondary)] max-w-md mx-auto leading-relaxed">
+                برای دسترسی به تمام فلش‌کارت‌های دوره‌ها، مرور فاصله‌دار هوشمند لایتنر (Spaced Repetition) و تثبیت دائمی یادگیری در حافظه بلندمدت، دوره را تهیه کنید.
+              </p>
+              {onUnlock && (
+                <div className="pt-2">
+                  <Button
+                    type="button"
+                    variant="primary"
+                    size="md"
+                    onClick={onUnlock}
+                    className="rounded-[10px]"
+                  >
+                    خرید و دسترسی به تمام فلش‌کارت‌ها
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="flex items-center justify-center gap-4">
             <Button
               type="button"
-              variant="primary"
+              variant="outline"
               size="md"
-              onClick={onBack}
-              className="rounded-[10px]"
+              onClick={() => {
+                setIsCompleted(false);
+                setCurrentIndex(0);
+                setIsFlipped(false);
+                setResults([]);
+                setCardEvaluations({});
+                setActiveQueue([]);
+                void queueQuery.refetch();
+              }}
+              className="rounded-[10px] gap-2"
             >
-              بازگشت به داشبورد
+              <RotateCcw className="w-4 h-4" />
+              <span>تکرار جلسه</span>
             </Button>
-          )}
-        </div>
-      </Card>
+            {onBack && (
+              <Button
+                type="button"
+                variant="primary"
+                size="md"
+                onClick={onBack}
+                className="rounded-[10px]"
+              >
+                بازگشت به داشبورد
+              </Button>
+            )}
+          </div>
+        </Card>
+      </div>
     );
   }
 
   // Active review session
+  const progressPercent = effectiveCards.length > 0
+    ? Math.min(100, Math.round(((currentIndex + 1) / effectiveCards.length) * 100))
+    : 0;
+
   return (
-    <div className="relative h-[100dvh] max-h-[100dvh] flex flex-col justify-between overflow-hidden bg-[var(--color-bg)] text-[var(--color-text)] font-sans dir-rtl text-right select-none">
-      {/* Review Header */}
-      <header className="w-full px-4 md:px-8 py-3 z-10 flex flex-wrap justify-between items-center gap-3 border-b border-[var(--color-border)] bg-[var(--color-surface)]/80 backdrop-blur-md flex-shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 flex-wrap">
-            <h2 className="font-bold text-base md:text-lg text-[var(--color-text)] max-w-xs md:max-w-md truncate">
+    <div className="relative h-screen h-[100dvh] max-h-[100dvh] w-full flex flex-col justify-between overflow-hidden bg-[var(--color-bg-default)] text-[var(--color-text)] font-sans dir-rtl text-right select-none">
+      {/* Review Top App Bar */}
+      <header className="w-full px-3 sm:px-6 h-14 sm:h-16 z-10 flex justify-between items-center gap-2 sm:gap-4 border-b border-[var(--color-border)] bg-[var(--color-surface)] shadow-xs shrink-0">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+          {onBack && (
+            <button
+              type="button"
+              onClick={onBack}
+              className="inline-flex items-center gap-1 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors p-1.5 rounded-lg hover:bg-[var(--color-surface-warm)] shrink-0"
+              title="خروج از مرور"
+            >
+              <ArrowRight className="w-4 h-4" />
+              <span className="hidden sm:inline font-medium">خروج</span>
+            </button>
+          )}
+
+          <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
+            <h2 className="font-bold text-xs sm:text-sm md:text-base text-[var(--color-text)] truncate max-w-[120px] sm:max-w-xs">
               {currentCourseInfo ? currentCourseInfo.title : "مرور فلش‌کارت‌ها"}
             </h2>
             {effectiveIsPreview && (
-              <Badge variant="info" size="sm" className="gap-1">
+              <Badge variant="info" size="sm" className="hidden md:inline-flex gap-1 text-[10px] sm:text-xs">
                 <Sparkles className="w-3 h-3 text-teal-400" />
                 پیش‌نمایش رایگان (۵ کارت)
               </Badge>
             )}
             {mode === "exam" && (
-              <Badge variant="warning" size="sm" className="gap-1">
+              <Badge variant="warning" size="sm" className="hidden md:inline-flex gap-1 text-[10px] sm:text-xs">
                 <Sparkles className="w-3 h-3" />
                 مرور فشرده
               </Badge>
             )}
             {mode === "custom" && (
-              <Badge variant="info" size="sm">
+              <Badge variant="info" size="sm" className="hidden md:inline-flex text-[10px] sm:text-xs">
                 مطالعه سفارشی
               </Badge>
             )}
           </div>
-          {onBack && (
-            <button
-              type="button"
-              onClick={onBack}
-              className="inline-flex items-center gap-1 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors cursor-pointer border-r border-[var(--color-border)] pr-3"
-            >
-              <ArrowRight className="w-3.5 h-3.5" />
-              <span>خروج از مرور</span>
-            </button>
-          )}
         </div>
 
+        {/* Progress Center Bar */}
+        {effectiveCards.length > 0 && (
+          <div className="flex flex-1 justify-center max-w-[180px] sm:max-w-xs md:max-w-sm mx-2 items-center gap-2 sm:gap-3 min-w-0">
+            <span className="text-[11px] sm:text-xs text-[var(--color-text-muted)] whitespace-nowrap font-medium font-mono">
+              کارت {toPersianDigits(currentIndex + 1)} از {toPersianDigits(effectiveCards.length)}
+            </span>
+            <div className="w-full bg-[var(--color-surface-warm)] border border-[var(--color-border)] rounded-full h-1.5 sm:h-2 overflow-hidden">
+              <div
+                className="bg-[var(--color-primary)] h-full rounded-full transition-all duration-300"
+                style={{ width: `${progressPercent}%` }}
+              />
+            </div>
+          </div>
+        )}
+
         {/* Compact 3-Stats Header Pill */}
-        <div className="inline-flex items-center gap-3 px-3.5 py-1.5 bg-[var(--color-surface)] rounded-full border border-[var(--color-border)] shadow-[var(--shadow-subtle)] text-xs">
-          <div className="flex items-center gap-1 border-e border-[var(--color-border)] pe-2.5">
-            <span className="text-[var(--color-text-muted)]">دیده‌نشده:</span>
+        <div className="inline-flex items-center gap-1.5 sm:gap-2.5 px-2 sm:px-3 py-1 bg-[var(--color-surface-warm)] rounded-full border border-[var(--color-border)] shadow-xs text-[11px] sm:text-xs shrink-0">
+          <div className="flex items-center gap-1 border-e border-[var(--color-border)] pe-1.5 sm:pe-2">
+            <span className="text-[var(--color-text-muted)] hidden md:inline">دیده‌نشده:</span>
             <span className="font-bold text-[var(--color-primary)]">{toPersianDigits(unseenCount)}</span>
           </div>
-          <div className="flex items-center gap-1 border-e border-[var(--color-border)] pe-2.5">
-            <span className="text-[var(--color-text-muted)]">مرور مجدد:</span>
+          <div className="flex items-center gap-1 border-e border-[var(--color-border)] pe-1.5 sm:pe-2">
+            <span className="text-[var(--color-text-muted)] hidden md:inline">مرور مجدد:</span>
             <span className="font-bold text-[var(--color-error)]">{toPersianDigits(reviewCount)}</span>
           </div>
           <div className="flex items-center gap-1">
-            <span className="text-[var(--color-text-muted)]">پایان‌یافته:</span>
+            <span className="text-[var(--color-text-muted)] hidden md:inline">پایان‌یافته:</span>
             <span className="font-bold text-[var(--color-success)]">{toPersianDigits(finishedCount)}</span>
           </div>
         </div>
       </header>
 
       {/* Main Review Area */}
-      <div className="flex-1 flex flex-col items-center justify-center p-3 md:p-6 z-10 w-full max-w-3xl mx-auto overflow-hidden min-h-0">
+      <div className="flex-1 flex flex-col items-center justify-between p-2 sm:p-4 md:p-6 z-10 w-full max-w-4xl mx-auto min-h-0 overflow-hidden">
         {reviewMutation.isError && (
-          <div className="w-full mb-3 flex-shrink-0">
-            <div className="p-3 bg-[var(--color-error-soft)] rounded-[10px] border border-[var(--color-error-muted)] text-xs text-[var(--color-error)] flex items-center gap-2 justify-center">
+          <div className="w-full mb-2 sm:mb-3 shrink-0">
+            <div className="p-2 sm:p-3 bg-[var(--color-error-soft)] rounded-[10px] border border-[var(--color-error-muted)] text-xs text-[var(--color-error)] flex items-center gap-2 justify-center">
               <AlertCircle className="w-4 h-4" />
               <span>خطا در ثبت بازخورد مرور. لطفاً دوباره تلاش کنید.</span>
             </div>
@@ -889,24 +1028,24 @@ export function FlashcardExperience({
             }
             onClick={handleFlip}
             onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
+              if (e.code === "Space" || e.key === " ") {
                 e.preventDefault();
                 handleFlip();
               }
             }}
-            className="w-full flex-1 flex flex-col min-h-0 max-h-[560px] bg-[var(--color-surface)] rounded-[18px] border border-[var(--color-border)] shadow-[var(--shadow-card)] overflow-hidden transition-all duration-300 relative cursor-pointer group focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/40"
+            className="w-full flex-1 flex flex-col min-h-0 max-h-[480px] md:max-h-[500px] bg-[var(--color-surface)] rounded-[16px] sm:rounded-[18px] border border-[var(--color-border)] shadow-xs overflow-hidden transition-all duration-300 relative cursor-pointer group focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/40 my-auto"
           >
             {/* Integrated Card Top Bar */}
             <div
-              className="flex items-center justify-between px-4 md:px-6 py-2.5 border-b border-[var(--color-border)] bg-[var(--color-surface-hover)]/40 flex-shrink-0"
+              className="flex items-center justify-between px-3 sm:px-6 py-2 sm:py-2.5 border-b border-[var(--color-border)] bg-[var(--color-surface-warm)]/40 shrink-0"
               onClick={(e) => isEditing && e.stopPropagation()}
             >
               <div className="flex items-center gap-2">
                 <Badge variant="primary" size="sm" className="gap-1.5 font-medium">
                   <BookOpen className="w-3.5 h-3.5" />
-                  <span className="truncate max-w-[200px]">{currentCourseInfo ? currentCourseInfo.title : "فلش‌کارت"}</span>
+                  <span className="truncate max-w-[150px] sm:max-w-[200px]">{currentCourseInfo ? currentCourseInfo.title : "فلش‌کارت"}</span>
                 </Badge>
-                <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-[var(--color-surface-hover)] border border-[var(--color-border)] text-[var(--color-text-secondary)]">
+                <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-[var(--color-text-secondary)]">
                   {isFlipped ? "پاسخ" : "سوال"}
                 </span>
               </div>
@@ -926,7 +1065,7 @@ export function FlashcardExperience({
             </div>
 
             {/* Central Card Body */}
-            <div className="flex-1 flex flex-col justify-center items-center text-center w-full px-5 md:px-10 py-5 overflow-y-auto min-h-0">
+            <div className="flex-1 flex flex-col justify-center items-center text-center w-full px-4 sm:px-8 md:px-12 py-3 sm:py-4 md:py-5 overflow-y-auto min-h-0">
               {isEditing ? (
                 <div
                   className="w-full my-auto space-y-3"
@@ -937,7 +1076,7 @@ export function FlashcardExperience({
                     <textarea
                       value={editQuestion}
                       onChange={(e) => setEditQuestion(e.target.value)}
-                      className="w-full p-2.5 bg-[var(--color-bg)] border border-[var(--color-border)] rounded-[10px] text-xs md:text-sm text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary)] focus:ring-1 focus:ring-[var(--color-primary)] resize-none h-20 leading-relaxed font-sans"
+                      className="w-full p-2.5 bg-[var(--color-bg)] border border-[var(--color-border)] rounded-[10px] text-xs sm:text-sm text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary)] focus:ring-1 focus:ring-[var(--color-primary)] resize-y min-h-[80px] overflow-y-auto leading-relaxed font-sans"
                       dir="rtl"
                     />
                   </div>
@@ -946,7 +1085,7 @@ export function FlashcardExperience({
                     <textarea
                       value={editAnswer}
                       onChange={(e) => setEditAnswer(e.target.value)}
-                      className="w-full p-2.5 bg-[var(--color-bg)] border border-[var(--color-border)] rounded-[10px] text-xs md:text-sm text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary)] focus:ring-1 focus:ring-[var(--color-primary)] resize-none h-20 leading-relaxed font-sans"
+                      className="w-full p-2.5 bg-[var(--color-bg)] border border-[var(--color-border)] rounded-[10px] text-xs sm:text-sm text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary)] focus:ring-1 focus:ring-[var(--color-primary)] resize-y min-h-[80px] overflow-y-auto leading-relaxed font-sans"
                       dir="rtl"
                     />
                   </div>
@@ -977,25 +1116,25 @@ export function FlashcardExperience({
                 <>
                   {/* Question View */}
                   <div className={`w-full flex-col items-center justify-center my-auto ${isFlipped ? "hidden" : "flex"}`}>
-                    <h3 className="text-lg md:text-2xl lg:text-3xl font-bold text-[var(--color-text)] leading-relaxed max-w-2xl text-center">
+                    <h3 className="text-xs sm:text-sm md:text-lg lg:text-xl font-bold text-[var(--color-text)] leading-relaxed max-w-3xl text-center">
                       <RichContent content={currentCard.question} inline />
                     </h3>
                   </div>
 
                   {/* Answer View */}
-                  <div className={`w-full flex-col items-center justify-center my-auto space-y-4 ${isFlipped ? "flex" : "hidden"}`}>
-                    <div className="text-base md:text-xl lg:text-2xl font-bold text-[var(--color-text)] leading-relaxed max-w-2xl text-center">
+                  <div className={`w-full flex-col items-center justify-center my-auto space-y-3 sm:space-y-4 ${isFlipped ? "flex" : "hidden"}`}>
+                    <div className="text-xs sm:text-sm md:text-base lg:text-lg font-bold text-[var(--color-text)] leading-relaxed max-w-3xl text-center">
                       <RichContent content={currentCard.answer} inline />
                     </div>
                     {currentCard.explanation && (
-                      <div className="w-full max-w-2xl p-3.5 bg-[var(--color-surface-hover)] rounded-[12px] border border-[var(--color-border)] text-xs md:text-sm text-[var(--color-text-secondary)] space-y-1.5 text-right">
-                        <div className="font-bold text-[var(--color-primary)] flex items-center gap-1.5 justify-start">
-                          <Lightbulb className="w-4 h-4 text-[var(--color-primary)]" />
+                      <div className="w-full max-w-3xl p-3 sm:p-3.5 bg-[var(--color-surface-warm)] rounded-[12px] border border-[var(--color-border)] text-xs sm:text-sm text-[var(--color-text-secondary)] leading-relaxed text-right">
+                        <span className="font-bold text-[var(--color-primary)] inline-flex items-center gap-1.5 ml-1.5 align-middle">
+                          <Lightbulb className="w-3.5 h-3.5 text-[var(--color-primary)] shrink-0" />
                           <span>توضیح تکمیلی:</span>
-                        </div>
-                        <div className="leading-relaxed text-[var(--color-text-secondary)]">
-                          <RichContent content={currentCard.explanation} />
-                        </div>
+                        </span>
+                        <span className="text-[var(--color-text-secondary)] inline leading-relaxed align-middle">
+                          <RichContent content={currentCard.explanation} inline />
+                        </span>
                       </div>
                     )}
                   </div>
@@ -1004,7 +1143,7 @@ export function FlashcardExperience({
             </div>
 
             {/* Clean Bottom Touch Prompt */}
-            <div className="flex justify-center items-center gap-2 text-xs py-2.5 px-4 bg-[var(--color-surface-hover)]/30 border-t border-[var(--color-border)] w-full flex-shrink-0 text-[var(--color-text-muted)]">
+            <div className="flex justify-center items-center gap-1.5 sm:gap-2 text-[11px] sm:text-xs py-2 px-3 sm:px-4 bg-[var(--color-surface-warm)]/30 border-t border-[var(--color-border)] w-full shrink-0 text-[var(--color-text-muted)]">
               {!isFlipped ? (
                 <>
                   <Pointer className="w-3.5 h-3.5 text-[var(--color-primary)]" />
@@ -1021,7 +1160,7 @@ export function FlashcardExperience({
         )}
 
         {/* Spaced Repetition Review Controls */}
-        <div className="w-full max-w-3xl flex items-center gap-2 md:gap-3 pt-3 flex-shrink-0 z-20">
+        <div className="w-full max-w-4xl flex items-center gap-2 sm:gap-3 pt-2 sm:pt-3 shrink-0 z-20">
           {/* Previous Button */}
           <Button
             type="button"
@@ -1031,14 +1170,14 @@ export function FlashcardExperience({
             disabled={currentIndex === 0 || isSubmitting || reviewMutation.isPending}
             aria-label="کارت قبلی"
             title="کارت قبلی"
-            className="flex-shrink-0 w-11 h-11 md:w-12 md:h-12 !p-0 rounded-full"
+            className="shrink-0 w-10 h-10 sm:w-11 sm:h-11 md:w-12 md:h-12 !p-0 rounded-full"
           >
             <ChevronRight className="w-5 h-5 text-[var(--color-text)]" />
           </Button>
 
           {/* 4-Button SRS Rating Grid */}
           <div
-            className={`flex-1 grid grid-cols-4 gap-2 md:gap-3 transition-opacity duration-300 ${
+            className={`flex-1 grid grid-cols-4 gap-1.5 sm:gap-2 md:gap-3 transition-opacity duration-300 ${
               isFlipped ? "opacity-100" : "opacity-40 pointer-events-none"
             }`}
             id="review-controls"
@@ -1049,14 +1188,14 @@ export function FlashcardExperience({
               onClick={() => handleRating("again")}
               disabled={!isFlipped || isSubmitting || reviewMutation.isPending}
               aria-label="تکرار"
-              className="flex flex-col items-center justify-center py-2.5 md:py-3 px-1 md:px-2 rounded-[12px] bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-[var(--color-error)] hover:bg-[var(--color-error-soft)] transition-all group disabled:opacity-50 cursor-pointer shadow-[var(--shadow-subtle)]"
+              className="flex flex-col items-center justify-center py-2 sm:py-2.5 md:py-3 px-1 md:px-2 rounded-[12px] bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-[var(--color-error)] hover:bg-[var(--color-error-soft)] transition-all group disabled:opacity-50 cursor-pointer shadow-xs"
             >
               {selectedRating === "again" && isSubmitting ? (
                 <Loader2 className="w-4 h-4 animate-spin text-[var(--color-error)]" />
               ) : (
                 <>
                   <span className="text-xs md:text-sm font-bold text-[var(--color-text)] mb-0.5">دوباره</span>
-                  <span className="text-[11px] md:text-xs font-bold text-[var(--color-error)]">
+                  <span className="text-[10px] sm:text-[11px] md:text-xs font-bold text-[var(--color-error)]">
                     {getIntervalHint("again", currentCard)}
                   </span>
                 </>
@@ -1069,14 +1208,14 @@ export function FlashcardExperience({
               onClick={() => handleRating("hard")}
               disabled={!isFlipped || isSubmitting || reviewMutation.isPending}
               aria-label="سخت"
-              className="flex flex-col items-center justify-center py-2.5 md:py-3 px-1 md:px-2 rounded-[12px] bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-[var(--color-warning)] hover:bg-[var(--color-warning-soft)] transition-all group disabled:opacity-50 cursor-pointer shadow-[var(--shadow-subtle)]"
+              className="flex flex-col items-center justify-center py-2 sm:py-2.5 md:py-3 px-1 md:px-2 rounded-[12px] bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-[var(--color-warning)] hover:bg-[var(--color-warning-soft)] transition-all group disabled:opacity-50 cursor-pointer shadow-xs"
             >
               {selectedRating === "hard" && isSubmitting ? (
                 <Loader2 className="w-4 h-4 animate-spin text-[var(--color-warning)]" />
               ) : (
                 <>
                   <span className="text-xs md:text-sm font-bold text-[var(--color-text)] mb-0.5">سخت</span>
-                  <span className="text-[11px] md:text-xs font-bold text-[var(--color-warning)]">
+                  <span className="text-[10px] sm:text-[11px] md:text-xs font-bold text-[var(--color-warning)]">
                     {getIntervalHint("hard", currentCard)}
                   </span>
                 </>
@@ -1089,14 +1228,14 @@ export function FlashcardExperience({
               onClick={() => handleRating("good")}
               disabled={!isFlipped || isSubmitting || reviewMutation.isPending}
               aria-label="خوب"
-              className="flex flex-col items-center justify-center py-2.5 md:py-3 px-1 md:px-2 rounded-[12px] bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-[var(--color-secondary)] hover:bg-[var(--color-secondary-light)] transition-all group disabled:opacity-50 cursor-pointer shadow-[var(--shadow-subtle)]"
+              className="flex flex-col items-center justify-center py-2 sm:py-2.5 md:py-3 px-1 md:px-2 rounded-[12px] bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-[var(--color-secondary)] hover:bg-[var(--color-secondary-light)] transition-all group disabled:opacity-50 cursor-pointer shadow-xs"
             >
               {selectedRating === "good" && isSubmitting ? (
                 <Loader2 className="w-4 h-4 animate-spin text-[var(--color-secondary-dark)]" />
               ) : (
                 <>
                   <span className="text-xs md:text-sm font-bold text-[var(--color-text)] mb-0.5">خوب</span>
-                  <span className="text-[11px] md:text-xs font-bold text-[var(--color-secondary-dark)]">
+                  <span className="text-[10px] sm:text-[11px] md:text-xs font-bold text-[var(--color-secondary-dark)]">
                     {getIntervalHint("good", currentCard)}
                   </span>
                 </>
@@ -1109,14 +1248,14 @@ export function FlashcardExperience({
               onClick={() => handleRating("easy")}
               disabled={!isFlipped || isSubmitting || reviewMutation.isPending}
               aria-label="آسان"
-              className="flex flex-col items-center justify-center py-2.5 md:py-3 px-1 md:px-2 rounded-[12px] bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-[var(--color-success)] hover:bg-[var(--color-success-soft)] transition-all group disabled:opacity-50 cursor-pointer shadow-[var(--shadow-subtle)]"
+              className="flex flex-col items-center justify-center py-2 sm:py-2.5 md:py-3 px-1 md:px-2 rounded-[12px] bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-[var(--color-success)] hover:bg-[var(--color-success-soft)] transition-all group disabled:opacity-50 cursor-pointer shadow-xs"
             >
               {selectedRating === "easy" && isSubmitting ? (
                 <Loader2 className="w-4 h-4 animate-spin text-[var(--color-success)]" />
               ) : (
                 <>
                   <span className="text-xs md:text-sm font-bold text-[var(--color-text)] mb-0.5">آسان</span>
-                  <span className="text-[11px] md:text-xs font-bold text-[var(--color-success)]">
+                  <span className="text-[10px] sm:text-[11px] md:text-xs font-bold text-[var(--color-success)]">
                     {getIntervalHint("easy", currentCard)}
                   </span>
                 </>
@@ -1130,7 +1269,7 @@ export function FlashcardExperience({
             variant="outline"
             size="md"
             onClick={handleNextCard}
-            disabled={(currentIndex >= dueCards.length - 1 && isFlipped) || isSubmitting || reviewMutation.isPending}
+            disabled={(currentIndex >= effectiveCards.length - 1 && isFlipped) || isSubmitting || reviewMutation.isPending}
             aria-label="کارت بعدی"
             title="کارت بعدی"
             className="flex-shrink-0 w-11 h-11 md:w-12 md:h-12 !p-0 rounded-full"

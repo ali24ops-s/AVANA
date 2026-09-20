@@ -77,11 +77,6 @@ export function QuizExperienceSection() {
             <span className="text-[#008080]">خودت را امتحان کن.</span>
           </h2>
 
-          {/* Subtitle */}
-          <p className="text-base sm:text-lg leading-relaxed text-[#3d4f55]">
-            با آزمون‌های متنوع و شبیه‌سازی‌شده آوانا، بلافاصله میزان تسلطت را بسنج و نقاط ضعفت را با تحلیل خط‌به‌خط پاسخ‌ها به نقاط قوت تبدیل کن.
-          </p>
-
           <div className="space-y-2.5 pt-2">
             <div className="flex items-center gap-2.5 text-xs text-[#3d4f55]">
               <CheckCircle2 className="w-4 h-4 text-[#008080] shrink-0" />

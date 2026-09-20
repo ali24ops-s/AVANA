@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { api, type AdminSystemHealth } from "../../lib/api/admin";
-import { AdminStatusBadge } from "../../components/admin/AdminUI";
+import { api, type AdminSystemHealth } from "../../lib/api/admin.js";
+import { AdminStatusBadge } from "../../components/admin/AdminUI.js";
 import { Activity, Database, Server, Cpu, RefreshCw } from "lucide-react";
+import { toPersianDigits } from "@avana/domain";
 
 export function AdminSystemHealthPage() {
   const [health, setHealth] = useState<AdminSystemHealth | null>(null);
@@ -86,7 +87,7 @@ export function AdminSystemHealthPage() {
       {health && (
         <div className="text-sm text-[var(--color-text-muted)] flex items-center justify-between pt-4 border-t border-[var(--color-border)]">
           <span>آخرین بررسی:</span>
-          <span dir="ltr">{new Date(health.lastCheck).toLocaleString("fa-IR")}</span>
+          <span dir="ltr">{toPersianDigits(new Date(health.lastCheck).toLocaleString("fa-IR"))}</span>
         </div>
       )}
     </div>
@@ -125,7 +126,7 @@ function HealthCard({
 
         {typeof latencyMs === "number" && latencyMs >= 0 && (
           <span className="text-xs text-[var(--color-text-muted)] font-mono" dir="ltr">
-            {latencyMs} ms
+            {toPersianDigits(latencyMs)} ms
           </span>
         )}
 

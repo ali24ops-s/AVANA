@@ -1,3 +1,4 @@
+/* eslint-disable no-secrets/no-secrets */
 import { describe, expect, it, beforeEach } from "vitest";
 import { createApp } from "../server/createApp.js";
 import { loadApiConfig } from "../config.js";
@@ -131,7 +132,7 @@ describe("Auth Login & Device Management Regression Test Suite", () => {
       expect(activeDevices[0].deviceId).toBe(initialDeviceId);
     });
 
-    it("STRICTLY BLOCKS regular user when desktop slot is full (Case C invariant holds)", async () => {
+    it("allows regular user to perform device slot takeover on new desktop login when slot was occupied", async () => {
       const password = "UserPassword123!";
       const passwordHash = await hashPassword(password);
       const user = await userStore.createUserWithPassword({
@@ -165,33 +166,43 @@ describe("Auth Login & Device Management Regression Test Suite", () => {
         payload: { email: "regular3@example.com", password },
       });
 
-      // Regular user MUST be blocked
-      expect(res2.statusCode).toBe(403);
-      expect(res2.json().error.code).toBe("DEVICE_LIMIT_REACHED");
+      // Regular user takes over the desktop slot (Newest-Login-Wins)
+      expect(res2.statusCode).toBe(200);
+      const session2 = extractCookie(res2, "avana_session")!;
+      const deviceId2 = extractCookie(res2, "avana_device_id")!;
+      expect(deviceId2).not.toBe(deviceId1);
 
-      // Case C Invariant: Session 1 is STILL valid!
-      const meRes = await app.inject({
+      // Previous session is REVOKED
+      const meResOld = await app.inject({
         method: "GET",
         url: "/v1/me",
         headers: { cookie: `avana_session=${session1}` },
       });
-      expect(meRes.statusCode).toBe(200);
+      expect(meResOld.statusCode).toBe(401);
 
-      // Device 1 is STILL active and unmodified!
+      // New session is VALID
+      const meResNew = await app.inject({
+        method: "GET",
+        url: "/v1/me",
+        headers: { cookie: `avana_session=${session2}` },
+      });
+      expect(meResNew.statusCode).toBe(200);
+
+      // Exactly 1 active device in store for user
       const activeDevices = await deviceStore.findActiveByUser(asUserId(user.id));
       expect(activeDevices).toHaveLength(1);
-      expect(activeDevices[0].deviceId).toBe(deviceId1);
+      expect(activeDevices[0].deviceId).toBe(deviceId2);
     });
   });
 
   // ---------------------------------------------------------------------------
-  // 2. Content Worker Scenarios (Worker MUST NOT bypass device limits)
+  // 2. Content Worker Scenarios (Worker device slot takeover)
   // ---------------------------------------------------------------------------
   describe("Content Worker Device Management", () => {
-    it("strictly blocks content_worker when slot is full (no bypass granted)", async () => {
+    it("allows content_worker to perform device slot takeover on new login when slot was occupied", async () => {
       const password = "WorkerPassword123!";
       const passwordHash = await hashPassword(password);
-      await userStore.createUserWithPassword({
+      const worker = await userStore.createUserWithPassword({
         email: "worker-001@avana.local",
         passwordHash,
         name: "Content Worker 1",
@@ -210,7 +221,7 @@ describe("Auth Login & Device Management Regression Test Suite", () => {
       });
       expect(res1.statusCode).toBe(200);
 
-      // Attempt second desktop device without cookie
+      // Login second desktop device without cookie -> slot takeover
       const res2 = await app.inject({
         method: "POST",
         url: "/v1/auth/sign-in",
@@ -221,8 +232,9 @@ describe("Auth Login & Device Management Regression Test Suite", () => {
         payload: { email: "worker-001@avana.local", password },
       });
 
-      expect(res2.statusCode).toBe(403);
-      expect(res2.json().error.code).toBe("DEVICE_LIMIT_REACHED");
+      expect(res2.statusCode).toBe(200);
+      const activeDevices = await deviceStore.findActiveByUser(asUserId(worker.id));
+      expect(activeDevices).toHaveLength(1);
     });
   });
 
@@ -658,10 +670,10 @@ describe("Auth Login & Device Management Regression Test Suite", () => {
       expect(adminDevices[0].deviceId).toBe(clientDeviceId);
     });
 
-    it("D. Device limit: Student registered on device A gets DEVICE_LIMIT_REACHED when logging in from device B", async () => {
+    it("D. Device takeover: Student registered on device A takes over slot when logging in from device B", async () => {
       const password = "Password123!";
       const passwordHash = await hashPassword(password);
-      await userStore.createUserWithPassword({
+      const student = await userStore.createUserWithPassword({
         email: "student_limits@example.com",
         passwordHash,
         name: "Student Limits",
@@ -677,7 +689,7 @@ describe("Auth Login & Device Management Regression Test Suite", () => {
       expect(resA.statusCode).toBe(200);
       const deviceA = extractCookie(resA, "avana_device_id")!;
 
-      // 2. Attempt login from Device B (different device ID or fresh client without cookie)
+      // 2. Login from Device B (different device ID or fresh client without cookie) -> Takes over slot
       const resB = await app.inject({
         method: "POST",
         url: "/v1/auth/sign-in",
@@ -687,21 +699,14 @@ describe("Auth Login & Device Management Regression Test Suite", () => {
         },
         payload: { email: "student_limits@example.com", password },
       });
-      expect(resB.statusCode).toBe(403);
-      const bodyB = resB.json();
-      expect(bodyB.error.code).toBe("DEVICE_LIMIT_REACHED");
+      expect(resB.statusCode).toBe(200);
+      expect(extractCookie(resB, "avana_device_id")).toBe("dev_999999999999999999999999999999999999999999999999");
 
-      // 3. Re-login from Device A still works
-      const resARetry = await app.inject({
-        method: "POST",
-        url: "/v1/auth/sign-in",
-        headers: {
-          "x-device-type": "desktop",
-          cookie: `avana_device_id=${deviceA}`,
-        },
-        payload: { email: "student_limits@example.com", password },
-      });
-      expect(resARetry.statusCode).toBe(200);
+      // Verify Device B is active and Device A is revoked
+      const activeDevices = await deviceStore.findActiveByUser(asUserId(student.id));
+      expect(activeDevices).toHaveLength(1);
+      expect(activeDevices[0].deviceId).toBe("dev_999999999999999999999999999999999999999999999999");
+      expect(activeDevices[0].deviceId).not.toBe(deviceA);
     });
 
     it("E. Fresh client: generates fresh device ID matching canonical format", async () => {
@@ -765,6 +770,297 @@ describe("Auth Login & Device Management Regression Test Suite", () => {
       expect(activeDevices).toHaveLength(1);
       expect(activeDevices[0].deviceId).toBe(laptopDeviceId);
       expect(activeDevices[0].deviceId).not.toBe(officeDeviceId);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // 6. Comprehensive Root-Cause & Verification Suite (User Scenarios 1-7)
+  // ---------------------------------------------------------------------------
+  describe("6. Comprehensive Device Slot Takeover & Session Recovery Suite", () => {
+    // 1. Mobile re-login after device cookie loss
+    it("1. Mobile re-login after device/session cookie loss: succeeds and vacates previous slot", async () => {
+      const password = "UserSecret123!";
+      const passwordHash = await hashPassword(password);
+      const user = await userStore.createUserWithPassword({
+        email: "mob_loss@example.com",
+        passwordHash,
+        name: "Mobile Loss User",
+      });
+
+      // Day 1: Mobile login
+      const day1Res = await app.inject({
+        method: "POST",
+        url: "/v1/auth/sign-in",
+        headers: {
+          "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)",
+          "x-device-type": "mobile",
+        },
+        payload: { email: "mob_loss@example.com", password },
+      });
+      expect(day1Res.statusCode).toBe(200);
+      const day1DeviceId = extractCookie(day1Res, "avana_device_id")!;
+      const day1Session = extractCookie(day1Res, "avana_session")!;
+
+      // Day 2: User opens site in separate browser / cookie lost (no cookie headers)
+      const day2Res = await app.inject({
+        method: "POST",
+        url: "/v1/auth/sign-in",
+        headers: {
+          "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)",
+          "x-device-type": "mobile",
+        },
+        payload: { email: "mob_loss@example.com", password },
+      });
+
+      // MUST SUCCEED with 200 (NOT 403 DEVICE_LIMIT_REACHED)
+      expect(day2Res.statusCode).toBe(200);
+      const day2DeviceId = extractCookie(day2Res, "avana_device_id")!;
+      const day2Session = extractCookie(day2Res, "avana_session")!;
+      expect(day2DeviceId).not.toBe(day1DeviceId);
+
+      // Day 1 session is revoked
+      const meOld = await app.inject({
+        method: "GET",
+        url: "/v1/me",
+        headers: { cookie: `avana_session=${day1Session}` },
+      });
+      expect(meOld.statusCode).toBe(401);
+
+      // Day 2 session is active
+      const meNew = await app.inject({
+        method: "GET",
+        url: "/v1/me",
+        headers: { cookie: `avana_session=${day2Session}` },
+      });
+      expect(meNew.statusCode).toBe(200);
+
+      // Exactly 1 active mobile device
+      const activeDevices = await deviceStore.findActiveByUser(asUserId(user.id));
+      expect(activeDevices).toHaveLength(1);
+      expect(activeDevices[0].deviceId).toBe(day2DeviceId);
+      expect(activeDevices[0].deviceType).toBe("mobile");
+    });
+
+    // 2. Mobile takeover
+    it("2. Mobile takeover: Mobile A active -> Mobile B valid login -> A revoked, B active", async () => {
+      const password = "UserSecret123!";
+      const passwordHash = await hashPassword(password);
+      const user = await userStore.createUserWithPassword({
+        email: "mob_takeover@example.com",
+        passwordHash,
+        name: "Mobile Takeover User",
+      });
+
+      // Mobile A login
+      const resA = await app.inject({
+        method: "POST",
+        url: "/v1/auth/sign-in",
+        headers: {
+          "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)",
+          "x-device-type": "mobile",
+        },
+        payload: { email: "mob_takeover@example.com", password },
+      });
+      expect(resA.statusCode).toBe(200);
+      const devA = extractCookie(resA, "avana_device_id")!;
+
+      // Mobile B login
+      const resB = await app.inject({
+        method: "POST",
+        url: "/v1/auth/sign-in",
+        headers: {
+          "user-agent": "Mozilla/5.0 (Android 14; Mobile)",
+          "x-device-type": "mobile",
+        },
+        payload: { email: "mob_takeover@example.com", password },
+      });
+      expect(resB.statusCode).toBe(200);
+      const devB = extractCookie(resB, "avana_device_id")!;
+      expect(devB).not.toBe(devA);
+
+      const activeDevices = await deviceStore.findActiveByUser(asUserId(user.id));
+      expect(activeDevices).toHaveLength(1);
+      expect(activeDevices[0].deviceId).toBe(devB);
+    });
+
+    // 3. Desktop takeover
+    it("3. Desktop takeover: Desktop A active -> Desktop B valid login -> A revoked, B active", async () => {
+      const password = "UserSecret123!";
+      const passwordHash = await hashPassword(password);
+      const user = await userStore.createUserWithPassword({
+        email: "desk_takeover@example.com",
+        passwordHash,
+        name: "Desk Takeover User",
+      });
+
+      // Desktop A
+      const resA = await app.inject({
+        method: "POST",
+        url: "/v1/auth/sign-in",
+        headers: {
+          "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+          "x-device-type": "desktop",
+        },
+        payload: { email: "desk_takeover@example.com", password },
+      });
+      expect(resA.statusCode).toBe(200);
+      const devA = extractCookie(resA, "avana_device_id")!;
+
+      // Desktop B
+      const resB = await app.inject({
+        method: "POST",
+        url: "/v1/auth/sign-in",
+        headers: {
+          "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+          "x-device-type": "desktop",
+        },
+        payload: { email: "desk_takeover@example.com", password },
+      });
+      expect(resB.statusCode).toBe(200);
+      const devB = extractCookie(resB, "avana_device_id")!;
+      expect(devB).not.toBe(devA);
+
+      const activeDevices = await deviceStore.findActiveByUser(asUserId(user.id));
+      expect(activeDevices).toHaveLength(1);
+      expect(activeDevices[0].deviceId).toBe(devB);
+    });
+
+    // 4. Mobile + Desktop independence
+    it("4. Mobile + Desktop independence: Mobile A active -> Desktop B login -> both remain active", async () => {
+      const password = "UserSecret123!";
+      const passwordHash = await hashPassword(password);
+      const user = await userStore.createUserWithPassword({
+        email: "mob_desk_indep@example.com",
+        passwordHash,
+        name: "Independence User",
+      });
+
+      // 1. Mobile login
+      const mobRes = await app.inject({
+        method: "POST",
+        url: "/v1/auth/sign-in",
+        headers: {
+          "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)",
+          "x-device-type": "mobile",
+        },
+        payload: { email: "mob_desk_indep@example.com", password },
+      });
+      expect(mobRes.statusCode).toBe(200);
+      const mobDevId = extractCookie(mobRes, "avana_device_id")!;
+
+      // 2. Desktop login
+      const deskRes = await app.inject({
+        method: "POST",
+        url: "/v1/auth/sign-in",
+        headers: {
+          "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+          "x-device-type": "desktop",
+        },
+        payload: { email: "mob_desk_indep@example.com", password },
+      });
+      expect(deskRes.statusCode).toBe(200);
+      const deskDevId = extractCookie(deskRes, "avana_device_id")!;
+
+      // Both devices must be active (1 mobile, 1 desktop)
+      const activeDevices = await deviceStore.findActiveByUser(asUserId(user.id));
+      expect(activeDevices).toHaveLength(2);
+      const activeTypes = activeDevices.map((d) => d.deviceType).sort();
+      expect(activeTypes).toEqual(["desktop", "mobile"]);
+      expect(activeDevices.find((d) => d.deviceType === "mobile")?.deviceId).toBe(mobDevId);
+      expect(activeDevices.find((d) => d.deviceType === "desktop")?.deviceId).toBe(deskDevId);
+    });
+
+    // 5. Invalid authentication -> no device takeover or revocation
+    it("5. Invalid authentication: Wrong password does not revoke existing active devices or sessions", async () => {
+      const password = "CorrectPassword123!";
+      const passwordHash = await hashPassword(password);
+      const user = await userStore.createUserWithPassword({
+        email: "invalid_auth@example.com",
+        passwordHash,
+        name: "Invalid Auth User",
+      });
+
+      // Valid mobile login
+      const validRes = await app.inject({
+        method: "POST",
+        url: "/v1/auth/sign-in",
+        headers: {
+          "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)",
+          "x-device-type": "mobile",
+        },
+        payload: { email: "invalid_auth@example.com", password: "CorrectPassword123!" },
+      });
+      expect(validRes.statusCode).toBe(200);
+      const originalSession = extractCookie(validRes, "avana_session")!;
+      const originalDevice = extractCookie(validRes, "avana_device_id")!;
+
+      // Attacker attempts login with WRONG password
+      const attackRes = await app.inject({
+        method: "POST",
+        url: "/v1/auth/sign-in",
+        headers: {
+          "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)",
+          "x-device-type": "mobile",
+        },
+        payload: { email: "invalid_auth@example.com", password: "WrongPassword999!" },
+      });
+      expect(attackRes.statusCode).toBe(401);
+
+      // Original session is STILL valid
+      const meRes = await app.inject({
+        method: "GET",
+        url: "/v1/me",
+        headers: { cookie: `avana_session=${originalSession}` },
+      });
+      expect(meRes.statusCode).toBe(200);
+
+      // Original device is STILL active
+      const activeDevices = await deviceStore.findActiveByUser(asUserId(user.id));
+      expect(activeDevices).toHaveLength(1);
+      expect(activeDevices[0].deviceId).toBe(originalDevice);
+    });
+
+    // 6. Existing device cookie reuse -> no duplicate device records
+    it("6. Existing device cookie: Re-login from same device updates lastSeen and does not create duplicates", async () => {
+      const password = "UserSecret123!";
+      const passwordHash = await hashPassword(password);
+      const user = await userStore.createUserWithPassword({
+        email: "cookie_reuse@example.com",
+        passwordHash,
+        name: "Cookie Reuse User",
+      });
+
+      // First login
+      const res1 = await app.inject({
+        method: "POST",
+        url: "/v1/auth/sign-in",
+        headers: {
+          "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)",
+          "x-device-type": "mobile",
+        },
+        payload: { email: "cookie_reuse@example.com", password },
+      });
+      expect(res1.statusCode).toBe(200);
+      const deviceId = extractCookie(res1, "avana_device_id")!;
+
+      // Second login with exact same cookie
+      const res2 = await app.inject({
+        method: "POST",
+        url: "/v1/auth/sign-in",
+        headers: {
+          "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)",
+          "x-device-type": "mobile",
+          cookie: `avana_device_id=${deviceId}`,
+        },
+        payload: { email: "cookie_reuse@example.com", password },
+      });
+      expect(res2.statusCode).toBe(200);
+      expect(extractCookie(res2, "avana_device_id")).toBe(deviceId);
+
+      // Total registered devices in all history is strictly 1 (no duplicate row created)
+      const allDevices = await deviceStore.listAllByUser(asUserId(user.id));
+      expect(allDevices).toHaveLength(1);
+      expect(allDevices[0].deviceId).toBe(deviceId);
     });
   });
 });

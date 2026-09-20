@@ -11,9 +11,11 @@ export type {
   ModuleRecord,
   LessonRecord,
   LessonProgressRecord,
+  SubCourseGroupRecord,
   ModuleStore,
   LessonStore,
   ProgressStore,
+  SubCourseGroupStore,
 } from "./learning-store.js";
 export { LearningService } from "./learning-service.js";
 export type {

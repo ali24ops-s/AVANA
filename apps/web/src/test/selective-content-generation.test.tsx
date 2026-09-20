@@ -76,6 +76,20 @@ describe("Selective Smart AI Content Generation & Lifecycle (12 Scenarios)", () 
         };
       }
 
+      if (urlStr.includes(`/estimate-cost`)) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            request_id: "req-est-1",
+            estimated_price_toman: 15000,
+            formatted_price: "۱۵٬۰۰۰ تومان",
+            currency: "toman",
+            disclaimer: "هزینه نهایی ممکن است بر اساس خروجی واقعی کمی متفاوت باشد.",
+          }),
+        };
+      }
+
       if (urlStr.includes(`/generate`) && method === "POST") {
         capturedBody = JSON.parse(init?.body as string);
         return {
@@ -115,6 +129,9 @@ describe("Selective Smart AI Content Generation & Lifecycle (12 Scenarios)", () 
     expect(screen.getByText(/آزمون \(Exam \/ Quiz\)/i)).toBeDefined();
 
     const submitBtn = screen.getByRole("button", { name: /تولید محتوا/i });
+    await waitFor(() => {
+      expect((submitBtn as HTMLButtonElement).disabled).toBe(false);
+    });
     fireEvent.click(submitBtn);
 
     await waitFor(() => {
@@ -162,6 +179,20 @@ describe("Selective Smart AI Content Generation & Lifecycle (12 Scenarios)", () 
         };
       }
 
+      if (urlStr.includes(`/estimate-cost`)) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            request_id: "req-est-2",
+            estimated_price_toman: 6000,
+            formatted_price: "۶٬۰۰۰ تومان",
+            currency: "toman",
+            disclaimer: "هزینه نهایی ممکن است بر اساس خروجی واقعی کمی متفاوت باشد.",
+          }),
+        };
+      }
+
       if (urlStr.includes(`/generate`) && method === "POST") {
         capturedBody = JSON.parse(init?.body as string);
         return {
@@ -203,6 +234,9 @@ describe("Selective Smart AI Content Generation & Lifecycle (12 Scenarios)", () 
 
     const submitBtn = screen.getByRole("button", {
       name: /تولید محتوای انتخاب‌شده/i,
+    });
+    await waitFor(() => {
+      expect((submitBtn as HTMLButtonElement).disabled).toBe(false);
     });
     fireEvent.click(submitBtn);
 
@@ -247,6 +281,20 @@ describe("Selective Smart AI Content Generation & Lifecycle (12 Scenarios)", () 
           json: async () => ({
             request_id: "stat-3",
             status: { ...mockDocument, page_count: 5, chunk_count: 10 },
+          }),
+        };
+      }
+
+      if (urlStr.includes(`/estimate-cost`)) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            request_id: "req-est-3",
+            estimated_price_toman: 9000,
+            formatted_price: "۹٬۰۰۰ تومان",
+            currency: "toman",
+            disclaimer: "هزینه نهایی ممکن است بر اساس خروجی واقعی کمی متفاوت باشد.",
           }),
         };
       }
@@ -299,6 +347,9 @@ describe("Selective Smart AI Content Generation & Lifecycle (12 Scenarios)", () 
     const submitBtn = screen.getByRole("button", {
       name: /تولید محتوای انتخاب‌شده/i,
     });
+    await waitFor(() => {
+      expect((submitBtn as HTMLButtonElement).disabled).toBe(false);
+    });
     fireEvent.click(submitBtn);
 
     await waitFor(() => {
@@ -346,6 +397,20 @@ describe("Selective Smart AI Content Generation & Lifecycle (12 Scenarios)", () 
         };
       }
 
+      if (urlStr.includes(`/estimate-cost`)) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            request_id: "req-est-4",
+            estimated_price_toman: 4500,
+            formatted_price: "۴٬۵۰۰ تومان",
+            currency: "toman",
+            disclaimer: "هزینه نهایی ممکن است بر اساس خروجی واقعی کمی متفاوت باشد.",
+          }),
+        };
+      }
+
       if (urlStr.includes(`/generate`) && method === "POST") {
         capturedBody = JSON.parse(init?.body as string);
         return {
@@ -388,6 +453,9 @@ describe("Selective Smart AI Content Generation & Lifecycle (12 Scenarios)", () 
 
     const submitBtn = screen.getByRole("button", {
       name: /تولید محتوای انتخاب‌شده/i,
+    });
+    await waitFor(() => {
+      expect((submitBtn as HTMLButtonElement).disabled).toBe(false);
     });
     fireEvent.click(submitBtn);
 
@@ -437,26 +505,31 @@ describe("Selective Smart AI Content Generation & Lifecycle (12 Scenarios)", () 
     });
 
     const queryClient = createTestQueryClient();
+    const onNavigateToReview = vi.fn();
     render(
       <QueryClientProvider client={queryClient}>
         <DocumentStatusCard
           document={mockDocument}
           organizationId={mockOrgId}
           courseId={mockCourseId}
+          onNavigateToReview={onNavigateToReview}
         />
       </QueryClientProvider>,
     );
 
-    // Button should show completed state and be disabled
-    const completedBtn = (await screen.findByRole("button", {
-      name: /تمام محتوای این فایل تولید شده است/i,
-    })) as HTMLButtonElement;
+    // Smart generation button should NOT be displayed when all content is generated
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("button", { name: /تولید هوشمند محتوای آموزشی/i }),
+      ).toBeNull();
+    });
 
-    expect(completedBtn).toBeDefined();
-    expect(completedBtn.disabled).toBe(true);
+    // Review button should be visible as the primary action
+    const reviewBtn = screen.getByRole("button", { name: /مشاهده در بازبینی/i });
+    expect(reviewBtn).toBeDefined();
 
-    // Clicking it should NOT open the modal
-    fireEvent.click(completedBtn);
+    fireEvent.click(reviewBtn);
+    expect(onNavigateToReview).toHaveBeenCalled();
     expect(screen.queryByText("انتخاب محتوای موردنظر")).toBeNull();
   });
 

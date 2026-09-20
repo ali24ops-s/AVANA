@@ -3,6 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { CourseListPage } from "../pages/CourseListPage.js";
+import { CourseCard } from "../components/avana/CourseCard.js";
 import { AuthProvider } from "../providers/AuthProvider.js";
 
 beforeEach(() => {
@@ -154,13 +155,13 @@ describe("CourseCard UI — Progress Bar & Lesson Count (CourseListPage)", () =>
       expect(screen.getByText("فیزیولوژی عمومی")).toBeDefined();
     });
 
-    // Verify progress percentage is rendered (67%)
+    // Verify progress percentage is rendered (67% / ۶۷٪)
     await waitFor(() => {
-      expect(screen.getByText("67%")).toBeDefined();
+      expect(screen.getByText(/67%|۶۷٪/)).toBeDefined();
     });
 
-    // Verify total lesson count is rendered (12 درس)
-    expect(screen.getByText("12 درس")).toBeDefined();
+    // Verify total lesson count is rendered (12 درس / ۱۲ درس)
+    expect(screen.getByText(/12|۱۲\s*درس/)).toBeDefined();
 
     // Verify old labels "دوره تخصصی" and "آماده یادگیری" are NOT present in the course card
     expect(screen.queryByText("دوره تخصصی")).toBeNull();
@@ -169,5 +170,57 @@ describe("CourseCard UI — Progress Bar & Lesson Count (CourseListPage)", () =>
     // Verify progress bar accessibility role and attributes
     const progressBar = screen.getByRole("progressbar");
     expect(progressBar.getAttribute("aria-valuenow")).toBe("67");
+  });
+
+  it("renders modules, lessons, flashcards, and quiz questions metadata accurately with Persian numerals", () => {
+    render(
+      <MemoryRouter>
+        <CourseCard
+          id="course-test-stats"
+          title="فارماکولوژی بالینی"
+          subject="داروسازی"
+          stats={{
+            moduleCount: 12,
+            lessonCount: 48,
+            flashcardCount: 320,
+            quizQuestionCount: 180,
+          }}
+          access={{ hasAccess: true, isPurchased: true }}
+        />
+      </MemoryRouter>,
+    );
+
+    // Verify Persian numeral counts and text
+    const moduleEl = screen.getByText(/۱۲\s*فصل/);
+    expect(moduleEl).toBeDefined();
+    expect(screen.getByText(/۴۸\s*درسنامه/)).toBeDefined();
+    expect(screen.getByText(/۳۲۰\s*فلش‌کارت/)).toBeDefined();
+    expect(screen.getByText(/۱۸۰\s*سؤال/)).toBeDefined();
+
+    // Verify 2x2 CSS Grid container
+    const gridContainer = moduleEl.closest(".grid");
+    expect(gridContainer).not.toBeNull();
+    expect(gridContainer?.className).toContain("grid-cols-2");
+  });
+
+  it("does not render flashcard or quiz stats when count is undefined or 0", () => {
+    render(
+      <MemoryRouter>
+        <CourseCard
+          id="course-test-no-stats"
+          title="آناتومی پایه"
+          stats={{
+            moduleCount: 4,
+            lessonCount: 10,
+          }}
+          access={{ hasAccess: true }}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText(/۴\s*فصل/)).toBeDefined();
+    expect(screen.getByText(/۱۰\s*درسنامه/)).toBeDefined();
+    expect(screen.queryByText(/فلش‌کارت/)).toBeNull();
+    expect(screen.queryByText(/سؤال/)).toBeNull();
   });
 });

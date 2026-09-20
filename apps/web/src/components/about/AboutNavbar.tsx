@@ -30,10 +30,6 @@ export const AboutNavbar: React.FC = () => {
   const navLinks = [
     { label: "صفحه اصلی", href: "/" },
     { label: "وبلاگ", href: "/blog" },
-    { label: "مشکل اطلاعات", href: "#problem-section" },
-    { label: "زنجیره یادگیری", href: "#turning-point" },
-    { label: "فلسفه ما", href: "#philosophy" },
-    { label: "اکوسیستم آوانا", href: "#ecosystem" },
   ];
 
   return (
@@ -57,7 +53,7 @@ export const AboutNavbar: React.FC = () => {
           <BrandLogo
             linkTo="/"
             variant="logo-only"
-            size="md"
+            size="lg"
             className="hover:scale-105 transition-transform duration-300"
           />
           <span className="hidden sm:inline-block text-xs text-[#008080] font-semibold px-2 py-0.5 rounded-full bg-[#008080]/10 border border-[#008080]/25">

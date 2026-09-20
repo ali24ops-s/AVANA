@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowRight,
@@ -26,7 +26,14 @@ import {
 import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
 import { createReviewApi } from "../../lib/api/review.js";
 import { MarkdownRenderer, RichContent } from "../markdown/MarkdownRenderer.js";
+import type { ChemicalStructure } from "@avana/domain";
 import { EditContentDialog } from "./EditContentDialog.js";
+
+const LazyChemicalStructureBlock = React.lazy(() =>
+  import("../chemistry/ChemicalStructureBlock.js").then((m) => ({
+    default: m.ChemicalStructureBlock,
+  })),
+);
 import { RejectContentDialog } from "./RejectContentDialog.js";
 import { EvidenceSummary } from "./EvidenceSummary.js";
 
@@ -117,6 +124,15 @@ export function ContentReviewDetail({
       void queryClient.invalidateQueries({
         queryKey: ["official-review-workspace", courseId],
       });
+      void queryClient.invalidateQueries({
+        queryKey: ["document-content-status", organizationId],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["review-summary", organizationId],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["course-documents", organizationId, courseId],
+      });
       onBack();
     },
     onError: (err: Error) => {
@@ -124,7 +140,8 @@ export function ContentReviewDetail({
     },
   });
 
-  const anyMutationPending = acceptMutation.isPending || regenerateMutation.isPending;
+  const isRegenerating = detailQuery.data?.content?.status === "regenerating" || regenerateMutation.isPending;
+  const anyMutationPending = acceptMutation.isPending || regenerateMutation.isPending || isRegenerating;
 
   if (detailQuery.isLoading) {
     return (
@@ -193,12 +210,12 @@ export function ContentReviewDetail({
                 disabled={anyMutationPending}
                 className="px-3.5 py-2 bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] text-[var(--color-text)] rounded-xl text-xs font-bold border border-[var(--color-border)] shadow-xs flex items-center gap-1.5 disabled:opacity-50 disabled:pointer-events-none transition-colors"
               >
-                {regenerateMutation.isPending ? (
+                {isRegenerating ? (
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
                 ) : (
                   <RotateCcw className="w-3.5 h-3.5 text-[var(--color-primary-default)]" />
                 )}
-                <span>{regenerateMutation.isPending ? "در حال بازتولید..." : "تولید مجدد"}</span>
+                <span>{isRegenerating ? "در حال بازتولید..." : "تولید مجدد"}</span>
               </button>
 
               {content.status !== "rejected" && (
@@ -257,6 +274,14 @@ export function ContentReviewDetail({
         <div className="flex items-center gap-2 p-3.5 bg-rose-500/10 border border-rose-500/20 rounded-2xl text-rose-700 dark:text-rose-400 text-xs font-medium">
           <AlertCircle className="w-4 h-4 flex-shrink-0" />
           <span>{regenerateError}</span>
+        </div>
+      )}
+
+      {/* Regenerating Status Banner */}
+      {content.status === "regenerating" && (
+        <div className="flex items-center gap-2.5 p-4 bg-purple-500/10 border border-purple-500/20 rounded-2xl text-purple-800 dark:text-purple-300 text-xs font-medium animate-pulse">
+          <Loader2 className="w-4 h-4 animate-spin flex-shrink-0 text-purple-600 dark:text-purple-400" />
+          <span>این محتوا در حال حاضر در حال بازتولید هوش مصنوعی است. لطفا شکیبا باشید یا صفحه را به زودی بروزرسانی کنید.</span>
         </div>
       )}
 
@@ -431,6 +456,41 @@ export function ContentReviewDetail({
                   enableLessonCallouts
                 />
               </div>
+
+              {/* Explicit Structured Chemical Structures in Payload (if present) */}
+              {Array.isArray(
+                (payload as { chemicalStructures?: ChemicalStructure[] })
+                  .chemicalStructures,
+              ) &&
+                ((payload as { chemicalStructures?: ChemicalStructure[] })
+                  .chemicalStructures?.length ?? 0) > 0 && (
+                  <div className="space-y-3 pt-2">
+                    <span className="text-xs font-bold text-[var(--color-text-muted)] block">
+                      ساختارهای شیمیایی استخراج‌شده (
+                      {toPersianDigits(
+                        (payload as { chemicalStructures?: ChemicalStructure[] })
+                          .chemicalStructures?.length ?? 0,
+                      )}{" "}
+                      ساختار):
+                    </span>
+                    <div className="space-y-4">
+                      <React.Suspense
+                        fallback={
+                          <div className="p-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] text-center text-xs text-[var(--color-text-muted)] animate-pulse">
+                            در حال بارگذاری پیش‌نمایش ساختارها...
+                          </div>
+                        }
+                      >
+                        {(
+                          (payload as { chemicalStructures?: ChemicalStructure[] })
+                            .chemicalStructures || []
+                        ).map((struct, sIdx) => (
+                          <LazyChemicalStructureBlock key={sIdx} structure={struct} />
+                        ))}
+                      </React.Suspense>
+                    </div>
+                  </div>
+                )}
             </div>
           )}
           {/* Flashcard preview */}
@@ -544,7 +604,7 @@ export function ContentReviewDetail({
                                 }`}
                               >
                                 <span>
-                                  <strong>{idx + 1}.</strong> <RichContent content={String(opt)} inline />
+                                  <strong>{toPersianDigits(idx + 1)}.</strong> <RichContent content={String(opt)} inline />
                                 </span>
                                 {isCorrect && (
                                   <span className="text-[10px] font-bold text-green-700 dark:text-green-400 bg-green-100 dark:bg-green-900/40 px-2 py-0.5 rounded-md">
@@ -585,7 +645,7 @@ export function ContentReviewDetail({
                             }`}
                           >
                             <span>
-                              <strong>{idx + 1}.</strong> <RichContent content={String(opt)} inline />
+                              <strong>{toPersianDigits(idx + 1)}.</strong> <RichContent content={String(opt)} inline />
                             </span>
                             {isCorrect && (
                               <span className="text-[10px] font-bold text-green-700 dark:text-green-400 bg-green-100 dark:bg-green-900/40 px-2 py-0.5 rounded-md">
@@ -598,9 +658,9 @@ export function ContentReviewDetail({
                     </div>
                   )}
                   {Boolean(payload.explanation) && (
-                    <p className="text-xs text-[var(--color-text-muted)] pt-2 border-t border-[var(--color-border)]">
-                      <strong>توضیح:</strong> {String(payload.explanation)}
-                    </p>
+                    <div className="text-xs text-[var(--color-text-muted)] pt-2 border-t border-[var(--color-border)]">
+                      <strong>توضیح:</strong> <RichContent inline content={String(payload.explanation)} />
+                    </div>
                   )}
                 </div>
               )}
@@ -635,7 +695,7 @@ export function ContentReviewDetail({
                     <div className="flex items-center gap-1.5 text-xs text-[var(--color-text-muted)] font-medium">
                       <Clock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
                       <span>
-                        زمان تخمینی مطالعه: {summaryPayload.estimatedReadingMinutes} دقیقه
+                        زمان تخمینی مطالعه: {toPersianDigits(summaryPayload.estimatedReadingMinutes)} دقیقه
                       </span>
                     </div>
                   )}
@@ -648,9 +708,9 @@ export function ContentReviewDetail({
                       <Sparkles className="w-4 h-4" />
                       <h4 className="text-xs font-bold">چکیده یک‌دقیقه‌ای</h4>
                     </div>
-                    <p className="text-xs text-[var(--color-text)] leading-relaxed">
-                      {summaryPayload.overview}
-                    </p>
+                    <div className="text-xs text-[var(--color-text)] leading-relaxed">
+                      <RichContent content={summaryPayload.overview} />
+                    </div>
                   </div>
                 )}
 
@@ -664,13 +724,13 @@ export function ContentReviewDetail({
                         <h4 className="text-xs font-bold">نکات کلیدی و مفاهیم اصلی</h4>
                       </div>
                       <span className="text-[11px] text-[var(--color-text-muted)]">
-                        {categories.keyPoints.length} نکته
+                        {toPersianDigits(categories.keyPoints.length)} نکته
                       </span>
                     </div>
                     <ul className="space-y-1.5 text-xs text-[var(--color-text)] ps-3 list-disc">
                       {categories.keyPoints.map((point, pIdx) => (
                         <li key={pIdx} className="leading-relaxed">
-                          {point}
+                          <RichContent inline content={point} />
                         </li>
                       ))}
                     </ul>
@@ -688,13 +748,13 @@ export function ContentReviewDetail({
                             <h4 className="text-xs font-bold">مکانیسم‌های سلولی / مولکولی</h4>
                           </div>
                           <span className="text-[10px] text-[var(--color-text-muted)]">
-                            {categories.mechanisms.length} مورد
+                            {toPersianDigits(categories.mechanisms.length)} مورد
                           </span>
                         </div>
                         <ul className="space-y-1 text-xs text-[var(--color-text)] ps-3 list-disc">
                           {categories.mechanisms.map((m, mIdx) => (
                             <li key={mIdx} className="leading-relaxed">
-                              {m}
+                              <RichContent inline content={m} />
                             </li>
                           ))}
                         </ul>
@@ -708,13 +768,13 @@ export function ContentReviewDetail({
                             <h4 className="text-xs font-bold">دسته‌بندی و طبقه‌بندی ساختاری</h4>
                           </div>
                           <span className="text-[10px] text-[var(--color-text-muted)]">
-                            {categories.classifications.length} دسته
+                            {toPersianDigits(categories.classifications.length)} دسته
                           </span>
                         </div>
                         <ul className="space-y-1 text-xs text-[var(--color-text)] ps-3 list-disc">
                           {categories.classifications.map((c, cIdx) => (
                             <li key={cIdx} className="leading-relaxed">
-                              {c}
+                              <RichContent inline content={c} />
                             </li>
                           ))}
                         </ul>
@@ -732,16 +792,16 @@ export function ContentReviewDetail({
                         <h4 className="text-xs font-bold">مقایسه‌ها و تفاوت‌های کلیدی (Key Distinctions)</h4>
                       </div>
                       <span className="text-[11px] text-[var(--color-text-muted)]">
-                        {categories.comparisons.length} مقایسه
+                        {toPersianDigits(categories.comparisons.length)} مقایسه
                       </span>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
                       {categories.comparisons.map((comp, compIdx) => {
                         if (typeof comp === "string") {
                           return (
-                            <p key={compIdx} className="text-xs text-[var(--color-text)] leading-relaxed p-2.5 bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)]">
-                              • {comp}
-                            </p>
+                            <div key={compIdx} className="text-xs text-[var(--color-text)] leading-relaxed p-2.5 bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)]">
+                              • <RichContent inline content={comp} />
+                            </div>
                           );
                         }
                         return (
@@ -750,17 +810,17 @@ export function ContentReviewDetail({
                             className="p-3 bg-[var(--color-surface)] rounded-xl text-xs space-y-1.5 border border-[var(--color-border)]"
                           >
                             <div className="flex items-center gap-2 font-bold text-[var(--color-text)]">
-                              <span>{comp.conceptA}</span>
+                              <RichContent inline content={comp.conceptA} />
                               <span className="text-purple-600 dark:text-purple-400 font-normal text-[11px] px-1.5 py-0.5 rounded bg-purple-100 dark:bg-purple-950/50">
                                 در مقایسه با
                               </span>
-                              <span>{comp.conceptB}</span>
+                              <RichContent inline content={comp.conceptB} />
                             </div>
                             {comp.keyDifferences && (
-                              <p className="text-[var(--color-text-muted)] text-[11px] leading-relaxed">
+                              <div className="text-[var(--color-text-muted)] text-[11px] leading-relaxed">
                                 <strong className="text-[var(--color-text)]">وجه تمایز: </strong>
-                                {comp.keyDifferences}
-                              </p>
+                                <RichContent inline content={comp.keyDifferences} />
+                              </div>
                             )}
                           </div>
                         );
@@ -780,13 +840,13 @@ export function ContentReviewDetail({
                             <h4 className="text-xs font-bold">نکات حفظی و اعداد مهم</h4>
                           </div>
                           <span className="text-[10px] text-[var(--color-text-muted)]">
-                            {categories.memorizationPoints.length} نکته
+                            {toPersianDigits(categories.memorizationPoints.length)} نکته
                           </span>
                         </div>
                         <ul className="space-y-1 text-xs text-[var(--color-text)] ps-3 list-disc">
                           {categories.memorizationPoints.map((item, idx) => (
                             <li key={idx} className="leading-relaxed">
-                              {item}
+                              <RichContent inline content={item} />
                             </li>
                           ))}
                         </ul>
@@ -800,13 +860,13 @@ export function ContentReviewDetail({
                             <h4 className="text-xs font-bold">نکات مهم و پرتکرار آزمونی</h4>
                           </div>
                           <span className="text-[10px] text-[var(--color-text-muted)]">
-                            {categories.examPoints.length} نکته
+                            {toPersianDigits(categories.examPoints.length)} نکته
                           </span>
                         </div>
                         <ul className="space-y-1 text-xs text-[var(--color-text)] ps-3 list-disc">
                           {categories.examPoints.map((item, idx) => (
                             <li key={idx} className="leading-relaxed">
-                              {item}
+                              <RichContent inline content={item} />
                             </li>
                           ))}
                         </ul>
@@ -825,7 +885,7 @@ export function ContentReviewDetail({
                     <ul className="space-y-1.5 text-xs text-[var(--color-text)] ps-3 list-disc">
                       {finalTakeaways.map((takeaway, tIdx) => (
                         <li key={tIdx} className="leading-relaxed">
-                          {takeaway}
+                          <RichContent inline content={takeaway} />
                         </li>
                       ))}
                     </ul>

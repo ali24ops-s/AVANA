@@ -222,9 +222,10 @@ describe("ReviewService", () => {
   });
 
   describe("reviewQueue", () => {
-    it("lists draft and edited content pending review", async () => {
+    it("lists draft, edited, and regenerating content pending review", async () => {
       seedContent(); // draft
       seedContent({ status: "edited" });
+      seedContent({ status: "regenerating" });
       seedContent({ status: "accepted" });
       seedContent({ status: "rejected" });
 
@@ -234,9 +235,9 @@ describe("ReviewService", () => {
         courseId,
         "req-1",
       );
-      expect(result.pending).toHaveLength(2);
+      expect(result.pending).toHaveLength(3);
       const statuses = result.pending.map((p) => p.status).sort();
-      expect(statuses).toEqual(["draft", "edited"]);
+      expect(statuses).toEqual(["draft", "edited", "regenerating"]);
     });
 
     it("allows a student to view the review queue", async () => {
@@ -340,6 +341,31 @@ describe("ReviewService", () => {
       await expect(
         service.acceptContent(student, organizationId, content.id),
       ).rejects.toMatchObject({ code: "forbidden" });
+    });
+
+    it("soft-deletes prior active review summaries for document when accepting a new review summary", async () => {
+      const oldSummary = seedContent({
+        type: "review_summary",
+        status: "accepted",
+      });
+      const newSummary = seedContent({
+        type: "review_summary",
+        status: "draft",
+      });
+
+      const acceptResult = await service.acceptContent(
+        editor,
+        organizationId,
+        newSummary.id,
+      );
+      expect(acceptResult.status).toBe("accepted");
+
+      const oldRecord = await contentStore.findByIdForOrganization(oldSummary.id, organizationId);
+      expect(oldRecord?.deletedAt).not.toBeNull();
+
+      const newRecord = await contentStore.findByIdForOrganization(newSummary.id, organizationId);
+      expect(newRecord?.status).toBe("accepted");
+      expect(newRecord?.deletedAt).toBeNull();
     });
   });
 
@@ -606,6 +632,89 @@ describe("ReviewService", () => {
       await expect(
         service.regenerateContent(editor, organizationId, content.id),
       ).rejects.toMatchObject({ code: "conflict" });
+    });
+
+    it("throws conflict when parent document is currently generating", async () => {
+      const generatingDoc = makeDocument(
+        { id: randomUUID() as DocumentId, status: "generating" },
+        organizationId,
+        courseId,
+      );
+      await documentStore.create(generatingDoc);
+
+      const content = seedContent({
+        id: randomUUID() as GeneratedContentId,
+        documentId: generatingDoc.id,
+        status: "draft",
+      });
+
+      await expect(
+        service.regenerateContent(editor, organizationId, content.id),
+      ).rejects.toMatchObject({
+        code: "conflict",
+        message: expect.stringContaining("این سند در حال حاضر در حال پردازش یا تولید محتوا است"),
+      });
+    });
+
+    it("throws conflict when parent document is pending_generation", async () => {
+      const pendingDoc = makeDocument(
+        { id: randomUUID() as DocumentId, status: "pending_generation" },
+        organizationId,
+        courseId,
+      );
+      await documentStore.create(pendingDoc);
+
+      const content = seedContent({
+        id: randomUUID() as GeneratedContentId,
+        documentId: pendingDoc.id,
+        status: "draft",
+      });
+
+      await expect(
+        service.regenerateContent(editor, organizationId, content.id),
+      ).rejects.toMatchObject({
+        code: "conflict",
+        message: expect.stringContaining("این سند در حال حاضر در حال پردازش یا تولید محتوا است"),
+      });
+    });
+
+    it("prevents concurrent regeneration races on the same content atomically", async () => {
+      const content = seedContent({ status: "draft" });
+
+      const results = await Promise.allSettled([
+        service.regenerateContent(editor, organizationId, content.id),
+        service.regenerateContent(editor, organizationId, content.id),
+      ]);
+
+      const fulfilled = results.filter((r) => r.status === "fulfilled");
+      const rejected = results.filter((r) => r.status === "rejected");
+
+      expect(fulfilled).toHaveLength(1);
+      expect(rejected).toHaveLength(1);
+
+      if (rejected[0].status === "rejected") {
+        expect(rejected[0].reason).toMatchObject({ code: "conflict" });
+      }
+
+      // Exactly 1 BullMQ job enqueued
+      expect(jobStore.getAll()).toHaveLength(1);
+    });
+
+    it("allows repeat regeneration after previous regeneration completes", async () => {
+      const content = seedContent({ status: "draft" });
+
+      // First regeneration
+      const res1 = await service.regenerateContent(editor, organizationId, content.id);
+      expect(res1.status).toBe("regenerating");
+
+      // Simulate worker completion: content transitioned from regenerating to draft
+      const stored = (await contentStore.findByIdForOrganization(content.id, organizationId))!;
+      await contentStore.update({ ...stored, status: "draft" });
+
+      // Second regeneration succeeds without collision
+      const res2 = await service.regenerateContent(editor, organizationId, content.id);
+      expect(res2.status).toBe("regenerating");
+      expect(jobStore.getAll()).toHaveLength(2);
     });
   });
 

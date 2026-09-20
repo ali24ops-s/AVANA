@@ -6,6 +6,8 @@ import {
   Receipt,
   CreditCard,
   KeyRound,
+  Percent,
+  Gift,
 } from "lucide-react";
 
 export interface CommerceNavItem {
@@ -29,6 +31,18 @@ export const COMMERCE_NAV_ITEMS: CommerceNavItem[] = [
     name: "محصولات و قیمت‌گذاری",
     href: "/admin/commerce/products",
     icon: ShoppingBag,
+  },
+  {
+    id: "promotions",
+    name: "تخفیف‌ها و پروموشن‌ها",
+    href: "/admin/commerce/promotions",
+    icon: Percent,
+  },
+  {
+    id: "referrals",
+    name: "دعوت‌ها و معرف‌ها",
+    href: "/admin/commerce/referrals",
+    icon: Gift,
   },
   {
     id: "subscriptions",

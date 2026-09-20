@@ -232,7 +232,7 @@ export const AvanaSelect: React.FC<AvanaSelectProps> = ({
       >
         <div className="flex items-center gap-2 min-w-0 flex-1 text-start">{renderTriggerContent()}</div>
         <svg
-          className={`w-4 h-4 text-[var(--color-text-muted)] transition-transform duration-200 ${
+          className={`w-4 h-4 text-[var(--color-text-muted)] transition-transform duration-200 shrink-0 ${
             isOpen ? "rotate-180 text-[#008080]" : ""
           }`}
           fill="none"
@@ -255,14 +255,29 @@ export const AvanaSelect: React.FC<AvanaSelectProps> = ({
         >
           {isSearchable && (
             <div className="p-2 border-b border-[var(--color-border)]">
-              <input
-                ref={searchInputRef}
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="جستجو در گزینه‌ها..."
-                className="w-full px-3 py-1.5 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg text-xs text-[var(--color-text)] focus:outline-none focus:border-[#008080]"
-              />
+              <div className="relative flex items-center">
+                <svg
+                  className="w-3.5 h-3.5 text-[var(--color-text-muted)] absolute start-2.5 top-1/2 -translate-y-1/2 pointer-events-none"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                  />
+                </svg>
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="جستجو در گزینه‌ها..."
+                  className="w-full ps-8 pe-3 py-1.5 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg text-xs text-[var(--color-text)] focus:outline-none focus:border-[#008080]"
+                />
+              </div>
             </div>
           )}
 

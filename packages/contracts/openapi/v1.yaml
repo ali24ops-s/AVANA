@@ -2158,6 +2158,20 @@ components:
           type: string
           nullable: true
           description: UTC ISO datetime
+        exam_scope:
+          type: object
+          nullable: true
+          properties:
+            moduleIds:
+              type: array
+              items:
+                type: string
+                format: uuid
+            lessonIds:
+              type: array
+              items:
+                type: string
+                format: uuid
         created_at:
           type: string
           description: UTC ISO datetime
@@ -2207,6 +2221,20 @@ components:
           type: string
           nullable: true
           description: UTC ISO datetime
+        exam_scope:
+          type: object
+          nullable: true
+          properties:
+            moduleIds:
+              type: array
+              items:
+                type: string
+                format: uuid
+            lessonIds:
+              type: array
+              items:
+                type: string
+                format: uuid
 
     CompleteLessonRequest:
       type: object
@@ -2280,12 +2308,29 @@ components:
               type: string
               nullable: true
               description: UTC ISO datetime
+        groups:
+          type: array
+          items:
+            $ref: "#/components/schemas/SubCourseGroupResource"
         modules:
           type: array
           items:
             $ref: "#/components/schemas/ModuleResource"
         progress:
           $ref: "#/components/schemas/CourseLearnProgress"
+
+    SubCourseGroupResource:
+      type: object
+      additionalProperties: false
+      required: ["id", "title", "sort_order"]
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        sort_order:
+          type: integer
 
     ModuleResource:
       type: object
@@ -2302,6 +2347,10 @@ components:
           nullable: true
         sort_order:
           type: integer
+        sub_course_group_id:
+          type: string
+          format: uuid
+          nullable: true
         lessons:
           type: array
           items:

@@ -147,7 +147,7 @@ export function PackDetailModal({
               {pack && (
                 <span className="text-xs text-[var(--color-text-muted)] flex items-center gap-1.5 whitespace-nowrap">
                   <Users className="w-3.5 h-3.5 text-[#008080] shrink-0" />
-                  <span>{pack.usage_count} افزوده‌شده به دوره‌ها</span>
+                  <span>{toPersianDigits(pack.usage_count)} افزوده‌شده به دوره‌ها</span>
                 </span>
               )}
             </div>
@@ -340,7 +340,7 @@ export function PackDetailModal({
                             className="flex items-center gap-3 p-3 text-xs text-[var(--color-text)]"
                           >
                             <span className="w-6 h-6 rounded-lg bg-teal-100 text-teal-800 flex items-center justify-center font-bold text-[11px] shrink-0">
-                              {idx + 1}
+                              {toPersianDigits(idx + 1)}
                             </span>
                             <span className="font-medium">{title}</span>
                           </div>

@@ -54,7 +54,7 @@ export class BullMqGenerationQueue implements GenerationQueue {
   async enqueueGenerationJob(
     payload: GenerationJobPayload,
   ): Promise<EnqueueGenerationResult> {
-    const generationJobId = this.newJobId();
+    const generationJobId = payload.jobId ?? this.newJobId();
     const now = new Date().toISOString();
 
     // Persist the job row first (status queued).
@@ -85,8 +85,14 @@ export class BullMqGenerationQueue implements GenerationQueue {
     await this.queue.add("generate", this.toBullPayload(payload), {
       jobId: generationJobId,
       attempts: 1,
-      removeOnComplete: false,
-      removeOnFail: false,
+      removeOnComplete: {
+        count: 1000,
+        age: 7 * 24 * 3600, // 7 days in seconds
+      },
+      removeOnFail: {
+        count: 5000,
+        age: 14 * 24 * 3600, // 14 days in seconds
+      },
     });
 
     return { generationJobId, jobId: generationJobId, status: "queued" };
@@ -105,6 +111,7 @@ export class BullMqGenerationQueue implements GenerationQueue {
       promptVersion: payload.promptVersion,
       generationKey: payload.generationKey,
       force: payload.force,
+      generationContext: payload.generationContext,
     };
   }
 

@@ -4,7 +4,7 @@ import { api } from "../../lib/api/admin";
 import { useAdmin } from "../../hooks/useAdmin.js";
 import { useMutation } from "@tanstack/react-query";
 import { AdminStatusBadge, AdminConfirmModal } from "../../components/admin/AdminUI";
-import { toPersianDigits } from "@avana/domain";
+import { toPersianDigits, formatPersianOf } from "@avana/domain";
 import {
   ArrowRight,
   FileText,
@@ -335,8 +335,8 @@ export function AdminDocumentDetailPage() {
             <span className="text-xs text-[var(--color-text-muted)]">وضعیت خط لوله:</span>
             <AdminStatusBadge status={progressStatus} />
             {prog?.progress && typeof prog.progress.percentage === "number" && (
-              <span className="text-xs font-semibold text-[var(--color-primary-default)] bg-[var(--color-surface-warm)] px-2.5 py-0.5 rounded-full border border-[var(--color-border)]" dir="ltr">
-                {prog.progress.percentage}%
+              <span className="text-xs font-semibold text-[var(--color-primary-default)] bg-[var(--color-surface-warm)] px-2.5 py-0.5 rounded-full border border-[var(--color-border)]">
+                {toPersianDigits(prog.progress.percentage)}٪
               </span>
             )}
           </div>
@@ -417,8 +417,8 @@ export function AdminDocumentDetailPage() {
                   <div className="mt-3 pt-2.5 border-t border-[var(--color-border)] space-y-1.5">
                     <div className="flex justify-between text-[11px] text-[var(--color-primary-default)] font-semibold">
                       <span>پیشرفت مرحله</span>
-                      <span dir="ltr">
-                        {prog.progress.current} / {prog.progress.total}
+                      <span>
+                        {formatPersianOf(prog.progress.current, prog.progress.total)}
                       </span>
                     </div>
                     <div className="w-full bg-[var(--color-surface-subtle)] border border-[var(--color-border)] rounded-full h-1.5 overflow-hidden">
@@ -446,24 +446,24 @@ export function AdminDocumentDetailPage() {
             <span className="text-[var(--color-text-muted)] flex items-center gap-1.5">
               <Sparkles className="w-3.5 h-3.5 text-[var(--color-primary-default)]" /> شمارنده واحدها
             </span>
-            <span className="font-semibold text-xs sm:text-sm text-[var(--color-text)]" dir="ltr">
-              {prog?.progress ? `${prog.progress.current} / ${prog.progress.total} (${prog.progress.percentage}%)` : "-"}
+            <span className="font-semibold text-xs sm:text-sm text-[var(--color-text)]">
+              {prog?.progress ? `${formatPersianOf(prog.progress.current, prog.progress.total)} (${toPersianDigits(prog.progress.percentage)}٪)` : "-"}
             </span>
           </div>
           <div className="bg-[var(--color-surface-subtle)] p-3.5 rounded-xl border border-[var(--color-border)] space-y-1">
             <span className="text-[var(--color-text-muted)] flex items-center gap-1.5">
               <Clock className="w-3.5 h-3.5 text-amber-500" /> شروع مرحله
             </span>
-            <span className="font-semibold text-xs sm:text-sm text-[var(--color-text)]" dir="ltr">
-              {prog?.stageStartedAt ? new Date(prog.stageStartedAt).toLocaleString("fa-IR") : "-"}
+            <span className="font-semibold text-xs sm:text-sm text-[var(--color-text)]">
+              {prog?.stageStartedAt ? toPersianDigits(new Date(prog.stageStartedAt).toLocaleString("fa-IR")) : "-"}
             </span>
           </div>
           <div className="bg-[var(--color-surface-subtle)] p-3.5 rounded-xl border border-[var(--color-border)] space-y-1">
             <span className="text-[var(--color-text-muted)] flex items-center gap-1.5">
               <RefreshCw className="w-3.5 h-3.5 text-emerald-500" /> آخرین فعالیت
             </span>
-            <span className="font-semibold text-xs sm:text-sm text-[var(--color-text)]" dir="ltr">
-              {prog?.lastActivityAt ? new Date(prog.lastActivityAt).toLocaleString("fa-IR") : "-"}
+            <span className="font-semibold text-xs sm:text-sm text-[var(--color-text)]">
+              {prog?.lastActivityAt ? toPersianDigits(new Date(prog.lastActivityAt).toLocaleString("fa-IR")) : "-"}
             </span>
           </div>
         </div>

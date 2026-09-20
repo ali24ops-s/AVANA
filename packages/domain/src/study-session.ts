@@ -619,3 +619,297 @@ export function calculateStreakSummary(
   };
 }
 
+// ---------------------------------------------------------------------------
+// Activity Heatmap Engine
+// ---------------------------------------------------------------------------
+
+export type ActivityLevel = 0 | 1 | 2 | 3 | 4;
+
+export const ACTIVITY_LEVEL_THRESHOLDS = {
+  LEVEL_1_MIN_SECONDS: 1,
+  LEVEL_2_MIN_SECONDS: 900, // 15 min
+  LEVEL_3_MIN_SECONDS: 1800, // 30 min
+  LEVEL_4_MIN_SECONDS: 3600, // 60 min
+} as const;
+
+/**
+ * Maps study duration in seconds into a discrete activity level (0-4).
+ * Single source of truth for activity level thresholds.
+ */
+export function getActivityLevel(seconds: number): ActivityLevel {
+  const s = Math.max(0, seconds);
+  if (s <= 0) return 0;
+  if (s < ACTIVITY_LEVEL_THRESHOLDS.LEVEL_2_MIN_SECONDS) return 1;
+  if (s < ACTIVITY_LEVEL_THRESHOLDS.LEVEL_3_MIN_SECONDS) return 2;
+  if (s < ACTIVITY_LEVEL_THRESHOLDS.LEVEL_4_MIN_SECONDS) return 3;
+  return 4;
+}
+
+export const PERSIAN_MONTH_NAMES = [
+  "فروردین",
+  "اردیبهشت",
+  "خرداد",
+  "تیر",
+  "مرداد",
+  "شهریور",
+  "مهر",
+  "آبان",
+  "آذر",
+  "دی",
+  "بهمن",
+  "اسفند",
+] as const;
+
+export const PERSIAN_WEEKDAY_NAMES_FULL = [
+  "شنبه",
+  "یکشنبه",
+  "دوشنبه",
+  "سه‌شنبه",
+  "چهارشنبه",
+  "پنج‌شنبه",
+  "جمعه",
+] as const;
+
+export interface JalaliDateInfo {
+  year: number;
+  month: number; // 1-12
+  day: number; // 1-31
+  monthName: string;
+  formatted: string; // e.g. "۲۴ شهریور"
+  fullFormatted: string; // e.g. "۲۴ شهریور ۱۴۰۵"
+}
+
+/**
+ * Deterministically converts a Date into Jalali date parts using Intl.DateTimeFormat
+ * in the specified timezone.
+ */
+export function getJalaliDateInfo(date: Date, timeZone: string): JalaliDateInfo {
+  const validTz = validateTimezone(timeZone);
+  try {
+    const formatter = new Intl.DateTimeFormat("en-US-u-ca-persian", {
+      timeZone: validTz,
+      calendar: "persian",
+      year: "numeric",
+      month: "numeric",
+      day: "numeric",
+    });
+    const parts = formatter.formatToParts(date);
+    let year = 1405;
+    let month = 1;
+    let day = 1;
+    for (const p of parts) {
+      if (p.type === "year") year = parseInt(p.value, 10);
+      if (p.type === "month") month = parseInt(p.value, 10);
+      if (p.type === "day") day = parseInt(p.value, 10);
+    }
+    const monthName = PERSIAN_MONTH_NAMES[month - 1] || "";
+    const formatted = `${toPersianDigits(day)} ${monthName}`;
+    const fullFormatted = `${formatted} ${toPersianDigits(year)}`;
+    return { year, month, day, monthName, formatted, fullFormatted };
+  } catch {
+    return {
+      year: 1405,
+      month: 1,
+      day: 1,
+      monthName: "فروردین",
+      formatted: "۱ فروردین",
+      fullFormatted: "۱ فروردین ۱۴۰۵",
+    };
+  }
+}
+
+export interface ActivityHeatmapDay {
+  date: string; // YYYY-MM-DD
+  jalaliYear: number;
+  jalaliMonth: number;
+  jalaliDay: number;
+  jalaliMonthName: string;
+  jalaliFormatted: string; // e.g. "۲۴ شهریور"
+  fullFormatted: string; // e.g. "۲۴ شهریور ۱۴۰۵"
+  dayOfWeek: number; // 0 = Saturday, 1 = Sunday, ..., 6 = Friday
+  weekdayName: string; // "شنبه", "یکشنبه", etc.
+  seconds: number;
+  minutes: number;
+  sessionCount: number;
+  level: ActivityLevel;
+  formattedDuration: string;
+  isToday: boolean;
+  isFuture: boolean;
+}
+
+export interface ActivityHeatmapMonthLabel {
+  name: string; // e.g. "شهریور"
+  weekIndex: number; // Column index (0 to weeksCount - 1)
+}
+
+export interface ActivityHeatmapSummary {
+  weeks: ActivityHeatmapDay[][]; // 2D array: weeks[weekIndex][dayOfWeekIndex]
+  monthLabels: ActivityHeatmapMonthLabel[];
+  totalActiveDays: number;
+  activeDaysThisYear: number;
+  currentPersianYear: number;
+  currentStreak: number;
+  longestStreak: number;
+  todayIsActive: boolean;
+  totalStudySeconds: number;
+}
+
+/**
+ * Pure and deterministic calculation of Activity Heatmap matrix and summary metrics.
+ *
+ * Rules:
+ * - Aggregates real StudySessionRecords by local calendar day in user's timezone.
+ * - Discrete activity levels (0-4) based purely on effective study duration.
+ * - Week columns structured from Saturday (index 0) to Friday (index 6).
+ * - Persian month labels placed at month transitions.
+ * - Active days in current Persian year calculated from study sessions with >= 5 min (or active).
+ * - Reuses existing streak summary engine as single source of truth.
+ */
+export function calculateActivityHeatmap(
+  sessions: StudySessionRecord[],
+  referenceDate: Date = new Date(),
+  timeZone: string = STUDY_SESSION_CONFIG.DEFAULT_TIMEZONE,
+  weeksCount: number = 52,
+): ActivityHeatmapSummary {
+  const validTz = validateTimezone(timeZone);
+  const todayParts = getLocalDateParts(referenceDate, validTz);
+  const todayStr = formatLocalDateString(
+    todayParts.year,
+    todayParts.month,
+    todayParts.day,
+  );
+  const todayJalali = getJalaliDateInfo(referenceDate, validTz);
+  const currentPersianYear = todayJalali.year;
+
+  // 1. Group duration and session count by local calendar day (YYYY-MM-DD)
+  const dailySecondsMap = new Map<string, number>();
+  const dailySessionCountMap = new Map<string, number>();
+
+  for (const session of sessions) {
+    const duration = Math.max(0, session.durationSeconds);
+    const sessionStart = new Date(session.startedAt);
+    if (isNaN(sessionStart.getTime())) continue;
+
+    const startParts = getLocalDateParts(sessionStart, validTz);
+    const dateStr = formatLocalDateString(
+      startParts.year,
+      startParts.month,
+      startParts.day,
+    );
+
+    dailySecondsMap.set(dateStr, (dailySecondsMap.get(dateStr) ?? 0) + duration);
+    dailySessionCountMap.set(
+      dateStr,
+      (dailySessionCountMap.get(dateStr) ?? 0) + 1,
+    );
+  }
+
+  // 2. Reuse single source of truth for streak metrics
+  const streakSummary = calculateStreakSummary(sessions, referenceDate, validTz);
+
+  // 3. Find current Persian week's Saturday date in UTC representation
+  const daysSinceSat = getDaysSinceSaturday(todayParts.weekday);
+  const currentSatDate = new Date(
+    Date.UTC(
+      todayParts.year,
+      todayParts.month - 1,
+      todayParts.day - daysSinceSat,
+      12,
+      0,
+      0,
+    ),
+  );
+
+  const effectiveWeeksCount = Math.max(1, weeksCount);
+  const weeks: ActivityHeatmapDay[][] = [];
+  let totalStudySeconds = 0;
+  const activeDaysThisYearSet = new Set<string>();
+
+  // Generate weeks chronologically: week 0 is (effectiveWeeksCount - 1) weeks ago, last week is current week
+  for (let w = 0; w < effectiveWeeksCount; w++) {
+    const offsetWeeks = effectiveWeeksCount - 1 - w;
+    const weekSatTime = currentSatDate.getTime() - offsetWeeks * 7 * 24 * 60 * 60 * 1000;
+    const weekDays: ActivityHeatmapDay[] = [];
+
+    for (let d = 0; d < 7; d++) {
+      const dayTime = weekSatTime + d * 24 * 60 * 60 * 1000;
+      const dayDate = new Date(dayTime);
+      const dayParts = getLocalDateParts(dayDate, "UTC");
+      const dateStr = formatLocalDateString(
+        dayParts.year,
+        dayParts.month,
+        dayParts.day,
+      );
+
+      const jInfo = getJalaliDateInfo(dayDate, "UTC");
+      const seconds = dailySecondsMap.get(dateStr) ?? 0;
+      const sessionCount = dailySessionCountMap.get(dateStr) ?? 0;
+      const isToday = dateStr === todayStr;
+      const isFuture = dateStr > todayStr;
+      const level = isFuture ? 0 : getActivityLevel(seconds);
+      const minutes = Math.round(seconds / 60);
+      const formattedDuration = formatStudyDurationPersian(seconds);
+
+      if (!isFuture && seconds > 0) {
+        totalStudySeconds += seconds;
+      }
+
+      if (
+        !isFuture &&
+        jInfo.year === currentPersianYear &&
+        seconds >= MIN_STUDY_DAY_SECONDS
+      ) {
+        activeDaysThisYearSet.add(dateStr);
+      }
+
+      weekDays.push({
+        date: dateStr,
+        jalaliYear: jInfo.year,
+        jalaliMonth: jInfo.month,
+        jalaliDay: jInfo.day,
+        jalaliMonthName: jInfo.monthName,
+        jalaliFormatted: jInfo.formatted,
+        fullFormatted: jInfo.fullFormatted,
+        dayOfWeek: d,
+        weekdayName: PERSIAN_WEEKDAY_NAMES_FULL[d] || "شنبه",
+        seconds,
+        minutes,
+        sessionCount,
+        level,
+        formattedDuration,
+        isToday,
+        isFuture,
+      });
+    }
+
+    weeks.push(weekDays);
+  }
+
+  // 4. Calculate month labels at column transitions
+  const monthLabels: ActivityHeatmapMonthLabel[] = [];
+  let lastMonth = -1;
+
+  for (let w = 0; w < weeks.length; w++) {
+    // Determine the primary month of this week (from Saturday or Wednesday)
+    const midDay = weeks[w][3] || weeks[w][0];
+    if (midDay && midDay.jalaliMonth !== lastMonth) {
+      monthLabels.push({
+        name: midDay.jalaliMonthName,
+        weekIndex: w,
+      });
+      lastMonth = midDay.jalaliMonth;
+    }
+  }
+
+  return {
+    weeks,
+    monthLabels,
+    totalActiveDays: streakSummary.studyDaysCount,
+    activeDaysThisYear: activeDaysThisYearSet.size,
+    currentPersianYear,
+    currentStreak: streakSummary.currentStreak,
+    longestStreak: streakSummary.longestStreak,
+    todayIsActive: streakSummary.todayIsActive,
+    totalStudySeconds,
+  };
+}

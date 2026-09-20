@@ -35,6 +35,10 @@ import {
   generateOrderNumber,
   sanitizePaymentText,
   calculateSpecialExamPrice,
+  type SubscriptionCreditBonusesConfig,
+  DEFAULT_SUBSCRIPTION_CREDIT_BONUSES,
+  resolveSubscriptionPlanType,
+  resolveGiftCreditAmount,
 } from "@avana/domain";
 import type { CommerceStore } from "./commerce-store.js";
 import type { PaymentGateway } from "./gateway/types.js";
@@ -44,11 +48,14 @@ import type { AuditService } from "../../observability/audit-service.js";
 import type { ContentPackStore } from "../library/library-store.js";
 import type { LessonStore } from "../learning/learning-store.js";
 import type { StudyService } from "../study/study-service.js";
+import type { WalletService } from "../wallet/wallet-service.js";
+import type { PromotionService } from "./promotion-service.js";
 
 export interface CheckoutInput {
   productId: ProductId;
   callbackUrl: string;
   gateway?: string;
+  couponCode?: string;
   metadata?: Record<string, unknown>;
 }
 
@@ -57,6 +64,9 @@ export interface CheckoutResponse {
   payment_id: PaymentId;
   payment_url: string;
   authority: string;
+  attempt_id?: string;
+  attempt?: unknown;
+  questions?: unknown[];
 }
 
 export interface VerifyPaymentInput {
@@ -99,6 +109,10 @@ export class CommerceService {
     private readonly paymentOptions?: CommercePaymentOptions,
     private readonly studyService?: StudyService,
     private readonly notificationService?: NotificationService,
+    private readonly walletService?: WalletService,
+    private readonly subscriptionCreditBonusesProvider?: () => Promise<SubscriptionCreditBonusesConfig>,
+    private readonly promotionService?: PromotionService,
+    _referralService?: import("../referral/referral-service.js").ReferralService,
   ) {}
 
   /**
@@ -135,14 +149,16 @@ export class CommerceService {
         "درگاه پرداخت آزمایشی (Mock) غیرفعال است.",
       );
     }
-    if (
-      !this.paymentOptions?.onlinePaymentEnabled ||
-      this.gateway.enabled === false
-    ) {
-      throw new DomainError(
-        "bad_request",
-        "درگاه پرداخت آنلاین در حال حاضر در دسترس نیست (به‌زودی). لطفاً از روش کارت‌به‌کارت استفاده کنید.",
-      );
+    if (requestedGateway !== "wallet") {
+      if (
+        !this.paymentOptions?.onlinePaymentEnabled ||
+        this.gateway.enabled === false
+      ) {
+        throw new DomainError(
+          "bad_request",
+          "درگاه پرداخت آنلاین در حال حاضر در دسترس نیست (به‌زودی). لطفاً از روش کارت‌به‌کارت استفاده کنید.",
+        );
+      }
     }
 
     // 1. Fetch & validate product
@@ -210,33 +226,256 @@ export class CommerceService {
       }
     }
 
+    let payableAmount = product.price;
+    let promoEvalResult: any = null;
+
+    if (input.couponCode) {
+      if (product.type === "wallet_topup") {
+        throw new DomainError(
+          "bad_request",
+          "امکان استفاده از کد تخفیف برای شارژ کیف پول وجود ندارد.",
+        );
+      }
+      if (this.promotionService) {
+        promoEvalResult = await this.promotionService.evaluateAndReservePromotion({
+          userId: actor.userId,
+          code: input.couponCode,
+          orderAmount: product.price,
+          productId: product.id,
+          productType: product.type,
+        });
+        payableAmount = promoEvalResult.payableAmount;
+      }
+    }
+
     const now = new Date().toISOString();
     const orderId = asOrderId(randomUUID());
     const paymentId = asPaymentId(randomUUID());
     const orderNumber = generateOrderNumber();
 
-    // 3. Create Pending Order Record
+    const orderMetadata: Record<string, unknown> = {
+      ...(input.metadata ?? {}),
+    };
+    if (promoEvalResult) {
+      orderMetadata.couponCode = input.couponCode;
+      orderMetadata.promotionId = promoEvalResult.promotionId;
+      orderMetadata.redemptionId = promoEvalResult.redemptionId;
+      orderMetadata.discountAmount = promoEvalResult.discountAmount;
+      orderMetadata.cashbackAmount = promoEvalResult.cashbackAmount;
+      orderMetadata.benefitType = promoEvalResult.benefitType;
+      orderMetadata.benefitValue = promoEvalResult.benefitValue;
+      orderMetadata.originalAmount = product.price;
+    }
+
+    // -------------------------------------------------------------------------
+    // Wallet Payment Flow (Direct Atomic Debit + Fulfillment)
+    // -------------------------------------------------------------------------
+    if (requestedGateway === "wallet") {
+      if (!this.walletService) {
+        throw new DomainError(
+          "bad_request",
+          "سرویس کیف پول پیکربندی نشده است.",
+        );
+      }
+
+      // 1. Create Pending Order Record
+      const orderRecord: OrderRecord = {
+        id: orderId,
+        userId: actor.userId,
+        productId: product.id,
+        orderNumber,
+        amount: payableAmount,
+        currency: product.currency,
+        status: "pending",
+        metadata: orderMetadata,
+        createdAt: now,
+        updatedAt: now,
+      };
+      await this.store.createOrder(orderRecord);
+
+      if (promoEvalResult && this.promotionService) {
+        await this.promotionService.linkRedemptionToOrder(promoEvalResult.redemptionId, orderId);
+      }
+
+      // 2. Create Pending Payment Record
+      const paymentRecord: PaymentRecord = {
+        id: paymentId,
+        orderId,
+        userId: actor.userId,
+        amount: payableAmount,
+        currency: product.currency,
+        gateway: "wallet",
+        authority: `wallet_${orderId}`,
+        transactionId: null,
+        status: "pending",
+        idempotencyKey: `pay_${orderId}`,
+        rawCallbackMetadata: null,
+        paidAt: null,
+        createdAt: now,
+        updatedAt: now,
+      };
+      await this.store.createPayment(paymentRecord);
+
+      // 3. Atomically debit user's wallet
+      const debitResult = await this.walletService.debit({
+        userId: actor.userId,
+        amount: payableAmount,
+        source: product.type === "special_exam" ? "special_exam_purchase" : "content_generation",
+        referenceType: "order",
+        referenceId: orderId,
+        idempotencyKey: `special-exam-debit:${orderId}`,
+        metadata: {
+          orderId,
+          productId: product.id,
+          productType: product.type,
+          productTitle: product.title,
+        },
+      });
+
+      // 4. Fulfill product (Special Exam Attempt & Entitlement creation)
+      let attemptResult: { attempt: any; questions: any[] } | undefined;
+
+      if (product.type === "special_exam") {
+        if (this.studyService) {
+          try {
+            attemptResult = await this.studyService.createSpecialExamAttempt(
+              actor,
+              (product.metadata?.organizationId as string) || "00000000-0000-0000-0000-000000000001",
+              product,
+              orderId,
+            );
+          } catch (attemptErr) {
+            // Auto-refund with idempotency key on failure
+            try {
+              await this.walletService.refund({
+                userId: actor.userId,
+                amount: payableAmount,
+                source: "special_exam_refund",
+                referenceType: "order",
+                referenceId: orderId,
+                idempotencyKey: `special-exam-refund:${orderId}`,
+                metadata: {
+                  orderId,
+                  productId: product.id,
+                  reason: "attempt_creation_failed",
+                  error: String(attemptErr),
+                },
+              });
+            } catch (refundErr) {
+              process.stderr.write(
+                `[COMMERCE] Failed to refund wallet debit for order ${orderId}: ${String(refundErr)}\n`,
+              );
+            }
+            await this.store.updateOrderStatus(orderId, "failed");
+            await this.store.updatePayment(paymentId, { status: "failed" });
+            throw attemptErr;
+          }
+        }
+      }
+
+      let entitlementResourceType: EntitlementResourceType = "course";
+      let entitlementResourceId: string | null = product.targetId ?? null;
+      let entitlementExpiresAt: string | null = product.durationDays
+        ? new Date(Date.now() + product.durationDays * 86400000).toISOString()
+        : null;
+
+      if (product.type === "special_exam") {
+        entitlementResourceType = "special_exam";
+        entitlementResourceId = attemptResult?.attempt?.id ?? null;
+        entitlementExpiresAt = null;
+      }
+
+      const entitlementToCreate: UserEntitlementRecord = {
+        id: asUserEntitlementId(randomUUID()),
+        userId: actor.userId,
+        resourceType: entitlementResourceType,
+        resourceId: entitlementResourceId,
+        sourceType: "purchase",
+        orderId,
+        startsAt: now,
+        expiresAt: entitlementExpiresAt,
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      // 5. Complete payment transaction atomically in store
+      await this.store.completePaymentTransaction({
+        paymentId,
+        orderId,
+        transactionId: debitResult.transaction.id,
+        paidAt: now,
+        rawMetadata: { walletTransactionId: debitResult.transaction.id },
+        entitlementToCreate,
+      });
+
+      if (this.notificationService) {
+        void this.notificationService.notifyPurchaseCompleted(actor.userId, {
+          paymentId,
+          orderId,
+          productTitle: product.title,
+          productType: product.type,
+          targetId: product.targetId,
+        });
+      }
+
+      if (this.auditService) {
+        await this.auditService.emit([
+          {
+            actorId: actor.userId,
+            organizationId: null,
+            action: "payment.completed",
+            entityType: "order",
+            entityId: orderId,
+            createdAt: now,
+            details: {
+              paymentId,
+              productId: product.id,
+              amount: payableAmount,
+              gateway: "wallet",
+              transactionId: debitResult.transaction.id,
+              attemptId: attemptResult?.attempt?.id,
+            },
+          },
+        ]);
+      }
+
+      return {
+        order_id: orderId,
+        payment_id: paymentId,
+        payment_url: "",
+        authority: `wallet_${orderId}`,
+        attempt_id: attemptResult?.attempt?.id,
+        attempt: attemptResult?.attempt,
+        questions: attemptResult?.questions,
+      };
+    }
+
+    // 3. Create Pending Order Record (Gateway / IPG flow)
     const orderRecord: OrderRecord = {
       id: orderId,
       userId: actor.userId,
       productId: product.id,
       orderNumber,
-      amount: product.price,
+      amount: payableAmount,
       currency: product.currency,
       status: "pending",
-      metadata: input.metadata ?? {},
+      metadata: orderMetadata,
       createdAt: now,
       updatedAt: now,
     };
 
     const createdOrder = await this.store.createOrder(orderRecord);
 
+    if (promoEvalResult && this.promotionService) {
+      await this.promotionService.linkRedemptionToOrder(promoEvalResult.redemptionId, orderId);
+    }
+
     // 4. Create Pending Payment Record
     const paymentRecord: PaymentRecord = {
       id: paymentId,
       orderId: createdOrder.id,
       userId: actor.userId,
-      amount: product.price,
+      amount: payableAmount,
       currency: product.currency,
       gateway: input.gateway ?? this.gateway.gatewayName,
       authority: null,
@@ -277,7 +516,9 @@ export class CommerceService {
           createdAt: now,
           details: {
             productId: product.id,
-            amount: product.price,
+            amount: payableAmount,
+            originalAmount: product.price,
+            couponCode: input.couponCode,
             currency: product.currency,
             authority: gatewayResult.authority,
             requestId,
@@ -404,6 +645,11 @@ export class CommerceService {
     if (input.status === "NOK") {
       await this.store.updatePayment(payment.id, { status: "cancelled" });
       await this.store.updateOrderStatus(order.id, "cancelled");
+      if (this.promotionService) {
+        try {
+          await this.promotionService.cancelPromotionRedemption(order.id, "payment_failed");
+        } catch {}
+      }
       if (this.notificationService) {
         void this.notificationService.notifyPaymentFailed(payment.userId, {
           paymentId: payment.id,
@@ -431,6 +677,11 @@ export class CommerceService {
         rawCallbackMetadata: verifyResult.rawResponse,
       });
       await this.store.updateOrderStatus(order.id, "failed");
+      if (this.promotionService) {
+        try {
+          await this.promotionService.cancelPromotionRedemption(order.id, "payment_failed");
+        } catch {}
+      }
 
       if (this.notificationService) {
         void this.notificationService.notifyPaymentFailed(payment.userId, {
@@ -573,6 +824,56 @@ export class CommerceService {
       ]);
     }
 
+    // 7. Grant Subscription Gift Credit if applicable (Phase 2)
+    if (
+      completed.subscription &&
+      product.type === "subscription" &&
+      this.walletService
+    ) {
+      try {
+        const planType = resolveSubscriptionPlanType(product);
+        if (planType) {
+          const config = this.subscriptionCreditBonusesProvider
+            ? await this.subscriptionCreditBonusesProvider()
+            : DEFAULT_SUBSCRIPTION_CREDIT_BONUSES;
+          const giftAmount = resolveGiftCreditAmount(planType, config);
+          if (giftAmount > 0) {
+            await this.walletService.credit(
+              {
+                userId: order.userId,
+                amount: giftAmount,
+                source: "subscription_bonus",
+                referenceType: "user_subscription",
+                referenceId: completed.subscription.id,
+                idempotencyKey: `subscription-gift:${completed.subscription.id}`,
+                metadata: {
+                  subscriptionId: completed.subscription.id,
+                  productId: product.id,
+                  productTitle: product.title,
+                  planType,
+                  durationDays: product.durationDays,
+                  giftAmount,
+                  paymentId: payment.id,
+                  orderId: order.id,
+                  grantedAt: paidAt,
+                },
+              });
+          }
+        }
+      } catch {
+        // Handled silently to prevent failing payment fulfillment response if already paid
+      }
+    }
+
+    // 8. Finalize Promotion Redemption if applicable
+    if (this.promotionService) {
+      try {
+        await this.promotionService.finalizePromotionForPaidOrder(order.id, payment.id);
+      } catch {
+        // Handled silently to prevent failing payment response
+      }
+    }
+
     return {
       success: true,
       order_id: completed.order.id,
@@ -674,16 +975,54 @@ export class CommerceService {
       }
     }
 
-    // 3. Validate Amount
-    if (
-      !input.amount ||
-      !Number.isInteger(input.amount) ||
-      input.amount !== product.price
-    ) {
-      throw new DomainError(
-        "bad_request",
-        `مبلغ واریزی (${input.amount?.toLocaleString("fa-IR") ?? 0} تومان) با مبلغ پلن انتخابی (${product.price.toLocaleString("fa-IR")} تومان) مطابقت ندارد.`,
-      );
+    // 3. Validate Amount & Coupon
+    let payableAmount = product.price;
+    let promoEvalResult: any = null;
+
+    if (input.couponCode) {
+      if (product.type === "wallet_topup") {
+        throw new DomainError(
+          "bad_request",
+          "امکان استفاده از کد تخفیف برای شارژ کیف پول وجود ندارد.",
+        );
+      }
+      if (this.promotionService) {
+        promoEvalResult = await this.promotionService.evaluateAndReservePromotion({
+          userId: actor.userId,
+          code: input.couponCode,
+          orderAmount: product.price,
+          productId: product.id,
+          productType: product.type,
+        });
+        payableAmount = promoEvalResult.payableAmount;
+      }
+    }
+
+    if (product.type === "wallet_topup") {
+      payableAmount = input.amount;
+      if (!input.amount || !Number.isInteger(input.amount) || input.amount <= 0) {
+        throw new DomainError(
+          "bad_request",
+          "مبلغ شارژ کیف پول باید یک عدد صحیح مثبت به تومان باشد.",
+        );
+      }
+      if (input.amount < 10_000) {
+        throw new DomainError(
+          "bad_request",
+          "حداقل مبلغ شارژ کیف پول ۱۰,۰۰۰ تومان است.",
+        );
+      }
+    } else {
+      if (
+        !input.amount ||
+        !Number.isInteger(input.amount) ||
+        input.amount !== payableAmount
+      ) {
+        throw new DomainError(
+          "bad_request",
+          `مبلغ واریزی (${input.amount?.toLocaleString("fa-IR") ?? 0} تومان) با مبلغ پلن انتخابی پس از تخفیف (${payableAmount.toLocaleString("fa-IR")} تومان) مطابقت ندارد.`,
+        );
+      }
     }
 
     // 4. Validate Tracking Number
@@ -801,18 +1140,9 @@ export class CommerceService {
     } else if (product.type === "content") {
       entitlementResourceType = "content";
       entitlementResourceId = product.targetId;
-      entitlementExpiresAt = null;
     } else if (product.type === "special_exam") {
       entitlementResourceType = "special_exam";
-      if (this.studyService) {
-        const attemptResult = await this.studyService.createSpecialExamAttempt(
-          actor,
-          (product.metadata?.organizationId as string) || "00000000-0000-0000-0000-000000000001",
-          product,
-          orderId,
-        );
-        entitlementResourceId = attemptResult.attempt.id;
-      }
+      entitlementResourceId = null;
       entitlementExpiresAt = null;
     }
 
@@ -821,7 +1151,7 @@ export class CommerceService {
       userId: actor.userId,
       productId: product.id,
       orderNumber,
-      amount: product.price,
+      amount: payableAmount,
       currency: product.currency,
       status: "pending",
       metadata: {
@@ -829,6 +1159,17 @@ export class CommerceService {
         trackingNumber,
         sourceCardLast4,
         payerName: input.payerName?.trim() || null,
+        type: product.type,
+        ...(promoEvalResult ? {
+          couponCode: input.couponCode,
+          promotionId: promoEvalResult.promotionId,
+          redemptionId: promoEvalResult.redemptionId,
+          discountAmount: promoEvalResult.discountAmount,
+          cashbackAmount: promoEvalResult.cashbackAmount,
+          benefitType: promoEvalResult.benefitType,
+          benefitValue: promoEvalResult.benefitValue,
+          originalAmount: product.price,
+        } : {}),
       },
       createdAt: nowIso,
       updatedAt: nowIso,
@@ -838,7 +1179,7 @@ export class CommerceService {
       id: paymentId,
       orderId,
       userId: actor.userId,
-      amount: product.price,
+      amount: payableAmount,
       currency: product.currency,
       gateway: "card_to_card",
       authority: null,
@@ -849,7 +1190,10 @@ export class CommerceService {
       paidAt: (() => {
         if (!input.paymentDate) return nowIso;
         const parsed = new Date(input.paymentDate);
-        return isNaN(parsed.getTime()) ? nowIso : parsed.toISOString();
+        if (isNaN(parsed.getTime()) || parsed.getFullYear() < 2000) {
+          return nowIso;
+        }
+        return parsed.toISOString();
       })(),
       trackingNumber,
       sourceCardLast4,
@@ -875,26 +1219,33 @@ export class CommerceService {
       updatedAt: nowIso,
     };
 
-    const entitlementRecord: UserEntitlementRecord = {
-      id: entitlementId,
-      userId: actor.userId,
-      resourceType: entitlementResourceType,
-      resourceId: entitlementResourceId,
-      sourceType: "purchase",
-      orderId,
-      startsAt: nowIso,
-      expiresAt: entitlementExpiresAt,
-      createdAt: nowIso,
-      updatedAt: nowIso,
-    };
+    let entitlementRecord: UserEntitlementRecord | undefined;
+    if (product.type !== "wallet_topup" && product.type !== "special_exam") {
+      entitlementRecord = {
+        id: entitlementId,
+        userId: actor.userId,
+        resourceType: entitlementResourceType,
+        resourceId: entitlementResourceId,
+        sourceType: "purchase",
+        orderId,
+        startsAt: nowIso,
+        expiresAt: entitlementExpiresAt,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      };
+    }
 
-    // 9. Execute Atomic Transaction (Order + Payment + Sub? + Entitlement)
+    // 9. Execute Atomic Transaction (Order + Payment + Sub? + Entitlement?)
     const result = await this.store.submitCardToCardTransaction({
       order: orderRecord,
       payment: paymentRecord,
       subscription: subscriptionRecord,
       entitlement: entitlementRecord,
     });
+
+    if (promoEvalResult && this.promotionService) {
+      await this.promotionService.linkRedemptionToOrder(promoEvalResult.redemptionId, orderId);
+    }
 
     // 10. Emit Audit Log
     if (this.auditService) {
@@ -909,7 +1260,7 @@ export class CommerceService {
           details: {
             orderId,
             productId: product.id,
-            amount: product.price,
+            amount: input.amount,
             trackingNumber,
             sourceCardLast4,
             expiresAt: entitlementExpiresAt,
@@ -919,6 +1270,8 @@ export class CommerceService {
       ]);
     }
 
+    const isTopup = product.type === "wallet_topup";
+
     return {
       success: true,
       orderId: result.order.id,
@@ -927,16 +1280,26 @@ export class CommerceService {
       status: result.payment.status,
       subscriptionStatus: result.subscription?.status,
       expiresAt: result.subscription?.expiresAt ?? entitlementExpiresAt ?? undefined,
-      entitlementId: result.entitlement.id,
+      entitlementId: result.entitlement?.id,
       attemptId:
         entitlementResourceType === "special_exam"
           ? (entitlementResourceId ?? undefined)
           : undefined,
-      message:
-        product.type === "subscription"
-          ? "پرداخت شما ثبت شد و اشتراک شما فعال شده است. اطلاعات پرداخت برای بررسی نهایی ارسال شد."
-          : "پرداخت شما ثبت شد و دسترسی فعال گردید. اطلاعات پرداخت برای بررسی نهایی ارسال شد.",
+      message: isTopup
+        ? "درخواست شارژ کیف پول با موفقیت ثبت شد و پس از بررسی و تأیید ادمین، کیف پول شما شارژ خواهد شد."
+        : product.type === "special_exam"
+          ? "اطلاعات پرداخت ثبت شد و پس از بررسی و تأیید، آزمون ویژه فعال خواهد شد."
+          : product.type === "subscription"
+            ? "پرداخت شما ثبت شد و اشتراک شما فعال شده است. اطلاعات پرداخت برای بررسی نهایی ارسال شد."
+            : "پرداخت شما ثبت شد و دسترسی فعال گردید. اطلاعات پرداخت برای بررسی نهایی ارسال شد.",
     };
+  }
+
+  /**
+   * Get current user's wallet top-up requests.
+   */
+  async getMyWalletTopups(userId: UserId): Promise<PaymentRecord[]> {
+    return this.store.listWalletTopupRequestsByUser(userId);
   }
 
   /**

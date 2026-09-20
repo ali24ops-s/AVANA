@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { api, type AdminAuditRecord, type AdminAuditList } from "../../lib/api/admin";
-import { AdminTable, AdminPagination } from "../../components/admin/AdminUI";
+import { AdminTable, AdminPagination } from "../../components/admin/AdminUI.js";
 import { TableLoadingState, TableErrorState, TableEmptyState } from "@avana/ui";
 import { Input } from "../../components/ui/index.js";
 import { ShieldCheck } from "lucide-react";
+import { toPersianDigits } from "@avana/domain";
 
 export function AdminAuditLogPage() {
   const [logs, setLogs] = useState<AdminAuditRecord[]>([]);
@@ -93,7 +94,7 @@ export function AdminAuditLogPage() {
         {loading ? <TableLoadingState colSpan={6} /> : error ? <TableErrorState message={error} colSpan={6} /> : logs.length === 0 ? <TableEmptyState message="رکوردی یافت نشد." colSpan={6} /> : (
           logs.map(log => (
             <tr key={log.id} className="hover:bg-[var(--color-surface-subtle)] transition-colors text-sm">
-              <td className="px-6 py-4 text-xs font-mono text-[var(--color-text-muted)] whitespace-nowrap" dir="ltr">{new Date(log.timestamp).toLocaleString("fa-IR")}</td>
+              <td className="px-6 py-4 text-xs font-mono text-[var(--color-text-muted)] whitespace-nowrap" dir="ltr">{toPersianDigits(new Date(log.timestamp).toLocaleString("fa-IR"))}</td>
               <td className="px-6 py-4 font-mono text-xs text-[var(--color-text)]" dir="ltr">{log.adminEmail}</td>
               <td className="px-6 py-4">
                 <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-mono font-medium bg-[var(--color-surface-subtle)] border border-[var(--color-border)] text-[var(--color-primary-default)]" dir="ltr">

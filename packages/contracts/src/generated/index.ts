@@ -154,9 +154,15 @@ export type CourseResource = {
   title: string;
   subject: string | null;
   exam_at: string | null;
+  exam_scope?: {
+    moduleIds?: string[];
+    lessonIds?: string[];
+  } | null;
   created_at: string;
   updated_at: string;
   archived: boolean;
+  isOfficial?: boolean;
+  is_official?: boolean;
 };
 
 export type CourseResponse = {
@@ -174,12 +180,20 @@ export type CreateCourseRequest = {
   title: string;
   subject: string | null;
   exam_at: string | null;
+  exam_scope?: {
+    moduleIds?: string[];
+    lessonIds?: string[];
+  } | null;
 };
 
 export type UpdateCourseRequest = {
   title?: string;
   subject?: string | null;
   exam_at?: string | null;
+  exam_scope?: {
+    moduleIds?: string[];
+    lessonIds?: string[];
+  } | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -198,6 +212,7 @@ export type RegisterRequest = {
   firstName?: string;
   lastName?: string;
   phoneNumber?: string;
+  referralCode?: string;
 };
 
 export type SignInResponse = {
@@ -246,11 +261,19 @@ export type LessonResource = {
   purchase_options?: unknown[];
 };
 
+export type SubCourseGroupResource = {
+  id: UUID;
+  title: string;
+  sort_order: number;
+};
+
 export type ModuleResource = {
   id: UUID;
   title: string;
   description: string | null;
   sort_order: number;
+  document_id?: UUID | string | null;
+  sub_course_group_id?: UUID | string | null;
   lessons: LessonResource[];
 };
 
@@ -264,19 +287,25 @@ export type CourseLearnResponse = {
   request_id: string;
   course: {
     id: UUID;
+    organization_id?: UUID;
     title: string;
     subject: string | null;
     exam_at: string | null;
     locked?: boolean;
     access_reason?: string;
+    isOfficial?: boolean;
+    is_official?: boolean;
   };
+  groups?: SubCourseGroupResource[];
   modules: ModuleResource[];
   progress: CourseLearnProgress;
   preview?: {
     preview_lesson_id: string | null;
+    preview_document_id?: string | null;
     preview_flashcard_limit: number;
     preview_quiz_limit: number;
   };
+  access?: any;
 };
 
 // ---------------------------------------------------------------------------
@@ -1084,7 +1113,7 @@ export type UpdateFlashcardStudySessionProgressResponse = {
 // Search
 // ---------------------------------------------------------------------------
 
-export type SearchResultType = "course" | "shared_content";
+export type SearchResultType = "course" | "educational_pack" | "shared_content";
 
 export type SearchResultItem = {
   id: UUID;
@@ -1104,8 +1133,61 @@ export type SearchResponse = {
   grouped: {
     courses: SearchResultItem[];
     shared_content: SearchResultItem[];
+    educational_packs?: SearchResultItem[];
   };
 };
 
+// ---------------------------------------------------------------------------
+// Referral System
+// ---------------------------------------------------------------------------
 
+export type UserReferralSummaryResponse = {
+  referral_code: string;
+  invite_url: string;
+  total_invites: number;
+  pending_count: number;
+  rewarded_count: number;
+  total_reward_amount: number;
+};
 
+export type UserReferralHistoryItem = {
+  id: string;
+  created_at: string;
+  status: "pending" | "qualified" | "rewarded" | "cancelled";
+  reward_amount: number;
+  reward_status: "pending" | "completed" | "failed";
+  qualified_at: string | null;
+  rewarded_at: string | null;
+};
+
+export type UserReferralHistoryResponse = {
+  referrals: UserReferralHistoryItem[];
+  total: number;
+};
+
+export type AdminReferralListItem = {
+  id: string;
+  inviter_user_id: string;
+  inviter_name?: string | null;
+  inviter_email?: string | null;
+  inviter_phone?: string | null;
+  invited_user_id: string;
+  invited_name?: string | null;
+  invited_email?: string | null;
+  invited_phone?: string | null;
+  referral_code: string;
+  status: "pending" | "qualified" | "rewarded" | "cancelled";
+  qualifying_order_id: string | null;
+  qualifying_order_number?: string | null;
+  reward_type: string;
+  reward_amount: number;
+  reward_status: "pending" | "completed" | "failed";
+  qualified_at: string | null;
+  rewarded_at: string | null;
+  created_at: string;
+};
+
+export type AdminReferralListResponse = {
+  referrals: AdminReferralListItem[];
+  total: number;
+};

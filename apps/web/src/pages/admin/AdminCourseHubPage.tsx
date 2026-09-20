@@ -30,6 +30,8 @@ import { CourseSettingsPanel } from "../../components/admin/studio/CourseSetting
 import { AdminContentReportsPanel } from "../../components/admin/reports/AdminContentReportsPanel.js";
 import { ContentExportModal } from "../../components/admin/content/ContentExportModal.js";
 import { ContentImportModal } from "../../components/admin/content/ContentImportModal.js";
+import { toPersianDigits } from "@avana/domain";
+import { formatToman } from "../../components/admin/commerce/commerceUtils.js";
 
 export type CourseHubTab = "structure" | "generation" | "review" | "publish" | "settings" | "reports";
 
@@ -301,31 +303,31 @@ export function AdminCourseHubPage() {
           <div className="flex flex-wrap items-center gap-2 sm:gap-3 bg-[var(--color-surface-subtle)] p-2.5 rounded-xl border border-[var(--color-border)]">
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--color-primary-default)]/10 border border-[var(--color-primary-default)]/20 text-[var(--color-primary-default)] text-xs">
               <Layers className="w-3.5 h-3.5 text-[var(--color-primary-default)]" />
-              <span className="font-bold">{course.moduleCount}</span>
+              <span className="font-bold">{toPersianDigits(course.moduleCount)}</span>
               <span className="text-[11px] opacity-80">فصل</span>
             </div>
 
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-600 dark:text-blue-400 text-xs">
               <BookOpen className="w-3.5 h-3.5 text-blue-500" />
-              <span className="font-bold">{course.lessonCount}</span>
+              <span className="font-bold">{toPersianDigits(course.lessonCount)}</span>
               <span className="text-[11px] opacity-80">درس</span>
             </div>
 
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-purple-500/10 border border-purple-500/20 text-purple-600 dark:text-purple-400 text-xs">
               <Sparkles className="w-3.5 h-3.5 text-purple-500" />
-              <span className="font-bold">{course.flashcardCount}</span>
+              <span className="font-bold">{toPersianDigits(course.flashcardCount)}</span>
               <span className="text-[11px] opacity-80">فلش‌کارت</span>
             </div>
 
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 text-xs">
               <HelpCircle className="w-3.5 h-3.5 text-amber-500" />
-              <span className="font-bold">{course.quizQuestionCount}</span>
+              <span className="font-bold">{toPersianDigits(course.quizQuestionCount)}</span>
               <span className="text-[11px] opacity-80">سؤال تستی</span>
             </div>
 
             {course.product && (
               <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-xs font-bold">
-                <span>{course.product.price.toLocaleString("fa-IR")} تومان</span>
+                <span>{formatToman(course.product.price)}</span>
                 <span className="text-[10px] opacity-80">
                   {course.product.active ? "(فعال)" : "(پیش‌نویس)"}
                 </span>

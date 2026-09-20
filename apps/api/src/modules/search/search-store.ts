@@ -24,6 +24,8 @@ export interface SharedContentSearchItem {
   usageCount: number;
 }
 
+export type EducationalPackSearchItem = SharedContentSearchItem;
+
 export interface SearchStore {
   /**
    * Search courses accessible to the authenticated user.
@@ -38,11 +40,21 @@ export interface SearchStore {
   ): Promise<CourseSearchItem[]>;
 
   /**
-   * Search published shared content (Public Library Content Packs).
+   * Search published educational packs / shared content (Public Library Content Packs).
    * Follows canonical Library access control: status === 'published' AND deletedAt IS NULL.
    */
   searchSharedContent(
     query: string,
     limit?: number,
+    systemOrganizationId?: OrganizationId,
   ): Promise<SharedContentSearchItem[]>;
+
+  /**
+   * Alias for searchSharedContent for educational packs discovery.
+   */
+  searchEducationalPacks?(
+    query: string,
+    limit?: number,
+    systemOrganizationId?: OrganizationId,
+  ): Promise<EducationalPackSearchItem[]>;
 }

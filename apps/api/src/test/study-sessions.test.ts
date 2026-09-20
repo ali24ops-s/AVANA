@@ -303,6 +303,10 @@ describe("Study Sessions & Active Study Time Tracking", () => {
       expect(statsJson.stats.completedExams).toBe(0);
       expect(statsJson.stats.currentStreak).toBe(0);
       expect(statsJson.thisWeek).toBeDefined();
+      expect(statsJson.heatmap).toBeDefined();
+      expect(statsJson.heatmap.weeks).toHaveLength(52);
+      expect(statsJson.heatmap.totalActiveDays).toBe(0);
+      expect(statsJson.heatmap.activeDaysThisYear).toBe(0);
     });
 
     it("aggregates completed lessons, completed exams, and streak for authenticated user", async () => {
@@ -419,6 +423,10 @@ describe("Study Sessions & Active Study Time Tracking", () => {
       expect(stats.stats.longestStreak).toBe(1);
       expect(stats.stats.todayIsActive).toBe(true);
       expect(stats.stats.todayStudySeconds).toBe(360);
+      expect(stats.heatmap).toBeDefined();
+      expect(stats.heatmap.weeks).toHaveLength(52);
+      expect(stats.heatmap.activeDaysThisYear).toBe(1);
+      expect(stats.heatmap.currentStreak).toBe(1);
     });
 
     it("counts repeated completions of the same lesson only once (unique per user+lesson)", async () => {

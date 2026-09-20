@@ -15,6 +15,7 @@ import type {
   LessonId,
   ModuleId,
   OrganizationId,
+  SubCourseGroupId,
   UserId,
 } from "@avana/domain";
 
@@ -22,10 +23,21 @@ import type {
 // Records
 // ---------------------------------------------------------------------------
 
+export type SubCourseGroupRecord = {
+  id: SubCourseGroupId;
+  courseId: CourseId;
+  title: string;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+};
+
 export type ModuleRecord = {
   id: ModuleId;
   courseId: CourseId;
   documentId?: DocumentId | null;
+  subCourseGroupId?: SubCourseGroupId | null;
   title: string;
   description: string | null;
   sortOrder: number;
@@ -123,6 +135,26 @@ export type DocumentChunkRecord = {
 // Store interfaces
 // ---------------------------------------------------------------------------
 
+export interface SubCourseGroupStore {
+  /** List all active (non-deleted) groups for a course, ordered by sort_order. */
+  listByCourse(courseId: CourseId): Promise<SubCourseGroupRecord[]>;
+
+  /** Find a group by ID. */
+  findById(id: SubCourseGroupId): Promise<SubCourseGroupRecord | undefined>;
+
+  /** Insert a new group record. */
+  create(group: SubCourseGroupRecord): Promise<SubCourseGroupRecord>;
+
+  /** Update an existing group record. */
+  update(group: SubCourseGroupRecord): Promise<SubCourseGroupRecord>;
+
+  /** Delete a group (unlinks associated modules to null). */
+  delete(id: SubCourseGroupId): Promise<void>;
+
+  /** Reorder groups within a course. */
+  reorder(courseId: CourseId, groupIds: SubCourseGroupId[]): Promise<void>;
+}
+
 export interface ModuleStore {
   /** List all active (non-deleted) modules for a course, ordered by sort_order. */
   listByCourse(courseId: CourseId): Promise<ModuleRecord[]>;
@@ -144,6 +176,16 @@ export interface ModuleStore {
 
   /** Batch load modules by IDs. */
   listByIds?(moduleIds: ModuleId[]): Promise<ModuleRecord[]>;
+
+  /** Reorder modules within a course and optionally assign/move their groups. */
+  reorder?(
+    courseId: CourseId,
+    items: Array<{
+      id: ModuleId;
+      sortOrder: number;
+      subCourseGroupId?: SubCourseGroupId | null;
+    }>,
+  ): Promise<void>;
 
   /** Update or clear the preview lesson for a module. */
   updatePreviewLessonId?(moduleId: ModuleId, previewLessonId: LessonId | null): Promise<void>;
@@ -219,6 +261,15 @@ export interface DocumentStore {
 
   /** Update an existing document record completely. */
   update(document: DocumentRecord): Promise<DocumentRecord>;
+
+  /**
+   * Atomically reserve a document for generation by transitioning status to 'pending_generation'.
+   * Returns undefined if the document is already generating or pending_generation.
+   */
+  reserveForGeneration?(
+    id: DocumentId,
+    organizationId: OrganizationId,
+  ): Promise<{ previousStatus: DocumentRecord["status"]; document: DocumentRecord } | undefined>;
 
   /** Soft-delete a document. */
   delete(documentId: DocumentId): Promise<void>;

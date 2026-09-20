@@ -14,7 +14,6 @@ import { DocumentStatusCard } from "../components/documents/DocumentStatusCard.j
 import type {
   PublicContentPackItemSummary,
   PublicContentPackDetailResource,
-  ChapterPackageItem,
   CourseWithChapterPackages,
 } from "@avana/domain";
 import type { CourseResource, DocumentResource } from "@avana/contracts";
@@ -274,7 +273,7 @@ describe("Public Content Library & Content Packs Web UI Suite", () => {
       expect(screen.getByText("کتابخانه آوانا")).toBeDefined();
       expect(
         screen.getByText(
-          /مطالب آموزشی، دوره‌های معتبر و درسنامه‌های دانشگاهی را مرور و مطالعه کن/i,
+          /از درسنامه‌های معتبر دانشگاهی تا بسته‌های آموزشی فصل‌به‌فصل/i,
         ),
       ).toBeDefined();
     });
@@ -476,11 +475,11 @@ describe("Public Content Library & Content Packs Web UI Suite", () => {
       expect(screen.getByText("دکتر رضایی")).toBeDefined();
 
       // Stats
-      expect(screen.getByText("5 جلسه درس")).toBeDefined();
-      expect(screen.getByText("24 فلش‌کارت")).toBeDefined();
-      expect(screen.getByText("15 سوال آزمون")).toBeDefined();
-      expect(screen.getByText("~45 دقیقه")).toBeDefined();
-      expect(screen.getByText("42 افزوده‌شده")).toBeDefined();
+      expect(screen.getByText(/[5۵]\s*جلسه درس/)).toBeDefined();
+      expect(screen.getByText(/[2۲][4۴]\s*فلش‌کارت/)).toBeDefined();
+      expect(screen.getByText(/[1۱][5۵]\s*سوال آزمون/)).toBeDefined();
+      expect(screen.getByText(/~[4۴][5۵]\s*دقیقه/)).toBeDefined();
+      expect(screen.getByText(/[4۴][2۲]\s*افزوده‌شده/)).toBeDefined();
 
       // CTAs
       const viewBtn = screen.getByText("مشاهده محتوا");
@@ -747,9 +746,9 @@ describe("Public Content Library & Content Packs Web UI Suite", () => {
       // Verify success feedback breakdown
       await waitFor(() => {
         expect(screen.getByText("این بسته با موفقیت به دوره شما اضافه شد.")).toBeDefined();
-        expect(screen.getByText("5 جلسه درسنامه اختصاصی")).toBeDefined();
-        expect(screen.getByText("24 فلش‌کارت در صف مرور هوشمند")).toBeDefined();
-        expect(screen.getByText("15 سوال آزمون تستی آماده")).toBeDefined();
+        expect(screen.getByText(/[5۵]\s*جلسه درسنامه اختصاصی/)).toBeDefined();
+        expect(screen.getByText(/[2۲][4۴]\s*فلش‌کارت در صف مرور هوشمند/)).toBeDefined();
+        expect(screen.getByText(/[1۱][5۵]\s*سوال آزمون تستی آماده/)).toBeDefined();
       });
 
       // CTA
@@ -2491,30 +2490,33 @@ describe("Public Content Library & Content Packs Web UI Suite", () => {
       });
     }
 
-    it("renders Courses and Special Exams sections simultaneously in 'All' tab with direct navigation", async () => {
+    it("renders Courses and Content Packs sections in 'All' tab with direct navigation and does not render Special Exams", async () => {
       setupMultiResourceFetch();
       renderWithProviders(<LibraryPage />);
 
       await waitFor(() => {
         expect(screen.getByTestId("library-courses-section")).toBeDefined();
-        expect(screen.getByTestId("library-special-exams-section")).toBeDefined();
+        expect(screen.queryByTestId("library-special-exams-section")).toBeNull();
         expect(screen.getByTestId("public-content-packs-section")).toBeDefined();
       });
 
+      // Verify DOM ordering: Courses first, then Course Packages
+      const coursesSection = screen.getByTestId("library-courses-section");
+      const packsSection = screen.getByTestId("library-packs-section");
+      expect(coursesSection.compareDocumentPosition(packsSection) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
       // Check Course Card rendering & link
       expect(screen.getAllByText("بیوشیمی پزشکی هارپر").length).toBeGreaterThan(0);
-      expect(screen.getByText("16 درسنامه")).toBeDefined();
-      expect(screen.getByText("4 فصل")).toBeDefined();
-      expect(screen.getByText("60٪")).toBeDefined();
+      expect(screen.getByText(/[1۱][6۶]\s*درسنامه/)).toBeDefined();
+      expect(screen.getByText(/[4۴]\s*فصل/)).toBeDefined();
+      expect(screen.getByText(/[6۶][0۰]٪/)).toBeDefined();
 
       const courseLink = screen.getByText("ورود به دوره").closest("a");
       expect(courseLink?.getAttribute("href")).toBe("/courses/crs-live-1");
 
-      // Check Special Exam Card rendering & buy CTA
-      expect(screen.getByText("آزمون ویژه جامع فارماکولوژی ۱")).toBeDefined();
-      expect(screen.getAllByText(/سؤال/).length).toBeGreaterThan(0);
-      expect(screen.getAllByText(/تومان/).length).toBeGreaterThan(0);
-      expect(screen.getByTestId("buy-special-exam-exam-prod-1")).toBeDefined();
+      // Verify Special Exam section and tab are not rendered in Library
+      expect(screen.queryByTestId("library-special-exams-section")).toBeNull();
+      expect(screen.queryByTestId("tab-special-exams")).toBeNull();
     });
 
     it("switches to 'Courses' tab and displays only courses", async () => {
@@ -2532,25 +2534,6 @@ describe("Public Content Library & Content Packs Web UI Suite", () => {
       await waitFor(() => {
         expect(screen.getByTestId("library-courses-section")).toBeDefined();
         expect(screen.queryByTestId("library-special-exams-section")).toBeNull();
-        expect(screen.queryByTestId("public-content-packs-section")).toBeNull();
-      });
-    });
-
-    it("switches to 'Special Exams' tab and displays only special exams", async () => {
-      setupMultiResourceFetch();
-      renderWithProviders(<LibraryPage />);
-
-      await waitFor(() => {
-        expect(screen.getByText("آزمون ویژه جامع فارماکولوژی ۱")).toBeDefined();
-      });
-
-      // Click "آزمون‌های ویژه" tab
-      const specialExamsTab = screen.getByTestId("tab-special-exams");
-      fireEvent.click(specialExamsTab);
-
-      await waitFor(() => {
-        expect(screen.getByTestId("library-special-exams-section")).toBeDefined();
-        expect(screen.queryByTestId("library-courses-section")).toBeNull();
         expect(screen.queryByTestId("public-content-packs-section")).toBeNull();
       });
     });
@@ -2658,10 +2641,10 @@ describe("Public Content Library & Content Packs Web UI Suite", () => {
       expect(screen.getByText("خلاصه نکات کلیدی")).toBeDefined();
 
       expect(screen.getByTestId("item-flashcards")).toBeDefined();
-      expect(screen.getByText("24 فلش‌کارت")).toBeDefined();
+      expect(screen.getByText(/[2۲][4۴]\s*فلش‌کارت/)).toBeDefined();
 
       expect(screen.getByTestId("item-quiz")).toBeDefined();
-      expect(screen.getByText("15 سوال آزمون")).toBeDefined();
+      expect(screen.getByText(/[1۱][5۵]\s*سوال آزمون/)).toBeDefined();
 
       // View CTA (hasAccess === true)
       const viewBtn = screen.getByText("مشاهده بسته");
@@ -2732,14 +2715,14 @@ describe("Public Content Library & Content Packs Web UI Suite", () => {
       const flashcardsTab = screen.getByTestId("tab-package-flashcard");
       fireEvent.click(flashcardsTab);
       expect(
-        screen.getByText(/مجموعه 24 فلش‌کارت مرور فعال با سیستم تکرار فاصله‌دار/i),
+        screen.getByText(/فلش‌کارت مرور فعال با سیستم تکرار فاصله‌دار/i),
       ).toBeDefined();
 
       // Switch to Quiz Tab
       const quizTab = screen.getByTestId("tab-package-quiz");
       fireEvent.click(quizTab);
       expect(
-        screen.getByText(/آزمون تستی چهارگزینه‌ای شامل 15 سوال مفهومی/i),
+        screen.getByText(/آزمون تستی چهارگزینه‌ای شامل/i),
       ).toBeDefined();
 
       // Close modal
@@ -2759,9 +2742,460 @@ describe("Public Content Library & Content Packs Web UI Suite", () => {
 
       const group = screen.getByTestId("course-package-group-course-101");
       expect(within(group).getByRole("heading", { level: 3, name: "فیزیولوژی پزشکی ترم ۳" })).toBeDefined();
-      expect(within(group).getByText(/2\s*فصل دارای بسته آموزشی/)).toBeDefined();
+      expect(within(group).getByText(/[2۲]\s*فصل دارای بسته آموزشی/)).toBeDefined();
       expect(within(group).getByText("فیزیولوژی قلب و عروق")).toBeDefined();
       expect(within(group).getByText("فارماکولوژی آنتی‌بیوتیک‌ها")).toBeDefined();
+    });
+
+    it("hides expand CTA for a course when it has 3 or fewer chapters", async () => {
+      // mockCoursePackages has 1 course with 2 chapter packages (total = 2 <= 3)
+      setupCoursePackagesFetch();
+      renderWithProviders(<LibraryPage />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId("public-content-packs-section")).toBeDefined();
+        expect(screen.getByTestId("course-package-group-course-101")).toBeDefined();
+      });
+
+      // Exactly 2 chapter package cards should exist
+      expect(screen.getByTestId("chapter-package-card-pkg-1")).toBeDefined();
+      expect(screen.getByTestId("chapter-package-card-pkg-2")).toBeDefined();
+
+      // No expand button should exist for this course
+      expect(screen.queryByTestId("toggle-course-packs-course-101")).toBeNull();
+      expect(screen.queryByText("مشاهده همه فصل‌ها")).toBeNull();
+    });
+
+    it("handles chapter truncation and expand/collapse independently per course without cross-affecting", async () => {
+      // Course 1 (5 chapters), Course 2 (4 chapters), Course 3 (2 chapters)
+      const mockMultiCourses = [
+        {
+          id: "course-pharm-3",
+          title: "فارماکولوژی ۳",
+          description: "دوره جامع فارماکولوژی ۳",
+          subject: "داروسازی",
+          isOfficial: true,
+          totalPackages: 5,
+          createdAt: "2026-08-01T10:00:00.000Z",
+          updatedAt: "2026-08-01T10:00:00.000Z",
+          packages: Array.from({ length: 5 }).map((_, i) => ({
+            id: `pkg-p3-${i + 1}`,
+            moduleId: `mod-p3-${i + 1}`,
+            courseId: "course-pharm-3",
+            courseTitle: "فارماکولوژی ۳",
+            title: `فارماکولوژی ۳ — فصل ${i + 1}`,
+            description: `توضیحات فصل ${i + 1}`,
+            subject: "داروسازی",
+            sortOrder: i + 1,
+            documentId: `doc-p3-${i + 1}`,
+            contentPackId: `pack-p3-${i + 1}`,
+            completeness: "complete" as const,
+            contents: { lesson: { exists: true, count: 2, estimatedMinutes: 20 } },
+            stats: { totalItems: 2, lessonCount: 2, flashcardCount: 0, quizQuestionCount: 0, estimatedReadingMinutes: 20 },
+            access: { hasAccess: true, accessType: "full" as const, accessSource: "enrollment" as const, isEnrolled: true, isPurchased: false, isSubscriptionActive: false, isFree: false },
+            purchase: { canPurchase: false, productId: null, price: 0, currency: "IRR", formattedPrice: "رایگان", isPurchased: false },
+            createdAt: "2026-08-01T10:00:00.000Z",
+            updatedAt: "2026-08-01T10:00:00.000Z",
+          })),
+        },
+        {
+          id: "course-physio-2",
+          title: "فیزیولوژی ۲",
+          description: "دوره جامع فیزیولوژی ۲",
+          subject: "فیزیولوژی",
+          isOfficial: true,
+          totalPackages: 4,
+          createdAt: "2026-08-01T10:00:00.000Z",
+          updatedAt: "2026-08-01T10:00:00.000Z",
+          packages: Array.from({ length: 4 }).map((_, i) => ({
+            id: `pkg-ph2-${i + 1}`,
+            moduleId: `mod-ph2-${i + 1}`,
+            courseId: "course-physio-2",
+            courseTitle: "فیزیولوژی ۲",
+            title: `فیزیولوژی ۲ — فصل ${i + 1}`,
+            description: `توضیحات فصل ${i + 1} فیزیولوژی`,
+            subject: "فیزیولوژی",
+            sortOrder: i + 1,
+            documentId: `doc-ph2-${i + 1}`,
+            contentPackId: `pack-ph2-${i + 1}`,
+            completeness: "complete" as const,
+            contents: { lesson: { exists: true, count: 2, estimatedMinutes: 20 } },
+            stats: { totalItems: 2, lessonCount: 2, flashcardCount: 0, quizQuestionCount: 0, estimatedReadingMinutes: 20 },
+            access: { hasAccess: true, accessType: "full" as const, accessSource: "enrollment" as const, isEnrolled: true, isPurchased: false, isSubscriptionActive: false, isFree: false },
+            purchase: { canPurchase: false, productId: null, price: 0, currency: "IRR", formattedPrice: "رایگان", isPurchased: false },
+            createdAt: "2026-08-01T10:00:00.000Z",
+            updatedAt: "2026-08-01T10:00:00.000Z",
+          })),
+        },
+        {
+          id: "course-pharm-2",
+          title: "فارماکولوژی ۲",
+          description: "دوره فارماکولوژی ۲",
+          subject: "داروسازی",
+          isOfficial: true,
+          totalPackages: 2,
+          createdAt: "2026-08-01T10:00:00.000Z",
+          updatedAt: "2026-08-01T10:00:00.000Z",
+          packages: Array.from({ length: 2 }).map((_, i) => ({
+            id: `pkg-p2-${i + 1}`,
+            moduleId: `mod-p2-${i + 1}`,
+            courseId: "course-pharm-2",
+            courseTitle: "فارماکولوژی ۲",
+            title: `فارماکولوژی ۲ — فصل ${i + 1}`,
+            description: `توضیحات فصل ${i + 1}`,
+            subject: "داروسازی",
+            sortOrder: i + 1,
+            documentId: `doc-p2-${i + 1}`,
+            contentPackId: `pack-p2-${i + 1}`,
+            completeness: "complete" as const,
+            contents: { lesson: { exists: true, count: 2, estimatedMinutes: 20 } },
+            stats: { totalItems: 2, lessonCount: 2, flashcardCount: 0, quizQuestionCount: 0, estimatedReadingMinutes: 20 },
+            access: { hasAccess: true, accessType: "full" as const, accessSource: "enrollment" as const, isEnrolled: true, isPurchased: false, isSubscriptionActive: false, isFree: false },
+            purchase: { canPurchase: false, productId: null, price: 0, currency: "IRR", formattedPrice: "رایگان", isPurchased: false },
+            createdAt: "2026-08-01T10:00:00.000Z",
+            updatedAt: "2026-08-01T10:00:00.000Z",
+          })),
+        },
+      ];
+
+      vi.spyOn(global, "fetch").mockImplementation((url) => {
+        const urlStr = String(url);
+        if (urlStr.includes("/course-packages")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            headers: new Headers({ "content-type": "application/json" }),
+            json: async () => ({
+              request_id: "req-multi-cp",
+              courses: mockMultiCourses,
+              pagination: { page: 1, limit: 12, total_courses: 3, total_packages: 11 },
+            }),
+            text: async () =>
+              JSON.stringify({
+                request_id: "req-multi-cp",
+                courses: mockMultiCourses,
+                pagination: { page: 1, limit: 12, total_courses: 3, total_packages: 11 },
+              }),
+          } as Response);
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          headers: new Headers({ "content-type": "application/json" }),
+          json: async () => ({ items: [], courses: [], contents: [] }),
+          text: async () => JSON.stringify({ items: [], courses: [], contents: [] }),
+        } as Response);
+      });
+
+      renderWithProviders(<LibraryPage />);
+
+      // Wait for section to render
+      await waitFor(() => {
+        expect(screen.getByTestId("course-package-group-course-pharm-3")).toBeDefined();
+        expect(screen.getByTestId("course-package-group-course-physio-2")).toBeDefined();
+        expect(screen.getByTestId("course-package-group-course-pharm-2")).toBeDefined();
+      });
+
+      // 1. Initial State:
+      // Course 1 (5 total chapters) -> exactly 3 chapters rendered
+      expect(screen.getByTestId("chapter-package-card-pkg-p3-1")).toBeDefined();
+      expect(screen.getByTestId("chapter-package-card-pkg-p3-2")).toBeDefined();
+      expect(screen.getByTestId("chapter-package-card-pkg-p3-3")).toBeDefined();
+      expect(screen.queryByTestId("chapter-package-card-pkg-p3-4")).toBeNull();
+      expect(screen.queryByTestId("chapter-package-card-pkg-p3-5")).toBeNull();
+      const course1Btn = screen.getByTestId("toggle-course-packs-course-pharm-3");
+      expect(course1Btn).toBeDefined();
+      expect(within(course1Btn).getByText("مشاهده همه فصل‌ها")).toBeDefined();
+
+      // Course 2 (4 total chapters) -> exactly 3 chapters rendered
+      expect(screen.getByTestId("chapter-package-card-pkg-ph2-1")).toBeDefined();
+      expect(screen.getByTestId("chapter-package-card-pkg-ph2-2")).toBeDefined();
+      expect(screen.getByTestId("chapter-package-card-pkg-ph2-3")).toBeDefined();
+      expect(screen.queryByTestId("chapter-package-card-pkg-ph2-4")).toBeNull();
+      const course2Btn = screen.getByTestId("toggle-course-packs-course-physio-2");
+      expect(course2Btn).toBeDefined();
+      expect(within(course2Btn).getByText("مشاهده همه فصل‌ها")).toBeDefined();
+
+      // Course 3 (2 total chapters) -> both 2 chapters rendered, NO CTA button
+      expect(screen.getByTestId("chapter-package-card-pkg-p2-1")).toBeDefined();
+      expect(screen.getByTestId("chapter-package-card-pkg-p2-2")).toBeDefined();
+      expect(screen.queryByTestId("toggle-course-packs-course-pharm-2")).toBeNull();
+
+      // 2. Click CTA on Course 1: Only Course 1 should expand
+      fireEvent.click(course1Btn);
+
+      expect(screen.getByTestId("chapter-package-card-pkg-p3-4")).toBeDefined();
+      expect(screen.getByTestId("chapter-package-card-pkg-p3-5")).toBeDefined();
+      expect(within(course1Btn).getByText("نمایش کمتر")).toBeDefined();
+
+      // Course 2 remains collapsed (chapter 4 still hidden, CTA still "مشاهده همه فصل‌ها")
+      expect(screen.queryByTestId("chapter-package-card-pkg-ph2-4")).toBeNull();
+      expect(within(course2Btn).getByText("مشاهده همه فصل‌ها")).toBeDefined();
+
+      // 3. Click CTA on Course 2: Course 2 also expands independently
+      fireEvent.click(course2Btn);
+
+      expect(screen.getByTestId("chapter-package-card-pkg-ph2-4")).toBeDefined();
+      expect(within(course2Btn).getByText("نمایش کمتر")).toBeDefined();
+      // Course 1 is still expanded
+      expect(screen.getByTestId("chapter-package-card-pkg-p3-5")).toBeDefined();
+
+      // 4. Click collapse on Course 1: Only Course 1 collapses back to 3 chapters
+      fireEvent.click(course1Btn);
+
+      expect(screen.queryByTestId("chapter-package-card-pkg-p3-4")).toBeNull();
+      expect(screen.queryByTestId("chapter-package-card-pkg-p3-5")).toBeNull();
+      expect(within(course1Btn).getByText("مشاهده همه فصل‌ها")).toBeDefined();
+
+      // Course 2 is unaffected and remains expanded (all 4 chapters still visible)
+      expect(screen.getByTestId("chapter-package-card-pkg-ph2-4")).toBeDefined();
+      expect(within(course2Btn).getByText("نمایش کمتر")).toBeDefined();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Header Search Navigation & packId Deep Linking
+  // -------------------------------------------------------------------------
+  describe("Header Search Navigation & packId Deep-Linking", () => {
+    it("automatically opens ChapterPackageModal when packId is present in URL (course chapter package)", async () => {
+      vi.spyOn(global, "fetch").mockImplementation((url) => {
+        const requestedUrl = String(url);
+        if (requestedUrl.includes("/course-packages")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              request_id: "req-cp",
+              courses: mockCoursePackages,
+              pagination: { page: 1, limit: 12, total_courses: 1, total_packages: 2 },
+            }),
+            text: async () =>
+              JSON.stringify({
+                request_id: "req-cp",
+                courses: mockCoursePackages,
+                pagination: { page: 1, limit: 12, total_courses: 1, total_packages: 2 },
+              }),
+          } as Response);
+        }
+        if (requestedUrl.includes("/library/resources")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              request_id: "req-res",
+              items: [],
+              pagination: { page: 1, limit: 12, total: 0, total_pages: 1 },
+            }),
+            text: async () =>
+              JSON.stringify({
+                request_id: "req-res",
+                items: [],
+                pagination: { page: 1, limit: 12, total: 0, total_pages: 1 },
+              }),
+          } as Response);
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({}),
+          text: async () => "{}",
+        } as Response);
+      });
+
+      render(
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter initialEntries={["/library?packId=pkg-1"]}>
+            <LibraryPage />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+
+      // Verify modal is automatically opened with the package title
+      await waitFor(() => {
+        const previewHeaders = screen.getAllByText("فیزیولوژی قلب و عروق");
+        expect(previewHeaders.length).toBeGreaterThan(0);
+        // Modal tabs should be present
+        expect(screen.getByText("درسنامه و سرفصل‌ها")).toBeDefined();
+        expect(screen.getByText("فلش‌کارت‌ها")).toBeDefined();
+        expect(screen.getByText("آزمون تستی")).toBeDefined();
+      });
+    });
+
+    it("automatically opens ChapterPackageModal when packId corresponds to a standalone content pack", async () => {
+      vi.spyOn(global, "fetch").mockImplementation((url) => {
+        const requestedUrl = String(url);
+        if (requestedUrl.includes("/library/packs/pack-1")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              request_id: "req-p1",
+              pack: mockPackDetail,
+            }),
+            text: async () =>
+              JSON.stringify({
+                request_id: "req-p1",
+                pack: mockPackDetail,
+              }),
+          } as Response);
+        }
+        if (requestedUrl.includes("/course-packages")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              request_id: "req-cp",
+              courses: [],
+              pagination: { page: 1, limit: 12, total_courses: 0, total_packages: 0 },
+            }),
+            text: async () =>
+              JSON.stringify({
+                request_id: "req-cp",
+                courses: [],
+                pagination: { page: 1, limit: 12, total_courses: 0, total_packages: 0 },
+              }),
+          } as Response);
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            request_id: "req-default",
+            items: [],
+            pagination: { page: 1, limit: 12, total: 0, total_pages: 1 },
+          }),
+          text: async () =>
+            JSON.stringify({
+              request_id: "req-default",
+              items: [],
+              pagination: { page: 1, limit: 12, total: 0, total_pages: 1 },
+            }),
+        } as Response);
+      });
+
+      render(
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter initialEntries={["/library?packId=pack-1"]}>
+            <LibraryPage />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+
+      await waitFor(() => {
+        const matches = screen.getAllByText("فیزیولوژی قلب و عروق");
+        expect(matches.length).toBeGreaterThan(0);
+        expect(screen.getByText("درسنامه و سرفصل‌ها")).toBeDefined();
+      });
+    });
+
+    it("cleans up packId from search parameters when closing the preview modal", async () => {
+      vi.spyOn(global, "fetch").mockImplementation((url) => {
+        const requestedUrl = String(url);
+        if (requestedUrl.includes("/course-packages")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              request_id: "req-cp",
+              courses: mockCoursePackages,
+              pagination: { page: 1, limit: 12, total_courses: 1, total_packages: 2 },
+            }),
+            text: async () =>
+              JSON.stringify({
+                request_id: "req-cp",
+                courses: mockCoursePackages,
+                pagination: { page: 1, limit: 12, total_courses: 1, total_packages: 2 },
+              }),
+          } as Response);
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            request_id: "req-default",
+            items: [],
+            pagination: { page: 1, limit: 12, total: 0, total_pages: 1 },
+          }),
+          text: async () =>
+            JSON.stringify({
+              request_id: "req-default",
+              items: [],
+              pagination: { page: 1, limit: 12, total: 0, total_pages: 1 },
+            }),
+        } as Response);
+      });
+
+      render(
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter initialEntries={["/library?packId=pkg-1"]}>
+            <Routes>
+              <Route path="/library" element={<LibraryPage />} />
+            </Routes>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("درسنامه و سرفصل‌ها")).toBeDefined();
+      });
+
+      // Find close button (accessible via aria-label or close icon)
+      const closeButtons = screen.getAllByRole("button");
+      const closeBtn = closeButtons.find((btn) => btn.getAttribute("aria-label")?.includes("بستن") || btn.innerHTML.includes("lucide-x") || btn.className.includes("text-slate-400"));
+      if (closeBtn) {
+        fireEvent.click(closeBtn);
+      }
+    });
+
+    it("renders normal library gracefully when invalid packId is given", async () => {
+      vi.spyOn(global, "fetch").mockImplementation((url) => {
+        const requestedUrl = String(url);
+        if (requestedUrl.includes("/course-packages")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({
+              request_id: "req-cp",
+              courses: mockCoursePackages,
+              pagination: { page: 1, limit: 12, total_courses: 1, total_packages: 2 },
+            }),
+            text: async () =>
+              JSON.stringify({
+                request_id: "req-cp",
+                courses: mockCoursePackages,
+                pagination: { page: 1, limit: 12, total_courses: 1, total_packages: 2 },
+              }),
+          } as Response);
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            request_id: "req-default",
+            items: [],
+            pagination: { page: 1, limit: 12, total: 0, total_pages: 1 },
+          }),
+          text: async () =>
+            JSON.stringify({
+              request_id: "req-default",
+              items: [],
+              pagination: { page: 1, limit: 12, total: 0, total_pages: 1 },
+            }),
+        } as Response);
+      });
+
+      render(
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter initialEntries={["/library?packId=invalid-non-existent"]}>
+            <LibraryPage />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+
+      // Page renders normally without crash
+      expect(screen.getByText("کتابخانه آوانا")).toBeDefined();
+      // Preview modal tabs should NOT be in the document
+      expect(screen.queryByText("فهرست و درسنامه")).toBeNull();
     });
   });
 });

@@ -180,7 +180,7 @@ describe("Device & Single-Session Security", () => {
       expect(devices.map((d) => d.deviceType).sort()).toEqual(["desktop", "mobile"]);
     });
 
-    it("rejects login from a 2nd mobile device with DEVICE_LIMIT_REACHED (403)", async () => {
+    it("performs slot takeover on login from a 2nd mobile device (Newest-Login-Wins)", async () => {
       // Register user on Mobile Device 1
       const regRes = await app.inject({
         method: "POST",
@@ -194,8 +194,9 @@ describe("Device & Single-Session Security", () => {
         },
       });
       expect(regRes.statusCode).toBe(200);
+      const firstDeviceId = extractCookie(regRes, "avana_device_id")!;
 
-      // Attempt login from a SECOND, new Mobile Device
+      // Login from a SECOND, new Mobile Device -> Slot takeover succeeds
       const secondMobileRes = await app.inject({
         method: "POST",
         url: "/v1/auth/sign-in",
@@ -209,12 +210,16 @@ describe("Device & Single-Session Security", () => {
         },
       });
 
-      expect(secondMobileRes.statusCode).toBe(403);
-      const body = secondMobileRes.json();
-      expect(body.error.code).toBe("DEVICE_LIMIT_REACHED");
+      expect(secondMobileRes.statusCode).toBe(200);
+      const secondDeviceId = extractCookie(secondMobileRes, "avana_device_id")!;
+      expect(secondDeviceId).not.toBe(firstDeviceId);
+
+      const activeDevices = await deviceStore.findActiveByUser(asUserId(regRes.json().user.id));
+      expect(activeDevices).toHaveLength(1);
+      expect(activeDevices[0].deviceId).toBe(secondDeviceId);
     });
 
-    it("rejects login from a 2nd desktop device with DEVICE_LIMIT_REACHED (403)", async () => {
+    it("performs slot takeover on login from a 2nd desktop device (Newest-Login-Wins)", async () => {
       // Register user on Desktop Device 1
       const regRes = await app.inject({
         method: "POST",
@@ -228,8 +233,9 @@ describe("Device & Single-Session Security", () => {
         },
       });
       expect(regRes.statusCode).toBe(200);
+      const firstDeviceId = extractCookie(regRes, "avana_device_id")!;
 
-      // Attempt login from a SECOND, new Desktop Device
+      // Login from a SECOND, new Desktop Device -> Slot takeover succeeds
       const secondDesktopRes = await app.inject({
         method: "POST",
         url: "/v1/auth/sign-in",
@@ -243,9 +249,13 @@ describe("Device & Single-Session Security", () => {
         },
       });
 
-      expect(secondDesktopRes.statusCode).toBe(403);
-      const body = secondDesktopRes.json();
-      expect(body.error.code).toBe("DEVICE_LIMIT_REACHED");
+      expect(secondDesktopRes.statusCode).toBe(200);
+      const secondDeviceId = extractCookie(secondDesktopRes, "avana_device_id")!;
+      expect(secondDeviceId).not.toBe(firstDeviceId);
+
+      const activeDevices = await deviceStore.findActiveByUser(asUserId(regRes.json().user.id));
+      expect(activeDevices).toHaveLength(1);
+      expect(activeDevices[0].deviceId).toBe(secondDeviceId);
     });
   });
 
@@ -378,10 +388,10 @@ describe("Device & Single-Session Security", () => {
   });
 
   // -------------------------------------------------------------------------
-  // 3. Case C Invariant: Blocked Slot Does NOT Revoke Existing Session
+  // 3. Case C Invariant: Invalid Authentication Does NOT Revoke Existing Session
   // -------------------------------------------------------------------------
-  describe("3. Case C Invariant: Occupied Slot Protection", () => {
-    it("does NOT revoke active session or replace device on blocked login", async () => {
+  describe("3. Invariant: Invalid Authentication Protection", () => {
+    it("wrong password does NOT revoke active session or replace device", async () => {
       // 1. User registers from Desktop 1
       const regRes = await app.inject({
         method: "POST",
@@ -398,18 +408,17 @@ describe("Device & Single-Session Security", () => {
       const originalDevice = extractCookie(regRes, "avana_device_id")!;
       const userId = asUserId(regRes.json().user.id);
 
-      // 2. Attacker / second desktop attempts to log in
+      // 2. Attacker / second desktop attempts to log in with WRONG password
       const blockedRes = await app.inject({
         method: "POST",
         url: "/v1/auth/sign-in",
         headers: { "x-device-type": "desktop" },
         payload: {
           email: "casec@example.com",
-          password: "Password123!",
+          password: "WrongPassword999!",
         },
       });
-      expect(blockedRes.statusCode).toBe(403);
-      expect(blockedRes.json().error.code).toBe("DEVICE_LIMIT_REACHED");
+      expect(blockedRes.statusCode).toBe(401);
 
       // 3. Invariant: Original session is STILL VALID
       const checkRes = await app.inject({
@@ -423,13 +432,6 @@ describe("Device & Single-Session Security", () => {
       const devices = await deviceStore.findActiveByUser(userId);
       expect(devices).toHaveLength(1);
       expect(devices[0].deviceId).toBe(originalDevice);
-
-      // 5. Invariant: Attempt was recorded in authentication attempts
-      const attempts = await deviceStore.listAttemptsByUser(userId);
-      expect(attempts.length).toBeGreaterThanOrEqual(1);
-      const blockedAttempt = attempts.find((a) => a.result === "DEVICE_LIMIT_REACHED");
-      expect(blockedAttempt).toBeDefined();
-      expect(blockedAttempt?.deviceType).toBe("desktop");
     });
   });
 
@@ -588,7 +590,7 @@ describe("Device & Single-Session Security", () => {
       expect(devicesRes.statusCode).toBe(200);
       const devicesData = devicesRes.json();
       expect(devicesData.userId).toBe(targetUserId);
-      expect(devicesData.devices).toHaveLength(2);
+      expect(devicesData.devices).toHaveLength(3); // 1 mobile + 2 desktop (1 revoked, 1 active)
 
       const attemptsRes = await app.inject({
         method: "GET",
@@ -598,7 +600,6 @@ describe("Device & Single-Session Security", () => {
       expect(attemptsRes.statusCode).toBe(200);
       const attemptsData = attemptsRes.json();
       expect(attemptsData.attempts.length).toBeGreaterThanOrEqual(1);
-      expect(attemptsData.attempts.some((a: any) => a.result === "DEVICE_LIMIT_REACHED")).toBe(true);
     });
 
     it("allows platform_admin to reset devices, revoking all devices and sessions", async () => {
@@ -733,7 +734,6 @@ describe("Device & Single-Session Security", () => {
         },
       });
       const mobileToken = extractCookie(regRes, "avana_session")!;
-      const userId = asUserId(regRes.json().user.id);
 
       // 2. Start a study session
       const startStudyRes = await app.inject({
@@ -935,7 +935,6 @@ describe("Device & Single-Session Security", () => {
       // 2. Simulate pre-migration session: insert session directly with deviceId=null
       const legacyToken = "legacy_token_" + randomUUID();
       const legacyTokenHash = hashToken(legacyToken);
-      const nowIso = new Date().toISOString();
       const expiresAt = new Date(Date.now() + 30 * 86400000).toISOString();
 
       await sessionStore.createSessionWithTakeover({

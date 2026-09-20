@@ -792,4 +792,141 @@ describe("ExamTakingView Component", () => {
     });
     expect(askCallCount).toBe(1);
   });
+
+  it("Lifecycle invariant: unmount does NOT submit the exam; remounting resumes state", () => {
+    const handleExit = vi.fn();
+    const handleSubmitSuccess = vi.fn();
+
+    // 1. Initial mount of an attempt where Question 1 was already answered
+    const { unmount } = render(
+      <ExamTakingView
+        organizationId="test-org"
+        attemptId="att-resume-101"
+        questions={mockQuestions}
+        initialAnswers={{ "q-1": "گزینه ۲" }}
+        initialElapsedSeconds={75}
+        onExit={handleExit}
+        onSubmitSuccess={handleSubmitSuccess}
+      />
+    );
+
+    // Initial focus starts at Question 2 (first unanswered)
+    expect(
+      screen.getByText("کدام داروی بتابلاکر در درمان نارسایی قلب دارای تاییدیه کاهش مورتالیتی است؟")
+    ).toBeInTheDocument();
+
+    // 2. User unmounts (e.g. navigates away or closes tab)
+    unmount();
+
+    // Crucial assertion: unmount MUST NOT trigger onSubmitSuccess
+    expect(handleSubmitSuccess).not.toHaveBeenCalled();
+
+    // 3. User re-opens the exact same attempt
+    render(
+      <ExamTakingView
+        organizationId="test-org"
+        attemptId="att-resume-101"
+        questions={mockQuestions}
+        initialAnswers={{ "q-1": "گزینه ۲" }}
+        initialElapsedSeconds={75}
+        onExit={handleExit}
+        onSubmitSuccess={handleSubmitSuccess}
+      />
+    );
+
+    // Question 1 answer is still marked on map
+    const prevBtn = screen.getByText("سوال قبلی");
+    fireEvent.click(prevBtn);
+    expect(
+      screen.getAllByText("مکانیسم اثر داروهای مهارکننده آنزیم مبدل آنژیوتانسین (ACEIs) چیست؟")[0]
+    ).toBeInTheDocument();
+
+    // Radio choice "گزینه ۲" is selected
+    expect(handleSubmitSuccess).not.toHaveBeenCalled();
+  });
+
+  it("Exit button calls onExit without completing the exam", async () => {
+    const handleExit = vi.fn();
+    const handleSubmitSuccess = vi.fn();
+
+    render(
+      <ExamTakingView
+        organizationId="test-org"
+        attemptId="att-exit-test"
+        questions={mockQuestions}
+        onExit={handleExit}
+        onSubmitSuccess={handleSubmitSuccess}
+      />
+    );
+
+    // Click help/exit button in header
+    const exitBtn = screen.getByTitle("خروج از آزمون");
+    fireEvent.click(exitBtn);
+
+    await waitFor(() => {
+      expect(handleExit).toHaveBeenCalledTimes(1);
+    });
+    expect(handleSubmitSuccess).not.toHaveBeenCalled();
+  });
+
+  it("Flushes latest answers on exit and updates backend", async () => {
+    const handleExit = vi.fn();
+    const handleSubmitSuccess = vi.fn();
+
+    render(
+      <ExamTakingView
+        organizationId="test-org"
+        attemptId="att-exit-flush"
+        questions={mockQuestions}
+        onExit={handleExit}
+        onSubmitSuccess={handleSubmitSuccess}
+      />
+    );
+
+    // Select choice
+    const choiceB = screen.getAllByText("جلوگیری از تبدیل آنژیوتانسین I به آنژیوتانسین II")[0];
+    fireEvent.click(choiceB);
+
+    // Click exit
+    const exitBtn = screen.getByTitle("خروج از آزمون");
+    fireEvent.click(exitBtn);
+
+    await waitFor(() => {
+      expect(handleExit).toHaveBeenCalledTimes(1);
+    });
+    expect(handleSubmitSuccess).not.toHaveBeenCalled();
+  });
+
+  it("Hydrates answers accurately when initialAnswers updates from backend", () => {
+    const handleExit = vi.fn();
+    const handleSubmitSuccess = vi.fn();
+
+    const { rerender } = render(
+      <ExamTakingView
+        organizationId="test-org"
+        attemptId="att-hydrate"
+        questions={mockQuestions}
+        initialAnswers={{ "q-1": "مهار گیرنده‌های آلفا-۱ آدرنرژیک" }}
+        onExit={handleExit}
+        onSubmitSuccess={handleSubmitSuccess}
+      />
+    );
+
+    // Re-render with new server answers
+    rerender(
+      <ExamTakingView
+        organizationId="test-org"
+        attemptId="att-hydrate"
+        questions={mockQuestions}
+        initialAnswers={{
+          "q-1": "جلوگیری از تبدیل آنژیوتانسین I به آنژیوتانسین II",
+          "q-2": "کارودیلول",
+        }}
+        onExit={handleExit}
+        onSubmitSuccess={handleSubmitSuccess}
+      />
+    );
+
+    expect(handleSubmitSuccess).not.toHaveBeenCalled();
+  });
 });

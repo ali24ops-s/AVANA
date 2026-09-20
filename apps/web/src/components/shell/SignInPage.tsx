@@ -294,7 +294,7 @@ export function SignInPage() {
                   >
                     نشانی ایمیل
                   </label>
-                  <div className="relative">
+                  <div className="relative flex items-center" dir="ltr">
                     <Mail className="absolute start-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-muted)] pointer-events-none" />
                     <input
                       id="email"
@@ -326,7 +326,7 @@ export function SignInPage() {
                       رمز عبور را فراموش کرده‌اید؟
                     </span>
                   </div>
-                  <div className="relative">
+                  <div className="relative flex items-center" dir="ltr">
                     <Lock className="absolute start-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-muted)] pointer-events-none" />
                     <input
                       id="password"

@@ -39,6 +39,8 @@ export interface OpenRouterModelGatewayOptions {
   timeoutMs?: number;
   /** Custom fetch implementation for unit testing. */
   fetchFn?: typeof fetch;
+  /** Custom sleep implementation for unit testing (defaults to real setTimeout). */
+  sleepFn?: (ms: number) => Promise<void>;
 }
 
 interface OpenRouterApiUsage {
@@ -75,6 +77,7 @@ export class OpenRouterModelGateway implements ModelGateway {
   private readonly appTitle: string;
   private readonly timeoutMs: number;
   private readonly fetchFn: typeof fetch;
+  private readonly sleepFn: (ms: number) => Promise<void>;
 
   constructor(options: OpenRouterModelGatewayOptions = {}) {
     this.apiKey = options.apiKey?.trim() || process.env.OPENROUTER_API_KEY?.trim();
@@ -89,6 +92,7 @@ export class OpenRouterModelGateway implements ModelGateway {
       options.appTitle?.trim() || process.env.OPENROUTER_TITLE?.trim() || "AVANA";
     this.timeoutMs = options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
     this.fetchFn = options.fetchFn ?? globalThis.fetch;
+    this.sleepFn = options.sleepFn ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
   }
 
   /**
@@ -99,6 +103,16 @@ export class OpenRouterModelGateway implements ModelGateway {
       return text;
     }
     return text.replaceAll(this.apiKey, "[REDACTED_OPENROUTER_API_KEY]");
+  }
+
+  /**
+   * Calculate exponential backoff with jitter for transient retries.
+   * delay = min(maxMs, baseMs * 2^attempt + jitter)
+   */
+  private calculateBackoffMs(attempt: number, baseMs = 1000, maxMs = 10000): number {
+    const exponential = baseMs * Math.pow(2, attempt);
+    const jitter = Math.floor(Math.random() * 500);
+    return Math.min(maxMs, exponential + jitter);
   }
 
   /**
@@ -147,123 +161,169 @@ export class OpenRouterModelGateway implements ModelGateway {
       headers["HTTP-Referer"] = this.httpReferer;
     }
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
+    const maxTotalAttempts = 3;
 
-    let response: Response;
-    try {
-      response = await this.fetchFn(OPENROUTER_API_CHAT_URL, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(payload),
-        signal: controller.signal,
-      });
-    } catch (err: unknown) {
-      clearTimeout(timeoutId);
-      if (err instanceof Error && err.name === "AbortError") {
+    for (let attempt = 0; attempt < maxTotalAttempts; attempt++) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
+
+      let response: Response;
+      try {
+        response = await this.fetchFn(OPENROUTER_API_CHAT_URL, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(payload),
+          signal: controller.signal,
+        });
+      } catch (err: unknown) {
+        clearTimeout(timeoutId);
+        const isTimeout =
+          (err instanceof Error && err.name === "AbortError") ||
+          controller.signal.aborted;
+        const rawMsg = isTimeout
+          ? `OpenRouter request timed out after ${this.timeoutMs}ms`
+          : (err instanceof Error ? err.message : String(err));
+        const safeMsg = this.redactSecrets(rawMsg);
+
+        if (attempt < maxTotalAttempts - 1) {
+          const delayMs = this.calculateBackoffMs(attempt);
+          await this.sleepFn(delayMs);
+          continue;
+        }
+
+        throw new DomainError(
+          "service_unavailable",
+          isTimeout
+            ? `OpenRouter request timed out after ${this.timeoutMs}ms`
+            : `OpenRouter network error: ${safeMsg}`,
+        );
+      } finally {
+        clearTimeout(timeoutId);
+      }
+
+      let responseBodyText = "";
+      try {
+        responseBodyText = await response.text();
+      } catch (readErr: unknown) {
+        const readMsg = readErr instanceof Error ? readErr.message : String(readErr);
+        const safeMsg = this.redactSecrets(readMsg);
+
+        if (attempt < maxTotalAttempts - 1) {
+          const delayMs = this.calculateBackoffMs(attempt);
+          await this.sleepFn(delayMs);
+          continue;
+        }
+
+        throw new DomainError(
+          "service_unavailable",
+          `Failed to read OpenRouter response: ${safeMsg}`,
+        );
+      }
+
+      let parsedResponse: OpenRouterApiResponse | null = null;
+      try {
+        parsedResponse = JSON.parse(responseBodyText) as OpenRouterApiResponse;
+      } catch {
+        // If response is not JSON, handle based on status code
+      }
+
+      if (!response.ok) {
+        const errorMessage =
+          parsedResponse?.error?.message ||
+          (responseBodyText.length > 0
+            ? responseBodyText.slice(0, 300)
+            : response.statusText);
+        const safeError = this.redactSecrets(errorMessage);
+
+        // Non-retryable client errors -> fail immediately on attempt 0
+        if (response.status === 401 || response.status === 403) {
+          throw new DomainError(
+            "unauthorized",
+            `OpenRouter authentication failed (HTTP ${response.status}): ${safeError}`,
+          );
+        }
+
+        if (response.status === 429) {
+          throw new DomainError(
+            "rate_limit_exceeded",
+            `OpenRouter rate limit exceeded (HTTP 429): ${safeError}`,
+          );
+        }
+
+        if (response.status === 400 || response.status === 422) {
+          throw new DomainError(
+            "bad_request",
+            `OpenRouter request rejected (HTTP ${response.status}): ${safeError}`,
+          );
+        }
+
+        // Retryable server errors: 500, 502, 503, 504
+        if (
+          response.status === 500 ||
+          response.status === 502 ||
+          response.status === 503 ||
+          response.status === 504
+        ) {
+          if (attempt < maxTotalAttempts - 1) {
+            const delayMs = this.calculateBackoffMs(attempt);
+            await this.sleepFn(delayMs);
+            continue;
+          }
+
+          throw new DomainError(
+            "service_unavailable",
+            `OpenRouter service unavailable (HTTP ${response.status}): ${safeError}`,
+          );
+        }
+
+        // Other non-2xx status codes (treat as unprocessable, fail immediately)
         throw new DomainError(
           "unprocessable",
-          `OpenRouter request timed out after ${this.timeoutMs}ms`,
+          `OpenRouter request failed (HTTP ${response.status}): ${safeError}`,
         );
       }
-      const rawMsg = err instanceof Error ? err.message : String(err);
-      const safeMsg = this.redactSecrets(rawMsg);
-      throw new DomainError(
-        "unprocessable",
-        `OpenRouter network error: ${safeMsg}`,
-      );
-    } finally {
-      clearTimeout(timeoutId);
-    }
 
-    let responseBodyText = "";
-    try {
-      responseBodyText = await response.text();
-    } catch (readErr: unknown) {
-      const readMsg = readErr instanceof Error ? readErr.message : String(readErr);
-      throw new DomainError(
-        "unprocessable",
-        `Failed to read OpenRouter response: ${this.redactSecrets(readMsg)}`,
-      );
-    }
-
-    let parsedResponse: OpenRouterApiResponse | null = null;
-    try {
-      parsedResponse = JSON.parse(responseBodyText) as OpenRouterApiResponse;
-    } catch {
-      // If response is not JSON, handle based on status code
-    }
-
-    if (!response.ok) {
-      const errorMessage =
-        parsedResponse?.error?.message ||
-        (responseBodyText.length > 0
-          ? responseBodyText.slice(0, 300)
-          : response.statusText);
-      const safeError = this.redactSecrets(errorMessage);
-
-      if (response.status === 401 || response.status === 403) {
+      if (!parsedResponse) {
         throw new DomainError(
-          "unauthorized",
-          `OpenRouter authentication failed (HTTP ${response.status}): ${safeError}`,
+          "unprocessable",
+          "OpenRouter returned invalid non-JSON response payload",
         );
       }
 
-      if (response.status === 429) {
+      if (parsedResponse.error) {
+        const safeError = this.redactSecrets(
+          parsedResponse.error.message || "Unknown error from OpenRouter",
+        );
         throw new DomainError(
-          "rate_limit_exceeded",
-          `OpenRouter rate limit exceeded (HTTP 429): ${safeError}`,
+          "unprocessable",
+          `OpenRouter returned error: ${safeError}`,
         );
       }
 
-      if (response.status === 400 || response.status === 422) {
+      const firstChoice = parsedResponse.choices?.[0];
+      const textContent = firstChoice?.message?.content;
+
+      if (typeof textContent !== "string") {
         throw new DomainError(
-          "bad_request",
-          `OpenRouter request rejected (HTTP ${response.status}): ${safeError}`,
+          "unprocessable",
+          "OpenRouter response contained no text content in choices",
         );
       }
 
-      throw new DomainError(
-        "unprocessable",
-        `OpenRouter request failed (HTTP ${response.status}): ${safeError}`,
-      );
+      return {
+        text: textContent,
+        model: parsedResponse.model || this.model,
+        usage: {
+          inputTokens: parsedResponse.usage?.prompt_tokens ?? 0,
+          outputTokens: parsedResponse.usage?.completion_tokens ?? 0,
+        },
+        finishReason: firstChoice?.finish_reason || "stop",
+      };
     }
 
-    if (!parsedResponse) {
-      throw new DomainError(
-        "unprocessable",
-        "OpenRouter returned invalid non-JSON response payload",
-      );
-    }
-
-    if (parsedResponse.error) {
-      const safeError = this.redactSecrets(
-        parsedResponse.error.message || "Unknown error from OpenRouter",
-      );
-      throw new DomainError(
-        "unprocessable",
-        `OpenRouter returned error: ${safeError}`,
-      );
-    }
-
-    const firstChoice = parsedResponse.choices?.[0];
-    const textContent = firstChoice?.message?.content;
-
-    if (typeof textContent !== "string") {
-      throw new DomainError(
-        "unprocessable",
-        "OpenRouter response contained no text content in choices",
-      );
-    }
-
-    return {
-      text: textContent,
-      model: parsedResponse.model || this.model,
-      usage: {
-        inputTokens: parsedResponse.usage?.prompt_tokens ?? 0,
-        outputTokens: parsedResponse.usage?.completion_tokens ?? 0,
-      },
-      finishReason: firstChoice?.finish_reason || "stop",
-    };
+    throw new DomainError(
+      "service_unavailable",
+      "OpenRouter request exhausted all retries",
+    );
   }
 }

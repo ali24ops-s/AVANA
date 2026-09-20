@@ -598,7 +598,7 @@ export function FlashcardsPage() {
                             : "bg-[var(--color-surface)] text-[var(--color-text-muted)] border-[var(--color-border)] hover:bg-[var(--color-surface-hover)]"
                         }`}
                       >
-                        {limit === "all" ? "همه" : limit}
+                        {limit === "all" ? "همه" : toPersianDigits(limit)}
                       </button>
                     ))}
                   </div>
@@ -630,9 +630,9 @@ export function FlashcardsPage() {
                 <Info className="w-4 h-4 text-[var(--color-text-muted)]" />
                 <span>
                   {selectedModules.size > 0
-                    ? `${selectedModules.size} مبحث انتخاب شده است.`
+                    ? `${toPersianDigits(selectedModules.size)} مبحث انتخاب شده است.`
                     : selectedCourses.size > 0
-                    ? `${selectedCourses.size} دوره انتخاب شده است.`
+                    ? `${toPersianDigits(selectedCourses.size)} دوره انتخاب شده است.`
                     : "همه مباحث به صورت پیش‌فرض فعال هستند."}
                 </span>
               </div>
@@ -645,7 +645,7 @@ export function FlashcardsPage() {
                   }}
                   className="hover:text-[var(--color-text)] underline cursor-pointer"
                 >
-                  مرور {reviewAheadDays} روز بعد
+                  مرور {toPersianDigits(reviewAheadDays)} روز بعد
                 </button>
               </div>
             </div>
@@ -666,7 +666,7 @@ export function FlashcardsPage() {
             }`}
           >
             <h3 className="text-3xl font-black text-[var(--color-warning)] mb-1 relative z-10">
-              {scopedStats.overdue}
+              {toPersianDigits(scopedStats.overdue)}
             </h3>
             <p className="text-sm font-bold text-[var(--color-text)] relative z-10">کارت فراموش شده</p>
             <p className="text-xs text-[var(--color-text-muted)] mt-1 relative z-10">
@@ -689,7 +689,7 @@ export function FlashcardsPage() {
             }`}
           >
             <h3 className="text-3xl font-black text-[var(--color-primary)] mb-1 relative z-10">
-              {scopedStats.newCards}
+              {toPersianDigits(scopedStats.newCards)}
             </h3>
             <p className="text-sm font-bold text-[var(--color-text)] relative z-10">کارت‌های جدید</p>
             <p className="text-xs text-[var(--color-text-muted)] mt-1 relative z-10">آماده برای یادگیری امروز.</p>
@@ -710,7 +710,7 @@ export function FlashcardsPage() {
             }`}
           >
             <h3 className="text-3xl font-black text-[var(--color-error)] mb-1 relative z-10">
-              {scopedStats.due}
+              {toPersianDigits(scopedStats.due)}
             </h3>
             <p className="text-sm font-bold text-[var(--color-text)] relative z-10">نیاز به مرور</p>
             <p className="text-xs text-[var(--color-text-muted)] mt-1 relative z-10">زمان یادآوری فرا رسیده است.</p>
@@ -731,7 +731,7 @@ export function FlashcardsPage() {
             }`}
           >
             <h3 className="text-3xl font-black text-[var(--color-success)] mb-1 relative z-10">
-              {learnedCardsCount}
+              {toPersianDigits(learnedCardsCount)}
             </h3>
             <p className="text-sm font-bold text-[var(--color-text)] relative z-10">یادگرفته شده</p>
             <p className="text-xs text-[var(--color-success)] mt-1 relative z-10">عالی پیش می‌روید!</p>
@@ -754,14 +754,14 @@ export function FlashcardsPage() {
                     {selectedGoal === "exam" ? "شروع مرور فشرده امتحان" : "شروع مطالعه"}
                   </h2>
                   <p className="text-white/80 text-xs sm:text-sm font-semibold">
-                    ~{estimatedMinutes} دقیقه زمان تخمینی
+                    ~{toPersianDigits(estimatedMinutes)} دقیقه زمان تخمینی
                   </p>
                 </div>
               </div>
 
               <div className="hidden sm:flex flex-col text-left opacity-90">
                 <span className="text-xs text-white/80">کل کارت‌های انتخاب شده</span>
-                <span className="text-2xl font-black text-white">{activeSelectedCardCount}</span>
+                <span className="text-2xl font-black text-white">{toPersianDigits(activeSelectedCardCount)}</span>
               </div>
             </div>
           </button>

@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { SectionHeading } from "./shared/SectionHeading.js";
+import { toPersianDigits } from "@avana/domain";
 import {
   Layers,
   BookOpen,
@@ -141,7 +142,7 @@ export const AboutEcosystemSection: React.FC = () => {
             </span>
           </div>
           <span className="text-xs text-[var(--color-text-muted)]">
-            {activeNode.connectedTo.length} اتصال فعال سیستمی
+            {toPersianDigits(activeNode.connectedTo.length)} اتصال فعال سیستمی
           </span>
         </div>
 

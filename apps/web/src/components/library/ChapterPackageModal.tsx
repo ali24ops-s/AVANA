@@ -117,6 +117,7 @@ export function ChapterPackageModal({
     if (open && targetItem) {
       setActiveTab("lesson");
       setSelectedLessonId(null);
+      setExpandedModules(new Set());
       setCardIndex(0);
       setIsCardFlipped(false);
       setIsFlashcardCompleted(false);
@@ -207,9 +208,6 @@ export function ChapterPackageModal({
 
   useEffect(() => {
     if (modules.length > 0) {
-      // Auto-expand module containing preview lesson
-      setExpandedModules(new Set(modules.map((m) => m.id)));
-
       if (!selectedLessonId) {
         if (previewLessonId) {
           setSelectedLessonId(previewLessonId);
@@ -928,7 +926,7 @@ export function ChapterPackageModal({
                     </Badge>
                     {activeQuizId && (
                       <Link
-                        to={targetModuleId ? `/courses/${effectiveCourseId}/quizzes/${activeQuizId}?moduleId=${targetModuleId}` : `/courses/${effectiveCourseId}/quizzes/${activeQuizId}`}
+                        to={targetModuleId ? `/courses/${effectiveCourseId}?tab=quizzes&quizId=${activeQuizId}&moduleId=${targetModuleId}` : `/courses/${effectiveCourseId}?tab=quizzes&quizId=${activeQuizId}`}
                         data-testid="btn-view-preview-quiz"
                         className="inline-flex items-center gap-1 px-2.5 py-1 rounded-[10px] text-xs font-bold bg-purple-500/15 text-purple-700 dark:text-purple-300 hover:bg-purple-500 hover:text-white transition-colors"
                       >
@@ -983,7 +981,9 @@ export function ChapterPackageModal({
                               >
                                 {toPersianDigits(cIdx + 1)}
                               </span>
-                              <span>{choice}</span>
+                              <span className="flex-1">
+                                <RichContent inline content={choice} />
+                              </span>
                             </button>
                           );
                         })}

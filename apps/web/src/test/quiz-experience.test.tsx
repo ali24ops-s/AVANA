@@ -140,7 +140,7 @@ describe("Quiz Experience Flow", () => {
 
     await waitFor(() => {
       expect(screen.getByText("آزمون با موفقیت گذرانده شد!")).toBeDefined();
-      expect(screen.getByText("100%")).toBeDefined();
+      expect(screen.getByText(/100%|۱۰۰٪/)).toBeDefined();
     });
   });
 });

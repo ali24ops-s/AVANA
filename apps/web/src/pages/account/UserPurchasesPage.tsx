@@ -19,6 +19,7 @@ import {
   ShoppingBag,
   Loader2,
   ExternalLink,
+  Wallet,
 } from "lucide-react";
 import {
   useMyEntitlements,
@@ -30,6 +31,7 @@ import {
   formatPersianDate,
   getOrderStatusBadge,
 } from "../../components/commerce/userCommerceUtils.js";
+import { PageHeader } from "../../components/ui/index.js";
 
 type PurchasesTab = "entitlements" | "orders";
 
@@ -66,30 +68,33 @@ export function UserPurchasesPage() {
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8" dir="rtl">
       {/* 1. Header Banner */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div>
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-teal-500/10 text-teal-700 dark:text-teal-300 border border-teal-500/30 text-xs font-bold mb-2">
-            <Receipt className="w-3.5 h-3.5" />
-            <span>سوابق مالی و مالکیت محتوا</span>
-          </div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-[var(--color-text)] tracking-tight">
-            خریدهای من و تاریخچه سفارش‌ها
-          </h1>
-          <p className="text-xs sm:text-sm text-[var(--color-text-muted)] mt-1">
-            مشاهده دوره‌ها و بسته‌های خریداری‌شده دائمی و صورت‌حساب تراکنش‌ها
-          </p>
-        </div>
+      <PageHeader
+        title="خریدهای من و تاریخچه سفارش‌ها"
+        badge={{
+          text: "سوابق خرید و سفارش‌ها",
+          icon: <Receipt className="w-3.5 h-3.5 shrink-0" />,
+        }}
+        description="مشاهده دوره‌ها و بسته‌های خریداری‌شده دائمی و صورت‌حساب تراکنش‌ها"
+        actions={
+          <>
+            <Link
+              to="/account/wallet"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-[var(--color-text)] hover:text-primary bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] border border-[var(--color-border)] transition-colors shadow-xs"
+            >
+              <Wallet className="w-4 h-4 text-primary" />
+              <span>کیف پول من</span>
+            </Link>
 
-        <div className="flex items-center gap-3">
-          <Link
-            to="/account/subscription"
-            className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-bold text-[var(--color-text)] hover:text-primary bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] border border-[var(--color-border)] transition-colors shadow-xs"
-          >
-            <Crown className="w-4 h-4 text-amber-500 dark:text-amber-400" />
-            <span>مدیریت اشتراک</span>
-          </Link>
-        </div>
-      </div>
+            <Link
+              to="/account/subscription"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-[var(--color-text)] hover:text-primary bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] border border-[var(--color-border)] transition-colors shadow-xs"
+            >
+              <Crown className="w-4 h-4 text-amber-500 dark:text-amber-400" />
+              <span>مدیریت اشتراک</span>
+            </Link>
+          </>
+        }
+      />
 
       {/* 2. Navigation Tabs */}
       <div className="flex items-center gap-2 border-b border-[var(--color-border)] pb-4">

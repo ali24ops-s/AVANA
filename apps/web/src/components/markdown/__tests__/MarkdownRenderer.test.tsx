@@ -1049,6 +1049,96 @@ describe("RichContent & MarkdownRenderer Math & Markdown Suite", () => {
       expect(container.querySelector("strong")?.textContent).toBe("تیروکسین");
       expect(container.querySelectorAll(".katex").length).toBeGreaterThanOrEqual(2);
     });
+
+    it("renders multiline Persian text inside table cells with RTL direction, unicode isolation and right alignment", () => {
+      const multilineTable = [
+        "| رده دارویی | کاربرد بالینی و دستور مصرف | نکات کلیدی |",
+        "| :--- | :--- | :--- |",
+        "| مهارکننده ACE | داروی کاپتوپریل برای درمان نارسایی قلبی با کسر تخلیه پایین (HFrEF) تجویز می‌شود و باید با دوز اولیه کم شروع شود تا از افت فشار خون وضعیتی جلوگیری شود. | پایش دقیق سطح سرمی پتاسیم و کراتینین بیمار الزامی است. |",
+        "| مسدودکننده گیرنده آنژیوتانسین (ARB) | داروی لوزارتان در بیماران دارای سرفه ناشی از مهارکننده آنزیم مبدل آنژیوتانسین به عنوان جایگزین خط اول تجویز می‌شود. | منع مصرف مطلق در دوران بارداری دارد. |",
+      ].join("\n");
+
+      const { container } = render(<MarkdownRenderer content={multilineTable} />);
+
+      const tableEl = container.querySelector("table");
+      expect(tableEl).toBeInTheDocument();
+      expect(tableEl).toHaveAttribute("dir", "rtl");
+      expect(tableEl).toHaveClass("text-right");
+
+      const thElements = container.querySelectorAll("th");
+      thElements.forEach((th) => {
+        expect(th).toHaveAttribute("dir", "rtl");
+        expect(th).toHaveClass("text-right");
+        expect(th).toHaveClass("[unicode-bidi:isolate]");
+      });
+
+      const tdElements = container.querySelectorAll("td");
+      expect(tdElements.length).toBe(6);
+      tdElements.forEach((td) => {
+        expect(td).toHaveAttribute("dir", "rtl");
+        expect(td).toHaveClass("text-right");
+        expect(td).toHaveClass("break-words");
+        expect(td).toHaveClass("[unicode-bidi:isolate]");
+      });
+
+      // Verify Persian content inside multiline cell
+      expect(tdElements[1].textContent).toContain("داروی کاپتوپریل برای درمان نارسایی قلبی");
+      expect(tdElements[1].textContent).toContain("جلوگیری شود.");
+    });
+
+    it("preserves mixed Persian, English tokens, numbers and LaTeX formulas inside table cells without breaking RTL alignment", () => {
+      const mixedTable = [
+        "| دارو | اندیکاسیون بالینی | دوز و فرمول |",
+        "| :--- | :--- | :--- |",
+        "| Lisinopril | بیماران با Stage 3 CKD و فشار خون بالای 140/90 mmHg | دوز اولیه $2.5 \\text{ mg}$ روزانه با $GFR > 30$ |",
+      ].join("\n");
+
+      const { container } = render(<MarkdownRenderer content={mixedTable} />);
+
+      const tdElements = container.querySelectorAll("td");
+      expect(tdElements.length).toBe(3);
+
+      // Cell 0: English drug name
+      expect(tdElements[0].textContent).toContain("Lisinopril");
+      expect(tdElements[0]).toHaveAttribute("dir", "rtl");
+
+      // Cell 1: Mixed Persian + English + Numbers
+      expect(tdElements[1].textContent).toContain("بیماران با Stage 3 CKD و فشار خون بالای 140/90 mmHg");
+      expect(tdElements[1]).toHaveAttribute("dir", "rtl");
+      expect(tdElements[1]).toHaveClass("[unicode-bidi:isolate]");
+
+      // Cell 2: Mixed with KaTeX math formulas
+      expect(tdElements[2].textContent).toContain("دوز اولیه");
+      expect(tdElements[2].querySelectorAll(".katex").length).toBeGreaterThanOrEqual(1);
+      expect(tdElements[2]).toHaveAttribute("dir", "rtl");
+      expect(tdElements[2]).toHaveClass("[unicode-bidi:isolate]");
+    });
+
+    it("respects LTR direction mode when explicitly configured", () => {
+      const ltrTable = [
+        "| Drug | Indication | Dosage |",
+        "| :--- | :--- | :--- |",
+        "| Captopril | Heart Failure | 6.25 mg tid |",
+      ].join("\n");
+
+      const { container } = render(<MarkdownRenderer content={ltrTable} dir="ltr" />);
+
+      const tableEl = container.querySelector("table");
+      expect(tableEl).toHaveAttribute("dir", "ltr");
+      expect(tableEl).toHaveClass("text-left");
+
+      const thElements = container.querySelectorAll("th");
+      thElements.forEach((th) => {
+        expect(th).toHaveAttribute("dir", "ltr");
+        expect(th).toHaveClass("text-left");
+      });
+
+      const tdElements = container.querySelectorAll("td");
+      tdElements.forEach((td) => {
+        expect(td).toHaveAttribute("dir", "ltr");
+        expect(td).toHaveClass("text-left");
+      });
+    });
   });
 
   describe("Sprint Audit Regression & Educational Rendering Invariant Suite", () => {
@@ -1208,7 +1298,262 @@ describe("RichContent & MarkdownRenderer Math & Markdown Suite", () => {
       expect(container.querySelector(".katex-display")).toBeInTheDocument();
     });
   });
+
+  describe("Chemical Structure Markdown Integration & Zero-Regression Suite", () => {
+    it("1. renders YAML-style ```chemical block into ChemicalStructureBlock", async () => {
+      const markdown = [
+        "# شیمی دارویی بی‌حس‌کننده‌ها",
+        "",
+        "```chemical",
+        "name: لیدوکائین (Lidocaine)",
+        "smiles: CCN(CC)CC(=O)Nc1c(C)cccc1C",
+        "formula: C14H22N2O",
+        "weight: 234.34",
+        "class: بی‌حس‌کننده موضعی",
+        "sar:",
+        "  - پیوند آمیدی: مقاومت بیشتر در برابر استرازها",
+        "```",
+      ].join("\n");
+
+      const { container } = render(<MarkdownRenderer content={markdown} />);
+
+      expect(await screen.findByText("لیدوکائین (Lidocaine)")).toBeInTheDocument();
+      expect(await screen.findByText("C14H22N2O")).toBeInTheDocument();
+      expect(await screen.findByText(/پیوند آمیدی/)).toBeInTheDocument();
+      expect(container.querySelector("svg")).toBeInTheDocument();
+    });
+
+    it("2. renders JSON-style ```chemical block", async () => {
+      const jsonMarkdown = [
+        "```chemical",
+        JSON.stringify({
+          compoundName: "پروکائین (Procaine)",
+          smiles: "CCN(CC)CCOC(=O)c1ccc(N)cc1",
+          formula: "C13H20N2O2",
+          molecularWeight: 236.31,
+          drugClass: "استری",
+        }),
+        "```",
+      ].join("\n");
+
+      render(<MarkdownRenderer content={jsonMarkdown} />);
+
+      expect(await screen.findByText("پروکائین (Procaine)")).toBeInTheDocument();
+      expect(await screen.findByText("C13H20N2O2")).toBeInTheDocument();
+    });
+
+    it("3. renders raw ```smiles block", async () => {
+      const smilesMarkdown = [
+        "```smiles",
+        "CCN(CC)CC(=O)Nc1c(C)cccc1C # لیدوکائین",
+        "```",
+      ].join("\n");
+
+      render(<MarkdownRenderer content={smilesMarkdown} />);
+
+      expect(await screen.findByText("لیدوکائین")).toBeInTheDocument();
+    });
+
+    it("4. preserves standard programming code blocks without converting to chemical (ZERO REGRESSION)", () => {
+      const codeMarkdown = [
+        "```typescript",
+        "const x: number = 42;",
+        "console.log(x);",
+        "```",
+        "",
+        "```python",
+        "def hello():",
+        "    return 'world'",
+        "```",
+        "",
+        "کد درون خطی `npm install` و فرمول $T_4$",
+      ].join("\n");
+
+      const { container } = render(<MarkdownRenderer content={codeMarkdown} />);
+
+      expect(container.textContent).toContain("const x: number = 42;");
+      expect(container.textContent).toContain("def hello():");
+      expect(container.textContent).toContain("npm install");
+      expect(container.querySelectorAll("pre").length).toBe(2);
+      expect(container.querySelectorAll(".katex").length).toBe(1);
+    });
+
+    it("5. renders callouts, GFM tables, and math alongside chemical structures cleanly", async () => {
+      const complexDoc = [
+        "> **نکته کلیدی:** لیدوکائین نمونه بارز بی‌حس‌کننده آمیدی است.",
+        "",
+        "```chemical",
+        "name: لیدوکائین (Lidocaine)",
+        "smiles: CCN(CC)CC(=O)Nc1c(C)cccc1C",
+        "formula: C14H22N2O",
+        "weight: 234.34",
+        "```",
+        "",
+        "| دارو | دسته | نیمه‌عمر |",
+        "| :--- | :--- | :--- |",
+        "| لیدوکائین | آمید | $1.5\\text{ hr}$ |",
+      ].join("\n");
+
+      const { container } = render(
+        <MarkdownRenderer content={complexDoc} enableLessonCallouts />,
+      );
+
+      expect(screen.getByText("نکته کلیدی")).toBeInTheDocument();
+      expect(await screen.findByText("لیدوکائین (Lidocaine)")).toBeInTheDocument();
+      expect(container.querySelector("table")).toBeInTheDocument();
+      expect(container.querySelectorAll(".katex").length).toBeGreaterThan(0);
+    });
+  });
+
+  describe("Architectural AI Content Normalization & Newline Suite", () => {
+    it("1. converts escaped newlines (\\n and \\r\\n) into real newlines outside code and math", () => {
+      const input = "خط اول\\nخط دوم\\r\\n\\n- مورد ۱\\n- مورد ۲";
+      const normalized = normalizeRichContent(input);
+      expect(normalized).toBe("خط اول\nخط دوم\n\n- مورد ۱\n- مورد ۲");
+    });
+
+    it("2. preserves programming code blocks containing literal \\n without normalization", () => {
+      const input = "متن عادی\\n\n```javascript\nconst str = \"hello\\nworld\";\n```";
+      const normalized = normalizeRichContent(input);
+      expect(normalized).toContain("const str = \"hello\\nworld\";");
+    });
+
+    it("3. preserves LaTeX math commands starting with \\n (e.g. \\nabla, \\neq, \\nu, \\notin)", () => {
+      const input = "معادله $\\nabla \\cdot E = \\frac{\\rho}{\\varepsilon_0}$ و $A \\neq B$ و $\\nu$";
+      const normalized = normalizeRichContent(input);
+      expect(normalized).toContain("\\nabla");
+      expect(normalized).toContain("\\neq");
+      expect(normalized).toContain("\\nu");
+    });
+
+    it("4. unwraps JSON string literal wrappers and normalizes escaped quotes", () => {
+      const input = "\"متن آزمایشی با \\\"نقل قول\\\" و \\n سطر دوم\"";
+      const normalized = normalizeRichContent(input);
+      expect(normalized).toBe("متن آزمایشی با \"نقل قول\" و \n سطر دوم");
+    });
+
+    it("5. normalizes escaped tabs (\\t) outside code", () => {
+      const input = "متن قبل\\tمتن بعد";
+      const normalized = normalizeRichContent(input);
+      expect(normalized).toBe("متن قبل متن بعد");
+    });
+
+    it("6. converts literal \\newline outside math to actual newline", () => {
+      const input = "خط اول \\newline خط دوم";
+      const normalized = normalizeRichContent(input);
+      expect(normalized).toBe("خط اول \n خط دوم");
+    });
+  });
+
+  describe("Bidirectional & Biomedical Notation Suite", () => {
+    it("1. renders mixed Persian and English biomedical terms with bidi isolation", () => {
+      const text = "دوز اولیه Lisinopril در بیماران با Stage 3 CKD مقدار 10 mg/kg است.";
+      const { container } = render(<RichContent content={text} />);
+
+      expect(container.textContent).toContain("Lisinopril");
+      expect(container.textContent).toContain("Stage 3 CKD");
+      expect(container.textContent).toContain("10 mg/kg");
+      expect(container.querySelector(".rich-content-full")).toHaveAttribute("dir", "rtl");
+    });
+
+    it("2. renders Greek letters and subscript chemistry formulas ($CO_2$, $\\alpha$, $\\beta$)", () => {
+      const text = "تولید $CO_2$ و فعال‌سازی گیرنده $\\alpha_2$ و $\\beta_1$ در بدن.";
+      const { container } = render(<RichContent content={text} />);
+
+      const katexElements = container.querySelectorAll(".katex");
+      expect(katexElements.length).toBe(3);
+    });
+
+    it("3. isolates directionality on table cells and list items", () => {
+      const markdown = "| دارو | دوز |\n| :--- | :--- |\n| Propranolol | 40 mg/day |\n\n- مصرف Metformin در CKD";
+      const { container } = render(<RichContent content={markdown} />);
+
+      const th = container.querySelector("th");
+      expect(th?.className).toContain("[unicode-bidi:isolate]");
+      const td = container.querySelector("td");
+      expect(td?.className).toContain("[unicode-bidi:isolate]");
+      const li = container.querySelector("li");
+      expect(li?.className).toContain("[unicode-bidi:isolate]");
+    });
+  });
+
+  describe("Inline Mode Invariant Suite", () => {
+    it("1. renders single line content cleanly as inline span", () => {
+      const { container } = render(<RichContent content="متن کوتاه درون‌خطی" inline />);
+      const inlineSpan = container.querySelector(".rich-content-inline");
+      expect(inlineSpan).toBeInTheDocument();
+      expect(inlineSpan?.textContent).toBe("متن کوتاه درون‌خطی");
+    });
+
+    it("2. preserves linebreaks in multiline inline content without silent collapsing", () => {
+      const multiline = "سطر اول درون‌خطی\nسطر دوم درون‌خطی";
+      const { container } = render(<RichContent content={multiline} inline />);
+      const pSpan = container.querySelector(".rich-content-inline p, .rich-content-inline span");
+      expect(pSpan).toBeInTheDocument();
+      expect(container.textContent).toContain("سطر اول درون‌خطی");
+      expect(container.textContent).toContain("سطر دوم درون‌خطی");
+    });
+
+    it("3. renders LaTeX math in inline mode", () => {
+      const text = "هورمون $T_4$ و $T_3$ درون متن";
+      const { container } = render(<RichContent content={text} inline />);
+      expect(container.querySelectorAll(".katex").length).toBe(2);
+    });
+  });
+
+  describe("Educational View Invariant Integration Suite", () => {
+    it("1. renders multiline Flashcard front and back with lists and math formulas", () => {
+      const front = "مکانیسم اثر داروهای **ACE Inhibitor** چیست؟\n- مهار تبدیل $T_4$ یا آنژیوتانسین";
+      const back = "۱. مهار آنزیم ACE\n۲. کاهش ترشح آلدوسترون و یون $Na^+$\n۳. افزایش غلظت برادی‌کینین (Bradykinin)";
+
+      const { container: frontContainer } = render(<RichContent content={front} />);
+      const { container: backContainer } = render(<RichContent content={back} />);
+
+      expect(frontContainer.querySelectorAll(".katex").length).toBe(1);
+      expect(frontContainer.querySelector("ul")).toBeInTheDocument();
+      expect(backContainer.querySelectorAll(".katex").length).toBe(1);
+      expect(backContainer.textContent).toContain("Bradykinin");
+    });
+
+    it("2. renders Quiz questions, choices, and explanations with math and bidi", () => {
+      const question = "کدام هورمون مستقیماً ترشح $T_4$ را از تیروئید تحریک می‌کند؟";
+      const choiceA = "هورمون $TSH$ هیپوفیز قدامی";
+      const choiceB = "داروی Lisinopril با دوز 10 mg/kg";
+      const explanation = "توضیح: هورمون TSH ترشح $T_4$ و $T_3$ را تنظیم می‌کند.\\n\\nنکته تست: $TSH$ دقیق‌ترین مارکر عملکرد تیروئید است.";
+
+      const { container: qContainer } = render(<RichContent content={question} />);
+      const { container: cAContainer } = render(<RichContent inline content={choiceA} />);
+      const { container: cBContainer } = render(<RichContent inline content={choiceB} />);
+      const { container: expContainer } = render(<RichContent content={explanation} />);
+
+      expect(qContainer.querySelectorAll(".katex").length).toBe(1);
+      expect(cAContainer.querySelectorAll(".katex").length).toBe(1);
+      expect(cBContainer.textContent).toContain("Lisinopril");
+      expect(expContainer.querySelectorAll(".katex").length).toBe(3);
+      expect(expContainer.textContent).toContain("نکته تست:");
+    });
+
+    it("3. renders Review Summary categories and comparisons with full formatting", () => {
+      const overview = "خلاصه مروری:\\n- نکته ۱: اثر بر گیرنده $\\beta_1$\\n- نکته ۲: متابولیسم کبدی با آنزیم CYP3A4";
+      const comparisonA = "داروی $T_4$ (لووتیروکسین)";
+      const comparisonB = "داروی $T_3$ (لیوتیرونین)";
+      const diff = "نیمه‌عمر $T_4$ حدود ۷ روز است در مقایسه با ۱ روز برای $T_3$.";
+
+      const { container: ovContainer } = render(<RichContent content={overview} />);
+      const { container: compAContainer } = render(<RichContent inline content={comparisonA} />);
+      const { container: compBContainer } = render(<RichContent inline content={comparisonB} />);
+      const { container: diffContainer } = render(<RichContent inline content={diff} />);
+
+      expect(ovContainer.querySelectorAll(".katex").length).toBe(1);
+      expect(ovContainer.querySelector("ul")).toBeInTheDocument();
+      expect(compAContainer.querySelectorAll(".katex").length).toBe(1);
+      expect(compBContainer.querySelectorAll(".katex").length).toBe(1);
+      expect(diffContainer.querySelectorAll(".katex").length).toBe(2);
+    });
+  });
 });
+
+
 
 
 

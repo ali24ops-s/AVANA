@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { Dialog, DialogHeader, DialogContent, DialogFooter } from "@avana/ui";
 import type { CourseResource } from "@avana/contracts";
+import { toPersianDigits } from "@avana/domain";
 
 export interface CourseSelectionModalProps {
   open: boolean;
@@ -174,7 +175,7 @@ export function CourseSelectionModal({
       {/* Footer */}
       <DialogFooter>
         <span className="text-xs text-[var(--color-text-muted)]">
-          {selectedIds.size} دوره انتخاب شده
+          {toPersianDigits(selectedIds.size)} دوره انتخاب شده
         </span>
         <div className="flex items-center gap-3">
           <button

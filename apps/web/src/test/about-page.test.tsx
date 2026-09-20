@@ -1,10 +1,13 @@
 import React from "react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { MemoryRouter, Routes, Route } from "react-router-dom";
+import { MemoryRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AboutPage } from "../pages/AboutPage.js";
 
-let mockAuth = {
+let mockAuth: {
+  user: { id: string; email: string } | null;
+  isAuthenticated: boolean;
+} = {
   user: null,
   isAuthenticated: false,
 };
@@ -15,9 +18,9 @@ vi.mock("../providers/AuthProvider.js", () => ({
 
 const renderAboutPage = () => {
   return render(
-    <MemoryRouter initialEntries={["/about"]}>
+    <MemoryRouter initialEntries={["/about-internal-render"]}>
       <Routes>
-        <Route path="/about" element={<AboutPage />} />
+        <Route path="/about-internal-render" element={<AboutPage />} />
         <Route path="/sign-in" element={<div>Sign In Page</div>} />
         <Route path="/courses" element={<div>Courses Page</div>} />
         <Route path="/library" element={<div>Library Page</div>} />
@@ -25,6 +28,38 @@ const renderAboutPage = () => {
     </MemoryRouter>
   );
 };
+
+describe("About Route Disabled & Redirect Suite (خروج از دسترس عمومی)", () => {
+  it("redirects direct access from /about to /", () => {
+    render(
+      <MemoryRouter initialEntries={["/about"]}>
+        <Routes>
+          <Route path="/" element={<div>Root Landing Page</div>} />
+          <Route path="/about" element={<Navigate to="/" replace />} />
+          <Route path="/about-us" element={<Navigate to="/" replace />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(screen.getByText("Root Landing Page")).toBeInTheDocument();
+    expect(screen.queryByText("داروسازی فقط حفظ کردن نیست")).not.toBeInTheDocument();
+  });
+
+  it("redirects direct access from /about-us to /", () => {
+    render(
+      <MemoryRouter initialEntries={["/about-us"]}>
+        <Routes>
+          <Route path="/" element={<div>Root Landing Page</div>} />
+          <Route path="/about" element={<Navigate to="/" replace />} />
+          <Route path="/about-us" element={<Navigate to="/" replace />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(screen.getByText("Root Landing Page")).toBeInTheDocument();
+    expect(screen.queryByText("داروسازی فقط حفظ کردن نیست")).not.toBeInTheDocument();
+  });
+});
 
 describe("AboutPage (صفحه درباره ما) Complete Narrative Experience Suite", () => {
   beforeEach(() => {
@@ -136,7 +171,7 @@ describe("AboutPage (صفحه درباره ما) Complete Narrative Experience S
     expect(screen.getByText("متن جزوه")).toBeInTheDocument();
 
     // Pillar 3: Spaced Repetition interval selection
-    const day7Btn = screen.getByRole("button", { name: "روز 7" });
+    const day7Btn = screen.getByRole("button", { name: /روز [7۷]/ });
     fireEvent.click(day7Btn);
     expect(screen.getByText(/تثبیت میان‌مدت/)).toBeInTheDocument();
   });
@@ -170,7 +205,7 @@ describe("AboutPage (صفحه درباره ما) Complete Narrative Experience S
     unmount();
 
     // Authenticated user -> Links to /courses
-    mockAuth = { user: { id: "123", email: "test@example.com" } as any, isAuthenticated: true };
+    mockAuth = { user: { id: "123", email: "test@example.com" }, isAuthenticated: true };
     renderAboutPage();
     const authCtaLinks = screen.getAllByRole("link", { name: /شروع با آوانا/ });
     expect(authCtaLinks[0]).toHaveAttribute("href", "/courses");

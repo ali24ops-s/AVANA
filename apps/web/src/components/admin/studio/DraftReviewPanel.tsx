@@ -108,7 +108,7 @@ export function DraftReviewPanel({
               {drafts.length === 0
                 ? "هنوز محتوایی برای بررسی تولید نشده است"
                 : unresolvedCount === 0
-                ? "نگاشت قطعی درسنامه تایید شد (unresolvedLessonMappings = 0)"
+                ? "نگاشت قطعی درسنامه تایید شد (unresolvedLessonMappings = ۰)"
                 : `خطای نگاشت درسنامه: ${toPersianDigits(unresolvedCount)} مورد کارت یا سؤال فاقد نگاشت به درس هستند.`}
             </div>
             <p className="opacity-80">

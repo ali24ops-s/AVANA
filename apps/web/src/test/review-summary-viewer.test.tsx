@@ -4,6 +4,14 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ReviewSummaryViewer } from "../components/documents/ReviewSummaryViewer.js";
 import type { ReviewSummaryPayload } from "@avana/domain";
 
+vi.mock("../providers/AuthProvider.js", () => ({
+  useAuth: () => ({
+    user: { id: "user-1", email: "user@avana.ir", role: "organization_admin" },
+    memberships: [{ organization_id: "b4a0b464-16db-4087-92b7-163a1e6f6776", role: "organization_admin" }],
+    isAuthenticated: true,
+  }),
+}));
+
 const createTestQueryClient = () =>
   new QueryClient({
     defaultOptions: {

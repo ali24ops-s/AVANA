@@ -308,9 +308,19 @@ describe("Library In-Modal Pre-Purchase Preview Experience (مشاهده بست�
     // Lesson Tab: Wait for Curriculum outline and preview lesson
     await waitFor(() => {
       expect(screen.getAllByText("فصل اول: الکتروفیزیولوژی قلب")[0]).toBeDefined();
-      expect(screen.getByTestId("toc-lesson-lesson-intro")).toBeDefined();
-      expect(screen.getByTestId("toc-lesson-lesson-paid-1")).toBeDefined();
     });
+
+    // Chapters are collapsed by default on initial load
+    expect(screen.queryByTestId("toc-lesson-lesson-intro")).toBeNull();
+    expect(screen.queryByTestId("toc-lesson-lesson-paid-1")).toBeNull();
+
+    // Click Chapter 1 header to expand
+    const chapterHeader = screen.getAllByText("فصل اول: الکتروفیزیولوژی قلب")[0];
+    fireEvent.click(chapterHeader);
+
+    // Lessons inside chapter 1 are now revealed
+    expect(screen.getByTestId("toc-lesson-lesson-intro")).toBeDefined();
+    expect(screen.getByTestId("toc-lesson-lesson-paid-1")).toBeDefined();
 
     // Preview Lesson Markdown rendered
     expect(screen.getByText("درسنامه بیوفیزیک سلول قلبی")).toBeDefined();
@@ -331,6 +341,63 @@ describe("Library In-Modal Pre-Purchase Preview Experience (مشاهده بست�
     expect(footerBuyBtn).toBeDefined();
     fireEvent.click(footerBuyBtn);
     expect(onBuy).toHaveBeenCalledWith(samplePackage);
+  });
+
+  it("Course package preview accordion: all chapters collapsed by default, expand/collapse independently and simultaneously", async () => {
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <ChapterPackageModal
+            courseItem={sampleCourse}
+            open={true}
+            onClose={vi.fn()}
+            onBuy={vi.fn()}
+          />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    // 1. Initial load: wait for chapters to render
+    await waitFor(() => {
+      expect(screen.getByText("فصل اول: الکتروفیزیولوژی قلب")).toBeDefined();
+      expect(screen.getByText("فصل دوم: آریتمی‌های فوق بطنی و بلوک‌ها")).toBeDefined();
+    });
+
+    // 2. All chapters collapsed by default: no sessions rendered
+    expect(screen.queryByTestId("toc-lesson-lesson-intro")).toBeNull();
+    expect(screen.queryByTestId("toc-lesson-lesson-paid-1")).toBeNull();
+    expect(screen.queryByTestId("toc-lesson-lesson-mod2-1")).toBeNull();
+
+    // 3. Click Chapter 1 header: opens Chapter 1 only
+    const ch1Header = screen.getByText("فصل اول: الکتروفیزیولوژی قلب");
+    fireEvent.click(ch1Header);
+
+    expect(screen.getByTestId("toc-lesson-lesson-intro")).toBeDefined();
+    expect(screen.getByTestId("toc-lesson-lesson-paid-1")).toBeDefined();
+    // Chapter 2 sessions remain hidden
+    expect(screen.queryByTestId("toc-lesson-lesson-mod2-1")).toBeNull();
+
+    // 4. Click Chapter 2 header: opens Chapter 2 AND keeps Chapter 1 open simultaneously
+    const ch2Header = screen.getByText("فصل دوم: آریتمی‌های فوق بطنی و بلوک‌ها");
+    fireEvent.click(ch2Header);
+
+    expect(screen.getByTestId("toc-lesson-lesson-intro")).toBeDefined();
+    expect(screen.getByTestId("toc-lesson-lesson-paid-1")).toBeDefined();
+    expect(screen.getByTestId("toc-lesson-lesson-mod2-1")).toBeDefined();
+
+    // 5. Click Chapter 1 header again: closes Chapter 1 while Chapter 2 remains open
+    fireEvent.click(ch1Header);
+
+    expect(screen.queryByTestId("toc-lesson-lesson-intro")).toBeNull();
+    expect(screen.queryByTestId("toc-lesson-lesson-paid-1")).toBeNull();
+    expect(screen.getByTestId("toc-lesson-lesson-mod2-1")).toBeDefined();
+
+    // 6. Click Chapter 2 header again: closes Chapter 2 (all closed)
+    fireEvent.click(ch2Header);
+
+    expect(screen.queryByTestId("toc-lesson-lesson-intro")).toBeNull();
+    expect(screen.queryByTestId("toc-lesson-lesson-paid-1")).toBeNull();
+    expect(screen.queryByTestId("toc-lesson-lesson-mod2-1")).toBeNull();
   });
 
   it("ChapterPackageModal allows flipping through 5 real preview flashcards and completing", async () => {

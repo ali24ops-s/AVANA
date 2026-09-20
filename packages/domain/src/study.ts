@@ -38,6 +38,53 @@ export function isFlashcardRating(value: string): value is FlashcardRating {
   return (FLASHCARD_RATINGS as readonly string[]).includes(value);
 }
 
+/**
+ * Minimum number of evaluations required for a 'hard' flashcard to graduate (complete) in a session.
+ */
+export const REQUIRED_HARD_EVALUATIONS_FOR_GRADUATION = 4;
+
+/**
+ * Minimum number of evaluations required for a 'good' flashcard to graduate (complete) in a session.
+ */
+export const REQUIRED_GOOD_EVALUATIONS_FOR_GRADUATION = 2;
+
+/**
+ * Check whether a flashcard has graduated (reached "completed" / "پایان‌یافته" status) in a study session
+ * based on its review evaluation history in that session.
+ *
+ * Authoritative Rules:
+ *  - 'again': Never completed; always returns to the review queue.
+ *  - 'hard': Requires at least 4 evaluations in the session cycle before graduating.
+ *  - 'good': First evaluation does NOT complete (requires at least 2 evaluations to graduate on good).
+ *  - 'easy': Graduates immediately (1st evaluation).
+ */
+export function isFlashcardGraduatedInSession(
+  ratings: readonly FlashcardRating[],
+): boolean {
+  if (!ratings || ratings.length === 0) {
+    return false;
+  }
+
+  const latestRating = ratings[ratings.length - 1];
+  if (latestRating === "again") {
+    return false;
+  }
+
+  if (latestRating === "easy") {
+    return true;
+  }
+
+  if (latestRating === "good") {
+    return ratings.length >= REQUIRED_GOOD_EVALUATIONS_FOR_GRADUATION;
+  }
+
+  if (latestRating === "hard") {
+    return ratings.length >= REQUIRED_HARD_EVALUATIONS_FOR_GRADUATION;
+  }
+
+  return false;
+}
+
 import { toPersianDigits } from "./persian-numbers.js";
 
 /**

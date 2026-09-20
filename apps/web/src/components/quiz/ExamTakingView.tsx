@@ -60,7 +60,15 @@ export function ExamTakingView({
   const apiClient = createApiClient({ baseUrl: getApiBaseUrl() });
   const studyApi = createStudyApi(apiClient);
 
-  const [currentIndex, setCurrentIndex] = useState<number>(0);
+  const [currentIndex, setCurrentIndex] = useState<number>(() => {
+    if (initialAnswers && questions && questions.length > 0) {
+      const firstUnanswered = questions.findIndex(
+        (q) => initialAnswers[q.id] === undefined || initialAnswers[q.id] === null || initialAnswers[q.id] === ""
+      );
+      return firstUnanswered >= 0 ? firstUnanswered : 0;
+    }
+    return 0;
+  });
   const [answers, setAnswers] = useState<Record<string, unknown>>(initialAnswers || {});
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -220,15 +228,28 @@ export function ExamTakingView({
   });
 
   const hasAutoSubmittedRef = useRef<boolean>(false);
+  const answersRef = useRef<Record<string, unknown>>(initialAnswers || {});
+  answersRef.current = answers;
 
-  const handleExitClick = useCallback(() => {
+  const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const saveSeqRef = useRef<number>(0);
+
+  const handleExitClick = useCallback(async () => {
     const total = closeActiveSlice();
-    void studyApi
-      .saveExamAnswers(organizationId, attemptId, {
-        answers: [],
+    const latestAnswers = answersRef.current;
+    const formattedAnswers = Object.entries(latestAnswers).map(([qid, val]) => ({
+      questionId: qid,
+      answer: val,
+    }));
+
+    try {
+      await studyApi.saveExamAnswers(organizationId, attemptId, {
+        answers: formattedAnswers,
         elapsedSeconds: total,
-      })
-      .catch(() => {});
+      });
+    } catch {
+      // Best-effort flush on exit
+    }
     onExit();
   }, [closeActiveSlice, onExit, organizationId, attemptId, studyApi]);
 
@@ -240,7 +261,7 @@ export function ExamTakingView({
     try {
       const formattedAnswers = questions.map((q) => ({
         questionId: q.id,
-        answer: answers[q.id] ?? null,
+        answer: answersRef.current[q.id] ?? null,
       }));
 
       const res = await studyApi.submitExamAttempt(organizationId, attemptId, {
@@ -266,7 +287,6 @@ export function ExamTakingView({
       startActiveSlice(); // Resume timer if submit failed
     }
   }, [
-    answers,
     attemptId,
     closeActiveSlice,
     onSubmitSuccess,
@@ -318,8 +338,12 @@ export function ExamTakingView({
       if (typeof navigator !== "undefined" && navigator.sendBeacon) {
         try {
           const url = `${getApiBaseUrl()}/v1/organizations/${organizationId}/study/exams/attempts/${attemptId}/answers`;
+          const formattedAnswers = Object.entries(answersRef.current).map(([qid, val]) => ({
+            questionId: qid,
+            answer: val,
+          }));
           const blob = new Blob(
-            [JSON.stringify({ answers: [], elapsedSeconds: total })],
+            [JSON.stringify({ answers: formattedAnswers, elapsedSeconds: total })],
             { type: "application/json" }
           );
           navigator.sendBeacon(url, blob);
@@ -349,9 +373,14 @@ export function ExamTakingView({
 
       // Synchronously close active slice and persist on unmount
       const total = closeActiveSlice();
+      const latestAnswers = answersRef.current;
+      const formattedAnswers = Object.entries(latestAnswers).map(([qid, val]) => ({
+        questionId: qid,
+        answer: val,
+      }));
       void studyApi
         .saveExamAnswers(organizationId, attemptId, {
-          answers: [],
+          answers: formattedAnswers,
           elapsedSeconds: total,
         })
         .catch(() => {});
@@ -379,9 +408,13 @@ export function ExamTakingView({
         !isSubmitting
       ) {
         const current = getActiveElapsedSeconds();
+        const formattedAnswers = Object.entries(answersRef.current).map(([qid, val]) => ({
+          questionId: qid,
+          answer: val,
+        }));
         void studyApi
           .saveExamAnswers(organizationId, attemptId, {
-            answers: [],
+            answers: formattedAnswers,
             elapsedSeconds: current,
           })
           .catch(() => {});
@@ -391,12 +424,28 @@ export function ExamTakingView({
     return () => clearInterval(syncInterval);
   }, [attemptId, organizationId, isSubmitting, getActiveElapsedSeconds, studyApi]);
 
-  // Sync initialAnswers if updated from backend on load
+  // Sync initialAnswers if updated from backend on load / refetch (authoritative backend)
   useEffect(() => {
     if (initialAnswers && Object.keys(initialAnswers).length > 0) {
-      setAnswers((prev) => ({ ...initialAnswers, ...prev }));
+      setAnswers((prev) => {
+        const merged = { ...prev, ...initialAnswers };
+        answersRef.current = merged;
+        return merged;
+      });
     }
   }, [initialAnswers]);
+
+  // Sync initialElapsedSeconds monotonically if received from server
+  useEffect(() => {
+    if (
+      typeof initialElapsedSeconds === "number" &&
+      initialElapsedSeconds > baseElapsedSecondsRef.current
+    ) {
+      baseElapsedSecondsRef.current = initialElapsedSeconds;
+      setElapsedSeconds((prev) => Math.max(prev, initialElapsedSeconds));
+      persistLocally(initialElapsedSeconds);
+    }
+  }, [initialElapsedSeconds, persistLocally]);
 
   if (!questions || questions.length === 0) {
     return (
@@ -436,35 +485,46 @@ export function ExamTakingView({
     const hours = Math.floor(totalSec / 3600);
     const mins = Math.floor((totalSec % 3600) / 60);
     const secs = totalSec % 60;
-    if (hours > 0) {
-      return `${hours.toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
-    }
-    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+    const timeStr =
+      hours > 0
+        ? `${hours.toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`
+        : `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+    return toPersianDigits(timeStr);
   };
 
   const displayTimeSeconds = hasTimeLimit
     ? Math.max(0, totalTimeLimitSeconds - elapsedSeconds)
     : elapsedSeconds;
 
-  const handleSelectChoice = async (choice: string) => {
+  const handleSelectChoice = (choice: string) => {
     if (isSubmitting) return;
 
     // Optimistic UI update
-    const updatedAnswers = { ...answers, [currentQuestion.id]: choice };
+    const qId = currentQuestion.id;
+    const updatedAnswers = { ...answersRef.current, [qId]: choice };
+    answersRef.current = updatedAnswers;
     setAnswers(updatedAnswers);
 
     const currentElapsed = getActiveElapsedSeconds();
     persistLocally(currentElapsed);
 
-    // Save answer and elapsed seconds to backend asynchronously
-    try {
-      await studyApi.saveExamAnswers(organizationId, attemptId, {
-        answers: [{ questionId: currentQuestion.id, answer: choice }],
-        elapsedSeconds: currentElapsed,
+    const thisSeq = ++saveSeqRef.current;
+    // Sequential promise queue to guarantee monotonic latest-write-wins in networking
+    saveQueueRef.current = saveQueueRef.current
+      .catch(() => {})
+      .then(async () => {
+        if (thisSeq < saveSeqRef.current) {
+          // A newer choice was made while waiting; skip stale request
+          return;
+        }
+        await studyApi.saveExamAnswers(organizationId, attemptId, {
+          answers: [{ questionId: qId, answer: choice }],
+          elapsedSeconds: currentElapsed,
+        });
+      })
+      .catch(() => {
+        // Background save error handled gracefully
       });
-    } catch {
-      // Ignore background save errors gracefully without breaking student flow
-    }
   };
 
   const handleToggleSource = (questionId: string) => {
@@ -578,7 +638,7 @@ export function ExamTakingView({
             <h3 className="text-[var(--color-text)] font-bold text-base">نقشه آزمون</h3>
           </div>
           <span className="text-xs text-[var(--color-text-muted)] font-mono bg-[var(--color-surface-warm)] border border-[var(--color-border)] px-2 py-0.5 rounded">
-            {currentIndex + 1} / {totalQuestions}
+            {formatPersianOf(currentIndex + 1, totalQuestions)}
           </span>
         </div>
 
@@ -597,7 +657,7 @@ export function ExamTakingView({
                     onClick={() => setCurrentIndex(idx)}
                     className="w-10 h-10 rounded-lg bg-[var(--color-primary)] text-white flex items-center justify-center font-mono text-sm shadow-xs ring-2 ring-[var(--color-primary-soft)] relative font-bold"
                   >
-                    {idx + 1}
+                    {toPersianDigits(idx + 1)}
                     {isAns && (
                       <div className="absolute bottom-1 right-1 w-1.5 h-1.5 bg-[#3d8f6e] rounded-full" />
                     )}
@@ -613,7 +673,7 @@ export function ExamTakingView({
                     onClick={() => setCurrentIndex(idx)}
                     className="w-10 h-10 rounded-lg bg-[var(--color-primary-soft)]/60 border border-[var(--color-primary)]/40 text-[var(--color-primary-dark)] flex items-center justify-center font-mono text-sm hover:bg-[var(--color-primary-soft)] transition-colors relative font-semibold"
                   >
-                    {idx + 1}
+                    {toPersianDigits(idx + 1)}
                     <div className="absolute bottom-1 right-1 w-1.5 h-1.5 bg-[#3d8f6e] rounded-full" />
                   </button>
                 );
@@ -626,7 +686,7 @@ export function ExamTakingView({
                   onClick={() => setCurrentIndex(idx)}
                   className="w-10 h-10 rounded-lg bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text-muted)] flex items-center justify-center font-mono text-sm hover:border-[var(--color-primary)]/40 hover:text-[var(--color-text)] transition-colors"
                 >
-                  {idx + 1}
+                  {toPersianDigits(idx + 1)}
                 </button>
               );
             })}
@@ -637,11 +697,11 @@ export function ExamTakingView({
         <div className="p-4 border-t border-[var(--color-border)] shrink-0 flex flex-col gap-2 bg-[var(--color-surface)]">
           <div className="flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
             <div className="w-2.5 h-2.5 bg-[#3d8f6e] rounded-full shrink-0" />
-            <span>پاسخ داده شده ({answeredCount})</span>
+            <span>پاسخ داده شده ({toPersianDigits(answeredCount)})</span>
           </div>
           <div className="flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
             <div className="w-2.5 h-2.5 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-full shrink-0" />
-            <span>پاسخ داده نشده ({unansweredCount})</span>
+            <span>پاسخ داده نشده ({toPersianDigits(unansweredCount)})</span>
           </div>
           <div className="flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
             <div className="w-2.5 h-2.5 bg-[var(--color-primary)] rounded-full ring-2 ring-[var(--color-primary-soft)] shrink-0" />

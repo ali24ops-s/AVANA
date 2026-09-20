@@ -24,6 +24,7 @@ import {
   RefreshCw,
   Loader2,
   ShieldCheck,
+  Wallet,
 } from "lucide-react";
 import { useMySubscription, useCommerceProducts } from "../../hooks/useCommerce.js";
 import {
@@ -34,7 +35,7 @@ import {
   getSubscriptionStatusBadge,
 } from "../../components/commerce/userCommerceUtils.js";
 import { PricingModal } from "../../components/commerce/PricingModal.js";
-import { Button } from "@avana/ui";
+import { Button, PageHeader } from "../../components/ui/index.js";
 
 export function UserSubscriptionPage() {
   const { data: subData, isLoading: isSubLoading, refetch: refetchSub } = useMySubscription();
@@ -76,41 +77,44 @@ export function UserSubscriptionPage() {
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8" dir="rtl">
       {/* 1. Header Banner */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div>
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-teal-500/10 text-teal-700 dark:text-teal-300 border border-teal-500/30 text-xs font-bold mb-2">
-            <Crown className="w-3.5 h-3.5" />
-            <span>مدیریت اشتراک و تعرفه‌ها</span>
-          </div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-[var(--color-text)] tracking-tight">
-            اشتراک من
-          </h1>
-          <p className="text-xs sm:text-sm text-[var(--color-text-muted)] mt-1">
-            مشاهده وضعیت اشتراک فعال، مدت زمان باقیمانده و تمدید یا ارتقای پلن آموزشی
-          </p>
-        </div>
+      <PageHeader
+        title="اشتراک من"
+        badge={{
+          text: "مدیریت اشتراک و تعرفه‌ها",
+          icon: <Crown className="w-3.5 h-3.5 shrink-0" />,
+        }}
+        description="مشاهده وضعیت اشتراک فعال، مدت زمان باقیمانده و تمدید یا ارتقای پلن آموزشی"
+        actions={
+          <>
+            <Link
+              to="/account/wallet"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-[var(--color-text)] hover:text-primary bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] border border-[var(--color-border)] transition-colors shadow-xs"
+            >
+              <Wallet className="w-4 h-4 text-primary" />
+              <span>کیف پول من</span>
+            </Link>
 
-        <div className="flex items-center gap-3">
-          <Link
-            to="/account/purchases"
-            className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-bold text-[var(--color-text)] hover:text-primary bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] border border-[var(--color-border)] transition-colors shadow-xs"
-          >
-            <Receipt className="w-4 h-4 text-primary" />
-            <span>فاکتورها و خریدهای من</span>
-          </Link>
+            <Link
+              to="/account/purchases"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-[var(--color-text)] hover:text-primary bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] border border-[var(--color-border)] transition-colors shadow-xs"
+            >
+              <Receipt className="w-4 h-4 text-primary" />
+              <span>فاکتورها و خریدهای من</span>
+            </Link>
 
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => void refetchSub()}
-            title="بروزرسانی وضعیت"
-            aria-label="بروزرسانی وضعیت"
-            leftIcon={<RefreshCw className="w-4 h-4" />}
-            className="!p-2.5 !h-auto shadow-xs"
-          />
-        </div>
-      </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void refetchSub()}
+              title="بروزرسانی وضعیت"
+              aria-label="بروزرسانی وضعیت"
+              leftIcon={<RefreshCw className="w-3.5 h-3.5" />}
+              className="!p-2.5 !h-auto shadow-xs"
+            />
+          </>
+        }
+      />
 
       {/* Loading State */}
       {isSubLoading && (

@@ -3,7 +3,8 @@ import { useParams, Link } from "react-router-dom";
 import { api, type AdminGenerationDetail } from "../../lib/api/admin";
 import { useAdmin } from "../../hooks/useAdmin.js";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { AdminStatusBadge, AdminConfirmModal } from "../../components/admin/AdminUI";
+import { AdminStatusBadge, AdminConfirmModal } from "../../components/admin/AdminUI.js";
+import { toPersianDigits } from "@avana/domain";
 import { ArrowRight, Cpu, Clock, AlertTriangle, RefreshCw, User, Building, Book, FileText, Database, Code } from "lucide-react";
 
 export function AdminGenerationDetailPage() {
@@ -101,7 +102,7 @@ export function AdminGenerationDetailPage() {
             </div>
             <div className="flex justify-between">
               <span className="text-[var(--color-text-muted)] flex items-center gap-2">تعداد تلاش مجدد</span>
-              <span className="text-[var(--color-text)]">{job.retryCount || 0}</span>
+              <span className="text-[var(--color-text)]">{toPersianDigits(job.retryCount || 0)}</span>
             </div>
           </div>
         </div>
@@ -111,24 +112,24 @@ export function AdminGenerationDetailPage() {
           <div className="space-y-3 text-sm">
             <div className="flex justify-between">
               <span className="text-[var(--color-text-muted)] flex items-center gap-2"><Clock className="w-4 h-4"/> ایجاد</span>
-              <span className="text-[var(--color-text)]" dir="ltr">{new Date(job.createdAt).toLocaleString("fa-IR")}</span>
+              <span className="text-[var(--color-text)]" dir="ltr">{toPersianDigits(new Date(job.createdAt).toLocaleString("fa-IR"))}</span>
             </div>
             {job.startedAt && (
               <div className="flex justify-between">
                 <span className="text-[var(--color-text-muted)] flex items-center gap-2"><Clock className="w-4 h-4"/> شروع</span>
-                <span className="text-[var(--color-text)]" dir="ltr">{new Date(job.startedAt).toLocaleString("fa-IR")}</span>
+                <span className="text-[var(--color-text)]" dir="ltr">{toPersianDigits(new Date(job.startedAt).toLocaleString("fa-IR"))}</span>
               </div>
             )}
             {job.completedAt && (
               <div className="flex justify-between">
                 <span className="text-[var(--color-text-muted)] flex items-center gap-2"><Clock className="w-4 h-4"/> پایان</span>
-                <span className="text-[var(--color-text)]" dir="ltr">{new Date(job.completedAt).toLocaleString("fa-IR")}</span>
+                <span className="text-[var(--color-text)]" dir="ltr">{toPersianDigits(new Date(job.completedAt).toLocaleString("fa-IR"))}</span>
               </div>
             )}
             {job.durationMs && (
               <div className="flex justify-between">
                 <span className="text-[var(--color-text-muted)] flex items-center gap-2"><Clock className="w-4 h-4"/> مدت زمان پردازش</span>
-                <span className="text-[var(--color-text)]" dir="ltr">{(job.durationMs / 1000).toFixed(1)} ثانیه</span>
+                <span className="text-[var(--color-text)]" dir="ltr">{toPersianDigits((job.durationMs / 1000).toFixed(1))} ثانیه</span>
               </div>
             )}
           </div>
@@ -187,15 +188,15 @@ export function AdminGenerationDetailPage() {
               <>
                 <div className="flex justify-between items-center">
                   <span className="text-[var(--color-text-muted)] flex items-center gap-2"><Database className="w-4 h-4"/> Input Tokens</span>
-                  <span className="text-[var(--color-text)] font-mono">{job.inputTokens?.toLocaleString("en-US") || 0}</span>
+                  <span className="text-[var(--color-text)] font-mono">{toPersianDigits(job.inputTokens?.toLocaleString("fa-IR") || 0)}</span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-[var(--color-text-muted)] flex items-center gap-2"><Database className="w-4 h-4"/> Output Tokens</span>
-                  <span className="text-[var(--color-text)] font-mono">{job.outputTokens?.toLocaleString("en-US") || 0}</span>
+                  <span className="text-[var(--color-text)] font-mono">{toPersianDigits(job.outputTokens?.toLocaleString("fa-IR") || 0)}</span>
                 </div>
                 <div className="flex justify-between items-center border-t border-[var(--color-border)] pt-2 mt-2">
                   <span className="text-[var(--color-text)] font-semibold flex items-center gap-2">Total Tokens</span>
-                  <span className="text-[var(--color-primary-default)] font-bold font-mono">{job.totalTokens?.toLocaleString("en-US") || 0}</span>
+                  <span className="text-[var(--color-primary-default)] font-bold font-mono">{toPersianDigits(job.totalTokens?.toLocaleString("fa-IR") || 0)}</span>
                 </div>
               </>
             ) : (

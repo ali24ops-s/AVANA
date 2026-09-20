@@ -12,9 +12,9 @@ import type { EmailVerificationStore } from "./email-verification-store.js";
 import type { EmailService } from "./email-service.js";
 import type { SmsProvider } from "./sms-service.js";
 import type { OrganizationStore } from "../organizations/organization-store.js";
-import { OrganizationService } from "../organizations/organization-service.js";
+import { OrganizationService, generateSlug } from "../organizations/organization-service.js";
 import { hashPassword, verifyPassword } from "./password-hasher.js";
-import { randomInt, createHmac } from "node:crypto";
+import { randomInt, createHmac, randomUUID } from "node:crypto";
 import type { DeviceService } from "./device-service.js";
 import { detectDeviceType } from "./device-service.js";
 
@@ -31,6 +31,7 @@ export interface AuthRouteOptions {
   organizationStore?: OrganizationStore;
   verificationSecret?: string;
   notificationService?: NotificationService;
+  referralService?: import("../referral/referral-service.js").ReferralService;
 }
 
 /**
@@ -427,6 +428,7 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
       firstName?: string;
       lastName?: string;
       phoneNumber?: string;
+      referralCode?: string;
     };
 
     const firstName = body?.firstName !== undefined ? String(body.firstName).trim() : undefined;
@@ -519,10 +521,34 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
         await orgService.createOrganization(actor, orgName);
       } catch {
         try {
-          await orgService.createOrganization(actor, `فضای یادگیری ${userRecord.id.slice(0, 8)}`);
+          const uniqueSlug = `${generateSlug(orgName) || "org"}-${randomUUID().slice(0, 8)}`;
+          await orgService.createOrganization(actor, orgName, uniqueSlug);
         } catch {
           // Ignore organization creation collision fallback
         }
+      }
+    }
+
+    // Attach & Process Referral Code if provided
+    if (opts.referralService && body?.referralCode) {
+      const incomingDeviceId = request.cookies?.["avana_device_id"];
+      try {
+        await opts.referralService.processReferralOnRegister({
+          invitedUserId: userRecord.id,
+          referralCode: body.referralCode,
+          deviceId: incomingDeviceId,
+          ip: request.ip,
+          userAgent: request.headers["user-agent"],
+        });
+      } catch (err) {
+        request.log.error(
+          {
+            err: err instanceof Error ? err.message : String(err),
+            userId: userRecord.id,
+            referralCode: body.referralCode,
+          },
+          "Failed to process referral code during registration",
+        );
       }
     }
 
@@ -549,7 +575,14 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
     );
 
     if (opts.notificationService) {
-      void opts.notificationService.notifyRegistrationSuccess(userRecord.id);
+      void opts.notificationService
+        .notifyRegistrationSuccess(userRecord.id)
+        .catch((err) => {
+          app.log.warn(
+            { err: err instanceof Error ? err.message : String(err) },
+            "Failed to dispatch registration notification",
+          );
+        });
     }
 
     const memberships = await resolveMemberships(
@@ -829,9 +862,16 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
       );
 
       if (opts.notificationService) {
-        void opts.notificationService.notifyLogin(userRecord.id, {
-          ip: request.ip,
-        });
+        void opts.notificationService
+          .notifyLogin(userRecord.id, {
+            ip: request.ip,
+          })
+          .catch((err) => {
+            app.log.warn(
+              { err: err instanceof Error ? err.message : String(err) },
+              "Failed to dispatch phone login notification",
+            );
+          });
       }
 
       const memberships = await resolveMemberships(
@@ -963,9 +1003,16 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
     );
 
     if (opts.notificationService) {
-      void opts.notificationService.notifyLogin(userRecord.id, {
-        ip: request.ip,
-      });
+      void opts.notificationService
+        .notifyLogin(userRecord.id, {
+          ip: request.ip,
+        })
+        .catch((err) => {
+          app.log.warn(
+            { err: err instanceof Error ? err.message : String(err) },
+            "Failed to dispatch sign-in notification",
+          );
+        });
     }
 
     const memberships = await resolveMemberships(

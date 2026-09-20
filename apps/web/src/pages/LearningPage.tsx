@@ -39,17 +39,16 @@ import {
   ShoppingBag,
 } from "lucide-react";
 import { Button, Badge } from "@avana/ui";
-import { MarkdownRenderer } from "../components/markdown/MarkdownRenderer.js";
 import { LessonInteractiveContent } from "../components/study/LessonInteractiveContent.js";
 import { FlashcardExperience } from "../components/flashcards/FlashcardExperience.js";
 import { QuizListView } from "../components/quiz/QuizListView.js";
 import { StudyAnalyticsView } from "../components/analytics/StudyAnalyticsView.js";
 import { CourseDocumentsView } from "../components/documents/CourseDocumentsView.js";
 import { CourseReviewSummaryView } from "../components/documents/CourseReviewSummaryView.js";
+import { CoursePublicationBanner } from "../components/courses/CoursePublicationBanner.js";
 import { ReviewQueueList } from "../components/review/ReviewQueueList.js";
-import { SubscriptionBanner, PaywallModal } from "../components/commerce/index.js";
+import { SubscriptionBanner, PaywallModal, formatToman } from "../components/commerce/index.js";
 import { useAuth } from "../providers/AuthProvider.js";
-import { useCheckout } from "../hooks/useCommerce.js";
 import { createApiClient, getApiBaseUrl } from "../lib/api/client.js";
 import { createLearningApi } from "../lib/api/learning.js";
 import { createOrganizationApi } from "../lib/api/organizations.js";
@@ -151,6 +150,7 @@ export function LearningPage() {
     refetchInterval: 5000,
   });
   const pendingReviewCount = reviewQueueQuery.data?.pending?.length ?? 0;
+  const isCourseLocked = Boolean(data?.course?.locked || (data?.access && !data.access.granted));
 
   // Track which modules are expanded in the sidebar
   const [expandedModules, setExpandedModules] = useState<Set<string>>(
@@ -359,6 +359,135 @@ export function LearningPage() {
     currentLessonIdx >= 0 && currentLessonIdx < allLessons.length - 1
       ? allLessons[currentLessonIdx + 1].id : null;
 
+  const groups = (data.groups ?? []).slice().sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+
+  function renderCurriculumNav(isMobile: boolean) {
+    if (modules.length === 0) {
+      return (
+        <div className="p-4 text-center text-xs text-[var(--color-text-muted)]">
+          هنوز فصلی وجود ندارد.
+        </div>
+      );
+    }
+
+    if (groups.length === 0) {
+      return modules.map((mod) => (
+        <ModuleSection
+          key={mod.id}
+          module={mod}
+          isExpanded={expandedModules.has(mod.id)}
+          selectedLessonId={selectedLessonId}
+          onToggle={() => {
+            setExpandedModules((prev) => {
+              const next = new Set(prev);
+              if (next.has(mod.id)) next.delete(mod.id);
+              else next.add(mod.id);
+              return next;
+            });
+          }}
+          onSelectLesson={(lessonId: string) => {
+            setSelectedLessonId(lessonId);
+            if (isMobile) setIsMobileDrawerOpen(false);
+            if (!expandedModules.has(mod.id)) {
+              setExpandedModules((prev) => new Set([...prev, mod.id]));
+            }
+          }}
+        />
+      ));
+    }
+
+    const groupMap = new Map<string, ModuleData[]>();
+    for (const g of groups) {
+      groupMap.set(g.id, []);
+    }
+    const ungrouped: ModuleData[] = [];
+
+    for (const m of modules) {
+      if (m.sub_course_group_id && groupMap.has(m.sub_course_group_id)) {
+        groupMap.get(m.sub_course_group_id)!.push(m);
+      } else {
+        ungrouped.push(m);
+      }
+    }
+
+    return (
+      <div className="space-y-3">
+        {groups.map((group) => {
+          const groupMods = groupMap.get(group.id) || [];
+          if (groupMods.length === 0) return null;
+          return (
+            <div
+              key={group.id}
+              className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-warm)]/40 p-2 space-y-1"
+            >
+              <div className="px-2 py-1 text-[11px] font-bold text-[var(--color-text-secondary)] flex items-center gap-1.5 border-b border-[var(--color-border)]/50 pb-1.5 mb-1.5">
+                <Layers className="w-3.5 h-3.5 text-primary" />
+                <span className="truncate">{group.title}</span>
+              </div>
+              {groupMods.map((mod) => (
+                <ModuleSection
+                  key={mod.id}
+                  module={mod}
+                  isExpanded={expandedModules.has(mod.id)}
+                  selectedLessonId={selectedLessonId}
+                  onToggle={() => {
+                    setExpandedModules((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(mod.id)) next.delete(mod.id);
+                      else next.add(mod.id);
+                      return next;
+                    });
+                  }}
+                  onSelectLesson={(lessonId: string) => {
+                    setSelectedLessonId(lessonId);
+                    if (isMobile) setIsMobileDrawerOpen(false);
+                    if (!expandedModules.has(mod.id)) {
+                      setExpandedModules((prev) => new Set([...prev, mod.id]));
+                    }
+                  }}
+                />
+              ))}
+            </div>
+          );
+        })}
+
+        {ungrouped.length > 0 && (
+          <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-warm)]/20 p-2 space-y-1">
+            {groups.length > 0 && (
+              <div className="px-2 py-1 text-[11px] font-bold text-[var(--color-text-muted)] flex items-center gap-1.5 border-b border-[var(--color-border)]/50 pb-1.5 mb-1.5">
+                <BookOpen className="w-3.5 h-3.5" />
+                <span>سایر فصل‌ها</span>
+              </div>
+            )}
+            {ungrouped.map((mod) => (
+              <ModuleSection
+                key={mod.id}
+                module={mod}
+                isExpanded={expandedModules.has(mod.id)}
+                selectedLessonId={selectedLessonId}
+                onToggle={() => {
+                  setExpandedModules((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(mod.id)) next.delete(mod.id);
+                    else next.add(mod.id);
+                    return next;
+                  });
+                }}
+                onSelectLesson={(lessonId: string) => {
+                  setSelectedLessonId(lessonId);
+                  if (isMobile) setIsMobileDrawerOpen(false);
+                  if (!expandedModules.has(mod.id)) {
+                    setExpandedModules((prev) => new Set([...prev, mod.id]));
+                  }
+                }}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Course Paywall Modal for Flashcard/Quiz preview unlocks */}
@@ -397,6 +526,18 @@ export function LearningPage() {
           ) : null
         }
       />
+
+      {/* Library Publication Request & Status Banner for user-owned courses */}
+      {!Boolean((course as any)?.isOfficial || (course as any)?.is_official) && (
+        <CoursePublicationBanner
+          organizationId={((data?.course as any)?.organization_id) || organization.id}
+          courseId={courseId!}
+          courseTitle={course.title}
+          courseDescription={(course as any).description}
+          courseSubject={course.subject}
+          isOfficial={Boolean((course as any)?.isOfficial || (course as any)?.is_official)}
+        />
+      )}
 
       {/* Primary Study Navigation Tabs */}
       <div
@@ -453,7 +594,7 @@ export function LearningPage() {
             !isGenerationPermitted
               ? "صف بررسی محتوا"
               : pendingReviewCount > 0
-                ? `صف بررسی محتوا (${pendingReviewCount})`
+                ? `صف بررسی محتوا (${toPersianDigits(pendingReviewCount)})`
                 : "صف بررسی محتوا (AI)"
           }
           badge={!isGenerationPermitted ? "به‌زودی" : undefined}
@@ -469,11 +610,15 @@ export function LearningPage() {
       </div>
 
       {/* Tab Content */}
+
       {activeTab === "review_summary" && (
         <CourseReviewSummaryView
-          organizationId={((data?.course as any)?.organization_id) || organization.id}
+          organizationId={data?.course?.organization_id || organization.id}
           courseId={courseId!}
           modules={data?.modules}
+          previewDocumentId={data?.preview?.preview_document_id}
+          isPreview={isCourseLocked}
+          onUnlock={() => setIsCoursePaywallOpen(true)}
           onNavigateToFlashcards={() => setTab("flashcards")}
           onNavigateToQuiz={() => setTab("quizzes")}
         />
@@ -495,10 +640,10 @@ export function LearningPage() {
           </div>
 
           <FlashcardExperience
-            organizationId={((data?.course as any)?.organization_id) || organization.id}
+            organizationId={data?.course?.organization_id || organization.id}
             courseId={courseId!}
             onBack={() => setTab("lessons")}
-            isPreview={(data?.course as any)?.locked === true}
+            isPreview={isCourseLocked}
             onUnlock={() => setIsCoursePaywallOpen(true)}
           />
         </div>
@@ -506,9 +651,10 @@ export function LearningPage() {
 
       {activeTab === "quizzes" && (
         <QuizListView
-          organizationId={((data?.course as any)?.organization_id) || organization.id}
+          organizationId={data?.course?.organization_id || organization.id}
           courseId={courseId!}
-          isPreview={(data?.course as any)?.locked === true}
+          initialQuizId={searchParams.get("quizId")}
+          isPreview={isCourseLocked}
           onUnlock={() => setIsCoursePaywallOpen(true)}
         />
       )}
@@ -692,37 +838,8 @@ export function LearningPage() {
                         <X className="w-5 h-5" />
                       </button>
                     </div>
-                    <nav className="py-3 space-y-1 overflow-y-auto flex-1 custom-scrollbar">
-                      {modules.map((mod) => (
-                        <ModuleSection
-                          key={mod.id}
-                          module={mod}
-                          isExpanded={expandedModules.has(mod.id)}
-                          selectedLessonId={selectedLessonId}
-                          onToggle={() => {
-                            setExpandedModules((prev) => {
-                              const next = new Set(prev);
-                              if (next.has(mod.id)) {
-                                next.delete(mod.id);
-                              } else {
-                                next.add(mod.id);
-                              }
-                              return next;
-                            });
-                          }}
-                          onSelectLesson={(lessonId: string) => {
-                            setSelectedLessonId(lessonId);
-                            setIsMobileDrawerOpen(false);
-                            if (!expandedModules.has(mod.id)) {
-                              setExpandedModules((prev) => {
-                                const next = new Set(prev);
-                                next.add(mod.id);
-                                return next;
-                              });
-                            }
-                          }}
-                        />
-                      ))}
+                    <nav className="py-3 space-y-2 overflow-y-auto flex-1 custom-scrollbar">
+                      {renderCurriculumNav(true)}
                     </nav>
                   </aside>
                 </>
@@ -751,41 +868,8 @@ export function LearningPage() {
                         className="!p-1.5 !h-auto text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
                       />
                     </div>
-                    <nav className="p-2 space-y-1 overflow-y-auto flex-1 custom-scrollbar">
-                      {modules.map((mod) => (
-                        <ModuleSection
-                          key={mod.id}
-                          module={mod}
-                          isExpanded={expandedModules.has(mod.id)}
-                          selectedLessonId={selectedLessonId}
-                          onToggle={() => {
-                            setExpandedModules((prev) => {
-                              const next = new Set(prev);
-                              if (next.has(mod.id)) {
-                                next.delete(mod.id);
-                              } else {
-                                next.add(mod.id);
-                              }
-                              return next;
-                            });
-                          }}
-                          onSelectLesson={(lessonId: string) => {
-                            setSelectedLessonId(lessonId);
-                            if (!expandedModules.has(mod.id)) {
-                              setExpandedModules((prev) => {
-                                const next = new Set(prev);
-                                next.add(mod.id);
-                                return next;
-                              });
-                            }
-                          }}
-                        />
-                      ))}
-                      {modules.length === 0 && (
-                        <div className="p-4 text-center text-xs text-[var(--color-text-muted)]">
-                          هنوز فصلی وجود ندارد.
-                        </div>
-                      )}
+                    <nav className="p-2 space-y-2 overflow-y-auto flex-1 custom-scrollbar">
+                      {renderCurriculumNav(false)}
                     </nav>
                   </div>
                 </aside>
@@ -935,7 +1019,7 @@ function CourseHeader({
               leftIcon={<ShoppingBag className="w-3.5 h-3.5" />}
               className="flex-shrink-0"
             >
-              خرید کل دوره — {courseOption.price.toLocaleString("fa-IR")} تومان
+              خرید کل دوره — {formatToman(courseOption.price)}
             </Button>
           )}
 
@@ -959,8 +1043,8 @@ function CourseHeader({
                 {formatPersianOf(progress.completed_lessons, progress.total_lessons, { suffix: "درس تکمیل شده" })}
               </span>
             </div>
-            <span className="text-xs font-bold text-primary" dir="ltr">
-              {progress.progress_percent}%
+            <span className="text-xs font-bold text-primary">
+              {toPersianDigits(progress.progress_percent)}٪
             </span>
           </div>
           <div
@@ -1041,9 +1125,8 @@ function ModuleSection({
                   ? "bg-[var(--color-surface-warm)] text-[var(--color-text-secondary)]"
                   : "text-[var(--color-text-muted)]"
             }`}
-            dir="ltr"
           >
-            {completedCount}/{module.lessons.length}
+            {formatPersianOf(completedCount, module.lessons.length)}
           </span>
         )}
       </button>
@@ -1122,7 +1205,7 @@ function LessonNavItem({
           }`}
         >
           <Clock className="w-3 h-3" />
-          <span>{lesson.estimated_minutes} دقیقه</span>
+          <span>{toPersianDigits(lesson.estimated_minutes)} دقیقه</span>
         </span>
       )}
     </button>
@@ -1247,7 +1330,7 @@ function LessonViewer({
             {lesson.estimated_minutes && (
               <div className="hidden md:flex items-center gap-1.5 text-xs text-[var(--color-text-muted)] bg-[var(--color-surface)] px-2.5 py-1.5 rounded-button border border-[var(--color-border)] flex-shrink-0">
                 <Clock className="w-3.5 h-3.5 text-primary" />
-                <span>{lesson.estimated_minutes} دقیقه</span>
+                <span>{toPersianDigits(lesson.estimated_minutes)} دقیقه</span>
               </div>
             )}
 
@@ -1353,7 +1436,7 @@ function LessonViewer({
                   onClick={() => setIsPaywallOpen(true)}
                   leftIcon={<FileText className="w-4 h-4" />}
                 >
-                  خرید تکی درسنامه ({contentOption.price.toLocaleString("fa-IR")} تومان)
+                  خرید تکی درسنامه ({formatToman(contentOption.price)})
                 </Button>
               )}
             </div>

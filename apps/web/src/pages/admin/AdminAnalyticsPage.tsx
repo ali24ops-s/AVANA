@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { api } from "../../lib/api/admin";
 import { Users, BookOpen, Layers, CheckCircle, Cpu, AlertTriangle, BarChart3, Sparkles } from "lucide-react";
 import { AdminLoadingState, AdminErrorState } from "../../components/admin/AdminUI";
+import { toPersianDigits } from "@avana/domain";
 
 interface PeriodStats {
   newUsers: number;
@@ -98,7 +99,7 @@ function StatCard({
       <div className="p-3 rounded-xl bg-[var(--color-surface-subtle)] border border-[var(--color-border)] shrink-0 flex items-center justify-center">{icon}</div>
       <div>
         <p className="text-xs font-medium text-[var(--color-text-muted)]">{title}</p>
-        <p className="text-2xl font-bold text-[var(--color-text)] mt-1" dir="ltr">{value.toLocaleString("fa-IR")}</p>
+        <p className="text-2xl font-bold text-[var(--color-text)] mt-1">{toPersianDigits(value.toLocaleString("fa-IR"))}</p>
       </div>
     </div>
   );
@@ -111,19 +112,19 @@ function PeriodCard({ title, stats }: { title: string; stats: PeriodStats }) {
       <div className="space-y-3 text-xs">
         <div className="flex justify-between items-center">
           <span className="text-[var(--color-text-muted)]">کاربران جدید</span>
-          <span className="font-bold text-[var(--color-text)]" dir="ltr">{stats.newUsers.toLocaleString("fa-IR")}</span>
+          <span className="font-bold text-[var(--color-text)]">{toPersianDigits(stats.newUsers.toLocaleString("fa-IR"))}</span>
         </div>
         <div className="flex justify-between items-center">
           <span className="text-[var(--color-text-muted)]">دوره‌های ایجاد شده</span>
-          <span className="font-bold text-[var(--color-text)]" dir="ltr">{stats.courses.toLocaleString("fa-IR")}</span>
+          <span className="font-bold text-[var(--color-text)]">{toPersianDigits(stats.courses.toLocaleString("fa-IR"))}</span>
         </div>
         <div className="flex justify-between items-center">
           <span className="text-[var(--color-text-muted)]">فلش‌کارت‌ها</span>
-          <span className="font-bold text-[var(--color-text)]" dir="ltr">{stats.flashcards.toLocaleString("fa-IR")}</span>
+          <span className="font-bold text-[var(--color-text)]">{toPersianDigits(stats.flashcards.toLocaleString("fa-IR"))}</span>
         </div>
         <div className="flex justify-between items-center">
           <span className="text-[var(--color-text-muted)]">آزمون‌ها</span>
-          <span className="font-bold text-[var(--color-text)]" dir="ltr">{stats.quizzes.toLocaleString("fa-IR")}</span>
+          <span className="font-bold text-[var(--color-text)]">{toPersianDigits(stats.quizzes.toLocaleString("fa-IR"))}</span>
         </div>
         <div className="pt-3 border-t border-[var(--color-border)] space-y-2">
           <div className="flex justify-between items-center">
@@ -131,21 +132,21 @@ function PeriodCard({ title, stats }: { title: string; stats: PeriodStats }) {
               <Cpu className="w-3.5 h-3.5 text-[var(--color-primary-default)]" />
               <span>پردازش‌های AI</span>
             </span>
-            <span className="font-bold text-[var(--color-text)]" dir="ltr">{stats.aiJobs.toLocaleString("fa-IR")}</span>
+            <span className="font-bold text-[var(--color-text)]">{toPersianDigits(stats.aiJobs.toLocaleString("fa-IR"))}</span>
           </div>
           <div className="flex justify-between items-center">
             <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
               <CheckCircle className="w-3.5 h-3.5" />
               <span>موفق</span>
             </span>
-            <span className="font-bold text-emerald-600 dark:text-emerald-400" dir="ltr">{stats.aiSuccess.toLocaleString("fa-IR")}</span>
+            <span className="font-bold text-emerald-600 dark:text-emerald-400">{toPersianDigits(stats.aiSuccess.toLocaleString("fa-IR"))}</span>
           </div>
           <div className="flex justify-between items-center">
             <span className="text-rose-500 flex items-center gap-1.5">
               <AlertTriangle className="w-3.5 h-3.5" />
               <span>خطا</span>
             </span>
-            <span className="font-bold text-rose-500" dir="ltr">{stats.aiFailed.toLocaleString("fa-IR")}</span>
+            <span className="font-bold text-rose-500">{toPersianDigits(stats.aiFailed.toLocaleString("fa-IR"))}</span>
           </div>
         </div>
       </div>

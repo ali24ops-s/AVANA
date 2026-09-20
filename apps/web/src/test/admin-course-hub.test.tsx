@@ -290,7 +290,7 @@ describe("AdminCourseHubPage (/admin/courses/:courseId)", () => {
     expect(screen.getByText("10")).toBeInTheDocument(); // 10 quiz questions
 
     // Verify Default Tab is Structure
-    expect(screen.getByText(/ساختار و درخت محتوای دوره/i)).toBeInTheDocument();
+    expect(screen.getByText(/ساختار و (مدیریت سرفصل‌های|درخت محتوای) دوره/i)).toBeInTheDocument();
   });
 
   it("Case 2: Fallback to structure tab when tab query param is invalid or empty", async () => {
@@ -301,7 +301,7 @@ describe("AdminCourseHubPage (/admin/courses/:courseId)", () => {
       expect(screen.getByText("فارماکولوژی جامع بالینی")).toBeInTheDocument();
     });
 
-    expect(screen.getByText(/ساختار و درخت محتوای دوره/i)).toBeInTheDocument();
+    expect(screen.getByText(/ساختار و (مدیریت سرفصل‌های|درخت محتوای) دوره/i)).toBeInTheDocument();
   });
 
   it("Case 3: Direct deep-linking to ?tab=generation, ?tab=review, ?tab=publish, and ?tab=settings", async () => {

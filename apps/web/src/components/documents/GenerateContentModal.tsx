@@ -1,5 +1,6 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useContext } from "react";
 import { createPortal } from "react-dom";
+import { useQuery, QueryClientContext, QueryClient } from "@tanstack/react-query";
 import {
   X,
   BookOpen,
@@ -12,16 +13,31 @@ import {
   Info,
   Zap,
   Clock,
+  Coins,
+  RefreshCw,
+  Wallet,
 } from "lucide-react";
+
+const fallbackQueryClient = new QueryClient({
+  defaultOptions: { queries: { retry: false } },
+});
 import { useAuth } from "../../providers/AuthProvider.js";
 import { canUserGenerateContent } from "../../utils/generationPermissions.js";
-import type { DocumentContentStatus } from "../../lib/api/generation.js";
+import { isUserAdmin } from "../../utils/adminPermissions.js";
+import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
+import {
+  createGenerationApi,
+  type DocumentContentStatus,
+} from "../../lib/api/generation.js";
 import { toPersianDigits } from "@avana/domain";
 
 export interface GenerateContentModalProps {
   isOpen: boolean;
   onClose: () => void;
   documentName: string;
+  documentId?: string;
+  organizationId?: string;
+  courseId?: string | null;
   contentStatus?: {
     lesson: DocumentContentStatus;
     flashcards: DocumentContentStatus;
@@ -32,6 +48,7 @@ export interface GenerateContentModalProps {
   } | null;
   isLoadingStatus?: boolean;
   isGenerating?: boolean;
+  hideCostEstimate?: boolean;
   onConfirmGenerate: (selected: {
     lesson: boolean;
     flashcards: boolean;
@@ -44,9 +61,13 @@ export function GenerateContentModal({
   isOpen,
   onClose,
   documentName,
+  documentId,
+  organizationId,
+  courseId,
   contentStatus,
   isLoadingStatus = false,
   isGenerating = false,
+  hideCostEstimate = false,
   onConfirmGenerate,
 }: GenerateContentModalProps) {
   const { user, memberships } = useAuth();
@@ -60,11 +81,19 @@ export function GenerateContentModal({
 
   // Sync initial selection when modal opens or contentStatus changes
   useEffect(() => {
-    if (isOpen && contentStatus) {
-      setSelectedLesson(true);
-      setSelectedFlashcards(true);
-      setSelectedExam(true);
-      setSelectedReviewSummary(false);
+    if (isOpen) {
+      setSelectedLesson(contentStatus ? !contentStatus.lesson?.generated : true);
+      setSelectedFlashcards(contentStatus ? !contentStatus.flashcards?.generated : true);
+      setSelectedExam(contentStatus ? !contentStatus.exam?.generated : true);
+      const isCoreGenerated =
+        Boolean(contentStatus?.lesson?.generated) &&
+        Boolean(contentStatus?.flashcards?.generated) &&
+        Boolean(contentStatus?.exam?.generated);
+      setSelectedReviewSummary(
+        contentStatus?.review_summary
+          ? !contentStatus.review_summary.generated && isCoreGenerated
+          : false,
+      );
     }
   }, [isOpen, contentStatus]);
 
@@ -122,11 +151,109 @@ export function GenerateContentModal({
     isReviewSummaryGenerated;
   const hasNoNewSelection = newItemsToGenerate.length === 0;
 
+  const apiClient = useMemo(() => createApiClient({ baseUrl: getApiBaseUrl() }), []);
+  const genApi = useMemo(() => createGenerationApi(apiClient), [apiClient]);
+
+  const costQueryKey = useMemo(
+    () => [
+      "generation-cost-estimate",
+      organizationId,
+      documentId,
+      courseId,
+      newItemsToGenerate.slice().sort().join(","),
+    ],
+    [organizationId, documentId, courseId, newItemsToGenerate],
+  );
+
+  const contextQueryClient = useContext(QueryClientContext);
+  const resolvedQueryClient = contextQueryClient ?? fallbackQueryClient;
+
+  const {
+    data: costEstimate,
+    isLoading: isCostLoading,
+    isError: isCostError,
+    refetch: refetchCost,
+  } = useQuery(
+    {
+      queryKey: costQueryKey,
+      queryFn: () =>
+        genApi.estimateGenerationCost(organizationId!, documentId!, courseId, {
+          types: newItemsToGenerate,
+        }),
+      enabled: Boolean(
+        !hideCostEstimate &&
+          isOpen &&
+          organizationId &&
+          documentId &&
+          newItemsToGenerate.length > 0 &&
+          !allAvailableGenerated,
+      ),
+      staleTime: 60_000,
+    },
+    resolvedQueryClient,
+  );
+
+  const isAdmin = isUserAdmin(user, memberships);
+
+  const { data: walletData, isLoading: isWalletLoading } = useQuery<{
+    balance: number;
+    currency: "toman";
+    formatted_balance: string;
+  }>(
+    {
+      queryKey: ["wallet-balance"],
+      queryFn: async () => {
+        return apiClient.get<{ balance: number; currency: "toman"; formatted_balance: string }>(
+          "/v1/wallet/me",
+        );
+      },
+      enabled: Boolean(isOpen && !isAdmin && user),
+      staleTime: 30_000,
+    },
+    resolvedQueryClient,
+  );
+
+  const estimatedPriceToman = costEstimate?.estimated_price_toman ?? 0;
+  const isBalanceInsufficient =
+    !isAdmin &&
+    Boolean(
+      costEstimate &&
+      walletData &&
+      !isCostLoading &&
+      !isWalletLoading &&
+      estimatedPriceToman > 0 &&
+      walletData.balance < estimatedPriceToman,
+    );
+
+  const isEstimateRequired = Boolean(
+    !hideCostEstimate &&
+      organizationId &&
+      documentId &&
+      newItemsToGenerate.length > 0 &&
+      !allAvailableGenerated,
+  );
+  const isEstimatePending = isEstimateRequired && isCostLoading;
+  const isEstimateFailed =
+    isEstimateRequired && (isCostError || (!isCostLoading && !costEstimate));
+  const isEstimateReady =
+    !isEstimateRequired ||
+    Boolean(costEstimate && !isCostLoading && !isCostError);
+
   if (!isOpen) return null;
 
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (hasNoNewSelection || isGenerating || allAvailableGenerated) return;
+    if (
+      hasNoNewSelection ||
+      isGenerating ||
+      allAvailableGenerated ||
+      !isEstimateReady ||
+      isEstimatePending ||
+      isEstimateFailed ||
+      isBalanceInsufficient
+    ) {
+      return;
+    }
 
     onConfirmGenerate({
       lesson: !isLessonGenerated && selectedLesson,
@@ -453,11 +580,77 @@ export function GenerateContentModal({
                 </label>
               </div>
 
+              {/* Cost Estimation Box */}
+              {!hideCostEstimate &&
+                Boolean(organizationId && documentId && newItemsToGenerate.length > 0) && (
+                  <div
+                  data-testid="cost-estimation-box"
+                  className="p-4 rounded-2xl bg-teal-500/5 border border-teal-500/20 space-y-1.5"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 text-xs font-bold text-[var(--color-text)]">
+                      <Coins className="w-4 h-4 text-[#008080]" />
+                      <span>هزینه تقریبی تولید محتوا</span>
+                    </div>
+                    {isCostLoading ? (
+                      <div className="flex items-center gap-1.5 text-xs text-[var(--color-text-muted)] font-medium">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-[#008080]" />
+                        <span>در حال برآورد هزینه...</span>
+                      </div>
+                    ) : isCostError ? (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-rose-600 font-bold">خطا در برآورد</span>
+                        <button
+                          type="button"
+                          onClick={() => void refetchCost()}
+                          className="px-2 py-0.5 rounded-lg bg-rose-50 border border-rose-200 text-[11px] text-rose-700 hover:bg-rose-100 flex items-center gap-1 cursor-pointer font-bold transition-colors"
+                        >
+                          <RefreshCw className="w-3 h-3" />
+                          <span>تلاش مجدد</span>
+                        </button>
+                      </div>
+                    ) : costEstimate ? (
+                      <span
+                        className="text-sm font-black text-[#008080]"
+                        data-testid="estimated-cost-display"
+                      >
+                        حدود {toPersianDigits(costEstimate.formatted_price)}
+                      </span>
+                    ) : null}
+                  </div>
+                  {isEstimateFailed ? (
+                    <p className="text-[11px] text-rose-600 font-medium">
+                      دریافت برآورد هزینه ناموفق بود. برای فعال‌شدن تولید محتوا، لطفاً روی «تلاش مجدد» کلیک کنید.
+                    </p>
+                  ) : (
+                    <p className="text-[11px] text-[var(--color-text-muted)] leading-relaxed">
+                      {costEstimate?.disclaimer || "هزینه نهایی ممکن است بر اساس خروجی واقعی کمی متفاوت باشد."}
+                    </p>
+                  )}
+                </div>
+              )}
+
               {/* Validation Warning when 0 ungenerated items selected */}
               {hasNoNewSelection && !allAvailableGenerated && (
                 <div className="flex items-center gap-2 p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs">
                   <AlertCircle className="w-4 h-4 shrink-0" />
                   <span>حداقل یک نوع محتوا را برای تولید انتخاب کنید.</span>
+                </div>
+              )}
+
+              {/* Insufficient Balance Warning for non-admins */}
+              {isBalanceInsufficient && (
+                <div
+                  data-testid="insufficient-balance-warning"
+                  className="flex items-center gap-2 p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs"
+                >
+                  <Wallet className="w-4 h-4 shrink-0 text-rose-600" />
+                  <div className="flex-1">
+                    <span className="font-bold">موجودی کیف پول شما کافی نیست.</span>{" "}
+                    <span>
+                      هزینه این عملیات {toPersianDigits(estimatedPriceToman.toLocaleString("fa-IR"))} تومان است (موجودی فعلی شما: {toPersianDigits((walletData?.balance ?? 0).toLocaleString("fa-IR"))} تومان).
+                    </span>
+                  </div>
                 </div>
               )}
             </>
@@ -469,7 +662,7 @@ export function GenerateContentModal({
               <Info className="w-3.5 h-3.5" />
               <span>
                 {newItemsToGenerate.length > 0
-                  ? `${newItemsToGenerate.length} نوع محتوا برای تولید در صف قرار خواهد گرفت.`
+                  ? `${toPersianDigits(newItemsToGenerate.length)} نوع محتوا برای تولید در صف قرار خواهد گرفت.`
                   : "موردی برای تولید انتخاب نشده است."}
               </span>
             </div>
@@ -487,7 +680,15 @@ export function GenerateContentModal({
               {!allAvailableGenerated && (
                 <button
                   type="submit"
-                  disabled={hasNoNewSelection || isGenerating || isLoadingStatus}
+                  disabled={
+                    hasNoNewSelection ||
+                    isGenerating ||
+                    isLoadingStatus ||
+                    !isEstimateReady ||
+                    isEstimatePending ||
+                    isEstimateFailed ||
+                    isBalanceInsufficient
+                  }
                   className="px-5 py-2.5 rounded-xl bg-[#008080] hover:bg-[#007575] active:bg-[#006060] disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold transition-all shadow-xs flex items-center gap-2"
                 >
                   {isGenerating ? (

@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Button, Badge } from "@/components/ui";
+import { RichContent } from "../markdown/MarkdownRenderer.js";
 
 export interface FlashcardProps {
   id: string;
@@ -35,19 +36,19 @@ export const Flashcard: React.FC<FlashcardProps> = ({
           }`}
         >
           {/* Front Side */}
-          <div className="absolute inset-0 w-full h-full [backface-visibility:hidden] p-6 sm:p-8 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-3xl shadow-xl flex flex-col justify-between text-center">
+          <div className="absolute inset-0 w-full h-full [backface-visibility:hidden] p-6 sm:p-8 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-3xl shadow-xl flex flex-col justify-between text-center overflow-y-auto">
             <div className="flex items-center justify-between gap-2">
               {category && <Badge variant="primary">{category}</Badge>}
               <span className="text-xs text-[var(--color-text-muted)]">برای مشاهده پاسخ کلیک کنید 🔄</span>
             </div>
 
-            <div className="my-auto space-y-3">
-              <h3 className="text-lg sm:text-xl font-bold text-[var(--color-text)] leading-relaxed">
-                {frontText}
-              </h3>
+            <div className="my-auto space-y-3 w-full">
+              <div className="text-lg sm:text-xl font-bold text-[var(--color-text)] leading-relaxed">
+                <RichContent content={frontText} />
+              </div>
               {hint && showHint && (
                 <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-xs text-amber-900 dark:text-amber-200 font-medium">
-                  💡 راهنمایی: {hint}
+                  <RichContent inline content={`💡 راهنمایی: ${hint}`} />
                 </div>
               )}
             </div>
@@ -72,16 +73,16 @@ export const Flashcard: React.FC<FlashcardProps> = ({
           </div>
 
           {/* Back Side */}
-          <div className="absolute inset-0 w-full h-full [backface-visibility:hidden] [transform:rotateY(180deg)] p-6 sm:p-8 bg-[var(--color-surface-warm)] border border-[#008080]/40 rounded-3xl shadow-2xl flex flex-col justify-between text-center">
+          <div className="absolute inset-0 w-full h-full [backface-visibility:hidden] [transform:rotateY(180deg)] p-6 sm:p-8 bg-[var(--color-surface-warm)] border border-[#008080]/40 rounded-3xl shadow-2xl flex flex-col justify-between text-center overflow-y-auto">
             <div className="flex items-center justify-between gap-2">
               <Badge variant="secondary">پاسخ کارت</Badge>
               <span className="text-xs text-[var(--color-text-muted)]">روی کارت کلیک کنید 🔄</span>
             </div>
 
-            <div className="my-auto">
-              <p className="text-sm sm:text-base text-[var(--color-text)] leading-relaxed font-medium">
-                {backText}
-              </p>
+            <div className="my-auto w-full">
+              <div className="text-sm sm:text-base text-[var(--color-text)] leading-relaxed font-medium">
+                <RichContent content={backText} />
+              </div>
             </div>
 
             <span className="text-xs text-[var(--color-text-muted)]">کارت پشت (توضیحات)</span>

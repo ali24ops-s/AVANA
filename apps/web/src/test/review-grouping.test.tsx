@@ -84,10 +84,10 @@ describe("Admin Review Grouping UI & Interactions", () => {
 
     // 1. Verify header elements
     expect(screen.getByText("pharmacology-chapter-12.pdf")).toBeDefined();
-    expect(screen.getByText("6 خروجی")).toBeDefined();
-    expect(screen.getByText("4 در انتظار بازبینی")).toBeDefined();
-    expect(screen.getByText("1 تأیید شده")).toBeDefined();
-    expect(screen.getByText("1 رد شده")).toBeDefined();
+    expect(screen.getByText(/۶\s*خروجی/)).toBeDefined();
+    expect(screen.getByText(/۴\s*در انتظار بازبینی/)).toBeDefined();
+    expect(screen.getByText(/۱\s*تأیید شده/)).toBeDefined();
+    expect(screen.getByText(/۱\s*رد شده/)).toBeDefined();
 
     // 2. Default is expanded (defaultExpanded = true) -> items are visible
     expect(screen.getByText("درسنامه گیرنده‌های آدرنرژیک")).toBeDefined();
@@ -136,7 +136,7 @@ describe("Admin Review Grouping UI & Interactions", () => {
     );
 
     expect(screen.getByText("anatomy-intro.pdf")).toBeDefined();
-    expect(screen.getByText("2 تأیید شده")).toBeDefined();
+    expect(screen.getByText("۲ تأیید شده")).toBeDefined();
     // Default collapsed
     expect(screen.queryByText("موردی با فیلتر فعلی برای این فایل یافت نشد.")).toBeNull();
   });
@@ -361,9 +361,9 @@ describe("Admin Review Grouping UI & Interactions", () => {
     const approveAllBtn = screen.getByRole("button", { name: /تأیید همه پیش‌نویس‌های cardio-pack.pdf/i });
     fireEvent.click(approveAllBtn);
 
-    // 2. Modal should open with confirmation text and pending count (2 مورد)
+    // 2. Modal should open with confirmation text and pending count (۲ مورد)
     expect(screen.getByText("تأیید یکجای محتوای بسته")).toBeDefined();
-    expect(screen.getByText("2 مورد")).toBeDefined();
+    expect(screen.getByText("۲ مورد")).toBeDefined();
 
     // 3. Confirm button in modal
     const confirmBtn = screen.getByRole("button", { name: /تأیید و افزودن به دوره/i });

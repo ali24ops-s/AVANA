@@ -8,6 +8,7 @@ import {
   FolderMinus,
 } from "lucide-react";
 import type { DocumentStatsResource } from "@avana/contracts";
+import { toPersianDigits } from "@avana/domain";
 
 export interface FileStatsCardsProps {
   stats: DocumentStatsResource | null | undefined;
@@ -20,7 +21,7 @@ function formatBytes(bytes: number): string {
   const sizes = ["B", "KB", "MB", "GB", "TB"];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   const val = (bytes / Math.pow(k, i)).toFixed(1);
-  return `${val} ${sizes[i]}`;
+  return `${toPersianDigits(val)} ${sizes[i]}`;
 }
 
 export function FileStatsCards({ stats, isLoading }: FileStatsCardsProps) {

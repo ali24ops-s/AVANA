@@ -5,3 +5,4 @@
 
 export * from "@avana/ui";
 export * from "./PersianDatePicker.js";
+export * from "./PageHeader.js";

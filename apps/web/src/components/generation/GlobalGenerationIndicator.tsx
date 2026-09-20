@@ -9,6 +9,8 @@ import {
 import {
   normalizeGenerationStage,
   CANONICAL_STAGE_LABELS_FA,
+  formatPersianOf,
+  toPersianDigits,
 } from "@avana/domain";
 import { useAuth } from "../../providers/AuthProvider.js";
 import { isUserAdmin } from "../../utils/adminPermissions.js";
@@ -183,7 +185,7 @@ export function GlobalGenerationIndicator({
 
             {isPrimaryGenerating && percentage > 0 && (
               <span className="font-mono font-bold text-[10px] text-[var(--color-primary-default)]">
-                {percentage}٪
+                {toPersianDigits(percentage)}٪
               </span>
             )}
           </div>
@@ -196,7 +198,7 @@ export function GlobalGenerationIndicator({
               </span>
               {primaryItem.progress && primaryItem.progress.total > 0 && (
                 <span>
-                  — {primaryItem.progress.current}/{primaryItem.progress.total}
+                  — {formatPersianOf(primaryItem.progress.current, primaryItem.progress.total)}
                 </span>
               )}
             </div>

@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { AlertCircle } from "lucide-react";
 import { useParams, useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ExamConfigView } from "../components/quiz/ExamConfigView.js";
 import { ExamTakingView } from "../components/quiz/ExamTakingView.js";
 import { ExamResultView, type ExamResultViewProps } from "../components/quiz/ExamResultView.js";
@@ -15,10 +15,16 @@ import type { OrganizationResource } from "@avana/contracts";
 export function ExamsPage() {
   const { attemptId } = useParams<{ attemptId?: string }>();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { memberships, isLoading: isAuthLoading } = useAuth();
 
   const [resultData, setResultData] = useState<ExamResultViewProps["result"] | null>(null);
   const [isRetrying, setIsRetrying] = useState(false);
+
+  // Clear transient submit result data whenever active attemptId changes or unmounts
+  useEffect(() => {
+    setResultData(null);
+  }, [attemptId]);
 
   const apiClient = createApiClient({ baseUrl: getApiBaseUrl() });
   const orgApi = createOrganizationApi(apiClient);
@@ -73,11 +79,15 @@ export function ExamsPage() {
     difficulty: string;
     requestedCount: number;
   }) => {
+    void queryClient.invalidateQueries({ queryKey: ["exam-history", organizationId] });
+    void queryClient.invalidateQueries({ queryKey: ["exam-attempt", organizationId, data.attemptId] });
     navigate(`/exams/attempt/${data.attemptId}`);
   };
 
   const handleSubmitSuccess = (result: unknown) => {
     setResultData(result as ExamResultViewProps["result"]);
+    void queryClient.invalidateQueries({ queryKey: ["exam-history", organizationId] });
+    void queryClient.invalidateQueries({ queryKey: ["exam-attempt", organizationId, attemptId] });
     attemptQuery.refetch();
   };
 
@@ -91,6 +101,8 @@ export function ExamsPage() {
       setIsRetrying(true);
       const res = await studyApi.retakeExamAttempt(organizationId, attemptId);
       setResultData(null);
+      void queryClient.invalidateQueries({ queryKey: ["exam-history", organizationId] });
+      void queryClient.invalidateQueries({ queryKey: ["exam-attempt", organizationId, res.attemptId] });
       navigate(`/exams/attempt/${res.attemptId}`);
     } catch (err: unknown) {
       console.error("Failed to retake exam attempt", err);
@@ -103,6 +115,12 @@ export function ExamsPage() {
 
   const handleReturnToConfig = () => {
     setResultData(null);
+    if (organizationId) {
+      void queryClient.invalidateQueries({ queryKey: ["exam-history", organizationId] });
+      if (attemptId) {
+        void queryClient.invalidateQueries({ queryKey: ["exam-attempt", organizationId, attemptId] });
+      }
+    }
     navigate("/exams");
   };
 
@@ -139,9 +157,11 @@ export function ExamsPage() {
 
     const { attempt, questions, coverage, isCompleted } = attemptQuery.data;
 
+    const isCurrentSubmitted = Boolean(resultData && resultData.attemptId === attempt.id);
+
     // If completed or submitted, show Result View
-    if (isCompleted || resultData) {
-      const activeResult: ExamResultViewProps["result"] = resultData || {
+    if (isCompleted || isCurrentSubmitted) {
+      const activeResult: ExamResultViewProps["result"] = (isCurrentSubmitted ? resultData : null) || {
         attemptId: attempt.id,
         score: attempt.score,
         correct: attemptQuery.data.correct ?? Math.round((attempt.score / 100) * (questions?.length || 10)),

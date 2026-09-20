@@ -96,6 +96,10 @@ export class BlogService {
     return this.store.listPopularTags(limit);
   }
 
+  async getTagBySlug(slug: string): Promise<BlogTagRecord | null> {
+    return this.store.getTagBySlug(slug.trim());
+  }
+
   // -------------------------------------------------------------------------
   // Admin Blog Operations
   // -------------------------------------------------------------------------
@@ -245,5 +249,29 @@ export class BlogService {
 
   async deleteCategory(id: string): Promise<boolean> {
     return this.store.deleteCategory(id);
+  }
+
+  async listTagsAdmin(search?: string): Promise<BlogTagRecord[]> {
+    return this.store.listTagsWithCounts(search);
+  }
+
+  async createTag(name: string, slug?: string): Promise<BlogTagRecord> {
+    if (!name || !name.trim()) {
+      throw new Error("نام برچسب الزامی است.");
+    }
+    const cleanSlug = slug ? slugify(slug) : slugify(name);
+    return this.store.createTag(name.trim(), cleanSlug);
+  }
+
+  async updateTag(id: string, name: string, slug?: string): Promise<BlogTagRecord> {
+    if (!name || !name.trim()) {
+      throw new Error("نام برچسب الزامی است.");
+    }
+    const cleanSlug = slug ? slugify(slug) : slugify(name);
+    return this.store.updateTag(id, name.trim(), cleanSlug);
+  }
+
+  async deleteTag(id: string): Promise<boolean> {
+    return this.store.deleteTag(id);
   }
 }

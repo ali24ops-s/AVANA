@@ -1,3 +1,4 @@
+/* eslint-disable no-secrets/no-secrets */
 import { describe, expect, it, beforeEach } from "vitest";
 import crypto from "node:crypto";
 import JSZip from "jszip";
@@ -1593,4 +1594,195 @@ describe("Comprehensive Content Export / Import Test Matrix", () => {
     expect(importedLesson).toBeDefined();
     expect(importedLesson.moduleId).toBe("tgt-m1");
   });
+
+  // =========================================================================
+  // 24. RE-EXPORT WITH DIFFERENT INTERNAL IDs (REAL PRODUCTION SCENARIO)
+  // =========================================================================
+  it("24. Re-export with different internal exportIds deduplicates lessons, flashcards, and questions via Tier 2 Natural Key", async () => {
+    // 1. Initial Source Export (Export 1)
+    sourceDb.tables.courses.push({ id: "src1-c", organizationId: orgA, name: "فارما ۱", status: "published" });
+    sourceDb.tables.modules.push({ id: "src1-m", courseId: "src1-c", title: "فصل اول: داروهای اتونوم", sortOrder: 1 });
+    sourceDb.tables.lessons.push({ id: "src1-l", moduleId: "src1-m", title: "درسنامه کولینرژیک‌ها", contentType: "markdown", contentMarkdown: "محتوای کولینرژیک", sortOrder: 1 });
+    sourceDb.tables.flashcards.push({ id: "src1-fc", organizationId: orgA, courseId: "src1-c", lessonId: "src1-l", question: "استیل‌کولین چیست؟", answer: "انتقال‌دهنده عصبی" });
+    sourceDb.tables.quizzes.push({ id: "src1-q", organizationId: orgA, courseId: "src1-c", title: "کوئیز اتونوم", status: "published" });
+    sourceDb.tables.quiz_questions.push({ id: "src1-qq", quizId: "src1-q", lessonId: "src1-l", question: "مکانیسم بتانکول؟", choices: ["آگونیست موسکارینی"], correctAnswer: "آگونیست موسکارینی", sortOrder: 1 });
+
+    const zip1 = await exportService.exportContent(orgA);
+
+    // 2. Import 1 into Target
+    const plan1 = await importService.validatePackage(zip1, actorId, orgB);
+    await importService.executeImport(plan1.planId, actorId, orgB);
+
+    expect(targetDb.tables.courses.length).toBe(1);
+    expect(targetDb.tables.modules.length).toBe(1);
+    expect(targetDb.tables.lessons.length).toBe(1);
+    expect(targetDb.tables.flashcards.length).toBe(1);
+    expect(targetDb.tables.quizzes.length).toBe(1);
+    expect(targetDb.tables.quiz_questions.length).toBe(1);
+
+    // 3. Second Export from a DIFFERENT source DB instance where IDs are completely fresh UUIDs (different exportIds)
+    const sourceDb2 = new ComprehensiveMockDb();
+    const exportSvc2 = new ContentExportService(sourceDb2 as unknown as DbClient, sourceStorage);
+    sourceDb2.tables.courses.push({ id: "src2-c-fresh-uuid", organizationId: orgC, name: "فارما ۱", status: "published" });
+    sourceDb2.tables.modules.push({ id: "src2-m-fresh-uuid", courseId: "src2-c-fresh-uuid", title: "فصل اول: داروهای اتونوم", sortOrder: 1 });
+    sourceDb2.tables.lessons.push({ id: "src2-l-fresh-uuid", moduleId: "src2-m-fresh-uuid", title: "درسنامه کولینرژیک‌ها", contentType: "markdown", contentMarkdown: "محتوای کولینرژیک", sortOrder: 1 });
+    sourceDb2.tables.flashcards.push({ id: "src2-fc-fresh-uuid", organizationId: orgC, courseId: "src2-c-fresh-uuid", lessonId: "src2-l-fresh-uuid", question: "استیل‌کولین چیست؟", answer: "انتقال‌دهنده عصبی" });
+    sourceDb2.tables.quizzes.push({ id: "src2-q-fresh-uuid", organizationId: orgC, courseId: "src2-c-fresh-uuid", title: "کوئیز اتونوم", status: "published" });
+    sourceDb2.tables.quiz_questions.push({ id: "src2-qq-fresh-uuid", quizId: "src2-q-fresh-uuid", lessonId: "src2-l-fresh-uuid", question: "مکانیسم بتانکول؟", choices: ["آگونیست موسکارینی"], correctAnswer: "آگونیست موسکارینی", sortOrder: 1 });
+
+    const zip2 = await exportSvc2.exportContent(orgC);
+
+    // 4. Import 2 into the SAME Target
+    const plan2 = await importService.validatePackage(zip2, actorId, orgB);
+
+    // Assert that Tier 2 natural key matching recognizes 100% of the entities as EXISTING
+    expect(plan2.summary.courses.existing).toBe(1);
+    expect(plan2.summary.courses.new).toBe(0);
+    expect(plan2.summary.modules.existing).toBe(1);
+    expect(plan2.summary.modules.new).toBe(0);
+    expect(plan2.summary.lessons.existing).toBe(1);
+    expect(plan2.summary.lessons.new).toBe(0);
+    expect(plan2.summary.flashcards.existing).toBe(1);
+    expect(plan2.summary.flashcards.new).toBe(0);
+    expect(plan2.summary.quizzes.existing).toBe(1);
+    expect(plan2.summary.quizzes.new).toBe(0);
+    expect(plan2.summary.questions.existing).toBe(1);
+    expect(plan2.summary.questions.new).toBe(0);
+
+    const execResult2 = await importService.executeImport(plan2.planId, actorId, orgB);
+    expect(execResult2.success).toBe(true);
+    expect(execResult2.counts.created).toBe(0);
+
+    // 5. Verify Target DB row counts are completely unchanged (NO DUPLICATE LESSONS!)
+    expect(targetDb.tables.courses.length).toBe(1);
+    expect(targetDb.tables.modules.length).toBe(1);
+    expect(targetDb.tables.lessons.length).toBe(1);
+    expect(targetDb.tables.flashcards.length).toBe(1);
+    expect(targetDb.tables.quizzes.length).toBe(1);
+    expect(targetDb.tables.quiz_questions.length).toBe(1);
+  });
+
+  // =========================================================================
+  // 25. FILENAME VARIATION WITH IDENTICAL BINARY CONTENT (SHA256 DEDUPLICATION)
+  // =========================================================================
+  it("25. Two files with different filenames but identical binary sha256 are recognized as duplicate and skipped", async () => {
+    const fileBytes = Buffer.from("Identical Medical Document Binary Content");
+    const docSha = crypto.createHash("sha256").update(fileBytes).digest("hex");
+    await sourceStorage.save({ storageKey: "uploads/doc-v1.pdf", data: fileBytes, mimeType: "application/pdf" });
+
+    sourceDb.tables.courses.push({ id: "src-c1", organizationId: orgA, name: "دوره فارماکولوژی فایل", status: "published" });
+    sourceDb.tables.documents.push({
+      id: "src-doc1",
+      organizationId: orgA,
+      courseId: "src-c1",
+      originalName: "autonomic_nervous_system_v1.pdf",
+      mimeType: "application/pdf",
+      sha256: docSha,
+      sizeBytes: fileBytes.length,
+      storageKey: "uploads/doc-v1.pdf",
+    });
+
+    const zip1 = await exportService.exportContent(orgA);
+    const plan1 = await importService.validatePackage(zip1, actorId, orgB);
+    await importService.executeImport(plan1.planId, actorId, orgB);
+    expect(targetDb.tables.documents.length).toBe(1);
+
+    // Source 2 has different doc ID and different originalName, but SAME sha256 binary content
+    const sourceDb2 = new ComprehensiveMockDb();
+    const exportSvc2 = new ContentExportService(sourceDb2 as unknown as DbClient, sourceStorage);
+    sourceDb2.tables.courses.push({ id: "src2-c1", organizationId: orgC, name: "دوره فارماکولوژی فایل", status: "published" });
+    sourceDb2.tables.documents.push({
+      id: "src2-doc-renamed",
+      organizationId: orgC,
+      courseId: "src2-c1",
+      originalName: "ANS_Renamed_Copy.pdf", // Different filename!
+      mimeType: "application/pdf",
+      sha256: docSha, // Same hash!
+      sizeBytes: fileBytes.length,
+      storageKey: "uploads/doc-v1.pdf",
+    });
+
+    const zip2 = await exportSvc2.exportContent(orgC);
+    const plan2 = await importService.validatePackage(zip2, actorId, orgB);
+
+    expect(plan2.summary.documents.existing).toBe(1);
+    expect(plan2.summary.documents.new).toBe(0);
+
+    const execResult2 = await importService.executeImport(plan2.planId, actorId, orgB);
+    expect(execResult2.counts.created).toBe(0);
+    expect(targetDb.tables.documents.length).toBe(1); // Not duplicated!
+  });
+
+  // =========================================================================
+  // 26. TRULY DISTINCT PACKAGE CREATES NEW CONTENT CLEANLY
+  // =========================================================================
+  it("26. Truly distinct packages create new courses, modules, and lessons without interfering with existing ones", async () => {
+    // Distinct Course 1: Cardiology
+    sourceDb.tables.courses.push({ id: "c-cardio", organizationId: orgA, name: "کاردیولوژی", status: "published" });
+    sourceDb.tables.modules.push({ id: "m-cardio", courseId: "c-cardio", title: "قلب و عروق", sortOrder: 1 });
+    sourceDb.tables.lessons.push({ id: "l-cardio", moduleId: "m-cardio", title: "آریتمی", contentType: "markdown", contentMarkdown: "متن آریتمی", sortOrder: 1 });
+    const zipCardio = await exportService.exportContent(orgA);
+
+    // Distinct Course 2: Neurology
+    const sourceDbNeuro = new ComprehensiveMockDb();
+    const exportSvcNeuro = new ContentExportService(sourceDbNeuro as unknown as DbClient, sourceStorage);
+    sourceDbNeuro.tables.courses.push({ id: "c-neuro", organizationId: orgA, name: "نورولوژی", status: "published" });
+    sourceDbNeuro.tables.modules.push({ id: "m-neuro", courseId: "c-neuro", title: "مغز و اعصاب", sortOrder: 1 });
+    sourceDbNeuro.tables.lessons.push({ id: "l-neuro", moduleId: "m-neuro", title: "صرع و تشنج", contentType: "markdown", contentMarkdown: "متن صرع", sortOrder: 1 });
+    const zipNeuro = await exportSvcNeuro.exportContent(orgA);
+
+    // Import Course 1
+    const p1 = await importService.validatePackage(zipCardio, actorId, orgB);
+    await importService.executeImport(p1.planId, actorId, orgB);
+
+    // Import Course 2
+    const p2 = await importService.validatePackage(zipNeuro, actorId, orgB);
+    expect(p2.summary.courses.new).toBe(1);
+    expect(p2.summary.modules.new).toBe(1);
+    expect(p2.summary.lessons.new).toBe(1);
+    await importService.executeImport(p2.planId, actorId, orgB);
+
+    expect(targetDb.tables.courses.length).toBe(2);
+    expect(targetDb.tables.modules.length).toBe(2);
+    expect(targetDb.tables.lessons.length).toBe(2);
+  });
+
+  // =========================================================================
+  // 27. CONCURRENT / STALE PLAN IMPORT IDEMPOTENCY (IN-TRANSACTION LIVE DEDUPLICATION)
+  // =========================================================================
+  it("27. Concurrent / Stale Plan Imports: In-transaction live deduplication guarantees no duplicate rows when two imports execute with stale 'NEW' plans", async () => {
+    // Setup Source Course with Module and Lesson
+    sourceDb.tables.courses.push({ id: "src-race-c", organizationId: orgA, name: "فارماکولوژی موازی", status: "published" });
+    sourceDb.tables.modules.push({ id: "src-race-m", courseId: "src-race-c", title: "بخش همزمانی", sortOrder: 1 });
+    sourceDb.tables.lessons.push({ id: "src-race-l", moduleId: "src-race-m", title: "درس موازی", contentType: "markdown", contentMarkdown: "# همزمانی", sortOrder: 1 });
+    sourceDb.tables.flashcards.push({ id: "src-race-fc", organizationId: orgA, courseId: "src-race-c", lessonId: "src-race-l", question: "آیا ایمن است؟", answer: "بله" });
+
+    const zip = await exportService.exportContent(orgA);
+
+    // Two parallel validation calls generate TWO distinct validation plans.
+    // Both plans see empty Target DB and therefore mark all entities as "NEW".
+    const plan1 = await importService.validatePackage(zip, actorId, orgB);
+    const plan2 = await importService.validatePackage(zip, actorId, orgB);
+
+    expect(plan1.summary.courses.new).toBe(1);
+    expect(plan2.summary.courses.new).toBe(1);
+
+    // First execution succeeds and creates the entities
+    const res1 = await importService.executeImport(plan1.planId, actorId, orgB);
+    expect(res1.success).toBe(true);
+    expect(res1.counts.created).toBeGreaterThan(0);
+
+    // Second execution runs plan2 (which had 'NEW' in its pre-computed resolutions).
+    // In-transaction live deduplication must detect the entities already created by plan1 and skip them!
+    const res2 = await importService.executeImport(plan2.planId, actorId, orgB);
+    expect(res2.success).toBe(true);
+    expect(res2.counts.created).toBe(0);
+
+    // Verify Target DB has strictly 1 course, 1 module, 1 lesson, 1 flashcard
+    expect(targetDb.tables.courses.length).toBe(1);
+    expect(targetDb.tables.modules.length).toBe(1);
+    expect(targetDb.tables.lessons.length).toBe(1);
+    expect(targetDb.tables.flashcards.length).toBe(1);
+  });
 });
+

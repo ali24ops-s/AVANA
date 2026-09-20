@@ -79,14 +79,18 @@ async function main(): Promise<void> {
     { url: config.redis.url },
     config.generation.queueName,
     {
+      adminGenerationService: deps.adminGenerationService,
+      userGenerationService: deps.userGenerationService,
       generationService: deps.generationService,
       generationJobStore: deps.generationJobStore,
+      walletService: deps.walletService,
+      walletStore: deps.walletStore,
     },
   );
 
   worker.on("ready", () => {
     process.stdout.write(
-      `[worker] Generation worker ready (queue="${config.generation.queueName}").\n`,
+      `[worker] Generation worker ready (queue="${config.generation.queueName}", admin: ${deps.adminGateway.provider}, user: ${deps.userGateway.provider}).\n`,
     );
   });
   worker.on("error", (err) => {

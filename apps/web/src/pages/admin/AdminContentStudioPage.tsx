@@ -26,7 +26,7 @@ import type {
   ConsistencyValidationReport,
 } from "../../lib/api/admin.js";
 import { OfficialProductionWorkspace } from "../../components/admin/studio/OfficialProductionWorkspace.js";
-import { toPersianDigits } from "@avana/domain";
+import { toPersianDigits, calculateCoursePricingBreakdown } from "@avana/domain";
 
 export function AdminContentStudioPage() {
   const { courseId: routeCourseId } = useParams<{ courseId?: string }>();
@@ -412,7 +412,7 @@ export function AdminContentStudioPage() {
                       {course.product ? (
                         <div className="space-y-0.5">
                           <div className="font-bold text-emerald-600 dark:text-emerald-400">
-                            {course.product.price.toLocaleString("fa-IR")} تومان
+                            {toPersianDigits(course.product.price.toLocaleString("fa-IR"))} تومان
                           </div>
                           <div className="text-[10px] text-[var(--color-text-muted)]">
                             {course.product.active ? "🟢 در حال فروش" : "🟡 پیش‌نویس قیمت"}
@@ -575,8 +575,8 @@ export function AdminContentStudioPage() {
                   <div className="text-xs space-y-1">
                     <div className="font-bold">
                       {reviewWorkspace?.unresolvedLessonMappings === 0
-                        ? "نگاشت قطعی درسنامه تایید شد (unresolvedLessonMappings = 0)"
-                        : `خطای نگاشت درسنامه: ${reviewWorkspace?.unresolvedLessonMappings} مورد کارت/سؤال فاقد نگاشت معتبر هستند.`}
+                        ? "نگاشت قطعی درسنامه تایید شد (unresolvedLessonMappings = ۰)"
+                        : `خطای نگاشت درسنامه: ${toPersianDigits(reviewWorkspace?.unresolvedLessonMappings ?? 0)} مورد کارت/سؤال فاقد نگاشت معتبر هستند.`}
                     </div>
                     <p className="opacity-80">
                       طبق قوانین رسمی آوانا، هیچ فلش‌کارت یا سؤالی به درس اول منتسب نمی‌شود و تایید تا زمان نگاشت ۱۰۰٪ قطعی مسدود است.
@@ -609,7 +609,7 @@ export function AdminContentStudioPage() {
                               {item.contentType === "review_summary" && "خلاصه مروری (Review Summary)"}
                             </div>
                             <div className="text-[10px] text-[var(--color-text-muted)] mt-0.5">
-                              {item.itemCount} آیتم تولیدشده • وضعیت: {item.status}
+                              {toPersianDigits(item.itemCount)} آیتم تولیدشده • وضعیت: {item.status}
                             </div>
                           </div>
                         </div>
@@ -662,6 +662,61 @@ export function AdminContentStudioPage() {
               </div>
               <button onClick={() => setSelectedCourseForPublish(null)} className="text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors"><X className="w-5 h-5" /></button>
             </div>
+
+            {/* Suggested Course Price Recommendation Box */}
+            {(() => {
+              const breakdown = calculateCoursePricingBreakdown({
+                lessonCount: consistencyReport?.lessonCount ?? selectedCourseForPublish.lessonCount ?? 1,
+                flashcardCount: consistencyReport?.flashcardCount ?? selectedCourseForPublish.flashcardCount ?? 0,
+                questionCount: consistencyReport?.quizQuestionCount ?? selectedCourseForPublish.quizQuestionCount ?? 0,
+                hasReviewSummary: Boolean(
+                  reviewWorkspace?.draftContents?.some(
+                    (d) => d.contentType === "review_summary" && d.status !== "rejected",
+                  ),
+                ),
+              });
+              return (
+                <div
+                  data-testid="studio-suggested-course-price-card"
+                  className="p-4 rounded-2xl bg-[var(--color-surface-warm)] border border-[var(--color-border)] space-y-3"
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 text-xs font-bold text-[var(--color-text)]">
+                      <Sparkles className="w-4 h-4 text-[var(--color-primary-default)]" />
+                      <span>قیمت پیشنهادی آوانا</span>
+                    </div>
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="text-base font-extrabold text-[var(--color-primary-default)]">
+                        {toPersianDigits(breakdown.suggestedCoursePrice.toLocaleString("fa-IR"))}
+                      </span>
+                      <span className="text-[11px] text-[var(--color-text-muted)]">تومان</span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-[var(--color-border)]/60 text-[11px] text-[var(--color-text-muted)]">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <span>
+                        قیمت پایه محاسباتی:{" "}
+                        <strong className="text-[var(--color-text)] font-semibold">
+                          {toPersianDigits(breakdown.basePrice.toLocaleString("fa-IR"))} تومان
+                        </strong>
+                      </span>
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 font-bold text-[10px]">
+                        ۱۵٪ کمتر از قیمت محاسبه‌شده
+                      </span>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setPriceInput(breakdown.suggestedCoursePrice)}
+                      className="text-[11px] font-bold text-[var(--color-primary-default)] hover:underline flex items-center gap-1 transition-colors"
+                    >
+                      استفاده از قیمت پیشنهادی
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Price Setting Box */}
             <div className="p-4 rounded-2xl bg-[var(--color-surface-warm)] border border-[var(--color-border)] space-y-3">

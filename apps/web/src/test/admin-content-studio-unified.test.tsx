@@ -839,6 +839,57 @@ describe("Unified Official Content Studio Workspace — Comprehensive Test Matri
     });
   });
 
+  it("Scenario 12.5: Displays suggested course price with 15% discount recommendation and allows optional application", async () => {
+    setupFetchMock({ consistencyReport: mockConsistencyReportValid });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <MemoryRouter initialEntries={["/admin/content-studio?courseId=official-course-1"]}>
+            <Routes>
+              <Route path="/admin" element={<AdminLayout />}>
+                <Route path="content-studio" element={<AdminContentStudioPage />} />
+              </Route>
+            </Routes>
+          </MemoryRouter>
+        </AuthProvider>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("۴. تایید، قیمت‌گذاری و انتشار (Publish)")).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByText("۴. تایید، قیمت‌گذاری و انتشار (Publish)"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("suggested-course-price-card")).toBeInTheDocument();
+    });
+
+    // Check title, base price, discount text, and suggested price card
+    expect(screen.getByText("قیمت پیشنهادی آوانا")).toBeInTheDocument();
+    expect(screen.getByText(/۱۵٪ کمتر از قیمت محاسبه‌شده/i)).toBeInTheDocument();
+    expect(screen.getByTestId("base-price-value")).toBeInTheDocument();
+    expect(screen.getByTestId("suggested-price-value")).toBeInTheDocument();
+
+    const priceInput = screen.getByLabelText(/قیمت فروش دوره/i) as HTMLInputElement;
+    const initialPriceValue = priceInput.value;
+
+    // Verify suggested price card does NOT auto-overwrite the admin's manual price input
+    expect(priceInput.value).toBe(initialPriceValue);
+
+    // Click "استفاده از قیمت پیشنهادی" button
+    const applyBtn = screen.getByTestId("apply-suggested-price-btn");
+    fireEvent.click(applyBtn);
+
+    // Verify input gets populated with suggested price
+    const suggestedValue = screen.getByTestId("suggested-price-value").textContent?.replace(/[^\d۰-۹]/g, "");
+    expect(suggestedValue).toBeTruthy();
+
+    // Admin can still modify it manually to any custom value
+    fireEvent.change(priceInput, { target: { value: "790000" } });
+    expect(priceInput.value).toBe("790000");
+  });
+
   it("Scenario 13: Consistency validation pre-flight report displays pass status when all invariants are met", async () => {
     setupFetchMock({ consistencyReport: mockConsistencyReportValid });
 

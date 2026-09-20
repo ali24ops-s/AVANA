@@ -1,6 +1,13 @@
+import { toPersianDigits } from "@avana/domain";
+
 export function formatToman(amount: number | null | undefined): string {
   if (amount === undefined || amount === null) return "۰ تومان";
-  return `${amount.toLocaleString("fa-IR")} تومان`;
+  return `${toPersianDigits(amount.toLocaleString("fa-IR"))} تومان`;
+}
+
+export function formatAmountOnly(amount: number | null | undefined): string {
+  if (amount === undefined || amount === null) return "۰";
+  return toPersianDigits(amount.toLocaleString("fa-IR"));
 }
 
 export function formatPersianDate(
@@ -19,7 +26,7 @@ export function formatPersianDate(
         ? { hour: "2-digit", minute: "2-digit", hour12: false }
         : {}),
     };
-    return d.toLocaleDateString("fa-IR", options);
+    return toPersianDigits(d.toLocaleDateString("fa-IR", options));
   } catch {
     return dateStr;
   }
@@ -70,12 +77,12 @@ export function getPaymentStatusBadge(status: string) {
     case "admin_approved":
       return {
         label: "تأیید شده ادمین",
-        className: "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30",
+        className: "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20",
       };
     case "pending_admin_review":
       return {
         label: "در انتظار بررسی ادمین",
-        className: "bg-amber-500/15 text-amber-300 border border-amber-500/30 animate-pulse",
+        className: "bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-500/40 animate-pulse font-medium",
       };
     case "admin_rejected":
       return {

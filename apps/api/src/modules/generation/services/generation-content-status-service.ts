@@ -232,7 +232,7 @@ export class GenerationContentStatusService {
       (c) =>
         c.type === "review_summary" &&
         c.deletedAt === null &&
-        c.status !== "rejected",
+        (c.status === "draft" || c.status === "edited" || c.status === "accepted"),
     );
     if (reviewSummaryItem) {
       reviewSummaryCount = 1;
@@ -250,7 +250,9 @@ export class GenerationContentStatusService {
     const flashcardsGenerated = totalFlashcardCount > 0;
     const examGenerated = totalExamCount > 0;
 
-    const allGenerated = lessonGenerated && flashcardsGenerated && examGenerated;
+    const hasAnyRegenerating = docContents.some(
+      (c) => c.deletedAt === null && c.status === "regenerating",
+    );
 
     const progress = await this.queryService.getGenerationProgress(
       documentId,
@@ -267,10 +269,20 @@ export class GenerationContentStatusService {
     ]);
     const isDocActivelyRunning =
       doc.status === "generating" && Boolean(progress && progress.status === "running");
+
+    const allGenerated =
+      !hasAnyRegenerating &&
+      !isDocActivelyRunning &&
+      lessonGenerated &&
+      flashcardsGenerated &&
+      examGenerated &&
+      reviewSummaryGenerated;
+
     const canGenerate =
       !allGenerated &&
       generatableDocStatuses.has(doc.status) &&
-      !isDocActivelyRunning;
+      !isDocActivelyRunning &&
+      !hasAnyRegenerating;
 
     // Compute accepted status for publish eligibility (publishableAcceptedContentCount >= 1)
     const activeAcceptedContents = docContents.filter(

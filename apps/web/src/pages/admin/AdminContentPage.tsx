@@ -379,11 +379,11 @@ function CourseNode({ course, isExpanded, onToggle }: { course: CourseListItem, 
                             <div className="flex items-center gap-2 text-[var(--color-text-muted)] w-32 justify-end">
                               <span title="فلش‌کارت" className="flex items-center gap-1">
                                 <BrainCircuit className={`w-3 h-3 ${lesson.flashcardCount === 0 ? 'opacity-30' : 'text-purple-500'}`} />
-                                {lesson.flashcardCount}
+                                {toPersianDigits(lesson.flashcardCount)}
                               </span>
                               <span title="آزمون" className="flex items-center gap-1">
                                 <HelpCircle className={`w-3 h-3 ${lesson.quizCount === 0 ? 'opacity-30' : 'text-amber-500'}`} />
-                                {lesson.quizCount}
+                                {toPersianDigits(lesson.quizCount)}
                               </span>
                             </div>
                           </div>

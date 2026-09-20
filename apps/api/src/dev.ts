@@ -19,6 +19,7 @@ import { composeProduction } from "./server/composeProduction.js";
 import { composeLocalDev } from "./server/composeLocalDev.js";
 import { GenerationService } from "./modules/generation/generation-service.js";
 import { createGenerationWorker } from "./modules/generation/generation-processor.js";
+import { WalletService } from "./modules/wallet/wallet-service.js";
 import { defaultPolicy, type OrganizationId } from "@avana/domain";
 import type { V1RouteOptions } from "./routes/v1.js";
 
@@ -77,10 +78,13 @@ async function main(): Promise<void> {
   let worker: ReturnType<typeof createGenerationWorker> | null = null;
   try {
     if (v1Options.generatedContentStore && v1Options.generationJobStore) {
-      const generationService = new GenerationService(
+      const adminGateway = v1Options.adminGateway ?? v1Options.gateway!;
+      const userGateway = v1Options.gateway!;
+
+      const adminGenerationService = new GenerationService(
         v1Options.generatedContentStore,
         v1Options.generatedContentCitationStore!,
-        v1Options.gateway!,
+        adminGateway,
         v1Options.documentStore!,
         v1Options.documentChunkStore!,
         defaultPolicy,
@@ -98,18 +102,47 @@ async function main(): Promise<void> {
         v1Options.generationProgressService,
       );
 
+      const userGenerationService = new GenerationService(
+        v1Options.generatedContentStore,
+        v1Options.generatedContentCitationStore!,
+        userGateway,
+        v1Options.documentStore!,
+        v1Options.documentChunkStore!,
+        defaultPolicy,
+        v1Options.auditService,
+        v1Options.organizationStore,
+        v1Options.moduleStore,
+        v1Options.lessonStore,
+        v1Options.flashcardStore,
+        v1Options.quizStore,
+        v1Options.quizQuestionStore,
+        v1Options.courseStore,
+        v1Options.config.systemOrganizationId as OrganizationId,
+        v1Options.generationChunkStore,
+        v1Options.generationJobStore,
+        v1Options.generationProgressService,
+      );
+
+      const walletService = v1Options.walletStore
+        ? new WalletService(v1Options.walletStore, v1Options.auditService)
+        : undefined;
+
       worker = createGenerationWorker(
         { url: config.redis.url },
         config.generation.queueName,
         {
-          generationService,
+          adminGenerationService,
+          userGenerationService,
+          generationService: userGenerationService,
           generationJobStore: v1Options.generationJobStore,
+          walletService,
+          walletStore: v1Options.walletStore,
         },
       );
 
       worker.on("ready", () => {
         process.stdout.write(
-          `[worker] Generation worker ready on queue "${config.generation.queueName}" (provider: ${v1Options.gateway?.provider ?? config.userAi.provider}, model: ${v1Options.gateway?.model ?? config.userAi.openrouterModel})\n`,
+          `[worker] Generation worker ready on queue "${config.generation.queueName}" (admin: ${adminGateway.provider}/${adminGateway.model ?? "gemini"}, user: ${userGateway.provider}/${userGateway.model ?? "openrouter"})\n`,
         );
       });
       worker.on("active", (job) => {

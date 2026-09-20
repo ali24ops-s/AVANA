@@ -926,6 +926,86 @@ describe("Volume-Based Default Suggested Content Pricing & Protection Suite", ()
     expect(suggestion.currentProduct).toBeDefined();
   });
 
+  it("OfficialContentService.getSuggestedPriceForCourse returns base price and 15% discounted suggested price", async () => {
+    const courseId = asCourseId(randomUUID());
+    const moduleId = asModuleId(randomUUID());
+    const lesson1Id = asLessonId(randomUUID());
+    const lesson2Id = asLessonId(randomUUID());
+
+    await courseStore.create({
+      course: {
+        id: courseId,
+        organizationId: systemOrgId,
+        name: "دوره جامع فارماکولوژی بالینی",
+        description: "دوره رسمی",
+        subject: "پزشکی",
+        slug: "pharma-course",
+        sortOrder: 0,
+        isOfficial: true,
+        status: "approved",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      },
+      auditEvents: [],
+    });
+
+    await moduleStore.create({
+      id: moduleId,
+      courseId,
+      title: "فصل اول: آنتی‌بیوتیک‌ها",
+      sortOrder: 0,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      deletedAt: null,
+    });
+
+    await lessonStore.create({
+      id: lesson1Id,
+      moduleId,
+      title: "جلسه اول",
+      contentType: "markdown",
+      contentMarkdown: "محتوا ۱",
+      sortOrder: 0,
+      estimatedMinutes: null,
+      publicationStatus: "published",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      deletedAt: null,
+    });
+
+    await lessonStore.create({
+      id: lesson2Id,
+      moduleId,
+      title: "جلسه دوم",
+      contentType: "markdown",
+      contentMarkdown: "محتوا ۲",
+      sortOrder: 1,
+      estimatedMinutes: null,
+      publicationStatus: "published",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      deletedAt: null,
+    });
+
+    // 2 lessons, 0 flashcards, 0 questions -> Base: 2*1000 = 2000
+    // Suggested: Math.round(2000 * 0.85) = 1700
+    const suggestion = await officialContentService.getSuggestedPriceForCourse(adminActor, courseId);
+    expect(suggestion.lessonCount).toBe(2);
+    expect(suggestion.basePrice).toBe(2000);
+    expect(suggestion.discountPercentage).toBe(15);
+    expect(suggestion.discountAmount).toBe(300);
+    expect(suggestion.suggestedCoursePrice).toBe(1700);
+
+    // Setting manual course price
+    await officialContentService.setProductPricing(adminActor, courseId, { price: 250000 });
+
+    // Verify suggested price calculation does NOT overwrite existing product price
+    const suggestionAfterManualPrice = await officialContentService.getSuggestedPriceForCourse(adminActor, courseId);
+    expect(suggestionAfterManualPrice.suggestedCoursePrice).toBe(1700);
+    expect(suggestionAfterManualPrice.currentProduct?.price).toBe(250000);
+  });
+
   // ---------------------------------------------------------------------------
   // Dedicated Invariant Test: Product Identity (ID & Price) Survives Regeneration
   // ---------------------------------------------------------------------------
@@ -2136,5 +2216,140 @@ describe("Volume-Based Default Suggested Content Pricing & Protection Suite", ()
     );
     expect(accessC.granted).toBe(false);
     expect(accessC.reason).toBe("locked");
+  });
+
+  it("REGRESSION: listOfficialCourses & getSuggestedPriceForCourse succeed safely when db client is undefined or course has no content", async () => {
+    // Create an empty official course
+    const emptyCourseId = asCourseId(randomUUID());
+    await courseStore.create({
+      course: {
+        id: emptyCourseId,
+        organizationId: systemOrgId,
+        name: "دوره جدید بدون محتوا",
+        description: "دوره خالی",
+        subject: "پزشکی",
+        status: "draft",
+        isOfficial: true,
+        examDate: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      },
+      auditEvents: [],
+    });
+
+    // Create OfficialContentService with undefined db (simulates in-memory / dev environment)
+    const inMemoryOfficialService = new OfficialContentService(
+      undefined as any,
+      courseStore,
+      moduleStore,
+      lessonStore,
+      flashcardStore,
+      quizStore,
+      quizQuestionStore,
+      documentStore,
+      generatedContentStore,
+      {} as any,
+      reviewService,
+      {} as any,
+      systemOrgId,
+    );
+
+    // 1. listOfficialCourses must not throw and return course list with product: null
+    const listResult = await inMemoryOfficialService.listOfficialCourses(adminActor);
+    expect(Array.isArray(listResult)).toBe(true);
+    const foundCourse = listResult.find((c) => c.id === emptyCourseId);
+    expect(foundCourse).toBeDefined();
+    expect(foundCourse?.name).toBe("دوره جدید بدون محتوا");
+    expect(foundCourse?.moduleCount).toBe(0);
+    expect(foundCourse?.lessonCount).toBe(0);
+    expect(foundCourse?.product).toBeNull();
+
+    // 2. getSuggestedPriceForCourse must calculate volume pricing breakdown safely with fallback minimums
+    const suggestion = await inMemoryOfficialService.getSuggestedPriceForCourse(adminActor, emptyCourseId);
+    expect(suggestion).toBeDefined();
+    expect(suggestion.basePrice).toBeGreaterThan(0);
+    expect(suggestion.discountPercentage).toBe(15);
+    expect(suggestion.suggestedCoursePrice).toBe(Math.round(suggestion.basePrice * 0.85));
+    expect(suggestion.currentProduct).toBeNull();
+  });
+
+  it("REAL RUNTIME VERIFICATION: GET /v1/admin/content-studio/courses returns HTTP 200 with full contract shape", async () => {
+    const { loadApiConfig } = await import("../config.js");
+    const { createApp } = await import("../server/createApp.js");
+    const { v1Routes } = await import("../routes/v1.js");
+    const { composeLocalDev } = await import("../server/composeLocalDev.js");
+
+    const config = loadApiConfig();
+    const local = await composeLocalDev(config);
+    const app = createApp({ config });
+    await app.register(v1Routes, local.v1Options);
+    await app.ready();
+
+    const now = new Date().toISOString();
+    // Create an admin user & session
+    const adminUser = await local.v1Options.userStore.createUserWithPassword({
+      email: "admin@local.dev",
+      passwordHash: "hash123",
+      name: "Admin Tester",
+      globalRole: "platform_admin",
+    });
+
+    const { generateSessionToken, hashToken } = await import("../modules/identity/session-service.js");
+
+    const sessionToken = generateSessionToken();
+    const tokenHash = hashToken(sessionToken);
+    const expiresAt = new Date(Date.now() + 86400000).toISOString();
+
+    await local.v1Options.sessionStore.createSessionWithTakeover({
+      userId: adminUser.id,
+      tokenHash,
+      expiresAt,
+    });
+
+    // Create a canonical official course
+    const courseId = randomUUID();
+    await local.v1Options.courseStore.create({
+      course: {
+        id: courseId,
+        organizationId: config.systemOrganizationId,
+        name: "دوره جامع شیمی دارویی (تست رانتایم)",
+        description: "توضیحات دوره تست",
+        subject: "داروسازی",
+        status: "draft",
+        isOfficial: true,
+        examDate: null,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      },
+      auditEvents: [],
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/v1/admin/content-studio/courses",
+      headers: {
+        cookie: `avana_session=${sessionToken}`,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const data = JSON.parse(response.body);
+    expect(data).toHaveProperty("courses");
+    expect(Array.isArray(data.courses)).toBe(true);
+    expect(data.courses.length).toBeGreaterThanOrEqual(1);
+
+    const target = data.courses.find((c: any) => c.id === courseId);
+    expect(target).toBeDefined();
+    expect(target.name).toBe("دوره جامع شیمی دارویی (تست رانتایم)");
+    expect(target.status).toBe("draft");
+    expect(target.isOfficial).toBe(true);
+    expect(typeof target.moduleCount).toBe("number");
+    expect(typeof target.lessonCount).toBe("number");
+    expect(typeof target.flashcardCount).toBe("number");
+    expect(typeof target.quizQuestionCount).toBe("number");
+
+    await app.close();
   });
 });

@@ -58,6 +58,7 @@ export type AuthState = {
     phoneNumber?: string,
     firstName?: string,
     lastName?: string,
+    referralCode?: string,
   ) => Promise<void>;
   /** Send a verification code to chosen channel (email or phone). */
   sendVerification: (channel: VerificationChannel) => Promise<void>;
@@ -247,6 +248,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       phoneNumber?: string,
       firstName?: string,
       lastName?: string,
+      referralCode?: string,
     ) => {
       setIsLoading(true);
       setError(null);
@@ -258,6 +260,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           phoneNumber,
           firstName,
           lastName,
+          referralCode,
         );
         setUser(response.user);
         setMemberships(response.memberships ?? []);

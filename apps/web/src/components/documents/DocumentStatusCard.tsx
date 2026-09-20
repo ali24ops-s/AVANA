@@ -20,6 +20,7 @@ import { useAuth } from "../../providers/AuthProvider.js";
 import { canUserGenerateContent } from "../../utils/generationPermissions.js";
 import { ComingSoonGenerationModal } from "../generation/ComingSoonGenerationModal.js";
 import type { DocumentResource, DocumentStatus } from "@avana/contracts";
+import { formatPersianOf, toPersianDigits } from "@avana/domain";
 
 export interface DocumentStatusCardProps {
   document: DocumentResource;
@@ -107,7 +108,7 @@ export function DocumentStatusCard({
     queryKey: ["document-status", organizationId, document.id],
     queryFn: () => docsApi.getDocumentStatus(organizationId, document.id),
     refetchInterval: (query) => {
-      const currentStatus = query.state.data?.status.status ?? document.status;
+      const currentStatus = query.state.data?.status?.status ?? document.status;
       return TRANSIENT_STATUSES.has(currentStatus) ? 2000 : false;
     },
   });
@@ -328,6 +329,16 @@ export function DocumentStatusCard({
         jobQuery.data?.job?.status === "failed"),
   );
 
+  const hasReviewableContent = Boolean(
+    contentStatus?.lesson?.generated ||
+      contentStatus?.flashcards?.generated ||
+      contentStatus?.exam?.generated ||
+      contentStatus?.review_summary?.generated ||
+      (currentProgress && currentProgress.completed > 0) ||
+      document.status === "review_pending" ||
+      document.status === "ready",
+  );
+
   return (
     <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-5 space-y-4 shadow-xs">
       <div className="flex items-start justify-between gap-4">
@@ -455,7 +466,7 @@ export function DocumentStatusCard({
                   : "پیشرفت ذخیره‌شده در دیتابیس:"}
               </span>
               <span className="text-[#008080] font-mono font-bold">
-                {currentProgress.completed} / {currentProgress.total} مورد ({Math.round((currentProgress.completed / currentProgress.total) * 100)}٪)
+                {formatPersianOf(currentProgress.completed, currentProgress.total)} مورد ({toPersianDigits(Math.round((currentProgress.completed / currentProgress.total) * 100))}٪)
               </span>
             </div>
             <div className="w-full h-1.5 bg-teal-100 rounded-full overflow-hidden">
@@ -478,7 +489,7 @@ export function DocumentStatusCard({
                 document.quality_level === "medium" ? "text-amber-500" :
                 "text-red-500"
               }`}>
-                {document.quality_score}٪
+                {toPersianDigits(document.quality_score)}٪
                 ({
                   document.quality_level === "excellent" ? "عالی" :
                   document.quality_level === "medium" ? "متوسط" :
@@ -568,44 +579,27 @@ export function DocumentStatusCard({
                 <Sparkles className="w-3.5 h-3.5 text-amber-500" />
                 <span>تولید محتوا (به‌زودی)</span>
               </button>
-            ) : (
+            ) : !isAllGenerated ? (
               <button
                 type="button"
                 onClick={() => {
-                  if (!isAllGenerated) {
-                    setIsModalOpen(true);
-                  }
+                  setIsModalOpen(true);
                 }}
-                disabled={Boolean(isGenerating) || !resolvedCourseId || isAllGenerated}
-                title={
-                  isAllGenerated
-                    ? "درس، فلش‌کارت و آزمون این فایل قبلاً تولید شده‌اند."
-                    : !resolvedCourseId
-                    ? "لطفاً ابتدا یک دوره آموزشی انتخاب کنید"
-                    : undefined
-                }
-                className={`px-5 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-xs ${
-                  isAllGenerated
-                    ? "bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] border border-[var(--color-border)] cursor-not-allowed opacity-90"
-                    : "bg-[#008080] hover:bg-[#006666] disabled:opacity-50 text-white"
-                }`}
+                disabled={Boolean(isGenerating) || !resolvedCourseId}
+                title={!resolvedCourseId ? "لطفاً ابتدا یک دوره آموزشی انتخاب کنید" : undefined}
+                className="px-5 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-xs bg-[#008080] hover:bg-[#006666] disabled:opacity-50 text-white"
               >
                 {isGenerating ? (
                   <>
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
                     <span>
-                      در حال تولید هوشمند محتوا... {currentProgress ? `(${currentProgress.completed}/${currentProgress.total})` : ""}
+                      در حال تولید هوشمند محتوا... {currentProgress ? `(${formatPersianOf(currentProgress.completed, currentProgress.total)})` : ""}
                     </span>
-                  </>
-                ) : isAllGenerated ? (
-                  <>
-                    <CheckCircle2 className="w-3.5 h-3.5 text-[#008080]" />
-                    <span>تمام محتوای این فایل تولید شده است</span>
                   </>
                 ) : isPartial ? (
                   <>
                     <RefreshCw className="w-3.5 h-3.5 text-amber-600" />
-                    <span>ادامه تولید هوشمند محتوا ({currentProgress?.completed}/{currentProgress?.total})</span>
+                    <span>ادامه تولید هوشمند محتوا ({currentProgress ? formatPersianOf(currentProgress.completed, currentProgress.total) : ""})</span>
                   </>
                 ) : (
                   <>
@@ -614,15 +608,19 @@ export function DocumentStatusCard({
                   </>
                 )}
               </button>
-            )}
+            ) : null}
 
-            {onNavigateToReview && isGenerationPermitted && (
+            {onNavigateToReview && isGenerationPermitted && hasReviewableContent && (
               <button
                 type="button"
                 onClick={onNavigateToReview}
-                className="px-3.5 py-2 text-[#008080] hover:bg-teal-50 rounded-xl text-xs font-bold flex items-center justify-center gap-1 transition-colors"
+                className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1 transition-colors ${
+                  isAllGenerated
+                    ? "bg-[#008080] hover:bg-[#006666] text-white shadow-xs"
+                    : "text-[#008080] hover:bg-teal-50"
+                }`}
               >
-                <span>صف بازبینی محتوا</span>
+                <span>{isAllGenerated ? "مشاهده در بازبینی" : "صف بازبینی محتوا"}</span>
                 <ChevronLeft className="w-3.5 h-3.5" />
               </button>
             )}
@@ -706,6 +704,9 @@ export function DocumentStatusCard({
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         documentName={document.original_name}
+        documentId={document.id}
+        organizationId={organizationId}
+        courseId={resolvedCourseId}
         contentStatus={contentStatus}
         isLoadingStatus={contentStatusQuery.isLoading}
         isGenerating={generateMutation.isPending || Boolean(isGenerating)}

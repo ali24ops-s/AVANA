@@ -10,6 +10,11 @@ export interface ProgressProps extends React.HTMLAttributes<HTMLDivElement> {
   className?: string;
 }
 
+const toPersianDigits = (value: number | string): string => {
+  const farsiDigits = ["۰", "۱", "۲", "۳", "۴", "۵", "۶", "۷", "۸", "۹"];
+  return String(value).replace(/[0-9]/g, (d) => farsiDigits[parseInt(d, 10)]);
+};
+
 export const Progress: React.FC<ProgressProps> = ({
   value,
   max = 100,
@@ -50,7 +55,7 @@ export const Progress: React.FC<ProgressProps> = ({
       {showLabel && (
         <div className="flex justify-between text-xs font-semibold text-[var(--color-text-muted)]">
           <span>{label}</span>
-          <span className="font-semibold text-[#008080]">{percentage}٪</span>
+          <span className="font-semibold text-[#008080]">{toPersianDigits(percentage)}٪</span>
         </div>
       )}
       <div

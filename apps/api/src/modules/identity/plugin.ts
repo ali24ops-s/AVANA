@@ -34,6 +34,7 @@ export interface IdentityPluginOptions {
   smsProvider?: SmsProvider;
   organizationStore?: OrganizationStore;
   notificationService?: NotificationService;
+  referralService?: import("../referral/referral-service.js").ReferralService;
 }
 
 export async function registerIdentityModule(
@@ -83,6 +84,7 @@ export async function registerIdentityModule(
     organizationStore,
     verificationSecret: config.auth?.verificationSecret,
     notificationService: options.notificationService,
+    referralService: options.referralService,
   };
   await app.register(authRoutes, authOpts);
 }

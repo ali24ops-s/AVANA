@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, ChevronLeft, ChevronRight, CheckCircle2 } from "lucide-react";
+import { RichContent } from "../../markdown/MarkdownRenderer.js";
 
 interface Flashcard {
   id: number;
@@ -214,10 +215,10 @@ export function FlashcardDrawer({
                         : "bg-white dark:bg-slate-800 border-[var(--color-border)] shadow-lg"
                     }`}
                   >
-                    <div className="h-full flex flex-col justify-center items-center text-center">
-                      <p className="text-2xl font-bold leading-relaxed">
-                        {currentCard.front}
-                      </p>
+                    <div className="h-full flex flex-col justify-center items-center text-center overflow-y-auto">
+                      <div className="text-xl sm:text-2xl font-bold leading-relaxed w-full">
+                        <RichContent content={currentCard.front} />
+                      </div>
                       <motion.p
                         animate={{ opacity: [0.5, 1, 0.5] }}
                         transition={{ duration: 2, repeat: Infinity }}
@@ -234,17 +235,15 @@ export function FlashcardDrawer({
                       backfaceVisibility: "hidden",
                       transform: "rotateY(180deg)",
                     }}
-                    className={`absolute inset-0 rounded-2xl p-8 border-2 ${
+                    className={`absolute inset-0 rounded-2xl p-8 border-2 overflow-y-auto ${
                       isFlipped
                         ? "bg-gradient-to-br from-indigo-50 to-purple-50 dark:from-indigo-950/50 dark:to-purple-950/50 border-indigo-300 dark:border-indigo-700 shadow-lg"
                         : ""
                     }`}
                   >
                     <div className="h-full flex flex-col">
-                      <div className="flex-1">
-                        <p className="text-base leading-relaxed whitespace-pre-wrap">
-                          {currentCard.back}
-                        </p>
+                      <div className="flex-1 text-base leading-relaxed">
+                        <RichContent content={currentCard.back} />
                       </div>
 
                       {/* Spaced Repetition Indicator */}

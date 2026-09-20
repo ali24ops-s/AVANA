@@ -15,7 +15,7 @@ import type {
   AdminUserDevicesResponse,
   AdminAuthAttemptRecord,
 } from "../../../lib/api/admin.js";
-import { formatPersianOf } from "@avana/domain";
+import { formatPersianOf, toPersianDigits } from "@avana/domain";
 import { Tabs } from "@avana/ui";
 
 interface UserDevicesDrawerProps {
@@ -269,14 +269,14 @@ export function UserDevicesDrawer({
                           <Clock className="w-3.5 h-3.5 text-[var(--color-text-muted)]" />
                           <span>اولین ورود:</span>
                           <span className="text-[var(--color-text)]">
-                            {new Date(device.firstSeenAt).toLocaleString("fa-IR")}
+                            {toPersianDigits(new Date(device.firstSeenAt).toLocaleString("fa-IR"))}
                           </span>
                         </div>
                         <div className="flex items-center gap-1.5">
                           <Clock className="w-3.5 h-3.5 text-[var(--color-text-muted)]" />
                           <span>آخرین فعالیت:</span>
                           <span className="text-[var(--color-text)]">
-                            {new Date(device.lastSeenAt).toLocaleString("fa-IR")}
+                            {toPersianDigits(new Date(device.lastSeenAt).toLocaleString("fa-IR"))}
                           </span>
                         </div>
                         {device.lastIp && (
@@ -332,7 +332,7 @@ export function UserDevicesDrawer({
                           </span>
                         </div>
                         <span className="text-[var(--color-text-muted)] text-[11px]">
-                          {new Date(attempt.createdAt).toLocaleString("fa-IR")}
+                          {toPersianDigits(new Date(attempt.createdAt).toLocaleString("fa-IR"))}
                         </span>
                       </div>
 

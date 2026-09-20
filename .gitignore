@@ -84,3 +84,11 @@ test-quality-garbage.ts
 test-quality.ts
 test_delete_api.mjs
 test_delete_curl.mjs
+scratch-*.mjs
+scratch-*.js
+scratch-*.ts
+
+# Local audit and scan findings
+.findings.json
+.*findings*.json
+

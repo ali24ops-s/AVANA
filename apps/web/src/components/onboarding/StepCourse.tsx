@@ -72,9 +72,9 @@ export function StepCourse({ data, onUpdate, onNext }: StepCourseProps) {
         </div>
 
         {/* Search Input */}
-        <div className={`relative mb-4`}>
+        <div className={`relative mb-4 flex items-center`}>
           <Search
-            className={`absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 transition-colors ${
+            className={`absolute start-4 top-1/2 -translate-y-1/2 w-5 h-5 transition-colors pointer-events-none ${
               isFocused ? "text-indigo-500" : "text-[var(--color-text-muted)]"
             }`}
           />
@@ -85,7 +85,7 @@ export function StepCourse({ data, onUpdate, onNext }: StepCourseProps) {
             onFocus={() => setIsFocused(true)}
             onBlur={() => setIsFocused(false)}
             placeholder="Type to search courses..."
-            className={`w-full pl-12 pr-12 py-4 rounded-xl bg-[var(--color-background)] border outline-none transition-all duration-200 ${
+            className={`w-full ps-12 pe-12 py-4 rounded-xl bg-[var(--color-background)] border outline-none transition-all duration-200 ${
               isFocused
                 ? "border-indigo-500 ring-2 ring-indigo-500/20"
                 : "border-[var(--color-border)]"
@@ -94,7 +94,7 @@ export function StepCourse({ data, onUpdate, onNext }: StepCourseProps) {
           {searchTerm && (
             <button
               onClick={() => setSearchTerm("")}
-              className="absolute right-4 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-[var(--color-border)] transition-colors"
+              className="absolute end-4 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-[var(--color-border)] transition-colors cursor-pointer"
             >
               <X className="w-4 h-4 text-[var(--color-text-muted)]" />
             </button>

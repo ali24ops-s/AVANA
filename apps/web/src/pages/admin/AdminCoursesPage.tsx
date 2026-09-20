@@ -29,6 +29,8 @@ import {
 } from "lucide-react";
 import type { AdminCourseRecord, OfficialCourse } from "../../lib/api/admin.js";
 import { AdminCourseDeleteModal } from "../../components/admin/courses/AdminCourseDeleteModal.js";
+import { formatPersianOf, toPersianDigits } from "@avana/domain";
+import { formatToman } from "../../components/admin/commerce/commerceUtils.js";
 
 type StatusFilterOption = "all" | "draft" | "generating" | "review" | "approved" | "published" | "archived";
 type SortOption = "newest" | "oldest" | "name" | "content";
@@ -356,27 +358,27 @@ export function AdminCoursesPage() {
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 pt-4 border-t border-[var(--color-border)]">
           <div className="bg-[var(--color-surface-subtle)] p-3.5 rounded-xl border border-[var(--color-border)] flex flex-col gap-1">
             <span className="text-[11px] text-[var(--color-text-muted)] font-medium">تعداد کل دوره‌ها</span>
-            <span className="text-lg font-black text-[var(--color-text)]">{totalCoursesCount}</span>
+            <span className="text-lg font-black text-[var(--color-text)]">{toPersianDigits(totalCoursesCount)}</span>
           </div>
 
           <div className="bg-[var(--color-surface-subtle)] p-3.5 rounded-xl border border-[var(--color-border)] flex flex-col gap-1">
             <span className="text-[11px] text-[var(--color-text-muted)] font-medium">پیش‌نویس (Draft)</span>
-            <span className="text-lg font-black text-[var(--color-text-muted)]">{draftCoursesCount}</span>
+            <span className="text-lg font-black text-[var(--color-text-muted)]">{toPersianDigits(draftCoursesCount)}</span>
           </div>
 
           <div className="bg-purple-500/10 p-3.5 rounded-xl border border-purple-500/20 flex flex-col gap-1">
             <span className="text-[11px] text-purple-600 dark:text-purple-400 font-medium">در حال تولید AI</span>
-            <span className="text-lg font-black text-purple-600 dark:text-purple-400">{generatingCoursesCount}</span>
+            <span className="text-lg font-black text-purple-600 dark:text-purple-400">{toPersianDigits(generatingCoursesCount)}</span>
           </div>
 
           <div className="bg-amber-500/10 p-3.5 rounded-xl border border-amber-500/20 flex flex-col gap-1">
             <span className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">در انتظار بازبینی</span>
-            <span className="text-lg font-black text-amber-600 dark:text-amber-400">{reviewCoursesCount}</span>
+            <span className="text-lg font-black text-amber-600 dark:text-amber-400">{toPersianDigits(reviewCoursesCount)}</span>
           </div>
 
           <div className="bg-emerald-500/10 p-3.5 rounded-xl border border-emerald-500/20 flex flex-col gap-1 col-span-2 sm:col-span-1">
             <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">منتشر شده در کاتالوگ</span>
-            <span className="text-lg font-black text-emerald-600 dark:text-emerald-400">{publishedCoursesCount}</span>
+            <span className="text-lg font-black text-emerald-600 dark:text-emerald-400">{toPersianDigits(publishedCoursesCount)}</span>
           </div>
         </div>
       </div>
@@ -395,9 +397,9 @@ export function AdminCoursesPage() {
                 setPage(1);
               }}
               aria-label="جستجوی دوره‌ها"
-              className="w-full bg-[var(--color-surface-subtle)] border border-[var(--color-border)] rounded-xl ps-4 pe-11 py-2.5 text-xs sm:text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:border-[var(--color-primary-default)] focus:ring-1 focus:ring-[var(--color-primary-default)] transition-colors"
+              className="w-full bg-[var(--color-surface-subtle)] border border-[var(--color-border)] rounded-xl ps-11 pe-4 py-2.5 text-xs sm:text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:border-[var(--color-primary-default)] focus:ring-1 focus:ring-[var(--color-primary-default)] transition-colors"
             />
-            <Search className="w-4 h-4 text-[var(--color-text-muted)] absolute start-4 top-3.5" aria-hidden="true" />
+            <Search className="w-4 h-4 text-[var(--color-text-muted)] absolute start-3.5 top-1/2 -translate-y-1/2 pointer-events-none" aria-hidden="true" />
           </div>
 
           {/* Filter & Sort Controls */}
@@ -544,7 +546,7 @@ export function AdminCoursesPage() {
                     {course.product ? (
                       <div className="bg-[var(--color-surface-subtle)] px-3 py-1.5 rounded-xl border border-[var(--color-border)] text-right">
                         <div className="font-bold text-xs text-emerald-600 dark:text-emerald-400">
-                          {course.product.price.toLocaleString("fa-IR")} تومان
+                          {formatToman(course.product.price)}
                         </div>
                         <div className="text-[10px] text-[var(--color-text-muted)]">
                           {course.product.active ? "🟢 در حال فروش" : "🟡 پیش‌نویس قیمت"}
@@ -586,30 +588,30 @@ export function AdminCoursesPage() {
                   <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs">
                     <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--color-surface-subtle)] border border-[var(--color-border)] text-[var(--color-text)]">
                       <Layers className="w-3.5 h-3.5 text-[var(--color-primary-default)]" />
-                      <span className="font-bold">{course.counts.modules}</span>
+                      <span className="font-bold">{toPersianDigits(course.counts.modules)}</span>
                       <span className="text-[11px] text-[var(--color-text-muted)]">فصل</span>
                     </div>
 
                     <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--color-surface-subtle)] border border-[var(--color-border)] text-[var(--color-text)]">
                       <FileText className="w-3.5 h-3.5 text-blue-500" />
-                      <span className="font-bold">{course.counts.lessons}</span>
+                      <span className="font-bold">{toPersianDigits(course.counts.lessons)}</span>
                       <span className="text-[11px] text-[var(--color-text-muted)]">درس</span>
                     </div>
 
                     <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--color-surface-subtle)] border border-[var(--color-border)] text-[var(--color-text)]">
                       <BrainCircuit className="w-3.5 h-3.5 text-purple-500" />
-                      <span className="font-bold">{course.counts.flashcards}</span>
+                      <span className="font-bold">{toPersianDigits(course.counts.flashcards)}</span>
                       <span className="text-[11px] text-[var(--color-text-muted)]">فلش‌کارت</span>
                     </div>
 
                     <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--color-surface-subtle)] border border-[var(--color-border)] text-[var(--color-text)]">
                       <HelpCircle className="w-3.5 h-3.5 text-amber-500" />
-                      <span className="font-bold">{course.counts.quizzes}</span>
+                      <span className="font-bold">{toPersianDigits(course.counts.quizzes)}</span>
                       <span className="text-[11px] text-[var(--color-text-muted)]">سؤال تستی</span>
                     </div>
 
                     <div className="text-[11px] text-[var(--color-text-muted)] me-2" dir="ltr">
-                      {new Date(course.createdAt).toLocaleDateString("fa-IR")}
+                      {toPersianDigits(new Date(course.createdAt).toLocaleDateString("fa-IR"))}
                     </div>
                   </div>
 
@@ -681,7 +683,7 @@ export function AdminCoursesPage() {
       {/* 4. Pagination */}
       <div className="flex flex-col sm:flex-row items-center justify-between px-6 py-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] gap-4 text-xs font-bold shadow-sm">
         <span className="text-[var(--color-text-muted)]">
-          مجموع: {totalCount} دوره
+          مجموع: {toPersianDigits(totalCount)} دوره
         </span>
 
         {totalPages > 1 && (
@@ -697,7 +699,7 @@ export function AdminCoursesPage() {
             </button>
 
             <span className="text-[var(--color-text)] px-3 font-medium min-w-[5rem] text-center" aria-current="page">
-              {page} / {totalPages}
+              {formatPersianOf(page, totalPages)}
             </span>
 
             <button

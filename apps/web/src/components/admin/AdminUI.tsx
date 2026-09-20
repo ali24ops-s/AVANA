@@ -5,15 +5,15 @@ import { Button } from "../ui/index.js";
 
 export function AdminSearch({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
   return (
-    <div className="relative w-full sm:w-64">
+    <div className="relative w-full sm:w-64 flex items-center">
+      <Search className="w-4 h-4 text-[var(--color-text-muted)] absolute start-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
       <input
         type="text"
         placeholder={placeholder || "جستجو..."}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl ps-4 pe-10 py-2 text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-default)] focus:border-transparent transition-all"
+        className="w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl ps-10 pe-4 py-2 text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-default)] focus:border-transparent transition-all"
       />
-      <Search className="w-4 h-4 text-[var(--color-text-muted)] absolute end-3 top-3 pointer-events-none" />
     </div>
   );
 }
@@ -83,11 +83,11 @@ export function AdminStatusBadge({ status, colorMap }: { status: string; colorMa
 export function AdminFilter({ value, onChange, options, label }: { value: string; onChange: (v: string) => void; options: {value: string, label: string}[]; label?: string }) {
   return (
     <div className="flex items-center gap-2">
-      {label && <Filter className="w-4 h-4 text-[var(--color-text-muted)]" />}
+      {label && <Filter className="w-4 h-4 text-[var(--color-text-muted)] shrink-0" />}
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl px-3 py-2 text-sm text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-default)] focus:border-transparent transition-all"
+        className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl ps-3 pe-8 py-2 text-sm text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-default)] focus:border-transparent transition-all cursor-pointer"
       >
         {options.map(opt => (
           <option key={opt.value} value={opt.value}>{opt.label}</option>

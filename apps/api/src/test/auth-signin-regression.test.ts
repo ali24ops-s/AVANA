@@ -247,4 +247,57 @@ describe("Authentication Sign-In Regression & Password Isolation Test Suite", ()
 
     await app.close();
   });
+
+  // =========================================================================
+  // TEST G: Signup creates organization with clean name without injecting user ID
+  // =========================================================================
+  it("TEST G: Signup with Persian name creates organization with clean name without user ID", async () => {
+    const { app, orgStore } = setupAuthApp();
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/auth/sign-up",
+      payload: {
+        firstName: "علی",
+        lastName: "محمدی",
+        email: "ali.mohammadi@example.com",
+        password: "ValidPassword123!",
+        phoneNumber: "09123456789",
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    const userId = body.user.id;
+    const orgs = await orgStore.listByUserId(userId);
+    expect(orgs.length).toBeGreaterThan(0);
+
+    const createdOrg = orgs[0];
+    expect(createdOrg.name).toBe("فضای یادگیری علی محمدی");
+    expect(createdOrg.name).not.toContain(userId.slice(0, 8));
+    expect(createdOrg.name).not.toMatch(/[0-9a-fA-F]{8}/);
+    expect(createdOrg.id).toBeDefined();
+
+    // Signup second user with same name -> collision fallback produces clean name with unique slug
+    const res2 = await app.inject({
+      method: "POST",
+      url: "/v1/auth/sign-up",
+      payload: {
+        firstName: "علی",
+        lastName: "محمدی",
+        email: "ali.mohammadi.2@example.com",
+        password: "ValidPassword123!",
+        phoneNumber: "09123456788",
+      },
+    });
+    expect(res2.statusCode).toBe(200);
+    const body2 = res2.json();
+    const userId2 = body2.user.id;
+    const orgs2 = await orgStore.listByUserId(userId2);
+    expect(orgs2.length).toBeGreaterThan(0);
+    expect(orgs2[0].name).toBe("فضای یادگیری علی محمدی");
+    expect(orgs2[0].name).not.toContain(userId2.slice(0, 8));
+
+    await app.close();
+  });
 });

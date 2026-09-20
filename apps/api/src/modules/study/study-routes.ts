@@ -26,6 +26,7 @@ import type { FastifyPluginAsync } from "fastify";
 import {
   type Actor,
   type CourseId,
+  type ModuleId,
   type LessonId,
   type DocumentId,
   type FlashcardRating,
@@ -33,6 +34,9 @@ import {
   type FlashcardStudySessionRecord,
   type FlashcardStudySessionCardRecord,
   type StudyActivityType,
+  type DailyStudyPlan,
+  type StudyTask,
+  type StudyTaskStatus,
   DomainError,
   defaultPolicy,
   isFlashcardRating,
@@ -41,6 +45,7 @@ import {
   parseQuizId,
 } from "@avana/domain";
 import { StudyService } from "./study-service.js";
+import { StudyPlannerService } from "./study-planner-service.js";
 import type { AuthMiddlewareDeps } from "../../http/authMiddleware.js";
 import { makeAuthMiddleware } from "../../http/authMiddleware.js";
 import type {
@@ -53,6 +58,7 @@ import type {
   StudySessionStore,
   FlashcardStudySessionStore,
   FlashcardRecord,
+  DailyStudyPlanStore,
 } from "./study-store.js";
 import type {
   ModuleStore,
@@ -72,6 +78,8 @@ import type {
   CreateAnnotationRequest,
   UpdateAnnotationRequest,
   CreateContentReportRequest,
+  StudyTaskResource,
+  DailyStudyPlanResource,
 } from "@avana/contracts";
 
 export interface StudyRouteOptions {
@@ -97,6 +105,8 @@ export interface StudyRouteOptions {
   annotationStore?: LessonAnnotationStore;
   reportStore?: ContentReportStore;
   annotationService?: AnnotationService;
+  dailyPlanStore?: DailyStudyPlanStore;
+  studyPlannerService?: StudyPlannerService;
 }
 
 const UUID_RE =
@@ -129,6 +139,8 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
     annotationStore,
     reportStore,
     annotationService: customAnnotationService,
+    dailyPlanStore,
+    studyPlannerService,
   } = opts;
 
   const { requireAuth } = makeAuthMiddleware({ sessionService, userStore });
@@ -153,6 +165,35 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
       flashcardStudySessionStore,
       entitlementService,
     );
+
+  const plannerService =
+    studyPlannerService ??
+    (dailyPlanStore &&
+    userFlashcardScheduleStore &&
+    courseStore
+      ? new StudyPlannerService({
+          dailyPlanStore,
+          userFlashcardScheduleStore,
+          flashcardStore,
+          progressStore,
+          lessonStore,
+          moduleStore,
+          courseStore,
+          quizStore,
+          quizAttemptStore,
+          quizQuestionStore,
+          studySessionStore,
+          entitlementService,
+          systemOrganizationId,
+        })
+      : undefined);
+
+  const getPlannerService = () => {
+    if (!plannerService) {
+      throw new DomainError("bad_request", "Study planner service not configured");
+    }
+    return plannerService;
+  };
 
   const annotationService =
     customAnnotationService ??
@@ -512,7 +553,7 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
         userId: actor.userId,
         resourceType: "course",
         resourceId: courseId,
-        moduleId: (query.moduleId as any) ?? undefined,
+        moduleId: (query.moduleId as ModuleId) ?? undefined,
         previewSessionId: query.previewSessionId,
       });
       if (!access.granted) {
@@ -1023,6 +1064,7 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
     const courses3Level = (summary.courses || []).map((c) => ({
       courseId: c.courseId,
       courseTitle: c.courseTitle,
+      hasAccess: c.hasAccess,
       questionCount: c.questionCount,
       easyCount: c.easyCount,
       mediumCount: c.mediumCount,
@@ -1142,6 +1184,28 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
     "/v1/organizations/:organizationId/study/exams/history",
     { preHandler: [requireAuth] },
     handleListExamHistory,
+  );
+
+  const handleHideExamHistory = async (request: unknown) => {
+    const req = request as {
+      params: { organizationId: string; attemptId: string };
+      id: string;
+    };
+    const actor = getActor(req);
+    const organizationId = await resolveOrganizationId(actor, req.params as { organizationId: string });
+    const attemptId = parseQuizAttemptId(req.params.attemptId, "attemptId");
+
+    const result = await service.hideExamAttemptFromHistory(actor, organizationId, attemptId);
+    return {
+      request_id: req.id,
+      ...result,
+    };
+  };
+
+  app.delete(
+    "/v1/organizations/:organizationId/study/exams/history/:attemptId",
+    { preHandler: [requireAuth] },
+    handleHideExamHistory,
   );
 
   app.get(
@@ -1266,6 +1330,7 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
       partial: result.partial,
       total: result.total,
       passed,
+      completedAt: result.completedAt,
       answers: result.answers,
       questionResults: result.questionResults,
       questions: result.questions,
@@ -1361,16 +1426,27 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
   };
 
   const handleGetPreviewQuiz = async (request: unknown) => {
-    const req = request as { params: { organizationId?: string; courseId: string }; id: string };
+    const req = request as {
+      params: { organizationId?: string; courseId: string };
+      query?: { moduleId?: string; previewLessonId?: string; previewSessionId?: string; limit?: string };
+      id: string;
+    };
     const actor = getActor(req);
     const courseId = getCourseId(req.params);
     const organizationId = await resolveOrganizationId(actor, req.params);
+    const query = req.query || {};
+    const limit = query.limit ? parseInt(query.limit, 10) : 5;
 
-    const preview = await service.getPreviewQuiz(actor, organizationId, courseId);
+    const preview = await service.getPreviewQuiz(actor, organizationId, courseId, {
+      moduleId: query.moduleId,
+      previewLessonId: query.previewLessonId,
+      previewSessionId: query.previewSessionId,
+      limit,
+    });
     return {
       request_id: req.id,
       is_preview: true,
-      preview_limit: 5,
+      preview_limit: limit,
       preview_lesson_id: preview.preview_lesson_id,
       quiz: preview.quiz ? {
         ...preview.quiz,
@@ -1410,7 +1486,7 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
   const handleGetQuiz = async (request: unknown) => {
     const req = request as {
       params: { organizationId?: string; courseId: string; quizId: string };
-      query?: { moduleId?: string; previewSessionId?: string };
+      query?: { moduleId?: string; previewLessonId?: string; previewSessionId?: string };
       id: string;
     };
     const actor = getActor(req);
@@ -1424,6 +1500,7 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
       quizId,
       {
         moduleId: query.moduleId,
+        previewLessonId: query.previewLessonId,
         previewSessionId: query.previewSessionId,
       },
     );
@@ -1499,9 +1576,13 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
     return {
       request_id: req.id,
       attempt,
+      attempt_id: (attempt as { attemptId?: string; id?: string }).attemptId || (attempt as { attemptId?: string; id?: string }).id,
       score: attempt.correct,
+      score_percent: attempt.score,
       maxScore: formattedAnswers.length,
       passed,
+      correct_count: attempt.correct,
+      incorrect_count: attempt.incorrect,
       answers: attempt.answers,
       questionResults: attempt.questionResults,
       questions: attempt.questions,
@@ -2011,6 +2092,188 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
     "/v1/courses/:courseId/lessons/:lessonId/reports",
     { preHandler: [requireAuth] },
     handleCreateReport,
+  );
+
+  // ---------------------------------------------------------------------------
+  // 16. Daily Study Planner Handlers (Phase 3)
+  // ---------------------------------------------------------------------------
+
+  function formatStudyTaskResource(t: StudyTask): StudyTaskResource {
+    return {
+      id: t.id,
+      planId: t.planId,
+      userId: t.userId,
+      taskType: t.taskType,
+      status: t.status,
+      title: t.title,
+      description: t.description ?? null,
+      priority: t.priority,
+      estimatedMinutes: t.estimatedMinutes,
+      completedAt: t.completedAt ?? null,
+      courseId: t.courseId ?? null,
+      moduleId: t.moduleId ?? null,
+      lessonId: t.lessonId ?? null,
+      quizId: t.quizId ?? null,
+      metadata: t.metadata ?? {},
+      createdAt: t.createdAt,
+      updatedAt: t.updatedAt,
+    };
+  }
+
+  function formatDailyStudyPlanResource(
+    plan: DailyStudyPlan,
+    tasks: StudyTask[],
+  ): DailyStudyPlanResource {
+    const remainingDurationMinutes = Math.max(
+      0,
+      plan.targetDurationMinutes - plan.completedDurationMinutes,
+    );
+    return {
+      id: plan.id,
+      userId: plan.userId,
+      planDate: plan.planDate,
+      status: plan.status,
+      targetDurationMinutes: plan.targetDurationMinutes,
+      completedDurationMinutes: plan.completedDurationMinutes,
+      remainingDurationMinutes,
+      tasks: tasks.map(formatStudyTaskResource),
+      createdAt: plan.createdAt,
+      updatedAt: plan.updatedAt,
+    };
+  }
+
+  /**
+   * GET /v1/study/daily-plan
+   * Returns (or lazily creates) the daily study plan for the authenticated user for today.
+   */
+  app.get(
+    "/v1/study/daily-plan",
+    { preHandler: [requireAuth] },
+    async (request) => {
+      const req = request as {
+        query?: { timezone?: string; targetMinutes?: string };
+        headers?: { "x-timezone"?: string };
+        id: string;
+      };
+      const actor = getActor(req);
+      const timeZone =
+        req.query?.timezone || req.headers?.["x-timezone"] || undefined;
+      const rawMinutes = req.query?.targetMinutes;
+      const targetMinutes =
+        rawMinutes !== undefined ? parseInt(rawMinutes, 10) : undefined;
+
+      if (
+        targetMinutes !== undefined &&
+        (isNaN(targetMinutes) || targetMinutes <= 0)
+      ) {
+        throw new DomainError("bad_request", "Invalid targetMinutes parameter");
+      }
+
+      const { plan, tasks } = await getPlannerService().getOrCreateDailyPlan(
+        actor,
+        undefined,
+        {
+          timeZone,
+          targetMinutes,
+        },
+      );
+
+      return {
+        request_id: req.id,
+        plan: formatDailyStudyPlanResource(plan, tasks),
+      };
+    },
+  );
+
+  /**
+   * POST /v1/study/daily-plan/regenerate
+   * Regenerates today's uncompleted tasks for the authenticated user while preserving completed tasks.
+   */
+  app.post(
+    "/v1/study/daily-plan/regenerate",
+    { preHandler: [requireAuth] },
+    async (request) => {
+      const req = request as {
+        body?: { timezone?: string; targetMinutes?: number };
+        headers?: { "x-timezone"?: string };
+        id: string;
+      };
+      const actor = getActor(req);
+      const timeZone =
+        req.body?.timezone || req.headers?.["x-timezone"] || undefined;
+      const targetMinutes = req.body?.targetMinutes;
+
+      if (
+        targetMinutes !== undefined &&
+        (typeof targetMinutes !== "number" ||
+          isNaN(targetMinutes) ||
+          targetMinutes <= 0)
+      ) {
+        throw new DomainError("bad_request", "Invalid targetMinutes parameter");
+      }
+
+      const { plan, tasks } = await getPlannerService().regenerateDailyPlan(
+        actor,
+        undefined,
+        {
+          timeZone,
+          targetMinutes,
+        },
+      );
+
+      return {
+        request_id: req.id,
+        plan: formatDailyStudyPlanResource(plan, tasks),
+      };
+    },
+  );
+
+  /**
+   * PATCH /v1/study/daily-plan/tasks/:taskId
+   * Updates status of an individual study task (pending | in_progress | completed | skipped).
+   */
+  app.patch(
+    "/v1/study/daily-plan/tasks/:taskId",
+    { preHandler: [requireAuth] },
+    async (request) => {
+      const req = request as {
+        params: { taskId: string };
+        body?: { status?: string };
+        id: string;
+      };
+      const actor = getActor(req);
+      const { taskId } = req.params;
+
+      if (!taskId || !UUID_RE.test(taskId)) {
+        throw new DomainError("bad_request", "Invalid task ID");
+      }
+
+      const validStatuses: StudyTaskStatus[] = [
+        "pending",
+        "in_progress",
+        "completed",
+        "skipped",
+      ];
+      const status = req.body?.status as StudyTaskStatus | undefined;
+
+      if (!status || !validStatuses.includes(status)) {
+        throw new DomainError(
+          "bad_request",
+          `Invalid task status. Must be one of: ${validStatuses.join(", ")}`,
+        );
+      }
+
+      const updated = await getPlannerService().updateTaskStatus(
+        actor,
+        taskId,
+        status,
+      );
+
+      return {
+        request_id: req.id,
+        task: formatStudyTaskResource(updated),
+      };
+    },
   );
 };
 

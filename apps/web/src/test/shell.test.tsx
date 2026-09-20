@@ -3,7 +3,7 @@
  */
 
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider } from "../providers/AuthProvider.js";
@@ -464,6 +464,45 @@ describe("AuthenticatedShell", () => {
     expect(screen.queryByText("منقضی شده")).not.toBeInTheDocument();
     expect(screen.queryByText(/روز باقی‌مانده/i)).not.toBeInTheDocument();
     expect(screen.queryByText("کمتر از ۱ روز")).not.toBeInTheDocument();
+  });
+
+  it("opens user account dropdown with 'دعوت از دوستان' linking to /account/referral when profile chip is clicked", async () => {
+    const mockMeResponse = {
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          request_id: "test-req",
+          user: {
+            id: "user-1",
+            email: "sara@example.com",
+            name: "سارا احمدی",
+            role: "student" as const,
+          },
+        }),
+    } as Response;
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(mockMeResponse);
+
+    renderWithProviders(
+      <AuthProvider>
+        <AuthenticatedShell />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => {
+      const userLink = screen.getByRole("link", { name: /سارا احمدی/i });
+      expect(userLink).toBeInTheDocument();
+    });
+
+    const userLink = screen.getByRole("link", { name: /سارا احمدی/i });
+    fireEvent.click(userLink);
+
+    await waitFor(() => {
+      const referralLink = screen.getByRole("link", { name: /دعوت از دوستان/i });
+      expect(referralLink).toBeInTheDocument();
+      expect(referralLink).toHaveAttribute("href", "/account/referral");
+    });
   });
 });
 

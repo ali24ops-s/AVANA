@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { AdminStatusBadge } from "../../components/admin/AdminUI.js";
 import { formatToman } from "../../components/admin/commerce/commerceUtils.js";
+import { toPersianDigits } from "@avana/domain";
 
 export function AdminDashboardPage() {
   const adminApi = useAdmin();
@@ -112,8 +113,8 @@ export function AdminDashboardPage() {
     {
       id: "users",
       title: "کل کاربران",
-      value: stats.totalUsers.toLocaleString("fa-IR"),
-      context: `+${stats.newUsersToday.toLocaleString("fa-IR")} کاربر جدید امروز`,
+      value: toPersianDigits(stats.totalUsers.toLocaleString("fa-IR")),
+      context: `+${toPersianDigits(stats.newUsersToday.toLocaleString("fa-IR"))} کاربر جدید امروز`,
       icon: Users,
       iconColor: "text-blue-500",
       bgColor: "bg-blue-500/10",
@@ -122,8 +123,8 @@ export function AdminDashboardPage() {
     {
       id: "courses",
       title: "دوره‌های آموزشی",
-      value: stats.totalCourses.toLocaleString("fa-IR"),
-      context: `${stats.totalLessons.toLocaleString("fa-IR")} درس فعال`,
+      value: toPersianDigits(stats.totalCourses.toLocaleString("fa-IR")),
+      context: `${toPersianDigits(stats.totalLessons.toLocaleString("fa-IR"))} درس فعال`,
       icon: BookOpen,
       iconColor: "text-purple-500",
       bgColor: "bg-purple-500/10",
@@ -132,7 +133,7 @@ export function AdminDashboardPage() {
     {
       id: "documents",
       title: "اسناد و فایل‌ها",
-      value: stats.totalDocuments.toLocaleString("fa-IR"),
+      value: toPersianDigits(stats.totalDocuments.toLocaleString("fa-IR")),
       context: "منابع پردازش محتوا",
       icon: FileText,
       iconColor: "text-amber-500",
@@ -142,8 +143,8 @@ export function AdminDashboardPage() {
     {
       id: "generation",
       title: "پردازش‌های AI امروز",
-      value: stats.generationsToday.toLocaleString("fa-IR"),
-      context: `نرخ موفقیت: ${stats.generationSuccessRate}%`,
+      value: toPersianDigits(stats.generationsToday.toLocaleString("fa-IR")),
+      context: `نرخ موفقیت: ${toPersianDigits(stats.generationSuccessRate)}٪`,
       icon: BrainCircuit,
       iconColor: "text-[var(--color-primary-default)]",
       bgColor: "bg-[var(--color-primary-default)]/10",
@@ -264,14 +265,14 @@ export function AdminDashboardPage() {
           <div className="bg-[var(--color-surface-subtle)] p-4 rounded-xl border border-[var(--color-border)]">
             <span className="text-xs text-[var(--color-text-muted)] block mb-1">اشتراک‌های فعال:</span>
             <span className="text-base sm:text-lg font-bold text-[var(--color-primary-default)]">
-              {isCommerceLoading ? "..." : (commerceStats?.activeSubscriptions ?? 0).toLocaleString("fa-IR")}
+              {isCommerceLoading ? "..." : toPersianDigits((commerceStats?.activeSubscriptions ?? 0).toLocaleString("fa-IR"))}
             </span>
           </div>
 
           <div className="bg-[var(--color-surface-subtle)] p-4 rounded-xl border border-[var(--color-border)]">
             <span className="text-xs text-[var(--color-text-muted)] block mb-1">خریدهای دائمی دوره‌ها:</span>
             <span className="text-base sm:text-lg font-bold text-purple-600 dark:text-purple-400">
-              {isCommerceLoading ? "..." : (commerceStats?.lifetimePurchases ?? 0).toLocaleString("fa-IR")}
+              {isCommerceLoading ? "..." : toPersianDigits((commerceStats?.lifetimePurchases ?? 0).toLocaleString("fa-IR"))}
             </span>
           </div>
         </div>
@@ -333,7 +334,7 @@ export function AdminDashboardPage() {
           </div>
 
           <div className="pt-5 mt-5 border-t border-[var(--color-border)] flex items-center justify-between text-xs text-[var(--color-text-muted)]">
-            <span>کل اسناد ورودی: <strong className="text-[var(--color-text)]">{stats.totalDocuments.toLocaleString("fa-IR")} سند</strong></span>
+            <span>کل اسناد ورودی: <strong className="text-[var(--color-text)]">{toPersianDigits(stats.totalDocuments.toLocaleString("fa-IR"))} سند</strong></span>
             <Link to="/admin/documents" className="text-[var(--color-primary-default)] hover:underline">
               مشاهده اسناد
             </Link>
@@ -368,8 +369,8 @@ export function AdminDashboardPage() {
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <span className="text-sm text-[var(--color-text)]">نرخ موفقیت پردازش‌ها</span>
-                <span className="text-lg font-bold text-[var(--color-text)]" dir="ltr">
-                  {stats.generationSuccessRate}%
+                <span className="text-lg font-bold text-[var(--color-text)]">
+                  {toPersianDigits(stats.generationSuccessRate)}٪
                 </span>
               </div>
 
@@ -393,7 +394,7 @@ export function AdminDashboardPage() {
                 <div className="p-3 rounded-xl bg-[var(--color-surface-subtle)] border border-[var(--color-border)]">
                   <p className="text-xs text-[var(--color-text-muted)]">درخواست‌های امروز</p>
                   <p className="text-lg font-bold text-[var(--color-text)] mt-0.5">
-                    {stats.generationsToday.toLocaleString("fa-IR")}
+                    {toPersianDigits(stats.generationsToday.toLocaleString("fa-IR"))}
                   </p>
                 </div>
                 <div className="p-3 rounded-xl bg-[var(--color-surface-subtle)] border border-[var(--color-border)]">
@@ -494,7 +495,7 @@ export function AdminDashboardPage() {
           {health && (
             <div className="pt-4 mt-5 border-t border-[var(--color-border)] text-xs text-[var(--color-text-muted)] flex items-center justify-between">
               <span>آخرین پایش زیرساخت:</span>
-              <span dir="ltr">{new Date(health.lastCheck).toLocaleTimeString("fa-IR")}</span>
+              <span dir="ltr">{toPersianDigits(new Date(health.lastCheck).toLocaleTimeString("fa-IR"))}</span>
             </div>
           )}
         </section>
@@ -554,7 +555,7 @@ export function AdminDashboardPage() {
                       </p>
                     </div>
                     <span className="text-[var(--color-text-muted)] whitespace-nowrap" dir="ltr">
-                      {new Date(log.timestamp).toLocaleTimeString("fa-IR", { hour: "2-digit", minute: "2-digit" })}
+                      {toPersianDigits(new Date(log.timestamp).toLocaleTimeString("fa-IR", { hour: "2-digit", minute: "2-digit" }))}
                     </span>
                   </div>
                 ))}
@@ -563,7 +564,7 @@ export function AdminDashboardPage() {
           </div>
 
           <div className="pt-4 mt-5 border-t border-[var(--color-border)] text-xs text-[var(--color-text-muted)] flex items-center justify-between">
-            <span>مجموع لاگ‌های ثبت‌شده: <strong className="text-[var(--color-text)]">{(auditData?.totalCount || 0).toLocaleString("fa-IR")}</strong></span>
+            <span>مجموع لاگ‌های ثبت‌شده: <strong className="text-[var(--color-text)]">{toPersianDigits((auditData?.totalCount || 0).toLocaleString("fa-IR"))}</strong></span>
             <Link to="/admin/system/logs" className="text-[var(--color-primary-default)] hover:underline">
               لاگ‌های سرور
             </Link>
@@ -617,7 +618,7 @@ function ContentStatItem({
         <span className="text-xs text-[var(--color-text-muted)]">{label}</span>
         <Icon className={`w-4 h-4 ${color}`} />
       </div>
-      <p className="text-xl font-bold text-[var(--color-text)]">{count.toLocaleString("fa-IR")}</p>
+      <p className="text-xl font-bold text-[var(--color-text)]">{toPersianDigits(count.toLocaleString("fa-IR"))}</p>
     </div>
   );
 }

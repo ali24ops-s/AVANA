@@ -10,7 +10,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { and, asc, eq, inArray, isNull, isNotNull, lt, or } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, isNotNull, lt, ne, or } from "drizzle-orm";
 import type { DbClient } from "@avana/database/client";
 import {
   generatedContents,
@@ -332,6 +332,29 @@ export class DrizzleGeneratedContentStore implements GeneratedContentStore {
           isNull(generatedContents.deletedAt),
         ),
       );
+  }
+
+  async markRegenerating(
+    id: GeneratedContentId,
+    organizationId: OrganizationId,
+  ): Promise<boolean> {
+    const updated = await this.db
+      .update(generatedContents)
+      .set({
+        status: "regenerating",
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(generatedContents.id, id),
+          eq(generatedContents.organizationId, organizationId),
+          ne(generatedContents.status, "regenerating"),
+          isNull(generatedContents.deletedAt),
+        ),
+      )
+      .returning({ id: generatedContents.id });
+
+    return updated.length > 0;
   }
 }
 

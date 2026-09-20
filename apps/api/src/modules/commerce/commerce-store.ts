@@ -9,7 +9,7 @@
  * - user_entitlements
  */
 
-import { eq, and, desc, isNull, or, gt } from "drizzle-orm";
+import { eq, and, desc, isNull, or, gt, ilike } from "drizzle-orm";
 import type { DbClient } from "@avana/database/client";
 import {
   products,
@@ -75,6 +75,7 @@ export interface CommerceStore {
   findPaymentByAuthority(authority: string): Promise<PaymentRecord | null>;
   findPaymentByIdempotencyKey(key: string): Promise<PaymentRecord | null>;
   findPaymentByTrackingNumber(trackingNumber: string): Promise<PaymentRecord | null>;
+  findPaymentByReceiptUrl(receiptUrl: string): Promise<PaymentRecord | null>;
   findPendingCardToCardPaymentByUser(userId: UserId): Promise<PaymentRecord | null>;
   findDuplicateCardToCardPayment(params: {
     trackingNumber: string;
@@ -133,13 +134,15 @@ export interface CommerceStore {
     order: OrderRecord;
     payment: PaymentRecord;
     subscription?: UserSubscriptionRecord;
-    entitlement: UserEntitlementRecord;
+    entitlement?: UserEntitlementRecord;
   }): Promise<{
     order: OrderRecord;
     payment: PaymentRecord;
     subscription?: UserSubscriptionRecord;
-    entitlement: UserEntitlementRecord;
+    entitlement?: UserEntitlementRecord;
   }>;
+
+  listWalletTopupRequestsByUser(userId: UserId): Promise<PaymentRecord[]>;
 }
 
 // ---------------------------------------------------------------------------
@@ -362,6 +365,22 @@ export class DrizzleCommerceStore implements CommerceStore {
       .select()
       .from(payments)
       .where(eq(payments.trackingNumber, trackingNumber))
+      .limit(1);
+    return rows[0] ? this.mapPayment(rows[0]) : null;
+  }
+
+  async findPaymentByReceiptUrl(
+    receiptUrl: string,
+  ): Promise<PaymentRecord | null> {
+    const rows = await this.db
+      .select()
+      .from(payments)
+      .where(
+        or(
+          eq(payments.receiptUrl, receiptUrl),
+          ilike(payments.receiptUrl, `%${receiptUrl}%`),
+        ),
+      )
       .limit(1);
     return rows[0] ? this.mapPayment(rows[0]) : null;
   }
@@ -732,12 +751,12 @@ export class DrizzleCommerceStore implements CommerceStore {
     order: OrderRecord;
     payment: PaymentRecord;
     subscription?: UserSubscriptionRecord;
-    entitlement: UserEntitlementRecord;
+    entitlement?: UserEntitlementRecord;
   }): Promise<{
     order: OrderRecord;
     payment: PaymentRecord;
     subscription?: UserSubscriptionRecord;
-    entitlement: UserEntitlementRecord;
+    entitlement?: UserEntitlementRecord;
   }> {
     return this.db.transaction(async (tx) => {
       // 1. Insert Order
@@ -810,43 +829,47 @@ export class DrizzleCommerceStore implements CommerceStore {
         }
       }
 
-      // 4. Grant Entitlement
-      const ent = params.entitlement;
-      const [createdEnt] = await tx
-        .insert(userEntitlements)
-        .values({
-          id: ent.id,
-          userId: ent.userId,
-          resourceType: ent.resourceType,
-          resourceId: ent.resourceId,
-          sourceType: ent.sourceType,
-          orderId: ent.orderId,
-          startsAt: new Date(ent.startsAt),
-          expiresAt: ent.expiresAt ? new Date(ent.expiresAt) : null,
-          createdAt: new Date(ent.createdAt),
-          updatedAt: new Date(ent.updatedAt),
-        })
-        .onConflictDoNothing()
-        .returning();
+      // 4. Grant Entitlement if provided
+      let finalEnt: UserEntitlementRecord | undefined;
+      if (params.entitlement) {
+        const ent = params.entitlement;
+        const [createdEnt] = await tx
+          .insert(userEntitlements)
+          .values({
+            id: ent.id,
+            userId: ent.userId,
+            resourceType: ent.resourceType,
+            resourceId: ent.resourceId,
+            sourceType: ent.sourceType,
+            orderId: ent.orderId,
+            startsAt: new Date(ent.startsAt),
+            expiresAt: ent.expiresAt ? new Date(ent.expiresAt) : null,
+            createdAt: new Date(ent.createdAt),
+            updatedAt: new Date(ent.updatedAt),
+          })
+          .onConflictDoNothing()
+          .returning();
 
-      let finalEnt: UserEntitlementRecord;
-      if (createdEnt) {
-        finalEnt = this.mapEntitlement(createdEnt);
-      } else {
-        const existingRows = await tx
-          .select()
-          .from(userEntitlements)
-          .where(
-            and(
-              eq(userEntitlements.userId, ent.userId),
-              eq(userEntitlements.resourceType, ent.resourceType),
-              ent.resourceId
-                ? eq(userEntitlements.resourceId, ent.resourceId)
-                : isNull(userEntitlements.resourceId),
-            ),
-          )
-          .limit(1);
-        finalEnt = this.mapEntitlement(existingRows[0]);
+        if (createdEnt) {
+          finalEnt = this.mapEntitlement(createdEnt);
+        } else {
+          const existingRows = await tx
+            .select()
+            .from(userEntitlements)
+            .where(
+              and(
+                eq(userEntitlements.userId, ent.userId),
+                eq(userEntitlements.resourceType, ent.resourceType),
+                ent.resourceId
+                  ? eq(userEntitlements.resourceId, ent.resourceId)
+                  : isNull(userEntitlements.resourceId),
+              ),
+            )
+            .limit(1);
+          if (existingRows[0]) {
+            finalEnt = this.mapEntitlement(existingRows[0]);
+          }
+        }
       }
 
       return {
@@ -856,6 +879,25 @@ export class DrizzleCommerceStore implements CommerceStore {
         entitlement: finalEnt,
       };
     });
+  }
+
+  async listWalletTopupRequestsByUser(userId: UserId): Promise<PaymentRecord[]> {
+    const rows = await this.db
+      .select({
+        payment: payments,
+      })
+      .from(payments)
+      .innerJoin(orders, eq(payments.orderId, orders.id))
+      .innerJoin(products, eq(orders.productId, products.id))
+      .where(
+        and(
+          eq(payments.userId, userId),
+          eq(products.type, "wallet_topup"),
+        ),
+      )
+      .orderBy(desc(payments.createdAt));
+
+    return rows.map((r) => this.mapPayment(r.payment));
   }
 
   // --- Mappers ---
@@ -909,7 +951,10 @@ export class DrizzleCommerceStore implements CommerceStore {
       idempotencyKey: row.idempotencyKey,
       rawCallbackMetadata:
         (row.rawCallbackMetadata as Record<string, unknown>) ?? null,
-      paidAt: row.paidAt ? row.paidAt.toISOString() : null,
+      paidAt:
+        row.paidAt && !isNaN(row.paidAt.getTime())
+          ? row.paidAt.toISOString()
+          : null,
       trackingNumber: row.trackingNumber ?? null,
       sourceCardLast4: row.sourceCardLast4 ?? null,
       payerName: row.payerName ?? null,
@@ -917,10 +962,19 @@ export class DrizzleCommerceStore implements CommerceStore {
       initialValidationResult:
         (row.initialValidationResult as Record<string, unknown>) ?? null,
       rejectionReason: row.rejectionReason ?? null,
-      reviewedAt: row.reviewedAt ? row.reviewedAt.toISOString() : null,
+      reviewedAt:
+        row.reviewedAt && !isNaN(row.reviewedAt.getTime())
+          ? row.reviewedAt.toISOString()
+          : null,
       reviewedBy: row.reviewedBy ?? null,
-      createdAt: row.createdAt.toISOString(),
-      updatedAt: row.updatedAt.toISOString(),
+      createdAt:
+        row.createdAt && !isNaN(row.createdAt.getTime())
+          ? row.createdAt.toISOString()
+          : new Date().toISOString(),
+      updatedAt:
+        row.updatedAt && !isNaN(row.updatedAt.getTime())
+          ? row.updatedAt.toISOString()
+          : new Date().toISOString(),
     };
   }
 
@@ -1019,6 +1073,23 @@ export class InMemoryCommerceStore implements CommerceStore {
         durationDays: 365,
         active: true,
         metadata: {},
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      },
+      {
+        id: asProductId("44444444-4444-4444-8444-444444444444" as any),
+        code: "wallet_topup",
+        type: "wallet_topup",
+        title: "شارژ کیف پول",
+        description: "افزایش موجودی و اعتبار کیف پول جهت استفاده از خدمات و تولید محتوای هوشمند",
+        price: 0,
+        currency: "toman",
+        targetType: "wallet",
+        targetId: null,
+        durationDays: null,
+        active: true,
+        metadata: { isDynamicPrice: true },
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         deletedAt: null,
@@ -1154,6 +1225,20 @@ export class InMemoryCommerceStore implements CommerceStore {
     trackingNumber: string,
   ): Promise<PaymentRecord | null> {
     const p = this.payments.find((x) => x.trackingNumber === trackingNumber);
+    return p ? { ...p } : null;
+  }
+
+  async findPaymentByReceiptUrl(
+    receiptUrl: string,
+  ): Promise<PaymentRecord | null> {
+    const p = this.payments.find(
+      (x) =>
+        x.receiptUrl &&
+        (x.receiptUrl === receiptUrl ||
+          x.receiptUrl.includes(receiptUrl) ||
+          decodeURIComponent(x.receiptUrl).includes(receiptUrl) ||
+          x.receiptUrl.includes(encodeURIComponent(receiptUrl))),
+    );
     return p ? { ...p } : null;
   }
 
@@ -1330,19 +1415,21 @@ export class InMemoryCommerceStore implements CommerceStore {
     order: OrderRecord;
     payment: PaymentRecord;
     subscription?: UserSubscriptionRecord;
-    entitlement: UserEntitlementRecord;
+    entitlement?: UserEntitlementRecord;
   }): Promise<{
     order: OrderRecord;
     payment: PaymentRecord;
     subscription?: UserSubscriptionRecord;
-    entitlement: UserEntitlementRecord;
+    entitlement?: UserEntitlementRecord;
   }> {
     const order = await this.createOrder(params.order);
     const payment = await this.createPayment(params.payment);
     const subscription = params.subscription
       ? await this.createSubscription(params.subscription)
       : undefined;
-    const entitlement = await this.grantEntitlement(params.entitlement);
+    const entitlement = params.entitlement
+      ? await this.grantEntitlement(params.entitlement)
+      : undefined;
 
     return {
       order,
@@ -1350,5 +1437,27 @@ export class InMemoryCommerceStore implements CommerceStore {
       subscription,
       entitlement,
     };
+  }
+
+  async listWalletTopupRequestsByUser(userId: UserId): Promise<PaymentRecord[]> {
+    const topupOrderIds = new Set(
+      this.orders
+        .filter((o) => {
+          if (o.userId !== userId) return false;
+          const prod = this.products.find((p) => p.id === o.productId);
+          return (
+            prod?.type === "wallet_topup" ||
+            (o.metadata as any)?.type === "wallet_topup"
+          );
+        })
+        .map((o) => o.id),
+    );
+
+    return this.payments
+      .filter((p) => p.userId === userId && topupOrderIds.has(p.orderId))
+      .sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      );
   }
 }

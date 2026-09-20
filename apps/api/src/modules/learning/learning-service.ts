@@ -32,6 +32,7 @@ import type {
   ProgressStore,
   LessonRecord,
   LessonProgressRecord,
+  SubCourseGroupStore,
 } from "./learning-store.js";
 import type { AuditService } from "../../observability/audit-service.js";
 import type { EntitlementService } from "../commerce/entitlement-service.js";
@@ -50,17 +51,26 @@ export type CourseLearnResponse = {
   request_id: string;
   course: {
     id: string;
+    organization_id?: string;
     title: string;
     subject: string | null;
     exam_at: string | null;
     locked?: boolean;
     access_reason?: string;
+    isOfficial?: boolean;
+    is_official?: boolean;
   };
+  groups?: Array<{
+    id: string;
+    title: string;
+    sort_order: number;
+  }>;
   modules: Array<{
     id: string;
     title: string;
     description: string | null;
     sort_order: number;
+    sub_course_group_id?: string | null;
     lessons: Array<{
       id: string;
       module_id: string;
@@ -92,6 +102,7 @@ export type CourseLearnResponse = {
   };
   preview?: {
     preview_lesson_id: string | null;
+    preview_document_id?: string | null;
     preview_flashcard_limit: number;
     preview_quiz_limit: number;
   };
@@ -128,6 +139,7 @@ export class LearningService {
     private readonly auditService?: AuditService,
     private readonly systemOrganizationId?: OrganizationId,
     private readonly entitlementService?: EntitlementService,
+    private readonly subCourseGroupStore?: SubCourseGroupStore,
   ) {}
 
   /**
@@ -294,6 +306,10 @@ export class LearningService {
       (a, b) => a.sortOrder - b.sortOrder,
     );
 
+    const activeGroups = this.subCourseGroupStore
+      ? await this.subCourseGroupStore.listByCourse(courseId)
+      : [];
+
     const moduleResources = await Promise.all(
       orderedModules.map(async (mod) => {
         const moduleLessons = lessonsByModuleId.get(mod.id) ?? [];
@@ -365,10 +381,13 @@ export class LearningService {
           description: mod.description,
           document_id: (mod as any).documentId ?? null,
           sort_order: mod.sortOrder,
+          sub_course_group_id: mod.subCourseGroupId ?? null,
           lessons: lessonResources,
         };
       }),
     );
+
+    const isOfficialCourse = course.isOfficial === true || isSystemCourse;
 
     return {
       request_id: requestId,
@@ -380,7 +399,14 @@ export class LearningService {
         exam_at: course.examDate,
         locked: isCourseLocked,
         access_reason: isCourseLocked ? "locked" : (accessResult?.reason ?? "free"),
+        isOfficial: isOfficialCourse,
+        is_official: isOfficialCourse,
       } as any,
+      groups: activeGroups.map((g) => ({
+        id: g.id,
+        title: g.title,
+        sort_order: g.sortOrder,
+      })),
       modules: moduleResources,
       progress: {
         total_lessons: totalLessons,
@@ -395,6 +421,12 @@ export class LearningService {
           moduleResources
             .flatMap((m) => m.lessons)
             .find((l) => l.is_preview)?.id ?? null,
+        preview_document_id:
+          (this.entitlementService
+            ? await this.entitlementService.getPreviewResolver().resolveCoursePreviewDocument(courseId)
+            : undefined) ??
+          moduleResources.find((m) => Boolean((m as any).document_id || (m as any).documentId))?.document_id ??
+          null,
         preview_flashcard_limit: 5,
         preview_quiz_limit: 5,
       },

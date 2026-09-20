@@ -11,9 +11,10 @@ import {
   ShieldCheck,
   Loader2,
   ArrowLeft,
+  Wallet,
 } from "lucide-react";
 import { Badge, Button } from "@avana/ui";
-import type { NotificationItem, NotificationType } from "@avana/domain";
+import { type NotificationItem, type NotificationType, toPersianDigits } from "@avana/domain";
 import {
   useNotifications,
   useUnreadNotificationCount,
@@ -29,11 +30,11 @@ function formatRelativeTime(dateString: string): string {
 
     if (diffSec < 60) return "همین الان";
     const diffMin = Math.floor(diffSec / 60);
-    if (diffMin < 60) return `${diffMin} دقیقه پیش`;
+    if (diffMin < 60) return `${toPersianDigits(diffMin)} دقیقه پیش`;
     const diffHour = Math.floor(diffMin / 60);
-    if (diffHour < 24) return `${diffHour} ساعت پیش`;
+    if (diffHour < 24) return `${toPersianDigits(diffHour)} ساعت پیش`;
     const diffDay = Math.floor(diffHour / 24);
-    if (diffDay < 7) return `${diffDay} روز پیش`;
+    if (diffDay < 7) return `${toPersianDigits(diffDay)} روز پیش`;
     return date.toLocaleDateString("fa-IR", {
       month: "short",
       day: "numeric",
@@ -49,6 +50,18 @@ function getNotificationIcon(type: NotificationType) {
       return (
         <div className="w-8 h-8 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
           <ShoppingBag className="w-4 h-4" />
+        </div>
+      );
+    case "wallet_topup_approved":
+      return (
+        <div className="w-8 h-8 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+          <Wallet className="w-4 h-4" />
+        </div>
+      );
+    case "wallet_topup_rejected":
+      return (
+        <div className="w-8 h-8 rounded-full bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
+          <Wallet className="w-4 h-4" />
         </div>
       );
     case "generation_completed":
@@ -161,7 +174,7 @@ export function NotificationDropdown() {
         <Bell className="w-5 h-5" />
         {unreadCount > 0 && (
           <span className="absolute top-1 right-1 flex h-4 min-w-[16px] px-1 items-center justify-center rounded-full bg-[#008080] text-[10px] font-bold text-white shadow-sm ring-2 ring-[var(--color-surface)]">
-            {unreadCount > 99 ? "+۹۹" : unreadCount}
+            {unreadCount > 99 ? "+۹۹" : toPersianDigits(unreadCount)}
           </span>
         )}
       </button>
@@ -170,17 +183,18 @@ export function NotificationDropdown() {
       {isOpen && (
         <div
           className="absolute left-0 sm:left-auto sm:right-0 mt-2 w-[340px] sm:w-[380px] max-w-[calc(100vw-24px)] rounded-2xl bg-[var(--color-surface)] border border-[var(--color-border)] shadow-xl z-50 overflow-hidden flex flex-col transition-all animate-in fade-in zoom-in-95 duration-150"
-          dir="rtl"
+          role="dialog"
+          aria-label="اعلانات"
         >
           {/* Header */}
-          <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--color-border)] bg-[var(--color-surface)]">
+          <div className="p-4 border-b border-[var(--color-border)] flex items-center justify-between bg-[var(--color-surface)]">
             <div className="flex items-center gap-2">
               <span className="font-bold text-sm text-[var(--color-text)]">
                 اعلانات
               </span>
               {unreadCount > 0 && (
                 <Badge variant="primary" size="sm">
-                  {unreadCount} جدید
+                  {toPersianDigits(unreadCount)} جدید
                 </Badge>
               )}
             </div>

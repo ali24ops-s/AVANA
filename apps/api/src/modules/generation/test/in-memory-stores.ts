@@ -202,6 +202,24 @@ export class InMemoryGeneratedContentStore implements GeneratedContentStore {
       }
     }
   }
+
+  async markRegenerating(
+    id: GeneratedContentId,
+    organizationId: OrganizationId,
+  ): Promise<boolean> {
+    const record = this.contents.get(id);
+    if (
+      !record ||
+      record.organizationId !== organizationId ||
+      record.deletedAt !== null ||
+      record.status === "regenerating"
+    ) {
+      return false;
+    }
+    record.status = "regenerating";
+    record.updatedAt = new Date().toISOString();
+    return true;
+  }
 }
 
 export class InMemoryGeneratedContentCitationStore implements GeneratedContentCitationStore {

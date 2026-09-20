@@ -19,7 +19,9 @@ export type DomainErrorCode =
   | "DEVICE_LIMIT_REACHED"
   | "UNAUTHORIZED"
   | "SUBSCRIPTION_REQUIRED"
-  | "SUBSCRIPTION_NOT_ACTIVE";
+  | "SUBSCRIPTION_NOT_ACTIVE"
+  | "INSUFFICIENT_FUNDS"
+  | "insufficient_balance";
 
 export interface DomainErrorDetails {
   [key: string]: string | number | boolean | null | undefined;

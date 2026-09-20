@@ -17,6 +17,7 @@ import {
   type AdminImportExecutionResult,
 } from "../../../lib/api/admin";
 import { Radio } from "@avana/ui";
+import { toPersianDigits } from "@avana/domain";
 
 interface ContentImportModalProps {
   isOpen: boolean;
@@ -111,13 +112,13 @@ export function ContentImportModal({ isOpen, onClose, onSuccess }: ContentImport
       <tr key={i} className="border-b border-[var(--color-border)]/60 text-sm">
         <td className="py-2.5 px-3 text-[var(--color-text)] font-medium">{r.label}</td>
         <td className="py-2.5 px-3 text-emerald-600 dark:text-emerald-400 font-semibold text-center">
-          {r.stats.new > 0 ? `+${r.stats.new}` : "۰"}
+          {r.stats.new > 0 ? `+${toPersianDigits(r.stats.new)}` : "۰"}
         </td>
         <td className="py-2.5 px-3 text-[var(--color-text-muted)] text-center">
-          {r.stats.existing > 0 ? r.stats.existing : "۰"}
+          {r.stats.existing > 0 ? toPersianDigits(r.stats.existing) : "۰"}
         </td>
         <td className="py-2.5 px-3 text-amber-600 dark:text-amber-400 font-semibold text-center">
-          {r.stats.conflict > 0 ? r.stats.conflict : "۰"}
+          {r.stats.conflict > 0 ? toPersianDigits(r.stats.conflict) : "۰"}
         </td>
       </tr>
     ));
@@ -180,7 +181,7 @@ export function ContentImportModal({ isOpen, onClose, onSuccess }: ContentImport
                   </p>
                   <p className="text-xs text-[var(--color-text-muted)] mt-1">
                     {selectedFile
-                      ? `حجم فایل: ${(selectedFile.size / (1024 * 1024)).toFixed(2)} مگابایت`
+                      ? `حجم فایل: ${toPersianDigits((selectedFile.size / (1024 * 1024)).toFixed(2))} مگابایت`
                       : "حداکثر حجم مجاز: ۵۰ مگابایت"}
                   </p>
                 </div>
@@ -206,7 +207,7 @@ export function ContentImportModal({ isOpen, onClose, onSuccess }: ContentImport
                   <CheckCircle2 className="w-5 h-5 flex-shrink-0" />
                   <span>بسته معتبر است و ساختار اطلاعات بررسی گردید.</span>
                 </div>
-                <span className="text-xs opacity-80">فرمت نسخه {plan.formatVersion}</span>
+                <span className="text-xs opacity-80">فرمت نسخه {toPersianDigits(plan.formatVersion)}</span>
               </div>
 
               {/* Table breakdown */}
@@ -229,7 +230,7 @@ export function ContentImportModal({ isOpen, onClose, onSuccess }: ContentImport
                 <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 space-y-2">
                   <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400 font-semibold text-sm">
                     <AlertTriangle className="w-4 h-4" />
-                    <span>تعداد {plan.conflicts.length} مورد تداخل محتوایی تشخیص داده شد:</span>
+                    <span>تعداد {toPersianDigits(plan.conflicts.length)} مورد تداخل محتوایی تشخیص داده شد:</span>
                   </div>
                   <ul className="list-disc list-inside text-xs text-amber-800 dark:text-amber-300/80 space-y-1 ps-2">
                     {plan.conflicts.slice(0, 5).map((c, idx) => (
@@ -238,7 +239,7 @@ export function ContentImportModal({ isOpen, onClose, onSuccess }: ContentImport
                       </li>
                     ))}
                     {plan.conflicts.length > 5 && (
-                      <li>و {plan.conflicts.length - 5} مورد تداخل دیگر...</li>
+                      <li>و {toPersianDigits(plan.conflicts.length - 5)} مورد تداخل دیگر...</li>
                     )}
                   </ul>
                   <div className="pt-2 border-t border-amber-500/20 flex items-center gap-4 text-xs text-[var(--color-text)]">
@@ -280,13 +281,13 @@ export function ContentImportModal({ isOpen, onClose, onSuccess }: ContentImport
                 <div>
                   <div className="text-[var(--color-text-muted)] text-xs">رکوردهای جدید ایجادشده:</div>
                   <div className="text-lg font-bold text-emerald-600 dark:text-emerald-400 mt-0.5">
-                    {result.counts.created}
+                    {toPersianDigits(result.counts.created)}
                   </div>
                 </div>
                 <div>
                   <div className="text-[var(--color-text-muted)] text-xs">موارد موجود (صرف‌نظر شده):</div>
                   <div className="text-lg font-bold text-[var(--color-text)] mt-0.5">
-                    {result.counts.skipped}
+                    {toPersianDigits(result.counts.skipped)}
                   </div>
                 </div>
               </div>

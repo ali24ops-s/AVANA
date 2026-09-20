@@ -421,4 +421,82 @@ describe("Active Presence Exam Timer & Persistence", () => {
     });
     expect(handleSubmitSuccess).toHaveBeenCalled();
   });
+
+  it("Invariant: leave exam != submit exam (navigating away / unmounting never submits)", () => {
+    const attemptId = "att-invariant-leave-not-submit";
+    const handleExit = vi.fn();
+    const handleSubmitSuccess = vi.fn();
+
+    const { unmount } = render(
+      <ExamTakingView
+        organizationId="test-org"
+        attemptId={attemptId}
+        questions={mockQuestions}
+        timeLimitMinutes={30}
+        onExit={handleExit}
+        onSubmitSuccess={handleSubmitSuccess}
+      />
+    );
+
+    // User spends 5 minutes inside exam
+    act(() => {
+      vi.advanceTimersByTime(5 * 60 * 1000);
+    });
+    expect(screen.getByText("25:00")).toBeDefined();
+
+    // User clicks exit / unmounts
+    const exitBtn = screen.getByTitle("خروج از آزمون");
+    fireEvent.click(exitBtn);
+    unmount();
+
+    // Invariant: handleSubmitSuccess was NOT called
+    expect(handleSubmitSuccess).not.toHaveBeenCalled();
+    expect(handleExit).toHaveBeenCalledTimes(1);
+    expect(window.localStorage.getItem(`avana_exam_elapsed_${attemptId}`)).toBe("300");
+  });
+
+  it("Invariant: time spent outside exam != elapsed exam time (wall clock pause)", () => {
+    const attemptId = "att-invariant-time-outside";
+    const handleExit = vi.fn();
+    const handleSubmitSuccess = vi.fn();
+
+    // 1. Enter exam and spend 100s
+    const { unmount } = render(
+      <ExamTakingView
+        organizationId="test-org"
+        attemptId={attemptId}
+        questions={mockQuestions}
+        onExit={handleExit}
+        onSubmitSuccess={handleSubmitSuccess}
+      />
+    );
+
+    act(() => {
+      vi.advanceTimersByTime(100 * 1000);
+    });
+    expect(screen.getByText("01:40")).toBeDefined();
+
+    // 2. Unmount / leave exam
+    unmount();
+
+    // 3. 5 hours pass in real world while user is away
+    act(() => {
+      vi.advanceTimersByTime(5 * 3600 * 1000);
+    });
+
+    // 4. User resumes exam
+    render(
+      <ExamTakingView
+        organizationId="test-org"
+        attemptId={attemptId}
+        questions={mockQuestions}
+        onExit={handleExit}
+        onSubmitSuccess={handleSubmitSuccess}
+      />
+    );
+
+    // Invariant: Timer is still at 01:40, NOT 5 hours + 100s!
+    expect(screen.getByText("01:40")).toBeDefined();
+    expect(handleSubmitSuccess).not.toHaveBeenCalled();
+  });
 });

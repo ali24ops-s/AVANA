@@ -18,6 +18,7 @@ import {
   getPaymentStatusBadge,
   getSourceTypeBadge,
 } from "./commerceUtils.js";
+import { toPersianDigits } from "@avana/domain";
 import { AdminGrantModal } from "./AdminGrantModal.js";
 import { AdminCancelSubscriptionModal } from "./AdminCancelSubscriptionModal.js";
 
@@ -169,7 +170,7 @@ export function UserCommerceDrawer({ isOpen, userId, onClose }: UserCommerceDraw
                     <div className="flex items-center justify-between mb-3">
                       <span className="text-xs font-semibold text-[var(--color-text-muted)] uppercase tracking-wider flex items-center gap-1.5">
                         <InfinityIcon className="w-4 h-4 text-[var(--color-primary-default)]" />
-                        خریدهای دائمی / مادام‌العمر ({profile.lifetimePurchases.length})
+                        خریدهای دائمی / مادام‌العمر ({toPersianDigits(profile.lifetimePurchases.length)})
                       </span>
                     </div>
 
@@ -212,7 +213,7 @@ export function UserCommerceDrawer({ isOpen, userId, onClose }: UserCommerceDraw
                     <div className="flex items-center justify-between mb-3">
                       <span className="text-xs font-semibold text-[var(--color-text-muted)] uppercase tracking-wider flex items-center gap-1.5">
                         <Receipt className="w-4 h-4 text-[var(--color-primary-default)]" />
-                        سفارش‌ها ({profile.orders.length})
+                        سفارش‌ها ({toPersianDigits(profile.orders.length)})
                       </span>
                     </div>
 
@@ -236,7 +237,7 @@ export function UserCommerceDrawer({ isOpen, userId, onClose }: UserCommerceDraw
                                 </span>
                               </div>
                               <div className="flex items-center justify-between text-[var(--color-text-muted)]">
-                                <span>شماره سفارش: {o.orderNumber}</span>
+                                <span>شماره سفارش: {toPersianDigits(o.orderNumber)}</span>
                                 <span className="font-bold text-[var(--color-primary-default)]">{formatToman(o.amount)}</span>
                               </div>
                               <div className="text-[11px] text-[var(--color-text-muted)]">
@@ -254,7 +255,7 @@ export function UserCommerceDrawer({ isOpen, userId, onClose }: UserCommerceDraw
                     <div className="flex items-center justify-between mb-3">
                       <span className="text-xs font-semibold text-[var(--color-text-muted)] uppercase tracking-wider flex items-center gap-1.5">
                         <CreditCard className="w-4 h-4 text-[var(--color-primary-default)]" />
-                        تراکنش‌های درگاه پرداخت ({profile.payments.length})
+                        تراکنش‌های درگاه پرداخت ({toPersianDigits(profile.payments.length)})
                       </span>
                     </div>
 

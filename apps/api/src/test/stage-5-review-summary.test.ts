@@ -80,9 +80,21 @@ import {
 import {
   InMemoryDocumentStore,
   InMemoryDocumentChunkStore,
+  InMemoryModuleStore,
+  InMemoryLessonStore,
 } from "../modules/learning/test/in-memory-stores.js";
+import {
+  InMemoryFlashcardStore,
+  InMemoryQuizStore,
+  InMemoryQuizQuestionStore,
+} from "../modules/study/test/in-memory-stores.js";
 import { InMemoryAuditStore } from "../observability/test/in-memory-stores.js";
 import { AuditService } from "../observability/audit-service.js";
+import { GenerationContentStatusService } from "../modules/generation/services/generation-content-status-service.js";
+import { GenerationQueryService } from "../modules/generation/services/generation-query-service.js";
+import { InMemoryGenerationChunkStore } from "../modules/generation/generation-chunk-store.js";
+import { GenerationProgressService } from "../modules/generation/generation-progress-service.js";
+import { InMemoryGenerationProgressStore } from "../modules/generation/generation-progress-store.js";
 import type { DocumentRecord, DocumentChunkRecord } from "../modules/learning/learning-store.js";
 
 function makeDoc(id: DocumentId, orgId: OrganizationId, courseId: CourseId): DocumentRecord {
@@ -2010,6 +2022,267 @@ describe("Stage 5: High-Density Review Summary Regression Tests", () => {
         expect(activeLessons.length).toBe(1);
         expect((activeLessons[0].payload as LessonPayload).citationChunkIds).toContain("chunk-b-1");
       });
+    });
+  });
+
+  describe("Summary Regeneration Flow and State Consistency", () => {
+    async function setupFullPipelineFixture() {
+      const docId = randomUUID() as DocumentId;
+      const docStore = new InMemoryDocumentStore();
+      const chunkStore = new InMemoryDocumentChunkStore();
+      const genStore = new InMemoryGeneratedContentStore();
+      const citStore = new InMemoryGeneratedContentCitationStore();
+      const moduleStore = new InMemoryModuleStore();
+      const lessonStore = new InMemoryLessonStore();
+      const flashcardStore = new InMemoryFlashcardStore();
+      const quizStore = new InMemoryQuizStore();
+      const quizQuestionStore = new InMemoryQuizQuestionStore();
+      const jobStore = new InMemoryGenerationJobStore();
+      const queue = new InMemoryGenerationQueue(jobStore);
+      const auditStore = new InMemoryAuditStore();
+      const auditService = new AuditService(auditStore);
+      const spyGateway = new SpyModelGateway();
+
+      await docStore.create(makeDoc(docId, orgId, courseId));
+      const chunks = makeChunks(docId, orgId, 3);
+      for (const chunk of chunks) {
+        await chunkStore.create(chunk);
+      }
+
+      const genService = new GenerationService(
+        genStore,
+        citStore,
+        spyGateway,
+        docStore,
+        chunkStore,
+        new RoleBasedPolicy(),
+        auditService,
+      );
+
+      const reviewService = new ReviewService(
+        genStore,
+        citStore,
+        docStore,
+        chunkStore,
+        moduleStore,
+        lessonStore,
+        new RoleBasedPolicy(),
+        queue,
+        auditService,
+        flashcardStore,
+        quizStore,
+        quizQuestionStore,
+      );
+
+      const progressService = new GenerationProgressService(new InMemoryGenerationProgressStore());
+      const queryService = new GenerationQueryService(docStore, new InMemoryGenerationChunkStore(), progressService);
+      const statusService = new GenerationContentStatusService(
+        docStore,
+        genStore,
+        progressService,
+        queryService,
+        undefined,
+        moduleStore,
+        lessonStore,
+        flashcardStore,
+        quizStore,
+        quizQuestionStore,
+      );
+
+      return {
+        docId,
+        docStore,
+        chunkStore,
+        genStore,
+        citStore,
+        jobStore,
+        moduleStore,
+        lessonStore,
+        flashcardStore,
+        quizStore,
+        quizQuestionStore,
+        spyGateway,
+        genService,
+        reviewService,
+        statusService,
+      };
+    }
+
+    it("Lifecycle Test: End-to-end regenerate flow maintains review queue visibility, accurate document status, and deduplication", async () => {
+      const { docId, genStore, genService, reviewService, statusService } =
+        await setupFullPipelineFixture();
+
+      // 1. Generate lesson, flashcard, quiz, review_summary
+      await genService.generateForDocument(actor, orgId, docId, {
+        types: ["lesson", "flashcard", "quiz", "review_summary"],
+      });
+
+      // 2. Initial state: all 4 types generated in draft
+      let initialStatus = await statusService.getDocumentContentStatus(actor, orgId, docId);
+      expect(initialStatus.lesson.generated).toBe(true);
+      expect(initialStatus.flashcards.generated).toBe(true);
+      expect(initialStatus.exam.generated).toBe(true);
+      expect(initialStatus.review_summary.generated).toBe(true);
+      expect(initialStatus.all_generated).toBe(true);
+      expect(initialStatus.can_generate).toBe(false);
+
+      // Find the summary record
+      const allDocs = await genStore.listByDocument(docId, orgId);
+      const initialSummary = allDocs.find((c) => c.type === "review_summary" && c.deletedAt === null);
+      expect(initialSummary).toBeDefined();
+
+      // 3. User initiates regeneration via ReviewService
+      const regenResult = await reviewService.regenerateContent(actor, orgId, initialSummary!.id);
+      expect(regenResult.status).toBe("regenerating");
+
+      // 4. Verify Document Content Status during regeneration:
+      // review_summary.generated must be false, all_generated must NOT be true, can_generate must be false
+      const regeneratingStatus = await statusService.getDocumentContentStatus(actor, orgId, docId);
+      expect(regeneratingStatus.review_summary.generated).toBe(false);
+      expect(regeneratingStatus.review_summary.accepted).toBe(false);
+      expect(regeneratingStatus.all_generated).toBe(false);
+      expect(regeneratingStatus.can_generate).toBe(false);
+
+      // 5. Verify Review Queue during regeneration:
+      // Summary MUST be present in review queue with status "regenerating"
+      const queueResult = await reviewService.reviewQueue(actor, orgId, courseId, "req-regen-queue");
+      const summaryInQueue = queueResult.pending.find((item) => item.id === initialSummary!.id);
+      expect(summaryInQueue).toBeDefined();
+      expect(summaryInQueue?.status).toBe("regenerating");
+      expect(summaryInQueue?.type).toBe("review_summary");
+
+      // 6. Complete regeneration directly (as the worker would do)
+      const newSummaryRecord = await genService.generateReviewSummaryDirect(actor, orgId, docId, { force: true });
+      expect(newSummaryRecord.status).toBe("draft");
+      expect(newSummaryRecord.type).toBe("review_summary");
+
+      // 7. Verify status after regeneration completion:
+      const completedStatus = await statusService.getDocumentContentStatus(actor, orgId, docId);
+      expect(completedStatus.review_summary.generated).toBe(true);
+      expect(completedStatus.all_generated).toBe(true);
+
+      // 8. Accept the new summary and verify prior active summaries are soft-deleted
+      await reviewService.acceptContent(actor, orgId, newSummaryRecord.id);
+
+      const oldSummaryRecord = await genStore.findByIdForOrganization(initialSummary!.id, orgId);
+      expect(oldSummaryRecord?.deletedAt).not.toBeNull();
+
+      const acceptedNewRecord = await genStore.findByIdForOrganization(newSummaryRecord.id, orgId);
+      expect(acceptedNewRecord?.status).toBe("accepted");
+      expect(acceptedNewRecord?.deletedAt).toBeNull();
+    });
+
+    it("Rollback Test: Failed direct generation restores unaccepted regenerating summary to draft", async () => {
+      const { docId, genStore, genService } = await setupFullPipelineFixture();
+
+      // Seed prerequisite lesson
+      await genService.generateForDocument(actor, orgId, docId, {
+        types: ["lesson"],
+      });
+
+      // Seed an unaccepted summary in 'regenerating' status
+      const existingSummary = await genStore.create({
+        id: randomUUID() as GeneratedContentId,
+        organizationId: orgId,
+        documentId: docId,
+        courseId,
+        type: "review_summary",
+        status: "regenerating",
+        payload: { kind: "review_summary", title: "Existing Summary" } as any,
+        confidenceScore: 0.9,
+        reviewNotes: null,
+        reviewedByUserId: null,
+        reviewedAt: null,
+        deletedAt: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+
+      // Force failure in model gateway
+      const failingGateway = {
+        async complete(): Promise<never> {
+          throw new Error("Simulated model API failure");
+        },
+      };
+      (genService as any).gateway = failingGateway;
+
+      await expect(
+        genService.generateReviewSummaryDirect(actor, orgId, docId, { force: true }),
+      ).rejects.toThrow("Simulated model API failure");
+
+      // Verify the existing unaccepted summary was rolled back to 'draft'
+      const restoredSummary = await genStore.findByIdForOrganization(existingSummary.id, orgId);
+      expect(restoredSummary?.status).toBe("draft");
+    });
+
+    it("Conflict Test: Double regeneration attempt throws conflict error", async () => {
+      const { docId, genStore, reviewService } = await setupFullPipelineFixture();
+
+      const regeneratingSummary = await genStore.create({
+        id: randomUUID() as GeneratedContentId,
+        organizationId: orgId,
+        documentId: docId,
+        courseId,
+        type: "review_summary",
+        status: "regenerating",
+        payload: { kind: "review_summary", title: "Already Regenerating" } as any,
+        confidenceScore: 0.9,
+        reviewNotes: null,
+        reviewedByUserId: null,
+        reviewedAt: null,
+        deletedAt: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+
+      await expect(
+        reviewService.regenerateContent(actor, orgId, regeneratingSummary.id),
+      ).rejects.toMatchObject({ code: "conflict" });
+    });
+
+    it("Retrieval Parity Test: getReviewSummaryForDocument prioritizes active draft/regenerating summary over older summaries", async () => {
+      const { docId, genStore, genService } = await setupFullPipelineFixture();
+
+      // Seed older accepted summary
+      await genStore.create({
+        id: randomUUID() as GeneratedContentId,
+        organizationId: orgId,
+        documentId: docId,
+        courseId,
+        type: "review_summary",
+        status: "accepted",
+        payload: { kind: "review_summary", title: "Old Accepted Summary" } as any,
+        confidenceScore: 0.9,
+        reviewNotes: null,
+        reviewedByUserId: "user-1",
+        reviewedAt: new Date().toISOString(),
+        deletedAt: null,
+        createdAt: new Date(Date.now() - 10000).toISOString(),
+        updatedAt: new Date(Date.now() - 10000).toISOString(),
+      });
+
+      // Seed newer draft summary
+      const newDraft = await genStore.create({
+        id: randomUUID() as GeneratedContentId,
+        organizationId: orgId,
+        documentId: docId,
+        courseId,
+        type: "review_summary",
+        status: "draft",
+        payload: { kind: "review_summary", title: "New Draft Summary" } as any,
+        confidenceScore: 0.95,
+        reviewNotes: null,
+        reviewedByUserId: null,
+        reviewedAt: null,
+        deletedAt: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+
+      const retrieved = await genService.getReviewSummaryForDocument(actor, orgId, docId);
+      expect(retrieved?.id).toBe(newDraft.id);
+      expect(retrieved?.status).toBe("draft");
+      expect((retrieved?.payload as any).title).toBe("New Draft Summary");
     });
   });
 });

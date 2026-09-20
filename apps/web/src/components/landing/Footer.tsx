@@ -14,7 +14,6 @@ import { AVANA_SOCIAL_LINKS } from "../../config/social.js";
 
 export function Footer() {
   const footerLinks = [
-    { title: "درباره آوانا", href: "/about", isInternalRoute: true },
     { title: "قوانین و مقررات", href: "/terms", isInternalRoute: true },
     { title: "قیمت‌گذاری", href: "/pricing", isInternalRoute: true },
     { title: "پشتیبانی", href: AVANA_SOCIAL_LINKS.supportEmail.mailto, isInternalRoute: false },

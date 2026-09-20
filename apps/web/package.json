@@ -26,6 +26,7 @@
     "rehype-katex": "^7.0.1",
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
+    "smiles-drawer": "^2.4.1",
     "tailwind-merge": "3.4.0"
   },
   "devDependencies": {

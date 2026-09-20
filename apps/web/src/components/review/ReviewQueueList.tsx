@@ -195,6 +195,8 @@ export function ReviewQueueList({
         return "فلش‌کارت‌ها";
       case "quiz":
         return "آزمون‌ها";
+      case "review_summary":
+        return "خلاصه‌ها";
       default:
         return t;
     }
@@ -248,7 +250,7 @@ export function ReviewQueueList({
 
           {/* Type Filter Pills */}
           <div className="flex items-center gap-1.5 p-1 bg-[var(--color-surface-warm)] border border-[var(--color-border)] rounded-xl text-xs overflow-x-auto shrink-0">
-            {(["all", "lesson", "flashcard", "quiz"] as const).map((t) => (
+            {(["all", "lesson", "flashcard", "quiz", "review_summary"] as const).map((t) => (
               <button
                 type="button"
                 key={t}

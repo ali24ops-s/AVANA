@@ -11,7 +11,12 @@ import {
   CreditCard,
   AlertCircle,
   ArrowLeft,
+  Gift,
 } from "lucide-react";
+import {
+  resolveSubscriptionPlanType,
+  resolveGiftCreditAmount,
+} from "@avana/domain";
 import { useCommerceProducts } from "../../hooks/useCommerce.js";
 import { useAuth } from "../../providers/AuthProvider.js";
 import {
@@ -144,6 +149,13 @@ export const PricingModal: React.FC<PricingModalProps> = ({
                 const isSelected = product.id === activeSelectedId;
                 const isYearly = product.code === "sub_yearly";
                 const isQuarterly = product.code === "sub_quarterly";
+                const planType = resolveSubscriptionPlanType(product);
+                const giftAmount =
+                  typeof product.gift_credit === "number"
+                    ? product.gift_credit
+                    : planType
+                    ? resolveGiftCreditAmount(planType)
+                    : 0;
 
                 return (
                   <div
@@ -160,7 +172,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({
                   >
                     {isYearly && (
                       <div className="absolute -top-3 right-4 bg-gradient-to-r from-amber-500 to-orange-500 text-white text-xs font-bold px-2.5 py-0.5 rounded-full shadow">
-                        بیشترین تخفیف (۵۰٪)
+                        بیشترین تخفیف (۳۰٪)
                       </div>
                     )}
                     {isQuarterly && (
@@ -210,6 +222,14 @@ export const PricingModal: React.FC<PricingModalProps> = ({
                             ).toLocaleString("fa-IR")} تومان)`}
                         </div>
                       </div>
+
+                      {/* Gift Bonus Row */}
+                      {giftAmount > 0 && (
+                        <div className="mt-3 flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/25 text-amber-800 dark:text-amber-300 text-xs font-bold">
+                          <Gift className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                          <span>{giftAmount.toLocaleString("fa-IR")} تومان هدیه کیف پول</span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
@@ -253,29 +273,51 @@ export const PricingModal: React.FC<PricingModalProps> = ({
 
             {/* 3. Selected Plan & Payment Method Summary */}
             <div className="rounded-2xl bg-[var(--color-surface-warm)] border border-[var(--color-border)] p-4 sm:p-6 space-y-4 animate-in fade-in duration-200">
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 rounded-xl bg-[var(--color-surface)] border border-[var(--color-border)]">
-                <div>
-                  <div className="text-xs text-[var(--color-text-muted)]">
-                    پلن انتخابی:
-                  </div>
-                  <div className="text-base sm:text-lg font-black text-[var(--color-text)] mt-0.5">
-                    {selectedProduct?.title}
-                  </div>
-                  <div className="text-xs text-[var(--color-text-muted)] mt-1">
-                    مدت اعتبار:{" "}
-                    <strong>{selectedProduct?.duration_days} روز</strong>
-                  </div>
-                </div>
+              {(() => {
+                const selectedPlanType = selectedProduct
+                  ? resolveSubscriptionPlanType(selectedProduct)
+                  : null;
+                const selectedGiftAmount =
+                  typeof selectedProduct?.gift_credit === "number"
+                    ? selectedProduct.gift_credit
+                    : selectedPlanType
+                    ? resolveGiftCreditAmount(selectedPlanType)
+                    : 0;
 
-                <div className="text-right sm:text-left">
-                  <div className="text-xs text-[var(--color-text-muted)]">
-                    مبلغ قابل پرداخت:
+                return (
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 rounded-xl bg-[var(--color-surface)] border border-[var(--color-border)]">
+                    <div>
+                      <div className="text-xs text-[var(--color-text-muted)]">
+                        پلن انتخابی:
+                      </div>
+                      <div className="text-base sm:text-lg font-black text-[var(--color-text)] mt-0.5">
+                        {selectedProduct?.title}
+                      </div>
+                      <div className="text-xs text-[var(--color-text-muted)] mt-1">
+                        مدت اعتبار:{" "}
+                        <strong>{selectedProduct?.duration_days} روز</strong>
+                      </div>
+                      {selectedGiftAmount > 0 && (
+                        <div className="text-xs text-amber-700 dark:text-amber-300 font-bold flex items-center gap-1.5 mt-1.5">
+                          <Gift className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                          <span>
+                            شامل {selectedGiftAmount.toLocaleString("fa-IR")} تومان اعتبار هدیه کیف پول پس از فعال‌سازی
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="text-right sm:text-left">
+                      <div className="text-xs text-[var(--color-text-muted)]">
+                        مبلغ قابل پرداخت:
+                      </div>
+                      <div className="text-xl sm:text-2xl font-black text-[#008080] mt-0.5">
+                        {selectedProduct?.price.toLocaleString("fa-IR")} تومان
+                      </div>
+                    </div>
                   </div>
-                  <div className="text-xl sm:text-2xl font-black text-[#008080] mt-0.5">
-                    {selectedProduct?.price.toLocaleString("fa-IR")} تومان
-                  </div>
-                </div>
-              </div>
+                );
+              })()}
 
               <div className="flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400">
                 <Zap className="w-4 h-4 text-amber-500 shrink-0 fill-current" />

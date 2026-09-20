@@ -1,9 +1,10 @@
-import { count, eq, sql, gte, lte, gt, ilike, or, desc, isNull, isNotNull, and, inArray, type SQL } from "drizzle-orm";
+import { count, eq, ne, sql, gte, lte, gt, ilike, or, desc, isNull, isNotNull, and, inArray, type SQL } from "drizzle-orm";
 import type { DbClient } from "@avana/database/client";
 import { randomUUID } from "node:crypto";
 import {
   users,
   courses,
+  subCourseGroups,
   modules,
   lessons,
   flashcards,
@@ -21,6 +22,7 @@ import {
   userSubscriptions,
   userEntitlements,
   contentPacks,
+  systemConfigurations,
 } from "@avana/database/schema";
 import {
   resolveEffectiveRole,
@@ -32,7 +34,16 @@ import {
   type GenerationPipelineStage,
   type GenerationProgressStatus,
   type DocumentGenerationProgressResource,
+  type ContentGenerationPricingConfig,
+  type UpdateContentGenerationPricingInput,
+  DEFAULT_CONTENT_GENERATION_PRICING_CONFIG,
+  REFERENCE_DOCUMENT_ID,
+  type SubscriptionCreditBonusesConfig,
+  DEFAULT_SUBSCRIPTION_CREDIT_BONUSES,
+  SUBSCRIPTION_CREDIT_BONUSES_CONFIG_KEY,
+  asPromotionId,
 } from "@avana/domain";
+import { PromotionService } from "../commerce/promotion-service.js";
 import { checkRedisHealth } from "./redis-health.js";
 import type {
   AdminStore,
@@ -882,7 +893,10 @@ export class DrizzleAdminStore implements AdminStore {
       }
     }
 
-    const [courseFcCount, courseQCount] = await Promise.all([
+    const [courseGroups, courseFcCount, courseQCount] = await Promise.all([
+      this.db.select().from(subCourseGroups)
+        .where(and(eq(subCourseGroups.courseId, courseId), isNull(subCourseGroups.deletedAt)))
+        .orderBy(subCourseGroups.sortOrder),
       this.db.select({ count: count() })
         .from(flashcards)
         .where(and(eq(flashcards.courseId, courseId), isNull(flashcards.lessonId), isNull(flashcards.deletedAt))),
@@ -897,9 +911,16 @@ export class DrizzleAdminStore implements AdminStore {
       subject: course.subject,
       courseFlashcardCount: courseFcCount[0]?.count || 0,
       courseQuizCount: courseQCount[0]?.count || 0,
+      groups: courseGroups.map((g) => ({
+        id: g.id,
+        title: g.title,
+        sortOrder: g.sortOrder,
+      })),
       modules: courseModules.map((m) => ({
         id: m.id,
         title: m.title,
+        sortOrder: m.sortOrder,
+        subCourseGroupId: m.subCourseGroupId ?? null,
         lessons: courseLessons.filter((l) => l.moduleId === m.id).map((l) => ({
           id: l.id,
           title: l.title,
@@ -1404,8 +1425,10 @@ export class DrizzleAdminStore implements AdminStore {
     status?: string;
     from?: string;
     to?: string;
+    category?: string;
+    productType?: string;
   }): Promise<AdminPaymentsList> {
-    const { page, pageSize, search, gateway, status, from, to } = params;
+    const { page, pageSize, search, gateway, status, from, to, category, productType } = params;
     const offset = (page - 1) * pageSize;
 
     const conditions: Array<SQL | undefined> = [];
@@ -1423,6 +1446,16 @@ export class DrizzleAdminStore implements AdminStore {
       conditions.push(lte(payments.createdAt, new Date(to)));
     }
 
+    if (category === "subscription") {
+      conditions.push(eq(products.type, "subscription"));
+    } else if (category === "wallet_topup") {
+      conditions.push(eq(products.type, "wallet_topup"));
+    } else if (category === "product") {
+      conditions.push(and(ne(products.type, "subscription"), ne(products.type, "wallet_topup")));
+    } else if (productType && productType !== "all") {
+      conditions.push(eq(products.type, productType));
+    }
+
     if (search && search.trim().length > 0) {
       const q = `%${search.trim()}%`;
       conditions.push(
@@ -1434,6 +1467,7 @@ export class DrizzleAdminStore implements AdminStore {
           ilike(orders.orderNumber, q),
           ilike(users.email, q),
           ilike(users.name, q),
+          ilike(products.title, q),
         )
       );
     }
@@ -1453,7 +1487,7 @@ export class DrizzleAdminStore implements AdminStore {
           payment: payments,
           order: { id: orders.id, orderNumber: orders.orderNumber },
           user: { id: users.id, email: users.email, name: users.name },
-          product: { id: products.id, title: products.title },
+          product: { id: products.id, title: products.title, type: products.type },
         })
         .from(payments)
         .innerJoin(orders, eq(payments.orderId, orders.id))
@@ -1472,7 +1506,9 @@ export class DrizzleAdminStore implements AdminStore {
       userId: r.user.id,
       userName: r.user.name || undefined,
       userEmail: r.user.email,
+      productId: r.product.id,
       productTitle: r.product.title,
+      productType: r.product.type,
       amount: r.payment.amount,
       currency: r.payment.currency,
       gateway: r.payment.gateway,
@@ -2845,5 +2881,314 @@ export class DrizzleAdminStore implements AdminStore {
       orders: orderList,
       payments: paymentList,
     };
+  }
+
+  async getContentGenerationPricing(): Promise<ContentGenerationPricingConfig> {
+    try {
+      const [row] = await this.db
+        .select()
+        .from(systemConfigurations)
+        .where(eq(systemConfigurations.key, "generation_reference_pricing"))
+        .limit(1);
+
+      if (!row || !row.value || typeof row.value !== "object") {
+        return { ...DEFAULT_CONTENT_GENERATION_PRICING_CONFIG };
+      }
+
+      const val = row.value as Record<string, unknown>;
+      return {
+        referenceDocumentId:
+          typeof val.referenceDocumentId === "string"
+            ? val.referenceDocumentId
+            : DEFAULT_CONTENT_GENERATION_PRICING_CONFIG.referenceDocumentId,
+        referenceFileName:
+          typeof val.referenceFileName === "string"
+            ? val.referenceFileName
+            : DEFAULT_CONTENT_GENERATION_PRICING_CONFIG.referenceFileName,
+        referenceUsableTokens:
+          typeof val.referenceUsableTokens === "number" && !isNaN(val.referenceUsableTokens) && val.referenceUsableTokens > 0
+            ? val.referenceUsableTokens
+            : DEFAULT_CONTENT_GENERATION_PRICING_CONFIG.referenceUsableTokens,
+        lessonBaselinePriceToman:
+          typeof val.lessonBaselinePriceToman === "number" && !isNaN(val.lessonBaselinePriceToman) && val.lessonBaselinePriceToman >= 0
+            ? val.lessonBaselinePriceToman
+            : DEFAULT_CONTENT_GENERATION_PRICING_CONFIG.lessonBaselinePriceToman,
+        flashcardBaselinePriceToman:
+          typeof val.flashcardBaselinePriceToman === "number" && !isNaN(val.flashcardBaselinePriceToman) && val.flashcardBaselinePriceToman >= 0
+            ? val.flashcardBaselinePriceToman
+            : DEFAULT_CONTENT_GENERATION_PRICING_CONFIG.flashcardBaselinePriceToman,
+        examBaselinePriceToman:
+          typeof val.examBaselinePriceToman === "number" && !isNaN(val.examBaselinePriceToman) && val.examBaselinePriceToman >= 0
+            ? val.examBaselinePriceToman
+            : DEFAULT_CONTENT_GENERATION_PRICING_CONFIG.examBaselinePriceToman,
+        summaryFixedPriceToman:
+          typeof val.summaryFixedPriceToman === "number" && !isNaN(val.summaryFixedPriceToman) && val.summaryFixedPriceToman >= 0
+            ? val.summaryFixedPriceToman
+            : DEFAULT_CONTENT_GENERATION_PRICING_CONFIG.summaryFixedPriceToman,
+        updatedAt: row.updatedAt ? row.updatedAt.toISOString() : undefined,
+        updatedBy: row.updatedBy || null,
+      };
+    } catch {
+      return { ...DEFAULT_CONTENT_GENERATION_PRICING_CONFIG };
+    }
+  }
+
+  async updateContentGenerationPricing(
+    adminId: string,
+    input: UpdateContentGenerationPricingInput,
+  ): Promise<ContentGenerationPricingConfig> {
+    const current = await this.getContentGenerationPricing();
+
+    const updatedValue = {
+      referenceDocumentId: current.referenceDocumentId,
+      referenceFileName: current.referenceFileName,
+      referenceUsableTokens: current.referenceUsableTokens,
+      lessonBaselinePriceToman:
+        input.lessonBaselinePriceToman !== undefined
+          ? input.lessonBaselinePriceToman
+          : current.lessonBaselinePriceToman,
+      flashcardBaselinePriceToman:
+        input.flashcardBaselinePriceToman !== undefined
+          ? input.flashcardBaselinePriceToman
+          : current.flashcardBaselinePriceToman,
+      examBaselinePriceToman:
+        input.examBaselinePriceToman !== undefined
+          ? input.examBaselinePriceToman
+          : current.examBaselinePriceToman,
+      summaryFixedPriceToman:
+        input.summaryFixedPriceToman !== undefined
+          ? input.summaryFixedPriceToman
+          : current.summaryFixedPriceToman,
+    };
+
+    const now = new Date();
+    const isUuid = (val?: string | null): boolean =>
+      typeof val === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+    const validAdminUuid = isUuid(adminId) ? adminId : null;
+
+    return this.db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select()
+        .from(systemConfigurations)
+        .where(eq(systemConfigurations.key, "generation_reference_pricing"))
+        .limit(1);
+
+      if (existing) {
+        await tx
+          .update(systemConfigurations)
+          .set({
+            value: updatedValue,
+            updatedAt: now,
+            updatedBy: validAdminUuid,
+          })
+          .where(eq(systemConfigurations.key, "generation_reference_pricing"));
+      } else {
+        await tx.insert(systemConfigurations).values({
+          key: "generation_reference_pricing",
+          value: updatedValue,
+          description: "Baseline reference pricing for AI content generation calibrated on Katzung Chapter 40",
+          updatedAt: now,
+          updatedBy: validAdminUuid,
+        });
+      }
+
+      await tx.insert(auditLogs).values({
+        id: randomUUID(),
+        actorId: validAdminUuid,
+        action: "CONTENT_GENERATION_PRICING_UPDATED",
+        entityType: "system_configuration",
+        entityId: REFERENCE_DOCUMENT_ID,
+        details: {
+          configKey: "generation_reference_pricing",
+          previous: current,
+          updated: updatedValue,
+        },
+        createdAt: now,
+      });
+
+      return {
+        ...updatedValue,
+        updatedAt: now.toISOString(),
+        updatedBy: validAdminUuid,
+      };
+    });
+  }
+
+  async getSubscriptionCreditBonuses(): Promise<SubscriptionCreditBonusesConfig> {
+    try {
+      const [row] = await this.db
+        .select()
+        .from(systemConfigurations)
+        .where(eq(systemConfigurations.key, SUBSCRIPTION_CREDIT_BONUSES_CONFIG_KEY))
+        .limit(1);
+
+      if (!row || !row.value || typeof row.value !== "object") {
+        return { ...DEFAULT_SUBSCRIPTION_CREDIT_BONUSES };
+      }
+
+      const val = row.value as Record<string, unknown>;
+      return {
+        monthly:
+          typeof val.monthly === "number" && !isNaN(val.monthly) && val.monthly >= 0
+            ? Math.round(val.monthly)
+            : DEFAULT_SUBSCRIPTION_CREDIT_BONUSES.monthly,
+        quarterly:
+          typeof val.quarterly === "number" && !isNaN(val.quarterly) && val.quarterly >= 0
+            ? Math.round(val.quarterly)
+            : DEFAULT_SUBSCRIPTION_CREDIT_BONUSES.quarterly,
+        annual:
+          typeof val.annual === "number" && !isNaN(val.annual) && val.annual >= 0
+            ? Math.round(val.annual)
+            : DEFAULT_SUBSCRIPTION_CREDIT_BONUSES.annual,
+        updatedAt: row.updatedAt ? row.updatedAt.toISOString() : undefined,
+        updatedBy: row.updatedBy || null,
+      };
+    } catch {
+      return { ...DEFAULT_SUBSCRIPTION_CREDIT_BONUSES };
+    }
+  }
+
+  async updateSubscriptionCreditBonuses(
+    adminId: string,
+    input: Partial<SubscriptionCreditBonusesConfig>,
+  ): Promise<SubscriptionCreditBonusesConfig> {
+    const current = await this.getSubscriptionCreditBonuses();
+
+    const updatedValue = {
+      monthly:
+        input.monthly !== undefined && typeof input.monthly === "number" && !isNaN(input.monthly) && input.monthly >= 0
+          ? Math.round(input.monthly)
+          : current.monthly,
+      quarterly:
+        input.quarterly !== undefined && typeof input.quarterly === "number" && !isNaN(input.quarterly) && input.quarterly >= 0
+          ? Math.round(input.quarterly)
+          : current.quarterly,
+      annual:
+        input.annual !== undefined && typeof input.annual === "number" && !isNaN(input.annual) && input.annual >= 0
+          ? Math.round(input.annual)
+          : current.annual,
+    };
+
+    const now = new Date();
+    const isUuid = (val?: string | null): boolean =>
+      typeof val === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+    const validAdminUuid = isUuid(adminId) ? adminId : null;
+
+    return this.db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select()
+        .from(systemConfigurations)
+        .where(eq(systemConfigurations.key, SUBSCRIPTION_CREDIT_BONUSES_CONFIG_KEY))
+        .limit(1);
+
+      if (existing) {
+        await tx
+          .update(systemConfigurations)
+          .set({
+            value: updatedValue,
+            updatedAt: now,
+            updatedBy: validAdminUuid,
+          })
+          .where(eq(systemConfigurations.key, SUBSCRIPTION_CREDIT_BONUSES_CONFIG_KEY));
+      } else {
+        await tx.insert(systemConfigurations).values({
+          key: SUBSCRIPTION_CREDIT_BONUSES_CONFIG_KEY,
+          value: updatedValue,
+          description: "Avana Credit gift bonuses awarded to user wallets upon subscription activation",
+          updatedAt: now,
+          updatedBy: validAdminUuid,
+        });
+      }
+
+      await tx.insert(auditLogs).values({
+        id: randomUUID(),
+        actorId: validAdminUuid,
+        action: "SUBSCRIPTION_CREDIT_BONUSES_UPDATED",
+        entityType: "system_configuration",
+        entityId: SUBSCRIPTION_CREDIT_BONUSES_CONFIG_KEY,
+        details: {
+          configKey: SUBSCRIPTION_CREDIT_BONUSES_CONFIG_KEY,
+          previous: current,
+          updated: updatedValue,
+        },
+        createdAt: now,
+      });
+
+      return {
+        ...updatedValue,
+        updatedAt: now.toISOString(),
+        updatedBy: validAdminUuid,
+      };
+    });
+  }
+
+  // --- Promotions & Coupons Management ---
+
+  private _promotionService?: PromotionService;
+  private get promotionService(): PromotionService {
+    if (!this._promotionService) {
+      this._promotionService = new PromotionService(this.db);
+    }
+    return this._promotionService;
+  }
+
+  async listCommercePromotions(params: {
+    page: number;
+    pageSize: number;
+    search?: string;
+    status?: string;
+    benefitType?: string;
+  }): Promise<{ items: any[]; totalCount: number }> {
+    return this.promotionService.listPromotions(params);
+  }
+
+  async getCommercePromotion(id: string): Promise<any | null> {
+    try {
+      return await this.promotionService.getPromotionDetails(asPromotionId(id as any));
+    } catch {
+      return null;
+    }
+  }
+
+  async createCommercePromotion(
+    adminId: string,
+    input: any,
+  ): Promise<any> {
+    return this.promotionService.createPromotion(adminId, input);
+  }
+
+  async updateCommercePromotion(
+    adminId: string,
+    id: string,
+    patch: any,
+  ): Promise<any> {
+    return this.promotionService.updatePromotion(adminId, asPromotionId(id as any), patch);
+  }
+
+  async toggleCommercePromotionActive(
+    adminId: string,
+    id: string,
+    active: boolean,
+  ): Promise<any> {
+    return this.promotionService.togglePromotionActive(adminId, asPromotionId(id as any), active);
+  }
+
+  async deleteCommercePromotion(adminId: string, id: string): Promise<boolean> {
+    return this.promotionService.deletePromotion(adminId, asPromotionId(id as any));
+  }
+
+  async bulkGenerateCommercePromotionCodes(
+    adminId: string,
+    id: string,
+    input: { count: number; prefix?: string; length?: number },
+  ): Promise<{ generatedCount: number; sampleCodes: string[] }> {
+    return this.promotionService.bulkGenerateCodes(adminId, asPromotionId(id as any), input);
+  }
+
+  async listCommercePromotionRedemptions(
+    id: string,
+    params: { page: number; pageSize: number },
+  ): Promise<{ items: any[]; totalCount: number }> {
+    return this.promotionService.listPromotionRedemptions(asPromotionId(id as any), params);
   }
 }

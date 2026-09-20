@@ -654,6 +654,8 @@ export class LibraryService {
             subject: c.subject,
             module_count: c.moduleCount,
             content_count: c.contentCount,
+            flashcard_count: c.flashcardCount,
+            quiz_question_count: c.quizQuestionCount,
             progress: c.progress
               ? {
                   completed_lessons: c.progress.completedLessons,

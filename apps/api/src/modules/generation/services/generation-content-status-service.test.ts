@@ -152,8 +152,35 @@ describe("GenerationContentStatusService (Unit Tests)", () => {
     expect(status.exam.accepted).toBe(true);
 
     expect(status.review_summary.generated).toBe(false);
-    expect(status.all_generated).toBe(true);
+    expect(status.all_generated).toBe(false);
     expect(status.has_publishable_content).toBe(true);
+    expect(status.can_generate).toBe(true);
+  });
+
+  it("marks all_generated=true and can_generate=false when all 4 content types exist", async () => {
+    await contentStore.create({
+      id: "gen-rev-1" as unknown as GeneratedContentId,
+      documentId: docId,
+      organizationId: orgId,
+      type: "review_summary",
+      status: "accepted",
+      payload: { summary: "Great overview" } as unknown as GeneratedContentPayload,
+      confidenceScore: 0.95,
+      reviewNotes: null,
+      reviewedByUserId: "user-1",
+      reviewedAt: new Date().toISOString(),
+      deletedAt: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    const status = await contentStatusService.getDocumentContentStatus(actor, orgId, docId);
+
+    expect(status.lesson.generated).toBe(true);
+    expect(status.flashcards.generated).toBe(true);
+    expect(status.exam.generated).toBe(true);
+    expect(status.review_summary.generated).toBe(true);
+    expect(status.all_generated).toBe(true);
     expect(status.can_generate).toBe(false);
   });
 
@@ -246,5 +273,70 @@ describe("GenerationContentStatusService (Unit Tests)", () => {
     expect(status.review_summary.count).toBe(1);
     expect(status.review_summary.accepted).toBe(true);
     expect(status.has_publishable_content).toBe(true);
+  });
+
+  it("does not count review summary as generated or accepted when status is regenerating", async () => {
+    await contentStore.create({
+      id: "gen-rev-regen" as unknown as GeneratedContentId,
+      documentId: docId,
+      organizationId: orgId,
+      type: "review_summary",
+      status: "regenerating",
+      payload: { summary: "Overview regenerating..." } as unknown as GeneratedContentPayload,
+      confidenceScore: 0.9,
+      reviewNotes: null,
+      reviewedByUserId: null,
+      reviewedAt: null,
+      deletedAt: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    const status = await contentStatusService.getDocumentContentStatus(actor, orgId, docId);
+
+    // lesson, flashcard, exam are generated from mockStores
+    expect(status.lesson.generated).toBe(true);
+    expect(status.flashcards.generated).toBe(true);
+    expect(status.exam.generated).toBe(true);
+
+    // review_summary is regenerating: generated=false, accepted=false
+    expect(status.review_summary.generated).toBe(false);
+    expect(status.review_summary.accepted).toBe(false);
+
+    // all_generated must be FALSE
+    expect(status.all_generated).toBe(false);
+
+    // can_generate must be FALSE because a regeneration job is currently in progress
+    expect(status.can_generate).toBe(false);
+  });
+
+  it("does not count any regenerating content type in all_generated", async () => {
+    const freshService = new GenerationContentStatusService(
+      mockDocStore,
+      contentStore,
+      progressService,
+      queryService,
+    );
+
+    await contentStore.create({
+      id: "gen-lesson-regen" as unknown as GeneratedContentId,
+      documentId: docId,
+      organizationId: orgId,
+      type: "lesson",
+      status: "regenerating",
+      payload: { sessions: [{ title: "S1" }] } as unknown as GeneratedContentPayload,
+      confidenceScore: 0.9,
+      reviewNotes: null,
+      reviewedByUserId: null,
+      reviewedAt: null,
+      deletedAt: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    const status = await freshService.getDocumentContentStatus(actor, orgId, docId);
+    expect(status.lesson.generated).toBe(false);
+    expect(status.all_generated).toBe(false);
+    expect(status.can_generate).toBe(false);
   });
 });

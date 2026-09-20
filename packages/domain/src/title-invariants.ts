@@ -7,8 +7,32 @@
  *   MUST have its own educational title and NEVER display original filenames.
  */
 
-const FILE_EXTENSION_REGEX = /\.(pdf|docx?|pptx?|xlsx?|txt|csv|bin|mp3|wav|png|jpe?g|webp)$/i;
+const FILE_EXTENSION_REGEX = /\.(pdf|docx?|pptx?|xlsx?|txt|csv|bin|mp3|wav|png|jpe?g|webp)(\b|[\s\),;:«»"']|$)/i;
+const EMBEDDED_FILE_REGEX = /[a-zA-Z0-9_\-\u0600-\u06FF]*\.(pdf|docx?|pptx?|xlsx?|txt|csv|bin|mp3|wav|png|jpe?g|webp)/i;
 const NUMERIC_MODULE_REGEX = /^(فصل\s*[:\-–—]?\s*)?(\d+(\.\d+)?|[a-zA-Z0-9_\-]+(\.(pdf|docx?|pptx?|txt|bin))?)$/i;
+const EXTRACTION_PLACEHOLDER_REGEX = /(استخراج[\s‌]*(شده|شده‌|شده\s*از|از)|مباحث و جلسات آموزشی استخراج|سرفصل آموزشی استخراج|محتوای آموزشی استخراج|محتوای استخراج)/i;
+
+const GENERIC_PLACEHOLDERS = [
+  "مباحث و جلسات آموزشی استخراج‌شده",
+  "مباحث و جلسات آموزشی استخراج شده",
+  "مباحث و جلسات آموزشی استخراجشده",
+  "مباحث و جلسات آموزشی",
+  "سرفصل آموزشی استخراج‌شده",
+  "سرفصل آموزشی استخراج شده",
+  "سرفصل آموزشی استخراجشده",
+  "سرفصل آموزشی",
+  "محتوای آموزشی استخراج‌شده",
+  "محتوای استخراج‌شده",
+  "محتوای استخراج شده",
+  "محتوای استخراجشده",
+  "فایل آپلود شده",
+  "سند آپلود شده",
+  "نامشخص",
+  "undefined",
+  "null",
+  "upload",
+  "document",
+];
 
 /**
  * Checks whether a given string is derived from or represents a filename,
@@ -19,8 +43,15 @@ export function isFilenameLike(title: string | null | undefined): boolean {
   const trimmed = title.trim();
   if (trimmed.length === 0) return true;
 
-  // Has file extension or matches numeric/filename pattern
-  if (FILE_EXTENSION_REGEX.test(trimmed) || NUMERIC_MODULE_REGEX.test(trimmed)) return true;
+  // Has file extension or matches numeric/filename pattern or extraction placeholder
+  if (
+    FILE_EXTENSION_REGEX.test(trimmed) ||
+    EMBEDDED_FILE_REGEX.test(trimmed) ||
+    NUMERIC_MODULE_REGEX.test(trimmed) ||
+    EXTRACTION_PLACEHOLDER_REGEX.test(trimmed)
+  ) {
+    return true;
+  }
 
   // Clean "فصل:" prefix to inspect the core content
   const core = trimmed.replace(/^فصل\s*[:\-–—]?\s*/i, "").trim();
@@ -35,19 +66,7 @@ export function isFilenameLike(title: string | null | undefined): boolean {
   }
 
   // Placeholder generic fallbacks that mask missing content
-  const genericPlaceholders = [
-    "سرفصل آموزشی استخراج‌شده",
-    "سرفصل آموزشی",
-    "محتوای استخراج‌شده",
-    "فایل آپلود شده",
-    "سند آپلود شده",
-    "نامشخص",
-    "undefined",
-    "null",
-    "upload",
-    "document",
-  ];
-  if (genericPlaceholders.includes(core) || genericPlaceholders.includes(trimmed)) {
+  if (GENERIC_PLACEHOLDERS.includes(core) || GENERIC_PLACEHOLDERS.includes(trimmed)) {
     return true;
   }
 
@@ -104,6 +123,14 @@ export function formatModuleTitle(
 
   if (/^فصل\s+[\d\u06F0-\u06F9]+(\.\d+)?\s*:\s*/i.test(cleaned)) {
     return cleaned.replace(/^فصل\s+([\d\u06F0-\u06F9]+(\.\d+)?)\s*:\s*/i, "فصل $1: ");
+  }
+
+  if (
+    /^فصل\s+(اول|دوم|سوم|چهارم|پنجم|ششم|هفتم|هشتم|نهم|دهم|یازدهم|دوازدهم|سیزدهم|چهاردهم|پانزدهم|شانزدهم|هفدهم|هجدهم|نوزدهم|بیستم)(\s*[:\-–—]\s*|\s+)/i.test(
+      cleaned,
+    )
+  ) {
+    return cleaned;
   }
 
   if (cleaned.startsWith("فصل:") || cleaned.startsWith("فصل :")) {
@@ -207,4 +234,35 @@ export function resolveCanonicalContentTitle(options: ResolveTitleOptions): stri
       return "محتوای آموزشی";
     }
   }
+}
+
+/**
+ * Checks whether a given description string is derived from a filename or contains
+ * automated extraction placeholder text (e.g. "مباحث و جلسات آموزشی استخراجشده از 32.pdf").
+ */
+export function isFilenameOrPlaceholderDescription(
+  desc: string | null | undefined,
+): boolean {
+  if (!desc || typeof desc !== "string") return true;
+  const trimmed = desc.trim();
+  if (trimmed.length === 0) return true;
+  if (isFilenameLike(trimmed)) return true;
+  if (EMBEDDED_FILE_REGEX.test(trimmed)) return true;
+  if (EXTRACTION_PLACEHOLDER_REGEX.test(trimmed)) return true;
+  if (GENERIC_PLACEHOLDERS.includes(trimmed)) return true;
+  return false;
+}
+
+/**
+ * Cleans an educational description by returning a safe scholarly fallback if
+ * the description is empty, filename-like, or contains extraction placeholder text.
+ */
+export function cleanEducationalDescription(
+  desc: string | null | undefined,
+  fallback: string | null | undefined = "بسته آموزشی جامع فصل شامل درسنامه ساختاریافته، خلاصه نکات کلیدی، فلش‌کارت‌های مرور فعال و آزمون تستی.",
+): string | null {
+  if (isFilenameOrPlaceholderDescription(desc)) {
+    return fallback ?? null;
+  }
+  return desc!.trim();
 }

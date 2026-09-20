@@ -150,7 +150,7 @@ export function FileFilterToolbar({
                 page: 1,
               })
             }
-            className="bg-white border border-[var(--color-border)] rounded-xl px-2.5 py-1.5 text-[var(--color-text)] text-xs focus:outline-none focus:ring-1 focus:ring-[#008080]"
+            className="bg-white border border-[var(--color-border)] rounded-xl ps-2.5 pe-7 py-1.5 text-[var(--color-text)] text-xs focus:outline-none focus:ring-1 focus:ring-[#008080] cursor-pointer"
           >
             {FILE_TYPE_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
@@ -172,7 +172,7 @@ export function FileFilterToolbar({
                 page: 1,
               })
             }
-            className="bg-white border border-[var(--color-border)] rounded-xl px-2.5 py-1.5 text-[var(--color-text)] text-xs focus:outline-none focus:ring-1 focus:ring-[#008080]"
+            className="bg-white border border-[var(--color-border)] rounded-xl ps-2.5 pe-7 py-1.5 text-[var(--color-text)] text-xs focus:outline-none focus:ring-1 focus:ring-[#008080] cursor-pointer"
           >
             {STATUS_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
@@ -194,7 +194,7 @@ export function FileFilterToolbar({
                 page: 1,
               })
             }
-            className="bg-white border border-[var(--color-border)] rounded-xl px-2.5 py-1.5 text-[var(--color-text)] text-xs focus:outline-none focus:ring-1 focus:ring-[#008080]"
+            className="bg-white border border-[var(--color-border)] rounded-xl ps-2.5 pe-7 py-1.5 text-[var(--color-text)] text-xs focus:outline-none focus:ring-1 focus:ring-[#008080] cursor-pointer"
           >
             {USAGE_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
@@ -205,7 +205,7 @@ export function FileFilterToolbar({
         </div>
 
         {/* Sort Selector */}
-        <div className="flex items-center gap-1.5 mr-auto">
+        <div className="flex items-center gap-1.5 ms-auto">
           <ArrowUpDown className="w-3.5 h-3.5 text-[var(--color-text-muted)]" />
           <span className="text-[var(--color-text-muted)] font-medium">مرتب‌سازی:</span>
           <select
@@ -216,7 +216,7 @@ export function FileFilterToolbar({
                 sort: e.target.value as DocumentListFilters["sort"],
               })
             }
-            className="bg-white border border-[var(--color-border)] rounded-xl px-2.5 py-1.5 text-[var(--color-text)] text-xs focus:outline-none focus:ring-1 focus:ring-[#008080]"
+            className="bg-white border border-[var(--color-border)] rounded-xl ps-2.5 pe-7 py-1.5 text-[var(--color-text)] text-xs focus:outline-none focus:ring-1 focus:ring-[#008080] cursor-pointer"
           >
             {SORT_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>

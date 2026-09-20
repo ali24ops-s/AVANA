@@ -45,6 +45,20 @@ import { up as up0041 } from "./migrations/0041_module_preview_lesson_id.js";
 import { up as up0042 } from "./migrations/0042_special_exam_entitlements.js";
 import { up as up0043 } from "./migrations/0043_notifications.js";
 import { up as up0044 } from "./migrations/0044_lesson_annotations_and_reports.js";
+import { up as up0045 } from "./migrations/0045_sub_course_groups_and_module_ordering.js";
+import { up as up0046 } from "./migrations/0046_system_configurations.js";
+import { up as up0047 } from "./migrations/0047_wallet_system.js";
+import { up as up0048 } from "./migrations/0048_subscription_credit_bonuses_config.js";
+import { up as up0049 } from "./migrations/0049_wallet_topup_product.js";
+import { up as up0050 } from "./migrations/0050_course_publications.js";
+import { up as up0051 } from "./migrations/0051_promotions_and_coupons.js";
+import { up as up0052 } from "./migrations/0052_referral_system.js";
+import { up as up0053 } from "./migrations/0053_daily_study_planner.js";
+import { up as up0054 } from "./migrations/0054_course_exam_scope.js";
+import { up as up0055 } from "./migrations/0055_support_and_feedback.js";
+
+
+
 
 function localConnectionString(): string {
   const user = "avana";
@@ -151,6 +165,30 @@ async function runMigrations() {
     await up0043(db);
     console.log("Applying 0044_lesson_annotations_and_reports...");
     await up0044(db);
+    console.log("Applying 0045_sub_course_groups_and_module_ordering...");
+    await up0045(db);
+    console.log("Applying 0046_system_configurations...");
+    await up0046(db);
+    console.log("Applying 0047_wallet_system...");
+    await up0047(db);
+    console.log("Applying 0048_subscription_credit_bonuses_config...");
+    await up0048(db);
+    console.log("Applying 0049_wallet_topup_product...");
+    await up0049(db);
+    console.log("Applying 0050_course_publications...");
+    await up0050(db);
+    console.log("Applying 0051_promotions_and_coupons...");
+    await up0051(db);
+    console.log("Applying 0052_referral_system...");
+    await up0052(db);
+    console.log("Applying 0053_daily_study_planner...");
+    await up0053(db);
+    console.log("Applying 0054_course_exam_scope...");
+    await up0054(db);
+    console.log("Applying 0055_support_and_feedback...");
+    await up0055(db);
+
+
 
     console.log("All database migrations applied successfully.");
   } catch (error) {

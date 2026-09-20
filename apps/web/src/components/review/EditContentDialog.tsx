@@ -5,6 +5,7 @@ import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
 import { createReviewApi } from "../../lib/api/review.js";
 import type { GeneratedContentResource } from "@avana/contracts";
 import { Badge } from "@avana/ui";
+import { toPersianDigits } from "@avana/domain";
 import {
   LessonFormEditor,
   type LessonFormEditorData,
@@ -160,11 +161,11 @@ export function EditContentDialog({
           const sess = lessonData.sessions[i];
           if (!sess.title.trim()) {
             errs[`session_${i}_title`] = "عنوان جلسه الزامی است.";
-            return { isValid: false, errMessage: `عنوان جلسه ${i + 1} الزامی است.`, errors: errs };
+            return { isValid: false, errMessage: `عنوان جلسه ${toPersianDigits(i + 1)} الزامی است.`, errors: errs };
           }
           if (!sess.contentMarkdown.trim()) {
             errs[`session_${i}_content`] = "متن جلسه الزامی است.";
-            return { isValid: false, errMessage: `متن آموزشی جلسه ${i + 1} نمی‌تواند خالی باشد.`, errors: errs };
+            return { isValid: false, errMessage: `متن آموزشی جلسه ${toPersianDigits(i + 1)} نمی‌تواند خالی باشد.`, errors: errs };
           }
         }
       } else if (!lessonData.contentMarkdown.trim()) {
@@ -181,11 +182,11 @@ export function EditContentDialog({
         const card = flashcardData[i];
         if (!card.question.trim()) {
           errs[`card_${i}_question`] = "روی کارت الزامی است.";
-          return { isValid: false, errMessage: `روی کارت (پرسش) در فلش‌کارت شماره ${i + 1} خالی است.`, errors: errs };
+          return { isValid: false, errMessage: `روی کارت (پرسش) در فلش‌کارت شماره ${toPersianDigits(i + 1)} خالی است.`, errors: errs };
         }
         if (!card.answer.trim()) {
           errs[`card_${i}_answer`] = "پشت کارت الزامی است.";
-          return { isValid: false, errMessage: `پشت کارت (پاسخ) در فلش‌کارت شماره ${i + 1} خالی است.`, errors: errs };
+          return { isValid: false, errMessage: `پشت کارت (پاسخ) در فلش‌کارت شماره ${toPersianDigits(i + 1)} خالی است.`, errors: errs };
         }
       }
     }
@@ -202,18 +203,18 @@ export function EditContentDialog({
         const q = examData.questions[i];
         if (!q.question.trim()) {
           errs[`q_${i}_question`] = "صورت سؤال الزامی است.";
-          return { isValid: false, errMessage: `صورت سؤال در سؤال شماره ${i + 1} خالی است.`, errors: errs };
+          return { isValid: false, errMessage: `صورت سؤال در سؤال شماره ${toPersianDigits(i + 1)} خالی است.`, errors: errs };
         }
         if (q.choices.length < 2) {
-          return { isValid: false, errMessage: `سؤال شماره ${i + 1} باید حداقل دو گزینه داشته باشد.`, errors: errs };
+          return { isValid: false, errMessage: `سؤال شماره ${toPersianDigits(i + 1)} باید حداقل دو گزینه داشته باشد.`, errors: errs };
         }
         const hasEmptyChoice = q.choices.some((c) => !c.trim());
         if (hasEmptyChoice) {
-          return { isValid: false, errMessage: `تمامی گزینه‌های سؤال شماره ${i + 1} باید تکمیل شوند.`, errors: errs };
+          return { isValid: false, errMessage: `تمامی گزینه‌های سؤال شماره ${toPersianDigits(i + 1)} باید تکمیل شوند.`, errors: errs };
         }
         if (!q.choices.includes(q.correctAnswer)) {
           errs[`q_${i}_correct`] = "پاسخ صحیح باید از بین گزینه‌های موجود انتخاب شود.";
-          return { isValid: false, errMessage: `در سؤال شماره ${i + 1}، پاسخ صحیح انتخاب‌نشده یا نامعتبر است.`, errors: errs };
+          return { isValid: false, errMessage: `در سؤال شماره ${toPersianDigits(i + 1)}، پاسخ صحیح انتخاب‌نشده یا نامعتبر است.`, errors: errs };
         }
       }
     }

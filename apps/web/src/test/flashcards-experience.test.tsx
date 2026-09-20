@@ -132,7 +132,26 @@ describe("Flashcard Experience Flow", () => {
       expect(screen.getByText("خوب")).toBeDefined();
     });
 
-    // Submit rating
+    // Submit rating 1st time (Good -> re-enters session queue)
+    fireEvent.click(screen.getByText("خوب"));
+
+    await waitFor(() => {
+      // Re-appears because 1st Good does not graduate
+      expect(
+        screen.getByText("What is the primary mechanism of action of ACE inhibitors?"),
+      ).toBeDefined();
+    });
+
+    // Flip again
+    fireEvent.click(
+      screen.getByText("What is the primary mechanism of action of ACE inhibitors?"),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("خوب")).toBeDefined();
+    });
+
+    // Submit rating 2nd time (Good -> graduates!)
     fireEvent.click(screen.getByText("خوب"));
 
     await waitFor(() => {
@@ -658,5 +677,282 @@ describe("Flashcard Experience Flow", () => {
 
     // Verify no error banner was displayed
     expect(screen.queryByText("خطا در ثبت بازخورد")).toBeNull();
+  });
+
+  it("supports exact physical keyboard mapping (F/ب, D/ی, S/س, A/ش, Space, ArrowRight, ArrowLeft) and ignores removed shortcuts (Enter, 1-4, etc.)", async () => {
+    const submittedRatings: string[] = [];
+    global.fetch = vi.fn().mockImplementation((url: string, opts?: { method?: string; body?: string }) => {
+      if (opts?.method === "POST" && url.includes("/review")) {
+        const body = opts?.body ? JSON.parse(opts.body) : {};
+        submittedRatings.push(body.rating);
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ request_id: "req-rev", success: true }),
+        });
+      }
+      if (url.includes("/review-queue")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            request_id: "req-1",
+            due_cards: [
+              {
+                id: "card-shortcut-1",
+                organization_id: mockOrgId,
+                course_id: mockCourseId,
+                question: "سوال ۱",
+                answer: "جواب ۱",
+                interval_days: 1,
+                ease_factor: 2.5,
+              },
+              {
+                id: "card-shortcut-2",
+                organization_id: mockOrgId,
+                course_id: mockCourseId,
+                question: "سوال ۲",
+                answer: "جواب ۲",
+                interval_days: 1,
+                ease_factor: 2.5,
+              },
+              {
+                id: "card-shortcut-3",
+                organization_id: mockOrgId,
+                course_id: mockCourseId,
+                question: "سوال ۳",
+                answer: "جواب ۳",
+                interval_days: 1,
+                ease_factor: 2.5,
+              },
+            ],
+          }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({ request_id: "req-summary", courses: [] }),
+      });
+    });
+
+    const queryClient = createTestQueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <FlashcardExperience
+          organizationId={mockOrgId}
+          courseId={mockCourseId}
+        />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("سوال ۱")).toBeDefined();
+    });
+
+    // 1. Removed shortcut: Enter must NOT flip the card
+    fireEvent.keyDown(window, { code: "Enter", key: "Enter" });
+    expect(screen.queryByText("پاسخ نمایان شد — سطح یادگیری خود را انتخاب کنید")).toBeNull();
+    expect(screen.getByText("برای مشاهده پاسخ کلیک کنید یا کلید Space را فشار دهید")).toBeDefined();
+
+    // 2. Space flips card 1
+    fireEvent.keyDown(window, { code: "Space", key: " " });
+    await waitFor(() => {
+      expect(screen.getByText("پاسخ نمایان شد — سطح یادگیری خود را انتخاب کنید")).toBeDefined();
+    });
+
+    // 3. Removed shortcuts: 1, 2, 3, 4, 'b', 'y' must NOT rate the card
+    fireEvent.keyDown(window, { code: "Digit1", key: "1" });
+    fireEvent.keyDown(window, { code: "Digit3", key: "3" });
+    fireEvent.keyDown(window, { code: "KeyB", key: "b" });
+    fireEvent.keyDown(window, { code: "KeyY", key: "y" });
+    expect(submittedRatings.length).toBe(0);
+
+    // 4. Press physical 'S' (English layout equivalent of Persian 'س' -> Good)
+    fireEvent.keyDown(window, { code: "KeyS", key: "s" });
+    await waitFor(() => {
+      expect(submittedRatings).toContain("good");
+      expect(screen.getByText("سوال ۲")).toBeDefined();
+    });
+
+    // 5. Press ArrowRight to go back to card 1 (Previous card)
+    fireEvent.keyDown(window, { code: "ArrowRight", key: "ArrowRight" });
+    await waitFor(() => {
+      expect(screen.getByText("سوال ۱")).toBeDefined();
+    });
+
+    // 6. Press Space to flip card 1, then ArrowLeft to go forward to card 2 (Next card)
+    fireEvent.keyDown(window, { code: "Space", key: " " });
+    await waitFor(() => {
+      expect(screen.getByText("پاسخ نمایان شد — سطح یادگیری خود را انتخاب کنید")).toBeDefined();
+    });
+
+    fireEvent.keyDown(window, { code: "ArrowLeft", key: "ArrowLeft" });
+    await waitFor(() => {
+      expect(screen.getByText("سوال ۲")).toBeDefined();
+    });
+
+    // 7. Press Space to flip card 2
+    fireEvent.keyDown(window, { code: "Space", key: " " });
+    await waitFor(() => {
+      expect(screen.getByText("پاسخ نمایان شد — سطح یادگیری خود را انتخاب کنید")).toBeDefined();
+    });
+
+    // 8. Press Persian 'ی' (or physical 'D' -> Hard 1st time -> re-queued)
+    fireEvent.keyDown(window, { code: "KeyD", key: "ی" });
+    await waitFor(() => {
+      expect(submittedRatings).toContain("hard");
+      expect(screen.getByText("سوال ۳")).toBeDefined();
+    });
+
+    // 9. Press Space to flip card 3
+    fireEvent.keyDown(window, { code: "Space", key: " " });
+    await waitFor(() => {
+      expect(screen.getByText("پاسخ نمایان شد — سطح یادگیری خود را انتخاب کنید")).toBeDefined();
+    });
+
+    // 10. Press physical 'A' (English layout equivalent of Persian 'ش' -> Easy: card 3 graduates immediately!)
+    fireEvent.keyDown(window, { code: "KeyA", key: "a" });
+    await waitFor(() => {
+      expect(submittedRatings).toContain("easy");
+      // Card 1 re-appears because 1st Good did not graduate
+      expect(screen.getByText("سوال ۱")).toBeDefined();
+    });
+
+    // 11. Flip card 1 again & press physical 'S' (2nd Good -> card 1 graduates!)
+    fireEvent.keyDown(window, { code: "Space", key: " " });
+    await waitFor(() => {
+      expect(screen.getByText("پاسخ نمایان شد — سطح یادگیری خود را انتخاب کنید")).toBeDefined();
+    });
+    fireEvent.keyDown(window, { code: "KeyS", key: "s" });
+
+    // 12. Card 2 re-appears (1st Hard did not graduate) -> Flip & press physical 'A' (Easy -> card 2 graduates!)
+    await waitFor(() => {
+      expect(screen.getByText("سوال ۲")).toBeDefined();
+    });
+    fireEvent.keyDown(window, { code: "Space", key: " " });
+    await waitFor(() => {
+      expect(screen.getByText("پاسخ نمایان شد — سطح یادگیری خود را انتخاب کنید")).toBeDefined();
+    });
+    fireEvent.keyDown(window, { code: "KeyA", key: "a" });
+
+    // Now all cards graduated -> session completes!
+    await waitFor(() => {
+      expect(screen.getByText("مرور تمام شد!")).toBeDefined();
+    });
+  });
+
+  it("authoritative SRS graduation: Hard requires exactly 4 reviews, 1st Good requires re-review, Again never graduates early, and session stays active while cards remain in review queue", async () => {
+    let reviewCount = 0;
+    global.fetch = vi.fn().mockImplementation((url: string, opts?: { method?: string; body?: string }) => {
+      if (opts?.method === "POST" && url.includes("/review")) {
+        reviewCount++;
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ request_id: "req-rev", success: true }),
+        });
+      }
+      if (url.includes("/review-queue")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            request_id: "req-1",
+            due_cards: [
+              {
+                id: "card-hard-test",
+                organization_id: mockOrgId,
+                course_id: mockCourseId,
+                question: "کارت آزمایش سخت",
+                answer: "پاسخ سخت",
+                interval_days: 0,
+                ease_factor: 2.5,
+              },
+              {
+                id: "card-good-test",
+                organization_id: mockOrgId,
+                course_id: mockCourseId,
+                question: "کارت آزمایش خوب",
+                answer: "پاسخ خوب",
+                interval_days: 0,
+                ease_factor: 2.5,
+              },
+            ],
+          }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({ request_id: "req-summary", courses: [] }),
+      });
+    });
+
+    const queryClient = createTestQueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <FlashcardExperience
+          organizationId={mockOrgId}
+          courseId={mockCourseId}
+        />
+      </QueryClientProvider>,
+    );
+
+    // Initial state: 2 unseen cards
+    await waitFor(() => {
+      expect(screen.getByText("کارت آزمایش سخت")).toBeDefined();
+    });
+    expect(screen.getByText("دیده‌نشده:")).toBeDefined();
+
+    // === SCENARIO 1: Hard 1st time on Card 1 -> NOT completed, moves to Card 2 ===
+    fireEvent.click(screen.getByText("کارت آزمایش سخت"));
+    await waitFor(() => expect(screen.getByText("سخت")).toBeDefined());
+    fireEvent.click(screen.getByText("سخت"));
+
+    // === SCENARIO 5: Good 1st time on Card 2 -> NOT completed, re-enters queue ===
+    await waitFor(() => expect(screen.getByText("کارت آزمایش خوب")).toBeDefined());
+    fireEvent.click(screen.getByText("کارت آزمایش خوب"));
+    await waitFor(() => expect(screen.getByText("خوب")).toBeDefined());
+    fireEvent.click(screen.getByText("خوب"));
+
+    // === SCENARIO 7: Initial queue exhausted but 2 cards still pending graduation -> Session does NOT complete! ===
+    // Card 1 reappears for 2nd evaluation!
+    await waitFor(() => expect(screen.getByText("کارت آزمایش سخت")).toBeDefined());
+    expect(screen.queryByText("مرور تمام شد!")).toBeNull();
+
+    // === SCENARIO 2: Hard 2nd time on Card 1 -> NOT completed, moves to Card 2 ===
+    fireEvent.click(screen.getByText("کارت آزمایش سخت"));
+    await waitFor(() => expect(screen.getByText("سخت")).toBeDefined());
+    fireEvent.click(screen.getByText("سخت"));
+
+    // === SCENARIO 5 (part 2): Good 2nd time on Card 2 -> GRADUATED! (finished count = 1) ===
+    await waitFor(() => expect(screen.getByText("کارت آزمایش خوب")).toBeDefined());
+    fireEvent.click(screen.getByText("کارت آزمایش خوب"));
+    await waitFor(() => expect(screen.getByText("خوب")).toBeDefined());
+    fireEvent.click(screen.getByText("خوب"));
+
+    // Card 1 reappears for 3rd evaluation! (Card 2 graduated, so only Card 1 remains)
+    await waitFor(() => expect(screen.getByText("کارت آزمایش سخت")).toBeDefined());
+    expect(screen.queryByText("مرور تمام شد!")).toBeNull();
+
+    // === SCENARIO 3: Hard 3rd time on Card 1 -> NOT completed, reappears in queue ===
+    fireEvent.click(screen.getByText("کارت آزمایش سخت"));
+    await waitFor(() => expect(screen.getByText("سخت")).toBeDefined());
+    fireEvent.click(screen.getByText("سخت"));
+
+    // Card 1 reappears for 4th evaluation!
+    await waitFor(() => expect(screen.getByText("کارت آزمایش سخت")).toBeDefined());
+    expect(screen.queryByText("مرور تمام شد!")).toBeNull();
+
+    // === SCENARIO 4: Hard 4th time on Card 1 -> GRADUATED! (All 2 cards graduated -> Session completes!) ===
+    fireEvent.click(screen.getByText("کارت آزمایش سخت"));
+    await waitFor(() => expect(screen.getByText("سخت")).toBeDefined());
+    fireEvent.click(screen.getByText("سخت"));
+
+    // Session now successfully completes!
+    await waitFor(() => {
+      expect(screen.getByText("مرور تمام شد!")).toBeDefined();
+    });
   });
 });

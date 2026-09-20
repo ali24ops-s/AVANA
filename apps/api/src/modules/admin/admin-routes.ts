@@ -15,6 +15,7 @@ import {
   asDocumentId,
   asProductId,
   asContentPackId,
+  asCoursePublicationId,
   buildAdminContentPackPreview,
   type Role,
   type UserId,
@@ -32,16 +33,26 @@ import { getPromptRegistry } from "../generation/prompt-registry.js";
 import type { OfficialContentService } from "./official-content-service.js";
 import type { ContentPackStore } from "../library/library-store.js";
 import type { CommerceStore } from "../commerce/commerce-store.js";
+import type { PromotionService } from "../commerce/promotion-service.js";
 import type { AuditService } from "../../observability/audit-service.js";
 import type { DeviceService } from "../identity/device-service.js";
 import type { ContentExportService } from "./content-export-service.js";
 import type { ContentImportService } from "./content-import-service.js";
 import type { ExportScope } from "./content-export-import-types.js";
 import type { OrganizationStore } from "../organizations/organization-store.js";
-import type { CourseStore } from "../courses/course-store.js";
+import type { CourseStore, CoursePublicationStore } from "../courses/course-store.js";
+import type {
+  ModuleStore,
+  SubCourseGroupStore,
+} from "../learning/learning-store.js";
+import {
+  DrizzleModuleStore,
+  DrizzleSubCourseGroupStore,
+} from "../learning/drizzle-stores.js";
 import type { StudyService } from "../study/study-service.js";
 import type { SpecialExamAutomationService } from "../study/special-exam-automation-service.js";
 import type { NotificationService } from "../notifications/notification-service.js";
+import type { WalletService } from "../wallet/wallet-service.js";
 import {
   type ContentReportStore,
   DrizzleContentReportStore,
@@ -52,6 +63,10 @@ import {
   calculateSpecialExamPrice,
   parseCourseId,
   parseModuleId,
+  parseSubCourseGroupId,
+  asSubCourseGroupId,
+  type SubCourseGroupId,
+  type ModuleId,
   type ExamBlueprintItem,
   type SpecialExamScope,
 } from "@avana/domain";
@@ -65,6 +80,7 @@ export interface AdminRouteOptions extends AuthMiddlewareDeps {
   generationJobStore?: GenerationJobStore;
   officialContentService?: OfficialContentService;
   contentPackStore?: ContentPackStore;
+  coursePublicationStore?: CoursePublicationStore;
   commerceStore?: CommerceStore;
   studyService?: StudyService;
   specialExamAutomationService?: SpecialExamAutomationService;
@@ -74,16 +90,21 @@ export interface AdminRouteOptions extends AuthMiddlewareDeps {
   systemOrganizationId?: string;
   organizationStore?: OrganizationStore;
   courseStore?: CourseStore;
+  moduleStore?: ModuleStore;
+  subCourseGroupStore?: SubCourseGroupStore;
   contentReportStore?: ContentReportStore;
   notificationService?: NotificationService;
+  walletService?: WalletService;
+  promotionService?: PromotionService;
+  referralService?: import("../referral/referral-service.js").ReferralService;
 }
 
 export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
   app,
   opts,
 ) => {
-  const { sessionService, userStore, adminStore } = opts;
-  const adminService = new AdminService(adminStore);
+  const { sessionService, userStore, adminStore, walletService, commerceStore, notificationService, promotionService, referralService, studyService } = opts;
+  const adminService = new AdminService(adminStore, walletService, commerceStore, notificationService, promotionService, referralService, studyService);
   const { requireAuth, requireRole } = makeAuthMiddleware({ sessionService, userStore });
 
   const contentReportStore: ContentReportStore =
@@ -343,6 +364,271 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
       return reply.send(data);
     } catch (error) {
       request.log.error({ err: error }, "Failed to get course hierarchy");
+      return reply.status(500).send({ code: "internal_error" });
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // Course Sub-Course Groups & Module Reordering Endpoints
+  // ---------------------------------------------------------------------------
+
+  const subCourseGroupStore: SubCourseGroupStore =
+    opts.subCourseGroupStore ??
+    ((opts.adminStore as any)?.db
+      ? new DrizzleSubCourseGroupStore((opts.adminStore as any).db)
+      : (opts.adminStore as any)?.learningStores?.subCourseGroupStore);
+
+  const moduleStore: ModuleStore =
+    opts.moduleStore ??
+    ((opts.adminStore as any)?.db
+      ? new DrizzleModuleStore((opts.adminStore as any).db)
+      : (opts.adminStore as any)?.learningStores?.moduleStore);
+
+  // 1. Create a new sub-course group
+  app.post<{
+    Params: { id: string };
+    Body: { title: string };
+  }>("/content/courses/:id/groups", async (request, reply) => {
+    try {
+      const courseId = parseCourseId(request.params.id);
+      const body = request.body || ({} as { title: string });
+      if (!body.title || !body.title.trim()) {
+        return reply.status(400).send({
+          code: "bad_request",
+          message: "عنوان گروه الزامی است.",
+        });
+      }
+
+      const existingGroups = await subCourseGroupStore.listByCourse(courseId);
+      const now = new Date().toISOString();
+      const newGroup = await subCourseGroupStore.create({
+        id: asSubCourseGroupId(randomUUID() as unknown as import("@avana/domain").UUID),
+        courseId,
+        title: body.title.trim(),
+        sortOrder: existingGroups.length,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      });
+
+      return reply.status(201).send({ success: true, group: newGroup });
+    } catch (error) {
+      if (error instanceof DomainError) {
+        return reply.status(error.code === "bad_request" ? 400 : 500).send({
+          code: error.code,
+          message: error.message,
+        });
+      }
+      request.log.error({ err: error }, "Failed to create sub-course group");
+      return reply.status(500).send({ code: "internal_error" });
+    }
+  });
+
+  // 2. Rename / update a sub-course group
+  app.patch<{
+    Params: { id: string; groupId: string };
+    Body: { title?: string; sortOrder?: number };
+  }>("/content/courses/:id/groups/:groupId", async (request, reply) => {
+    try {
+      const courseId = parseCourseId(request.params.id);
+      const groupId = parseSubCourseGroupId(request.params.groupId);
+      const body = request.body || {};
+
+      const existingGroup = await subCourseGroupStore.findById(groupId);
+      if (!existingGroup || existingGroup.courseId !== courseId) {
+        return reply.status(404).send({
+          code: "not_found",
+          message: "گروه مورد نظر در این دوره یافت نشد.",
+        });
+      }
+
+      const updated = await subCourseGroupStore.update({
+        ...existingGroup,
+        title: body.title !== undefined ? body.title.trim() : existingGroup.title,
+        sortOrder: body.sortOrder !== undefined ? body.sortOrder : existingGroup.sortOrder,
+        updatedAt: new Date().toISOString(),
+      });
+
+      return reply.send({ success: true, group: updated });
+    } catch (error) {
+      if (error instanceof DomainError) {
+        return reply.status(error.code === "bad_request" ? 400 : error.code === "not_found" ? 404 : 500).send({
+          code: error.code,
+          message: error.message,
+        });
+      }
+      request.log.error({ err: error }, "Failed to update sub-course group");
+      return reply.status(500).send({ code: "internal_error" });
+    }
+  });
+
+  // 3. Delete a sub-course group (unlinks modules to null, does not delete modules)
+  app.delete<{
+    Params: { id: string; groupId: string };
+  }>("/content/courses/:id/groups/:groupId", async (request, reply) => {
+    try {
+      const courseId = parseCourseId(request.params.id);
+      const groupId = parseSubCourseGroupId(request.params.groupId);
+
+      const existingGroup = await subCourseGroupStore.findById(groupId);
+      if (!existingGroup || existingGroup.courseId !== courseId) {
+        return reply.status(404).send({
+          code: "not_found",
+          message: "گروه مورد نظر در این دوره یافت نشد.",
+        });
+      }
+
+      await subCourseGroupStore.delete(groupId);
+      return reply.send({ success: true });
+    } catch (error) {
+      if (error instanceof DomainError) {
+        return reply.status(error.code === "not_found" ? 404 : 500).send({
+          code: error.code,
+          message: error.message,
+        });
+      }
+      request.log.error({ err: error }, "Failed to delete sub-course group");
+      return reply.status(500).send({ code: "internal_error" });
+    }
+  });
+
+  // 4. Reorder groups within a course
+  app.put<{
+    Params: { id: string };
+    Body: { groupIds: string[] };
+  }>("/content/courses/:id/groups/reorder", async (request, reply) => {
+    try {
+      const courseId = parseCourseId(request.params.id);
+      const body = request.body || ({} as { groupIds: string[] });
+      if (!Array.isArray(body.groupIds)) {
+        return reply.status(400).send({
+          code: "bad_request",
+          message: "groupIds باید آرایه‌ای از شناسه‌ها باشد.",
+        });
+      }
+
+      const existingGroups = await subCourseGroupStore.listByCourse(courseId);
+      const groupMap = new Map(existingGroups.map((g) => [g.id, g]));
+
+      const validGroupIds: SubCourseGroupId[] = [];
+      for (const rawId of body.groupIds) {
+        const gid = parseSubCourseGroupId(rawId);
+        if (!groupMap.has(gid)) {
+          return reply.status(400).send({
+            code: "bad_request",
+            message: `گروه ${rawId} متعلق به این دوره نیست.`,
+          });
+        }
+        validGroupIds.push(gid);
+      }
+
+      await subCourseGroupStore.reorder(courseId, validGroupIds);
+      return reply.send({ success: true });
+    } catch (error) {
+      if (error instanceof DomainError) {
+        return reply.status(error.code === "bad_request" ? 400 : 500).send({
+          code: error.code,
+          message: error.message,
+        });
+      }
+      request.log.error({ err: error }, "Failed to reorder sub-course groups");
+      return reply.status(500).send({ code: "internal_error" });
+    }
+  });
+
+  // 5. Reorder and assign/move modules within a course (with Course Isolation enforcement)
+  app.put<{
+    Params: { id: string };
+    Body: {
+      items: Array<{
+        id: string;
+        sortOrder: number;
+        subCourseGroupId?: string | null;
+      }>;
+    };
+  }>("/content/courses/:id/modules/reorder", async (request, reply) => {
+    try {
+      const courseId = parseCourseId(request.params.id);
+      const body = request.body || ({} as { items: Array<{ id: string; sortOrder: number; subCourseGroupId?: string | null }> });
+      if (!Array.isArray(body.items)) {
+        return reply.status(400).send({
+          code: "bad_request",
+          message: "items باید آرایه‌ای از فصل‌ها با ترتیب باشد.",
+        });
+      }
+
+      // Fetch course modules and course groups for strict ownership validation
+      const [existingModules, existingGroups] = await Promise.all([
+        moduleStore.listByCourse(courseId),
+        subCourseGroupStore.listByCourse(courseId),
+      ]);
+      const moduleMap = new Map(existingModules.map((m) => [m.id, m]));
+      const groupMap = new Map(existingGroups.map((g) => [g.id, g]));
+
+      const validatedItems: Array<{
+        id: ModuleId;
+        sortOrder: number;
+        subCourseGroupId?: SubCourseGroupId | null;
+      }> = [];
+
+      for (const item of body.items) {
+        const modId = parseModuleId(item.id);
+        if (!moduleMap.has(modId)) {
+          return reply.status(400).send({
+            code: "bad_request",
+            message: `فصل با شناسه ${item.id} متعلق به این دوره نیست.`,
+          });
+        }
+
+        let groupIdVal: SubCourseGroupId | null | undefined = undefined;
+        if (item.subCourseGroupId !== undefined) {
+          if (item.subCourseGroupId === null || item.subCourseGroupId === "") {
+            groupIdVal = null;
+          } else {
+            const parsedGid = parseSubCourseGroupId(item.subCourseGroupId);
+            // Strict Course-Safe Invariant Check: Group MUST belong to this course!
+            if (!groupMap.has(parsedGid)) {
+              return reply.status(400).send({
+                code: "bad_request",
+                message: `گروه انتخابی با شناسه ${item.subCourseGroupId} متعلق به این دوره نیست.`,
+              });
+            }
+            groupIdVal = parsedGid;
+          }
+        }
+
+        validatedItems.push({
+          id: modId,
+          sortOrder: typeof item.sortOrder === "number" ? item.sortOrder : 0,
+          subCourseGroupId: groupIdVal,
+        });
+      }
+
+      if (typeof moduleStore.reorder === "function") {
+        await moduleStore.reorder(courseId, validatedItems);
+      } else {
+        for (const v of validatedItems) {
+          const mod = moduleMap.get(v.id);
+          if (mod) {
+            mod.sortOrder = v.sortOrder;
+            if (v.subCourseGroupId !== undefined) {
+              mod.subCourseGroupId = v.subCourseGroupId;
+            }
+            mod.updatedAt = new Date().toISOString();
+            await moduleStore.update(mod);
+          }
+        }
+      }
+
+      return reply.send({ success: true });
+    } catch (error) {
+      if (error instanceof DomainError) {
+        return reply.status(error.code === "bad_request" ? 400 : 500).send({
+          code: error.code,
+          message: error.message,
+        });
+      }
+      request.log.error({ err: error }, "Failed to reorder modules");
       return reply.status(500).send({ code: "internal_error" });
     }
   });
@@ -854,7 +1140,11 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
         await opts.adminStore.retryGenerationJob(user.userId, id);
         
         if (opts.generationQueue) {
-          await opts.generationQueue.enqueueGenerationJob(job.payload as unknown as GenerationJobPayload);
+          const retryPayload: GenerationJobPayload = {
+            ...(job.payload as unknown as GenerationJobPayload),
+            generationContext: "admin",
+          };
+          await opts.generationQueue.enqueueGenerationJob(retryPayload);
         }
         
         return reply.status(200).send({ success: true });
@@ -918,6 +1208,8 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
         status?: string;
         from?: string;
         to?: string;
+        category?: string;
+        productType?: string;
       };
       const page = parseInt(query.page || "1", 10);
       const pageSize = parseInt(query.pageSize || "20", 10);
@@ -930,6 +1222,8 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
         status: query.status,
         from: query.from,
         to: query.to,
+        category: query.category,
+        productType: query.productType,
       });
       return reply.send(result);
     } catch (error) {
@@ -1035,6 +1329,79 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
       if (err.message === "not_found") {
         return reply.status(404).send({ code: "not_found", message: "محصول یافت نشد." });
       }
+      if (err.code === "bad_request" || (error instanceof DomainError && error.code === "bad_request")) {
+        return reply.status(400).send({ code: "invalid_input", message: err.message || "ورودی نامعتبر است." });
+      }
+      return reply.status(500).send({ code: "internal_error", message: err.message || "خطای سرور" });
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // Content Generation Reference Pricing Configuration
+  // ---------------------------------------------------------------------------
+
+  app.get("/commerce/content-pricing", async (_request, reply) => {
+    try {
+      const pricing = await adminService.getContentGenerationPricing();
+      return reply.send(pricing);
+    } catch (error) {
+      _request.log.error({ err: error }, "Failed to get content generation pricing");
+      return reply.status(500).send({ code: "internal_error" });
+    }
+  });
+
+  app.put<{
+    Body: {
+      lessonBaselinePriceToman?: number;
+      flashcardBaselinePriceToman?: number;
+      examBaselinePriceToman?: number;
+      summaryFixedPriceToman?: number;
+    };
+  }>("/commerce/content-pricing", async (request, reply) => {
+    const user = (request as unknown as { user: { userId: string; email: string; role: string } }).user;
+    const body = request.body || {};
+
+    try {
+      const updated = await adminService.updateContentGenerationPricing(user.userId, body);
+      return reply.status(200).send({ success: true, pricing: updated });
+    } catch (error: unknown) {
+      const err = error as { message?: string; code?: string };
+      request.log.error({ err: error }, "Failed to update content generation pricing");
+
+      if (err.code === "bad_request" || (error instanceof DomainError && error.code === "bad_request")) {
+        return reply.status(400).send({ code: "invalid_input", message: err.message || "ورودی نامعتبر است." });
+      }
+      return reply.status(500).send({ code: "internal_error", message: err.message || "خطای سرور" });
+    }
+  });
+
+  app.get("/commerce/subscription-bonuses", async (_request, reply) => {
+    try {
+      const bonuses = await adminService.getSubscriptionCreditBonuses();
+      return reply.send(bonuses);
+    } catch (error) {
+      _request.log.error({ err: error }, "Failed to get subscription credit bonuses");
+      return reply.status(500).send({ code: "internal_error" });
+    }
+  });
+
+  app.put<{
+    Body: {
+      monthly?: number;
+      quarterly?: number;
+      annual?: number;
+    };
+  }>("/commerce/subscription-bonuses", async (request, reply) => {
+    const user = (request as unknown as { user: { userId: string; email: string; role: string } }).user;
+    const body = request.body || {};
+
+    try {
+      const updated = await adminService.updateSubscriptionCreditBonuses(user.userId, body);
+      return reply.status(200).send({ success: true, bonuses: updated });
+    } catch (error: unknown) {
+      const err = error as { message?: string; code?: string };
+      request.log.error({ err: error }, "Failed to update subscription credit bonuses");
+
       if (err.code === "bad_request" || (error instanceof DomainError && error.code === "bad_request")) {
         return reply.status(400).send({ code: "invalid_input", message: err.message || "ورودی نامعتبر است." });
       }
@@ -1377,6 +1744,122 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
   });
 
   // ---------------------------------------------------------------------------
+  // Commerce Promotions / Discount Codes Routes
+  // ---------------------------------------------------------------------------
+
+  app.get<{
+    Querystring: {
+      page?: string;
+      pageSize?: string;
+      search?: string;
+      active?: string;
+      benefitType?: string;
+    };
+  }>("/commerce/promotions", async (request, reply) => {
+    const page = parseInt(request.query.page || "1", 10);
+    const pageSize = parseInt(request.query.pageSize || "20", 10);
+    const search = request.query.search;
+    const active = request.query.active !== undefined ? request.query.active === "true" : undefined;
+    const benefitType = request.query.benefitType;
+
+    const result = await adminService.listCommercePromotions({
+      page,
+      pageSize,
+      search,
+      active,
+      benefitType,
+    });
+    return reply.status(200).send(result);
+  });
+
+  app.post<{
+    Body: any;
+  }>("/commerce/promotions", async (request, reply) => {
+    const user = (request as unknown as { user: { userId: string; email: string; role: string } }).user;
+    const body = (request.body ?? {}) as import("./admin-store.js").CreateAdminPromotionInput;
+
+    const result = await adminService.createCommercePromotion(user.userId, body);
+    return reply.status(201).send(result);
+  });
+
+  app.get<{
+    Params: { promotionId: string };
+  }>("/commerce/promotions/:promotionId", async (request, reply) => {
+    const { promotionId } = request.params;
+    const result = await adminService.getCommercePromotion(promotionId);
+    return reply.status(200).send(result);
+  });
+
+  app.patch<{
+    Params: { promotionId: string };
+    Body: any;
+  }>("/commerce/promotions/:promotionId", async (request, reply) => {
+    const user = (request as unknown as { user: { userId: string; email: string; role: string } }).user;
+    const { promotionId } = request.params;
+    const body = request.body || {};
+
+    const result = await adminService.updateCommercePromotion(user.userId, promotionId, body);
+    return reply.status(200).send(result);
+  });
+
+  app.patch<{
+    Params: { promotionId: string };
+    Body: { active: boolean };
+  }>("/commerce/promotions/:promotionId/toggle-active", async (request, reply) => {
+    const user = (request as unknown as { user: { userId: string; email: string; role: string } }).user;
+    const { promotionId } = request.params;
+    const { active } = request.body || {};
+
+    const result = await adminService.toggleCommercePromotionActive(
+      user.userId,
+      promotionId,
+      Boolean(active),
+    );
+    return reply.status(200).send(result);
+  });
+
+  app.delete<{
+    Params: { promotionId: string };
+  }>("/commerce/promotions/:promotionId", async (request, reply) => {
+    const user = (request as unknown as { user: { userId: string; email: string; role: string } }).user;
+    const { promotionId } = request.params;
+
+    const result = await adminService.deleteCommercePromotion(user.userId, promotionId);
+    return reply.status(200).send(result);
+  });
+
+  app.post<{
+    Params: { promotionId: string };
+    Body: { count: number; prefix?: string; length?: number; maxUses?: number };
+  }>("/commerce/promotions/:promotionId/generate-codes", async (request, reply) => {
+    const user = (request as unknown as { user: { userId: string; email: string; role: string } }).user;
+    const { promotionId } = request.params;
+    const body = request.body || ({} as { count: number; prefix?: string; length?: number; maxUses?: number });
+
+    const result = await adminService.bulkGenerateCommercePromotionCodes(
+      user.userId,
+      promotionId,
+      body,
+    );
+    return reply.status(201).send(result);
+  });
+
+  app.get<{
+    Params: { promotionId: string };
+    Querystring: { page?: string; pageSize?: string };
+  }>("/commerce/promotions/:promotionId/redemptions", async (request, reply) => {
+    const { promotionId } = request.params;
+    const page = parseInt(request.query.page || "1", 10);
+    const pageSize = parseInt(request.query.pageSize || "20", 10);
+
+    const result = await adminService.listCommercePromotionRedemptions(promotionId, {
+      page,
+      pageSize,
+    });
+    return reply.status(200).send(result);
+  });
+
+  // ---------------------------------------------------------------------------
   // Official Content Studio Routes
   // ---------------------------------------------------------------------------
 
@@ -1489,6 +1972,19 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
       const suggestion = await officialContentService.getSuggestedPriceForLesson(
         { userId: asUserId(user.userId as unknown as import("@avana/domain").UUID), role: user.role },
         id as LessonId,
+      );
+      return reply.send({ success: true, ...suggestion });
+    });
+
+    // 6.7 Get Course Pricing Suggestion (Volume-Based Breakdown with 15% discount & Current Product Preview)
+    app.get<{
+      Params: { id: string };
+    }>("/content-studio/courses/:id/pricing-suggestion", async (request, reply) => {
+      const user = (request as unknown as { user: { userId: string; role: Role } }).user;
+      const { id } = request.params;
+      const suggestion = await officialContentService.getSuggestedPriceForCourse(
+        { userId: asUserId(user.userId as unknown as import("@avana/domain").UUID), role: user.role },
+        id as CourseId,
       );
       return reply.send({ success: true, ...suggestion });
     });
@@ -1981,6 +2477,475 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
     return reply.send({
       success: true,
       pack: updatedPack,
+    });
+  });
+
+  // =========================================================================
+  // Community Course Submissions Review & Moderation Endpoints
+  // =========================================================================
+
+  // 1. List Community Course Submissions
+  app.get("/course-submissions", async (request, reply) => {
+    if (!opts.coursePublicationStore) {
+      return reply.status(500).send({
+        code: "internal_error",
+        message: "CoursePublicationStore not configured",
+      });
+    }
+    const query = request.query as {
+      page?: string;
+      pageSize?: string;
+      status?: string;
+      search?: string;
+    };
+    const page = Math.max(1, query.page ? parseInt(query.page, 10) : 1);
+    const pageSize = Math.max(
+      1,
+      Math.min(100, query.pageSize ? parseInt(query.pageSize, 10) : 20),
+    );
+
+    const { items, totalCount } = await opts.coursePublicationStore.listAll({
+      status: query.status,
+      search: query.search,
+      page,
+      limit: pageSize,
+    });
+
+    const enrichedItems = await Promise.all(
+      items.map(async (pub) => {
+        let creatorInfo = null;
+        if (opts.contentPackStore && typeof opts.contentPackStore.getCreatorPublicInfo === "function") {
+          creatorInfo = await opts.contentPackStore.getCreatorPublicInfo(
+            pub.creatorUserId,
+          );
+        }
+        let product = null;
+        if (opts.commerceStore) {
+          product = await opts.commerceStore.findProductByTarget(
+            "course_publication",
+            pub.id,
+          );
+          if (!product) {
+            product = await opts.commerceStore.findProductByTarget(
+              "course",
+              pub.courseId,
+            );
+          }
+        }
+        return {
+          id: pub.id,
+          courseId: pub.courseId,
+          version: pub.version,
+          title: pub.title,
+          description: pub.description,
+          subject: pub.subject,
+          status: pub.status,
+          creator: {
+            id: creatorInfo?.id ?? (pub.creatorUserId as string) ?? "",
+            name: creatorInfo?.name ?? "کاربر آوانا",
+          },
+          stats: pub.snapshot.stats || {
+            chaptersCount: pub.snapshot.chapters.length,
+            modulesCount: 0,
+            lessonsCount: 0,
+            flashcardsCount: 0,
+            quizQuestionsCount: 0,
+            estimatedMinutes: 0,
+          },
+          accessType: pub.metadata.accessType ?? "paid",
+          rejectionReason: pub.metadata.rejectionReason ?? null,
+          reviewedAt: pub.metadata.reviewedAt ?? null,
+          pricing: {
+            is_free: pub.metadata.accessType === "free",
+            price: product?.price ?? 0,
+            currency: product?.currency ?? "toman",
+            product_id: product?.id ?? null,
+          },
+          product: product
+            ? {
+                id: product.id,
+                code: product.code,
+                price: product.price,
+                currency: product.currency,
+                active: product.active,
+              }
+            : null,
+          publishedAt: pub.publishedAt,
+          submittedAt: pub.createdAt,
+          createdAt: pub.createdAt,
+          updatedAt: pub.updatedAt,
+        };
+      }),
+    );
+
+    const totalPages = Math.ceil(totalCount / pageSize) || 1;
+    return reply.send({
+      items: enrichedItems,
+      totalCount,
+      page,
+      pageSize,
+      totalPages,
+      pagination: {
+        page,
+        limit: pageSize,
+        total_count: totalCount,
+        total_pages: totalPages,
+      },
+    });
+  });
+
+  // 2. Get Single Community Course Submission Detail for Review
+  app.get<{ Params: { id: string } }>("/course-submissions/:id", async (request, reply) => {
+    if (!opts.coursePublicationStore) {
+      return reply.status(500).send({
+        code: "internal_error",
+        message: "CoursePublicationStore not configured",
+      });
+    }
+    const pubId = asCoursePublicationId(request.params.id as any);
+    const pub = await opts.coursePublicationStore.findById(pubId);
+    if (!pub) {
+      return reply.status(404).send({
+        code: "not_found",
+        message: "درخواست انتشار دوره یافت نشد.",
+      });
+    }
+
+    let creatorInfo = null;
+    if (opts.contentPackStore && typeof opts.contentPackStore.getCreatorPublicInfo === "function") {
+      creatorInfo = await opts.contentPackStore.getCreatorPublicInfo(pub.creatorUserId);
+    }
+
+    let product = null;
+    if (opts.commerceStore) {
+      product = await opts.commerceStore.findProductByTarget(
+        "course_publication",
+        pub.id,
+      );
+      if (!product) {
+        product = await opts.commerceStore.findProductByTarget(
+          "course",
+          pub.courseId,
+        );
+      }
+    }
+
+    return reply.send({
+      publication: {
+        id: pub.id,
+        courseId: pub.courseId,
+        version: pub.version,
+        title: pub.title,
+        description: pub.description,
+        subject: pub.subject,
+        status: pub.status,
+        creator: {
+          id: creatorInfo?.id ?? (pub.creatorUserId as string) ?? "",
+          name: creatorInfo?.name ?? "کاربر آوانا",
+        },
+        stats: pub.snapshot.stats,
+        accessType: pub.metadata.accessType ?? "paid",
+        rejectionReason: pub.metadata.rejectionReason ?? null,
+        reviewedAt: pub.metadata.reviewedAt ?? null,
+        pricing: {
+          is_free: pub.metadata.accessType === "free",
+          price: product?.price ?? 0,
+          currency: product?.currency ?? "toman",
+          product_id: product?.id ?? null,
+        },
+        publishedAt: pub.publishedAt,
+        submittedAt: pub.createdAt,
+        createdAt: pub.createdAt,
+        updatedAt: pub.updatedAt,
+      },
+      snapshot: pub.snapshot,
+      product: product
+        ? {
+            id: product.id,
+            code: product.code,
+            price: product.price,
+            currency: product.currency,
+            active: product.active,
+          }
+        : null,
+    });
+  });
+
+  // 3. Approve Course Submission (Set accessType and price in Tomans)
+  app.post<{
+    Params: { id: string };
+    Body: { accessType: "free" | "paid"; price?: number };
+  }>("/course-submissions/:id/approve", async (request, reply) => {
+    if (!opts.coursePublicationStore) {
+      return reply.status(500).send({
+        code: "internal_error",
+        message: "CoursePublicationStore not configured",
+      });
+    }
+    const user = (request as unknown as { user: { userId: string; role: Role } }).user;
+    const pubId = asCoursePublicationId(request.params.id as any);
+    const pub = await opts.coursePublicationStore.findById(pubId);
+    if (!pub) {
+      return reply.status(404).send({
+        code: "not_found",
+        message: "درخواست انتشار دوره یافت نشد.",
+      });
+    }
+
+    const body = request.body || ({} as any);
+    const accessType = body.accessType;
+    if (accessType !== "free" && accessType !== "paid") {
+      return reply.status(400).send({
+        code: "bad_request",
+        message: "نوع دسترسی (accessType) باید 'free' یا 'paid' باشد.",
+      });
+    }
+
+    let activeProductRecord: any = null;
+    const priceTomans = (body as any).priceTomans ?? (body as any).price;
+
+    if (accessType === "paid") {
+      if (
+        typeof priceTomans !== "number" ||
+        !Number.isInteger(priceTomans) ||
+        priceTomans <= 0
+      ) {
+        return reply.status(400).send({
+          code: "bad_request",
+          message:
+            "برای دوره آموزشی پولی، قیمت معتبر به تومان الزامی است (بزرگتر از صفر).",
+        });
+      }
+
+      if (opts.commerceStore) {
+        const existingProduct = await opts.commerceStore.findProductByTarget(
+          "course_publication",
+          pub.id,
+        );
+        if (existingProduct) {
+          activeProductRecord = await opts.commerceStore.updateProduct(
+            existingProduct.id,
+            {
+              price: priceTomans,
+              currency: "toman",
+              active: true,
+              title: pub.title,
+              description: pub.description,
+            },
+          );
+        } else {
+          activeProductRecord = await opts.commerceStore.createProduct({
+            id: asProductId(randomUUID()),
+            code: `course_pub_${pub.id}`,
+            type: "course",
+            title: pub.title,
+            description: pub.description,
+            price: priceTomans,
+            currency: "toman",
+            targetType: "course_publication",
+            targetId: pub.id,
+            durationDays: null,
+            active: true,
+            metadata: { coursePublicationId: pub.id, courseId: pub.courseId },
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            deletedAt: null,
+          });
+        }
+      }
+    } else {
+      // accessType === "free"
+      if (opts.commerceStore) {
+        const existingProduct = await opts.commerceStore.findProductByTarget(
+          "course_publication",
+          pub.id,
+        );
+        if (existingProduct) {
+          await opts.commerceStore.updateProduct(existingProduct.id, {
+            active: false,
+          });
+        }
+      }
+    }
+
+    const now = new Date().toISOString();
+    const updatedMetadata = {
+      ...pub.metadata,
+      accessType,
+      rejectionReason: null,
+      reviewedAt: now,
+      reviewedByUserId: user.userId,
+    };
+
+    const updatedPub = await opts.coursePublicationStore.updateStatus(
+      pub.id,
+      "published",
+      updatedMetadata,
+      now,
+    );
+
+    if (opts.courseStore) {
+      try {
+        const c = await opts.courseStore.findById(pub.courseId);
+        if (c) {
+          await opts.courseStore.update({
+            ...c,
+            status: "published",
+            updatedAt: now,
+          });
+        }
+      } catch {
+        // Non-blocking
+      }
+    }
+
+    if (opts.auditService) {
+      await opts.auditService.emit([
+        {
+          actorId: asUserId(user.userId as any),
+          organizationId: pub.organizationId,
+          action: "course_publication.approved",
+          entityType: "course_publication",
+          entityId: pub.id,
+          createdAt: now,
+          details: {
+            accessType,
+            price: accessType === "paid" ? priceTomans : 0,
+            productId: activeProductRecord?.id ?? null,
+            courseId: pub.courseId,
+            version: pub.version,
+          },
+        },
+      ]);
+    }
+
+    if (opts.notificationService && pub.creatorUserId) {
+      try {
+        await opts.notificationService.createForUser(pub.creatorUserId, {
+          type: "course_published",
+          title: "انتشار دوره در کتابخانه",
+          message: `دوره «${pub.title}» با موفقیت بررسی و در کتابخانه عمومی آوانا منتشر شد.`,
+          actionUrl: `/courses/${pub.courseId}`,
+        });
+      } catch {
+        // Non-blocking notification
+      }
+    }
+
+    return reply.send({
+      success: true,
+      status: updatedPub.status,
+      id: updatedPub.id,
+      publication: updatedPub,
+      accessType,
+      priceTomans: accessType === "paid" ? priceTomans : 0,
+      productId: activeProductRecord?.id ?? null,
+      product: activeProductRecord,
+    });
+  });
+
+  // 4. Reject Community Course Submission
+  app.post<{
+    Params: { id: string };
+    Body: { reason?: string; rejectionReason?: string };
+  }>("/course-submissions/:id/reject", async (request, reply) => {
+    if (!opts.coursePublicationStore) {
+      return reply.status(500).send({
+        code: "internal_error",
+        message: "CoursePublicationStore not configured",
+      });
+    }
+    const user = (request as unknown as { user: { userId: string; role: Role } }).user;
+    const pubId = asCoursePublicationId(request.params.id as any);
+    const pub = await opts.coursePublicationStore.findById(pubId);
+    if (!pub) {
+      return reply.status(404).send({
+        code: "not_found",
+        message: "درخواست انتشار دوره یافت نشد.",
+      });
+    }
+
+    const body = request.body || {};
+
+    if (opts.commerceStore) {
+      const existingProduct = await opts.commerceStore.findProductByTarget(
+        "course_publication",
+        pub.id,
+      );
+      if (existingProduct) {
+        await opts.commerceStore.updateProduct(existingProduct.id, {
+          active: false,
+        });
+      }
+    }
+
+    const reason = ((body as any).rejectionReason ?? (body as any).reason)?.trim() || null;
+    const now = new Date().toISOString();
+    const updatedMetadata = {
+      ...pub.metadata,
+      rejectionReason: reason,
+      reviewedAt: now,
+      reviewedByUserId: user.userId,
+    };
+
+    const updatedPub = await opts.coursePublicationStore.updateStatus(
+      pub.id,
+      "rejected",
+      updatedMetadata,
+    );
+
+    if (opts.courseStore) {
+      try {
+        const c = await opts.courseStore.findById(pub.courseId);
+        if (c) {
+          await opts.courseStore.update({
+            ...c,
+            status: "draft",
+            updatedAt: now,
+          });
+        }
+      } catch {
+        // Non-blocking
+      }
+    }
+
+    if (opts.auditService) {
+      await opts.auditService.emit([
+        {
+          actorId: asUserId(user.userId as any),
+          organizationId: pub.organizationId,
+          action: "course_publication.rejected",
+          entityType: "course_publication",
+          entityId: pub.id,
+          createdAt: now,
+          details: {
+            reason: body.reason?.trim() || null,
+            courseId: pub.courseId,
+            version: pub.version,
+          },
+        },
+      ]);
+    }
+
+    if (opts.notificationService && pub.creatorUserId) {
+      try {
+        await opts.notificationService.createForUser(pub.creatorUserId, {
+          type: "course_rejected",
+          title: "رد درخواست انتشار دوره",
+          message: `درخواست انتشار دوره «${pub.title}» مورد تأیید قرار نگرفت.${body.reason ? ` علت: ${body.reason.trim()}` : ""}`,
+          actionUrl: `/courses/${pub.courseId}`,
+        });
+      } catch {
+        // Non-blocking notification
+      }
+    }
+
+    return reply.send({
+      success: true,
+      status: updatedPub.status,
+      id: updatedPub.id,
+      publication: updatedPub,
+      rejectionReason: reason,
     });
   });
 

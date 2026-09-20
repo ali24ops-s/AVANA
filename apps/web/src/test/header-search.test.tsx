@@ -149,7 +149,7 @@ describe("HeaderSearch Frontend Component Test Suite", () => {
     expect(input.value).toBe("");
   });
 
-  it("4. Displays categorized Shared Content results and navigates to Library with packId", async () => {
+  it("4. Displays categorized Educational Pack results and navigates to Library with packId", async () => {
     const searchMock = vi.fn().mockResolvedValue({
       request_id: "req-2",
       query: "آنتی",
@@ -157,23 +157,24 @@ describe("HeaderSearch Frontend Component Test Suite", () => {
       results: [
         {
           id: "pack-456",
-          type: "shared_content",
+          type: "educational_pack",
           title: "خلاصه آنتی‌بیوتیک‌ها",
-          subtitle: "فارماکولوژی • محتوای اشتراکی",
+          subtitle: "فارماکولوژی • بسته آموزشی",
           target_url: "/library?packId=pack-456",
         },
       ],
       grouped: {
         courses: [],
-        shared_content: [
+        educational_packs: [
           {
             id: "pack-456",
-            type: "shared_content",
+            type: "educational_pack",
             title: "خلاصه آنتی‌بیوتیک‌ها",
-            subtitle: "فارماکولوژی • محتوای اشتراکی",
+            subtitle: "فارماکولوژی • بسته آموزشی",
             target_url: "/library?packId=pack-456",
           },
         ],
+        shared_content: [],
       },
     });
 
@@ -187,11 +188,11 @@ describe("HeaderSearch Frontend Component Test Suite", () => {
     fireEvent.change(input, { target: { value: "آنتی" } });
 
     await waitFor(() => {
-      expect(screen.getByText("محتواهای به‌اشتراک‌گذاشته‌شده")).toBeInTheDocument();
+      expect(screen.getByText("بسته‌های آموزشی")).toBeInTheDocument();
       expect(screen.getByText("خلاصه آنتی‌بیوتیک‌ها")).toBeInTheDocument();
     });
 
-    // Click on shared content result
+    // Click on educational pack result
     const packBtn = screen.getByText("خلاصه آنتی‌بیوتیک‌ها").closest("button");
     expect(packBtn).toBeInTheDocument();
     fireEvent.click(packBtn!);
@@ -339,4 +340,185 @@ describe("HeaderSearch Frontend Component Test Suite", () => {
       expect(screen.queryByText("بافت‌شناسی")).not.toBeInTheDocument();
     });
   });
+
+  it("9. Supports keyboard navigation (ArrowDown, ArrowUp, Enter) to select search results", async () => {
+    const searchMock = vi.fn().mockResolvedValue({
+      request_id: "req-6",
+      query: "قلب",
+      total: 2,
+      results: [
+        {
+          id: "c-cardio-1",
+          type: "course",
+          title: "فیزیولوژی قلب",
+          target_url: "/courses/cardio-1",
+        },
+        {
+          id: "c-cardio-2",
+          type: "course",
+          title: "فارماکولوژی قلب",
+          target_url: "/courses/cardio-2",
+        },
+      ],
+      grouped: {
+        courses: [
+          {
+            id: "c-cardio-1",
+            type: "course",
+            title: "فیزیولوژی قلب",
+            target_url: "/courses/cardio-1",
+          },
+          {
+            id: "c-cardio-2",
+            type: "course",
+            title: "فارماکولوژی قلب",
+            target_url: "/courses/cardio-2",
+          },
+        ],
+        shared_content: [],
+      },
+    });
+
+    vi.spyOn(searchApiModule, "createSearchApi").mockReturnValue({
+      search: searchMock,
+    });
+
+    renderComponent();
+    const input = screen.getByPlaceholderText("جستجو در دوره‌ها و محتوا...");
+
+    fireEvent.change(input, { target: { value: "قلب" } });
+
+    await waitFor(() => {
+      expect(screen.getByText("فیزیولوژی قلب")).toBeInTheDocument();
+      expect(screen.getByText("فارماکولوژی قلب")).toBeInTheDocument();
+    });
+
+    // Press ArrowDown to select first item
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    const items = screen.getAllByRole("option");
+    expect(items[0]).toHaveAttribute("aria-selected", "true");
+    expect(items[1]).toHaveAttribute("aria-selected", "false");
+
+    // Press ArrowDown again to select second item
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(items[0]).toHaveAttribute("aria-selected", "false");
+    expect(items[1]).toHaveAttribute("aria-selected", "true");
+
+    // Press Enter to navigate
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(mockNavigate).toHaveBeenCalledWith("/courses/cardio-2");
+  });
+
+  it("10. Simultaneously displays both Courses and Educational Packs in grouped sections", async () => {
+    const searchMock = vi.fn().mockResolvedValue({
+      request_id: "req-7",
+      query: "ژنتیک",
+      total: 2,
+      results: [
+        {
+          id: "course-genetics",
+          type: "course",
+          title: "ژنتیک پایه",
+          subtitle: "پزشکی",
+          target_url: "/courses/course-genetics",
+        },
+        {
+          id: "pack-genetics",
+          type: "educational_pack",
+          title: "بسته آموزشی ژنتیک مولکولی",
+          subtitle: "پزشکی • بسته آموزشی",
+          target_url: "/library?packId=pack-genetics",
+        },
+      ],
+      grouped: {
+        courses: [
+          {
+            id: "course-genetics",
+            type: "course",
+            title: "ژنتیک پایه",
+            subtitle: "پزشکی",
+            target_url: "/courses/course-genetics",
+          },
+        ],
+        educational_packs: [
+          {
+            id: "pack-genetics",
+            type: "educational_pack",
+            title: "بسته آموزشی ژنتیک مولکولی",
+            subtitle: "پزشکی • بسته آموزشی",
+            target_url: "/library?packId=pack-genetics",
+          },
+        ],
+      },
+    });
+
+    vi.spyOn(searchApiModule, "createSearchApi").mockReturnValue({
+      search: searchMock,
+    });
+
+    renderComponent();
+    const input = screen.getByPlaceholderText("جستجو در دوره‌ها و محتوا...");
+
+    fireEvent.change(input, { target: { value: "ژنتیک" } });
+
+    await waitFor(() => {
+      // Both headers exist
+      expect(screen.getByText("دوره‌ها")).toBeInTheDocument();
+      expect(screen.getByText("بسته‌های آموزشی")).toBeInTheDocument();
+
+      // Both items exist
+      expect(screen.getByText("ژنتیک پایه")).toBeInTheDocument();
+      expect(screen.getByText("بسته آموزشی ژنتیک مولکولی")).toBeInTheDocument();
+    });
+
+    // Selecting educational pack navigates to library pack ID
+    const packBtn = screen.getByText("بسته آموزشی ژنتیک مولکولی").closest("button");
+    fireEvent.click(packBtn!);
+    expect(mockNavigate).toHaveBeenCalledWith("/library?packId=pack-genetics");
+  });
+
+  it("11. Handles fallback navigation for Educational Pack when target_url is not set", async () => {
+    const searchMock = vi.fn().mockResolvedValue({
+      request_id: "req-8",
+      query: "نورولوژی",
+      total: 1,
+      results: [
+        {
+          id: "pack-neuro-99",
+          type: "educational_pack",
+          title: "بسته آموزشی اعصاب",
+          target_url: "",
+        },
+      ],
+      grouped: {
+        courses: [],
+        educational_packs: [
+          {
+            id: "pack-neuro-99",
+            type: "educational_pack",
+            title: "بسته آموزشی اعصاب",
+            target_url: "",
+          },
+        ],
+      },
+    });
+
+    vi.spyOn(searchApiModule, "createSearchApi").mockReturnValue({
+      search: searchMock,
+    });
+
+    renderComponent();
+    const input = screen.getByPlaceholderText("جستجو در دوره‌ها و محتوا...");
+
+    fireEvent.change(input, { target: { value: "نورولوژی" } });
+
+    await waitFor(() => {
+      expect(screen.getByText("بسته آموزشی اعصاب")).toBeInTheDocument();
+    });
+
+    const packBtn = screen.getByText("بسته آموزشی اعصاب").closest("button");
+    fireEvent.click(packBtn!);
+    expect(mockNavigate).toHaveBeenCalledWith("/library?packId=pack-neuro-99");
+  });
 });
+

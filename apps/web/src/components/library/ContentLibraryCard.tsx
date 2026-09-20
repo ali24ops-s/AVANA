@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import type { LibraryContentItem } from "../../lib/api/library.js";
 import { Card, Badge, Button } from "@avana/ui";
+import { toPersianDigits } from "@avana/domain";
 
 export interface ContentLibraryCardProps {
   content: LibraryContentItem;
@@ -127,7 +128,7 @@ export function ContentLibraryCard({ content, onBuy }: ContentLibraryCardProps) 
         {content.estimated_minutes && (
           <div className="flex items-center gap-1.5 text-[11px] text-[var(--color-text-muted)]">
             <Clock className="h-3 w-3 text-[var(--color-text-muted)]" />
-            <span>زمان مطالعه: ~{content.estimated_minutes} دقیقه</span>
+            <span>زمان مطالعه: ~{toPersianDigits(content.estimated_minutes)} دقیقه</span>
           </div>
         )}
 

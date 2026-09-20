@@ -43,15 +43,16 @@ export function ReviewPage() {
 
   if (isAuthLoading || orgQuery.isLoading || !organizationId) {
     return (
-      <div className="flex items-center justify-center py-20 min-h-screen bg-[var(--color-bg)]">
+      <div className="flex items-center justify-center h-screen h-[100dvh] w-full bg-[var(--color-bg-default)]">
         <Loader2 className="w-8 h-8 animate-spin text-[var(--color-primary)]" />
       </div>
     );
   }
 
   return (
-    <div className="w-full min-h-screen bg-[var(--color-bg)] text-[var(--color-text)] relative overflow-x-hidden font-sans" dir="rtl">
+    <div className="w-full h-screen h-[100dvh] bg-[var(--color-bg-default)] text-[var(--color-text)] relative overflow-hidden font-sans" dir="rtl">
       <FlashcardExperience
+        key={`${organizationId}-${sessionId || ""}-${courseIds.join(",")}-${documentIds.join(",")}-${mode}-${customMode}-${aheadDays}-${limit ?? ""}`}
         organizationId={organizationId}
         sessionId={sessionId}
         courseIds={courseIds}

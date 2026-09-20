@@ -18,7 +18,7 @@ import {
   Sparkles,
   ShoppingBag,
 } from "lucide-react";
-import { type PublicContentPackItemSummary } from "@avana/domain";
+import { type PublicContentPackItemSummary, toPersianDigits } from "@avana/domain";
 import {
   useCommerceProducts,
   useMyEntitlements,
@@ -97,7 +97,7 @@ export function ContentPackCard({
             title="تعداد دفعات افزوده‌شده به دوره‌ها"
           >
             <Users className="w-3.5 h-3.5 text-[#008080] shrink-0" />
-            <span>{usageCount} افزوده‌شده</span>
+            <span>{toPersianDigits(usageCount)} افزوده‌شده</span>
           </span>
         </div>
 
@@ -125,22 +125,22 @@ export function ContentPackCard({
         <div className="grid grid-cols-2 gap-2 mb-5">
           <div className="flex items-center gap-2 p-2 rounded-[10px] bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-xs text-[var(--color-text)]">
             <BookOpen className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-            <span className="truncate">{sessionCount} جلسه درس</span>
+            <span className="truncate">{toPersianDigits(sessionCount)} جلسه درس</span>
           </div>
 
           <div className="flex items-center gap-2 p-2 rounded-[10px] bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-xs text-[var(--color-text)]">
             <Layers className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-            <span className="truncate">{flashcardCount} فلش‌کارت</span>
+            <span className="truncate">{toPersianDigits(flashcardCount)} فلش‌کارت</span>
           </div>
 
           <div className="flex items-center gap-2 p-2 rounded-[10px] bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-xs text-[var(--color-text)]">
             <HelpCircle className="w-3.5 h-3.5 text-purple-500 shrink-0" />
-            <span className="truncate">{quizQuestionCount} سوال آزمون</span>
+            <span className="truncate">{toPersianDigits(quizQuestionCount)} سوال آزمون</span>
           </div>
 
           <div className="flex items-center gap-2 p-2 rounded-[10px] bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-xs text-[var(--color-text)]">
             <Clock className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-            <span className="truncate">~{estimatedReadingMinutes} دقیقه</span>
+            <span className="truncate">~{toPersianDigits(estimatedReadingMinutes)} دقیقه</span>
           </div>
         </div>
       </div>

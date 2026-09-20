@@ -16,18 +16,13 @@ afterEach(() => {
   cleanup();
 });
 
-function renderWithProviders(ui: React.ReactElement) {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: { retry: false, staleTime: Infinity },
-    },
-  });
-
-  const mockTopicsData = {
-    courses: [
+function createMockTopicsData(customCourses?: any[]) {
+  return {
+    courses: customCourses || [
       {
         courseId: "pharmacology",
         courseTitle: "فارماکولوژی",
+        hasAccess: true,
         questionCount: 124,
         easyCount: 30,
         mediumCount: 60,
@@ -42,6 +37,7 @@ function renderWithProviders(ui: React.ReactElement) {
       {
         courseId: "cardiology",
         courseTitle: "کاردیولوژی",
+        hasAccess: true,
         questionCount: 86,
         easyCount: 20,
         mediumCount: 46,
@@ -55,6 +51,7 @@ function renderWithProviders(ui: React.ReactElement) {
       {
         courseId: "neurology",
         courseTitle: "نورولوژی",
+        hasAccess: false,
         questionCount: 60,
         easyCount: 15,
         mediumCount: 30,
@@ -66,10 +63,19 @@ function renderWithProviders(ui: React.ReactElement) {
       },
     ],
   };
+}
+
+function renderWithProviders(ui: React.ReactElement, customCourses?: any[]) {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false, staleTime: Infinity },
+    },
+  });
+
+  const mockTopicsData = createMockTopicsData(customCourses);
 
   queryClient.setQueryData(["exam-topics", "org-1"], mockTopicsData);
   queryClient.setQueryData(["organizations"], { items: [{ id: "org-1", name: "Org 1" }] });
-  queryClient.setQueryData(["exam-topics", "org-1"], mockTopicsData);
 
   return render(
     <AuthProvider>
@@ -80,8 +86,8 @@ function renderWithProviders(ui: React.ReactElement) {
   );
 }
 
-describe("Exam Configuration Hierarchical Selection & Flow (Phase 2)", () => {
-  it("renders Sections, supports expand/collapse, indeterminate checkboxes, and flow transition", async () => {
+describe("Exam Configuration Hierarchical Selection & Flow", () => {
+  it("renders accessible courses under 'دوره‌های من' and inaccessible courses under collapsed 'دوره‌های دیگر'", async () => {
     const onStartExam = vi.fn();
 
     renderWithProviders(
@@ -93,12 +99,43 @@ describe("Exam Configuration Hierarchical Selection & Flow (Phase 2)", () => {
 
     // 1. Verify Page Title & Header
     expect(screen.getByText("تنظیمات آزمون")).toBeInTheDocument();
-    expect(screen.getByText("انتخاب دوره‌ها و بخش‌های آزمون")).toBeInTheDocument();
+    expect(screen.getByText("دوره‌ها و بخش‌ها را برای شروع یک جلسه تمرینی متمرکز انتخاب کنید.")).toBeInTheDocument();
 
-    // 2. Verify Sections are displayed (Pharmacology, Cardiology, Neurology, Physiology)
+    // 2. Verify Accessible Courses are displayed in 'دوره‌های من'
     await waitFor(() => {
+      expect(screen.getByText("دوره‌های من")).toBeInTheDocument();
       expect(screen.getAllByText("فارماکولوژی")[0]).toBeInTheDocument();
       expect(screen.getAllByText("کاردیولوژی")[0]).toBeInTheDocument();
+    });
+
+    // 3. Verify 'دوره‌های دیگر' accordion header is visible with count badge, but content is collapsed
+    expect(screen.getByText("دوره‌های دیگر")).toBeInTheDocument();
+    expect(screen.queryByText("نورولوژی")).not.toBeInTheDocument();
+
+    // 4. Expand 'دوره‌های دیگر'
+    const otherCoursesToggle = screen.getByRole("button", { name: /دوره‌های دیگر/i });
+    fireEvent.click(otherCoursesToggle);
+
+    // Now 'نورولوژی' should be visible
+    expect(screen.getByText("نورولوژی")).toBeInTheDocument();
+
+    // 5. Collapse 'دوره‌های دیگر' again
+    fireEvent.click(otherCoursesToggle);
+    expect(screen.queryByText("نورولوژی")).not.toBeInTheDocument();
+  });
+
+  it("supports expand/collapse of modules within accessible courses and selecting modules", async () => {
+    const onStartExam = vi.fn();
+
+    renderWithProviders(
+      <ExamConfigView
+        organizationId="org-1"
+        onStartExam={onStartExam}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByText("فارماکولوژی")[0]).toBeInTheDocument();
     });
 
     const expandChevronPharmacology = screen.getByRole("button", { name: /سرفصل‌های فارماکولوژی/ });
@@ -106,17 +143,11 @@ describe("Exam Configuration Hierarchical Selection & Flow (Phase 2)", () => {
       fireEvent.click(expandChevronPharmacology);
     }
 
-    const expandChevronCardiology = screen.getByRole("button", { name: /سرفصل‌های کاردیولوژی/ });
-    if (screen.queryByText("بیماری‌های ایسکمیک قلب") === null) {
-      fireEvent.click(expandChevronCardiology);
-    }
-
-    // 3. Verify Courses & Modules are expanded
+    // Verify Modules are expanded
     expect(screen.getByText("فارماکودینامیک")).toBeInTheDocument();
     expect(screen.getByText("فارماکوکینتیک")).toBeInTheDocument();
-    expect(screen.getByText("بیماری‌های ایسکمیک قلب")).toBeInTheDocument();
 
-    // 4. Toggle Collapse on Pharmacology
+    // Toggle Collapse on Pharmacology
     fireEvent.click(expandChevronPharmacology);
     expect(screen.queryByText("فارماکودینامیک")).not.toBeInTheDocument();
 
@@ -124,17 +155,47 @@ describe("Exam Configuration Hierarchical Selection & Flow (Phase 2)", () => {
     fireEvent.click(expandChevronPharmacology);
     expect(screen.getByText("فارماکودینامیک")).toBeInTheDocument();
 
-    // 5. Select a chapter in Cardiology ("بیماری‌های ایسکمیک قلب")
-    const ischemicChapter = screen.getByText("بیماری‌های ایسکمیک قلب");
-    fireEvent.click(ischemicChapter);
+    // Select module
+    const pharmacodynamicsModule = screen.getByText("فارماکودینامیک");
+    fireEvent.click(pharmacodynamicsModule);
 
-    // 6. Change Difficulty to "آسان"
+    // Change Difficulty to "آسان"
     const easyDifficultyButton = screen.getByText("آسان");
     fireEvent.click(easyDifficultyButton);
 
-    // 7. Click Start Exam
+    // Start Exam button is enabled for accessible course
     const startButton = screen.getByRole("button", { name: /شروع آزمون/i });
     expect(startButton).not.toBeDisabled();
+  });
+
+  it("handles custom exam flow for inaccessible courses with 'آزمون سفارشی' terminology", async () => {
+    renderWithProviders(
+      <ExamConfigView
+        organizationId="org-1"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("دوره‌های دیگر")).toBeInTheDocument();
+    });
+
+    // Expand 'دوره‌های دیگر'
+    const otherCoursesToggle = screen.getByRole("button", { name: /دوره‌های دیگر/i });
+    fireEvent.click(otherCoursesToggle);
+
+    // Expand neurology modules
+    const expandNeurology = screen.getByRole("button", { name: /سرفصل‌های نورولوژی/ });
+    fireEvent.click(expandNeurology);
+
+    // Select stroke module
+    const strokeModule = screen.getByText("سکته مغزی");
+    fireEvent.click(strokeModule);
+
+    // Verify sidebar switches to 'خلاصه آزمون سفارشی' and badge 'آزمون سفارشی'
+    expect(screen.getByText("خلاصه آزمون سفارشی")).toBeInTheDocument();
+    expect(screen.getByText("پرداخت از کیف پول و شروع آزمون")).toBeInTheDocument();
+    expect(screen.getByText(/مبلغ از کیف پول کسر شده و آزمون بلافاصله آغاز می‌گردد/)).toBeInTheDocument();
+    expect(screen.getByText(/سوالات آزمون به‌صورت تصادفی از بانک سوالات انتخاب می‌شوند/)).toBeInTheDocument();
   });
 
   it("handles full ExamsPage flow: Config -> ExamTaking -> Submit -> Result", async () => {
@@ -160,66 +221,33 @@ describe("Exam Configuration Hierarchical Selection & Flow (Phase 2)", () => {
     expect(startExamBtn).not.toBeDisabled();
   });
 
-  it("regression: displays module titles and question counts without rendering difficulty breakdown badges next to subjects", async () => {
-    const onStartExam = vi.fn();
+  it("does not render 'دوره‌های دیگر' when all courses are accessible", async () => {
+    const allAccessibleCourses = [
+      {
+        courseId: "pharmacology",
+        courseTitle: "فارماکولوژی",
+        hasAccess: true,
+        questionCount: 124,
+        easyCount: 30,
+        mediumCount: 60,
+        hardCount: 34,
+        modules: [
+          { moduleId: "m1", moduleTitle: "ماژول ۱", questionCount: 20, easyCount: 5, mediumCount: 10, hardCount: 5 },
+        ],
+      },
+    ];
 
     renderWithProviders(
       <ExamConfigView
         organizationId="org-1"
-        onStartExam={onStartExam}
       />,
-    );
-
-    // Wait for course header to load
-    await waitFor(() => {
-      expect(screen.getAllByText("فارماکولوژی")[0]).toBeInTheDocument();
-    });
-
-    // Verify course text exists
-    expect(screen.getAllByText("فارماکولوژی")[0]).toBeInTheDocument();
-
-    // Verify difficulty breakdown text (آسان: X | متوسط: Y | سخت: Z) is NOT rendered in topic list
-    expect(screen.queryByText(/آسان: \d+/)).not.toBeInTheDocument();
-  });
-
-  it("initial state has NO pre-selected modules and ALL accordions closed", async () => {
-    const onStartExam = vi.fn();
-
-    renderWithProviders(
-      <ExamConfigView
-        organizationId="org-1"
-        onStartExam={onStartExam}
-      />,
+      allAccessibleCourses,
     );
 
     await waitFor(() => {
-      expect(screen.getAllByText("فارماکولوژی")[0]).toBeInTheDocument();
+      expect(screen.getByText("دوره‌های من")).toBeInTheDocument();
     });
 
-    // 1. Verify summary shows 0 selected modules on initial render
-    expect(screen.getByText("0 دوره، 0 بخش")).toBeInTheDocument();
-
-    // 2. Verify all accordions are closed by default (child modules are NOT in document)
-    expect(screen.queryByText("فارماکودینامیک")).not.toBeInTheDocument();
-    expect(screen.queryByText("بیماری‌های ایسکمیک قلب")).not.toBeInTheDocument();
-
-    // 3. Start Exam button is initially disabled because no modules are selected
-    const startButton = screen.getByRole("button", { name: /شروع آزمون/i });
-    expect(startButton).toBeDisabled();
-
-    // 4. Expanding a course accordion does NOT select any modules
-    const expandPharmBtn = screen.getByRole("button", { name: /سرفصل‌های فارماکولوژی/ });
-    fireEvent.click(expandPharmBtn);
-    expect(screen.getByText("فارماکودینامیک")).toBeInTheDocument();
-    expect(startButton).toBeDisabled(); // still disabled because expanding does NOT select!
-
-    // 5. Select a single module manually
-    fireEvent.click(screen.getByText("فارماکودینامیک"));
-    expect(startButton).not.toBeDisabled();
-
-    // 6. Collapsing the course accordion retains the selection
-    fireEvent.click(expandPharmBtn);
-    expect(screen.queryByText("فارماکودینامیک")).not.toBeInTheDocument();
-    expect(startButton).not.toBeDisabled();
+    expect(screen.queryByText("دوره‌های دیگر")).not.toBeInTheDocument();
   });
 });

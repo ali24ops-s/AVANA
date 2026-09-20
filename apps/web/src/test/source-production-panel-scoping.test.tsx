@@ -105,7 +105,7 @@ describe("SourceProductionPanel Document Scoping & Scenarios", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("15 سند")).toBeInTheDocument();
+      expect(screen.getByText("۱۵ سند")).toBeInTheDocument();
     });
 
     for (let i = 1; i <= 15; i++) {
@@ -155,7 +155,7 @@ describe("SourceProductionPanel Document Scoping & Scenarios", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("28 سند")).toBeInTheDocument();
+      expect(screen.getByText("۲۸ سند")).toBeInTheDocument();
     });
 
     expect(screen.getByText("chapter_resource_1.pdf")).toBeInTheDocument();
@@ -204,7 +204,7 @@ describe("SourceProductionPanel Document Scoping & Scenarios", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("2 سند")).toBeInTheDocument();
+      expect(screen.getByText("۲ سند")).toBeInTheDocument();
     });
 
     expect(screen.getByText("course_specific.pdf")).toBeInTheDocument();
@@ -311,5 +311,59 @@ describe("SourceProductionPanel Document Scoping & Scenarios", () => {
     await waitFor(() => {
       expect(screen.getByText(/درس \(Lesson\)/i)).toBeInTheDocument();
     });
+  });
+
+  it("Scenario 6: Generated document shows «مشاهده در بازبینی» and does NOT show duplicate «تولید مجدد»", async () => {
+    const doc = createMockDoc("doc-gen-complete", mockCourse.id, "finished_book.pdf", "review_pending");
+    const onNavigateToReview = vi.fn();
+
+    global.fetch = vi.fn().mockImplementation(async (url: string) => {
+      const urlStr = String(url);
+      if (urlStr.includes(`course_id=${mockCourse.id}`)) {
+        return new Response(
+          JSON.stringify({
+            request_id: "r1",
+            items: [doc],
+            pagination: { total: 1, page: 1, limit: 100, total_pages: 1 },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          request_id: "r2",
+          items: [],
+          pagination: { total: 0, page: 1, limit: 100, total_pages: 1 },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <SourceProductionPanel
+            course={mockCourse}
+            organizationId="org-test-uuid"
+            onNavigateToReview={onNavigateToReview}
+          />
+        </AuthProvider>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("finished_book.pdf")).toBeInTheDocument();
+    });
+
+    // Verify "مشاهده در بازبینی" is present
+    const reviewButton = screen.getByRole("button", { name: /مشاهده در بازبینی/i });
+    expect(reviewButton).toBeInTheDocument();
+
+    // Verify duplicate "تولید مجدد" is NOT rendered in the file list
+    expect(screen.queryByRole("button", { name: /تولید مجدد/i })).not.toBeInTheDocument();
+
+    // Verify click triggers navigation
+    fireEvent.click(reviewButton);
+    expect(onNavigateToReview).toHaveBeenCalledTimes(1);
   });
 });

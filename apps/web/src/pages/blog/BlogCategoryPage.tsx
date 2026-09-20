@@ -16,7 +16,7 @@ import { useCategoryWithPosts } from "../../hooks/useBlog.js";
 import { BlogSEO } from "../../components/blog/BlogSEO.js";
 import { AboutNavbar } from "../../components/about/AboutNavbar.js";
 import { Footer } from "../../components/landing/Footer.js";
-import { formatPersianOf } from "@avana/domain";
+import { formatPersianOf, toPersianDigits } from "@avana/domain";
 
 export function BlogCategoryPage() {
   const { slug } = useParams<{ slug: string }>();
@@ -84,7 +84,7 @@ export function BlogCategoryPage() {
             )}
 
             <div className="pt-2 text-xs text-[#008080] font-semibold">
-              {totalCount} مقاله منتشر شده در این دسته‌بندی
+              {toPersianDigits(totalCount)} مقاله منتشر شده در این دسته‌بندی
             </div>
           </div>
         </header>
@@ -165,7 +165,7 @@ export function BlogCategoryPage() {
                         </span>
                         <span className="flex items-center gap-1">
                           <Clock className="w-3 h-3" />
-                          <span>{post.readingTimeMinutes} دقیقه مطالعه</span>
+                          <span>{toPersianDigits(post.readingTimeMinutes)} دقیقه مطالعه</span>
                         </span>
                       </div>
 

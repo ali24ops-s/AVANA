@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Outlet, Link, useLocation } from "react-router-dom";
 import {
   BookOpen,
@@ -9,7 +9,6 @@ import {
   HelpCircle,
   FolderOpen,
   Settings,
-  Bell,
   Menu,
   X,
   Library as LibraryIcon,
@@ -17,6 +16,9 @@ import {
   Receipt,
   Newspaper,
   ShieldCheck,
+  Wallet,
+  Gift,
+  LifeBuoy,
 } from "lucide-react";
 import { BrandLogo } from "../brand/BrandLogo.js";
 import { useAuth } from "../../providers/AuthProvider.js";
@@ -37,6 +39,30 @@ export function AuthenticatedShell() {
   const isAdmin = isUserAdmin(user, memberships);
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (
+        userMenuRef.current &&
+        !userMenuRef.current.contains(event.target as Node)
+      ) {
+        setUserMenuOpen(false);
+      }
+    }
+    if (userMenuOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [userMenuOpen]);
+
+  // Close menu on route change
+  useEffect(() => {
+    setUserMenuOpen(false);
+  }, [location.pathname]);
 
   const { data: subData, isLoading: isSubLoading } = useMySubscription();
   const subscription = subData?.subscription;
@@ -59,8 +85,11 @@ export function AuthenticatedShell() {
     );
   }
 
-  // Dedicated full-screen experiences (e.g. exam taking attempt) bypass shell chrome
-  if (location.pathname.startsWith("/exams/attempt")) {
+  // Dedicated full-screen experiences (e.g. exam taking attempt, flashcard study session) bypass shell chrome
+  if (
+    location.pathname.startsWith("/exams/attempt") ||
+    location.pathname.startsWith("/flashcards/review")
+  ) {
     return <Outlet />;
   }
 
@@ -149,38 +178,125 @@ export function AuthenticatedShell() {
               </Link>
             )}
 
-            {/* User Profile / Subscription Trigger Chip */}
-            <Link
-              to="/account/subscription"
-              title={chipInfo.tooltip}
-              aria-label={`حساب کاربری ${userName}${chipInfo.badgeLabel ? ` - وضعیت اشتراک: ${chipInfo.badgeLabel}` : ""}`}
-              className="flex items-center gap-1.5 sm:gap-2 text-xs font-semibold px-2.5 sm:px-3 py-1.5 rounded-xl bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-[#008080] transition-colors shrink-0"
-            >
-              <User className="w-4 h-4 text-[#008080] shrink-0" />
-              <span className="hidden sm:inline text-xs font-semibold truncate max-w-[90px] xl:max-w-[120px] text-[var(--color-text)]">
-                {userName}
-              </span>
-              {isSubLoading ? (
-                <Skeleton className="hidden sm:inline-block w-12 h-4 rounded-full" />
-              ) : chipInfo.badgeLabel ? (
-                <span className="hidden sm:inline-flex">
-                  <Badge
-                    variant={
-                      chipInfo.status === "active"
-                        ? "success"
-                        : chipInfo.status === "expiring_soon"
-                        ? "warning"
-                        : chipInfo.status === "expired"
-                        ? "error"
-                        : "neutral"
-                    }
-                    size="sm"
-                  >
-                    {chipInfo.badgeLabel}
-                  </Badge>
+            {/* User Profile / Account Menu Dropdown */}
+            <div className="relative shrink-0" ref={userMenuRef}>
+              <Link
+                to="/account/subscription"
+                onClick={(e) => {
+                  e.preventDefault();
+                  setUserMenuOpen((prev) => !prev);
+                }}
+                title={chipInfo.tooltip}
+                aria-label={`حساب کاربری ${userName}${chipInfo.badgeLabel ? ` - وضعیت اشتراک: ${chipInfo.badgeLabel}` : ""}`}
+                aria-expanded={userMenuOpen}
+                className="flex items-center gap-1.5 sm:gap-2 text-xs font-semibold px-2.5 sm:px-3 py-1.5 rounded-xl bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-[#008080] transition-colors shrink-0 cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#008080]/30"
+              >
+                <User className="w-4 h-4 text-[#008080] shrink-0" />
+                <span className="hidden sm:inline text-xs font-semibold truncate max-w-[90px] xl:max-w-[120px] text-[var(--color-text)]">
+                  {userName}
                 </span>
-              ) : null}
-            </Link>
+                {isSubLoading ? (
+                  <Skeleton className="hidden sm:inline-block w-12 h-4 rounded-full" />
+                ) : chipInfo.badgeLabel ? (
+                  <span className="hidden sm:inline-flex">
+                    <Badge
+                      variant={
+                        chipInfo.status === "active"
+                          ? "success"
+                          : chipInfo.status === "expiring_soon"
+                          ? "warning"
+                          : chipInfo.status === "expired"
+                          ? "error"
+                          : "neutral"
+                      }
+                      size="sm"
+                    >
+                      {chipInfo.badgeLabel}
+                    </Badge>
+                  </span>
+                ) : null}
+              </Link>
+
+              {/* Floating User Profile Dropdown Panel */}
+              {userMenuOpen && (
+                <div
+                  className="absolute left-0 mt-2 w-56 rounded-2xl bg-[var(--color-surface)] border border-[var(--color-border)] shadow-xl z-50 overflow-hidden flex flex-col py-1.5 transition-all animate-in fade-in zoom-in-95 duration-150"
+                  dir="rtl"
+                >
+                  {/* User info header */}
+                  <div className="px-3.5 py-2.5 border-b border-[var(--color-border)] mb-1 bg-[var(--color-surface-warm)]/50">
+                    <div className="text-xs font-bold text-[var(--color-text)] truncate">
+                      {userName}
+                    </div>
+                    {user?.email && user.email !== userName && (
+                      <div className="text-[11px] text-[var(--color-text-muted)] truncate mt-0.5" dir="ltr">
+                        {user.email}
+                      </div>
+                    )}
+                  </div>
+
+                  <Link
+                    to="/account/subscription"
+                    onClick={() => setUserMenuOpen(false)}
+                    className="flex items-center gap-2.5 px-3.5 py-2 text-xs font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] hover:text-primary transition-colors"
+                  >
+                    <Crown className="w-4 h-4 text-amber-500 shrink-0" />
+                    <span>اشتراک من</span>
+                  </Link>
+
+                  <Link
+                    to="/account/purchases"
+                    onClick={() => setUserMenuOpen(false)}
+                    className="flex items-center gap-2.5 px-3.5 py-2 text-xs font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] hover:text-primary transition-colors"
+                  >
+                    <Receipt className="w-4 h-4 text-[#008080] shrink-0" />
+                    <span>خریدهای من و فاکتورها</span>
+                  </Link>
+
+                  <Link
+                    to="/account/wallet"
+                    onClick={() => setUserMenuOpen(false)}
+                    className="flex items-center gap-2.5 px-3.5 py-2 text-xs font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] hover:text-primary transition-colors"
+                  >
+                    <Wallet className="w-4 h-4 text-primary shrink-0" />
+                    <span>کیف پول من</span>
+                  </Link>
+
+                  <Link
+                    to="/account/referral"
+                    onClick={() => setUserMenuOpen(false)}
+                    className="flex items-center gap-2.5 px-3.5 py-2 text-xs font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] hover:text-primary transition-colors"
+                  >
+                    <Gift className="w-4 h-4 text-primary shrink-0" />
+                    <span>دعوت از دوستان</span>
+                  </Link>
+
+                  <Link
+                    to="/account/support"
+                    onClick={() => setUserMenuOpen(false)}
+                    className="flex items-center gap-2.5 px-3.5 py-2 text-xs font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] hover:text-primary transition-colors"
+                  >
+                    <LifeBuoy className="w-4 h-4 text-primary shrink-0" />
+                    <span>پشتیبانی و بازخورد</span>
+                  </Link>
+
+
+                  <div className="my-1 border-t border-[var(--color-border)]" />
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUserMenuOpen(false);
+                      void signOut();
+                    }}
+                    className="flex items-center gap-2.5 px-3.5 py-2 text-xs font-medium text-red-500 hover:bg-red-500/10 transition-colors w-full text-start cursor-pointer"
+                  >
+                    <LogOut className="w-4 h-4 text-red-500 shrink-0" />
+                    <span>خروج از حساب</span>
+                  </button>
+                </div>
+              )}
+            </div>
 
             {/* Sign Out Button */}
             <Button
@@ -295,6 +411,34 @@ export function AuthenticatedShell() {
               <Receipt className="w-5 h-5 text-[#008080]" />
               <span>خریدهای من و فاکتورها</span>
             </MobileDrawerLink>
+
+            <MobileDrawerLink
+              to="/account/wallet"
+              active={location.pathname === "/account/wallet"}
+              onClick={() => setMobileMenuOpen(false)}
+            >
+              <Wallet className="w-5 h-5 text-primary" />
+              <span>کیف پول من</span>
+            </MobileDrawerLink>
+
+            <MobileDrawerLink
+              to="/account/referral"
+              active={location.pathname === "/account/referral"}
+              onClick={() => setMobileMenuOpen(false)}
+            >
+              <Gift className="w-5 h-5 text-primary" />
+              <span>دعوت از دوستان</span>
+            </MobileDrawerLink>
+
+            <MobileDrawerLink
+              to="/account/support"
+              active={location.pathname === "/account/support"}
+              onClick={() => setMobileMenuOpen(false)}
+            >
+              <LifeBuoy className="w-5 h-5 text-primary" />
+              <span>پشتیبانی و بازخورد</span>
+            </MobileDrawerLink>
+
 
             <div className="mt-auto pt-4 border-t border-[var(--color-border)]">
               <Link

@@ -169,8 +169,8 @@ export function QuizExperience({
           </div>
 
           <div className="inline-flex items-center gap-2 px-6 py-3 rounded-[16px] bg-[var(--color-surface-warm)] border border-[var(--color-border)]">
-            <span className="text-3xl font-black text-[#008080]" dir="ltr">
-              {scorePct}%
+            <span className="text-3xl font-black text-[#008080]">
+              {toPersianDigits(scorePct)}٪
             </span>
           </div>
 
@@ -353,7 +353,7 @@ export function QuizExperience({
                         >
                           <div className="flex items-center gap-2 min-w-0">
                             <span className="font-bold shrink-0">
-                              {cIdx + 1}.
+                              {toPersianDigits(cIdx + 1)}.
                             </span>
                             <RichContent content={choice} inline />
                           </div>

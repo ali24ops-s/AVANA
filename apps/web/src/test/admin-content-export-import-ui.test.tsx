@@ -106,7 +106,16 @@ describe("Admin Content Export & Import UI Suite", () => {
       batchId: "batch-1",
       success: true,
       counts: { created: 51, skipped: 2, conflicts: 0 },
-      summary: {} as any,
+      summary: {
+        courses: { new: 1, existing: 0, conflict: 0 },
+        modules: { new: 0, existing: 0, conflict: 0 },
+        lessons: { new: 0, existing: 0, conflict: 0 },
+        documents: { new: 0, existing: 0, conflict: 0 },
+        generatedContents: { new: 0, existing: 0, conflict: 0 },
+        flashcards: { new: 0, existing: 0, conflict: 0 },
+        quizzes: { new: 0, existing: 0, conflict: 0 },
+        questions: { new: 0, existing: 0, conflict: 0 },
+      },
       durationMs: 120,
     });
 
@@ -139,11 +148,11 @@ describe("Admin Content Export & Import UI Suite", () => {
     // Should transition to preview step
     await waitFor(() => {
       expect(screen.getByText("بسته معتبر است و ساختار اطلاعات بررسی گردید.")).toBeInTheDocument();
-      expect(screen.getByText("+1")).toBeInTheDocument(); // 1 new course
-      expect(screen.getByText("+3")).toBeInTheDocument(); // 3 new modules
-      expect(screen.getAllByText("+10").length).toBe(2); // 10 new lessons and 10 new questions
-      expect(screen.getByText("+25")).toBeInTheDocument(); // 25 new flashcards
-      expect(screen.getByText("+2")).toBeInTheDocument(); // 2 new quizzes
+      expect(screen.getByText("+۱")).toBeInTheDocument(); // 1 new course
+      expect(screen.getByText("+۳")).toBeInTheDocument(); // 3 new modules
+      expect(screen.getAllByText("+۱۰").length).toBe(2); // 10 new lessons and 10 new questions
+      expect(screen.getByText("+۲۵")).toBeInTheDocument(); // 25 new flashcards
+      expect(screen.getByText("+۲")).toBeInTheDocument(); // 2 new quizzes
     });
 
     // Execute Import
@@ -155,7 +164,7 @@ describe("Admin Content Export & Import UI Suite", () => {
       expect(
         screen.getByText("عملیات ورود محتوا با موفقیت انجام شد"),
       ).toBeInTheDocument();
-      expect(screen.getByText("51")).toBeInTheDocument(); // created count
+      expect(screen.getByText("۵۱")).toBeInTheDocument(); // created count
     });
   });
 });

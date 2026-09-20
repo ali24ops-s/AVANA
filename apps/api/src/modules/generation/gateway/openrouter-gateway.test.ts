@@ -191,9 +191,76 @@ describe("OpenRouterModelGateway Unit Tests", () => {
     expect(domainErr.code).toBe("unauthorized");
     expect(domainErr.message).not.toContain(secretApiKey);
     expect(domainErr.message).toContain("[REDACTED_OPENROUTER_API_KEY]");
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
-  it("propagates 429 rate limit directly to application", async () => {
+  it("fails immediately on 400 bad request without retry (exactly 1 request)", async () => {
+    const mockFetch = vi.fn().mockImplementation(async () => {
+      return new Response(
+        JSON.stringify({
+          error: { message: "Invalid model parameters", code: 400 },
+        }),
+        { status: 400, headers: { "Content-Type": "application/json" } },
+      );
+    });
+
+    const gateway = new OpenRouterModelGateway({
+      apiKey: secretApiKey,
+      fetchFn: mockFetch as unknown as typeof fetch,
+      sleepFn: async () => {},
+    });
+
+    await expect(gateway.complete(makeCompletionRequest())).rejects.toMatchObject({
+      code: "bad_request",
+    });
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails immediately on 403 unauthorized without retry (exactly 1 request)", async () => {
+    const mockFetch = vi.fn().mockImplementation(async () => {
+      return new Response(
+        JSON.stringify({
+          error: { message: "Forbidden key scope", code: 403 },
+        }),
+        { status: 403, headers: { "Content-Type": "application/json" } },
+      );
+    });
+
+    const gateway = new OpenRouterModelGateway({
+      apiKey: secretApiKey,
+      fetchFn: mockFetch as unknown as typeof fetch,
+      sleepFn: async () => {},
+    });
+
+    await expect(gateway.complete(makeCompletionRequest())).rejects.toMatchObject({
+      code: "unauthorized",
+    });
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails immediately on 422 unprocessable request without retry (exactly 1 request)", async () => {
+    const mockFetch = vi.fn().mockImplementation(async () => {
+      return new Response(
+        JSON.stringify({
+          error: { message: "Unprocessable entity", code: 422 },
+        }),
+        { status: 422, headers: { "Content-Type": "application/json" } },
+      );
+    });
+
+    const gateway = new OpenRouterModelGateway({
+      apiKey: secretApiKey,
+      fetchFn: mockFetch as unknown as typeof fetch,
+      sleepFn: async () => {},
+    });
+
+    await expect(gateway.complete(makeCompletionRequest())).rejects.toMatchObject({
+      code: "bad_request",
+    });
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails immediately on 429 rate limit without retry (exactly 1 request)", async () => {
     const mockFetch = vi.fn().mockImplementation(async () => {
       return new Response(
         JSON.stringify({
@@ -209,33 +276,166 @@ describe("OpenRouterModelGateway Unit Tests", () => {
     const gateway = new OpenRouterModelGateway({
       apiKey: secretApiKey,
       fetchFn: mockFetch as unknown as typeof fetch,
+      sleepFn: async () => {},
     });
 
     await expect(gateway.complete(makeCompletionRequest())).rejects.toMatchObject({
       code: "rate_limit_exceeded",
     });
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
-  it("propagates 5xx server error directly to application without silent failover", async () => {
+  it("fails immediately on malformed non-JSON response (exactly 1 request)", async () => {
     const mockFetch = vi.fn().mockImplementation(async () => {
+      return new Response("Not valid json", {
+        status: 200,
+        headers: { "Content-Type": "text/html" },
+      });
+    });
+
+    const gateway = new OpenRouterModelGateway({
+      apiKey: secretApiKey,
+      fetchFn: mockFetch as unknown as typeof fetch,
+      sleepFn: async () => {},
+    });
+
+    await expect(gateway.complete(makeCompletionRequest())).rejects.toMatchObject({
+      code: "unprocessable",
+    });
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("succeeds on retry after initial 502 Bad Gateway (exactly 2 requests)", async () => {
+    let callCount = 0;
+    const mockFetch = vi.fn().mockImplementation(async () => {
+      callCount++;
+      if (callCount === 1) {
+        return new Response("Bad Gateway", {
+          status: 502,
+          headers: { "Content-Type": "text/plain" },
+        });
+      }
       return new Response(
         JSON.stringify({
-          error: {
-            message: "DeepSeek upstream provider is temporarily unavailable",
-            code: 503,
-          },
+          choices: [
+            {
+              message: { role: "assistant", content: "Recovered successfully" },
+              finish_reason: "stop",
+            },
+          ],
+          model: "deepseek/deepseek-v4-flash-0731",
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
         }),
-        { status: 503, headers: { "Content-Type": "application/json" } },
+        { status: 200, headers: { "Content-Type": "application/json" } },
       );
     });
 
     const gateway = new OpenRouterModelGateway({
       apiKey: secretApiKey,
       fetchFn: mockFetch as unknown as typeof fetch,
+      sleepFn: async () => {},
+    });
+
+    const result = await gateway.complete(makeCompletionRequest());
+
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(result.text).toBe("Recovered successfully");
+  });
+
+  it("succeeds on retry after initial 503 Service Unavailable (exactly 2 requests)", async () => {
+    let callCount = 0;
+    const mockFetch = vi.fn().mockImplementation(async () => {
+      callCount++;
+      if (callCount === 1) {
+        return new Response(
+          JSON.stringify({ error: { message: "Overloaded", code: 503 } }),
+          { status: 503, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: { role: "assistant", content: "Answer from DeepSeek" },
+              finish_reason: "stop",
+            },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    });
+
+    const gateway = new OpenRouterModelGateway({
+      apiKey: secretApiKey,
+      fetchFn: mockFetch as unknown as typeof fetch,
+      sleepFn: async () => {},
+    });
+
+    const result = await gateway.complete(makeCompletionRequest());
+
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(result.text).toBe("Answer from DeepSeek");
+  });
+
+  it.each([500, 502, 503, 504])(
+    "exhausts 3 attempts on persistent HTTP %i and throws service_unavailable (no 4th attempt)",
+    async (statusCode) => {
+      const mockFetch = vi.fn().mockImplementation(async () => {
+        return new Response(
+          JSON.stringify({ error: { message: `Gateway error ${statusCode}`, code: statusCode } }),
+          { status: statusCode, headers: { "Content-Type": "application/json" } },
+        );
+      });
+
+      const gateway = new OpenRouterModelGateway({
+        apiKey: secretApiKey,
+        fetchFn: mockFetch as unknown as typeof fetch,
+        sleepFn: async () => {},
+      });
+
+      await expect(gateway.complete(makeCompletionRequest())).rejects.toMatchObject({
+        code: "service_unavailable",
+      });
+
+      expect(mockFetch).toHaveBeenCalledTimes(3);
+    },
+  );
+
+  it("exhausts 3 attempts on repeated timeouts and throws service_unavailable", async () => {
+    const mockFetch = vi.fn().mockImplementation(async () => {
+      const timeoutErr = new Error("The operation was aborted");
+      timeoutErr.name = "AbortError";
+      throw timeoutErr;
+    });
+
+    const gateway = new OpenRouterModelGateway({
+      apiKey: secretApiKey,
+      fetchFn: mockFetch as unknown as typeof fetch,
+      sleepFn: async () => {},
     });
 
     await expect(gateway.complete(makeCompletionRequest())).rejects.toMatchObject({
-      code: "unprocessable",
+      code: "service_unavailable",
     });
+
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+  });
+
+  it("exhausts 3 attempts on repeated transient network failures and throws service_unavailable", async () => {
+    const mockFetch = vi.fn().mockImplementation(async () => {
+      throw new TypeError("fetch failed: ECONNRESET");
+    });
+
+    const gateway = new OpenRouterModelGateway({
+      apiKey: secretApiKey,
+      fetchFn: mockFetch as unknown as typeof fetch,
+      sleepFn: async () => {},
+    });
+
+    await expect(gateway.complete(makeCompletionRequest())).rejects.toMatchObject({
+      code: "service_unavailable",
+    });
+
+    expect(mockFetch).toHaveBeenCalledTimes(3);
   });
 });
