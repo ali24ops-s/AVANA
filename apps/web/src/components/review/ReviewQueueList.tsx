@@ -249,7 +249,7 @@ export function ReviewQueueList({
           </div>
 
           {/* Type Filter Pills */}
-          <div className="flex items-center gap-1.5 p-1 bg-[var(--color-surface-warm)] border border-[var(--color-border)] rounded-xl text-xs overflow-x-auto shrink-0">
+          <div className="flex items-center gap-1.5 p-1 bg-[var(--color-surface-warm)] border border-[var(--color-border)] rounded-xl text-xs overflow-x-auto scrollbar-none w-full sm:w-auto shrink-0">
             {(["all", "lesson", "flashcard", "quiz", "review_summary"] as const).map((t) => (
               <button
                 type="button"
@@ -259,7 +259,7 @@ export function ReviewQueueList({
                   setPage(1);
                 }}
                 aria-pressed={typeFilter === t}
-                className={`px-3 py-1.5 rounded-lg font-bold transition-all whitespace-nowrap ${
+                className={`flex-1 sm:flex-initial text-center px-3 py-2 sm:py-1.5 rounded-lg font-bold transition-all whitespace-nowrap ${
                   typeFilter === t
                     ? "bg-[var(--color-surface)] text-[var(--color-text)] border border-[var(--color-border)] shadow-xs"
                     : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)]/60"
@@ -274,7 +274,7 @@ export function ReviewQueueList({
 
       {/* Grouped Queue Items */}
       {groups.length === 0 ? (
-        <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-12 text-center space-y-3" data-testid="review-queue-empty-state">
+        <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-8 sm:p-12 text-center space-y-3" data-testid="review-queue-empty-state">
           <Sparkles className="w-10 h-10 text-[var(--color-text-muted)] mx-auto" />
           <h4 className="text-sm font-bold text-[var(--color-text)]">
             {searchQuery
@@ -334,7 +334,7 @@ export function ReviewQueueList({
         const total = pag?.total ?? groups.length;
         if (totalPages <= 1) return null;
         return (
-          <div className="flex items-center justify-between pt-4 border-t border-[var(--color-border)]">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-[var(--color-border)]">
             <span className="text-xs text-[var(--color-text-muted)]">
               مجموع: {toPersianDigits(total)} فایل/گروه ({formatPersianOf(page, totalPages, { prefix: "صفحه" })})
             </span>
@@ -343,19 +343,21 @@ export function ReviewQueueList({
                 type="button"
                 disabled={page <= 1}
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
-                className="p-1.5 rounded-lg border border-[var(--color-border)] text-[var(--color-text)] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--color-surface-warm)]"
+                className="px-3 py-1.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed active:bg-[var(--color-surface-warm)] flex items-center gap-1 transition-colors"
                 aria-label="صفحه قبلی"
               >
-                <ChevronRight className="w-4 h-4" />
+                <ChevronRight className="w-3.5 h-3.5" />
+                <span>قبلی</span>
               </button>
               <button
                 type="button"
                 disabled={page >= totalPages}
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                className="p-1.5 rounded-lg border border-[var(--color-border)] text-[var(--color-text)] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--color-surface-warm)]"
+                className="px-3 py-1.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed active:bg-[var(--color-surface-warm)] flex items-center gap-1 transition-colors"
                 aria-label="صفحه بعدی"
               >
-                <ChevronLeft className="w-4 h-4" />
+                <span>بعدی</span>
+                <ChevronLeft className="w-3.5 h-3.5" />
               </button>
             </div>
           </div>

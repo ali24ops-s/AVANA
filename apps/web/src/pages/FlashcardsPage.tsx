@@ -470,7 +470,7 @@ export function FlashcardsPage() {
         {/* Header Section */}
         <header className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 border-b border-[var(--color-border)] pb-6 shrink-0">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-[var(--color-text)] mb-2 tracking-tight">
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-[var(--color-text)] mb-2 tracking-tight text-center sm:text-right">
               آماده‌سازی مطالعه
             </h1>
             <p className="text-xs sm:text-sm text-[var(--color-text-secondary)] flex items-center gap-2">

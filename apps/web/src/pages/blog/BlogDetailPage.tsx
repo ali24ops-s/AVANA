@@ -148,7 +148,7 @@ export function BlogDetailPage() {
       {/* Navigation */}
       <AboutNavbar />
 
-      <main className="pt-28 pb-20 px-4 sm:px-6 lg:px-8 max-w-6xl mx-auto space-y-10">
+      <main className="pt-20 sm:pt-28 pb-20 px-4 sm:px-6 lg:px-8 max-w-6xl mx-auto space-y-10">
         {/* Breadcrumb Navigation */}
         <nav aria-label="مسیر راهنما" className="flex items-center gap-2 text-xs text-[var(--color-text-muted)] flex-wrap">
           <Link to="/" className="hover:text-[#008080] transition-colors">

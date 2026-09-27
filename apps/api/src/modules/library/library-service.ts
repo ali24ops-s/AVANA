@@ -12,7 +12,6 @@
 import { randomUUID } from "node:crypto";
 import {
   type Actor,
-  type AuthContext,
   type AuthorizationPolicy,
   type ContentPackContentType,
   type ContentPackId,
@@ -31,8 +30,10 @@ import {
   type ReviewSummaryPayload,
   type ResourceAccessSummary,
   type ResourcePurchaseSummary,
+  type ResourceContext,
   type CoursePackagesResponse,
   type CourseWithChapterPackages,
+  buildActor,
   calculateDefaultContentPrice,
   DomainError,
   asContentPackId,
@@ -215,32 +216,66 @@ export class LibraryService {
   async authorize(
     actor: Actor,
     organizationId: OrganizationId,
-  ): Promise<void> {
+  ): Promise<Actor> {
+    let memberships = actor.memberships;
     if (
+      !memberships &&
+      this.organizationStore &&
+      typeof this.organizationStore.listMembershipsByUserId === "function"
+    ) {
+      memberships = await this.organizationStore.listMembershipsByUserId(
+        actor.userId,
+      );
+    } else if (
+      !memberships &&
       this.organizationStore &&
       typeof this.organizationStore.findMembership === "function"
     ) {
-      const membership = await this.organizationStore.findMembership(
+      const m = await this.organizationStore.findMembership(
         organizationId,
         actor.userId,
       );
-      if (!membership) {
-        throw new DomainError("not_found", "Organization not found");
+      if (m) {
+        memberships = [
+          {
+            organizationId,
+            role: m.role as import("@avana/domain").Role,
+          },
+        ];
       }
-      const scopedActor = { ...actor, role: membership.role as Actor["role"] };
-      const context: AuthContext = { organizationId };
-      this.policy.require("content:publish", scopedActor, context);
-      return;
     }
-    const context: AuthContext = { organizationId };
-    this.policy.require("content:publish", actor, context);
+
+    const fullActor = buildActor({
+      userId: actor.userId,
+      globalRole:
+        actor.globalRole ??
+        (actor.role === "platform_admin" ? "platform_admin" : undefined),
+      role: actor.role,
+      memberships,
+    });
+
+    const isSystemResource =
+      !!this.systemOrganizationId &&
+      organizationId === this.systemOrganizationId;
+
+    const resourceContext: ResourceContext = {
+      organizationId,
+      resourceType: "course",
+      isSystemResource,
+    };
+
+    if (!this.policy.can(fullActor, "content:publish", resourceContext)) {
+      throw new DomainError("not_found", "Organization not found");
+    }
+
+    return fullActor;
   }
 
   /**
    * Authorize publishing a Content Pack for a given document.
    *
    * Rules:
-   * 1. User must be an active member of the organization.
+   * 1. User must be an active member of the organization (or platform admin).
    * 2. Either the user's role has 'content:publish' permission (course_editor, org_admin, platform_admin),
    *    OR the user is the owner of the document (doc.ownerUserId === actor.userId).
    */
@@ -248,40 +283,70 @@ export class LibraryService {
     actor: Actor,
     organizationId: OrganizationId,
     doc: DocumentRecord,
-  ): Promise<void> {
-    let scopedActor = actor;
+  ): Promise<Actor> {
+    let memberships = actor.memberships;
     if (
+      !memberships &&
+      this.organizationStore &&
+      typeof this.organizationStore.listMembershipsByUserId === "function"
+    ) {
+      memberships = await this.organizationStore.listMembershipsByUserId(
+        actor.userId,
+      );
+    } else if (
+      !memberships &&
       this.organizationStore &&
       typeof this.organizationStore.findMembership === "function"
     ) {
-      const membership = await this.organizationStore.findMembership(
+      const m = await this.organizationStore.findMembership(
         organizationId,
         actor.userId,
       );
-      if (!membership && actor.role !== "platform_admin") {
-        throw new DomainError("not_found", "Organization not found");
+      if (m) {
+        memberships = [
+          {
+            organizationId,
+            role: m.role as import("@avana/domain").Role,
+          },
+        ];
       }
-      const role =
-        actor.role === "platform_admin"
-          ? "platform_admin"
-          : (membership?.role as Actor["role"] ?? actor.role);
-      scopedActor = { ...actor, role };
     }
 
-    const context: AuthContext = { organizationId };
-    const hasRolePermission = this.policy.check(
+    const fullActor = buildActor({
+      userId: actor.userId,
+      globalRole:
+        actor.globalRole ??
+        (actor.role === "platform_admin" ? "platform_admin" : undefined),
+      role: actor.role,
+      memberships,
+    });
+
+    const isSystemResource =
+      !!this.systemOrganizationId &&
+      organizationId === this.systemOrganizationId;
+
+    const resourceContext: ResourceContext = {
+      organizationId,
+      resourceType: "document",
+      resourceId: doc.id,
+      isSystemResource,
+    };
+
+    const hasRolePermission = this.policy.can(
+      fullActor,
       "content:publish",
-      scopedActor,
-      context,
+      resourceContext,
     );
     const isOwner = doc.ownerUserId === actor.userId;
 
     if (!hasRolePermission && !isOwner) {
       throw new DomainError(
         "forbidden",
-        `Action 'content:publish' not permitted for role '${scopedActor.role}' on document not owned by user`,
+        `Action 'content:publish' not permitted for role '${fullActor.role}' on document not owned by user`,
       );
     }
+
+    return fullActor;
   }
 
   /**

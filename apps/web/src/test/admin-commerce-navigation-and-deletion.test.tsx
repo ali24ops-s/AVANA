@@ -140,7 +140,7 @@ describe("Feature B: Safe Course Deletion Modal & CourseSettingsPanel", () => {
     });
   });
 
-  it("2. Allows deletion for published courses if no financial dependencies exist", async () => {
+  it("2. Allows direct 1-step deletion for courses with NO purchase history", async () => {
     const handleSuccess = vi.fn();
     const handleClose = vi.fn();
 
@@ -148,20 +148,16 @@ describe("Feature B: Safe Course Deletion Modal & CourseSettingsPanel", () => {
       <AdminCourseDeleteModal
         isOpen={true}
         onClose={handleClose}
-        course={publishedCourse}
+        course={{ ...publishedCourse, hasPurchaseHistory: false }}
         onSuccess={handleSuccess}
       />,
       { wrapper },
     );
 
-    expect(
-      screen.getByText(/حفظ سوابق مالی و حقوق کاربران/i),
-    ).toBeInTheDocument();
-
     const deleteBtn = screen.getByRole("button", { name: /حذف قطعی و برگشت‌ناپذیر دوره/i });
     expect(deleteBtn).toBeDisabled();
 
-    // Type exact match for published course
+    // Type exact match for course
     const input = screen.getByPlaceholderText("نام دوره را اینجا بنویسید...");
     fireEvent.change(input, { target: { value: "زیست‌شناسی جامع کنکور" } });
     expect(deleteBtn).not.toBeDisabled();
@@ -178,30 +174,51 @@ describe("Feature B: Safe Course Deletion Modal & CourseSettingsPanel", () => {
     });
   });
 
-  it("3. Displays backend 409 error message if published course has financial dependencies", async () => {
-    mockDeleteOfficialCourse.mockRejectedValueOnce(
-      new Error("این دوره دارای سابقه خرید یا دسترسی کاربران است و حذف قطعی آن امکان‌پذیر نیست. می‌توانید دوره را آرشیو کنید."),
-    );
+  it("3. Requires 2-step confirmation and severe warning for courses WITH purchase history", async () => {
+    const handleSuccess = vi.fn();
+    const handleClose = vi.fn();
+
+    const courseWithPurchases: OfficialCourse = {
+      ...publishedCourse,
+      hasPurchaseHistory: true,
+    };
 
     render(
       <AdminCourseDeleteModal
         isOpen={true}
-        onClose={vi.fn()}
-        course={publishedCourse}
+        onClose={handleClose}
+        course={courseWithPurchases}
+        onSuccess={handleSuccess}
       />,
       { wrapper },
     );
 
+    // Step 1: Type course name
     const input = screen.getByPlaceholderText("نام دوره را اینجا بنویسید...");
     fireEvent.change(input, { target: { value: "زیست‌شناسی جامع کنکور" } });
 
-    const deleteBtn = screen.getByRole("button", { name: /حذف قطعی و برگشت‌ناپذیر دوره/i });
-    fireEvent.click(deleteBtn);
+    const step1Btn = screen.getByRole("button", { name: /حذف قطعی و برگشت‌ناپذیر دوره/i });
+    fireEvent.click(step1Btn);
+
+    // Verify API is NOT called yet!
+    expect(mockDeleteOfficialCourse).not.toHaveBeenCalled();
+
+    // Verify Step 2 UI is displayed
+    expect(screen.getByText("هشدار جدی: وجود سابقه خرید دوره")).toBeInTheDocument();
+    expect(screen.getByText(/قطع دسترسی دانشجویان/i)).toBeInTheDocument();
+    expect(screen.getByText(/حفظ سوابق مالی و تراکنش‌ها/i)).toBeInTheDocument();
+
+    // Click final step 2 destructive confirmation
+    const finalConfirmBtn = screen.getByRole("button", { name: /تأیید نهایی و حذف دوره دارای سابقه خرید/i });
+    fireEvent.click(finalConfirmBtn);
 
     await waitFor(() => {
-      expect(
-        screen.getByText(/این دوره دارای سابقه خرید یا دسترسی کاربران است/i),
-      ).toBeInTheDocument();
+      expect(mockDeleteOfficialCourse).toHaveBeenCalledWith("course-published-456", {
+        confirmationName: "زیست‌شناسی جامع کنکور",
+        deleteSourceDocuments: false,
+      });
+      expect(handleSuccess).toHaveBeenCalled();
+      expect(handleClose).toHaveBeenCalled();
     });
   });
 

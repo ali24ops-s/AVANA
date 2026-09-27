@@ -233,16 +233,16 @@ export function AdminSupportPage() {
           ) : (
             <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] overflow-hidden shadow-sm">
               <div className="overflow-x-auto">
-                <table className="w-full text-right text-xs">
+                <table className="w-full text-right text-xs min-w-[720px]">
                   <thead className="bg-[var(--color-surface-warm)] border-b border-[var(--color-border)] text-[var(--color-text-muted)]">
                     <tr>
-                      <th className="p-3.5 font-bold">کاربر</th>
-                      <th className="p-3.5 font-bold">عنوان تیکت</th>
-                      <th className="p-3.5 font-bold">دسته‌بندی</th>
-                      <th className="p-3.5 font-bold">اولویت</th>
-                      <th className="p-3.5 font-bold">وضعیت</th>
-                      <th className="p-3.5 font-bold">آخرین فعالیت</th>
-                      <th className="p-3.5 font-bold text-center">عملیات</th>
+                      <th className="p-3.5 font-bold whitespace-nowrap">کاربر</th>
+                      <th className="p-3.5 font-bold whitespace-nowrap">عنوان تیکت</th>
+                      <th className="p-3.5 font-bold whitespace-nowrap">دسته‌بندی</th>
+                      <th className="p-3.5 font-bold whitespace-nowrap">اولویت</th>
+                      <th className="p-3.5 font-bold whitespace-nowrap">وضعیت</th>
+                      <th className="p-3.5 font-bold whitespace-nowrap">آخرین فعالیت</th>
+                      <th className="p-3.5 font-bold whitespace-nowrap text-center">عملیات</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[var(--color-border)]">
@@ -269,13 +269,13 @@ export function AdminSupportPage() {
                           </div>
                         </td>
 
-                        <td className="p-3.5">
+                        <td className="p-3.5 whitespace-nowrap">
                           <Badge variant="neutral" size="sm">
                             {TICKET_CATEGORY_LABELS[ticket.category as TicketCategory] || ticket.category}
                           </Badge>
                         </td>
 
-                        <td className="p-3.5">
+                        <td className="p-3.5 whitespace-nowrap">
                           <Badge
                             variant={getPriorityBadgeVariant(ticket.priority)}
                             size="sm"
@@ -284,7 +284,7 @@ export function AdminSupportPage() {
                           </Badge>
                         </td>
 
-                        <td className="p-3.5">
+                        <td className="p-3.5 whitespace-nowrap">
                           <Badge
                             variant={getTicketStatusBadgeVariant(ticket.status)}
                             size="sm"
@@ -297,13 +297,13 @@ export function AdminSupportPage() {
                           {formatPersianDateTime(ticket.lastActivityAt)}
                         </td>
 
-                        <td className="p-3.5 text-center">
+                        <td className="p-3.5 text-center whitespace-nowrap">
                           <Button
                             size="sm"
                             variant="outline"
                             onClick={() => setSelectedTicketId(ticket.id)}
                             leftIcon={<Eye className="w-3.5 h-3.5" />}
-                            className="text-xs"
+                            className="text-xs whitespace-nowrap shrink-0"
                           >
                             بررسی و پاسخ
                           </Button>
@@ -441,16 +441,16 @@ export function AdminSupportPage() {
           ) : (
             <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] overflow-hidden shadow-sm">
               <div className="overflow-x-auto">
-                <table className="w-full text-right text-xs">
+                <table className="w-full text-right text-xs min-w-[720px]">
                   <thead className="bg-[var(--color-surface-warm)] border-b border-[var(--color-border)] text-[var(--color-text-muted)]">
                     <tr>
-                      <th className="p-3.5 font-bold">کاربر</th>
-                      <th className="p-3.5 font-bold">عنوان بازخورد</th>
-                      <th className="p-3.5 font-bold">نوع</th>
-                      <th className="p-3.5 font-bold">دسته‌بندی</th>
-                      <th className="p-3.5 font-bold">وضعیت</th>
-                      <th className="p-3.5 font-bold">تاریخ ثبت</th>
-                      <th className="p-3.5 font-bold text-center">عملیات</th>
+                      <th className="p-3.5 font-bold whitespace-nowrap">کاربر</th>
+                      <th className="p-3.5 font-bold whitespace-nowrap">عنوان بازخورد</th>
+                      <th className="p-3.5 font-bold whitespace-nowrap">نوع</th>
+                      <th className="p-3.5 font-bold whitespace-nowrap">دسته‌بندی</th>
+                      <th className="p-3.5 font-bold whitespace-nowrap">وضعیت</th>
+                      <th className="p-3.5 font-bold whitespace-nowrap">تاریخ ثبت</th>
+                      <th className="p-3.5 font-bold whitespace-nowrap text-center">عملیات</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[var(--color-border)]">
@@ -477,19 +477,19 @@ export function AdminSupportPage() {
                           </div>
                         </td>
 
-                        <td className="p-3.5">
+                        <td className="p-3.5 whitespace-nowrap">
                           <Badge variant="neutral" size="sm">
                             {FEEDBACK_TYPE_LABELS[fb.type as FeedbackType] || fb.type}
                           </Badge>
                         </td>
 
-                        <td className="p-3.5">
+                        <td className="p-3.5 whitespace-nowrap">
                           <Badge variant="neutral" size="sm">
                             {FEEDBACK_CATEGORY_LABELS[fb.category as FeedbackCategory] || fb.category}
                           </Badge>
                         </td>
 
-                        <td className="p-3.5">
+                        <td className="p-3.5 whitespace-nowrap">
                           <Badge
                             variant={getFeedbackStatusBadgeVariant(fb.status)}
                             size="sm"
@@ -502,13 +502,13 @@ export function AdminSupportPage() {
                           {formatPersianDateTime(fb.createdAt)}
                         </td>
 
-                        <td className="p-3.5 text-center">
+                        <td className="p-3.5 text-center whitespace-nowrap">
                           <Button
                             size="sm"
                             variant="outline"
                             onClick={() => setSelectedFeedback(fb)}
                             leftIcon={<Eye className="w-3.5 h-3.5" />}
-                            className="text-xs"
+                            className="text-xs whitespace-nowrap shrink-0"
                           >
                             مشاهده و پاسخ
                           </Button>

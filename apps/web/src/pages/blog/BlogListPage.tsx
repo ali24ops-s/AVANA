@@ -94,7 +94,7 @@ export function BlogListPage() {
       {/* Navigation */}
       <AboutNavbar />
 
-      <main className="pt-28 pb-20 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto space-y-12">
+      <main className="pt-20 sm:pt-28 pb-20 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto space-y-12">
         {/* Hero Section */}
         <section className="relative text-center max-w-3xl mx-auto space-y-4 pt-4">
           <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold bg-[#008080]/10 text-[#008080] border border-[#008080]/20 backdrop-blur-md shadow-xs">
@@ -272,7 +272,7 @@ export function BlogListPage() {
         {/* Latest Articles Grid Section */}
         <section className="space-y-6">
           <div className="flex items-center justify-between border-b border-[var(--color-border)] pb-4">
-            <h2 className="text-xl font-bold text-[var(--color-text)] flex items-center gap-2">
+            <h2 className="text-xl font-bold text-[var(--color-text)] flex items-center justify-center sm:justify-start gap-2 text-center sm:text-right">
               <BookOpen className="w-5 h-5 text-[#008080]" />
               <span>
                 {activeTag

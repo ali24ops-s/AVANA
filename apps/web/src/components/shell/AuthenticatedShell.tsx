@@ -8,7 +8,6 @@ import {
   Layers,
   HelpCircle,
   FolderOpen,
-  Settings,
   Menu,
   X,
   Library as LibraryIcon,
@@ -108,7 +107,7 @@ export function AuthenticatedShell() {
     >
       {/* Top Sticky Header Navigation Bar */}
       <header className="sticky top-0 z-50 bg-[var(--color-surface-glass)] backdrop-blur-xl border-b border-[var(--color-border)] w-full shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between gap-2 sm:gap-4">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 sm:h-20 flex items-center justify-between gap-2 sm:gap-4">
           {/* Brand & Desktop Horizontal Menu */}
           <div className="flex items-center gap-4 xl:gap-8 min-w-0">
             <BrandLogo
@@ -220,7 +219,7 @@ export function AuthenticatedShell() {
               {/* Floating User Profile Dropdown Panel */}
               {userMenuOpen && (
                 <div
-                  className="absolute left-0 mt-2 w-56 rounded-2xl bg-[var(--color-surface)] border border-[var(--color-border)] shadow-xl z-50 overflow-hidden flex flex-col py-1.5 transition-all animate-in fade-in zoom-in-95 duration-150"
+                  className="absolute left-0 mt-2 w-56 max-w-[calc(100vw-2rem)] rounded-2xl bg-[var(--color-surface)] border border-[var(--color-border)] shadow-xl z-50 overflow-hidden flex flex-col py-1.5 transition-all animate-in fade-in zoom-in-95 duration-150"
                   dir="rtl"
                 >
                   {/* User info header */}
@@ -327,7 +326,13 @@ export function AuthenticatedShell() {
 
       {/* Mobile/Tablet Drawer Menu */}
       {mobileMenuOpen && (
-        <div className="fixed inset-0 top-20 z-40 bg-[var(--color-surface-warm)] border-b border-[var(--color-border)] p-6 xl:hidden flex flex-col gap-4 animate-in slide-in-from-top-2 duration-200">
+        <>
+          <div
+            className="fixed inset-0 top-16 sm:top-20 z-40 bg-black/40 backdrop-blur-xs xl:hidden"
+            onClick={() => setMobileMenuOpen(false)}
+            aria-hidden="true"
+          />
+          <div className="fixed inset-y-0 start-0 top-16 sm:top-20 z-40 w-[63vw] min-w-[210px] max-w-[320px] sm:w-80 bg-[var(--color-surface-warm)] border-inline-end border-[var(--color-border)] p-4 sm:p-6 xl:hidden flex flex-col gap-4 overflow-y-auto pb-28 animate-in rtl:slide-in-from-right ltr:slide-in-from-left duration-200 shadow-2xl">
           <nav className="flex flex-col gap-2">
             <MobileDrawerLink
               to="/home"
@@ -438,20 +443,9 @@ export function AuthenticatedShell() {
               <LifeBuoy className="w-5 h-5 text-primary" />
               <span>پشتیبانی و بازخورد</span>
             </MobileDrawerLink>
-
-
-            <div className="mt-auto pt-4 border-t border-[var(--color-border)]">
-              <Link
-                to="/home"
-                onClick={() => setMobileMenuOpen(false)}
-                className="flex items-center gap-3 px-4 py-3 rounded-lg text-[var(--color-text-muted)] text-sm font-medium hover:bg-[var(--color-surface)]"
-              >
-                <Settings className="w-5 h-5" />
-                <span>تنظیمات</span>
-              </Link>
-            </div>
           </nav>
         </div>
+        </>
       )}
 
       {/* API Error Banner */}
@@ -464,7 +458,7 @@ export function AuthenticatedShell() {
       )}
 
       {/* Main Content Area (Full Width max-w-7xl Container) */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 min-h-screen w-full relative z-10">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 pb-24 md:pb-8 min-h-screen w-full relative z-10">
         <Outlet />
       </main>
 

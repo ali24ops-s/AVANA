@@ -265,15 +265,15 @@ export function AdminBlogListPage() {
       {/* Main Table */}
       <div className="border border-[var(--color-border)] rounded-2xl overflow-hidden shadow-sm bg-[var(--color-surface)]">
         <div className="overflow-x-auto">
-          <table className="w-full text-right text-xs">
+          <table className="w-full text-right text-xs min-w-[760px]">
             <thead className="bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] border-b border-[var(--color-border)]">
               <tr>
-                <th className="px-5 py-3.5 font-semibold">عنوان و مشخصات مقاله</th>
-                <th className="px-4 py-3.5 font-semibold">دسته‌بندی</th>
-                <th className="px-4 py-3.5 font-semibold">وضعیت</th>
-                <th className="px-4 py-3.5 font-semibold">بازدید / زمان مطالعه</th>
-                <th className="px-4 py-3.5 font-semibold">تاریخ انتشار</th>
-                <th className="px-5 py-3.5 font-semibold text-center">عملیات</th>
+                <th className="px-5 py-3.5 font-semibold whitespace-nowrap">عنوان و مشخصات مقاله</th>
+                <th className="px-4 py-3.5 font-semibold whitespace-nowrap">دسته‌بندی</th>
+                <th className="px-4 py-3.5 font-semibold whitespace-nowrap">وضعیت</th>
+                <th className="px-4 py-3.5 font-semibold whitespace-nowrap">بازدید / زمان مطالعه</th>
+                <th className="px-4 py-3.5 font-semibold whitespace-nowrap">تاریخ انتشار</th>
+                <th className="px-5 py-3.5 font-semibold whitespace-nowrap text-center">عملیات</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[var(--color-border)] text-[var(--color-text)]">

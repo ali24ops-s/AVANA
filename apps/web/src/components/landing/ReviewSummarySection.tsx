@@ -17,6 +17,7 @@ import {
   Sparkles,
   BookMarked,
 } from "lucide-react";
+import { RichContent } from "../markdown/MarkdownRenderer.js";
 
 export function ReviewSummarySection() {
   return (
@@ -35,7 +36,7 @@ export function ReviewSummarySection() {
           className="lg:col-span-5 flex flex-col gap-6 z-10"
         >
           {/* Badge */}
-          <div className="w-max">
+          <div className="w-full flex justify-center lg:justify-start">
             <span className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700 text-xs font-bold shadow-xs">
               <Clock className="w-3.5 h-3.5" />
               <span>مرور پربازده (High-Yield)</span>
@@ -43,7 +44,7 @@ export function ReviewSummarySection() {
           </div>
 
           {/* Heading */}
-          <h2 className="font-headline text-3xl sm:text-4xl lg:text-[42px] leading-[1.25] font-black text-[#1a2226] tracking-tight">
+          <h2 className="font-headline text-3xl sm:text-4xl lg:text-[42px] leading-[1.25] font-black text-[#1a2226] tracking-tight text-center lg:text-right">
             وقتی وقت کم است،
             <br />
             <span className="text-[#008080]">دقیق مرور کن.</span>
@@ -133,7 +134,11 @@ export function ReviewSummarySection() {
               </p>
               <ul className="text-xs text-amber-950/85 space-y-1 pr-4 list-disc">
                 <li>
-                  <strong>منع مصرف در آسم:</strong> بتابلاکرهای غیرانتخابی (پروپرانولول) به علت مهار گیرنده $\beta_2$ برونش ممنوع هستند.
+                  <strong>منع مصرف در آسم:</strong>{" "}
+                  <RichContent
+                    inline
+                    content="بتابلاکرهای غیرانتخابی (پروپرانولول) به علت مهار گیرنده $\beta_2$ برونش ممنوع هستند."
+                  />
                 </li>
                 <li>
                   <strong>پنهان‌سازی علائم افت قند خون:</strong> تاکی‌کاردیا ناشی از هیپوگلیسمی در بیماران دیابتی را ماسک می‌کنند (به جز تعریق).

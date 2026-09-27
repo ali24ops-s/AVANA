@@ -79,7 +79,7 @@ export function AdminUsersPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-2">
-        <h1 className="text-2xl font-bold text-[var(--color-text)]">مدیریت کاربران</h1>
+        <h1 className="text-2xl font-bold text-[var(--color-text)] text-center sm:text-right">مدیریت کاربران</h1>
         <p className="text-sm text-[var(--color-text-muted)]">جستجو، فیلتر و مدیریت نقش کاربران پلتفرم</p>
       </div>
 
@@ -150,14 +150,14 @@ export function AdminUsersPage() {
       {/* Main Table Content */}
       <div className="border border-[var(--color-border)] rounded-2xl overflow-hidden bg-[var(--color-surface)] shadow-sm">
         <div className="overflow-x-auto">
-          <table className="w-full text-right text-sm">
+          <table className="w-full min-w-[680px] text-right text-sm">
             <thead className="bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] border-b border-[var(--color-border)]">
               <tr>
-                <th className="px-6 py-4 font-medium whitespace-nowrap">کاربر</th>
-                <th className="px-6 py-4 font-medium">نقش</th>
-                <th className="px-6 py-4 font-medium">وضعیت</th>
-                <th className="px-6 py-4 font-medium hidden sm:table-cell">تاریخ عضویت</th>
-                <th className="px-6 py-4 font-medium w-40 text-center">عملیات</th>
+                <th className="px-4 sm:px-6 py-3.5 font-medium whitespace-nowrap">کاربر</th>
+                <th className="px-4 sm:px-6 py-3.5 font-medium whitespace-nowrap">نقش</th>
+                <th className="px-4 sm:px-6 py-3.5 font-medium whitespace-nowrap">وضعیت</th>
+                <th className="px-4 sm:px-6 py-3.5 font-medium whitespace-nowrap hidden sm:table-cell">تاریخ عضویت</th>
+                <th className="px-4 sm:px-6 py-3.5 font-medium min-w-[240px] text-center whitespace-nowrap">عملیات</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[var(--color-border)]">
@@ -195,38 +195,38 @@ export function AdminUsersPage() {
               ) : (
                 data?.users.map((user: AdminUserRecord) => (
                   <tr key={user.id} className="hover:bg-[var(--color-surface-warm)]/60 transition-colors group">
-                    <td className="px-6 py-4">
+                    <td className="px-4 sm:px-6 py-3.5">
                       <div className="flex flex-col">
                         <span className="text-[var(--color-text)] font-medium" dir="ltr">{user.email}</span>
                         {user.name && <span className="text-xs text-[var(--color-text-muted)] mt-1">{user.name}</span>}
                       </div>
                     </td>
-                    <td className="px-6 py-4">
-                      <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-[var(--color-surface-warm)] text-[var(--color-text)] border border-[var(--color-border)]">
+                    <td className="px-4 sm:px-6 py-3.5 whitespace-nowrap">
+                      <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium whitespace-nowrap bg-[var(--color-surface-warm)] text-[var(--color-text)] border border-[var(--color-border)]">
                         {ROLES.find(r => r.value === user.role)?.label || user.role}
                       </span>
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-4 sm:px-6 py-3.5 whitespace-nowrap">
                       {user.emailVerified ? (
-                        <span className="inline-flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 text-xs font-medium">
+                        <span className="inline-flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 text-xs font-medium whitespace-nowrap">
                           <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
                           تأیید شده
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-1.5 text-[var(--color-text-muted)] text-xs font-medium">
+                        <span className="inline-flex items-center gap-1.5 text-[var(--color-text-muted)] text-xs font-medium whitespace-nowrap">
                           <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-text-muted)]"></span>
                           در انتظار
                         </span>
                       )}
                     </td>
-                    <td className="px-6 py-4 text-[var(--color-text-muted)] text-xs hidden sm:table-cell">
+                    <td className="px-4 sm:px-6 py-3.5 text-[var(--color-text-muted)] text-xs whitespace-nowrap hidden sm:table-cell">
                       {new Date(user.createdAt).toLocaleDateString("fa-IR")}
                     </td>
-                    <td className="px-6 py-4 text-center">
-                      <div className="flex items-center justify-center gap-2">
+                    <td className="px-4 sm:px-6 py-3.5 text-center whitespace-nowrap">
+                      <div className="flex items-center justify-center gap-2 shrink-0">
                         <button
                           onClick={() => setSelectedCommerceUserId(user.id)}
-                          className="text-xs font-medium text-[var(--color-primary-default)] hover:text-[var(--color-primary-dark)] bg-[var(--color-surface-warm)] hover:bg-[var(--color-surface-muted)] border border-[var(--color-border)] px-2.5 py-1.5 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+                          className="text-xs font-medium text-[var(--color-primary-default)] hover:text-[var(--color-primary-dark)] bg-[var(--color-surface-warm)] hover:bg-[var(--color-surface-muted)] border border-[var(--color-border)] px-2.5 py-1.5 rounded-lg transition-colors flex items-center gap-1 whitespace-nowrap cursor-pointer shrink-0"
                           title="سوابق مالی و دسترسی"
                           aria-label={`سوابق مالی کاربر ${user.email}`}
                         >
@@ -235,7 +235,7 @@ export function AdminUsersPage() {
                         </button>
                         <button
                           onClick={() => setSelectedDeviceUserId(user.id)}
-                          className="text-xs font-medium text-[var(--color-primary-default)] hover:text-[var(--color-primary-dark)] bg-[var(--color-surface-warm)] hover:bg-[var(--color-surface-muted)] border border-[var(--color-border)] px-2.5 py-1.5 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+                          className="text-xs font-medium text-[var(--color-primary-default)] hover:text-[var(--color-primary-dark)] bg-[var(--color-surface-warm)] hover:bg-[var(--color-surface-muted)] border border-[var(--color-border)] px-2.5 py-1.5 rounded-lg transition-colors flex items-center gap-1 whitespace-nowrap cursor-pointer shrink-0"
                           title="مدیریت دستگاه‌ها و سشن‌ها"
                           aria-label={`دستگاه‌های کاربر ${user.email}`}
                         >
@@ -244,7 +244,7 @@ export function AdminUsersPage() {
                         </button>
                         <button 
                           onClick={() => handleRoleChangeClick(user)}
-                          className="text-xs font-medium text-[var(--color-primary-default)] hover:text-[var(--color-primary-dark)] bg-[var(--color-primary-default)]/10 hover:bg-[var(--color-primary-default)]/20 px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer"
+                          className="text-xs font-medium text-[var(--color-primary-default)] hover:text-[var(--color-primary-dark)] bg-[var(--color-primary-default)]/10 hover:bg-[var(--color-primary-default)]/20 px-2.5 py-1.5 rounded-lg transition-colors whitespace-nowrap cursor-pointer shrink-0"
                           title="تغییر نقش"
                           aria-label={`تغییر نقش کاربر ${user.email}`}
                         >

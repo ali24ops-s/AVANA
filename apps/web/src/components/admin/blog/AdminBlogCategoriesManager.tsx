@@ -137,7 +137,7 @@ export function AdminBlogCategoriesManager() {
       {/* Header bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-bold text-[var(--color-text)] flex items-center gap-2">
+          <h2 className="text-xl font-bold text-[var(--color-text)] flex items-center justify-center sm:justify-start gap-2 text-center sm:text-right">
             <FolderOpen className="w-5 h-5 text-[var(--color-primary-default)]" />
             <span>مدیریت دسته‌بندی‌های وبلاگ</span>
           </h2>
@@ -177,15 +177,15 @@ export function AdminBlogCategoriesManager() {
       {/* Table */}
       <div className="border border-[var(--color-border)] rounded-2xl overflow-hidden shadow-xs bg-[var(--color-surface)]">
         <div className="overflow-x-auto">
-          <table className="w-full text-right text-xs">
+          <table className="w-full text-right text-xs min-w-[650px]">
             <thead className="bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] border-b border-[var(--color-border)]">
               <tr>
-                <th className="px-5 py-3.5 font-semibold">نام دسته‌بندی</th>
-                <th className="px-4 py-3.5 font-semibold">اسلاگ (URL Slug)</th>
-                <th className="px-4 py-3.5 font-semibold">توضیحات</th>
-                <th className="px-4 py-3.5 font-semibold text-center">ترتیب نمایش</th>
-                <th className="px-4 py-3.5 font-semibold text-center">تعداد مقالات</th>
-                <th className="px-5 py-3.5 font-semibold text-center">عملیات</th>
+                <th className="px-5 py-3.5 font-semibold whitespace-nowrap">نام دسته‌بندی</th>
+                <th className="px-4 py-3.5 font-semibold whitespace-nowrap">اسلاگ (URL Slug)</th>
+                <th className="px-4 py-3.5 font-semibold whitespace-nowrap">توضیحات</th>
+                <th className="px-4 py-3.5 font-semibold whitespace-nowrap text-center">ترتیب نمایش</th>
+                <th className="px-4 py-3.5 font-semibold whitespace-nowrap text-center">تعداد مقالات</th>
+                <th className="px-5 py-3.5 font-semibold whitespace-nowrap text-center">عملیات</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[var(--color-border)] text-[var(--color-text)]">

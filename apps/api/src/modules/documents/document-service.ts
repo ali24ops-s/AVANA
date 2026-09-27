@@ -12,12 +12,13 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
   type Actor,
-  type AuthContext,
   type AuthorizationPolicy,
   type CourseId,
   type DocumentId,
   type OrganizationId,
+  type ResourceContext,
   type UserId,
+  buildActor,
   defaultPolicy,
   DomainError,
   auditDocumentUploaded,
@@ -34,7 +35,6 @@ import type {
 import type { CourseStore } from "../courses/course-store.js";
 import type {
   OrganizationStore,
-  MembershipRecord,
 } from "../organizations/organization-store.js";
 import type { GeneratedContentStore } from "../generation/generation-store.js";
 import type { GenerationJobStore } from "../generation/generation-jobs-store.js";
@@ -242,24 +242,8 @@ export class DocumentService {
     private readonly moduleStore?: ModuleStore,
     private readonly lessonStore?: LessonStore,
     private readonly entitlementService?: EntitlementService,
+    private readonly systemOrganizationId?: OrganizationId,
   ) {}
-
-  /**
-   * Resolve the actor's membership in an organization (non-disclosing 404).
-   */
-  private async requireMembership(
-    actor: Actor,
-    organizationId: OrganizationId,
-  ): Promise<MembershipRecord> {
-    const membership = await this.organizationStore.findMembership(
-      organizationId,
-      actor.userId,
-    );
-    if (!membership) {
-      throw new DomainError("not_found", "Organization not found");
-    }
-    return membership;
-  }
 
   /**
    * Resolve the actor's scoped role and authorize an action within an org.
@@ -279,24 +263,49 @@ export class DocumentService {
     actor: Actor,
     organizationId: OrganizationId,
     action: "document:upload" | "document:read",
-  ): Promise<void> {
-    if (actor.role === "platform_admin") {
-      // 1. Verify that the target organization actually exists (non-disclosing 404)
-      const org = await this.organizationStore.findById(organizationId);
-      if (!org) {
-        throw new DomainError("not_found", "Organization not found");
-      }
-
-      // 2. Explicitly verify that RoleBasedPolicy permits this action for platform_admin
-      const context: AuthContext = { organizationId };
-      this.policy.require(action, actor, context);
-      return;
+  ): Promise<Actor> {
+    const org = await this.organizationStore.findById(organizationId);
+    if (!org) {
+      throw new DomainError("not_found", "Organization not found");
     }
 
-    const membership = await this.requireMembership(actor, organizationId);
-    const scopedActor = { ...actor, role: membership.role };
-    const context: AuthContext = { organizationId };
-    this.policy.require(action, scopedActor, context);
+    const isSystemResource =
+      !!this.systemOrganizationId &&
+      organizationId === this.systemOrganizationId;
+
+    const memberships = await this.organizationStore.listMembershipsByUserId(
+      actor.userId,
+    );
+
+    const fullActor = buildActor({
+      userId: actor.userId,
+      globalRole:
+        actor.globalRole ??
+        (actor.role === "platform_admin" ? "platform_admin" : undefined),
+      role: actor.role,
+      memberships,
+    });
+
+    const resourceContext: ResourceContext = {
+      organizationId,
+      resourceType: "document",
+      isSystemResource,
+    };
+
+    if (!this.policy.can(fullActor, action, resourceContext)) {
+      const targetMembership = memberships?.find(
+        (m) => m.organizationId === organizationId,
+      );
+      if (targetMembership) {
+        throw new DomainError(
+          "forbidden",
+          `Role does not permit ${action} in this context`,
+        );
+      }
+      throw new DomainError("not_found", "Organization not found");
+    }
+
+    return fullActor;
   }
 
   /**
@@ -643,13 +652,60 @@ export class DocumentService {
     organizationId: OrganizationId,
     documentId: DocumentId,
   ): Promise<DocumentDetailResource> {
-    await this.authorize(actor, organizationId, "document:read");
+    // 1. Authoritative document lookup
+    const doc = this.store.findById
+      ? await this.store.findById(documentId)
+      : await this.store.findByIdForOrganization(documentId, organizationId);
+    if (!doc || doc.deletedAt !== null) {
+      throw new DomainError("not_found", "Document not found");
+    }
 
-    const doc = await this.store.findByIdForOrganization(
-      documentId,
-      organizationId,
-    );
-    if (!doc) {
+    // 2. Anti-spoofing organization check
+    const authoritativeOrgId = doc.organizationId as OrganizationId;
+    if (
+      authoritativeOrgId !== organizationId &&
+      (!this.systemOrganizationId ||
+        authoritativeOrgId !== this.systemOrganizationId)
+    ) {
+      throw new DomainError("not_found", "Document not found");
+    }
+
+    const isSystemResource =
+      !!this.systemOrganizationId &&
+      authoritativeOrgId === this.systemOrganizationId;
+
+    // 3. Load all memberships and build full Actor
+    const memberships = this.organizationStore
+      ? await this.organizationStore.listMembershipsByUserId(actor.userId)
+      : (actor.memberships ?? []);
+
+    const fullActor = buildActor({
+      userId: actor.userId,
+      globalRole: actor.globalRole,
+      role: actor.role,
+      memberships,
+    });
+
+    // 4. Build ResourceContext
+    const resourceContext: ResourceContext = {
+      organizationId: authoritativeOrgId,
+      resourceType: "document",
+      resourceId: doc.id,
+      courseId: doc.courseId ?? undefined,
+      isSystemResource,
+    };
+
+    // 5. Policy Check (Action: "document:read")
+    if (!this.policy.can(fullActor, "document:read", resourceContext)) {
+      const targetMembership = memberships.find(
+        (m) => m.organizationId === authoritativeOrgId,
+      );
+      if (targetMembership) {
+        throw new DomainError(
+          "forbidden",
+          "Role does not permit reading this document",
+        );
+      }
       throw new DomainError("not_found", "Document not found");
     }
 

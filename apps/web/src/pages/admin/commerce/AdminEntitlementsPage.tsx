@@ -9,6 +9,7 @@ import {
   BookOpen,
   Sparkles,
   FolderTree,
+  ShieldOff,
 } from "lucide-react";
 import type { AdminEntitlementRecord } from "../../../lib/api/admin.js";
 import {
@@ -25,6 +26,7 @@ import {
 } from "../../../components/admin/AdminUI.js";
 import { UserCommerceDrawer } from "../../../components/admin/commerce/UserCommerceDrawer.js";
 import { AdminGrantModal } from "../../../components/admin/commerce/AdminGrantModal.js";
+import { AdminRevokeEntitlementModal } from "../../../components/admin/commerce/AdminRevokeEntitlementModal.js";
 import { AdminCommerceNavigation } from "../../../components/admin/commerce/AdminCommerceNavigation.js";
 import { PageHeader } from "../../../components/ui/index.js";
 
@@ -46,6 +48,7 @@ export function AdminEntitlementsPage() {
 
   const [selectedDrawerUserId, setSelectedDrawerUserId] = useState<string | null>(null);
   const [isGrantModalOpen, setIsGrantModalOpen] = useState<boolean>(false);
+  const [selectedEntitlementToRevoke, setSelectedEntitlementToRevoke] = useState<AdminEntitlementRecord | null>(null);
 
   const fetchEntitlements = async () => {
     setIsLoading(true);
@@ -261,14 +264,26 @@ export function AdminEntitlementsPage() {
                   {formatPersianDate(ent.startsAt, false)}
                 </td>
                 <td className="px-4 py-3 whitespace-nowrap">
-                  <button
-                    onClick={() => setSelectedDrawerUserId(ent.userId)}
-                    className="p-1.5 rounded-lg bg-[var(--color-surface-warm)] hover:bg-[var(--color-surface-muted)] text-[var(--color-primary-default)] hover:text-[var(--color-primary-dark)] border border-[var(--color-border)] transition-colors flex items-center gap-1 text-xs cursor-pointer"
-                    title="مشاهده سوابق مالی کاربر"
-                  >
-                    <User className="w-3.5 h-3.5" />
-                    <span>کاربر</span>
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => setSelectedDrawerUserId(ent.userId)}
+                      className="p-1.5 rounded-lg bg-[var(--color-surface-warm)] hover:bg-[var(--color-surface-muted)] text-[var(--color-primary-default)] hover:text-[var(--color-primary-dark)] border border-[var(--color-border)] transition-colors flex items-center gap-1 text-xs cursor-pointer"
+                      title="مشاهده سوابق مالی کاربر"
+                    >
+                      <User className="w-3.5 h-3.5" />
+                      <span>کاربر</span>
+                    </button>
+                    {(ent.lifetime || ent.active) && (
+                      <button
+                        onClick={() => setSelectedEntitlementToRevoke(ent)}
+                        className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300 border border-rose-500/20 transition-colors flex items-center gap-1 text-xs cursor-pointer"
+                        title="لغو دسترسی کاربر به این منبع"
+                      >
+                        <ShieldOff className="w-3.5 h-3.5" />
+                        <span>لغو دسترسی</span>
+                      </button>
+                    )}
+                  </div>
                 </td>
               </tr>
             );
@@ -301,6 +316,19 @@ export function AdminEntitlementsPage() {
           fetchEntitlements();
         }}
       />
+
+      {/* Revoke Modal */}
+      {selectedEntitlementToRevoke && (
+        <AdminRevokeEntitlementModal
+          isOpen={Boolean(selectedEntitlementToRevoke)}
+          entitlement={selectedEntitlementToRevoke}
+          onClose={() => setSelectedEntitlementToRevoke(null)}
+          onSuccess={() => {
+            setSelectedEntitlementToRevoke(null);
+            fetchEntitlements();
+          }}
+        />
+      )}
     </div>
   );
 }

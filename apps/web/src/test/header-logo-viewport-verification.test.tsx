@@ -64,26 +64,26 @@ function renderWithProviders(ui: React.ReactElement) {
 }
 
 const VIEWPORTS = [
-  { width: 320, name: "320px (Mobile XS)", expectedClass: "h-20", heightPx: 80, widthPx: 118.38, ratio: "100%" },
-  { width: 375, name: "375px (Mobile S)", expectedClass: "h-20", heightPx: 80, widthPx: 118.38, ratio: "100%" },
-  { width: 414, name: "414px (Mobile M)", expectedClass: "h-20", heightPx: 80, widthPx: 118.38, ratio: "100%" },
-  { width: 768, name: "768px (Tablet)", expectedClass: "md:h-24", heightPx: 96, widthPx: 142.06, ratio: "120%" },
-  { width: 1024, name: "1024px (Desktop S)", expectedClass: "md:h-24", heightPx: 96, widthPx: 142.06, ratio: "120%" },
-  { width: 1280, name: "1280px (Desktop M)", expectedClass: "md:h-24", heightPx: 96, widthPx: 142.06, ratio: "120%" },
-  { width: 1440, name: "1440px (Desktop L)", expectedClass: "md:h-24", heightPx: 96, widthPx: 142.06, ratio: "120%" },
+  { width: 320, name: "320px (Mobile XS)", expectedClass: "h-9", heightPx: 36, widthPx: 53.27 },
+  { width: 375, name: "375px (Mobile S)", expectedClass: "h-9", heightPx: 36, widthPx: 53.27 },
+  { width: 414, name: "414px (Mobile M)", expectedClass: "h-9", heightPx: 36, widthPx: 53.27 },
+  { width: 768, name: "768px (Tablet)", expectedClass: "md:h-24", heightPx: 96, widthPx: 142.06 },
+  { width: 1024, name: "1024px (Desktop S)", expectedClass: "md:h-24", heightPx: 96, widthPx: 142.06 },
+  { width: 1280, name: "1280px (Desktop M)", expectedClass: "md:h-24", heightPx: 96, widthPx: 142.06 },
+  { width: 1440, name: "1440px (Desktop L)", expectedClass: "md:h-24", heightPx: 96, widthPx: 142.06 },
 ];
 
-describe("Header Logo Viewport & Proportionality Verification (Doubled Size)", () => {
+describe("Header Logo Viewport & Proportionality Verification", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   describe("1. BrandLogo Class & Sizing Specification", () => {
-    it("renders BrandLogo with doubled responsive classes h-20 sm:h-[88px] md:h-24 w-auto for size='md'", () => {
+    it("renders BrandLogo with responsive classes h-9 sm:h-[88px] md:h-24 w-auto for size='md'", () => {
       renderWithProviders(<BrandLogo variant="logo-only" size="md" />);
       const logoImg = screen.getByAltText("لوگوی آوانا");
       expect(logoImg).toBeInTheDocument();
-      expect(logoImg.className).toContain("h-20");
+      expect(logoImg.className).toContain("h-9");
       expect(logoImg.className).toContain("sm:h-[88px]");
       expect(logoImg.className).toContain("md:h-24");
       expect(logoImg.className).toContain("w-auto");
@@ -92,7 +92,7 @@ describe("Header Logo Viewport & Proportionality Verification (Doubled Size)", (
   });
 
   describe("2. AuthenticatedShell Header Viewport Verification", () => {
-    VIEWPORTS.forEach(({ width, name, heightPx, widthPx, ratio }) => {
+    VIEWPORTS.forEach(({ width, name }) => {
       it(`verifies layout, logo presence, and zero overflow at ${name}`, () => {
         window.innerWidth = width;
         window.dispatchEvent(new Event("resize"));
@@ -103,25 +103,16 @@ describe("Header Logo Viewport & Proportionality Verification (Doubled Size)", (
 
         // Check header container height class
         const headerInner = header?.querySelector("div");
-        expect(headerInner?.className).toContain("h-20");
+        expect(headerInner?.className).toContain("h-16");
+        expect(headerInner?.className).toContain("sm:h-20");
 
         // Check logo image exists and has responsive classes
         const logo = within(header!).getByAltText("لوگوی آوانا");
         expect(logo).toBeInTheDocument();
         expect(logo).toHaveAttribute("src", BRAND_LOGO_SRC);
-        expect(logo.className).toContain("h-20");
+        expect(logo.className).toContain("h-9");
         expect(logo.className).toContain("sm:h-[88px]");
         expect(logo.className).toContain("md:h-24");
-
-        // Verify logo dimensions:
-        // Intrinsic aspect ratio: 512 / 346 = 1.479768786
-        const calculatedWidth = heightPx * (512 / 346);
-        expect(Math.abs(calculatedWidth - widthPx)).toBeLessThan(0.1);
-
-        // Header height ratio verification:
-        // Header is h-20 (80px), so heightPx / 80px
-        const calculatedRatio = `${Math.round((heightPx / 80) * 100)}%`;
-        expect(calculatedRatio).toBe(ratio);
 
         // Verify NO wordmark in top header
         const wordmark = within(header!).queryByAltText("AVANA");
@@ -149,7 +140,8 @@ describe("Header Logo Viewport & Proportionality Verification (Doubled Size)", (
 
         const logo = within(headerNav).getByAltText("لوگوی آوانا");
         expect(logo).toBeInTheDocument();
-        expect(logo.className).toContain("h-12");
+        expect(logo.className).toContain("h-8");
+        expect(logo.className).toContain("sm:h-12");
         expect(logo.className).toContain("w-auto");
 
         // Verify NO wordmark in header nav

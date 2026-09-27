@@ -173,7 +173,7 @@ export function NotificationDropdown() {
       >
         <Bell className="w-5 h-5" />
         {unreadCount > 0 && (
-          <span className="absolute top-1 right-1 flex h-4 min-w-[16px] px-1 items-center justify-center rounded-full bg-[#008080] text-[10px] font-bold text-white shadow-sm ring-2 ring-[var(--color-surface)]">
+          <span className="absolute top-1 end-1 flex h-4 min-w-[16px] px-1 items-center justify-center rounded-full bg-[#008080] text-[10px] font-bold text-white shadow-sm ring-2 ring-[var(--color-surface)]">
             {unreadCount > 99 ? "+۹۹" : toPersianDigits(unreadCount)}
           </span>
         )}
@@ -182,7 +182,7 @@ export function NotificationDropdown() {
       {/* Floating Dropdown Panel */}
       {isOpen && (
         <div
-          className="absolute left-0 sm:left-auto sm:right-0 mt-2 w-[340px] sm:w-[380px] max-w-[calc(100vw-24px)] rounded-2xl bg-[var(--color-surface)] border border-[var(--color-border)] shadow-xl z-50 overflow-hidden flex flex-col transition-all animate-in fade-in zoom-in-95 duration-150"
+          className="max-sm:fixed max-sm:inset-x-3 max-sm:top-18 max-sm:w-auto max-sm:max-h-[calc(100vh-5.5rem)] sm:absolute sm:inset-x-auto sm:top-full sm:end-0 sm:mt-2 sm:w-[360px] md:w-[380px] sm:max-h-[480px] max-w-[calc(100vw-1.5rem)] sm:max-w-md rounded-2xl bg-[var(--color-surface)] border border-[var(--color-border)] shadow-xl z-50 overflow-hidden flex flex-col transition-all animate-in fade-in zoom-in-95 duration-150"
           role="dialog"
           aria-label="اعلانات"
         >
@@ -246,7 +246,7 @@ export function NotificationDropdown() {
           </div>
 
           {/* Notification Items List */}
-          <div className="max-h-[380px] overflow-y-auto divide-y divide-[var(--color-border)] overscroll-contain">
+          <div className="max-h-[300px] sm:max-h-[360px] overflow-y-auto divide-y divide-[var(--color-border)] overscroll-contain">
             {isLoading ? (
               <div className="p-6 flex flex-col items-center justify-center gap-3 text-[var(--color-text-muted)]">
                 <Loader2 className="w-6 h-6 animate-spin text-[#008080]" />

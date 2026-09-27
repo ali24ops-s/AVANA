@@ -431,7 +431,7 @@ describe("Library Free Preview UX & Canonical Integration", () => {
       expect(quizCta).toHaveTextContent("شرکت در آزمون رایگان");
       expect(quizCta).toHaveAttribute(
         "href",
-        "/courses/course-pharma-101/quizzes/quiz-prev-1?moduleId=mod-1",
+        "/courses/course-pharma-101?tab=quizzes&quizId=quiz-prev-1&moduleId=mod-1",
       );
     });
   });

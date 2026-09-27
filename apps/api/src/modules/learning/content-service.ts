@@ -9,6 +9,8 @@ import {
   type ModuleId,
   type OrganizationId,
   type UserId,
+  type ResourceContext,
+  buildActor,
   defaultPolicy,
   DomainError,
   auditModuleCreated,
@@ -100,18 +102,38 @@ export class ContentService {
     organizationId: OrganizationId,
     action: AuthAction,
     context: Partial<AuthContext> = {},
-  ): Promise<void> {
-    const membership = await this.organizationStore.findMembership(
-      organizationId,
+  ): Promise<Actor> {
+    const memberships = await this.organizationStore.listMembershipsByUserId(
       actor.userId,
     );
-    if (!membership)
-      throw new DomainError("not_found", "Organization not found");
-    const scopedActor = { ...actor, role: membership.role as Actor["role"] };
-    this.policy.require(action, scopedActor, {
+
+    const fullActor = buildActor({
+      userId: actor.userId,
+      globalRole: actor.globalRole,
+      role: actor.role,
+      memberships,
+    });
+
+    const resourceContext: ResourceContext = {
       organizationId,
-      ...context,
-    } as AuthContext);
+      resourceType: "course",
+      courseId: context.courseId,
+    };
+
+    if (!this.policy.can(fullActor, action, resourceContext)) {
+      const targetMembership = memberships?.find(
+        (m) => m.organizationId === organizationId,
+      );
+      if (targetMembership) {
+        throw new DomainError(
+          "forbidden",
+          `Role does not permit ${action} in this context`,
+        );
+      }
+      throw new DomainError("not_found", "Organization not found");
+    }
+
+    return fullActor;
   }
 
   private async resolveCourse(

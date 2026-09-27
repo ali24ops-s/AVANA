@@ -13,13 +13,14 @@
 import { randomUUID } from "node:crypto";
 import {
   type Actor,
-  type AuthContext,
   type AuthorizationPolicy,
   type CourseId,
   type LessonId,
   type ModuleId,
   type OrganizationId,
   type ResourceAccessResult,
+  type ResourceContext,
+  buildActor,
   defaultPolicy,
   DomainError,
   auditLessonCompleted,
@@ -169,39 +170,47 @@ export class LearningService {
       throw new DomainError("not_found", "Course not found");
     }
 
-    // Unpublished official courses must not be accessible to students
-    if (
-      course.isOfficial === true &&
-      course.status !== "published" &&
-      actor.role !== "platform_admin" &&
-      actor.role !== "organization_admin"
-    ) {
-      throw new DomainError("not_found", "Course not found");
-    }
-
     const organizationId = course.organizationId as OrganizationId;
     const isSystemCourse =
       !!this.systemOrganizationId &&
       organizationId === this.systemOrganizationId;
 
-    let role: Actor["role"] = "student";
+    // 2. Build full actor with user memberships and evaluate context-aware authorization
+    const memberships = await this.organizationStore.listMembershipsByUserId(
+      actor.userId,
+    );
 
-    if (!isSystemCourse) {
-      // 2. Verify the actor has a membership in the owning organization for private courses
-      const membership = await this.organizationStore.findMembership(
-        organizationId,
-        actor.userId,
-      );
-      if (!membership) {
-        throw new DomainError("not_found", "Course not found");
-      }
-      role = membership.role as Actor["role"];
+    const fullActor = buildActor({
+      userId: actor.userId,
+      globalRole: actor.globalRole,
+      role: actor.role,
+      memberships,
+    });
+
+    const resourceContext: ResourceContext = {
+      organizationId,
+      resourceType: "course",
+      resourceId: course.id,
+      courseId: course.id,
+      isSystemResource: isSystemCourse,
+    };
+
+    if (!this.policy.can(fullActor, "learning:read", resourceContext)) {
+      throw new DomainError("not_found", "Course not found");
     }
 
-    // 3. Check the policy allows "learning:read"
-    const scopedActor = { ...actor, role };
-    const context: AuthContext = { organizationId, courseId };
-    this.policy.require("learning:read", scopedActor, context);
+    // Unpublished official courses must not be accessible to students
+    const isPrivilegedAdmin =
+      fullActor.globalRole === "platform_admin" ||
+      fullActor.role === "platform_admin" ||
+      fullActor.role === "organization_admin";
+    if (
+      course.isOfficial === true &&
+      course.status !== "published" &&
+      !isPrivilegedAdmin
+    ) {
+      throw new DomainError("not_found", "Course not found");
+    }
 
     // 4. Load modules (ordered by sort_order)
     const modules = await this.moduleStore.listByCourse(courseId);
@@ -401,6 +410,7 @@ export class LearningService {
         access_reason: isCourseLocked ? "locked" : (accessResult?.reason ?? "free"),
         isOfficial: isOfficialCourse,
         is_official: isOfficialCourse,
+        version: course.version ?? 1,
       } as any,
       groups: activeGroups.map((g) => ({
         id: g.id,
@@ -502,23 +512,28 @@ export class LearningService {
       !!this.systemOrganizationId &&
       organizationId === this.systemOrganizationId;
 
-    let role: Actor["role"] = "student";
+    const memberships = await this.organizationStore.listMembershipsByUserId(
+      actor.userId,
+    );
 
-    if (!isSystemCourse) {
-      const membership = await this.organizationStore.findMembership(
-        organizationId,
-        actor.userId,
-      );
-      if (!membership) {
-        throw new DomainError("not_found", "Lesson not found");
-      }
-      role = membership.role as Actor["role"];
+    const fullActor = buildActor({
+      userId: actor.userId,
+      globalRole: actor.globalRole,
+      role: actor.role,
+      memberships,
+    });
+
+    const resourceContext: ResourceContext = {
+      organizationId,
+      resourceType: "lesson",
+      resourceId: lessonId,
+      courseId,
+      isSystemResource: isSystemCourse,
+    };
+
+    if (!this.policy.can(fullActor, "progress:write", resourceContext)) {
+      throw new DomainError("not_found", "Lesson not found");
     }
-
-    // 5. Check the policy allows "progress:write"
-    const scopedActor = { ...actor, role };
-    const context: AuthContext = { organizationId, courseId, lessonId };
-    this.policy.require("progress:write", scopedActor, context);
 
     // Check entitlement: locked lessons cannot be marked as completed
     if (this.entitlementService) {
@@ -607,23 +622,28 @@ export class LearningService {
       !!this.systemOrganizationId &&
       organizationId === this.systemOrganizationId;
 
-    let role: Actor["role"] = "student";
+    const memberships = await this.organizationStore.listMembershipsByUserId(
+      actor.userId,
+    );
 
-    if (!isSystemCourse) {
-      const membership = await this.organizationStore.findMembership(
-        organizationId,
-        actor.userId,
-      );
-      if (!membership) {
-        throw new DomainError("not_found", "Course not found");
-      }
-      role = membership.role as Actor["role"];
+    const fullActor = buildActor({
+      userId: actor.userId,
+      globalRole: actor.globalRole,
+      role: actor.role,
+      memberships,
+    });
+
+    const resourceContext: ResourceContext = {
+      organizationId,
+      resourceType: "course",
+      resourceId: courseId,
+      courseId,
+      isSystemResource: isSystemCourse,
+    };
+
+    if (!this.policy.can(fullActor, "progress:read", resourceContext)) {
+      throw new DomainError("not_found", "Course not found");
     }
-
-    // 3. Check the policy allows "progress:read"
-    const scopedActor = { ...actor, role };
-    const context: AuthContext = { organizationId, courseId };
-    this.policy.require("progress:read", scopedActor, context);
 
     // 4. Load modules and count lessons
     const modules = await this.moduleStore.listByCourse(courseId);

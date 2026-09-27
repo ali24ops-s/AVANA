@@ -39,7 +39,11 @@ export class InMemoryCourseStore implements CourseStore {
       throw new Error("Duplicate course record");
     }
 
-    this.courses.set(records.course.id, { ...records.course });
+    const courseRecord: CourseRecord = {
+      status: records.course.status ?? "published",
+      ...records.course,
+    };
+    this.courses.set(records.course.id, courseRecord);
     if (records.auditEvents) {
       this.auditEvents.push(...records.auditEvents);
     }
@@ -181,6 +185,7 @@ export class InMemoryCourseStore implements CourseStore {
     const candidateCourses = Array.from(this.courses.values()).filter(
       (c) =>
         c.deletedAt === null &&
+        (c.status ?? "published") === "published" &&
         (!organizationId ||
           c.organizationId === organizationId ||
           (systemOrganizationId && c.organizationId === systemOrganizationId)),

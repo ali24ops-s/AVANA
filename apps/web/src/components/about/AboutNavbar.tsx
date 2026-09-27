@@ -47,7 +47,7 @@ export const AboutNavbar: React.FC = () => {
         style={{ scaleX }}
       />
 
-      <div className="flex justify-between items-center px-6 max-w-[1280px] mx-auto h-20">
+      <div className="flex justify-between items-center px-6 max-w-[1280px] mx-auto h-16 sm:h-20">
         {/* Brand */}
         <div className="flex items-center gap-3">
           <BrandLogo
@@ -111,7 +111,7 @@ export const AboutNavbar: React.FC = () => {
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -10 }}
-          className="lg:hidden absolute top-20 left-0 w-full bg-[var(--color-surface)]/95 backdrop-blur-2xl border-b border-[var(--color-border)] shadow-xl flex flex-col px-6 py-5 gap-3"
+          className="lg:hidden absolute top-16 sm:top-20 left-0 w-full bg-[var(--color-surface)]/95 backdrop-blur-2xl border-b border-[var(--color-border)] shadow-xl flex flex-col px-6 py-5 gap-3"
         >
           {navLinks.map((item) => (
             item.href.startsWith("/") ? (

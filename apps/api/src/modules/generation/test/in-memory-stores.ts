@@ -53,6 +53,16 @@ export class InMemoryGeneratedContentStore implements GeneratedContentStore {
     }
   }
 
+  async findById(
+    id: GeneratedContentId,
+  ): Promise<GeneratedContentRecord | undefined> {
+    const record = this.contents.get(id);
+    if (!record || record.deletedAt) {
+      return undefined;
+    }
+    return { ...record };
+  }
+
   async findByIdForOrganization(
     id: GeneratedContentId,
     organizationId: OrganizationId,

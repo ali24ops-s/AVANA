@@ -10,7 +10,7 @@ import {
   AlertCircle,
   ShieldOff,
 } from "lucide-react";
-import type { AdminUserCommerceProfile } from "../../../lib/api/admin.js";
+import type { AdminUserCommerceProfile, AdminEntitlementRecord } from "../../../lib/api/admin.js";
 import {
   formatToman,
   formatPersianDate,
@@ -21,6 +21,7 @@ import {
 import { toPersianDigits } from "@avana/domain";
 import { AdminGrantModal } from "./AdminGrantModal.js";
 import { AdminCancelSubscriptionModal } from "./AdminCancelSubscriptionModal.js";
+import { AdminRevokeEntitlementModal } from "./AdminRevokeEntitlementModal.js";
 
 interface UserCommerceDrawerProps {
   isOpen: boolean;
@@ -35,6 +36,7 @@ export function UserCommerceDrawer({ isOpen, userId, onClose }: UserCommerceDraw
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isGrantModalOpen, setIsGrantModalOpen] = useState(false);
   const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
+  const [selectedEntitlementToRevoke, setSelectedEntitlementToRevoke] = useState<AdminEntitlementRecord | null>(null);
 
   const fetchProfile = async () => {
     if (!userId) return;
@@ -64,8 +66,8 @@ export function UserCommerceDrawer({ isOpen, userId, onClose }: UserCommerceDraw
     <>
       <div className="fixed inset-0 z-50 overflow-hidden bg-black/60 backdrop-blur-sm">
         <div className="absolute inset-0" onClick={onClose} />
-        <div className="fixed inset-y-0 start-0 max-w-full flex ps-10" dir="rtl">
-          <div className="w-screen max-w-2xl bg-[var(--color-surface)] border-e border-[var(--color-border)] shadow-2xl flex flex-col">
+        <div className="fixed inset-y-0 start-0 max-w-full flex ps-0 sm:ps-10" dir="rtl">
+          <div className="w-full max-w-2xl bg-[var(--color-surface)] border-e border-[var(--color-border)] shadow-2xl flex flex-col">
             {/* Drawer Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--color-border)] bg-[var(--color-surface-warm)]">
               <div className="flex items-center gap-3">
@@ -82,7 +84,7 @@ export function UserCommerceDrawer({ isOpen, userId, onClose }: UserCommerceDraw
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setIsGrantModalOpen(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--color-primary-default)] hover:bg-[var(--color-primary-dark)] text-[var(--color-primary-contrast)] rounded-xl text-xs font-medium transition-colors cursor-pointer shadow-sm"
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--color-primary-default)] hover:bg-[var(--color-primary-dark)] text-[var(--color-primary-contrast)] rounded-xl text-xs font-medium transition-colors cursor-pointer shadow-sm whitespace-nowrap shrink-0"
                 >
                   <PlusCircle className="w-4 h-4" />
                   <span>اعطای دسترسی</span>
@@ -165,47 +167,91 @@ export function UserCommerceDrawer({ isOpen, userId, onClose }: UserCommerceDraw
                     )}
                   </div>
 
-                  {/* 2. Lifetime Purchases */}
+                  {/* 2. Lifetime Purchases / Course Entitlements */}
                   <div className="border border-[var(--color-border)] rounded-2xl p-5 bg-[var(--color-surface)] shadow-sm">
                     <div className="flex items-center justify-between mb-3">
                       <span className="text-xs font-semibold text-[var(--color-text-muted)] uppercase tracking-wider flex items-center gap-1.5">
                         <InfinityIcon className="w-4 h-4 text-[var(--color-primary-default)]" />
-                        خریدهای دائمی / مادام‌العمر ({toPersianDigits(profile.lifetimePurchases.length)})
+                        دسترسی‌های دائمی و دوره‌ها (
+                        {toPersianDigits(
+                          (profile.entitlements && profile.entitlements.length > 0
+                            ? profile.entitlements.filter((e) => e.resourceType !== "subscription")
+                            : profile.lifetimePurchases
+                          ).length
+                        )}
+                        )
                       </span>
                     </div>
 
-                    {profile.lifetimePurchases.length === 0 ? (
-                      <p className="text-xs text-[var(--color-text-muted)] py-2">موردی ثبت نشده است.</p>
-                    ) : (
-                      <div className="space-y-2">
-                        {profile.lifetimePurchases.map((ent) => {
-                          const srcBadge = getSourceTypeBadge(ent.sourceType);
-                          return (
-                            <div
-                              key={ent.id}
-                              className="flex items-center justify-between p-3 rounded-xl bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-xs"
-                            >
-                              <div>
-                                <span className="font-semibold text-[var(--color-text)] block text-sm">
-                                  {ent.resourceTitle || ent.resourceId}
-                                </span>
-                                <span className="text-[var(--color-text-muted)] text-[11px] mt-0.5 block">
-                                  نوع: {ent.resourceType === "course" ? "دوره آموزشی" : "بسته محتوایی"}
-                                </span>
+                    {(() => {
+                      const nonSubEntitlements =
+                        profile.entitlements && profile.entitlements.length > 0
+                          ? profile.entitlements.filter((e) => e.resourceType !== "subscription")
+                          : profile.lifetimePurchases;
+
+                      if (nonSubEntitlements.length === 0) {
+                        return <p className="text-xs text-[var(--color-text-muted)] py-2">موردی ثبت نشده است.</p>;
+                      }
+
+                      return (
+                        <div className="space-y-2">
+                          {nonSubEntitlements.map((ent) => {
+                            const srcBadge = getSourceTypeBadge(ent.sourceType);
+                            const isNowActive =
+                              ent.active ||
+                              (ent.lifetime && (!ent.expiresAt || new Date(ent.expiresAt).getTime() > Date.now()));
+
+                            return (
+                              <div
+                                key={ent.id}
+                                className="flex items-center justify-between p-3 rounded-xl bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-xs"
+                              >
+                                <div>
+                                  <span className="font-semibold text-[var(--color-text)] block text-sm">
+                                    {ent.resourceTitle || ent.resourceId}
+                                  </span>
+                                  <span className="text-[var(--color-text-muted)] text-[11px] mt-0.5 block">
+                                    نوع: {ent.resourceType === "course" ? "دوره آموزشی" : ent.resourceType === "content_pack" ? "بسته محتوایی" : "محتوای آموزشی"}
+                                  </span>
+                                </div>
+                                <div className="flex flex-col items-end gap-1.5">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className={`px-2 py-0.5 rounded-full font-medium ${srcBadge.className}`}>
+                                      {srcBadge.label}
+                                    </span>
+                                    {isNowActive ? (
+                                      <span className="px-2 py-0.5 rounded-full font-medium text-[10px] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                                        دسترسی فعال
+                                      </span>
+                                    ) : (
+                                      <span className="px-2 py-0.5 rounded-full font-medium text-[10px] bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
+                                        لغو شده
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-[10px] text-[var(--color-text-muted)]">
+                                      {formatPersianDate(ent.startsAt, false)}
+                                    </span>
+                                    {isNowActive && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setSelectedEntitlementToRevoke(ent)}
+                                        className="px-2 py-0.5 rounded-lg text-[10px] font-semibold text-rose-600 dark:text-rose-400 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 transition-all flex items-center gap-1 cursor-pointer"
+                                        title="لغو دسترسی کاربر به این دوره"
+                                      >
+                                        <ShieldOff className="w-3 h-3" />
+                                        <span>لغو دسترسی</span>
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
                               </div>
-                              <div className="flex flex-col items-end gap-1">
-                                <span className={`px-2 py-0.5 rounded-full font-medium ${srcBadge.className}`}>
-                                  {srcBadge.label}
-                                </span>
-                                <span className="text-[10px] text-[var(--color-text-muted)]">
-                                  {formatPersianDate(ent.startsAt, false)}
-                                </span>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
                   </div>
 
                   {/* 3. Orders History */}
@@ -320,6 +366,20 @@ export function UserCommerceDrawer({ isOpen, userId, onClose }: UserCommerceDraw
           subscription={profile.activeSubscription}
           onClose={() => setIsCancelModalOpen(false)}
           onSuccess={() => {
+            fetchProfile();
+          }}
+        />
+      )}
+
+      {/* Embedded Revoke Entitlement Modal */}
+      {selectedEntitlementToRevoke && profile && (
+        <AdminRevokeEntitlementModal
+          isOpen={Boolean(selectedEntitlementToRevoke)}
+          entitlement={selectedEntitlementToRevoke}
+          userEmail={profile.user.email}
+          onClose={() => setSelectedEntitlementToRevoke(null)}
+          onSuccess={() => {
+            setSelectedEntitlementToRevoke(null);
             fetchProfile();
           }}
         />

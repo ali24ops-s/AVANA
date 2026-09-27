@@ -31,7 +31,6 @@ import { randomUUID } from "node:crypto";
 import {
   type Actor,
   type AuthAction,
-  type AuthContext,
   type AuthorizationPolicy,
   type CourseId,
   type DocumentChunkId,
@@ -40,7 +39,9 @@ import {
   type GenerationJobId,
   type GenerationJobStatus,
   type OrganizationId,
+  type ResourceContext,
   DomainError,
+  buildActor,
   defaultPolicy,
   auditContentGenerated,
   auditGenerationFailed,
@@ -87,6 +88,7 @@ import {
   DEFAULT_GENERATION_STALE_THRESHOLD_MS,
   normalizeEducationalContent,
   extractChemicalStructuresFromMarkdown,
+  extractChemicalReactionsFromMarkdown,
   isLessonChunkSetCurrent,
   cleanEducationalTitle,
   resolveCanonicalContentTitle,
@@ -280,6 +282,7 @@ export class GenerationService {
         this.quizStore,
         this.quizQuestionStore,
         this.policy,
+        this.generationJobStore,
       );
     this.activeStatusService =
       generationActiveStatusService ??
@@ -332,40 +335,64 @@ export class GenerationService {
     actor: Actor,
     organizationId: OrganizationId,
     action: AuthAction,
-  ): Promise<void> {
-    if (actor.role === "platform_admin") {
-      if (
-        this.orgStore &&
-        typeof this.orgStore.findById === "function"
-      ) {
-        const org = await this.orgStore.findById(organizationId);
-        if (!org) {
-          throw new DomainError("not_found", "Organization not found");
-        }
+  ): Promise<Actor> {
+    if (
+      this.orgStore &&
+      typeof this.orgStore.findById === "function"
+    ) {
+      const org = await this.orgStore.findById(organizationId);
+      if (!org) {
+        throw new DomainError("not_found", "Organization not found");
       }
-      const context: AuthContext = { organizationId };
-      this.policy.require(action, actor, context);
-      return;
     }
 
+    let memberships = actor.memberships;
     if (
+      !memberships &&
+      this.orgStore &&
+      typeof this.orgStore.listMembershipsByUserId === "function"
+    ) {
+      memberships = await this.orgStore.listMembershipsByUserId(
+        actor.userId,
+      );
+    } else if (
+      !memberships &&
       this.orgStore &&
       typeof this.orgStore.findMembership === "function"
     ) {
-      const membership = await this.orgStore.findMembership(
+      const m = await this.orgStore.findMembership(
         organizationId,
         actor.userId,
       );
-      if (!membership) {
-        throw new DomainError("not_found", "Organization not found");
+      if (m) {
+        memberships = [
+          {
+            organizationId,
+            role: m.role as import("@avana/domain").Role,
+          },
+        ];
       }
-      const scopedActor = { ...actor, role: membership.role as Actor["role"] };
-      const context: AuthContext = { organizationId };
-      this.policy.require(action, scopedActor, context);
-      return;
     }
-    const context: AuthContext = { organizationId };
-    this.policy.require(action, actor, context);
+
+    const fullActor = buildActor({
+      userId: actor.userId,
+      globalRole:
+        actor.globalRole ??
+        (actor.role === "platform_admin" ? "platform_admin" : undefined),
+      role: actor.role,
+      memberships,
+    });
+
+    const resourceContext: ResourceContext = {
+      organizationId,
+      resourceType: "course",
+    };
+
+    if (!this.policy.can(fullActor, action, resourceContext)) {
+      throw new DomainError("not_found", "Organization not found");
+    }
+
+    return fullActor;
   }
 
   /**
@@ -1224,12 +1251,14 @@ export class GenerationService {
 
           const normalizedContentMarkdown = normalizeEducationalContent(matched.contentMarkdown);
           const chemicalStructures = extractChemicalStructuresFromMarkdown(normalizedContentMarkdown);
+          const chemicalReactions = extractChemicalReactionsFromMarkdown(normalizedContentMarkdown);
 
           const sessionObj = {
             title,
             contentMarkdown: normalizedContentMarkdown,
             citationChunkIds,
             ...(chemicalStructures.length > 0 ? { chemicalStructures } : {}),
+            ...(chemicalReactions.length > 0 ? { chemicalReactions } : {}),
           };
 
           const completedAt = new Date().toISOString();
@@ -1465,6 +1494,7 @@ export class GenerationService {
 
             const normalizedContentMarkdown = normalizeEducationalContent(contentMarkdown);
             const chemicalStructures = extractChemicalStructuresFromMarkdown(normalizedContentMarkdown);
+            const chemicalReactions = extractChemicalReactionsFromMarkdown(normalizedContentMarkdown);
 
             process.stdout.write(
               `[GENERATION] validation_passed: stage=lesson chunkKey=${chunkKey} correlationId=${correlationId} markdownLength=${normalizedContentMarkdown.length}\n`,
@@ -1476,6 +1506,7 @@ export class GenerationService {
                 contentMarkdown: normalizedContentMarkdown,
                 citationChunkIds,
                 ...(chemicalStructures.length > 0 ? { chemicalStructures } : {}),
+                ...(chemicalReactions.length > 0 ? { chemicalReactions } : {}),
               },
               usage: completion.usage,
             };
@@ -3271,9 +3302,10 @@ export class GenerationService {
       const questions = quizzesBySession.get(s.index) || [];
       const md = sessionsMarkdown[s.index]?.contentMarkdown || "";
 
+      const coreConcepts = s.coreConcepts || [];
       totalCoveredByFlashcards += cards.length;
       totalCoveredByQuiz += questions.length;
-      totalFactsCount += Math.max(1, s.coreConcepts.length);
+      totalFactsCount += Math.max(1, coreConcepts.length);
 
       cardsPerSessionReport.push({
         sessionTitle: s.title,
@@ -3288,12 +3320,12 @@ export class GenerationService {
       const coveredByFlashcards = cards.length >= budget.flashcardBudget.minCardsPerTopic;
       const coveredByQuiz = questions.length >= budget.quizBudget.minQuestionsPerTopic;
 
-      s.coreConcepts.forEach((c) => majorConceptsCovered.push(c));
+      coreConcepts.forEach((c) => majorConceptsCovered.push(c));
 
       sessionsAudit.push({
         topicIndex: s.index,
         topicTitle: s.title,
-        keyConcepts: s.coreConcepts,
+        keyConcepts: coreConcepts,
         flashcardCount: cards.length,
         quizQuestionCount: questions.length,
         coveredByLesson,
@@ -3860,29 +3892,10 @@ export class GenerationService {
       return { contents: resources, document_status: doc.status };
     }
 
-    // If regeneration was explicitly requested, clear existing chunk records for the targeted stages
-    if (isRegen) {
-      const stagesToClear: GenerationChunkStage[] = [];
-      if (toGenerate.includes("lesson")) {
-        stagesToClear.push("planning", "lesson");
-      }
-      if (toGenerate.includes("flashcard")) {
-        stagesToClear.push("flashcard");
-      }
-      if (toGenerate.includes("quiz")) {
-        stagesToClear.push("quiz");
-      }
-      if (toGenerate.includes("review_summary")) {
-        stagesToClear.push("review_summary");
-      }
-      if (stagesToClear.length > 0) {
-        await this.chunkRecordStore.deleteByDocumentAndStages(
-          documentId,
-          stagesToClear,
-          organizationId,
-        );
-      }
-    }
+    // Invariant: Non-destructive partial success.
+    // We do NOT wipe completed chunk records on regenerate/retry.
+    // acquireOrWaitForChunk will automatically reuse all "completed" chunks from DB
+    // and only process chunks that are pending, failed, or incomplete.
 
     // Guard: only documents with extracted chunks can be generated
     const allowedStatuses = new Set([
@@ -4034,6 +4047,61 @@ export class GenerationService {
         citationChunkIds: string[];
       }> = [];
 
+      // If lesson is not in toGenerate, but flashcard or quiz or review_summary is requested,
+      // load completed lesson sessions from DB to provide full context without re-generating lessons.
+      if (
+        !toGenerate.includes("lesson") &&
+        (toGenerate.includes("flashcard") ||
+          toGenerate.includes("quiz") ||
+          toGenerate.includes("review_summary"))
+      ) {
+        const lessonChunks = await this.chunkRecordStore.listByDocument(
+          documentId,
+          organizationId,
+        );
+        const completedLessonChunks = lessonChunks
+          .filter(
+            (c) =>
+              c.stage === "lesson" &&
+              c.status === "completed" &&
+              c.payload &&
+              c.deletedAt === null,
+          )
+          .sort((a, b) => a.chunkIndex - b.chunkIndex);
+
+        if (completedLessonChunks.length > 0) {
+          generatedSessions = completedLessonChunks.map((c) => c.payload as {
+            title: string;
+            contentMarkdown: string;
+            citationChunkIds: string[];
+          });
+        } else {
+          const existingContents = await this.generatedContentStore.listByDocument(
+            documentId,
+            organizationId,
+          );
+          const lessonDraft = existingContents.find(
+            (c) =>
+              c.type === "lesson" &&
+              c.deletedAt === null &&
+              c.status !== "rejected",
+          );
+          if (
+            lessonDraft?.payload &&
+            "sessions" in lessonDraft.payload &&
+            Array.isArray((lessonDraft.payload as { sessions?: unknown[] }).sessions)
+          ) {
+            generatedSessions = (lessonDraft.payload as {
+              sessions: Array<{
+                title: string;
+                contentMarkdown: string;
+                citationChunkIds: string[];
+              }>;
+            }).sessions;
+          }
+        }
+      }
+
       // Step 2: Batched Lesson Sessions (if requested)
       const lessonUsage = {
         inputTokens: planningRes.usage.inputTokens,
@@ -4144,6 +4212,9 @@ export class GenerationService {
             moduleTitle,
             "درسنامه آموزشی جامع",
           );
+          const uniqueSessions = generatedSessions.filter(
+            (s): s is (typeof generatedSessions)[number] => Boolean(s && typeof s === "object" && s.contentMarkdown),
+          );
           const outlineListing = outline
             .map((item, idx) => `${idx + 1}. **${item.title}**: ${item.description}`)
             .join("\n");
@@ -4152,21 +4223,22 @@ export class GenerationService {
             `## فهرست جلسات آموزشی`,
             outlineListing,
             `---`,
-            ...generatedSessions.map((s) => s.contentMarkdown),
+            ...uniqueSessions.map((s) => s.contentMarkdown),
           ].join("\n\n");
 
           const allSessionCitations = Array.from(
-            new Set(generatedSessions.flatMap((s) => s.citationChunkIds)),
+            new Set(uniqueSessions.flatMap((s) => s.citationChunkIds)),
           );
 
           const rootChemicalStructures = extractChemicalStructuresFromMarkdown(masterMarkdown);
+          const rootChemicalReactions = extractChemicalReactionsFromMarkdown(masterMarkdown);
 
           payload = {
             kind: "lesson",
             moduleTitle: cleanLessonTitle,
             title: cleanLessonTitle,
             outline,
-            sessions: generatedSessions,
+            sessions: uniqueSessions,
             contentMarkdown: masterMarkdown,
             citationChunkIds:
               allSessionCitations.length > 0
@@ -4174,6 +4246,7 @@ export class GenerationService {
                 : planningRes.citationChunkIds,
             coverageReport,
             ...(rootChemicalStructures.length > 0 ? { chemicalStructures: rootChemicalStructures } : {}),
+            ...(rootChemicalReactions.length > 0 ? { chemicalReactions: rootChemicalReactions } : {}),
           };
           typeUsage = lessonUsage;
         } else if (type === "flashcard") {

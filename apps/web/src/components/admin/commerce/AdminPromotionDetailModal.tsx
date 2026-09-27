@@ -386,16 +386,17 @@ export function AdminPromotionDetailModal({
 
                   {promotion.codes && promotion.codes.length > 0 ? (
                     <div className="border border-[var(--color-border)] rounded-xl overflow-hidden">
-                      <table className="w-full text-xs text-right">
-                        <thead className="bg-[var(--color-surface-warm)] border-b border-[var(--color-border)] text-[var(--color-text-muted)]">
-                          <tr>
-                            <th className="p-3">کد تخفیف</th>
-                            <th className="p-3 text-center">سقف استفاده</th>
-                            <th className="p-3 text-center">دفعات استفاده</th>
-                            <th className="p-3 text-center">وضعیت</th>
-                            <th className="p-3 text-left">عملیات</th>
-                          </tr>
-                        </thead>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs text-right min-w-[500px]">
+                          <thead className="bg-[var(--color-surface-warm)] border-b border-[var(--color-border)] text-[var(--color-text-muted)]">
+                            <tr>
+                              <th className="p-3 whitespace-nowrap">کد تخفیف</th>
+                              <th className="p-3 text-center whitespace-nowrap">سقف استفاده</th>
+                              <th className="p-3 text-center whitespace-nowrap">دفعات استفاده</th>
+                              <th className="p-3 text-center whitespace-nowrap">وضعیت</th>
+                              <th className="p-3 text-left whitespace-nowrap">عملیات</th>
+                            </tr>
+                          </thead>
                         <tbody className="divide-y divide-[var(--color-border)]">
                           {promotion.codes.map((c) => (
                             <tr
@@ -447,7 +448,8 @@ export function AdminPromotionDetailModal({
                         </tbody>
                       </table>
                     </div>
-                  ) : (
+                  </div>
+                ) : (
                     <div className="p-8 text-center border border-dashed border-[var(--color-border)] rounded-2xl text-[var(--color-text-muted)] text-xs">
                       هنوز کدی برای این پروموشن ایجاد نشده است.
                     </div>
@@ -465,68 +467,70 @@ export function AdminPromotionDetailModal({
                     </div>
                   ) : redemptions.length > 0 ? (
                     <div className="border border-[var(--color-border)] rounded-xl overflow-hidden">
-                      <table className="w-full text-xs text-right">
-                        <thead className="bg-[var(--color-surface-warm)] border-b border-[var(--color-border)] text-[var(--color-text-muted)]">
-                          <tr>
-                            <th className="p-3">شماره سفارش</th>
-                            <th className="p-3">کاربر</th>
-                            <th className="p-3">کد</th>
-                            <th className="p-3 text-center">تخفیف اعمال شده</th>
-                            <th className="p-3 text-center">کش‌بک واریز شده</th>
-                            <th className="p-3 text-center">وضعیت</th>
-                            <th className="p-3 text-left">تاریخ ثبت</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-[var(--color-border)]">
-                          {redemptions.map((r) => (
-                            <tr
-                              key={r.id}
-                              className="hover:bg-[var(--color-surface-warm)] transition-colors"
-                            >
-                              <td className="p-3 font-mono font-bold text-[var(--color-text)]">
-                                {r.orderNumber || r.orderId.slice(0, 8)}
-                              </td>
-                              <td className="p-3 text-[var(--color-text-muted)]" dir="ltr">
-                                {r.userEmail || r.userId.slice(0, 8)}
-                              </td>
-                              <td className="p-3 font-mono font-medium text-[var(--color-text)]" dir="ltr">
-                                {r.code || "—"}
-                              </td>
-                              <td className="p-3 text-center font-bold text-blue-500">
-                                {r.discountAmount > 0
-                                  ? `${formatAmountOnly(r.discountAmount)} ت`
-                                  : "—"}
-                              </td>
-                              <td className="p-3 text-center font-bold text-emerald-500">
-                                {r.cashbackAmount > 0
-                                  ? `${formatAmountOnly(r.cashbackAmount)} ت`
-                                  : "—"}
-                              </td>
-                              <td className="p-3 text-center">
-                                {r.status === "completed" ? (
-                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-500">
-                                    <CheckCircle2 className="w-3 h-3" />
-                                    <span>نهایی شده</span>
-                                  </span>
-                                ) : r.status === "pending" ? (
-                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/15 text-amber-500">
-                                    <Clock className="w-3 h-3" />
-                                    <span>رزرو / در انتظار پرداخت</span>
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-red-500/15 text-red-500">
-                                    <XCircle className="w-3 h-3" />
-                                    <span>لغو / منقضی</span>
-                                  </span>
-                                )}
-                              </td>
-                              <td className="p-3 text-left text-[var(--color-text-muted)]" dir="ltr">
-                                {toPersianDigits(new Date(r.redeemedAt || r.completedAt || "").toLocaleString("fa-IR"))}
-                              </td>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs text-right min-w-[620px]">
+                          <thead className="bg-[var(--color-surface-warm)] border-b border-[var(--color-border)] text-[var(--color-text-muted)]">
+                            <tr>
+                              <th className="p-3 whitespace-nowrap">شماره سفارش</th>
+                              <th className="p-3 whitespace-nowrap">کاربر</th>
+                              <th className="p-3 whitespace-nowrap">کد</th>
+                              <th className="p-3 text-center whitespace-nowrap">تخفیف اعمال شده</th>
+                              <th className="p-3 text-center whitespace-nowrap">کش‌بک واریز شده</th>
+                              <th className="p-3 text-center whitespace-nowrap">وضعیت</th>
+                              <th className="p-3 text-left whitespace-nowrap">تاریخ ثبت</th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                          </thead>
+                          <tbody className="divide-y divide-[var(--color-border)]">
+                            {redemptions.map((r) => (
+                              <tr
+                                key={r.id}
+                                className="hover:bg-[var(--color-surface-warm)] transition-colors"
+                              >
+                                <td className="p-3 font-mono font-bold text-[var(--color-text)] whitespace-nowrap">
+                                  {r.orderNumber || r.orderId.slice(0, 8)}
+                                </td>
+                                <td className="p-3 text-[var(--color-text-muted)] whitespace-nowrap" dir="ltr">
+                                  {r.userEmail || r.userId.slice(0, 8)}
+                                </td>
+                                <td className="p-3 font-mono font-medium text-[var(--color-text)] whitespace-nowrap" dir="ltr">
+                                  {r.code || "—"}
+                                </td>
+                                <td className="p-3 text-center font-bold text-blue-500 whitespace-nowrap">
+                                  {r.discountAmount > 0
+                                    ? `${formatAmountOnly(r.discountAmount)} ت`
+                                    : "—"}
+                                </td>
+                                <td className="p-3 text-center font-bold text-emerald-500 whitespace-nowrap">
+                                  {r.cashbackAmount > 0
+                                    ? `${formatAmountOnly(r.cashbackAmount)} ت`
+                                    : "—"}
+                                </td>
+                                <td className="p-3 text-center whitespace-nowrap">
+                                  {r.status === "completed" ? (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-500">
+                                      <CheckCircle2 className="w-3 h-3" />
+                                      <span>نهایی شده</span>
+                                    </span>
+                                  ) : r.status === "pending" ? (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/15 text-amber-500">
+                                      <Clock className="w-3 h-3" />
+                                      <span>رزرو / در انتظار پرداخت</span>
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-red-500/15 text-red-500">
+                                      <XCircle className="w-3 h-3" />
+                                      <span>لغو / منقضی</span>
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="p-3 text-left text-[var(--color-text-muted)] whitespace-nowrap" dir="ltr">
+                                  {toPersianDigits(new Date(r.redeemedAt || r.completedAt || "").toLocaleString("fa-IR"))}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
                   ) : (
                     <div className="p-8 text-center border border-dashed border-[var(--color-border)] rounded-2xl text-[var(--color-text-muted)] text-xs">

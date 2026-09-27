@@ -26,7 +26,7 @@ export const AboutHumanMessageSection: React.FC = () => {
         </div>
 
         {/* Headline */}
-        <h2 className="font-headline text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-black text-[var(--color-text)] leading-tight mb-8">
+        <h2 className="font-headline text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-black text-[var(--color-text)] leading-tight mb-8 text-center">
           برای دانشجو ساخته شده؛{" "}
           <span className="text-transparent bg-clip-text bg-gradient-to-l from-[#008080] to-[#005f5f]">
             با نگاه به آینده.

@@ -49,6 +49,7 @@ type CourseRowInput = {
   isOfficial?: boolean | null;
   examDate: Date | string | null;
   examScope?: unknown;
+  version?: number | null;
   createdAt: Date | string;
   updatedAt: Date | string;
   deletedAt: Date | string | null;
@@ -68,6 +69,7 @@ function toCourseRecord(row: CourseRowInput): CourseRecord {
         ? row.examDate.toISOString()
         : row.examDate ?? null,
     examScope: (row.examScope as any) ?? null,
+    version: row.version ?? 1,
     createdAt:
       row.createdAt instanceof Date
         ? row.createdAt.toISOString()
@@ -411,6 +413,7 @@ export class DrizzleCourseStore implements CourseStore {
       ) p_stat ON p_stat.course_id = c.id
       WHERE ${orgFilter}
         AND c.deleted_at IS NULL
+        AND c.status = 'published'
       ORDER BY 
         (
           COALESCE(m_stat.added_users, 0) * 5 +

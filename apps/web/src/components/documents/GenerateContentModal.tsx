@@ -28,6 +28,7 @@ import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
 import {
   createGenerationApi,
   type DocumentContentStatus,
+  type DocumentContentStatusResponse,
 } from "../../lib/api/generation.js";
 import { toPersianDigits } from "@avana/domain";
 
@@ -38,14 +39,15 @@ export interface GenerateContentModalProps {
   documentId?: string;
   organizationId?: string;
   courseId?: string | null;
-  contentStatus?: {
+  contentStatus?: (Partial<DocumentContentStatusResponse> & {
     lesson: DocumentContentStatus;
     flashcards: DocumentContentStatus;
     exam: DocumentContentStatus;
     review_summary?: DocumentContentStatus;
+    requested_types?: ("lesson" | "flashcard" | "quiz" | "review_summary")[];
     all_generated?: boolean;
     can_generate?: boolean;
-  } | null;
+  }) | null;
   isLoadingStatus?: boolean;
   isGenerating?: boolean;
   hideCostEstimate?: boolean;
@@ -82,18 +84,28 @@ export function GenerateContentModal({
   // Sync initial selection when modal opens or contentStatus changes
   useEffect(() => {
     if (isOpen) {
-      setSelectedLesson(contentStatus ? !contentStatus.lesson?.generated : true);
-      setSelectedFlashcards(contentStatus ? !contentStatus.flashcards?.generated : true);
-      setSelectedExam(contentStatus ? !contentStatus.exam?.generated : true);
-      const isCoreGenerated =
-        Boolean(contentStatus?.lesson?.generated) &&
-        Boolean(contentStatus?.flashcards?.generated) &&
-        Boolean(contentStatus?.exam?.generated);
-      setSelectedReviewSummary(
-        contentStatus?.review_summary
-          ? !contentStatus.review_summary.generated && isCoreGenerated
-          : false,
-      );
+      if (contentStatus?.requested_types && contentStatus.requested_types.length > 0) {
+        const req = contentStatus.requested_types;
+        setSelectedLesson(req.includes("lesson") && !contentStatus.lesson?.generated);
+        setSelectedFlashcards(req.includes("flashcard") && !contentStatus.flashcards?.generated);
+        setSelectedExam(req.includes("quiz") && !contentStatus.exam?.generated);
+        setSelectedReviewSummary(
+          req.includes("review_summary") && !contentStatus.review_summary?.generated,
+        );
+      } else {
+        setSelectedLesson(contentStatus ? !contentStatus.lesson?.generated : true);
+        setSelectedFlashcards(contentStatus ? !contentStatus.flashcards?.generated : true);
+        setSelectedExam(contentStatus ? !contentStatus.exam?.generated : true);
+        const isCoreGenerated =
+          Boolean(contentStatus?.lesson?.generated) &&
+          Boolean(contentStatus?.flashcards?.generated) &&
+          Boolean(contentStatus?.exam?.generated);
+        setSelectedReviewSummary(
+          contentStatus?.review_summary
+            ? !contentStatus.review_summary.generated && isCoreGenerated
+            : false,
+        );
+      }
     }
   }, [isOpen, contentStatus]);
 
@@ -279,19 +291,19 @@ export function GenerateContentModal({
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="p-6 border-b border-[var(--color-border)] flex items-start justify-between gap-4 bg-[var(--color-surface)]">
-          <div className="flex items-center gap-3">
+        <div className="p-4 sm:p-6 border-b border-[var(--color-border)] flex items-start justify-between gap-4 bg-[var(--color-surface)]">
+          <div className="flex items-center gap-3 min-w-0">
             <div className="w-10 h-10 rounded-2xl bg-teal-50 border border-teal-200 text-[#008080] flex items-center justify-center shrink-0">
               <Sparkles className="w-5 h-5" />
             </div>
-            <div>
+            <div className="min-w-0">
               <h2
                 id="generate-modal-title"
-                className="text-base sm:text-lg font-black text-[var(--color-text)]"
+                className="text-base sm:text-lg font-black text-[var(--color-text)] truncate"
               >
                 انتخاب محتوای موردنظر
               </h2>
-              <p className="text-xs text-[var(--color-text-muted)] mt-0.5 truncate max-w-md" dir="ltr">
+              <p className="text-xs text-[var(--color-text-muted)] mt-0.5 truncate max-w-xs sm:max-w-md" dir="ltr">
                 {documentName}
               </p>
             </div>
@@ -300,7 +312,7 @@ export function GenerateContentModal({
           <button
             type="button"
             onClick={onClose}
-            className="p-2 text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] rounded-xl transition-colors"
+            className="p-2 text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] rounded-xl transition-colors shrink-0 min-h-[40px] min-w-[40px] flex items-center justify-center"
             aria-label="بستن"
             title={isGenerating ? "بستن پنجره (تولید در پس‌زمینه ادامه می‌یابد)" : "بستن"}
           >
@@ -339,7 +351,7 @@ export function GenerateContentModal({
             </div>
           </div>
         ) : (
-          <form onSubmit={handleFormSubmit} className="p-6 space-y-5">
+          <form onSubmit={handleFormSubmit} className="p-4 sm:p-6 space-y-4 sm:space-y-5">
           {isLoadingStatus ? (
             <div className="py-12 flex flex-col items-center justify-center gap-3 text-[var(--color-text-muted)]">
               <Loader2 className="w-8 h-8 animate-spin text-[#008080]" />
@@ -585,7 +597,7 @@ export function GenerateContentModal({
                 Boolean(organizationId && documentId && newItemsToGenerate.length > 0) && (
                   <div
                   data-testid="cost-estimation-box"
-                  className="p-4 rounded-2xl bg-teal-500/5 border border-teal-500/20 space-y-1.5"
+                  className="p-3.5 sm:p-4 rounded-2xl bg-teal-500/5 border border-teal-500/20 space-y-1.5"
                 >
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2 text-xs font-bold text-[var(--color-text)]">
@@ -657,9 +669,9 @@ export function GenerateContentModal({
           )}
 
           {/* Footer Actions */}
-          <div className="pt-3 border-t border-[var(--color-border)] flex items-center justify-between gap-3">
-            <div className="text-[11px] text-[var(--color-text-muted)] flex items-center gap-1.5">
-              <Info className="w-3.5 h-3.5" />
+          <div className="pt-3 border-t border-[var(--color-border)] flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+            <div className="text-[11px] text-[var(--color-text-muted)] flex items-center gap-1.5 justify-center sm:justify-start">
+              <Info className="w-3.5 h-3.5 shrink-0" />
               <span>
                 {newItemsToGenerate.length > 0
                   ? `${toPersianDigits(newItemsToGenerate.length)} نوع محتوا برای تولید در صف قرار خواهد گرفت.`
@@ -671,7 +683,7 @@ export function GenerateContentModal({
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] text-xs font-bold transition-colors"
+                className="flex-1 sm:flex-initial px-4 py-2.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] text-xs font-bold transition-colors text-center"
                 title={isGenerating ? "بستن پنجره (تولید در پس‌زمینه ادامه می‌یابد)" : "انصراف"}
               >
                 {isGenerating ? "بستن پنجره" : "انصراف"}
@@ -689,12 +701,12 @@ export function GenerateContentModal({
                     isEstimateFailed ||
                     isBalanceInsufficient
                   }
-                  className="px-5 py-2.5 rounded-xl bg-[#008080] hover:bg-[#007575] active:bg-[#006060] disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold transition-all shadow-xs flex items-center gap-2"
+                  className="flex-1 sm:flex-initial px-5 py-2.5 rounded-xl bg-[#008080] hover:bg-[#007575] active:bg-[#006060] disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-2"
                 >
                   {isGenerating ? (
                     <>
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span>در حال تولید هوشمند...</span>
+                      <span>در حال تولید...</span>
                     </>
                   ) : (
                     <>
@@ -702,7 +714,7 @@ export function GenerateContentModal({
                       <span>
                         {newItemsToGenerate.length === 3
                           ? "تولید محتوا"
-                          : "تولید محتوای انتخاب‌شده"}
+                          : "تولید انتخاب‌شده"}
                       </span>
                     </>
                   )}

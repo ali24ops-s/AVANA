@@ -19,6 +19,7 @@ import {
   Heart,
   BookOpen,
 } from "lucide-react";
+import { RichContent } from "../markdown/MarkdownRenderer.js";
 
 type ContextAction = "explain" | "flashcard" | "quiz";
 
@@ -60,7 +61,7 @@ export function LivingTextbookSection() {
           className="lg:col-span-5 flex flex-col gap-6 z-10"
         >
           {/* Badge */}
-          <div className="w-max">
+          <div className="w-full flex justify-center lg:justify-start">
             <span className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-teal-50 border border-teal-200 text-[#008080] text-xs font-bold shadow-xs">
               <Sparkles className="w-3.5 h-3.5" />
               <span>محتوای درسی زنده و تعاملی</span>
@@ -68,7 +69,7 @@ export function LivingTextbookSection() {
           </div>
 
           {/* Heading */}
-          <h2 className="font-headline text-2xl sm:text-3xl lg:text-[36px] leading-[1.3] font-black text-[#1a2226] tracking-tight">
+          <h2 className="font-headline text-2xl sm:text-3xl lg:text-[36px] leading-[1.3] font-black text-[#1a2226] tracking-tight text-center lg:text-right">
             <span className="block sm:whitespace-nowrap">جزوه فقط برای خواندن نیست.</span>
             <span className="block sm:whitespace-nowrap text-[#008080]">با آوانا، تبدیل به یادگیری می‌شود.</span>
           </h2>
@@ -184,7 +185,10 @@ export function LivingTextbookSection() {
 
               {/* Highlighted text sentence */}
               <p className="text-xs sm:text-sm font-semibold text-[#1a2226] leading-relaxed">
-                مهار گیرنده‌های $\beta_1$ در گره سینوسی-دهلیزی (SA Node) منجر به کاهش سرعت دپولاریزاسیون خودبه‌خودی در فاز ۴ شده و ضربان قلب (Chronotropy) و انقباض‌پذیری میوکارد (Inotropy) را به صورت وابسته به دوز کاهش می‌دهد.
+                <RichContent
+                  inline
+                  content="مهار گیرنده‌های $\beta_1$ در گره سینوسی-دهلیزی (SA Node) منجر به کاهش سرعت دپولاریزاسیون خودبه‌خودی در فاز ۴ شده و ضربان قلب (Chronotropy) و انقباض‌پذیری میوکارد (Inotropy) را به صورت وابسته به دوز کاهش می‌دهد."
+                />
               </p>
 
               {/* DYNAMIC CONTEXTUAL RESPONSE PANEL */}
@@ -227,10 +231,16 @@ export function LivingTextbookSection() {
                       <div className="p-2.5 rounded-lg bg-[#F7F9FA] border border-[#EEF1F3]">
                         <p className="text-[11px] text-[#5B6268] mb-1">❓ روی کارت:</p>
                         <p className="text-xs font-bold text-[#1a2226]">
-                          اثر مهار گیرنده‌های $\beta_1$ بر فاز ۴ پتانسیل عمل گره SA چیست؟
+                          <RichContent
+                            inline
+                            content="اثر مهار گیرنده‌های $\beta_1$ بر فاز ۴ پتانسیل عمل گره SA چیست؟"
+                          />
                         </p>
                         <p className="text-[11px] text-teal-700 font-semibold mt-2 pt-1 border-t border-[#EEF1F3]">
-                          ✓ پشت کارت: کاهش شیب دپولاریزاسیون $\rightarrow$ کاهش ضربان قلب (Chronotropic منفی)
+                          <RichContent
+                            inline
+                            content="✓ پشت کارت: کاهش شیب دپولاریزاسیون $\rightarrow$ کاهش ضربان قلب (Chronotropic منفی)"
+                          />
                         </p>
                       </div>
                     </motion.div>

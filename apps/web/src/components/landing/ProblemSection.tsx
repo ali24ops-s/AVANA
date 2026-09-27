@@ -39,14 +39,14 @@ export function ProblemSection() {
           className="lg:col-span-5 flex flex-col gap-5 z-10"
         >
           {/* Tag */}
-          <div className="w-max">
+          <div className="w-full flex justify-center lg:justify-start">
             <span className="px-3.5 py-1.5 rounded-full bg-rose-50 border border-rose-200/80 text-rose-600 text-xs font-bold shadow-xs">
               چالش اصلی دانشجو
             </span>
           </div>
 
           {/* Heading */}
-          <h2 className="font-headline text-3xl sm:text-4xl lg:text-[42px] leading-[1.25] font-black text-[#1a2226] tracking-tight whitespace-normal sm:whitespace-nowrap">
+          <h2 className="font-headline text-3xl sm:text-4xl lg:text-[42px] leading-[1.25] font-black text-[#1a2226] tracking-tight whitespace-normal sm:whitespace-nowrap text-center lg:text-right">
             منابع زیادند،{" "}
             <span className="text-[#008080]">وقت کم است!</span>
           </h2>

@@ -67,7 +67,7 @@ export const Badge: React.FC<BadgeProps> = ({
 
   return (
     <span
-      className={`inline-flex items-center justify-center whitespace-nowrap leading-none transition-colors [&_svg]:shrink-0 [&_svg]:block ${sizeStyles[size]} ${style} ${className}`}
+      className={`inline-flex items-center justify-center whitespace-nowrap leading-none shrink-0 transition-colors [&_svg]:shrink-0 [&_svg]:block ${sizeStyles[size]} ${style} ${className}`}
       {...props}
     >
       {icon && (
@@ -96,7 +96,7 @@ export const Chip: React.FC<ChipProps> = ({
 }) => {
   return (
     <span
-      className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium leading-none whitespace-nowrap transition-colors [&_svg]:shrink-0 [&_svg]:block ${
+      className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium leading-none whitespace-nowrap shrink-0 transition-colors [&_svg]:shrink-0 [&_svg]:block ${
         variant === "secondary"
           ? "bg-[#e8f4fb] text-[#2b6d8f] dark:bg-sky-950/60 dark:text-sky-200 border border-[#a7d0e6] dark:border-sky-800/60"
           : variant === "info"

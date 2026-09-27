@@ -21,7 +21,7 @@ import type {
   ModuleId,
   LessonId,
 } from "../ids.js";
-import type { Role } from "../roles.js";
+import { isRole, resolveEffectiveRole, Roles, type Role } from "../roles.js";
 import { DomainError } from "../errors.js";
 
 // ---------------------------------------------------------------------------
@@ -75,27 +75,108 @@ export type AuthAction =
   | "content:export";
 
 // ---------------------------------------------------------------------------
-// Actor
+// Actor & Membership
 // ---------------------------------------------------------------------------
 
-/**
- * The actor requesting an authorization decision.
- */
-export type Actor = {
-  userId: UserId;
+export type OrganizationMembership = {
+  organizationId: OrganizationId | string;
   role: Role;
 };
 
+/**
+ * The actor requesting an authorization decision.
+ * Supports rich multi-organization memberships and global functional roles.
+ */
+export type Actor = {
+  userId: UserId;
+  /** Effective role for backwards compatibility with single-role callers. */
+  role: Role;
+  /** Global platform role (e.g. platform_admin or content_worker). */
+  globalRole?: Role | null;
+  /** Organization memberships held by the actor. */
+  memberships?: readonly OrganizationMembership[];
+};
+
+export interface BuildActorInput {
+  userId: UserId;
+  globalRole?: Role | string | null;
+  memberships?: readonly OrganizationMembership[];
+  role?: Role | string;
+}
+
+/**
+ * Factory to build a strongly-typed Actor from identity data.
+ */
+export function buildActor(input: BuildActorInput): Actor {
+  const globalRole =
+    input.globalRole && isRole(input.globalRole)
+      ? (input.globalRole as Role)
+      : null;
+  const memberships = input.memberships
+    ? input.memberships.map((m) => ({ ...m }))
+    : undefined;
+  const role =
+    input.role && isRole(input.role)
+      ? (input.role as Role)
+      : resolveEffectiveRole(
+          globalRole,
+          memberships ? memberships.map((m) => m.role) : [],
+        );
+
+  return {
+    userId: input.userId,
+    role,
+    globalRole,
+    memberships,
+  };
+}
+
 // ---------------------------------------------------------------------------
-// Context
+// Context & ResourceContext
 // ---------------------------------------------------------------------------
 
 /**
- * The resource context for an authorization decision.
+ * Legacy AuthContext for organization-scoped route handlers.
  */
 export type AuthContext = {
   /** The organization the actor is acting within. */
   organizationId: OrganizationId;
+  /** Optional course context. */
+  courseId?: CourseId;
+  /** Optional module context. */
+  moduleId?: ModuleId;
+  /** Optional lesson context. */
+  lessonId?: LessonId;
+};
+
+export type ResourceType =
+  | "organization"
+  | "course"
+  | "module"
+  | "lesson"
+  | "document"
+  | "generated_content"
+  | "prompt"
+  | "content_repair"
+  | "content_export"
+  | "content_import"
+  | "support_ticket"
+  | "commerce_order";
+
+/**
+ * Rich resource context for context-aware policy evaluation (Phase 3).
+ */
+export type ResourceContext = {
+  /** The organization the resource belongs to. */
+  organizationId?: OrganizationId | string;
+  /** The specific type of the resource. */
+  resourceType?: ResourceType;
+  /** The unique identifier of the target resource. */
+  resourceId?: string;
+  /** Whether the target resource is a platform-wide system / official resource. */
+  isSystemResource?: boolean;
+  /** The owner user ID of the resource, if user-owned. */
+  ownerId?: UserId;
   /** Optional course context. */
   courseId?: CourseId;
   /** Optional module context. */
@@ -126,6 +207,16 @@ export interface AuthorizationPolicy {
    * Check whether an action is permitted (boolean form).
    */
   check(action: AuthAction, actor: Actor, context: AuthContext): boolean;
+
+  /**
+   * Context-aware evaluation (Phase 3).
+   */
+  can(actor: Actor, action: AuthAction, context?: ResourceContext): boolean;
+
+  /**
+   * Context-aware requirement asserting permission or throwing DomainError (Phase 3).
+   */
+  assertCan(actor: Actor, action: AuthAction, context?: ResourceContext): void;
 }
 
 // ---------------------------------------------------------------------------
@@ -192,6 +283,25 @@ export class RoleBasedPolicy implements AuthorizationPolicy {
         "course:create",
         "course:read",
         "org:create",
+        "learning:read",
+        "progress:write",
+        "progress:read",
+        "document:upload",
+        "document:read",
+        "content:generate",
+        "content:review",
+        "flashcard:review",
+        "quiz:attempt",
+        "study:read",
+      ]),
+    );
+
+    // Teacher permissions
+    this.rolePermissions.set(
+      "teacher",
+      new Set([
+        "org:read",
+        "course:read",
         "learning:read",
         "progress:write",
         "progress:read",
@@ -337,6 +447,61 @@ export class RoleBasedPolicy implements AuthorizationPolicy {
     this.rolePermissions.set("support_agent", new Set());
   }
 
+  can(actor: Actor, action: AuthAction, context?: ResourceContext): boolean {
+    // 1. Superuser Platform Admin bypass
+    if (
+      actor.globalRole === Roles.platform_admin ||
+      actor.role === Roles.platform_admin
+    ) {
+      return true;
+    }
+
+    // 2. System / Official Resource Evaluation
+    if (context?.isSystemResource === true) {
+      const activeRole = actor.globalRole ?? actor.role;
+      const permissions = this.rolePermissions.get(activeRole);
+      return permissions?.has(action) ?? false;
+    }
+
+    // 3. Tenant-Scoped Resource Evaluation
+    if (context?.organizationId) {
+      if (actor.memberships !== undefined) {
+        const matchingMembership = actor.memberships.find(
+          (m) => m.organizationId === context.organizationId,
+        );
+
+        // If actor has NO membership in this tenant organization:
+        if (!matchingMembership) {
+          return false;
+        }
+
+        // Check permissions in target organization based strictly on membership role
+        const tenantRolePermissions = this.rolePermissions.get(
+          matchingMembership.role,
+        );
+        return tenantRolePermissions?.has(action) ?? false;
+      }
+
+      // If actor has no memberships list attached, evaluate against scalar role
+      const permissions = this.rolePermissions.get(actor.role);
+      return permissions?.has(action) ?? false;
+    }
+
+    // 4. Default / Global Action Evaluation without specific tenant org
+    const effectiveRole = actor.globalRole ?? actor.role;
+    const permissions = this.rolePermissions.get(effectiveRole);
+    return permissions?.has(action) ?? false;
+  }
+
+  assertCan(actor: Actor, action: AuthAction, context?: ResourceContext): void {
+    if (!this.can(actor, action, context)) {
+      throw new DomainError(
+        "forbidden",
+        `Action '${action}' not permitted for actor '${actor.userId}' in the requested context`,
+      );
+    }
+  }
+
   require(action: AuthAction, actor: Actor, _context: AuthContext): void {
     if (!this.check(action, actor, _context)) {
       throw new DomainError(
@@ -347,11 +512,12 @@ export class RoleBasedPolicy implements AuthorizationPolicy {
   }
 
   check(action: AuthAction, actor: Actor, _context: AuthContext): boolean {
-    const permissions = this.rolePermissions.get(actor.role);
-    if (!permissions) {
-      return false;
-    }
-    return permissions.has(action);
+    return this.can(actor, action, {
+      organizationId: _context.organizationId,
+      courseId: _context.courseId,
+      moduleId: _context.moduleId,
+      lessonId: _context.lessonId,
+    });
   }
 }
 

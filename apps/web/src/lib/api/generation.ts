@@ -64,6 +64,7 @@ export type DocumentContentStatusResponse = {
   request_id: string;
   document_id: string;
   course_id: string | null;
+  requested_types?: ("lesson" | "flashcard" | "quiz" | "review_summary")[];
   lesson: DocumentContentStatus;
   flashcards: DocumentContentStatus;
   exam: DocumentContentStatus;

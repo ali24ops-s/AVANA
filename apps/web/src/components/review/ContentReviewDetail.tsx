@@ -26,12 +26,18 @@ import {
 import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
 import { createReviewApi } from "../../lib/api/review.js";
 import { MarkdownRenderer, RichContent } from "../markdown/MarkdownRenderer.js";
-import type { ChemicalStructure } from "@avana/domain";
+import type { ChemicalStructure, ChemicalReaction } from "@avana/domain";
 import { EditContentDialog } from "./EditContentDialog.js";
 
 const LazyChemicalStructureBlock = React.lazy(() =>
   import("../chemistry/ChemicalStructureBlock.js").then((m) => ({
     default: m.ChemicalStructureBlock,
+  })),
+);
+
+const LazyReactionBlock = React.lazy(() =>
+  import("../chemistry/ReactionBlock.js").then((m) => ({
+    default: m.ReactionBlock,
   })),
 );
 import { RejectContentDialog } from "./RejectContentDialog.js";
@@ -178,68 +184,72 @@ export function ContentReviewDetail({
   return (
     <div className="space-y-6">
       {/* Top Header & Actions */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
         <button
           type="button"
           onClick={onBack}
-          className="inline-flex items-center gap-1.5 text-xs font-bold text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors w-fit"
+          className="inline-flex items-center gap-1.5 text-xs font-bold text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors w-fit p-1"
         >
           <ArrowRight className="w-4 h-4" />
           <span>بازگشت به صف بازبینی</span>
         </button>
 
         {/* Action bar */}
-        <div className="flex items-center gap-2 flex-wrap">
-          {content.status !== "rejected" && (
-            <button
-              type="button"
-              onClick={() => setIsEditDialogOpen(true)}
-              disabled={anyMutationPending}
-              className="px-3.5 py-2 bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] text-[var(--color-text)] rounded-xl text-xs font-bold border border-[var(--color-border)] shadow-xs flex items-center gap-1.5 disabled:opacity-50 disabled:pointer-events-none transition-colors"
-            >
-              <Pencil className="w-3.5 h-3.5 text-[var(--color-primary-default)]" />
-              <span>ویرایش محتوا</span>
-            </button>
-          )}
-
-          {content.status !== "accepted" && (
-            <>
+        <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center gap-2 sm:gap-2">
+          {/* Secondary Action buttons group */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {content.status !== "rejected" && (
               <button
                 type="button"
-                onClick={() => regenerateMutation.mutate()}
+                onClick={() => setIsEditDialogOpen(true)}
                 disabled={anyMutationPending}
-                className="px-3.5 py-2 bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] text-[var(--color-text)] rounded-xl text-xs font-bold border border-[var(--color-border)] shadow-xs flex items-center gap-1.5 disabled:opacity-50 disabled:pointer-events-none transition-colors"
+                className="flex-1 sm:flex-initial px-3 py-2 bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] text-[var(--color-text)] rounded-xl text-xs font-bold border border-[var(--color-border)] shadow-xs flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:pointer-events-none transition-colors"
               >
-                {isRegenerating ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <RotateCcw className="w-3.5 h-3.5 text-[var(--color-primary-default)]" />
-                )}
-                <span>{isRegenerating ? "در حال بازتولید..." : "تولید مجدد"}</span>
+                <Pencil className="w-3.5 h-3.5 text-[var(--color-primary-default)]" />
+                <span>ویرایش</span>
               </button>
+            )}
 
-              {content.status !== "rejected" && (
+            {content.status !== "accepted" && (
+              <>
                 <button
                   type="button"
-                  onClick={() => setIsRejectDialogOpen(true)}
+                  onClick={() => regenerateMutation.mutate()}
                   disabled={anyMutationPending}
-                  className="px-3.5 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-700 dark:text-rose-400 rounded-xl text-xs font-bold border border-rose-500/20 shadow-xs flex items-center gap-1.5 disabled:opacity-50 disabled:pointer-events-none transition-colors"
+                  className="flex-1 sm:flex-initial px-3 py-2 bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] text-[var(--color-text)] rounded-xl text-xs font-bold border border-[var(--color-border)] shadow-xs flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:pointer-events-none transition-colors"
                 >
-                  <XCircle className="w-3.5 h-3.5" />
-                  <span>رد کردن</span>
+                  {isRegenerating ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <RotateCcw className="w-3.5 h-3.5 text-[var(--color-primary-default)]" />
+                  )}
+                  <span>{isRegenerating ? "بازتولید..." : "تولید مجدد"}</span>
                 </button>
-              )}
-            </>
-          )}
 
+                {content.status !== "rejected" && (
+                  <button
+                    type="button"
+                    onClick={() => setIsRejectDialogOpen(true)}
+                    disabled={anyMutationPending}
+                    className="flex-1 sm:flex-initial px-3 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-700 dark:text-rose-400 rounded-xl text-xs font-bold border border-rose-500/20 shadow-xs flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:pointer-events-none transition-colors"
+                  >
+                    <XCircle className="w-3.5 h-3.5" />
+                    <span>رد کردن</span>
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* Primary Action Button / Status indicator */}
           {content.status === "accepted" ? (
-            <div className="px-3.5 py-2 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 rounded-xl text-xs font-bold border border-emerald-500/20 flex items-center gap-1.5 shadow-xs">
-              <CheckCircle2 className="w-3.5 h-3.5" />
+            <div className="w-full sm:w-auto px-4 py-2 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 rounded-xl text-xs font-bold border border-emerald-500/20 flex items-center justify-center gap-1.5 shadow-xs">
+              <CheckCircle2 className="w-4 h-4" />
               <span>تایید و منتشر شده</span>
             </div>
           ) : content.status === "rejected" ? (
-            <div className="px-3.5 py-2 bg-rose-500/10 text-rose-700 dark:text-rose-400 rounded-xl text-xs font-bold border border-rose-500/20 flex items-center gap-1.5 shadow-xs">
-              <Ban className="w-3.5 h-3.5" />
+            <div className="w-full sm:w-auto px-4 py-2 bg-rose-500/10 text-rose-700 dark:text-rose-400 rounded-xl text-xs font-bold border border-rose-500/20 flex items-center justify-center gap-1.5 shadow-xs">
+              <Ban className="w-4 h-4" />
               <span>پیش‌نویس رد شده</span>
             </div>
           ) : (
@@ -250,12 +260,12 @@ export function ContentReviewDetail({
                 acceptMutation.mutate();
               }}
               disabled={anyMutationPending}
-              className="px-4 py-2 bg-[var(--color-primary-default)] hover:bg-[var(--color-primary-hover)] text-[var(--color-primary-contrast)] rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md disabled:opacity-50 transition-colors"
+              className="w-full sm:w-auto px-5 py-2.5 bg-[var(--color-primary-default)] hover:bg-[var(--color-primary-hover)] text-[var(--color-primary-contrast)] rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-md disabled:opacity-50 transition-colors"
             >
               {acceptMutation.isPending ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
-                <CheckCircle2 className="w-3.5 h-3.5" />
+                <CheckCircle2 className="w-4 h-4" />
               )}
               <span>{acceptMutation.isPending ? "در حال انتشار..." : "تایید و انتشار"}</span>
             </button>
@@ -286,13 +296,13 @@ export function ContentReviewDetail({
       )}
 
       {/* Metadata Overview Card */}
-      <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-6 shadow-sm">
-        <div className="flex items-start gap-4">
-          <div className="w-10 h-10 rounded-2xl bg-[var(--color-primary-default)]/10 text-[var(--color-primary-default)] flex items-center justify-center flex-shrink-0">
+      <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-4 sm:p-6 shadow-sm">
+        <div className="flex items-start gap-3 sm:gap-4">
+          <div className="w-10 h-10 rounded-2xl bg-[var(--color-primary-default)]/10 text-[var(--color-primary-default)] flex items-center justify-center flex-shrink-0 mt-0.5">
             <Sparkles className="w-5 h-5" />
           </div>
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-md bg-[var(--color-primary-default)]/10 text-[var(--color-primary-default)]">
                 {content.type === "lesson"
                   ? "درس"
@@ -319,11 +329,11 @@ export function ContentReviewDetail({
                 </strong>
               </span>
             </div>
-            <h2 className="text-base font-bold text-[var(--color-text)] mt-1 truncate">
+            <h2 className="text-sm sm:text-base font-bold text-[var(--color-text)] mt-1.5 leading-snug break-words">
               {String(payload.title || payload.question || "پیش‌نویس تولیدشده")}
             </h2>
             {generation?.prompt_version && (
-              <p className="text-xs text-[var(--color-text-muted)] mt-0.5 font-mono" dir="ltr">
+              <p className="text-[11px] text-[var(--color-text-muted)] mt-1 font-mono" dir="ltr">
                 Prompt: {generation.prompt_version}
               </p>
             )}
@@ -362,7 +372,7 @@ export function ContentReviewDetail({
         <EvidenceSummary sourceChunks={sourceChunks} payload={payload} />
 
         {/* Bottom: Full Width Generated Content Preview */}
-        <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-6 space-y-4 shadow-sm w-full">
+        <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-4 sm:p-6 space-y-4 shadow-sm w-full">
           <h3 className="text-sm font-bold text-[var(--color-text)] pb-3 border-b border-[var(--color-border)]">
             پیش‌نمایش محتوای تولیدشده
           </h3>
@@ -486,6 +496,41 @@ export function ContentReviewDetail({
                             .chemicalStructures || []
                         ).map((struct, sIdx) => (
                           <LazyChemicalStructureBlock key={sIdx} structure={struct} />
+                        ))}
+                      </React.Suspense>
+                    </div>
+                  </div>
+                )}
+
+              {/* Explicit Structured Chemical Reactions in Payload (if present) */}
+              {Array.isArray(
+                (payload as { chemicalReactions?: ChemicalReaction[] })
+                  .chemicalReactions,
+              ) &&
+                ((payload as { chemicalReactions?: ChemicalReaction[] })
+                  .chemicalReactions?.length ?? 0) > 0 && (
+                  <div className="space-y-3 pt-2">
+                    <span className="text-xs font-bold text-[var(--color-text-muted)] block">
+                      واکنش‌های شیمیایی استخراج‌شده (
+                      {toPersianDigits(
+                        (payload as { chemicalReactions?: ChemicalReaction[] })
+                          .chemicalReactions?.length ?? 0,
+                      )}{" "}
+                      واکنش):
+                    </span>
+                    <div className="space-y-4">
+                      <React.Suspense
+                        fallback={
+                          <div className="p-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] text-center text-xs text-[var(--color-text-muted)] animate-pulse">
+                            در حال بارگذاری پیش‌نمایش واکنش‌ها...
+                          </div>
+                        }
+                      >
+                        {(
+                          (payload as { chemicalReactions?: ChemicalReaction[] })
+                            .chemicalReactions || []
+                        ).map((rxn, rIdx) => (
+                          <LazyReactionBlock key={rIdx} reaction={rxn} />
                         ))}
                       </React.Suspense>
                     </div>

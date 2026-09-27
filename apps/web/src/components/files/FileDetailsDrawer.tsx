@@ -136,25 +136,25 @@ export function FileDetailsDrawer({
 
       {/* Slide-over Drawer Panel */}
       <div
-        className="fixed inset-y-0 right-0 max-w-2xl w-full bg-[var(--color-surface)] border-l border-[var(--color-border)] shadow-2xl z-50 flex flex-col font-sans text-[var(--color-text)] overflow-hidden"
+        className="fixed inset-y-0 start-0 max-w-2xl w-full bg-[var(--color-surface)] border-inline-end border-[var(--color-border)] shadow-2xl z-50 flex flex-col font-sans text-[var(--color-text)] overflow-hidden animate-in rtl:slide-in-from-right ltr:slide-in-from-left duration-200"
         dir="rtl"
       >
         {/* Drawer Header */}
-        <div className="p-6 border-b border-[var(--color-border)] flex items-start justify-between gap-4 bg-[var(--color-surface)]">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="p-3 rounded-2xl bg-[var(--color-surface-warm)] border border-[var(--color-border)] shrink-0">
+        <div className="p-4 sm:p-6 border-b border-[var(--color-border)] flex items-start justify-between gap-3 sm:gap-4 bg-[var(--color-surface)]">
+          <div className="flex items-start gap-3 min-w-0 flex-1">
+            <div className="p-2.5 sm:p-3 rounded-2xl bg-[var(--color-surface-warm)] border border-[var(--color-border)] shrink-0">
               {getFileIcon(document.mime_type, document.original_name)}
             </div>
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <h2
-                className="text-base sm:text-lg font-bold text-[var(--color-text)] truncate"
+                className="text-sm sm:text-base md:text-lg font-bold text-[var(--color-text)] leading-snug break-words"
                 title={document.original_name}
               >
                 {document.original_name}
               </h2>
-              <div className="flex items-center gap-2 mt-1">
+              <div className="flex flex-wrap items-center gap-2 mt-1.5">
                 {getStatusBadge(document.status)}
-                <span className="text-xs text-[var(--color-text-muted)] font-mono" dir="ltr">
+                <span className="text-[11px] sm:text-xs text-[var(--color-text-muted)] font-mono" dir="ltr">
                   {formatBytes(document.size_bytes)}
                 </span>
               </div>
@@ -164,7 +164,7 @@ export function FileDetailsDrawer({
           <button
             type="button"
             onClick={onClose}
-            className="p-2 rounded-xl text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-slate-100 transition-colors"
+            className="p-2 rounded-xl text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors shrink-0 min-w-[40px] min-h-[40px] flex items-center justify-center"
             aria-label="بستن پنجره"
           >
             <X className="w-5 h-5" />
@@ -172,7 +172,8 @@ export function FileDetailsDrawer({
         </div>
 
         {/* Action Toolbar */}
-        <div className="px-6 py-3 border-b border-[var(--color-border)] bg-[var(--color-surface-warm)] flex items-center justify-between gap-2 overflow-x-auto text-xs">
+        {/* Desktop Toolbar */}
+        <div className="hidden sm:flex px-6 py-3 border-b border-[var(--color-border)] bg-[var(--color-surface-warm)] items-center justify-between gap-2 overflow-x-auto text-xs">
           <div className="flex items-center gap-2">
             <button
               type="button"
@@ -186,7 +187,7 @@ export function FileDetailsDrawer({
             <button
               type="button"
               onClick={() => onRename(document)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white hover:bg-slate-50 text-[var(--color-text)] border border-[var(--color-border)] transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white dark:bg-zinc-800 hover:bg-slate-50 border border-[var(--color-border)] text-[var(--color-text)] transition-colors"
             >
               <Edit2 className="w-3.5 h-3.5" />
               <span>تغییر نام</span>
@@ -224,8 +225,63 @@ export function FileDetailsDrawer({
           </button>
         </div>
 
+        {/* Mobile Action Toolbar (sm:hidden) */}
+        <div className="sm:hidden px-4 py-2.5 border-b border-[var(--color-border)] bg-[var(--color-surface-warm)] grid grid-cols-2 gap-2 text-xs">
+          <button
+            type="button"
+            onClick={() => onDownload(document)}
+            className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-[#008080] text-white font-bold transition-colors shadow-xs"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>دانلود فایل</span>
+          </button>
+
+          <div className="flex items-center gap-1 justify-end">
+            <button
+              type="button"
+              onClick={() => onRename(document)}
+              className="p-2 rounded-xl bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)] hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors"
+              title="تغییر نام"
+              aria-label="تغییر نام"
+            >
+              <Edit2 className="w-4 h-4" />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onAttachCourse(document)}
+              className="p-2 rounded-xl bg-purple-50 text-purple-700 border border-purple-200 hover:bg-purple-100 transition-colors"
+              title="اتصال به دوره"
+              aria-label="اتصال به دوره"
+            >
+              <BookOpen className="w-4 h-4" />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onReprocess(document)}
+              disabled={isReprocessing}
+              className="p-2 rounded-xl bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 transition-colors disabled:opacity-50"
+              title="پردازش مجدد"
+              aria-label="پردازش مجدد"
+            >
+              <RefreshCw className={`w-4 h-4 ${isReprocessing ? "animate-spin" : ""}`} />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onDelete(document)}
+              className="p-2 rounded-xl bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 transition-colors"
+              title="حذف سند"
+              aria-label="حذف سند"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
         {/* Tab Navigation */}
-        <div className="px-6 bg-[var(--color-surface-warm)]">
+        <div className="px-4 sm:px-6 bg-[var(--color-surface-warm)] overflow-x-auto scrollbar-none">
           <Tabs
             items={[
               { id: "general", label: "اطلاعات عمومی و فنی" },
@@ -235,12 +291,12 @@ export function FileDetailsDrawer({
             activeTabId={activeTab}
             onChange={(id) => setActiveTab(id as DrawerTab)}
             variant="underline"
-            className="gap-0"
+            className="gap-0 whitespace-nowrap min-w-max"
           />
         </div>
 
         {/* Tab Content Area */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5 sm:space-y-6">
           {/* TAB 1: General & Technical */}
           {activeTab === "general" && (
             <div className="space-y-6">

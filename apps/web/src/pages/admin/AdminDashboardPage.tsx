@@ -157,7 +157,7 @@ export function AdminDashboardPage() {
       {/* 1. Header & Quick Action Shortcuts */}
       <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 pb-2 border-b border-[var(--color-border)]">
         <div>
-          <h1 className="text-2xl font-bold text-[var(--color-text)] flex items-center gap-2.5">
+          <h1 className="text-2xl font-bold text-[var(--color-text)] flex items-center justify-center sm:justify-start gap-2.5 text-center sm:text-right">
             <span>داشبورد مدیریت</span>
             <span className="text-xs font-normal px-2.5 py-0.5 rounded-full bg-[var(--color-surface-warm)] text-[var(--color-primary-default)] border border-[var(--color-border)]">
               نمای عملیاتی پلتفرم

@@ -24,6 +24,7 @@ const LEVEL_COLOR_CLASSES: Record<ActivityLevel, string> = {
   2: "bg-[#70C4B8]",
   3: "bg-[#2A9D8F]",
   4: "bg-[#008080]",
+  5: "bg-[#004D40]",
 };
 
 const WEEKDAY_ROW_LABELS = [
@@ -49,12 +50,23 @@ export function StudyActivityHeatmap({
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-  // Auto scroll to latest weeks (left in RTL or end) on mount
+  // Auto scroll to latest weeks (left in RTL) on mount and when data updates
   useEffect(() => {
-    if (scrollContainerRef.current) {
+    const scrollToLatest = () => {
+      if (!scrollContainerRef.current) return;
       const container = scrollContainerRef.current;
-      container.scrollLeft = 0;
-    }
+      // In RTL layout, latest weeks are at the far left edge.
+      // Modern browsers use negative scrollLeft values for RTL (0 = far right, -scrollWidth = far left).
+      container.scrollLeft = -container.scrollWidth;
+      if (container.scrollLeft === 0 && container.scrollWidth > container.clientWidth) {
+        // Fallback for browsers/environments that use positive scrollLeft values for RTL
+        container.scrollLeft = container.scrollWidth;
+      }
+    };
+
+    scrollToLatest();
+    const frameId = requestAnimationFrame(scrollToLatest);
+    return () => cancelAnimationFrame(frameId);
   }, [heatmapData]);
 
   if (isLoading) {
@@ -160,9 +172,21 @@ export function StudyActivityHeatmap({
                         aria-label={ariaLabel}
                         data-date={day.date}
                         data-level={day.level}
-                        className={`w-3.5 h-3.5 rounded-[3px] transition-transform hover:scale-125 focus:scale-125 focus:outline-hidden focus:ring-1 focus:ring-primary ${colorClass} ${
+                        className={`w-3.5 h-3.5 rounded-[3px] transition-transform hover:scale-125 focus:scale-125 focus:outline-hidden focus:ring-1 focus:ring-primary relative flex items-center justify-center ${colorClass} ${
                           day.isToday ? "ring-1 ring-primary/60" : ""
                         } ${day.isFuture ? "opacity-30 cursor-default" : "cursor-pointer"}`}
+                        onClick={(e) => {
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          setHoveredDay((prev) =>
+                            prev?.day.date === day.date
+                              ? null
+                              : {
+                                  day,
+                                  x: rect.left + rect.width / 2,
+                                  y: rect.top,
+                                }
+                          );
+                        }}
                         onMouseEnter={(e) => {
                           const rect = e.currentTarget.getBoundingClientRect();
                           setHoveredDay({
@@ -181,7 +205,19 @@ export function StudyActivityHeatmap({
                           });
                         }}
                         onBlur={() => setHoveredDay(null)}
-                      />
+                      >
+                        {day.level === 5 && (
+                          <span className="pointer-events-none select-none flex items-center justify-center">
+                            <svg
+                              viewBox="0 0 24 24"
+                              fill="currentColor"
+                              className="w-2 h-2 text-emerald-300 animate-pulse drop-shadow-[0_0_2px_rgba(110,231,183,0.9)]"
+                            >
+                              <path d="M12 2l2.4 7.4h7.6l-6.2 4.5 2.4 7.4-6.2-4.5-6.2 4.5 2.4-7.4-6.2-4.5h7.6z" />
+                            </svg>
+                          </span>
+                        )}
+                      </button>
                     );
                   })}
                 </div>
@@ -203,20 +239,32 @@ export function StudyActivityHeatmap({
             />
             <span
               className="w-2.5 h-2.5 rounded-[2px] bg-[#C2E5DE]"
-              title="سطح ۱: کمتر از ۱۵ دقیقه"
+              title="سطح ۱: کمتر از ۲۵ دقیقه"
             />
             <span
               className="w-2.5 h-2.5 rounded-[2px] bg-[#70C4B8]"
-              title="سطح ۲: ۱۵ تا ۳۰ دقیقه"
+              title="سطح ۲: ۲۵ تا ۴۵ دقیقه"
             />
             <span
               className="w-2.5 h-2.5 rounded-[2px] bg-[#2A9D8F]"
-              title="سطح ۳: ۳۰ تا ۶۰ دقیقه"
+              title="سطح ۳: ۴۵ تا ۷۵ دقیقه"
             />
             <span
               className="w-2.5 h-2.5 rounded-[2px] bg-[#008080]"
-              title="سطح ۴: بیش از ۶۰ دقیقه"
+              title="سطح ۴: ۷۵ تا ۱۵۰ دقیقه"
             />
+            <span
+              className="w-2.5 h-2.5 rounded-[2px] bg-[#004D40] relative flex items-center justify-center"
+              title="سطح ویژه: بیش از ۱۵۰ دقیقه"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                className="w-1.5 h-1.5 text-emerald-300 animate-pulse"
+              >
+                <path d="M12 2l2.4 7.4h7.6l-6.2 4.5 2.4 7.4-6.2-4.5-6.2 4.5 2.4-7.4-6.2-4.5h7.6z" />
+              </svg>
+            </span>
           </div>
           <span>بیشتر</span>
         </div>
@@ -232,8 +280,13 @@ export function StudyActivityHeatmap({
           }}
           role="tooltip"
         >
-          <div className="font-bold text-xs text-[var(--color-text)]">
-            {hoveredDay.day.fullFormatted}
+          <div className="font-bold text-xs text-[var(--color-text)] flex items-center justify-between gap-2">
+            <span>{hoveredDay.day.fullFormatted}</span>
+            {hoveredDay.day.level === 5 && (
+              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-800 dark:text-emerald-300 bg-emerald-500/15 px-1.5 py-0.5 rounded border border-emerald-500/30">
+                <span className="text-emerald-400 animate-pulse">★</span> ویژه (+۱۵۰ دقیقه)
+              </span>
+            )}
           </div>
           <div className="text-[11px] text-[var(--color-text-muted)] mt-0.5">
             {hoveredDay.day.seconds > 0 ? (

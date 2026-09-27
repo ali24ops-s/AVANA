@@ -34,41 +34,41 @@ export function OfficialStudioHeader({
     switch (status) {
       case "draft":
         return (
-          <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] border border-[var(--color-border)]">
+          <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] border border-[var(--color-border)] whitespace-nowrap shrink-0 inline-flex items-center">
             پیش‌نویس (Draft)
           </span>
         );
       case "generating":
         return (
-          <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-teal-500/10 text-teal-700 dark:text-teal-300 border border-teal-500/20 flex items-center gap-1.5">
+          <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-teal-500/10 text-teal-700 dark:text-teal-300 border border-teal-500/20 inline-flex items-center gap-1.5 whitespace-nowrap shrink-0">
             <Loader2 className="w-3 h-3 animate-spin text-teal-600 dark:text-teal-400" />
             <span>در حال تولید هوش مصنوعی</span>
           </span>
         );
       case "review":
         return (
-          <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20 flex items-center gap-1.5">
+          <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20 inline-flex items-center gap-1.5 whitespace-nowrap shrink-0">
             <Clock className="w-3 h-3 text-amber-600 dark:text-amber-400" />
             <span>در انتظار بازبینی و تایید</span>
           </span>
         );
       case "approved":
         return (
-          <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-sky-500/10 text-sky-700 dark:text-sky-300 border border-sky-500/20 flex items-center gap-1.5">
+          <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-sky-500/10 text-sky-700 dark:text-sky-300 border border-sky-500/20 inline-flex items-center gap-1.5 whitespace-nowrap shrink-0">
             <ShieldCheck className="w-3 h-3 text-sky-600 dark:text-sky-400" />
             <span>تایید شده (آماده انتشار)</span>
           </span>
         );
       case "published":
         return (
-          <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20 flex items-center gap-1.5">
+          <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20 inline-flex items-center gap-1.5 whitespace-nowrap shrink-0">
             <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
             <span>منتشر شده در کاتالوگ فروش</span>
           </span>
         );
       case "archived":
         return (
-          <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-700 dark:text-rose-300 border border-rose-500/20">
+          <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-700 dark:text-rose-300 border border-rose-500/20 whitespace-nowrap shrink-0 inline-flex items-center">
             بایگانی شده
           </span>
         );
@@ -83,7 +83,7 @@ export function OfficialStudioHeader({
           <button
             type="button"
             onClick={onBackToCatalog}
-            className="hover:text-[var(--color-primary-default)] transition-colors flex items-center gap-1 font-bold"
+            className="hover:text-[var(--color-primary-default)] transition-colors flex items-center gap-1 font-bold whitespace-nowrap shrink-0"
           >
             <span>استودیو محتوای رسمی</span>
             <ChevronRight className="w-3.5 h-3.5" />
@@ -110,7 +110,7 @@ export function OfficialStudioHeader({
             type="button"
             onClick={onRefresh}
             disabled={isLoading}
-            className="p-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors"
+            className="p-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors shrink-0"
             title="به‌روزرسانی اطلاعات دوره"
             aria-label="به‌روزرسانی"
           >
@@ -120,7 +120,7 @@ export function OfficialStudioHeader({
           <button
             type="button"
             onClick={onBackToCatalog}
-            className="px-3.5 py-1.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-warm)] hover:bg-[var(--color-surface-card)] text-[var(--color-text)] text-xs font-bold transition-colors"
+            className="px-3.5 py-1.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-warm)] hover:bg-[var(--color-surface-card)] text-[var(--color-text)] text-xs font-bold transition-colors whitespace-nowrap shrink-0"
           >
             کاتالوگ دوره‌ها
           </button>
@@ -136,7 +136,7 @@ export function OfficialStudioHeader({
             </h1>
             {getStatusBadge(course.status)}
             {course.subject && (
-              <span className="px-2.5 py-0.5 rounded-full bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] text-xs border border-[var(--color-border)] font-medium">
+              <span className="px-2.5 py-0.5 rounded-full bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] text-xs border border-[var(--color-border)] font-medium whitespace-nowrap shrink-0">
                 {course.subject}
               </span>
             )}
@@ -150,32 +150,32 @@ export function OfficialStudioHeader({
 
         {/* Aggregate Learning & Commercial Badges */}
         <div className="flex flex-wrap items-center gap-2 sm:gap-2.5 bg-[var(--color-surface-warm)]/50 p-2.5 rounded-xl border border-[var(--color-border)]">
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)] text-xs">
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)] text-xs whitespace-nowrap shrink-0">
             <Layers className="w-3.5 h-3.5 text-[var(--color-primary-default)]" />
             <span className="font-bold">{toPersianDigits(course.moduleCount)}</span>
             <span className="text-[11px] text-[var(--color-text-muted)]">فصل</span>
           </div>
 
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)] text-xs">
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)] text-xs whitespace-nowrap shrink-0">
             <BookOpen className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" />
             <span className="font-bold">{toPersianDigits(course.lessonCount)}</span>
             <span className="text-[11px] text-[var(--color-text-muted)]">درس</span>
           </div>
 
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)] text-xs">
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)] text-xs whitespace-nowrap shrink-0">
             <Sparkles className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
             <span className="font-bold">{toPersianDigits(course.flashcardCount)}</span>
             <span className="text-[11px] text-[var(--color-text-muted)]">فلش‌کارت</span>
           </div>
 
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)] text-xs">
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)] text-xs whitespace-nowrap shrink-0">
             <HelpCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
             <span className="font-bold">{toPersianDigits(course.quizQuestionCount)}</span>
             <span className="text-[11px] text-[var(--color-text-muted)]">سؤال تستی</span>
           </div>
 
           {course.product && (
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-300 text-xs font-bold">
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-300 text-xs font-bold whitespace-nowrap shrink-0">
               <span>{toPersianDigits(course.product.price.toLocaleString("fa-IR"))} تومان</span>
               <span className="text-[10px] opacity-80">
                 {course.product.active ? "(فعال)" : "(پیش‌نویس قیمت)"}

@@ -41,8 +41,8 @@ export const Tabs: React.FC<TabsProps> = ({
 
   if (variant === "pill") {
     return (
-      <div className={`flex flex-col gap-4 ${className}`}>
-        <div className="flex items-center gap-1.5 p-1 bg-[var(--color-background)] border border-[var(--color-border)] rounded-[10px] overflow-x-auto">
+      <div className={`flex flex-col gap-4 min-w-0 w-full ${className}`}>
+        <div className="flex items-center gap-1.5 p-1 bg-[var(--color-background)] border border-[var(--color-border)] rounded-[10px] overflow-x-auto min-w-0 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
           {items.map((tab) => {
             const isActive = tab.id === currentTabId;
             return (
@@ -82,8 +82,8 @@ export const Tabs: React.FC<TabsProps> = ({
 
   // Canonical Figma Underline Tabs
   return (
-    <div className={`flex flex-col gap-4 ${className}`}>
-      <div className="flex items-center gap-2 border-b-2 border-[var(--color-border)] overflow-x-auto">
+    <div className={`flex flex-col gap-4 min-w-0 w-full ${className}`}>
+      <div className="flex items-center gap-2 border-b-2 border-[var(--color-border)] overflow-x-auto min-w-0 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
         {items.map((tab) => {
           const isActive = tab.id === currentTabId;
           return (

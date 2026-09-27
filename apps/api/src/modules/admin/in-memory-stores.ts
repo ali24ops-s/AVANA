@@ -58,11 +58,19 @@ import type {
 } from "./admin-store.js";
 
 export class InMemoryAdminStore implements AdminStore {
+  private readonly options?: AdminStoreOptions;
+
   constructor(
     private readonly userStore?: UserStore & { insert?(user: UserRecord): void },
     private readonly organizationStore?: OrganizationStore & { listMembershipsByUserId?(userId: UserId): Promise<Array<{ role: Role; updatedAt: string }>> },
-    private readonly options?: AdminStoreOptions,
-  ) {}
+    optionsOrCommerceStore?: AdminStoreOptions | (import("../commerce/commerce-store.js").InMemoryCommerceStore),
+  ) {
+    if (optionsOrCommerceStore && typeof optionsOrCommerceStore === "object" && "entitlements" in optionsOrCommerceStore) {
+      this.commerceStore = optionsOrCommerceStore as import("../commerce/commerce-store.js").InMemoryCommerceStore;
+    } else if (optionsOrCommerceStore) {
+      this.options = optionsOrCommerceStore as AdminStoreOptions;
+    }
+  }
   async getDashboardStats(): Promise<DashboardStats> {
     return {
       totalUsers: 0,
@@ -348,6 +356,36 @@ export class InMemoryAdminStore implements AdminStore {
     return { lessons: [], totalCount: 0 };
   }
 
+  async getLesson(id: string): Promise<(AdminLessonRecord & { contentMarkdown: string; moduleId?: string }) | null> {
+    if (this.learningStores?.lessonStore) {
+      const l = await this.learningStores.lessonStore.findById(id);
+      if (l) {
+        return {
+          id: l.id,
+          title: l.title,
+          moduleId: l.moduleId,
+          publicationStatus: l.publicationStatus || "draft",
+          contentMarkdown: l.contentMarkdown || "",
+          createdAt: l.createdAt || new Date().toISOString(),
+        };
+      }
+    }
+    return null;
+  }
+
+  async updateLessonContent(id: string, contentMarkdown: string): Promise<void> {
+    if (this.learningStores?.lessonStore) {
+      const l = await this.learningStores.lessonStore.findById(id);
+      if (l) {
+        await this.learningStores.lessonStore.update({
+          ...l,
+          contentMarkdown,
+          updatedAt: new Date().toISOString(),
+        });
+      }
+    }
+  }
+
   async listFlashcards(_params?: { page: number; pageSize: number; search?: string }): Promise<{ flashcards: AdminFlashcardRecord[]; totalCount: number }> {
     return { flashcards: [], totalCount: 0 };
   }
@@ -472,6 +510,9 @@ export class InMemoryAdminStore implements AdminStore {
         if (newRole === "platform_admin") {
           user.globalRole = "platform_admin";
           user.role = "platform_admin";
+        } else if (newRole === "content_worker") {
+          user.globalRole = "content_worker";
+          user.role = "content_worker";
         } else {
           user.globalRole = null;
           user.role = newRole as Role;
@@ -851,6 +892,21 @@ export class InMemoryAdminStore implements AdminStore {
 
     this.memoryEntitlements.push(record);
 
+    if (this.commerceStore) {
+      await this.commerceStore.grantEntitlement({
+        id: record.id as any,
+        userId: input.userId as any,
+        resourceType: input.resourceType as any,
+        resourceId: input.resourceId || null,
+        sourceType: "admin_grant",
+        orderId: null,
+        startsAt: record.startsAt,
+        expiresAt,
+        createdAt: record.createdAt,
+        updatedAt: record.createdAt,
+      });
+    }
+
     if (input.resourceType === "subscription") {
       const subRecord: AdminSubscriptionRecord = {
         id: `sub_${Date.now()}_${Math.random().toString(36).substring(7)}`,
@@ -866,6 +922,20 @@ export class InMemoryAdminStore implements AdminStore {
         createdAt: now.toISOString(),
       };
       this.memorySubscriptions.push(subRecord);
+
+      if (this.commerceStore) {
+        await this.commerceStore.createSubscription({
+          id: subRecord.id as any,
+          userId: input.userId as any,
+          productId: "prod_sub_monthly" as any,
+          orderId: null,
+          status: "active",
+          startedAt: record.startsAt,
+          expiresAt: expiresAt!,
+          createdAt: now.toISOString(),
+          updatedAt: now.toISOString(),
+        });
+      }
     }
 
     return record;
@@ -915,9 +985,90 @@ export class InMemoryAdminStore implements AdminStore {
       matchingEnt.active = false;
     }
 
+    if (this.commerceStore) {
+      const cSub = this.commerceStore.subscriptions.find((s) => s.id === subscriptionId);
+      if (cSub) {
+        cSub.status = "cancelled";
+        cSub.expiresAt = now.toISOString();
+      }
+      const cEnt = this.commerceStore.entitlements.find(
+        (e) =>
+          e.userId === sub.userId &&
+          e.resourceType === "subscription" &&
+          ((sub.orderId && e.orderId === sub.orderId) ||
+            (!sub.orderId &&
+              e.sourceType === "admin_grant" &&
+              !e.orderId &&
+              e.startsAt === sub.startedAt &&
+              e.expiresAt === previousExpiresAt)),
+      );
+      if (cEnt) {
+        cEnt.expiresAt = now.toISOString();
+      }
+    }
+
     return {
       success: true,
       subscription: sub,
+    };
+  }
+
+  async revokeCommerceEntitlement(
+    _adminId: string,
+    entitlementId: string,
+    _reason?: string,
+  ): Promise<{ success: boolean; entitlement: AdminEntitlementRecord; message?: string }> {
+    let ent = this.memoryEntitlements.find((e) => e.id === entitlementId);
+    if (!ent && this.commerceStore) {
+      const cEnt = this.commerceStore.entitlements.find((e) => e.id === entitlementId);
+      if (cEnt) {
+        ent = {
+          id: cEnt.id,
+          userId: cEnt.userId,
+          userEmail: "user@test.com",
+          resourceType: cEnt.resourceType as any,
+          resourceId: cEnt.resourceId,
+          resourceTitle: cEnt.resourceType === "course" ? "دوره آموزشی" : cEnt.resourceType,
+          sourceType: cEnt.sourceType as any,
+          orderId: cEnt.orderId,
+          startsAt: cEnt.startsAt,
+          expiresAt: cEnt.expiresAt,
+          lifetime: !cEnt.expiresAt,
+          active: !cEnt.expiresAt || new Date(cEnt.expiresAt).getTime() > Date.now(),
+          createdAt: cEnt.createdAt,
+        };
+        this.memoryEntitlements.push(ent);
+      }
+    }
+
+    if (!ent) {
+      throw new Error("not_found");
+    }
+
+    const now = new Date().toISOString();
+    if (ent.expiresAt && new Date(ent.expiresAt).getTime() <= Date.now()) {
+      return {
+        success: true,
+        entitlement: ent,
+        message: "دسترسی این منبع قبلاً لغو یا منقضی شده است.",
+      };
+    }
+
+    ent.expiresAt = now;
+    ent.active = false;
+    ent.lifetime = false;
+
+    if (this.commerceStore) {
+      const cEnt = this.commerceStore.entitlements.find((e) => e.id === entitlementId);
+      if (cEnt) {
+        cEnt.expiresAt = now;
+      }
+    }
+
+    return {
+      success: true,
+      entitlement: ent,
+      message: "دسترسی کاربر با موفقیت لغو شد.",
     };
   }
 
@@ -1090,14 +1241,15 @@ export class InMemoryAdminStore implements AdminStore {
       sub.expiresAt = now;
     }
 
-    const ent = this.memoryEntitlements.find(
+    const matchingEnts = this.memoryEntitlements.filter(
       (e) =>
         e.userId === payment!.userId &&
         e.orderId === payment!.orderId,
     );
-    if (ent) {
+    for (const ent of matchingEnts) {
       ent.expiresAt = now;
       ent.active = false;
+      ent.lifetime = false;
     }
 
     if (this.commerceStore) {
@@ -1116,12 +1268,19 @@ export class InMemoryAdminStore implements AdminStore {
         cSub.status = "cancelled_payment_rejected" as any;
         cSub.expiresAt = now;
       }
+
+      const cEnts = (this.commerceStore as any).entitlements || [];
+      for (const ce of cEnts) {
+        if (ce.userId === payment!.userId && ce.orderId === payment!.orderId) {
+          ce.expiresAt = now;
+        }
+      }
     }
 
     return {
       success: true,
       payment,
-      message: "پرداخت رد شد و دسترسی اشتراک لغو گردید.",
+      message: "پرداخت رد شد و دسترسی کاربر بلافاصله لغو گردید.",
     };
   }
 

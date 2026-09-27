@@ -263,7 +263,7 @@ describe("Education Workspace (/admin/courses) — Step 2 Test Matrix", () => {
     render(<AdminCoursesPage />, { wrapper });
 
     await waitFor(() => {
-      expect(screen.getByText("1 / 3")).toBeInTheDocument();
+      expect(screen.getByText(/۱ از ۳|1 از 3|1 \/ 3/)).toBeInTheDocument();
     });
 
     const nextBtn = screen.getByLabelText("صفحه بعد");
@@ -316,6 +316,6 @@ describe("Education Workspace (/admin/courses) — Step 2 Test Matrix", () => {
     });
 
     // Total count display still reflects server pagination total
-    expect(screen.getByText(/مجموع: 40 دوره/i)).toBeInTheDocument();
+    expect(screen.getByText(/مجموع:.*(40|۴۰).*دوره/i)).toBeInTheDocument();
   });
 });

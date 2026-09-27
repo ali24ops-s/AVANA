@@ -145,6 +145,47 @@ describe("LandingPage (صفحه اصلی آوانا) Reference Design Complete S
     });
   });
 
+  it("5.1. Regression: verifies educational text with inline LaTeX ($\\beta_1$) in Living Textbook renders via KaTeX without raw math syntax", async () => {
+    const { container } = renderLandingPage();
+
+    // Check highlighted textbook section
+    const highlightedSection = container.querySelector("#living-textbook");
+    expect(highlightedSection).toBeInTheDocument();
+
+    // Must find KaTeX rendered element inside the highlighted paragraph
+    const katexElements = highlightedSection?.querySelectorAll(".katex");
+    expect(katexElements && katexElements.length).toBeGreaterThan(0);
+
+    // Verify raw syntax $\beta_1$ is NOT in the textContent
+    expect(highlightedSection?.textContent).not.toContain("$\\beta_1$");
+    expect(highlightedSection?.textContent).not.toContain("$\\beta");
+
+    // Surrounding Persian text must be completely preserved
+    expect(highlightedSection?.textContent).toContain("مهار گیرنده‌های");
+    expect(highlightedSection?.textContent).toContain("در گره سینوسی-دهلیزی (SA Node)");
+    expect(highlightedSection?.textContent).toContain("کاهش سرعت دپولاریزاسیون");
+
+    // Switch to flashcard panel and verify SRS math & arrow rendering
+    const flashcardBtn = screen.getByRole("button", { name: /ساخت فلش‌کارت/ });
+    fireEvent.click(flashcardBtn);
+    await waitFor(() => {
+      expect(screen.getByText(/فلش‌کارت آماده مطالعه/)).toBeInTheDocument();
+    });
+
+    // Check flashcard front & back math
+    expect(highlightedSection?.textContent).not.toContain("$\\beta_1$");
+    expect(highlightedSection?.textContent).not.toContain("$\\rightarrow$");
+    expect(highlightedSection?.textContent).toContain("اثر مهار گیرنده‌های");
+    expect(highlightedSection?.textContent).toContain("کاهش شیب دپولاریزاسیون");
+
+    // Check ReviewSummarySection for $\beta_2$
+    const reviewSection = container.querySelector("#review-summary");
+    expect(reviewSection).toBeInTheDocument();
+    expect(reviewSection?.querySelectorAll(".katex").length).toBeGreaterThan(0);
+    expect(reviewSection?.textContent).not.toContain("$\\beta_2$");
+    expect(reviewSection?.textContent).toContain("بتابلاکرهای غیرانتخابی (پروپرانولول) به علت مهار گیرنده");
+  });
+
   it("6. Verifies Learning Pipeline Section: 5 connected stages from source to mastery", () => {
     renderLandingPage();
 

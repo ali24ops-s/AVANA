@@ -30,6 +30,7 @@ import {
   defaultPolicy,
   type ModelPricingConfig,
   type ReferencePricingBaseline,
+  normalizeRequestedContentTypes,
 } from "@avana/domain";
 import type { WalletService } from "../wallet/wallet-service.js";
 import type { WalletStore } from "../wallet/wallet-store.js";
@@ -620,9 +621,11 @@ export const generationRoutes: FastifyPluginAsync<
         throw new DomainError("not_found", "Generation job not found");
       }
 
+      const requestedTypes = normalizeRequestedContentTypes(job.type);
       const progress = await service.getGenerationProgress(
         documentId,
         organizationId,
+        requestedTypes,
       );
 
       return {

@@ -10,7 +10,6 @@
 import { randomUUID } from "node:crypto";
 import {
   type Actor,
-  type AuthContext,
   type AuthorizationPolicy,
   type CourseId,
   type FlashcardId,
@@ -24,6 +23,8 @@ import {
   type StartStudySessionInput,
   type WeeklyStudyTimeSummary,
   type DashboardStatsSummary,
+  type ResourceContext,
+  buildActor,
   DomainError,
   nextReviewInterval,
   nextDueAt,
@@ -175,20 +176,59 @@ export class StudyService {
     actor: Actor,
     organizationId: OrganizationId,
     action: "study:read" | "flashcard:review" | "quiz:attempt",
-  ): Promise<void> {
+  ): Promise<Actor> {
     const isSystemOrg =
-      !!this.systemOrganizationId && organizationId === this.systemOrganizationId;
-    if (this.organizationStore && !isSystemOrg) {
-      const membership = await this.organizationStore.findMembership(
+      !!this.systemOrganizationId &&
+      organizationId === this.systemOrganizationId;
+
+    let memberships = actor.memberships;
+    if (
+      !memberships &&
+      this.organizationStore &&
+      typeof this.organizationStore.listMembershipsByUserId === "function"
+    ) {
+      memberships = await this.organizationStore.listMembershipsByUserId(
+        actor.userId,
+      );
+    } else if (
+      !memberships &&
+      this.organizationStore &&
+      typeof this.organizationStore.findMembership === "function"
+    ) {
+      const m = await this.organizationStore.findMembership(
         organizationId,
         actor.userId,
       );
-      if (!membership) {
-        throw new DomainError("not_found", "Organization not found");
+      if (m) {
+        memberships = [
+          {
+            organizationId,
+            role: m.role as import("@avana/domain").Role,
+          },
+        ];
       }
     }
-    const context: AuthContext = { organizationId };
-    this.policy.require(action, actor, context);
+
+    const fullActor = buildActor({
+      userId: actor.userId,
+      globalRole:
+        actor.globalRole ??
+        (actor.role === "platform_admin" ? "platform_admin" : undefined),
+      role: actor.role,
+      memberships,
+    });
+
+    const resourceContext: ResourceContext = {
+      organizationId,
+      resourceType: "course",
+      isSystemResource: isSystemOrg,
+    };
+
+    if (!this.policy.can(fullActor, action, resourceContext)) {
+      throw new DomainError("not_found", "Organization not found");
+    }
+
+    return fullActor;
   }
 
   private async authorizeRead(actor: Actor, organizationId: OrganizationId): Promise<void> {
@@ -1371,7 +1411,9 @@ export class StudyService {
     }
 
     const quizzes = await this.quizStore.listByCourse(courseId, targetOrgId);
-    const publishedQuizzes = quizzes.filter((q) => q.status === "published");
+    const publishedQuizzes = quizzes.filter(
+      (q) => q.status === "published" && (q.deletedAt === null || q.deletedAt === undefined),
+    );
     if (publishedQuizzes.length === 0) {
       return {
         quiz: null,
@@ -1380,23 +1422,18 @@ export class StudyService {
       };
     }
 
-    const selectedQuiz = options?.quizId
-      ? (publishedQuizzes.find((q) => q.id === options.quizId) ?? publishedQuizzes[0])
-      : publishedQuizzes[0];
-
-    const allQuestions = await this.quizQuestionStore.listByQuiz(selectedQuiz.id);
-
-    // Resolve allowed lessons for the module or previewLessonId
+    // Resolve previewLessonId and effectiveModuleId
     let previewLessonId = options?.previewLessonId;
+    let effectiveModuleId = options?.moduleId;
 
-    if (options?.moduleId && this.entitlementService) {
+    if (effectiveModuleId && this.entitlementService) {
       const canonicalPreview = await this.entitlementService
         .getPreviewResolver()
-        .resolvePreviewLesson(options.moduleId);
+        .resolvePreviewLesson(effectiveModuleId);
       // Security: canonical preview lesson of this module always takes precedence
       previewLessonId = canonicalPreview?.id;
-    } else if (options?.moduleId && this.lessonStore && !previewLessonId) {
-      const modLessons = await this.lessonStore.listByModule(options.moduleId as ModuleId);
+    } else if (effectiveModuleId && this.lessonStore && !previewLessonId) {
+      const modLessons = await this.lessonStore.listByModule(effectiveModuleId as ModuleId);
       const activeLessons = modLessons.filter(
         (l) => l.deletedAt === null && (!l.publicationStatus || l.publicationStatus === "published"),
       );
@@ -1405,15 +1442,129 @@ export class StudyService {
       }
     }
 
-    if (!previewLessonId && !options?.moduleId && this.entitlementService && this.moduleStore && this.lessonStore) {
-      const modules = await this.moduleStore.listByCourse(courseId);
-      const activeModules = modules.filter((m) => m.deletedAt === null).sort((a, b) => a.sortOrder - b.sortOrder);
-      const allLessons = await this.lessonStore.listByModules(activeModules.map((m) => m.id));
-      const activeLessons = allLessons.filter(
-        (l) => l.deletedAt === null && l.publicationStatus === "published",
-      ).sort((a, b) => a.sortOrder - b.sortOrder);
-      previewLessonId = (await this.entitlementService.resolveCoursePreviewLessonId(courseId, activeLessons)) ?? undefined;
+    // If course-level (no moduleId provided in options)
+    if (!effectiveModuleId) {
+      if (previewLessonId && this.lessonStore) {
+        const matchLesson = await this.lessonStore.findById(previewLessonId as LessonId);
+        if (matchLesson?.moduleId) {
+          effectiveModuleId = matchLesson.moduleId;
+        }
+      } else if (this.entitlementService) {
+        const canonical = await this.entitlementService
+          .getPreviewResolver()
+          .resolveCoursePreviewLesson(courseId);
+        if (canonical) {
+          previewLessonId = canonical.id;
+          effectiveModuleId = canonical.moduleId;
+        }
+      }
+      if (!effectiveModuleId && this.moduleStore && this.lessonStore) {
+        const modules = await this.moduleStore.listByCourse(courseId);
+        const activeModules = modules
+          .filter((m) => m.deletedAt === null)
+          .sort((a, b) => a.sortOrder - b.sortOrder);
+        if (activeModules.length > 0) {
+          const allLessons = await this.lessonStore.listByModules(activeModules.map((m) => m.id));
+          const activeLessons = allLessons
+            .filter((l) => l.deletedAt === null && l.publicationStatus === "published")
+            .sort((a, b) => a.sortOrder - b.sortOrder);
+          if (this.entitlementService) {
+            previewLessonId =
+              (await this.entitlementService.resolveCoursePreviewLessonId(courseId, activeLessons)) ??
+              undefined;
+          } else if (activeLessons.length > 0) {
+            previewLessonId = activeLessons[0].id;
+          }
+          if (previewLessonId) {
+            const matchLes = activeLessons.find((l) => l.id === previewLessonId);
+            effectiveModuleId = matchLes?.moduleId;
+          }
+        }
+      }
     }
+
+    // Select Quiz based on effectiveModuleId (previewLesson -> parentModule -> quiz)
+    let selectedQuiz: QuizRecord | undefined;
+    if (options?.quizId) {
+      selectedQuiz = publishedQuizzes.find((q) => q.id === options.quizId);
+      if (selectedQuiz && effectiveModuleId && this.moduleStore) {
+        const targetModule = await this.moduleStore.findById(effectiveModuleId as ModuleId);
+        const matchesModule =
+          (selectedQuiz.moduleId && selectedQuiz.moduleId === effectiveModuleId) ||
+          (targetModule?.documentId && selectedQuiz.documentId && selectedQuiz.documentId === targetModule.documentId);
+        // If an explicit quizId does not belong to the requested module, fail closed
+        if (!matchesModule && (selectedQuiz.moduleId || selectedQuiz.documentId)) {
+          return {
+            quiz: null,
+            total_questions: 0,
+            is_preview: true,
+            preview_lesson_id: previewLessonId,
+          };
+        }
+      }
+    } else if (effectiveModuleId) {
+      let targetModule: ModuleRecord | undefined;
+      if (this.moduleStore) {
+        targetModule = await this.moduleStore.findById(effectiveModuleId as ModuleId);
+      }
+      const moduleQuizzes = publishedQuizzes.filter((q) => {
+        if (q.moduleId && q.moduleId === effectiveModuleId) return true;
+        if (targetModule?.documentId && q.documentId && q.documentId === targetModule.documentId) return true;
+        return false;
+      });
+
+      if (moduleQuizzes.length > 0) {
+        moduleQuizzes.sort((a, b) => {
+          const titleCompare = (a.title || "").localeCompare(b.title || "");
+          if (titleCompare !== 0) return titleCompare;
+          return a.id.localeCompare(b.id);
+        });
+        selectedQuiz = moduleQuizzes[0];
+      } else if (!options?.moduleId) {
+        // Only in course-level preview (no explicit moduleId requested in options):
+        // If the course has general unattached quizzes without module/document attachment:
+        const unattachedQuizzes = publishedQuizzes.filter((q) => !q.moduleId && !q.documentId);
+        if (unattachedQuizzes.length > 0) {
+          unattachedQuizzes.sort((a, b) => {
+            const titleCompare = (a.title || "").localeCompare(b.title || "");
+            if (titleCompare !== 0) return titleCompare;
+            return a.id.localeCompare(b.id);
+          });
+          selectedQuiz = unattachedQuizzes[0];
+        }
+      }
+
+      if (!selectedQuiz) {
+        // Fail-closed: No valid quiz for this module exists. NEVER pick an alien module's quiz!
+        return {
+          quiz: null,
+          total_questions: 0,
+          is_preview: true,
+          preview_lesson_id: previewLessonId,
+        };
+      }
+    } else {
+      // Course has no modules/lessons: only consider unattached quizzes
+      const unattachedQuizzes = publishedQuizzes.filter((q) => !q.moduleId && !q.documentId);
+      const fallbackQuizzes = unattachedQuizzes.length > 0 ? unattachedQuizzes : publishedQuizzes;
+      fallbackQuizzes.sort((a, b) => {
+        const titleCompare = (a.title || "").localeCompare(b.title || "");
+        if (titleCompare !== 0) return titleCompare;
+        return a.id.localeCompare(b.id);
+      });
+      selectedQuiz = fallbackQuizzes[0];
+    }
+
+    if (!selectedQuiz) {
+      return {
+        quiz: null,
+        total_questions: 0,
+        is_preview: true,
+        preview_lesson_id: previewLessonId,
+      };
+    }
+
+    const allQuestions = await this.quizQuestionStore.listByQuiz(selectedQuiz.id);
 
     // Filter questions: strictly from the canonical preview lesson when scoped to module
     let eligibleQuestions: QuizQuestionRecord[] = [];
@@ -1429,6 +1580,18 @@ export class StudyService {
       } else {
         eligibleQuestions = allQuestions;
       }
+    }
+
+    if (eligibleQuestions.length === 0) {
+      return {
+        quiz: {
+          ...selectedQuiz,
+          questions: [],
+        },
+        total_questions: 0,
+        is_preview: true,
+        preview_lesson_id: previewLessonId,
+      };
     }
 
     // Shuffle deterministically
@@ -1485,7 +1648,13 @@ export class StudyService {
         moduleId: (options?.moduleId as ModuleId) ?? undefined,
         previewSessionId: options?.previewSessionId,
       });
-      if (!access.granted || access.reason === "free_preview") {
+      if (!access.granted && access.reason !== "free_preview") {
+        throw new DomainError(
+          "forbidden",
+          "دسترسی به این آزمون محدود است. برای شروع آزمون نیاز به خرید اشتراک یا دوره دارید.",
+        );
+      }
+      if (access.reason === "free_preview") {
         isPreview = true;
       }
     }
@@ -1520,10 +1689,11 @@ export class StudyService {
           const previewIds = new Set(preview.quiz.questions.map((q) => q.id));
           questions = questions.filter((q) => previewIds.has(q.id));
         } else {
-          questions = questions.slice(0, 5);
+          // Fail-closed: If preview has no eligible questions, return empty questions
+          questions = [];
         }
       } catch {
-        questions = questions.slice(0, 5);
+        questions = [];
       }
     }
 

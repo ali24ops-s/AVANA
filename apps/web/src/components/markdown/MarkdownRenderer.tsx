@@ -19,6 +19,9 @@ import { LessonCallout, type CalloutType } from "./LessonCallout.js";
 import { remarkLessonCallouts } from "./remarkLessonCallouts.js";
 import {
   parseChemicalCodeContent,
+  parseReactionCodeContent,
+  parseChartCodeContent,
+  validateEducationalChart,
 } from "@avana/domain";
 
 const LazyChemicalStructureBlock = React.lazy(() =>
@@ -26,6 +29,35 @@ const LazyChemicalStructureBlock = React.lazy(() =>
     default: m.ChemicalStructureBlock,
   })),
 );
+
+const LazyReactionBlock = React.lazy(() =>
+  import("../chemistry/ReactionBlock.js").then((m) => ({
+    default: m.ReactionBlock,
+  })),
+);
+
+import { ChemicalErrorBoundary } from "../chemistry/ChemicalFallbackBlock.js";
+
+const LazyChemicalFallbackBlock = React.lazy(() =>
+  import("../chemistry/ChemicalFallbackBlock.js").then((m) => ({
+    default: m.ChemicalFallbackBlock,
+  })),
+);
+
+const LazyChartBlock = React.lazy(() =>
+  import("../chart/ChartBlock.js").then((m) => ({
+    default: m.ChartBlock,
+  })),
+);
+
+import { ChartErrorBoundary } from "../chart/ChartErrorBoundary.js";
+
+const LazyChartFallbackBlock = React.lazy(() =>
+  import("../chart/ChartFallbackBlock.js").then((m) => ({
+    default: m.ChartFallbackBlock,
+  })),
+);
+
 
 export interface RichContentProps {
   content?: string | null;
@@ -116,39 +148,76 @@ function isScientificToken(token: string): boolean {
 }
 
 /**
+ * Helper to unwrap raw JSON session or lesson payloads if an object/JSON was accidentally passed as content string.
+ */
+function unwrapJsonContent(raw: string): string {
+  const trimmed = raw.trim();
+  if (
+    (trimmed.startsWith("{") && (trimmed.includes('"contentMarkdown"') || trimmed.includes('"kind"'))) ||
+    (trimmed.startsWith('"') && trimmed.endsWith('"') && (trimmed.includes("\\n") || trimmed.includes('\\"')))
+  ) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (typeof parsed === "string") {
+        return unwrapJsonContent(parsed);
+      }
+      if (parsed && typeof parsed === "object") {
+        if (typeof (parsed as { contentMarkdown?: unknown }).contentMarkdown === "string") {
+          return (parsed as { contentMarkdown: string }).contentMarkdown;
+        }
+        if (
+          Array.isArray((parsed as { sessions?: unknown[] }).sessions) &&
+          (parsed as { sessions: Array<{ contentMarkdown?: string }> }).sessions.length > 0 &&
+          typeof (parsed as { sessions: Array<{ contentMarkdown?: string }> }).sessions[0].contentMarkdown === "string"
+        ) {
+          return (parsed as { sessions: Array<{ contentMarkdown: string }> }).sessions
+            .map((s) => s.contentMarkdown || "")
+            .join("\n\n---\n\n");
+        }
+      }
+    } catch {
+      const match = trimmed.match(/"contentMarkdown"\s*:\s*"([\s\S]*?)(?:"\s*,\s*"citationChunkIds"|"\s*,\s*"kind"|"\s*}|"$)/);
+      if (match && match[1]) {
+        return match[1]
+          .replace(/\\n/g, "\n")
+          .replace(/\\r/g, "\r")
+          .replace(/\\t/g, "\t")
+          .replace(/\\"/g, '"')
+          .replace(/\\\\/g, "\\");
+      }
+    }
+  }
+  return raw;
+}
+
+/**
  * Normalizes rich content before parsing:
- * 1. Unwraps outer raw JSON string quotes if content was stringified (e.g. "\"...\")
- * 2. Normalizes escaped newlines (\\n -> \n) and escaped tabs/quotes outside code blocks and math
- * 3. Safely normalizes alternative LaTeX delimiters (\(...) -> $...$ and \[...\] -> $$...$$)
- * 4. Protects standalone currency dollar amounts ($100, $50.00) so they don't corrupt math parsing
- * 5. Unwraps scientific terms wrapped in backticks while strictly preserving programming code
- * 6. Recovers legacy corrupted LaTeX commands and converts raw standalone LaTeX arrows outside math
+ * 1. Unwraps raw JSON payloads or outer JSON string literals
+ * 2. Sanitizes trailing metadata / UUID leakages
+ * 3. Normalizes escaped newlines (\\n -> \n) and escaped tabs/quotes outside code blocks and math
+ * 4. Safely normalizes alternative LaTeX delimiters (\(...) -> $...$ and \[...\] -> $$...$$)
+ * 5. Auto-wraps standalone LaTeX math/chemistry blocks if missing outer delimiters
+ * 6. Protects standalone currency dollar amounts ($100 USD) without breaking LaTeX inline math ($0.77 \text{ g/cm}^3$)
+ * 7. Unwraps scientific terms wrapped in backticks while strictly preserving programming code
+ * 8. Recovers legacy corrupted LaTeX commands and converts raw standalone LaTeX arrows outside math
  */
 export function normalizeRichContent(text: string): string {
   if (!text) {
     return text;
   }
 
-  let raw = text;
+  // 0. Unwrap raw JSON objects or string literals if passed as content
+  let raw = unwrapJsonContent(text);
 
-  // 0. Unwrap outer raw JSON string quotes if the whole string was dumped as a JSON string literal (e.g. "\"متن...\"")
-  if (
-    raw.length >= 2 &&
-    raw.startsWith('"') &&
-    raw.endsWith('"') &&
-    (raw.includes("\\n") || raw.includes('\\"') || raw.includes("\\t"))
-  ) {
-    try {
-      const parsed = JSON.parse(raw);
-      if (typeof parsed === "string") {
-        raw = parsed;
-      }
-    } catch {
-      if (!raw.slice(1, -1).includes('"')) {
-        raw = raw.slice(1, -1);
-      }
-    }
-  }
+  // 0.1 Sanitize trailing leaked metadata artifacts (like leaked citationChunkIds UUID arrays)
+  raw = raw
+    .replace(/,?\s*"citationChunkIds"\s*:\s*\[[\s\S]*?\]\s*}?$/s, "")
+    .replace(/,?\s*"kind"\s*:\s*"[^"]*"\s*}?$/s, "")
+    .replace(
+      /(?:\n|^)\s*(?:"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"\s*,?\s*)+$/s,
+      "",
+    )
+    .trimEnd();
 
   // Split content by code blocks (fenced ```...``` and inline `...`)
   // Uses paired match to prevent desynchronization on unclosed single backticks
@@ -186,10 +255,13 @@ export function normalizeRichContent(text: string): string {
 
       // 3. Restore tab-corrupted \text{ inside math delimiters ($...$ and $$...$$)
       processed = processed.replace(/(\$\$[\s\S]*?\$\$|\$[^$\n]+\$)/g, (mathBlock) => {
-        return mathBlock.replace(/\\?text\{/g, "\\text{").replace(/\text\{/g, "\\text{");
+        return mathBlock
+          .replace(/\\?text\{/g, "\\text{")
+          .replace(/\text\{/g, "\\text{")
+          .replace(/\t\s*ext\{/g, "\\text{");
       });
 
-      // 4. Safely clean stray unmatched ')' immediately after self-contained inline math (e.g. $1,25(OH)_2D$))
+      // 5. Safely clean stray unmatched ')' immediately after self-contained inline math (e.g. $1,25(OH)_2D$))
       processed = processed.replace(
         /(^|[^\\])((?<!\\)\$[^$\n]+(?<!\\)\$)\)(?!\))/g,
         (fullMatch, prefix, mathBlock, offset, fullStr) => {
@@ -210,16 +282,32 @@ export function normalizeRichContent(text: string): string {
         },
       );
 
-      // 5. Protect standalone currency dollar amounts (e.g. $100, $50.00, $1,000) from corrupting math parsing.
-      // E.g. in "هزینه $50 تا $100 است ولی هورمون $T_4$ رایگان است"
-      // Standalone dollar amounts are $ followed by digits and optional units, followed by Persian text, whitespace, or Persian punctuation.
-      // Must NEVER match or corrupt valid math formulas (e.g. $1,25(OH)_2D$, $1,25\text{-dihydroxyvitamin D}$, $T_4$, $10^{-3}$, $f(x)$).
+      // 6. Protect genuine standalone currency dollar amounts (e.g. $100, $100 USD, $50 هزار تومان)
+      // Must NEVER corrupt inline math equations like $0.77 \text{ g/cm}^3$, $0.62$, $T_4$, $10^{-3}$, $Ca^{2+}$.
+      // A dollar sign followed by digits is currency if it is NOT part of a closed math expression.
       processed = processed.replace(
-        /(?<!\\)\$(\d+(?:[.,]\d+)*(?:\s*(?:k|K|M|B|USD|EUR|تومان|ریال|هزار|میلیون))?)(?=$|\s|[،؛!؟\u0600-\u06FF]|(?:\s*[\u0600-\u06FF]))/g,
-        (_match, amount) => `\\$${amount}`,
+        /(?<!\\)\$(\d+(?:[.,]\d+)*(?:\s*(?:k|K|M|B|USD|EUR|تومان|ریال|هزار|میلیون))?)(?=[.,؛!؟\s]|$)/g,
+        (fullMatch, amount, offset, fullStr) => {
+          // Check if this `$` has a matching closing `$` on the same line (forming valid inline math $...$)
+          const restOfLine = fullStr.slice(offset + fullMatch.length);
+          const nextNewline = restOfLine.indexOf("\n");
+          const lineRest = nextNewline >= 0 ? restOfLine.slice(0, nextNewline) : restOfLine;
+          const closingDollarIdx = lineRest.indexOf("$");
+
+          // If there is a closing dollar on the same line, check what is inside
+          if (closingDollarIdx !== -1) {
+            const between = lineRest.slice(0, closingDollarIdx);
+            // If the content between contains LaTeX backslashes, math operators, or letters, it is math!
+            if (/[\^_{}\\]|\\text|\\frac|g\/cm|mg|mol|[a-zA-Z]/.test(between)) {
+              return fullMatch; // Valid math formula, do not escape
+            }
+          }
+
+          return `\\$${amount}`;
+        },
       );
 
-      // 6. Split by math blocks to safely normalize plain text without touching math equations
+      // 7. Split by math blocks to safely normalize plain text without touching math equations
       const mathSplit = processed.split(/(\$\$[\s\S]*?\$\$|\$[^$\n]+\$)/g);
       processed = mathSplit
         .map((segment, segIdx) => {
@@ -239,17 +327,19 @@ export function normalizeRichContent(text: string): string {
           // Normalize escaped quotes (\") in plain text
           seg = seg.replace(/\\"/g, '"');
 
-          // Normalize escaped tabs (\\t) in plain text
+          // In plain text outside math: safely unwrap standalone legacy \text{...} or \t ext{...} to clean plain text
+          // Supports spaces, units, Persian labels, and medical phrases without corrupting math
+          seg = seg
+            .replace(/\\?text\{([^{}\n]+)\}/g, "$1")
+            .replace(/(?:\b|\t)ext\{([^{}\n]+)\}/g, "$1");
+
+          // Normalize escaped tabs (\\t) and literal tabs in plain text
           seg = seg.replace(/\\t/g, " ");
 
-          // In plain text outside math: safely unwrap standalone legacy \text{ACRONYM} or \t ext{ACRONYM} to ACRONYM
-          // and safely convert standalone raw LaTeX arrows and math symbols outside $...$
+          // Safe raw LaTeX arrow and symbol conversions outside math and code
           seg = seg
-            .replace(/\\?text\{([A-Za-z0-9_\-+]+)\}/g, "$1")
-            .replace(/(?:\b|\t)ext\{([A-Za-z0-9_\-+]+)\}/g, "$1")
-            // Safe raw LaTeX arrow and symbol conversions outside math and code
-            .replace(/\\(?:rightarrow|to)\b/g, "→")
-            .replace(/\\(?:leftarrow|gets)\b/g, "←")
+            .replace(/\\(?:rightarrow|to|longrightarrow)\b/g, "→")
+            .replace(/\\(?:leftarrow|gets|longleftarrow)\b/g, "←")
             .replace(/\\leftrightarrow\b/g, "↔")
             .replace(/\\Rightarrow\b/g, "⇒")
             .replace(/\\Leftarrow\b/g, "⇐")
@@ -271,7 +361,7 @@ export function normalizeRichContent(text: string): string {
     .join("");
 }
 
-export { parseChemicalCodeContent };
+export { parseChemicalCodeContent, parseReactionCodeContent };
 
 /**
  * Shared rich content component for rendering AI-generated & user-authored markdown with LaTeX.
@@ -406,7 +496,7 @@ export function RichContent({
           ),
           p: ({ children, ...props }) => (
             <p
-              className="text-[15px] sm:text-base text-[var(--color-text)] dark:text-slate-200 leading-[2.1] mb-5 font-normal tracking-normal whitespace-pre-line break-words [overflow-wrap:anywhere] [unicode-bidi:isolate]"
+              className="text-[15px] sm:text-base text-[var(--color-text)] dark:text-slate-200 leading-[2.1] mb-5 font-normal tracking-normal whitespace-pre-line break-words [unicode-bidi:isolate]"
               {...props}
             >
               {children}
@@ -468,13 +558,22 @@ export function RichContent({
             </blockquote>
           ),
           pre: ({ children, ...props }) => {
-            // If the code child is a chemical or smiles block, unwrap <pre>
+            // If the code child is a chemical, smiles, or reaction block, unwrap <pre>
             if (
               React.isValidElement<{ className?: string }>(children) &&
               typeof children.props?.className === "string"
             ) {
               const cls = children.props.className;
-              if (cls.includes("language-chemical") || cls.includes("language-smiles")) {
+              if (
+                cls.includes("language-chemical") ||
+                cls.includes("language-smiles") ||
+                cls.includes("language-reaction") ||
+                cls.includes("language-rxn") ||
+                cls.includes("language-chemical-reaction") ||
+                cls.includes("language-chart") ||
+                cls.includes("language-charts") ||
+                cls.includes("language-chart-json")
+              ) {
                 return <>{children}</>;
               }
             }
@@ -501,20 +600,183 @@ export function RichContent({
               const parsedStructure = parseChemicalCodeContent(rawContent, lang);
               if (parsedStructure) {
                 return (
+                  <ChemicalErrorBoundary
+                    fallback={
+                      <LazyChemicalFallbackBlock
+                        rawContent={rawContent}
+                        language={lang}
+                        reason="عدم امکان ترسیم یا تجزیه ساختار مولکولی"
+                      />
+                    }
+                  >
+                    <React.Suspense
+                      fallback={
+                        <div
+                          className="my-6 p-6 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] text-center text-xs text-[var(--color-text-muted)] animate-pulse"
+                          dir="rtl"
+                        >
+                          در حال بارگذاری ساختار مولکولی...
+                        </div>
+                      }
+                    >
+                      <LazyChemicalStructureBlock structure={parsedStructure} />
+                    </React.Suspense>
+                  </ChemicalErrorBoundary>
+                );
+              }
+
+              return (
+                <React.Suspense
+                  fallback={
+                    <div
+                      className="my-4 p-4 rounded-xl border border-amber-200 dark:border-amber-900 bg-amber-50/50 text-xs"
+                      dir="rtl"
+                    >
+                      در حال بارگذاری...
+                    </div>
+                  }
+                >
+                  <LazyChemicalFallbackBlock
+                    rawContent={rawContent}
+                    language={lang}
+                    reason="عدم انطباق با الگوی ورودی فرمول شیمیایی"
+                  />
+                </React.Suspense>
+              );
+            }
+
+            if (lang === "reaction" || lang === "rxn" || lang === "chemical-reaction") {
+              const rawContent =
+                typeof children === "string"
+                  ? children
+                  : Array.isArray(children)
+                  ? children.map((c) => (typeof c === "string" ? c : "")).join("")
+                  : "";
+              const parsedReaction = parseReactionCodeContent(rawContent, lang);
+              if (parsedReaction) {
+                return (
+                  <ChemicalErrorBoundary
+                    fallback={
+                      <LazyChemicalFallbackBlock
+                        rawContent={rawContent}
+                        language={lang}
+                        reason="عدم امکان ترسیم یا پردازش واکنش شیمیایی"
+                      />
+                    }
+                  >
+                    <React.Suspense
+                      fallback={
+                        <div
+                          className="my-6 p-6 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] text-center text-xs text-[var(--color-text-muted)] animate-pulse"
+                          dir="rtl"
+                        >
+                          در حال بارگذاری واکنش شیمیایی...
+                        </div>
+                      }
+                    >
+                      <LazyReactionBlock reaction={parsedReaction} />
+                    </React.Suspense>
+                  </ChemicalErrorBoundary>
+                );
+              }
+
+              return (
+                <React.Suspense
+                  fallback={
+                    <div
+                      className="my-4 p-4 rounded-xl border border-amber-200 dark:border-amber-900 bg-amber-50/50 text-xs"
+                      dir="rtl"
+                    >
+                      در حال بارگذاری...
+                    </div>
+                  }
+                >
+                  <LazyChemicalFallbackBlock
+                    rawContent={rawContent}
+                    language={lang}
+                    reason="عدم انطباق با الگوی ساختاری واکنش شیمیایی"
+                  />
+                </React.Suspense>
+              );
+            }
+
+            if (lang === "chart" || lang === "charts" || lang === "chart-json") {
+              const rawContent =
+                typeof children === "string"
+                  ? children
+                  : Array.isArray(children)
+                  ? children.map((c) => (typeof c === "string" ? c : "")).join("")
+                  : "";
+              const parsedChart = parseChartCodeContent(rawContent, lang);
+              if (parsedChart) {
+                const validation = validateEducationalChart(parsedChart);
+                if (validation.valid && validation.chart) {
+                  return (
+                    <ChartErrorBoundary
+                      fallback={
+                        <LazyChartFallbackBlock
+                          rawContent={rawContent}
+                          language={lang}
+                          title={parsedChart.title}
+                          reason="خطا در رندر گرافیکی نمودار آموزشی"
+                        />
+                      }
+                    >
+                      <React.Suspense
+                        fallback={
+                          <div
+                            className="my-6 p-6 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] text-center text-xs text-[var(--color-text-muted)] animate-pulse"
+                            dir="rtl"
+                          >
+                            در حال بارگذاری نمودار...
+                          </div>
+                        }
+                      >
+                        <LazyChartBlock chart={validation.chart} />
+                      </React.Suspense>
+                    </ChartErrorBoundary>
+                  );
+                }
+
+                return (
                   <React.Suspense
                     fallback={
                       <div
-                        className="my-6 p-6 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] text-center text-xs text-[var(--color-text-muted)] animate-pulse"
+                        className="my-4 p-4 rounded-xl border border-amber-200 dark:border-amber-900 bg-amber-50/50 text-xs"
                         dir="rtl"
                       >
-                        در حال بارگذاری ساختار مولکولی...
+                        در حال بارگذاری...
                       </div>
                     }
                   >
-                    <LazyChemicalStructureBlock structure={parsedStructure} />
+                    <LazyChartFallbackBlock
+                      rawContent={rawContent}
+                      language={lang}
+                      title={parsedChart.title}
+                      reason={validation.errors.join("، ")}
+                    />
                   </React.Suspense>
                 );
               }
+
+              return (
+                <React.Suspense
+                  fallback={
+                    <div
+                      className="my-4 p-4 rounded-xl border border-amber-200 dark:border-amber-900 bg-amber-50/50 text-xs"
+                      dir="rtl"
+                    >
+                      در حال بارگذاری...
+                    </div>
+                  }
+                >
+                  <LazyChartFallbackBlock
+                    rawContent={rawContent}
+                    language={lang}
+                    reason="عدم انطباق با ساختار داده‌ای استاندارد JSON نمودار"
+                  />
+                </React.Suspense>
+              );
             }
 
             return (

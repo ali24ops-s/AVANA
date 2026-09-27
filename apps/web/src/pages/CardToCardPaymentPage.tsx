@@ -442,7 +442,7 @@ export function CardToCardPaymentPage() {
             <span>{isWalletTopupProduct ? "بازگشت به کیف پول" : "بازگشت به انتخاب پلن"}</span>
           </Link>
 
-          <h1 className="text-2xl sm:text-3xl font-black text-[var(--color-text)] tracking-tight">
+          <h1 className="text-2xl sm:text-3xl font-black text-[var(--color-text)] tracking-tight text-center md:text-right">
             {isWalletTopupProduct
               ? "شارژ حساب کاربری با کارت‌به‌کارت"
               : isSpecialExamProduct
@@ -497,7 +497,7 @@ export function CardToCardPaymentPage() {
                   (isSpecialExamProduct
                     ? "اطلاعات پرداخت تأیید شد و یک Attempt اختصاصی با سؤالات تصادفی و فریز شده از بانک سؤال برای شما تولید گردید. می‌توانید بلافاصله آزمون را آغاز کنید."
                     : selectedGiftAmount > 0
-                    ? `اطلاعات پرداخت شما با موفقیت ثبت شد و اشتراک بلافاصله فعال گردید. همچنین مبلغ ${toPersianDigits(selectedGiftAmount.toLocaleString("fa-IR"))} تومان اعتبار هدیه به کیف پول شما اضافه شد. اکنون دسترسی کامل به تمام امکانات برای شما برقرار است.`
+                    ? `اطلاعات پرداخت شما با موفقیت ثبت شد و اشتراک بلافاصله فعال گردید. در صورت واجد شرایط بودن (اولین خرید اشتراک)، مبلغ ${toPersianDigits(selectedGiftAmount.toLocaleString("fa-IR"))} تومان اعتبار هدیه پس از بررسی پرداخت به کیف پول شما منظور خواهد شد. اکنون دسترسی کامل به تمام امکانات برای شما برقرار است.`
                     : "اطلاعات پرداخت شما با موفقیت ثبت شد و اشتراک بلافاصله فعال گردید. اکنون دسترسی کامل به تمام درسنامه‌ها، آزمون‌ها و هوش مصنوعی برای شما برقرار است.")}
               </p>
             )}
@@ -514,7 +514,7 @@ export function CardToCardPaymentPage() {
             </div>
             {isSubscriptionProduct && selectedGiftAmount > 0 && (
               <div className="flex justify-between">
-                <span className="text-[var(--color-text-muted)]">هدیه فعال‌سازی اشتراک:</span>
+                <span className="text-[var(--color-text-muted)]">هدیه فعال‌سازی — ویژه اولین خرید اشتراک:</span>
                 <span className="font-bold text-amber-600 dark:text-amber-400">
                   {toPersianDigits(selectedGiftAmount.toLocaleString("fa-IR"))} تومان اعتبار کیف پول
                 </span>
@@ -1216,7 +1216,7 @@ export function CardToCardPaymentPage() {
                   <div className="flex justify-between items-center text-[var(--color-text-secondary)]">
                     <span className="flex items-center gap-1.5">
                       <Gift className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                      <span>هدیه اشتراک:</span>
+                      <span>هدیه فعال‌سازی — ویژه اولین خرید اشتراک:</span>
                     </span>
                     <span className="font-bold text-amber-600 dark:text-amber-400 whitespace-nowrap">
                       {toPersianDigits(selectedGiftAmount.toLocaleString("fa-IR"))} تومان اعتبار کیف پول
@@ -1266,7 +1266,7 @@ export function CardToCardPaymentPage() {
                   : [
                       ...(isSubscriptionProduct && selectedGiftAmount > 0
                         ? [
-                            `${toPersianDigits(selectedGiftAmount.toLocaleString("fa-IR"))} تومان اعتبار هدیه کیف پول (ویژه تولید محتوا)`,
+                            `${toPersianDigits(selectedGiftAmount.toLocaleString("fa-IR"))} تومان اعتبار هدیه کیف پول (ویژه اولین خرید اشتراک)`,
                           ]
                         : []),
                       "دسترسی نامحدود به تمامی درسنامه‌ها",

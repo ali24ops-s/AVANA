@@ -16,6 +16,8 @@ import {
   type LessonId,
   type OrganizationId,
   type AuthorizationPolicy,
+  type ResourceContext,
+  buildActor,
   defaultPolicy,
 } from "@avana/domain";
 import type { ModelGateway } from "../generation/gateway/types.js";
@@ -384,29 +386,38 @@ export class StudyAssistantService {
     actor: Actor,
     organizationId: OrganizationId,
     courseId: CourseId,
-  ): Promise<void> {
-    // Check if system organization or user has membership
-    const isSystemOrg =
-      this.systemOrganizationId &&
+  ): Promise<Actor> {
+    const isSystemResource =
+      !!this.systemOrganizationId &&
       this.systemOrganizationId === organizationId;
 
-    if (!isSystemOrg && actor.role !== "platform_admin") {
-      const membership = await this.organizationStore.findMembership(
-        organizationId,
-        actor.userId,
+    const memberships = await this.organizationStore.listMembershipsByUserId(
+      actor.userId,
+    );
+
+    const fullActor = buildActor({
+      userId: actor.userId,
+      globalRole: actor.globalRole,
+      role: actor.role,
+      memberships,
+    });
+
+    const resourceContext: ResourceContext = {
+      organizationId,
+      resourceType: "course",
+      resourceId: courseId,
+      courseId,
+      isSystemResource,
+    };
+
+    if (!this.policy.can(fullActor, "study:read", resourceContext)) {
+      throw new DomainError(
+        "forbidden",
+        "You do not have access to this course or organization",
       );
-      if (!membership) {
-        throw new DomainError(
-          "forbidden",
-          "You do not have access to this course or organization",
-        );
-      }
     }
 
-    this.policy.require("study:read", actor, {
-      organizationId,
-      courseId,
-    });
+    return fullActor;
   }
 
   /**

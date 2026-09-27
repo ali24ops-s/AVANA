@@ -119,7 +119,7 @@ export function AdminBlogTagsManager() {
       {/* Header bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-bold text-[var(--color-text)] flex items-center gap-2">
+          <h2 className="text-xl font-bold text-[var(--color-text)] flex items-center justify-center sm:justify-start gap-2 text-center sm:text-right">
             <TagIcon className="w-5 h-5 text-[var(--color-primary-default)]" />
             <span>مدیریت برچسب‌های وبلاگ (Tags)</span>
           </h2>
@@ -159,14 +159,14 @@ export function AdminBlogTagsManager() {
       {/* Table */}
       <div className="border border-[var(--color-border)] rounded-2xl overflow-hidden shadow-xs bg-[var(--color-surface)]">
         <div className="overflow-x-auto">
-          <table className="w-full text-right text-xs">
+          <table className="w-full text-right text-xs min-w-[580px]">
             <thead className="bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] border-b border-[var(--color-border)]">
               <tr>
-                <th className="px-5 py-3.5 font-semibold">نام برچسب</th>
-                <th className="px-4 py-3.5 font-semibold">اسلاگ (URL Slug)</th>
-                <th className="px-4 py-3.5 font-semibold text-center">تعداد مقالات مرتبط</th>
-                <th className="px-4 py-3.5 font-semibold">تاریخ ایجاد</th>
-                <th className="px-5 py-3.5 font-semibold text-center">عملیات</th>
+                <th className="px-5 py-3.5 font-semibold whitespace-nowrap">نام برچسب</th>
+                <th className="px-4 py-3.5 font-semibold whitespace-nowrap">اسلاگ (URL Slug)</th>
+                <th className="px-4 py-3.5 font-semibold whitespace-nowrap text-center">تعداد مقالات مرتبط</th>
+                <th className="px-4 py-3.5 font-semibold whitespace-nowrap">تاریخ ایجاد</th>
+                <th className="px-5 py-3.5 font-semibold whitespace-nowrap text-center">عملیات</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[var(--color-border)] text-[var(--color-text)]">

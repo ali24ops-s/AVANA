@@ -57,8 +57,42 @@ describe("Medicinal Chemistry Generation & Chemical Structure Suite", () => {
 
     it("ensures getLessonGenerationTemplate contains Section 12.1", () => {
       const tmpl = getLessonGenerationTemplate();
-      expect(tmpl).toContain("12.1. MEDICINAL CHEMISTRY & CHEMICAL STRUCTURE POLICY");
-      expect(tmpl).toContain("Whenever a specific drug or chemical compound is mentioned by name");
+      expect(getLessonGenerationTemplate()).toContain("12.1. MEDICINAL CHEMISTRY & CHEMICAL STRUCTURE POLICY");
+      expect(getLessonGenerationTemplate()).toContain("Whenever a specific drug or chemical compound is mentioned by name");
+    });
+
+    it("ensures LANGUAGE_REQUIREMENT_PROMPT and Section 12.2 contain the organic chemistry reaction policy", () => {
+      expect(LANGUAGE_REQUIREMENT_PROMPT).toContain("ORGANIC CHEMISTRY & CHEMICAL REACTION POLICY");
+      expect(LANGUAGE_REQUIREMENT_PROMPT).toContain("```reaction");
+      expect(LANGUAGE_REQUIREMENT_PROMPT).toContain("Reagents vs Reactants vs Catalysts");
+
+      const prompt = buildLessonGenerationUserPrompt({
+        documentTitle: "شیمی آلی: سنتز استرها",
+        sessionBlueprint: JSON.stringify({ index: 0, title: "سنتز فیشر", coreConcepts: [] }),
+        chunkContext: "[Chunk 1]: استریفیکاسیون فیشر",
+        chunkIdList: ["chunk-1"],
+      });
+      expect(prompt).toContain("12.2. ORGANIC CHEMISTRY & CHEMICAL REACTION POLICY");
+      expect(prompt).toContain("```reaction");
+
+      const batchPrompt = buildLessonBatchGenerationUserPrompt({
+        documentTitle: "شیمی آلی: سنتز استرها",
+        sessions: [
+          {
+            sessionIndex: 0,
+            sessionTitle: "جلسه ۱: استریفیکاسیون",
+            sessionBlueprint: "blueprint-1",
+            chunkContext: "chunk-context-1",
+            chunkIdList: ["chunk-1"],
+          },
+        ],
+      });
+      expect(batchPrompt).toContain("12.2. ORGANIC CHEMISTRY & CHEMICAL REACTION POLICY");
+      expect(batchPrompt).toContain("```reaction");
+
+      const tmpl = getLessonGenerationTemplate();
+      expect(tmpl).toContain("12.2. ORGANIC CHEMISTRY & CHEMICAL REACTION POLICY");
+      expect(tmpl).toContain("```reaction");
     });
   });
 
@@ -240,6 +274,61 @@ describe("Medicinal Chemistry Generation & Chemical Structure Suite", () => {
       const nonChemicalMarkdown = "# فیزیولوژی کلیه\n\nنفرون‌ها واحدهای عملکردی کلیه هستند.";
       const extracted = extractChemicalStructuresFromMarkdown(nonChemicalMarkdown);
       expect(extracted).toHaveLength(0);
+    });
+  });
+
+  describe("4. Generation Representation Contract Verification", () => {
+    it("ensures prompt registry contract explicitly defines representation criteria for structure, reaction, and mechanism", () => {
+      // Structure Representation Contract
+      expect(LANGUAGE_REQUIREMENT_PROMPT).toContain("Level 1 (Structure Required");
+      expect(LANGUAGE_REQUIREMENT_PROMPT).toContain("scaffolds");
+      expect(LANGUAGE_REQUIREMENT_PROMPT).toContain("stereocenters");
+      expect(LANGUAGE_REQUIREMENT_PROMPT).toContain("SAR comparisons");
+      expect(LANGUAGE_REQUIREMENT_PROMPT).toContain("bioisosteric replacements");
+      expect(LANGUAGE_REQUIREMENT_PROMPT).toContain("prodrug activation pairs");
+
+      // Reaction Representation Contract
+      expect(LANGUAGE_REQUIREMENT_PROMPT).toContain("Level 2 (Reaction Required");
+      expect(LANGUAGE_REQUIREMENT_PROMPT).toContain("Chemical transformations");
+      expect(LANGUAGE_REQUIREMENT_PROMPT).toContain("stoichiometry");
+      expect(LANGUAGE_REQUIREMENT_PROMPT).toContain("multi-step synthesis routes");
+      expect(LANGUAGE_REQUIREMENT_PROMPT).toContain("metabolic degradation pathways");
+
+      // Mechanism Representation Contract
+      expect(LANGUAGE_REQUIREMENT_PROMPT).toContain("Level 3 (Mechanism Required");
+      expect(LANGUAGE_REQUIREMENT_PROMPT).toContain("Electron movement");
+      expect(LANGUAGE_REQUIREMENT_PROMPT).toContain("nucleophilic attacks");
+      expect(LANGUAGE_REQUIREMENT_PROMPT).toContain("leaving group departure");
+      expect(LANGUAGE_REQUIREMENT_PROMPT).toContain("proton transfers");
+
+      // Stereochemical & Geometric Integrity Guard
+      expect(LANGUAGE_REQUIREMENT_PROMPT).toContain("2D SMILES must encode explicit E/Z or cis/trans geometry");
+      expect(LANGUAGE_REQUIREMENT_PROMPT).toContain("Never claim an empirical 3D anti-coplanar Newman projection conformation solely from a flat 2D SMILES");
+    });
+
+    it("ensures required chemical data schema is strictly specified for each representation type", () => {
+      // Structure schema: name, smiles, formula, weight, class, sar
+      expect(LANGUAGE_REQUIREMENT_PROMPT).toContain("name:");
+      expect(LANGUAGE_REQUIREMENT_PROMPT).toContain("smiles:");
+      expect(LANGUAGE_REQUIREMENT_PROMPT).toContain("formula:");
+      expect(LANGUAGE_REQUIREMENT_PROMPT).toContain("weight:");
+      expect(LANGUAGE_REQUIREMENT_PROMPT).toContain("class:");
+      expect(LANGUAGE_REQUIREMENT_PROMPT).toContain("sar:");
+
+      // Reaction schema: title, type, reactants, reagents, conditions, products
+      expect(LANGUAGE_REQUIREMENT_PROMPT).toContain("title:");
+      expect(LANGUAGE_REQUIREMENT_PROMPT).toContain("type:");
+      expect(LANGUAGE_REQUIREMENT_PROMPT).toContain("reactants:");
+      expect(LANGUAGE_REQUIREMENT_PROMPT).toContain("reagents:");
+      expect(LANGUAGE_REQUIREMENT_PROMPT).toContain("conditions:");
+      expect(LANGUAGE_REQUIREMENT_PROMPT).toContain("products:");
+
+      // Mechanism schema: mechanism, reactionCenter, arrows, from, to
+      expect(LANGUAGE_REQUIREMENT_PROMPT).toContain("mechanism:");
+      expect(LANGUAGE_REQUIREMENT_PROMPT).toContain("reactionCenter:");
+      expect(LANGUAGE_REQUIREMENT_PROMPT).toContain("arrows:");
+      expect(LANGUAGE_REQUIREMENT_PROMPT).toContain("from:");
+      expect(LANGUAGE_REQUIREMENT_PROMPT).toContain("to:");
     });
   });
 });

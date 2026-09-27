@@ -9,12 +9,11 @@
 
 import type React from "react";
 import { motion, type Variants } from "framer-motion";
-import { Sparkles, BookOpen, FileText, Bot, RotateCcw, Award } from "lucide-react";
+import { Sparkles, BookOpen, FileText, Bot, RotateCcw, Award, Brain } from "lucide-react";
 import { Badge } from "@avana/ui";
 
 interface FeatureCard {
-  icon: string;
-  iconFill: boolean;
+  icon: React.ComponentType<{ className?: string }>;
   title: string;
   description: string;
   metaphor: string;
@@ -27,8 +26,7 @@ interface FeatureCard {
 
 const features: FeatureCard[] = [
   {
-    icon: "auto_stories",
-    iconFill: true,
+    icon: BookOpen,
     title: "مطالعه عمیق",
     description:
       "دسترسی به منابع ساختاریافته، خلاصه‌های کاربردی و محیطی بدون حواس‌پرتی برای تمرکز حداکثری.",
@@ -40,8 +38,7 @@ const features: FeatureCard[] = [
     hoverGlow: "rgba(0, 128, 128, 0.12)",
   },
   {
-    icon: "picture_as_pdf",
-    iconFill: true,
+    icon: FileText,
     title: "پردازش هوشمند PDF",
     description:
       "بارگذاری فایل‌ها و جزوات درسی PDF و تبدیل هوشمند آن‌ها به فصل‌ها، خلاصه‌ها و کدهای یادگیری.",
@@ -53,8 +50,7 @@ const features: FeatureCard[] = [
     hoverGlow: "rgba(0, 128, 128, 0.12)",
   },
   {
-    icon: "smart_toy",
-    iconFill: true,
+    icon: Bot,
     title: "دستیار هوشمند آوانا",
     description:
       "دستیار مبتنی بر هوش مصنوعی برای پاسخگویی به سوالات درسی، رفع اشکال و تحلیل عمیق مفابیم پزشکی.",
@@ -66,8 +62,7 @@ const features: FeatureCard[] = [
     hoverGlow: "rgba(0, 128, 128, 0.12)",
   },
   {
-    icon: "psychology",
-    iconFill: true,
+    icon: Brain,
     title: "مرور هوشمند",
     description:
       "سیستم فلش‌کارت مبتنی بر تکرار با فاصله‌گذاری فضایی (Spaced Repetition) برای انتقال به حافظه بلندمدت.",
@@ -79,8 +74,7 @@ const features: FeatureCard[] = [
     hoverGlow: "rgba(0, 128, 128, 0.12)",
   },
   {
-    icon: "quiz",
-    iconFill: true,
+    icon: Award,
     title: "سنجش دقیق",
     description:
       "آزمون‌های دوره‌ای و شبیه‌سازی شرایط واقعی برای ارزیابی میزان تسلط بر مباحث مختلف.",
@@ -180,16 +174,7 @@ export function FeatureCards() {
                   color: feature.accentColor,
                 }}
               >
-                <span
-                  className="material-symbols-outlined text-2xl"
-                  style={{
-                    fontVariationSettings: feature.iconFill
-                      ? "'FILL' 1"
-                      : "'FILL' 0",
-                  }}
-                >
-                  {feature.icon}
-                </span>
+                <feature.icon className="w-6 h-6" />
               </div>
 
               {/* Title */}

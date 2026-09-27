@@ -243,12 +243,13 @@ export class PreviewResolver {
   }
 
   /**
-   * Resolves the single preview quiz for a course.
-   * Returns undefined if no active published quizzes exist.
+   * Resolves the single preview quiz for a course or specific module.
+   * Returns undefined if no active published quizzes exist for the target scope.
    */
   async resolvePreviewQuiz(
     courseId: string,
     organizationId?: string,
+    moduleId?: string,
   ): Promise<QuizRecord | undefined> {
     if (!this.deps.quizStore) return undefined;
 
@@ -273,8 +274,8 @@ export class PreviewResolver {
 
     if (activePublished.length === 0) return undefined;
 
-    // Check course product metadata override: previewQuizId
-    if (this.deps.commerceStore) {
+    // Check course product metadata override: previewQuizId (only when not scoped to a module)
+    if (!moduleId && this.deps.commerceStore) {
       const courseProduct = await this.deps.commerceStore.findActiveProductByTarget(
         "course",
         courseId,
@@ -287,14 +288,51 @@ export class PreviewResolver {
       }
     }
 
-    // Sort: sort_order (if available) / title ASC, then id ASC
-    activePublished.sort((a, b) => {
-      const titleCompare = (a.title || "").localeCompare(b.title || "");
-      if (titleCompare !== 0) return titleCompare;
-      return a.id.localeCompare(b.id);
-    });
+    if (moduleId) {
+      let targetModule: ModuleRecord | undefined;
+      if (this.deps.moduleStore) {
+        targetModule = await this.deps.moduleStore.findById(moduleId as ModuleId);
+      }
 
-    return selectDeterministicItem(courseId, "quiz", activePublished);
+      const moduleQuizzes = activePublished.filter((q) => {
+        if (q.moduleId && q.moduleId === moduleId) return true;
+        if (targetModule?.documentId && q.documentId && q.documentId === targetModule.documentId) return true;
+        return false;
+      });
+
+      if (moduleQuizzes.length === 0) {
+        return undefined;
+      }
+
+      moduleQuizzes.sort((a, b) => {
+        const titleCompare = (a.title || "").localeCompare(b.title || "");
+        if (titleCompare !== 0) return titleCompare;
+        return a.id.localeCompare(b.id);
+      });
+
+      return selectDeterministicItem(moduleId, "quiz", moduleQuizzes);
+    }
+
+    // Course-level resolution:
+    // First, find the canonical preview lesson for the course
+    const previewLesson = await this.resolveCoursePreviewLesson(courseId);
+    if (previewLesson?.moduleId) {
+      const moduleQuiz = await this.resolvePreviewQuiz(courseId, organizationId, previewLesson.moduleId);
+      if (moduleQuiz) return moduleQuiz;
+    }
+
+    // Fallback for courses without module-specific quizzes: select from general unattached quizzes only
+    const unattachedQuizzes = activePublished.filter((q) => !q.moduleId && !q.documentId);
+    if (unattachedQuizzes.length > 0) {
+      unattachedQuizzes.sort((a, b) => {
+        const titleCompare = (a.title || "").localeCompare(b.title || "");
+        if (titleCompare !== 0) return titleCompare;
+        return a.id.localeCompare(b.id);
+      });
+      return selectDeterministicItem(courseId, "quiz", unattachedQuizzes);
+    }
+
+    return undefined;
   }
 
   /**
@@ -535,32 +573,6 @@ export class PreviewResolver {
 
     if (!effectiveCourseId) return false;
 
-    // Check if the quiz is a valid published quiz for this course
-    if (this.deps.quizStore) {
-      let quiz: QuizRecord | undefined;
-      if (typeof (this.deps.quizStore as any).findById === "function") {
-        quiz = await (this.deps.quizStore as any).findById(quizId);
-      }
-      if (
-        !quiz &&
-        typeof (this.deps.quizStore as any).findByIdForOrganization === "function" &&
-        effectiveOrgId
-      ) {
-        quiz = await (this.deps.quizStore as any).findByIdForOrganization(
-          quizId as QuizId,
-          effectiveOrgId as OrganizationId,
-          this.deps.systemOrganizationId,
-        );
-      }
-      if (!quiz && (this.deps.quizStore as any).quizzes instanceof Map) {
-        quiz = (this.deps.quizStore as any).quizzes.get(quizId);
-      }
-
-      if (quiz && quiz.courseId === effectiveCourseId && quiz.status === "published" && quiz.deletedAt === null) {
-        return true;
-      }
-    }
-
     const preview = await this.resolvePreviewQuiz(effectiveCourseId, effectiveOrgId);
     return preview !== undefined && preview.id === quizId;
   }
@@ -724,6 +736,7 @@ export class PreviewResolver {
       const previewQuiz = await this.resolvePreviewQuiz(
         params.courseId,
         params.organizationId,
+        params.moduleId,
       );
       if (previewQuiz) {
         quizId = previewQuiz.id;

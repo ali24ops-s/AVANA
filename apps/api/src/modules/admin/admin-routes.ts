@@ -19,8 +19,18 @@ import {
   buildAdminContentPackPreview,
   type Role,
   type UserId,
+  type OrganizationId,
   type CourseId,
   type LessonId,
+  asCourseDraftSessionId,
+  asCourseDraftChangeId,
+  type DraftEntityType,
+  type DraftAction,
+  type DraftChangePayload,
+  type DraftSessionSource,
+  buildActor,
+  defaultPolicy,
+  type ResourceContext,
 } from "@avana/domain";
 import type { DocumentProcessingService } from "../documents/document-processing-service.js";
 import type { DocumentService } from "../documents/document-service.js";
@@ -41,6 +51,7 @@ import type { ContentImportService } from "./content-import-service.js";
 import type { ExportScope } from "./content-export-import-types.js";
 import type { OrganizationStore } from "../organizations/organization-store.js";
 import type { CourseStore, CoursePublicationStore } from "../courses/course-store.js";
+import type { CourseDraftService } from "../courses/course-draft-service.js";
 import type {
   ModuleStore,
   SubCourseGroupStore,
@@ -71,14 +82,22 @@ import {
   type SpecialExamScope,
 } from "@avana/domain";
 
+import { writeErrorEnvelope } from "../../http/errorEnvelope.js";
+import { ContentRepairService } from "./content-repair-service.js";
+import { ContentRepairAuditService } from "./content-repair-audit-service.js";
+
 export interface AdminRouteOptions extends AuthMiddlewareDeps {
   adminStore: AdminStore;
+  contentRepairService?: ContentRepairService;
+  contentRepairAuditService?: ContentRepairAuditService;
   deviceService?: DeviceService;
   documentProcessingService?: DocumentProcessingService;
   documentService?: DocumentService;
   generationQueue?: GenerationQueue;
   generationJobStore?: GenerationJobStore;
+  generatedContentStore?: import("../generation/generation-store.js").GeneratedContentStore;
   officialContentService?: OfficialContentService;
+  courseDraftService?: CourseDraftService;
   contentPackStore?: ContentPackStore;
   coursePublicationStore?: CoursePublicationStore;
   commerceStore?: CommerceStore;
@@ -92,6 +111,7 @@ export interface AdminRouteOptions extends AuthMiddlewareDeps {
   courseStore?: CourseStore;
   moduleStore?: ModuleStore;
   subCourseGroupStore?: SubCourseGroupStore;
+  lessonStore?: import("../learning/learning-store.js").LessonStore;
   contentReportStore?: ContentReportStore;
   notificationService?: NotificationService;
   walletService?: WalletService;
@@ -104,8 +124,27 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
   opts,
 ) => {
   const { sessionService, userStore, adminStore, walletService, commerceStore, notificationService, promotionService, referralService, studyService } = opts;
+  if (commerceStore && typeof (adminStore as any).setCommerceStore === "function") {
+    (adminStore as any).setCommerceStore(commerceStore);
+  }
   const adminService = new AdminService(adminStore, walletService, commerceStore, notificationService, promotionService, referralService, studyService);
   const { requireAuth, requireRole } = makeAuthMiddleware({ sessionService, userStore });
+
+  const contentRepairService =
+    opts.contentRepairService ??
+    new ContentRepairService({
+      adminStore: opts.adminStore,
+      lessonStore: opts.lessonStore ?? (opts.adminStore as any)?.learningStores?.lessonStore,
+      generatedContentStore: opts.generatedContentStore ?? (opts.adminStore as any)?.generationStores?.generatedContentStore,
+      auditService: opts.auditService,
+    });
+
+  const contentRepairAuditService =
+    opts.contentRepairAuditService ??
+    new ContentRepairAuditService({
+      adminStore: opts.adminStore,
+      lessonStore: opts.lessonStore ?? (opts.adminStore as any)?.learningStores?.lessonStore,
+    });
 
   const contentReportStore: ContentReportStore =
     opts.contentReportStore ??
@@ -118,9 +157,6 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
   app.addHook("preHandler", async (request, reply) => {
     const rawPath = request.url.split("?")[0];
     const isWorkerAllowed =
-      rawPath.endsWith("/content/export") ||
-      rawPath.endsWith("/content/import/validate") ||
-      rawPath.endsWith("/content/import") ||
       rawPath.endsWith("/courses") ||
       rawPath.includes("/courses/") ||
       rawPath.includes("/content-studio/") ||
@@ -130,10 +166,11 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
       rawPath.includes("/generation/") ||
       rawPath.endsWith("/prompts") ||
       rawPath.includes("/content/") ||
-      rawPath.includes("/content-reports");
+      rawPath.includes("/content-reports") ||
+      rawPath.includes("/content-repair");
 
     if (isWorkerAllowed) {
-      const user = (request as any).user;
+      const user = (request as unknown as { user?: { userId: string; email: string; role: string; globalRole?: string | null } }).user;
       if (
         user &&
         (user.globalRole === Roles.platform_admin ||
@@ -673,6 +710,128 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
   });
 
   // ---------------------------------------------------------------------------
+  // Deterministic Content Repair Endpoints
+  // ---------------------------------------------------------------------------
+
+  app.post("/content-repair/preview", async (request, reply) => {
+    try {
+      const user = (request as any).user;
+      const body = (request.body || {}) as {
+        content?: string;
+        lessonId?: string;
+        generatedContentId?: string;
+        organizationId?: string;
+        appliedRuleIds?: any[];
+        appliedBlockIndices?: number[];
+      };
+      const result = await contentRepairService.preview({
+        ...body,
+        organizationId: (body.organizationId || user?.organizationId) as OrganizationId,
+      });
+      return reply.send(result);
+    } catch (error: any) {
+      if (error instanceof DomainError || error?.name === "DomainError") {
+        const statusMap: Record<string, number> = {
+          bad_request: 400,
+          unauthorized: 401,
+          forbidden: 403,
+          not_found: 404,
+          conflict: 409,
+          unprocessable: 422,
+        };
+        const status = statusMap[error.code] || 500;
+        return writeErrorEnvelope(reply, request, error.code, error.message, status, error.details);
+      }
+      request.log.error({ err: error }, "Failed to preview content repair");
+      return writeErrorEnvelope(reply, request, "internal_error", "خطا در پیش‌نمایش اصلاح محتوا", 500);
+    }
+  });
+
+  app.post("/content-repair/apply", async (request, reply) => {
+    try {
+      const user = (request as any).user;
+      const body = (request.body || {}) as {
+        content?: string;
+        lessonId?: string;
+        generatedContentId?: string;
+        organizationId?: string;
+        originalHash: string;
+        appliedRuleIds?: any[];
+        appliedBlockIndices?: number[];
+      };
+
+      if (!body.originalHash) {
+        return writeErrorEnvelope(
+          reply,
+          request,
+          "bad_request",
+          "شناسه اعتبارسنجی (originalHash) برای بررسی همروندی الزامی است.",
+          400,
+        );
+      }
+
+      const result = await contentRepairService.apply({
+        ...body,
+        organizationId: (body.organizationId || user?.organizationId) as OrganizationId,
+        actor: {
+          userId: user?.userId || "00000000-0000-0000-0000-000000000001",
+          role: user?.role || user?.globalRole || "platform_admin",
+        },
+      });
+      return reply.send(result);
+    } catch (error: any) {
+      if (error instanceof DomainError || error?.name === "DomainError") {
+        const statusMap: Record<string, number> = {
+          bad_request: 400,
+          unauthorized: 401,
+          forbidden: 403,
+          not_found: 404,
+          conflict: 409,
+          unprocessable: 422,
+        };
+        const status = statusMap[error.code] || 500;
+        return writeErrorEnvelope(reply, request, error.code, error.message, status, error.details);
+      }
+      request.log.error({ err: error }, "Failed to apply content repair");
+      return writeErrorEnvelope(reply, request, "internal_error", "خطا در اعمال اصلاح محتوا", 500);
+    }
+  });
+
+  app.get("/content-repair/audit", async (request, reply) => {
+    try {
+      const query = (request.query || {}) as {
+        batchSize?: string;
+        maxLessons?: string;
+        search?: string;
+      };
+      const result = await contentRepairAuditService.runAudit({
+        batchSize: query.batchSize ? parseInt(query.batchSize, 10) : undefined,
+        maxLessons: query.maxLessons ? parseInt(query.maxLessons, 10) : undefined,
+        search: query.search,
+      });
+      return reply.send(result);
+    } catch (error: any) {
+      if (error instanceof DomainError || error?.name === "DomainError") {
+        const statusMap: Record<string, number> = {
+          bad_request: 400,
+          unauthorized: 401,
+          forbidden: 403,
+          not_found: 404,
+          conflict: 409,
+          unprocessable: 422,
+        };
+        const status = statusMap[error.code] || 500;
+        return reply.status(status).send({
+          code: error.code,
+          message: error.message,
+        });
+      }
+      request.log.error({ err: error }, "Failed to run content repair audit");
+      return reply.status(500).send({ code: "internal_error", message: "Failed to run content repair audit" });
+    }
+  });
+
+  // ---------------------------------------------------------------------------
   // Content Export & Import Endpoints
   // ---------------------------------------------------------------------------
 
@@ -697,7 +856,7 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
       const targetCourseId = body.courseId || query.courseId;
 
       if (!targetOrgId && targetCourseId && opts.courseStore) {
-        const foundCourse = await opts.courseStore.findById(targetCourseId as any);
+        const foundCourse = await opts.courseStore.findById(targetCourseId as CourseId);
         if (foundCourse?.organizationId) {
           targetOrgId = foundCourse.organizationId;
         }
@@ -708,21 +867,32 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
           opts.systemOrganizationId || "00000000-0000-0000-0000-000000000001";
       }
 
-      // Security check: non-platform_admin users (such as content_worker)
-      // cannot export courses outside of the organizations they belong to.
-      const user = (request as any).user;
-      const isPlatformAdmin =
-        user?.globalRole === Roles.platform_admin || user?.role === Roles.platform_admin;
+      // Phase 3: Context-Aware authorization using Actor, ResourceContext & Policy
+      const user = (request as unknown as { user?: { userId: string; email: string; role: string; globalRole?: string | null } }).user;
+      const memberships =
+        user?.userId && opts.organizationStore
+          ? await opts.organizationStore.listMembershipsByUserId(user.userId as UserId)
+          : [];
 
-      if (!isPlatformAdmin && user?.userId && opts.organizationStore) {
-        const memberships = await opts.organizationStore.listMembershipsByUserId(user.userId);
-        const hasAccess = memberships.some((m) => m.organizationId === targetOrgId);
-        if (!hasAccess) {
-          return reply.status(403).send({
-            code: "forbidden",
-            message: "دسترسی به محتوای این سازمان برای حساب کاربری شما مجاز نیست.",
-          });
-        }
+      const actor = buildActor({
+        userId: (user?.userId || "00000000-0000-0000-0000-000000000000") as UserId,
+        globalRole: (user?.globalRole as Role) ?? null,
+        role: user?.role as Role,
+        memberships,
+      });
+
+      const resourceContext: ResourceContext = {
+        organizationId: targetOrgId as OrganizationId,
+        resourceType: "content_export",
+        isSystemResource: targetOrgId === opts.systemOrganizationId,
+        courseId: targetCourseId as CourseId,
+      };
+
+      if (!defaultPolicy.can(actor, "content:export", resourceContext)) {
+        return reply.status(403).send({
+          code: "forbidden",
+          message: "دسترسی به محتوای این سازمان برای حساب کاربری شما مجاز نیست.",
+        });
       }
 
       const zipBuffer = await opts.contentExportService.exportContent(targetOrgId, {
@@ -738,6 +908,17 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
         .header("Content-Disposition", `attachment; filename="${filename}"`)
         .send(zipBuffer);
     } catch (err: unknown) {
+      if (err instanceof DomainError) {
+        const statusCode =
+          err.code === "forbidden"
+            ? 403
+            : err.code === "not_found"
+              ? 404
+              : err.code === "unauthorized"
+                ? 401
+                : 400;
+        return reply.status(statusCode).send({ code: err.code, message: err.message });
+      }
       request.log.error({ err }, "Content export failed");
       const message = err instanceof Error ? err.message : "Export failed";
       return reply.status(400).send({ code: "export_failed", message });
@@ -762,7 +943,7 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
       }
 
       const zipBuffer = await file.toBuffer();
-      const user = (request as unknown as { user?: { userId: string } }).user;
+      const user = (request as unknown as { user?: { userId: string; email: string; role: string; globalRole?: string | null } }).user;
       const actorId = user?.userId || "00000000-0000-0000-0000-000000000001";
 
       const query = (request.query || {}) as { organizationId?: string };
@@ -771,18 +952,30 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
         opts.systemOrganizationId ||
         "00000000-0000-0000-0000-000000000001";
 
-      const isPlatformAdmin =
-        (user as any)?.globalRole === Roles.platform_admin || (user as any)?.role === Roles.platform_admin;
+      // Phase 3: Context-Aware authorization using Actor, ResourceContext & Policy
+      const memberships =
+        user?.userId && opts.organizationStore
+          ? await opts.organizationStore.listMembershipsByUserId(user.userId as UserId)
+          : [];
 
-      if (!isPlatformAdmin && (user as any)?.userId && opts.organizationStore) {
-        const memberships = await opts.organizationStore.listMembershipsByUserId((user as any).userId);
-        const hasAccess = memberships.some((m) => m.organizationId === targetOrgId);
-        if (!hasAccess) {
-          return reply.status(403).send({
-            code: "forbidden",
-            message: "دسترسی به این سازمان برای حساب کاربری شما مجاز نیست.",
-          });
-        }
+      const actor = buildActor({
+        userId: (user?.userId || "00000000-0000-0000-0000-000000000000") as UserId,
+        globalRole: (user?.globalRole as Role) ?? null,
+        role: user?.role as Role,
+        memberships,
+      });
+
+      const resourceContext: ResourceContext = {
+        organizationId: targetOrgId as OrganizationId,
+        resourceType: "content_import",
+        isSystemResource: targetOrgId === opts.systemOrganizationId,
+      };
+
+      if (!defaultPolicy.can(actor, "content:write", resourceContext)) {
+        return reply.status(403).send({
+          code: "forbidden",
+          message: "دسترسی به محتوای این سازمان برای حساب کاربری شما مجاز نیست.",
+        });
       }
 
       const plan = await opts.contentImportService.validatePackage(
@@ -793,6 +986,17 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
 
       return reply.send({ success: true, plan });
     } catch (err: unknown) {
+      if (err instanceof DomainError) {
+        const statusCode =
+          err.code === "forbidden"
+            ? 403
+            : err.code === "not_found"
+              ? 404
+              : err.code === "unauthorized"
+                ? 401
+                : 400;
+        return reply.status(statusCode).send({ code: err.code, message: err.message });
+      }
       request.log.error({ err }, "Content import validation failed");
       const message = err instanceof Error ? err.message : "Validation failed";
       return reply.status(400).send({ code: "validation_failed", message });
@@ -808,7 +1012,7 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
         });
       }
 
-      const user = (request as unknown as { user?: { userId: string } }).user;
+      const user = (request as unknown as { user?: { userId: string; email: string; role: string; globalRole?: string | null } }).user;
       const actorId = user?.userId || "00000000-0000-0000-0000-000000000001";
 
       const query = (request.query || {}) as { organizationId?: string };
@@ -825,18 +1029,30 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
         opts.systemOrganizationId ||
         "00000000-0000-0000-0000-000000000001";
 
-      const isPlatformAdmin =
-        (user as any)?.globalRole === Roles.platform_admin || (user as any)?.role === Roles.platform_admin;
+      // Phase 3: Context-Aware authorization using Actor, ResourceContext & Policy
+      const memberships =
+        user?.userId && opts.organizationStore
+          ? await opts.organizationStore.listMembershipsByUserId(user.userId as UserId)
+          : [];
 
-      if (!isPlatformAdmin && (user as any)?.userId && opts.organizationStore) {
-        const memberships = await opts.organizationStore.listMembershipsByUserId((user as any).userId);
-        const hasAccess = memberships.some((m) => m.organizationId === targetOrgId);
-        if (!hasAccess) {
-          return reply.status(403).send({
-            code: "forbidden",
-            message: "دسترسی به این سازمان برای حساب کاربری شما مجاز نیست.",
-          });
-        }
+      const actor = buildActor({
+        userId: (user?.userId || "00000000-0000-0000-0000-000000000000") as UserId,
+        globalRole: (user?.globalRole as Role) ?? null,
+        role: user?.role as Role,
+        memberships,
+      });
+
+      const resourceContext: ResourceContext = {
+        organizationId: targetOrgId as OrganizationId,
+        resourceType: "content_import",
+        isSystemResource: targetOrgId === opts.systemOrganizationId,
+      };
+
+      if (!defaultPolicy.can(actor, "content:write", resourceContext)) {
+        return reply.status(403).send({
+          code: "forbidden",
+          message: "دسترسی به محتوای این سازمان برای حساب کاربری شما مجاز نیست.",
+        });
       }
 
       if (!body.planId) {
@@ -858,6 +1074,17 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
 
       return reply.send(result);
     } catch (err: unknown) {
+      if (err instanceof DomainError) {
+        const statusCode =
+          err.code === "forbidden"
+            ? 403
+            : err.code === "not_found"
+              ? 404
+              : err.code === "unauthorized"
+                ? 401
+                : 400;
+        return reply.status(statusCode).send({ code: err.code, message: err.message });
+      }
       request.log.error({ err }, "Content import execution failed");
       const message = err instanceof Error ? err.message : "Import execution failed";
       return reply.status(400).send({ code: "import_failed", message });
@@ -1019,7 +1246,7 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
       const { id } = request.params;
       const { role } = request.body || {};
       
-      const validRoles = ["student", "teacher", "course_editor", "organization_admin", "support_agent", "platform_admin"];
+      const validRoles = ["student", "teacher", "course_editor", "content_worker", "organization_admin", "support_agent", "platform_admin"];
       if (!role || !validRoles.includes(role)) {
         return reply.status(400).send({ code: "invalid_input", message: "Invalid role" });
       }
@@ -1711,6 +1938,32 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
   });
 
   app.post<{
+    Params: { entitlementId: string };
+    Body: { reason?: string };
+  }>("/commerce/entitlements/:entitlementId/revoke", async (request, reply) => {
+    const user = (request as unknown as { user: { userId: string; email: string; role: string } }).user;
+    const { entitlementId } = request.params;
+    const body = request.body || {};
+
+    try {
+      const result = await adminService.revokeCommerceEntitlement(
+        user.userId,
+        entitlementId,
+        body.reason,
+      );
+      return reply.status(200).send(result);
+    } catch (error: unknown) {
+      const err = error as { message?: string };
+      request.log.error({ err: error }, "Failed to revoke commerce entitlement");
+
+      if (err.message === "not_found") {
+        return reply.status(404).send({ code: "not_found", message: "حق دسترسی یافت نشد." });
+      }
+      return reply.status(500).send({ code: "internal_error", message: err.message || "خطای سرور" });
+    }
+  });
+
+  app.post<{
     Params: { paymentId: string };
   }>("/commerce/payments/:paymentId/approve", async (request, reply) => {
     const user = (request as unknown as { user: { userId: string; email: string; role: string } }).user;
@@ -2063,6 +2316,162 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
         userId: asUserId(user.userId as unknown as import("@avana/domain").UUID),
         role: user.role,
       });
+      return reply.send(result);
+    });
+  }
+
+  const courseDraftService =
+    opts.courseDraftService ?? opts.officialContentService?.courseDraftService;
+
+  if (courseDraftService) {
+    // =========================================================================
+    // Official Courses Draft, Preview, Validate, Publish & Release History
+    // =========================================================================
+
+    // 1. Get Active Draft Session and Changes
+    app.get<{ Params: { id: string } }>("/content-studio/courses/:id/drafts", async (request, reply) => {
+      const user = (request as unknown as { user: { userId: string; role: Role } }).user;
+      const actor = { userId: asUserId(user.userId as unknown as import("@avana/domain").UUID), role: user.role };
+      const courseId = parseCourseId(request.params.id);
+      const session = await courseDraftService.getOrCreateActiveSession(actor, courseId);
+      const changes = await courseDraftService.listChanges(actor, session.id);
+      return reply.send({ session, changes });
+    });
+
+    // 2. Create or Get Active Draft Session
+    app.post<{
+      Params: { id: string };
+      Body?: { source?: DraftSessionSource; title?: string };
+    }>("/content-studio/courses/:id/drafts", async (request, reply) => {
+      const user = (request as unknown as { user: { userId: string; role: Role } }).user;
+      const actor = { userId: asUserId(user.userId as unknown as import("@avana/domain").UUID), role: user.role };
+      const courseId = parseCourseId(request.params.id);
+      const session = await courseDraftService.getOrCreateActiveSession(actor, courseId, request.body);
+      return reply.status(201).send(session);
+    });
+
+    // 3. Record or Update Intended Change in Draft Session
+    app.post<{
+      Params: { id: string };
+      Body: {
+        entityType: DraftEntityType;
+        entityId: string;
+        parentEntityId?: string | null;
+        action: DraftAction;
+        sortOrder?: number | null;
+        payload: DraftChangePayload;
+      };
+    }>("/content-studio/courses/:id/drafts/changes", async (request, reply) => {
+      const user = (request as unknown as { user: { userId: string; role: Role } }).user;
+      const actor = { userId: asUserId(user.userId as unknown as import("@avana/domain").UUID), role: user.role };
+      const courseId = parseCourseId(request.params.id);
+      const session = await courseDraftService.getOrCreateActiveSession(actor, courseId);
+      const change = await courseDraftService.recordChange(actor, session.id, {
+        entityType: request.body.entityType,
+        entityId: request.body.entityId,
+        parentId: request.body.parentEntityId ?? null,
+        action: request.body.action,
+        sortOrder: request.body.sortOrder ?? null,
+        payload: request.body.payload,
+      });
+      return reply.send({ success: true, change });
+    });
+
+    // 4. Remove a Change from Draft Session
+    app.delete<{
+      Params: { id: string; changeId: string };
+    }>("/content-studio/courses/:id/drafts/changes/:changeId", async (request, reply) => {
+      const user = (request as unknown as { user: { userId: string; role: Role } }).user;
+      const actor = { userId: asUserId(user.userId as unknown as import("@avana/domain").UUID), role: user.role };
+      await courseDraftService.removeChange(actor, asCourseDraftChangeId(request.params.changeId as any));
+      return reply.send({ success: true });
+    });
+
+    // 5. Discard Entire Draft Session
+    app.post<{
+      Params: { id: string };
+      Body?: { sessionId?: string };
+    }>("/content-studio/courses/:id/drafts/discard", async (request, reply) => {
+      const user = (request as unknown as { user: { userId: string; role: Role } }).user;
+      const actor = { userId: asUserId(user.userId as unknown as import("@avana/domain").UUID), role: user.role };
+      const courseId = parseCourseId(request.params.id);
+      const session = request.body?.sessionId
+        ? await courseDraftService.getSession(actor, asCourseDraftSessionId(request.body.sessionId as any))
+        : await courseDraftService.getOrCreateActiveSession(actor, courseId);
+      await courseDraftService.discardSession(actor, session.id);
+      return reply.send({ success: true, sessionId: session.id });
+    });
+
+    // 6. Validate Draft Session Readiness
+    app.get<{
+      Params: { id: string };
+      Querystring?: { sessionId?: string };
+    }>("/content-studio/courses/:id/drafts/validate", async (request, reply) => {
+      const user = (request as unknown as { user: { userId: string; role: Role } }).user;
+      const actor = { userId: asUserId(user.userId as unknown as import("@avana/domain").UUID), role: user.role };
+      const courseId = parseCourseId(request.params.id);
+      const session = request.query?.sessionId
+        ? await courseDraftService.getSession(actor, asCourseDraftSessionId(request.query.sessionId as any))
+        : await courseDraftService.getOrCreateActiveSession(actor, courseId);
+      const report = await courseDraftService.validateSession(actor, session.id);
+      return reply.send(report);
+    });
+
+    // 7. Get Preview Hierarchy with Draft Overlay
+    app.get<{
+      Params: { id: string };
+      Querystring?: { sessionId?: string };
+    }>("/content-studio/courses/:id/preview", async (request, reply) => {
+      const user = (request as unknown as { user: { userId: string; role: Role } }).user;
+      const actor = { userId: asUserId(user.userId as unknown as import("@avana/domain").UUID), role: user.role };
+      const courseId = parseCourseId(request.params.id);
+      const sessionId = request.query?.sessionId
+        ? asCourseDraftSessionId(request.query.sessionId as any)
+        : undefined;
+      const preview = await courseDraftService.getPreviewHierarchy(actor, courseId, sessionId);
+      return reply.send(preview);
+    });
+
+    // 8. Atomically Publish Draft Session
+    app.post<{
+      Params: { id: string };
+      Body?: { sessionId?: string };
+    }>("/content-studio/courses/:id/publish-draft", async (request, reply) => {
+      const user = (request as unknown as { user: { userId: string; role: Role } }).user;
+      const actor = { userId: asUserId(user.userId as unknown as import("@avana/domain").UUID), role: user.role };
+      const courseId = parseCourseId(request.params.id);
+      const session = request.body?.sessionId
+        ? await courseDraftService.getSession(actor, asCourseDraftSessionId(request.body.sessionId as any))
+        : await courseDraftService.getOrCreateActiveSession(actor, courseId);
+      const result = await courseDraftService.publishDraftSession(actor, session.id);
+      return reply.send(result);
+    });
+
+    // 9. List Release History
+    app.get<{
+      Params: { id: string };
+    }>("/content-studio/courses/:id/releases", async (request, reply) => {
+      const user = (request as unknown as { user: { userId: string; role: Role } }).user;
+      const actor = { userId: asUserId(user.userId as unknown as import("@avana/domain").UUID), role: user.role };
+      const courseId = parseCourseId(request.params.id);
+      const releases = await courseDraftService.listReleases(actor, courseId);
+      return reply.send({ releases });
+    });
+
+    // 10. Rollback to Prior Release Snapshot
+    app.post<{
+      Params: { id: string };
+      Body: { targetVersion: number; reason?: string };
+    }>("/content-studio/courses/:id/rollback", async (request, reply) => {
+      const user = (request as unknown as { user: { userId: string; role: Role } }).user;
+      const actor = { userId: asUserId(user.userId as unknown as import("@avana/domain").UUID), role: user.role };
+      const courseId = parseCourseId(request.params.id);
+      const result = await courseDraftService.rollbackRelease(
+        actor,
+        courseId,
+        request.body.targetVersion,
+        request.body.reason,
+      );
       return reply.send(result);
     });
   }

@@ -231,7 +231,7 @@ export function SignInPage() {
           transition={{ duration: 0.3 }}
           className="w-full max-w-md"
         >
-          <div className="bg-[var(--color-surface)] rounded-card border border-[var(--color-border)] p-6 sm:p-8 shadow-card">
+          <div className="bg-[var(--color-surface)] rounded-card border border-[var(--color-border)] p-4 sm:p-8 shadow-card">
             <div className="text-center mb-6">
               <div className="mx-auto mb-4 flex justify-center">
                 <BrandLogo variant="logo-only" size="lg" />
@@ -252,13 +252,13 @@ export function SignInPage() {
                   setMethod("email");
                   setError(null);
                 }}
-                className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-button text-xs font-bold transition-all cursor-pointer ${
+                className={`flex-1 flex items-center justify-center gap-1.5 sm:gap-2 px-2 py-2 min-h-[42px] rounded-button text-xs font-bold transition-all cursor-pointer ${
                   method === "email"
                     ? "bg-[var(--color-surface)] text-primary shadow-xs border border-[var(--color-border)]"
                     : "text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
                 }`}
               >
-                <Mail className="w-4 h-4" />
+                <Mail className="w-4 h-4 shrink-0" />
                 <span>ورود با ایمیل</span>
               </button>
               <button
@@ -267,14 +267,14 @@ export function SignInPage() {
                   setMethod("phone");
                   setError(null);
                 }}
-                className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-button text-xs font-bold transition-all cursor-pointer ${
+                className={`flex-1 flex items-center justify-center gap-1.5 sm:gap-2 px-2 py-2 min-h-[42px] rounded-button text-xs font-bold transition-all cursor-pointer ${
                   method === "phone"
                     ? "bg-[var(--color-surface)] text-primary shadow-xs border border-[var(--color-border)]"
                     : "text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
                 }`}
               >
-                <Phone className="w-4 h-4" />
-                <span>ورود با شماره موبایل</span>
+                <Phone className="w-4 h-4 shrink-0" />
+                <span>ورود با موبایل</span>
               </button>
             </div>
 

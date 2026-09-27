@@ -125,6 +125,10 @@ async function main() {
     const { seedBlogData } = await import("./seed-blog.js");
     await seedBlogData(db);
 
+    // Seed Dedicated Chemistry Reactions Test Course
+    const { seedChemistryReactionsCourse } = await import("./seed-chemistry-reactions.js");
+    await seedChemistryReactionsCourse(db);
+
     console.log("Seed complete \u2014 synthetic data inserted.");
   } catch (error) {
     console.error("Seed failed:", error);

@@ -480,4 +480,58 @@ describe("PR-6 database schema", () => {
     expect(cols).toHaveProperty("createdAt");
     expect(cols).toHaveProperty("updatedAt");
   });
+
+  test("courses table has version column defaulting to 1", () => {
+    const cols = getTableColumns(schema.courses);
+    expect(cols).toHaveProperty("version");
+  });
+
+  test("quiz_questions table has deletedAt column", () => {
+    const cols = getTableColumns(schema.quizQuestions);
+    expect(cols).toHaveProperty("deletedAt");
+  });
+
+  test("course_draft_sessions table is defined and has required columns", () => {
+    expect(schema.courseDraftSessions).toBeDefined();
+    const cols = getTableColumns(schema.courseDraftSessions);
+    expect(cols).toHaveProperty("id");
+    expect(cols).toHaveProperty("courseId");
+    expect(cols).toHaveProperty("baseCourseVersion");
+    expect(cols).toHaveProperty("source");
+    expect(cols).toHaveProperty("status");
+    expect(cols).toHaveProperty("title");
+    expect(cols).toHaveProperty("createdBy");
+    expect(cols).toHaveProperty("createdAt");
+    expect(cols).toHaveProperty("updatedAt");
+  });
+
+  test("course_draft_changes table is defined and has required columns", () => {
+    expect(schema.courseDraftChanges).toBeDefined();
+    const cols = getTableColumns(schema.courseDraftChanges);
+    expect(cols).toHaveProperty("id");
+    expect(cols).toHaveProperty("draftSessionId");
+    expect(cols).toHaveProperty("courseId");
+    expect(cols).toHaveProperty("entityType");
+    expect(cols).toHaveProperty("entityId");
+    expect(cols).toHaveProperty("action");
+    expect(cols).toHaveProperty("parentId");
+    expect(cols).toHaveProperty("sortOrder");
+    expect(cols).toHaveProperty("payload");
+    expect(cols).toHaveProperty("createdAt");
+    expect(cols).toHaveProperty("updatedAt");
+  });
+
+  test("course_releases table is defined and has required columns", () => {
+    expect(schema.courseReleases).toBeDefined();
+    const cols = getTableColumns(schema.courseReleases);
+    expect(cols).toHaveProperty("id");
+    expect(cols).toHaveProperty("courseId");
+    expect(cols).toHaveProperty("versionNumber");
+    expect(cols).toHaveProperty("baseVersion");
+    expect(cols).toHaveProperty("draftSessionId");
+    expect(cols).toHaveProperty("changesSummary");
+    expect(cols).toHaveProperty("manifest");
+    expect(cols).toHaveProperty("publishedBy");
+    expect(cols).toHaveProperty("publishedAt");
+  });
 });

@@ -366,14 +366,32 @@ describe("Educational Content Normalization Suite (@avana/domain)", () => {
       const normalized = normalizeEducationalContent(textWithZwj);
       expect(normalized).toContain("\u200D");
     });
+  });
 
-    it("strips decorative emojis while preserving process arrows and medical symbols", () => {
-      const input = "🎉 تبریک 🚀 داروی Lisinopril ➔ اثر درمانی 💊 دارد! ⭐ 🐱";
+  describe("Content Normalization & Sanitization Enhancements", () => {
+    it("unwraps raw JSON payloads or string literals passed as educational content", () => {
+      const rawJson = JSON.stringify({
+        kind: "session",
+        title: "جلسه ۲: خواص فیزیکی و اهمیت تجاری آلکین‌ها",
+        contentMarkdown: "# جلسه ۲: خواص فیزیکی و اهمیت تجاری آلکین‌ها\n\nمتن درس...",
+      });
+      const normalized = normalizeEducationalContent(rawJson);
+      expect(normalized).toBe("# جلسه ۲: خواص فیزیکی و اهمیت تجاری آلکین‌ها\n\nمتن درس...");
+      expect(normalized).not.toContain('"kind": "session"');
+    });
+
+    it("strips trailing leaked citationChunkIds arrays and raw UUIDs", () => {
+      const input = `# جلسه آموزشی\n\nمتن درسنامه شیمی.\n\n"citationChunkIds": ["6945baa6-20b8-4ea3-89f8-8ba26f731440", "c36d07d9-d890-482d-869a-637996c561b3"]`;
       const normalized = normalizeEducationalContent(input);
-      expect(normalized).not.toContain("🎉");
-      expect(normalized).not.toContain("🚀");
-      expect(normalized).not.toContain("🐱");
-      expect(normalized).toContain("Lisinopril ➔ اثر درمانی");
+      expect(normalized).toBe("# جلسه آموزشی\n\nمتن درسنامه شیمی.");
+      expect(normalized).not.toContain("citationChunkIds");
+      expect(normalized).not.toContain("6945baa6-20b8-4ea3-89f8-8ba26f731440");
+    });
+
+    it("preserves LaTeX chemistry formulas and decimal numbers ($0.77 \\text{ g/cm}^3$)", () => {
+      const input = "چگالی آلکین‌ها بین 0.62 تا $0.77 \\text{ g/cm}^3$ است.";
+      const normalized = normalizeEducationalContent(input);
+      expect(normalized).toBe("چگالی آلکین‌ها بین 0.62 تا $0.77 \\text{ g/cm}^3$ است.");
     });
   });
 });

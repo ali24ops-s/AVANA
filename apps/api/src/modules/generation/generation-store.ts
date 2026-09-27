@@ -78,6 +78,13 @@ export type GeneratedContentCitationRecord = {
 
 export interface GeneratedContentStore {
   /**
+   * Find a generated content by ID across organizations (for admin/repair operations).
+   */
+  findById?(
+    id: GeneratedContentId,
+  ): Promise<GeneratedContentRecord | undefined>;
+
+  /**
    * Find a generated content by ID, scoped to an organization.
    * Returns undefined for missing/cross-org/soft-deleted rows (non-disclosing).
    */

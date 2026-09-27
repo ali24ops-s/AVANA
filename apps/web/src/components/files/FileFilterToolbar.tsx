@@ -1,4 +1,5 @@
-import { Search, X, Filter, ArrowUpDown, RefreshCw } from "lucide-react";
+import { useState } from "react";
+import { Search, X, Filter, ArrowUpDown, RefreshCw, ChevronDown, ChevronUp, SlidersHorizontal } from "lucide-react";
 import { Input } from "@avana/ui";
 import type { DocumentListFilters } from "../../lib/api/documents.js";
 import type { DocumentStatus } from "@avana/contracts";
@@ -53,12 +54,16 @@ export function FileFilterToolbar({
   onRefresh,
   isRefreshing,
 }: FileFilterToolbarProps) {
-  const hasActiveFilters =
-    Boolean(filters.search) ||
-    Boolean(filters.type) ||
-    Boolean(filters.status) ||
-    Boolean(filters.used) ||
-    (filters.sort && filters.sort !== "newest");
+  const [isMobileFiltersOpen, setIsMobileFiltersOpen] = useState(false);
+
+  const activeFilterCount = [
+    Boolean(filters.type),
+    Boolean(filters.status),
+    Boolean(filters.used),
+    Boolean(filters.sort && filters.sort !== "newest"),
+  ].filter(Boolean).length;
+
+  const hasActiveFilters = Boolean(filters.search) || activeFilterCount > 0;
 
   const handleClearFilters = () => {
     onChange({
@@ -73,9 +78,9 @@ export function FileFilterToolbar({
   };
 
   return (
-    <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl p-4 mb-6 space-y-4 shadow-xs">
+    <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl p-3.5 sm:p-4 mb-6 space-y-3 sm:space-y-4 shadow-xs">
       {/* Top row: Search input + Actions */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
         {/* Search Bar */}
         <Input
           containerClassName="flex-1"
@@ -105,8 +110,33 @@ export function FileFilterToolbar({
           }
         />
 
-        {/* Refresh & Reset Controls */}
-        <div className="flex items-center gap-2 shrink-0">
+        {/* Mobile Filter Toggle & Refresh Controls */}
+        <div className="flex items-center gap-2 justify-between sm:justify-start shrink-0">
+          {/* Mobile Filter Expand/Collapse Button (sm:hidden) */}
+          <button
+            type="button"
+            onClick={() => setIsMobileFiltersOpen((prev) => !prev)}
+            aria-label="فیلترهای پیشرفته"
+            className={`sm:hidden flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border transition-colors ${
+              activeFilterCount > 0 || isMobileFiltersOpen
+                ? "bg-teal-50 text-[#008080] border-teal-200"
+                : "bg-[var(--color-surface-warm)] text-[var(--color-text)] border-[var(--color-border)]"
+            }`}
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5" />
+            <span>فیلترها</span>
+            {activeFilterCount > 0 && (
+              <span className="w-4 h-4 rounded-full bg-[#008080] text-white text-[10px] flex items-center justify-center font-mono">
+                {activeFilterCount}
+              </span>
+            )}
+            {isMobileFiltersOpen ? (
+              <ChevronUp className="w-3.5 h-3.5 ms-auto" />
+            ) : (
+              <ChevronDown className="w-3.5 h-3.5 ms-auto" />
+            )}
+          </button>
+
           {hasActiveFilters && (
             <button
               type="button"
@@ -114,7 +144,8 @@ export function FileFilterToolbar({
               className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition-colors"
             >
               <X className="w-3.5 h-3.5" />
-              <span>پاک کردن فیلترها</span>
+              <span className="hidden sm:inline">پاک کردن فیلترها</span>
+              <span className="sm:hidden">پاکسازی</span>
             </button>
           )}
 
@@ -123,7 +154,7 @@ export function FileFilterToolbar({
               type="button"
               onClick={onRefresh}
               disabled={isRefreshing}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-[var(--color-text)] bg-white hover:bg-slate-50 border border-[var(--color-border)] transition-colors disabled:opacity-50"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-[var(--color-text)] bg-white dark:bg-zinc-800 hover:bg-slate-50 border border-[var(--color-border)] transition-colors disabled:opacity-50"
               aria-label="تازه‌سازی لیست"
             >
               <RefreshCw
@@ -135,8 +166,108 @@ export function FileFilterToolbar({
         </div>
       </div>
 
-      {/* Bottom row: Filter Dropdowns & Type Pills */}
-      <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-[var(--color-border)] text-xs">
+      {/* Mobile Filter Panel (<= 640px) */}
+      {isMobileFiltersOpen && (
+        <div className="sm:hidden pt-3 border-t border-[var(--color-border)] grid grid-cols-1 gap-2.5 text-xs animate-in fade-in slide-in-from-top-2 duration-150">
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-[11px] font-bold text-[var(--color-text-muted)] block mb-1">
+                نوع فایل
+              </label>
+              <select
+                value={filters.type ?? ""}
+                onChange={(e) =>
+                  onChange({
+                    ...filters,
+                    type: e.target.value || undefined,
+                    page: 1,
+                  })
+                }
+                className="w-full bg-white dark:bg-zinc-800 border border-[var(--color-border)] rounded-xl px-2.5 py-2 text-[var(--color-text)] text-xs focus:outline-none focus:ring-1 focus:ring-[#008080]"
+              >
+                {FILE_TYPE_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="text-[11px] font-bold text-[var(--color-text-muted)] block mb-1">
+                وضعیت
+              </label>
+              <select
+                value={filters.status ?? ""}
+                onChange={(e) =>
+                  onChange({
+                    ...filters,
+                    status: (e.target.value as DocumentStatus) || undefined,
+                    page: 1,
+                  })
+                }
+                className="w-full bg-white dark:bg-zinc-800 border border-[var(--color-border)] rounded-xl px-2.5 py-2 text-[var(--color-text)] text-xs focus:outline-none focus:ring-1 focus:ring-[#008080]"
+              >
+                {STATUS_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-[11px] font-bold text-[var(--color-text-muted)] block mb-1">
+                محل استفاده
+              </label>
+              <select
+                value={filters.used ?? ""}
+                onChange={(e) =>
+                  onChange({
+                    ...filters,
+                    used: (e.target.value as "used" | "unused") || undefined,
+                    page: 1,
+                  })
+                }
+                className="w-full bg-white dark:bg-zinc-800 border border-[var(--color-border)] rounded-xl px-2.5 py-2 text-[var(--color-text)] text-xs focus:outline-none focus:ring-1 focus:ring-[#008080]"
+              >
+                {USAGE_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="text-[11px] font-bold text-[var(--color-text-muted)] block mb-1">
+                مرتب‌سازی
+              </label>
+              <select
+                value={filters.sort ?? "newest"}
+                onChange={(e) =>
+                  onChange({
+                    ...filters,
+                    sort: e.target.value as DocumentListFilters["sort"],
+                  })
+                }
+                className="w-full bg-white dark:bg-zinc-800 border border-[var(--color-border)] rounded-xl px-2.5 py-2 text-[var(--color-text)] text-xs focus:outline-none focus:ring-1 focus:ring-[#008080]"
+              >
+                {SORT_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Desktop/Tablet Row: Filter Dropdowns & Type Pills (hidden on mobile, visible on sm:) */}
+      <div className="hidden sm:flex flex-wrap items-center gap-3 pt-2 border-t border-[var(--color-border)] text-xs">
         {/* File Type Filter */}
         <div className="flex items-center gap-1.5">
           <Filter className="w-3.5 h-3.5 text-[var(--color-text-muted)]" />
@@ -150,7 +281,7 @@ export function FileFilterToolbar({
                 page: 1,
               })
             }
-            className="bg-white border border-[var(--color-border)] rounded-xl ps-2.5 pe-7 py-1.5 text-[var(--color-text)] text-xs focus:outline-none focus:ring-1 focus:ring-[#008080] cursor-pointer"
+            className="bg-white dark:bg-zinc-800 border border-[var(--color-border)] rounded-xl ps-2.5 pe-7 py-1.5 text-[var(--color-text)] text-xs focus:outline-none focus:ring-1 focus:ring-[#008080] cursor-pointer"
           >
             {FILE_TYPE_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
@@ -172,7 +303,7 @@ export function FileFilterToolbar({
                 page: 1,
               })
             }
-            className="bg-white border border-[var(--color-border)] rounded-xl ps-2.5 pe-7 py-1.5 text-[var(--color-text)] text-xs focus:outline-none focus:ring-1 focus:ring-[#008080] cursor-pointer"
+            className="bg-white dark:bg-zinc-800 border border-[var(--color-border)] rounded-xl ps-2.5 pe-7 py-1.5 text-[var(--color-text)] text-xs focus:outline-none focus:ring-1 focus:ring-[#008080] cursor-pointer"
           >
             {STATUS_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
@@ -194,7 +325,7 @@ export function FileFilterToolbar({
                 page: 1,
               })
             }
-            className="bg-white border border-[var(--color-border)] rounded-xl ps-2.5 pe-7 py-1.5 text-[var(--color-text)] text-xs focus:outline-none focus:ring-1 focus:ring-[#008080] cursor-pointer"
+            className="bg-white dark:bg-zinc-800 border border-[var(--color-border)] rounded-xl ps-2.5 pe-7 py-1.5 text-[var(--color-text)] text-xs focus:outline-none focus:ring-1 focus:ring-[#008080] cursor-pointer"
           >
             {USAGE_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
@@ -216,7 +347,7 @@ export function FileFilterToolbar({
                 sort: e.target.value as DocumentListFilters["sort"],
               })
             }
-            className="bg-white border border-[var(--color-border)] rounded-xl ps-2.5 pe-7 py-1.5 text-[var(--color-text)] text-xs focus:outline-none focus:ring-1 focus:ring-[#008080] cursor-pointer"
+            className="bg-white dark:bg-zinc-800 border border-[var(--color-border)] rounded-xl ps-2.5 pe-7 py-1.5 text-[var(--color-text)] text-xs focus:outline-none focus:ring-1 focus:ring-[#008080] cursor-pointer"
           >
             {SORT_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>

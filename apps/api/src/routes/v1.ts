@@ -60,6 +60,12 @@ import {
 } from "../modules/generation/gateway/index.js";
 import type { OrganizationStore } from "../modules/organizations/organization-store.js";
 import type { CourseStore, CoursePublicationStore } from "../modules/courses/course-store.js";
+import { CourseDraftService } from "../modules/courses/course-draft-service.js";
+import {
+  DrizzleCourseDraftSessionStore,
+  DrizzleCourseDraftChangeStore,
+  DrizzleCourseReleaseStore,
+} from "../modules/courses/drizzle-draft-store.js";
 import type {
   ModuleStore,
   LessonStore,
@@ -178,6 +184,9 @@ export interface V1RouteOptions {
   paymentGateway?: PaymentGateway;
   entitlementService?: EntitlementService;
   officialContentService?: OfficialContentService;
+  courseDraftService?: CourseDraftService;
+  contentExportService?: ContentExportService;
+  contentImportService?: ContentImportService;
   blogStore?: BlogStore;
   annotationStore?: import("../modules/study/index.js").LessonAnnotationStore;
   reportStore?: import("../modules/study/index.js").ContentReportStore;
@@ -353,6 +362,7 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       lessonStore: opts.lessonStore,
       auditService: opts.auditService,
       entitlementService: opts.entitlementService ?? entitlementService,
+      systemOrganizationId: opts.config.systemOrganizationId as OrganizationId,
     });
   }
 
@@ -620,6 +630,25 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
 
     const officialGateway = opts.adminGateway ?? opts.gateway;
 
+    const courseDraftService =
+      opts.courseDraftService ??
+      ((opts.adminStore as any)?.db && opts.courseStore
+        ? new CourseDraftService({
+            db: (opts.adminStore as any).db,
+            draftSessionStore: new DrizzleCourseDraftSessionStore((opts.adminStore as any).db),
+            draftChangeStore: new DrizzleCourseDraftChangeStore((opts.adminStore as any).db),
+            releaseStore: new DrizzleCourseReleaseStore((opts.adminStore as any).db),
+            courseStore: opts.courseStore,
+            moduleStore: opts.moduleStore,
+            lessonStore: opts.lessonStore,
+            flashcardStore: opts.flashcardStore,
+            quizStore: opts.quizStore,
+            quizQuestionStore: opts.quizQuestionStore,
+            subCourseGroupStore: opts.subCourseGroupStore,
+            adminStore: opts.adminStore,
+          })
+        : undefined);
+
     const officialContentService =
       opts.officialContentService ??
       (opts.courseStore &&
@@ -686,6 +715,7 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
             opts.config.systemOrganizationId as OrganizationId,
             recoveryService,
             progressService,
+            courseDraftService,
           )
         : undefined);
 
@@ -694,14 +724,16 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       : undefined;
 
     const contentExportService =
-      (opts.adminStore as any)?.db && opts.storageProvider
+      opts.contentExportService ??
+      ((opts.adminStore as any)?.db && opts.storageProvider
         ? new ContentExportService((opts.adminStore as any).db, opts.storageProvider)
-        : undefined;
+        : undefined);
 
     const contentImportService =
-      (opts.adminStore as any)?.db && opts.storageProvider
+      opts.contentImportService ??
+      ((opts.adminStore as any)?.db && opts.storageProvider
         ? new ContentImportService((opts.adminStore as any).db, opts.storageProvider)
-        : undefined;
+        : undefined);
 
     const promotionService =
       opts.promotionService ??
@@ -725,6 +757,7 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       generationQueue: opts.queue,
       generationJobStore: opts.generationJobStore,
       officialContentService,
+      courseDraftService,
       contentPackStore: opts.contentPackStore,
       coursePublicationStore: opts.coursePublicationStore,
       commerceStore: opts.commerceStore,
@@ -737,6 +770,8 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       organizationStore: opts.organizationStore,
       courseStore: opts.courseStore,
       moduleStore: opts.moduleStore,
+      lessonStore: opts.lessonStore,
+      generatedContentStore: opts.generatedContentStore,
       subCourseGroupStore: opts.subCourseGroupStore,
       contentReportStore: opts.reportStore,
       notificationService,

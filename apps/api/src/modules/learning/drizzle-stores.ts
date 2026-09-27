@@ -656,6 +656,23 @@ export class DrizzleProgressStore implements ProgressStore {
 export class DrizzleDocumentStore implements DocumentStore {
   constructor(private readonly db: DbClient) {}
 
+  async findById(id: DocumentId): Promise<DocumentRecord | undefined> {
+    const row = await this.db
+      .select()
+      .from(documents)
+      .where(
+        and(
+          eq(documents.id, id),
+          isNull(documents.deletedAt),
+        ),
+      )
+      .limit(1)
+      .then((rows) => rows[0]);
+
+    if (!row) return undefined;
+    return toDocumentRecord(row);
+  }
+
   async findByIdForOrganization(
     id: DocumentId,
     organizationId: OrganizationId,

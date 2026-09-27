@@ -747,6 +747,43 @@ export class DrizzleAdminStore implements AdminStore {
     };
   }
 
+  async getLesson(id: string): Promise<(AdminLessonRecord & { contentMarkdown: string; moduleId?: string }) | null> {
+    const rows = await this.db
+      .select({
+        lesson: lessons,
+        moduleTitle: modules.title,
+        courseName: courses.name,
+      })
+      .from(lessons)
+      .leftJoin(modules, eq(lessons.moduleId, modules.id))
+      .leftJoin(courses, eq(modules.courseId, courses.id))
+      .where(and(eq(lessons.id, id), isNull(lessons.deletedAt)))
+      .limit(1);
+
+    if (rows.length === 0) return null;
+    const r = rows[0];
+    return {
+      id: r.lesson.id,
+      title: r.lesson.title,
+      courseName: r.courseName || undefined,
+      moduleTitle: r.moduleTitle || undefined,
+      moduleId: r.lesson.moduleId,
+      publicationStatus: r.lesson.publicationStatus,
+      contentMarkdown: r.lesson.contentMarkdown,
+      createdAt: r.lesson.createdAt.toISOString(),
+    };
+  }
+
+  async updateLessonContent(id: string, contentMarkdown: string): Promise<void> {
+    await this.db
+      .update(lessons)
+      .set({
+        contentMarkdown,
+        updatedAt: new Date(),
+      })
+      .where(eq(lessons.id, id));
+  }
+
   async listFlashcards(params: { page: number; pageSize: number; search?: string }): Promise<{ flashcards: AdminFlashcardRecord[]; totalCount: number }> {
     const { page, pageSize, search } = params;
     const offset = (page - 1) * pageSize;
@@ -811,7 +848,7 @@ export class DrizzleAdminStore implements AdminStore {
     if (examIds.length > 0) {
       const counts = await this.db.select({ quizId: quizQuestions.quizId, count: count() })
         .from(quizQuestions)
-        .where(inArray(quizQuestions.quizId, examIds))
+        .where(and(inArray(quizQuestions.quizId, examIds), isNull(quizQuestions.deletedAt)))
         .groupBy(quizQuestions.quizId);
       for (const id of examIds) questionCounts.set(id, 0);
       for (const row of counts) questionCounts.set(row.quizId, row.count);
@@ -871,7 +908,7 @@ export class DrizzleAdminStore implements AdminStore {
           
         const qCounts = await this.db.select({ lessonId: quizQuestions.lessonId, count: count() })
           .from(quizQuestions)
-          .where(inArray(quizQuestions.lessonId, lessonIds))
+          .where(and(inArray(quizQuestions.lessonId, lessonIds), isNull(quizQuestions.deletedAt)))
           .groupBy(quizQuestions.lessonId);
           
         const fcMap = new Map(fcCounts.map((r) => [r.lessonId, r.count]));
@@ -1118,6 +1155,10 @@ export class DrizzleAdminStore implements AdminStore {
       if (newRole === "platform_admin") {
         await tx.update(users)
           .set({ globalRole: "platform_admin", updatedAt: new Date() })
+          .where(eq(users.id, targetUserId));
+      } else if (newRole === "content_worker") {
+        await tx.update(users)
+          .set({ globalRole: "content_worker", updatedAt: new Date() })
           .where(eq(users.id, targetUserId));
       } else {
         await tx.update(users)
@@ -2341,6 +2382,163 @@ export class DrizzleAdminStore implements AdminStore {
     });
   }
 
+  async revokeCommerceEntitlement(
+    adminId: string,
+    entitlementId: string,
+    reason?: string,
+  ): Promise<{ success: boolean; entitlement: AdminEntitlementRecord; message?: string }> {
+    const now = new Date();
+
+    const [ent] = await this.db
+      .select({
+        ent: userEntitlements,
+        user: { id: users.id, email: users.email, name: users.name },
+      })
+      .from(userEntitlements)
+      .innerJoin(users, eq(userEntitlements.userId, users.id))
+      .where(eq(userEntitlements.id, entitlementId))
+      .limit(1);
+
+    if (!ent) {
+      throw new Error("not_found");
+    }
+
+    // Check if already expired / revoked
+    const isAlreadyExpired =
+      ent.ent.expiresAt !== null && new Date(ent.ent.expiresAt).getTime() <= now.getTime();
+
+    if (isAlreadyExpired) {
+      let resourceTitle: string = ent.ent.resourceType;
+      if (ent.ent.resourceType === "course" && ent.ent.resourceId) {
+        const [c] = await this.db
+          .select({ name: courses.name })
+          .from(courses)
+          .where(eq(courses.id, ent.ent.resourceId))
+          .limit(1);
+        if (c) resourceTitle = c.name;
+      } else if (ent.ent.resourceType === "content_pack" && ent.ent.resourceId) {
+        const [cp] = await this.db
+          .select({ title: contentPacks.title })
+          .from(contentPacks)
+          .where(eq(contentPacks.id, ent.ent.resourceId))
+          .limit(1);
+        if (cp) resourceTitle = cp.title;
+      } else if (ent.ent.resourceType === "content" && ent.ent.resourceId) {
+        const [les] = await this.db
+          .select({ title: lessons.title })
+          .from(lessons)
+          .where(eq(lessons.id, ent.ent.resourceId))
+          .limit(1);
+        if (les) resourceTitle = les.title;
+      } else if (ent.ent.resourceType === "subscription") {
+        resourceTitle = "اشتراک سراسری آوانا";
+      }
+
+      return {
+        success: true,
+        entitlement: {
+          id: ent.ent.id,
+          userId: ent.user.id,
+          userName: ent.user.name || undefined,
+          userEmail: ent.user.email,
+          resourceType: ent.ent.resourceType as any,
+          resourceId: ent.ent.resourceId,
+          resourceTitle,
+          sourceType: ent.ent.sourceType as any,
+          orderId: ent.ent.orderId,
+          startsAt: ent.ent.startsAt.toISOString(),
+          expiresAt: ent.ent.expiresAt ? ent.ent.expiresAt.toISOString() : null,
+          lifetime: false,
+          active: false,
+          createdAt: ent.ent.createdAt.toISOString(),
+        },
+        message: "دسترسی این منبع قبلاً لغو یا منقضی شده است.",
+      };
+    }
+
+    return this.db.transaction(async (tx) => {
+      // 1. Update user_entitlements expiresAt to now
+      const [updatedEnt] = await tx
+        .update(userEntitlements)
+        .set({
+          expiresAt: now,
+          updatedAt: now,
+        })
+        .where(eq(userEntitlements.id, entitlementId))
+        .returning();
+
+      // Resolve resource title for display
+      let resourceTitle: string = updatedEnt.resourceType;
+      if (updatedEnt.resourceType === "course" && updatedEnt.resourceId) {
+        const [c] = await tx
+          .select({ name: courses.name })
+          .from(courses)
+          .where(eq(courses.id, updatedEnt.resourceId))
+          .limit(1);
+        if (c) resourceTitle = c.name;
+      } else if (updatedEnt.resourceType === "content_pack" && updatedEnt.resourceId) {
+        const [cp] = await tx
+          .select({ title: contentPacks.title })
+          .from(contentPacks)
+          .where(eq(contentPacks.id, updatedEnt.resourceId))
+          .limit(1);
+        if (cp) resourceTitle = cp.title;
+      } else if (updatedEnt.resourceType === "content" && updatedEnt.resourceId) {
+        const [les] = await tx
+          .select({ title: lessons.title })
+          .from(lessons)
+          .where(eq(lessons.id, updatedEnt.resourceId))
+          .limit(1);
+        if (les) resourceTitle = les.title;
+      } else if (updatedEnt.resourceType === "subscription") {
+        resourceTitle = "اشتراک سراسری آوانا";
+      }
+
+      // 2. Emit immutable audit log
+      await tx.insert(auditLogs).values({
+        id: randomUUID(),
+        actorId: adminId,
+        action: "COMMERCE_ENTITLEMENT_REVOKED",
+        entityType: "entitlement",
+        entityId: entitlementId,
+        details: {
+          userId: ent.user.id,
+          userEmail: ent.user.email,
+          resourceType: updatedEnt.resourceType,
+          resourceId: updatedEnt.resourceId,
+          resourceTitle,
+          orderId: updatedEnt.orderId,
+          sourceType: updatedEnt.sourceType,
+          previousExpiresAt: ent.ent.expiresAt ? ent.ent.expiresAt.toISOString() : null,
+          revokedAt: now.toISOString(),
+          reason: reason?.trim() || null,
+        },
+        createdAt: now,
+      });
+
+      return {
+        success: true,
+        entitlement: {
+          id: updatedEnt.id,
+          userId: ent.user.id,
+          userName: ent.user.name || undefined,
+          userEmail: ent.user.email,
+          resourceType: updatedEnt.resourceType as any,
+          resourceId: updatedEnt.resourceId,
+          resourceTitle,
+          sourceType: updatedEnt.sourceType as any,
+          orderId: updatedEnt.orderId,
+          startsAt: updatedEnt.startsAt.toISOString(),
+          expiresAt: updatedEnt.expiresAt ? updatedEnt.expiresAt.toISOString() : null,
+          lifetime: false,
+          active: false,
+          createdAt: updatedEnt.createdAt.toISOString(),
+        },
+        message: "دسترسی کاربر با موفقیت لغو شد.",
+      };
+    });
+  }
+
   async approveCommercePayment(
     adminId: string,
     paymentId: string,
@@ -2632,8 +2830,8 @@ export class DrizzleAdminStore implements AdminStore {
         .where(
           and(
             eq(userEntitlements.userId, record.user.id),
-            eq(userEntitlements.resourceType, "subscription"),
             eq(userEntitlements.orderId, record.order.id),
+            or(isNull(userEntitlements.expiresAt), gt(userEntitlements.expiresAt, now)),
           ),
         );
 

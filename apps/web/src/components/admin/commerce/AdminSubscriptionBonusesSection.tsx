@@ -116,7 +116,7 @@ export function AdminSubscriptionBonusesSection() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[var(--color-border)] pb-4">
         <div className="space-y-1">
-          <h2 className="text-lg font-bold text-[var(--color-text)] flex items-center gap-2">
+          <h2 className="text-lg font-bold text-[var(--color-text)] flex items-center justify-center sm:justify-start gap-2 text-center sm:text-right">
             <Gift className="w-5 h-5 text-[var(--color-primary-default)]" />
             <span>اعتبار هدیه کیف پول پس از فعالسازی اشتراک</span>
           </h2>

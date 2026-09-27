@@ -36,9 +36,6 @@ import {
   sanitizePaymentText,
   calculateSpecialExamPrice,
   type SubscriptionCreditBonusesConfig,
-  DEFAULT_SUBSCRIPTION_CREDIT_BONUSES,
-  resolveSubscriptionPlanType,
-  resolveGiftCreditAmount,
 } from "@avana/domain";
 import type { CommerceStore } from "./commerce-store.js";
 import type { PaymentGateway } from "./gateway/types.js";
@@ -50,6 +47,7 @@ import type { LessonStore } from "../learning/learning-store.js";
 import type { StudyService } from "../study/study-service.js";
 import type { WalletService } from "../wallet/wallet-service.js";
 import type { PromotionService } from "./promotion-service.js";
+import { grantSubscriptionActivationGiftIfEligible } from "./subscription-gift-helper.js";
 
 export interface CheckoutInput {
   productId: ProductId;
@@ -824,42 +822,24 @@ export class CommerceService {
       ]);
     }
 
-    // 7. Grant Subscription Gift Credit if applicable (Phase 2)
+    // 7. Grant Subscription Gift Credit if applicable (First successful subscription purchase only)
     if (
       completed.subscription &&
       product.type === "subscription" &&
       this.walletService
     ) {
       try {
-        const planType = resolveSubscriptionPlanType(product);
-        if (planType) {
-          const config = this.subscriptionCreditBonusesProvider
-            ? await this.subscriptionCreditBonusesProvider()
-            : DEFAULT_SUBSCRIPTION_CREDIT_BONUSES;
-          const giftAmount = resolveGiftCreditAmount(planType, config);
-          if (giftAmount > 0) {
-            await this.walletService.credit(
-              {
-                userId: order.userId,
-                amount: giftAmount,
-                source: "subscription_bonus",
-                referenceType: "user_subscription",
-                referenceId: completed.subscription.id,
-                idempotencyKey: `subscription-gift:${completed.subscription.id}`,
-                metadata: {
-                  subscriptionId: completed.subscription.id,
-                  productId: product.id,
-                  productTitle: product.title,
-                  planType,
-                  durationDays: product.durationDays,
-                  giftAmount,
-                  paymentId: payment.id,
-                  orderId: order.id,
-                  grantedAt: paidAt,
-                },
-              });
-          }
-        }
+        await grantSubscriptionActivationGiftIfEligible({
+          userId: order.userId,
+          orderId: order.id,
+          subscriptionId: completed.subscription.id,
+          product,
+          paymentId: payment.id,
+          commerceStore: this.store,
+          walletService: this.walletService,
+          getBonusesConfig: this.subscriptionCreditBonusesProvider,
+          grantedAt: paidAt,
+        });
       } catch {
         // Handled silently to prevent failing payment fulfillment response if already paid
       }

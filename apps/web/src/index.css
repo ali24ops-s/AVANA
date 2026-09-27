@@ -627,6 +627,17 @@ a {
   display: inline-block;
   font-size: 1.05em;
   color: currentColor;
+  overflow-wrap: normal !important;
+  word-break: normal !important;
+}
+
+.katex-html {
+  overflow-wrap: normal !important;
+  word-break: normal !important;
+}
+
+.katex .base {
+  white-space: nowrap;
 }
 
 .katex-display {
@@ -640,6 +651,8 @@ a {
   border: 1px solid var(--avana-border-default);
   border-radius: 0.75rem;
   color: currentColor;
+  overflow-wrap: normal !important;
+  word-break: normal !important;
 }
 
 .rich-content-inline .katex-display {

@@ -410,6 +410,8 @@ export interface AdminStore {
   
   // Content Phase 2
   listLessons(params: { page: number; pageSize: number; search?: string }): Promise<{ lessons: AdminLessonRecord[]; totalCount: number }>;
+  getLesson?(id: string): Promise<(AdminLessonRecord & { contentMarkdown: string; moduleId?: string }) | null>;
+  updateLessonContent?(id: string, contentMarkdown: string): Promise<void>;
   listFlashcards(params: { page: number; pageSize: number; search?: string }): Promise<{ flashcards: AdminFlashcardRecord[]; totalCount: number }>;
   listExams(params: { page: number; pageSize: number; search?: string }): Promise<{ exams: AdminExamRecord[]; totalCount: number }>;
   getCourseHierarchy(courseId: string): Promise<AdminCourseHierarchy | null>;
@@ -439,6 +441,11 @@ export interface AdminStore {
     subscriptionId: string,
     reason?: string,
   ): Promise<{ success: boolean; subscription: AdminSubscriptionRecord; message?: string }>;
+  revokeCommerceEntitlement(
+    adminId: string,
+    entitlementId: string,
+    reason?: string,
+  ): Promise<{ success: boolean; entitlement: AdminEntitlementRecord; message?: string }>;
   approveCommercePayment(
     adminId: string,
     paymentId: string,

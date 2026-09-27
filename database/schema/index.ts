@@ -158,6 +158,7 @@ export const courses = pgTable(
     isOfficial: boolean("is_official").notNull().default(false),
     examDate: timestamp("exam_date", { withTimezone: true }),
     examScope: jsonb("exam_scope"),
+    version: integer("version").notNull().default(1),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -1115,12 +1116,16 @@ export const quizQuestions = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },
   (table) => ({
     quizOrderIdx: index("idx_quiz_questions_quiz_order").on(
       table.quizId,
       table.sortOrder,
     ),
+    activeQuizOrderIdx: index("idx_quiz_questions_active_quiz_order")
+      .on(table.quizId, table.sortOrder)
+      .where(sql`${table.deletedAt} IS NULL`),
     lessonIdx: index("idx_quiz_questions_lesson").on(table.lessonId),
   }),
 );
@@ -1590,6 +1595,134 @@ export const coursePublications = pgTable(
 
 export type CoursePublication = typeof coursePublications.$inferSelect;
 export type NewCoursePublication = typeof coursePublications.$inferInsert;
+
+/**
+ * Course Draft Sessions table.
+ *
+ * Scopes in-flight educational content drafts (manual edits, AI regeneration, content repairs).
+ * Invariant: Maximum 1 active draft session per course.
+ */
+export const courseDraftSessions = pgTable(
+  "course_draft_sessions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    courseId: uuid("course_id")
+      .notNull()
+      .references(() => courses.id, { onDelete: "cascade" }),
+    baseCourseVersion: integer("base_course_version").notNull(),
+    source: varchar("source", { length: 50 }).notNull(), // 'manual' | 'ai_regeneration' | 'content_repair'
+    status: varchar("status", { length: 30 }).notNull().default("draft"), // 'draft' | 'validating' | 'ready' | 'publishing' | 'published' | 'discarded' | 'failed'
+    title: varchar("title", { length: 255 }),
+    createdBy: uuid("created_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    courseStatusIdx: index("idx_draft_sessions_course_status").on(
+      table.courseId,
+      table.status,
+    ),
+    singleActiveDraftIdx: uniqueIndex("idx_single_active_draft_per_course")
+      .on(table.courseId)
+      .where(
+        sql`${table.status} IN ('draft', 'validating', 'ready', 'publishing')`,
+      ),
+  }),
+);
+
+export type CourseDraftSession = typeof courseDraftSessions.$inferSelect;
+export type NewCourseDraftSession = typeof courseDraftSessions.$inferInsert;
+
+/**
+ * Course Draft Changes table.
+ *
+ * Granular mutations within a draft session.
+ * Invariant: Exactly one latest Intended State per (session, entity_type, entity_id).
+ */
+export const courseDraftChanges = pgTable(
+  "course_draft_changes",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    draftSessionId: uuid("draft_session_id")
+      .notNull()
+      .references(() => courseDraftSessions.id, { onDelete: "cascade" }),
+    courseId: uuid("course_id")
+      .notNull()
+      .references(() => courses.id, { onDelete: "cascade" }),
+    entityType: varchar("entity_type", { length: 50 }).notNull(), // 'module' | 'lesson' | 'flashcard' | 'quiz' | 'quiz_question' | 'sub_course_group' | 'course_metadata'
+    entityId: uuid("entity_id").notNull(),
+    action: varchar("action", { length: 20 }).notNull(), // 'create' | 'update' | 'delete' | 'reorder'
+    parentId: uuid("parent_id"),
+    sortOrder: integer("sort_order"),
+    payload: jsonb("payload").notNull(), // { before, after, patch }
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    sessionEntityUniqueIdx: uniqueIndex("idx_draft_changes_session_entity").on(
+      table.draftSessionId,
+      table.entityType,
+      table.entityId,
+    ),
+    sessionIdx: index("idx_draft_changes_session").on(table.draftSessionId),
+    courseIdx: index("idx_draft_changes_course").on(table.courseId),
+  }),
+);
+
+export type CourseDraftChange = typeof courseDraftChanges.$inferSelect;
+export type NewCourseDraftChange = typeof courseDraftChanges.$inferInsert;
+
+/**
+ * Course Releases table.
+ *
+ * Monotonically increasing releases of official courses.
+ * Invariant: Complete, self-contained snapshot manifest for deterministic audit and rollback.
+ */
+export const courseReleases = pgTable(
+  "course_releases",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    courseId: uuid("course_id")
+      .notNull()
+      .references(() => courses.id, { onDelete: "cascade" }),
+    versionNumber: integer("version_number").notNull(),
+    baseVersion: integer("base_version").notNull(),
+    draftSessionId: uuid("draft_session_id").references(
+      () => courseDraftSessions.id,
+      { onDelete: "set null" },
+    ),
+    changesSummary: jsonb("changes_summary").notNull(),
+    manifest: jsonb("manifest").notNull(), // ReleaseManifestEntry[]
+    publishedBy: uuid("published_by")
+      .notNull()
+      .references(() => users.id),
+    publishedAt: timestamp("published_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    courseVersionUniqueIdx: uniqueIndex(
+      "idx_course_releases_course_version",
+    ).on(table.courseId, table.versionNumber),
+    coursePublishedAtIdx: index("idx_course_releases_course_published").on(
+      table.courseId,
+      table.publishedAt,
+    ),
+  }),
+);
+
+export type CourseRelease = typeof courseReleases.$inferSelect;
+export type NewCourseRelease = typeof courseReleases.$inferInsert;
 
 // ---------------------------------------------------------------------------
 // Monetization, Subscriptions, and Entitlements

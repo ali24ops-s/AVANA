@@ -6,33 +6,33 @@
  */
 
 import { motion } from "framer-motion";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, BookOpen, Brain, Clock, BarChart3 } from "lucide-react";
 import { Badge } from "@avana/ui";
 
 interface ProblemCard {
-  icon: string;
+  icon: React.ComponentType<{ className?: string }>;
   title: string;
   description: string;
 }
 
 const problems: ProblemCard[] = [
   {
-    icon: "library_books",
+    icon: BookOpen,
     title: "حجم وحشتناک مطالب",
     description: "گم شدن در میان صدها صفحه جزوه و کتاب بدون ساختار.",
   },
   {
-    icon: "memory",
+    icon: Brain,
     title: "فراموشی سریع",
     description: "منحنی فراموشی ابینگهاوس و از دست رفتن تلاش‌ها.",
   },
   {
-    icon: "schedule",
+    icon: Clock,
     title: "ندانستن زمان مرور",
     description: "مرورهای بی‌برنامه و غیربهینه که زمان زیادی می‌گیرد.",
   },
   {
-    icon: "monitoring",
+    icon: BarChart3,
     title: "عدم تحلیل پیشرفت",
     description: "نداشتن دید واضح نسبت به نقاط ضعف و قوت.",
   },
@@ -57,7 +57,7 @@ export function FeaturesSection() {
             transition={{ duration: 0.6 }}
             className="lg:w-1/3"
           >
-            <div className="mb-4 w-max">
+            <div className="mb-4 flex justify-center lg:justify-start">
               <Badge
                 variant="error"
                 size="md"
@@ -68,7 +68,7 @@ export function FeaturesSection() {
               </Badge>
             </div>
 
-            <h2 className="font-headline text-3xl sm:text-4xl font-black mb-4 text-[var(--avana-text-primary)] leading-tight">
+            <h2 className="font-headline text-3xl sm:text-4xl font-black mb-4 text-[var(--avana-text-primary)] leading-tight text-center lg:text-right">
               چرا روش‌های سنتی <br />
               <span className="text-rose-600">
                 پاسخگو نیستند؟
@@ -93,7 +93,7 @@ export function FeaturesSection() {
                 className="flex items-start gap-4 p-5 sm:p-6 rounded-[16px] bg-[var(--avana-bg-default)] border border-[var(--avana-border-default)] shadow-xs transition-all duration-200 cursor-default hover:bg-white hover:border-rose-300 hover:shadow-card"
               >
                 <div className="w-12 h-12 rounded-[10px] bg-rose-50 border border-rose-200 flex items-center justify-center shrink-0 text-rose-600 shadow-xs">
-                  <span className="material-symbols-outlined text-2xl">{problem.icon}</span>
+                  <problem.icon className="w-6 h-6" />
                 </div>
                 <div>
                   <h3 className="font-bold text-base sm:text-lg mb-1.5 text-[var(--avana-text-primary)]">{problem.title}</h3>

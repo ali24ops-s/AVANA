@@ -52,6 +52,8 @@ describe("Support and Feedback System E2E & Integration", () => {
   let tempStorageDir: string;
 
   let platformAdminCookie: string;
+  let supportAgentCookie: string;
+  let contentWorkerCookie: string;
   let studentCookie: string;
   let otherStudentCookie: string;
   let studentUserId: UserId;
@@ -80,8 +82,8 @@ describe("Support and Feedback System E2E & Integration", () => {
     tempStorageDir = await fs.mkdtemp(path.join(os.tmpdir(), "avana-support-test-"));
     storageProvider = new LocalStorageProvider(tempStorageDir);
     sessionStore = new InMemorySessionStore();
-    userStore = new InMemoryUserStore();
     organizationStore = new InMemoryOrganizationStore();
+    userStore = new InMemoryUserStore(organizationStore);
     notificationStore = new InMemoryNotificationStore();
     notificationService = new NotificationService(notificationStore);
     auditStore = new InMemoryAuditStore();
@@ -118,6 +120,12 @@ describe("Support and Feedback System E2E & Integration", () => {
     const admin = await createUserWithRole("admin@avana.test", Roles.platform_admin);
     platformAdminCookie = `avana_session=${admin.sessionToken}`;
     adminUserId = admin.user.id as UserId;
+
+    const supportAgent = await createUserWithRole("support@avana.test", Roles.support_agent);
+    supportAgentCookie = `avana_session=${supportAgent.sessionToken}`;
+
+    const contentWorker = await createUserWithRole("worker@avana.test", Roles.content_worker);
+    contentWorkerCookie = `avana_session=${contentWorker.sessionToken}`;
 
     const student = await createUserWithRole("student1@avana.test", Roles.student);
     studentCookie = `avana_session=${student.sessionToken}`;
@@ -552,6 +560,77 @@ describe("Support and Feedback System E2E & Integration", () => {
         payload: { body: "پیام پس از بازگشایی" },
       });
       expect(successMsgRes.statusCode).toBe(201);
+    });
+
+    it("support_agent can access admin support endpoints while content_worker is denied", async () => {
+      const app = await buildTestApp();
+
+      // Student creates ticket
+      const createRes = await app.inject({
+        method: "POST",
+        url: "/v1/support/tickets",
+        headers: { cookie: studentCookie },
+        payload: {
+          category: "account",
+          title: "تیکت تست دسترسی پشتیبان",
+          description: "شرح تیکت تست.",
+        },
+      });
+      const ticketId = JSON.parse(createRes.payload).ticket.id;
+
+      // 1. support_agent accesses admin tickets list -> 200
+      const agentListRes = await app.inject({
+        method: "GET",
+        url: "/v1/admin/support/tickets",
+        headers: { cookie: supportAgentCookie },
+      });
+      expect(agentListRes.statusCode).toBe(200);
+
+      // 2. support_agent views ticket details -> 200
+      const agentViewRes = await app.inject({
+        method: "GET",
+        url: `/v1/admin/support/tickets/${ticketId}`,
+        headers: { cookie: supportAgentCookie },
+      });
+      expect(agentViewRes.statusCode).toBe(200);
+
+      // 3. support_agent sends admin response -> 201
+      const agentMsgRes = await app.inject({
+        method: "POST",
+        url: `/v1/admin/support/tickets/${ticketId}/messages`,
+        headers: { cookie: supportAgentCookie },
+        payload: {
+          body: "پاسخ پشتیبان به تیکت",
+          is_internal_note: false,
+          new_status: "in_progress",
+        },
+      });
+      expect(agentMsgRes.statusCode).toBe(201);
+
+      // 4. content_worker tries to access admin tickets list -> 403 Forbidden
+      const workerListRes = await app.inject({
+        method: "GET",
+        url: "/v1/admin/support/tickets",
+        headers: { cookie: contentWorkerCookie },
+      });
+      expect(workerListRes.statusCode).toBe(403);
+
+      // 5. content_worker tries to view ticket details -> 403 Forbidden
+      const workerViewRes = await app.inject({
+        method: "GET",
+        url: `/v1/admin/support/tickets/${ticketId}`,
+        headers: { cookie: contentWorkerCookie },
+      });
+      expect(workerViewRes.statusCode).toBe(403);
+
+      // 6. content_worker tries to respond to ticket -> 403 Forbidden
+      const workerMsgRes = await app.inject({
+        method: "POST",
+        url: `/v1/admin/support/tickets/${ticketId}/messages`,
+        headers: { cookie: contentWorkerCookie },
+        payload: { body: "پاسخ غیرمجاز توسط کارگر محتوا" },
+      });
+      expect(workerMsgRes.statusCode).toBe(403);
     });
   });
 });

@@ -11,6 +11,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { useParams, Link, useSearchParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -31,8 +32,6 @@ import {
   UploadCloud,
   Sparkles,
   Zap,
-  PanelRightClose,
-  PanelRightOpen,
   ListOrdered,
   X,
   Lock,
@@ -158,10 +157,31 @@ export function LearningPage() {
   );
   // Track the currently selected lesson
   const [selectedLessonId, setSelectedLessonId] = useState<string | null>(null);
-  // Track desktop sidebar collapse state
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  // Track mobile drawer open state
-  const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
+  // Track unified syllabus drawer open state (Mobile, Tablet & Desktop)
+  const [isCurriculumDrawerOpen, setIsCurriculumDrawerOpen] = useState(false);
+
+  // Close curriculum drawer on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && isCurriculumDrawerOpen) {
+        setIsCurriculumDrawerOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isCurriculumDrawerOpen]);
+
+  // Lock body scroll when curriculum drawer is open
+  useEffect(() => {
+    if (!isCurriculumDrawerOpen || typeof document === "undefined") return;
+
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = originalOverflow;
+    };
+  }, [isCurriculumDrawerOpen]);
 
   const rawLessonId = searchParams.get("lessonId");
 
@@ -361,7 +381,7 @@ export function LearningPage() {
 
   const groups = (data.groups ?? []).slice().sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
 
-  function renderCurriculumNav(isMobile: boolean) {
+  function renderCurriculumNav() {
     if (modules.length === 0) {
       return (
         <div className="p-4 text-center text-xs text-[var(--color-text-muted)]">
@@ -387,7 +407,7 @@ export function LearningPage() {
           }}
           onSelectLesson={(lessonId: string) => {
             setSelectedLessonId(lessonId);
-            if (isMobile) setIsMobileDrawerOpen(false);
+            setIsCurriculumDrawerOpen(false);
             if (!expandedModules.has(mod.id)) {
               setExpandedModules((prev) => new Set([...prev, mod.id]));
             }
@@ -440,7 +460,7 @@ export function LearningPage() {
                   }}
                   onSelectLesson={(lessonId: string) => {
                     setSelectedLessonId(lessonId);
-                    if (isMobile) setIsMobileDrawerOpen(false);
+                    setIsCurriculumDrawerOpen(false);
                     if (!expandedModules.has(mod.id)) {
                       setExpandedModules((prev) => new Set([...prev, mod.id]));
                     }
@@ -475,7 +495,7 @@ export function LearningPage() {
                 }}
                 onSelectLesson={(lessonId: string) => {
                   setSelectedLessonId(lessonId);
-                  if (isMobile) setIsMobileDrawerOpen(false);
+                  setIsCurriculumDrawerOpen(false);
                   if (!expandedModules.has(mod.id)) {
                     setExpandedModules((prev) => new Set([...prev, mod.id]));
                   }
@@ -807,76 +827,53 @@ export function LearningPage() {
               </div>
             </div>
           ) : (
-            <div className="relative flex flex-col lg:flex-row gap-6 items-start">
-              {/* Mobile Drawer (Only rendered when open) */}
-              {isMobileDrawerOpen && (
-                <>
+            <div className="w-full">
+              {/* Unified Responsive Syllabus Drawer (Mobile, Tablet & Desktop) */}
+              {isCurriculumDrawerOpen && typeof document !== "undefined" && createPortal(
+                <div className="relative z-[60]" dir="rtl">
+                  {/* Backdrop covering full screen and header */}
                   <div
-                    className="lg:hidden fixed inset-0 bg-slate-950/80 backdrop-blur-xs z-50 transition-opacity"
-                    onClick={() => setIsMobileDrawerOpen(false)}
+                    data-testid="curriculum-backdrop"
+                    className="fixed inset-0 z-[60] bg-[#0d1719]/50 backdrop-blur-xs transition-opacity duration-200 animate-in fade-in"
+                    onClick={() => setIsCurriculumDrawerOpen(false)}
                     aria-hidden="true"
                   />
+                  {/* Drawer Panel — 576px width on desktop (additional 20% wider than 480px) */}
                   <aside
-                    className="lg:hidden fixed inset-y-0 right-0 z-50 w-80 max-w-[85vw] bg-slate-900 border-l border-white/10 shadow-2xl p-4 flex flex-col animate-in slide-in-from-right duration-200"
-                    aria-label="سرفصل‌های دوره (موبایل)"
+                    className="fixed inset-y-0 start-0 z-[70] w-[88vw] sm:w-[480px] md:w-[576px] max-w-[576px] bg-[var(--color-surface)] border-inline-end border-[var(--color-border)] shadow-[0_8px_32px_rgba(0,0,0,0.12)] p-4 sm:p-5 flex flex-col animate-in rtl:slide-in-from-right ltr:slide-in-from-left duration-200"
+                    aria-label="سرفصل‌های دوره"
+                    role="dialog"
+                    aria-modal="true"
                   >
-                    <div className="flex items-center justify-between pb-3 border-b border-white/10">
-                      <div>
-                        <h2 className="font-bold text-sm text-[var(--color-text)]">
+                    <div className="flex items-center justify-between pb-3.5 border-b border-[var(--color-border)]">
+                      <div className="flex items-center gap-2">
+                        <h2 className="font-bold text-sm sm:text-base text-[var(--color-text)]">
                           سرفصل‌های دوره
                         </h2>
-                        <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
+                        <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-primary/10 text-primary border border-primary/20">
                           {toPersianDigits(totalLessonsCount)} درس
-                        </p>
+                        </span>
                       </div>
                       <button
                         type="button"
-                        onClick={() => setIsMobileDrawerOpen(false)}
-                        className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                        onClick={() => setIsCurriculumDrawerOpen(false)}
+                        className="p-1.5 rounded-xl text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] transition-colors cursor-pointer"
                         aria-label="بستن منوی سرفصل‌ها"
+                        title="بستن منوی سرفصل‌ها"
                       >
                         <X className="w-5 h-5" />
                       </button>
                     </div>
                     <nav className="py-3 space-y-2 overflow-y-auto flex-1 custom-scrollbar">
-                      {renderCurriculumNav(true)}
+                      {renderCurriculumNav()}
                     </nav>
                   </aside>
-                </>
+                </div>,
+                document.body,
               )}
 
-              {/* Desktop Collapsible Sidebar */}
-              {isSidebarOpen && (
-                <aside className="hidden lg:block w-72 xl:w-80 flex-shrink-0 sticky top-24 z-20">
-                  <div className="bg-[var(--color-surface)] rounded-card border border-[var(--color-border)] overflow-hidden shadow-sm flex flex-col max-h-[calc(100vh-8rem)]">
-                    <div className="p-4 border-b border-[var(--color-border)] bg-[var(--color-surface-warm)] flex items-center justify-between">
-                      <div>
-                        <h2 className="font-bold text-sm text-[var(--color-text)]">
-                          سرفصل‌های دوره
-                        </h2>
-                        <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
-                          {toPersianDigits(totalLessonsCount)} درس
-                        </p>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setIsSidebarOpen(false)}
-                        title="بستن سرفصل‌ها"
-                        aria-label="بستن پنل سرفصل‌ها"
-                        leftIcon={<PanelRightClose className="w-4 h-4" />}
-                        className="!p-1.5 !h-auto text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
-                      />
-                    </div>
-                    <nav className="p-2 space-y-2 overflow-y-auto flex-1 custom-scrollbar">
-                      {renderCurriculumNav(false)}
-                    </nav>
-                  </div>
-                </aside>
-              )}
-
-              {/* Main content: Lesson viewer */}
-              <main className="flex-1 min-w-0 w-full">
+              {/* Main content: Lesson viewer with full width focus */}
+              <main className="w-full">
                 {selectedLesson ? (
                   <LessonViewer
                     lesson={selectedLesson}
@@ -891,9 +888,7 @@ export function LearningPage() {
                     prevLessonId={prevLessonId}
                     nextLessonId={nextLessonId}
                     onSelectLesson={setSelectedLessonId}
-                    isSidebarOpen={isSidebarOpen}
-                    onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
-                    onOpenMobileDrawer={() => setIsMobileDrawerOpen(true)}
+                    onOpenCurriculumDrawer={() => setIsCurriculumDrawerOpen(true)}
                   />
                 ) : (
                   <div className="bg-[var(--color-surface)] rounded-3xl border border-[var(--color-border)] p-12 text-center">
@@ -1088,16 +1083,16 @@ function ModuleSection({
     module.lessons.length > 0 && completedCount === module.lessons.length;
 
   return (
-    <div className="rounded-button overflow-hidden mb-1">
+    <div className="rounded-xl overflow-hidden mb-1">
       {/* Module header (clickable to expand/collapse) */}
       <button
         type="button"
         onClick={onToggle}
         aria-expanded={isExpanded}
         aria-label={`${isExpanded ? "بستن" : "باز کردن"} فصل ${module.title}`}
-        className={`w-full flex items-center gap-2 px-3 py-2.5 text-right rounded-button transition-all cursor-pointer ${
+        className={`w-full flex items-center gap-2 px-3 py-2.5 text-right rounded-xl transition-all cursor-pointer select-none ${
           isExpanded
-            ? "bg-primary/10 text-primary font-semibold"
+            ? "bg-primary/10 text-primary font-bold"
             : "hover:bg-[var(--color-surface-warm)] text-[var(--color-text)]"
         }`}
       >
@@ -1118,11 +1113,11 @@ function ModuleSection({
         </div>
         {module.lessons.length > 0 && (
           <span
-            className={`text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${
+            className={`text-[10px] px-2 py-0.5 rounded-full flex-shrink-0 ${
               isAllCompleted
-                ? "bg-primary/15 text-primary border border-primary/30"
+                ? "bg-primary/15 text-primary border border-primary/25 font-bold"
                 : completedCount > 0
-                  ? "bg-[var(--color-surface-warm)] text-[var(--color-text-secondary)]"
+                  ? "bg-[var(--color-surface-warm)] text-[var(--color-text-secondary)] border border-[var(--color-border)] font-semibold"
                   : "text-[var(--color-text-muted)]"
             }`}
           >
@@ -1133,7 +1128,7 @@ function ModuleSection({
 
       {/* Lesson list (visible when expanded) */}
       {isExpanded && (
-        <div className="mr-2 mt-1 space-y-0.5 pb-1 pr-2.5 border-r border-primary/20">
+        <div className="mr-2.5 mt-1 space-y-0.5 pb-1 pr-2.5 border-r-2 border-primary/20">
           {module.lessons.map((lesson) => (
             <LessonNavItem
               key={lesson.id}
@@ -1166,9 +1161,9 @@ function LessonNavItem({
       type="button"
       onClick={onSelect}
       aria-current={isSelected ? "true" : undefined}
-      className={`w-full flex items-center gap-2.5 px-3 py-2 text-right rounded-button text-xs transition-all cursor-pointer ${
+      className={`w-full flex items-center gap-2.5 px-3 py-2 text-right rounded-xl text-xs transition-all cursor-pointer select-none ${
         isSelected
-          ? "bg-primary/15 text-primary dark:text-teal-300 font-bold border-r-2 border-primary shadow-xs"
+          ? "bg-primary/10 text-primary font-bold border-r-3 border-primary shadow-xs"
           : "text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-warm)]"
       }`}
     >
@@ -1183,11 +1178,11 @@ function LessonNavItem({
           className={`w-2 h-2 rounded-full flex-shrink-0 transition-colors ${
             isSelected
               ? "bg-primary ring-2 ring-primary/30"
-              : "border border-[var(--color-text-muted)] bg-transparent"
+              : "border border-[var(--color-border)] bg-[var(--color-surface-warm)]"
           }`}
         />
       )}
-      <span className="truncate flex-1 text-[13px] flex items-center gap-1.5">
+      <span className="truncate flex-1 text-[13px] font-medium leading-snug flex items-center gap-1.5">
         <span>{lesson.title}</span>
         {(lesson as any).locked && (
           <Lock className="w-3 h-3 text-amber-500 shrink-0" />
@@ -1229,9 +1224,9 @@ function LessonViewer({
   prevLessonId,
   nextLessonId,
   onSelectLesson,
-  isSidebarOpen,
-  onToggleSidebar,
+  onOpenCurriculumDrawer,
   onOpenMobileDrawer,
+  onToggleSidebar,
 }: {
   lesson: LessonData;
   moduleTitle: string;
@@ -1245,9 +1240,10 @@ function LessonViewer({
   prevLessonId: string | null;
   nextLessonId: string | null;
   onSelectLesson: (id: string) => void;
-  isSidebarOpen?: boolean;
-  onToggleSidebar?: () => void;
+  onOpenCurriculumDrawer?: () => void;
   onOpenMobileDrawer?: () => void;
+  onToggleSidebar?: () => void;
+  isSidebarOpen?: boolean;
 }) {
   const [isAssistantOpen, setIsAssistantOpen] = useState(false);
   const [isPaywallOpen, setIsPaywallOpen] = useState(false);
@@ -1292,38 +1288,17 @@ function LessonViewer({
           </div>
 
           <div className="flex items-center gap-2 flex-shrink-0">
-            {/* Mobile Drawer Trigger Button */}
-            {onOpenMobileDrawer && (
+            {/* Unified Syllabus Drawer Trigger Button (Mobile, Tablet & Desktop) */}
+            {(onOpenCurriculumDrawer || onOpenMobileDrawer || onToggleSidebar) && (
               <Button
                 variant="tertiary"
                 size="sm"
-                onClick={onOpenMobileDrawer}
-                aria-label="سرفصل‌های دوره"
+                onClick={onOpenCurriculumDrawer || onOpenMobileDrawer || onToggleSidebar}
+                title="نمایش سرفصل‌های دوره"
+                aria-label="نمایش سرفصل‌های دوره"
                 leftIcon={<ListOrdered className="w-3.5 h-3.5 text-primary" />}
-                className="lg:hidden"
               >
                 سرفصل‌ها
-              </Button>
-            )}
-
-            {/* Desktop Sidebar Toggle Button */}
-            {onToggleSidebar && (
-              <Button
-                variant="tertiary"
-                size="sm"
-                onClick={onToggleSidebar}
-                title={isSidebarOpen ? "بستن سرفصل‌ها برای تمرکز بر مطالعه" : "نمایش سرفصل‌های دوره"}
-                aria-label={isSidebarOpen ? "بستن سرفصل‌ها" : "نمایش سرفصل‌ها"}
-                leftIcon={
-                  isSidebarOpen ? (
-                    <PanelRightClose className="w-3.5 h-3.5 text-primary" />
-                  ) : (
-                    <PanelRightOpen className="w-3.5 h-3.5 text-primary" />
-                  )
-                }
-                className="hidden lg:inline-flex"
-              >
-                {isSidebarOpen ? "تمرکز مطالعه" : "سرفصل‌ها"}
               </Button>
             )}
 

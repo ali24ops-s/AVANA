@@ -439,65 +439,121 @@ export function UserReferralPage() {
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-start text-xs">
-              <thead className="bg-[var(--color-bg-default)] text-[var(--color-text-muted)] border-b border-[var(--color-border)] font-semibold">
-                <tr>
-                  <th className="px-4 py-3 text-start">کاربر دعوت‌شده</th>
-                  <th className="px-4 py-3 text-start">تاریخ دعوت</th>
-                  <th className="px-4 py-3 text-start">وضعیت</th>
-                  <th className="px-4 py-3 text-start">پاداش اشتراک</th>
-                  <th className="px-4 py-3 text-start">تاریخ اعطا</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[var(--color-border)]">
-                {referrals.map((item) => (
-                  <tr key={item.id} className="hover:bg-[var(--color-surface-hover)] transition-colors">
-                    <td className="px-4 py-3.5 font-medium text-[var(--color-text)]">
+          <div>
+            {/* Mobile Cards (< sm) */}
+            <div className="block sm:hidden p-4 space-y-3">
+              {referrals.map((item) => (
+                <div
+                  key={`mob-ref-${item.id}`}
+                  className="p-3.5 rounded-2xl bg-[var(--color-bg-default)] border border-[var(--color-border)] shadow-xs space-y-2.5"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-bold text-[var(--color-text)]">
                       {item.invitee_display_name || "کاربر جدید"}
-                    </td>
-                    <td className="px-4 py-3.5 text-[var(--color-text-muted)] font-mono">
+                    </span>
+                    {item.status === "rewarded" || item.reward_status === "completed" ? (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20">
+                        <Check className="w-3 h-3" />
+                        پاداش داده شد
+                      </span>
+                    ) : item.reward_status === "limit_reached" ? (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap bg-slate-500/10 text-slate-700 dark:text-slate-300 border border-slate-500/20">
+                        سقف ۴ دعوت تکمیل
+                      </span>
+                    ) : item.reward_status === "abuse_rejected" ? (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap bg-rose-500/10 text-rose-700 dark:text-rose-300 border border-rose-500/20">
+                        رد شده
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20">
+                        <Clock className="w-3 h-3" />
+                        در حال بررسی
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-between text-xs pt-1 border-t border-[var(--color-border)]">
+                    <span className="text-[var(--color-text-muted)]">تاریخ ثبت دعوت:</span>
+                    <span className="font-mono text-[var(--color-text-secondary)]">
                       {formatPersianDate(item.created_at || item.createdAt || "")}
-                    </td>
-                    <td className="px-4 py-3.5">
-                      {item.status === "rewarded" || item.reward_status === "completed" ? (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20">
-                          <Check className="w-3 h-3" />
-                          پاداش داده شد
-                        </span>
-                      ) : item.reward_status === "limit_reached" ? (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-slate-500/10 text-slate-700 dark:text-slate-300 border border-slate-500/20">
-                          سقف ۴ دعوت تکمیل
-                        </span>
-                      ) : item.reward_status === "abuse_rejected" ? (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-rose-500/10 text-rose-700 dark:text-rose-300 border border-rose-500/20">
-                          رد شده (دستگاه تکراری)
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20">
-                          <Clock className="w-3 h-3" />
-                          در حال بررسی
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3.5 font-semibold text-[var(--color-text)]">
-                      {(item.reward_amount ?? item.rewardAmount ?? 0) > 0 ? (
-                        <span className="text-emerald-600 dark:text-emerald-400 font-mono">
-                          +{item.reward_amount ?? item.rewardAmount} روز
-                        </span>
-                      ) : (
-                        <span className="text-[var(--color-text-muted)]">---</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3.5 text-[var(--color-text-muted)] font-mono">
-                      {item.rewarded_at || item.rewardedAt
-                        ? formatPersianDate(item.rewarded_at || item.rewardedAt || "")
-                        : "---"}
-                    </td>
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-[var(--color-text-muted)]">پاداش اشتراک:</span>
+                    {(item.reward_amount ?? item.rewardAmount ?? 0) > 0 ? (
+                      <span className="text-emerald-600 dark:text-emerald-400 font-mono font-bold">
+                        +{item.reward_amount ?? item.rewardAmount} روز
+                      </span>
+                    ) : (
+                      <span className="text-[var(--color-text-muted)]">---</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Desktop Table (sm+) */}
+            <div className="hidden sm:block overflow-x-auto">
+              <table className="w-full min-w-[590px] text-start text-xs">
+                <thead className="bg-[var(--color-bg-default)] text-[var(--color-text-muted)] border-b border-[var(--color-border)] font-semibold">
+                  <tr>
+                    <th className="px-4 py-3 text-start whitespace-nowrap">کاربر دعوت‌شده</th>
+                    <th className="px-4 py-3 text-start whitespace-nowrap">تاریخ دعوت</th>
+                    <th className="px-4 py-3 text-start whitespace-nowrap">وضعیت</th>
+                    <th className="px-4 py-3 text-start whitespace-nowrap">پاداش اشتراک</th>
+                    <th className="px-4 py-3 text-start whitespace-nowrap">تاریخ اعطا</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-[var(--color-border)]">
+                  {referrals.map((item) => (
+                    <tr key={item.id} className="hover:bg-[var(--color-surface-hover)] transition-colors">
+                      <td className="px-4 py-3.5 font-medium text-[var(--color-text)]">
+                        {item.invitee_display_name || "کاربر جدید"}
+                      </td>
+                      <td className="px-4 py-3.5 text-[var(--color-text-muted)] font-mono whitespace-nowrap">
+                        {formatPersianDate(item.created_at || item.createdAt || "")}
+                      </td>
+                      <td className="px-4 py-3.5 whitespace-nowrap">
+                        {item.status === "rewarded" || item.reward_status === "completed" ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20">
+                            <Check className="w-3 h-3" />
+                            پاداش داده شد
+                          </span>
+                        ) : item.reward_status === "limit_reached" ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap bg-slate-500/10 text-slate-700 dark:text-slate-300 border border-slate-500/20">
+                            سقف ۴ دعوت تکمیل
+                          </span>
+                        ) : item.reward_status === "abuse_rejected" ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap bg-rose-500/10 text-rose-700 dark:text-rose-300 border border-rose-500/20">
+                            رد شده (دستگاه تکراری)
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20">
+                            <Clock className="w-3 h-3" />
+                            در حال بررسی
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3.5 font-semibold text-[var(--color-text)] whitespace-nowrap">
+                        {(item.reward_amount ?? item.rewardAmount ?? 0) > 0 ? (
+                          <span className="text-emerald-600 dark:text-emerald-400 font-mono">
+                            +{item.reward_amount ?? item.rewardAmount} روز
+                          </span>
+                        ) : (
+                          <span className="text-[var(--color-text-muted)]">---</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3.5 text-[var(--color-text-muted)] font-mono whitespace-nowrap">
+                        {item.rewarded_at || item.rewardedAt
+                          ? formatPersianDate(item.rewarded_at || item.rewardedAt || "")
+                          : "---"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </div>

@@ -219,6 +219,12 @@ export interface LessonStore {
 
 export interface DocumentStore {
   /**
+   * Find an active document by ID without organization scoping (authoritative lookup).
+   * Returns undefined if the document doesn't exist or is soft-deleted.
+   */
+  findById?(id: DocumentId): Promise<DocumentRecord | undefined>;
+
+  /**
    * Find an active document by ID, scoped to an organization.
    * Returns undefined if the document doesn't exist, is soft-deleted,
    * or belongs to another organization (non-disclosing).

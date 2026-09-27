@@ -249,17 +249,17 @@ export function AdminContentStudioPage() {
   const getStatusBadge = (status: OfficialCourse["status"]) => {
     switch (status) {
       case "draft":
-        return <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] border border-[var(--color-border)]">پیش‌نویس (Draft)</span>;
+        return <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] border border-[var(--color-border)] whitespace-nowrap shrink-0 inline-flex items-center">پیش‌نویس (Draft)</span>;
       case "generating":
-        return <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-teal-500/10 text-teal-700 dark:text-teal-300 border border-teal-500/20 flex items-center gap-1.5"><Loader2 className="w-3 h-3 animate-spin text-teal-600 dark:text-teal-400" /> در حال تولید AI</span>;
+        return <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-teal-500/10 text-teal-700 dark:text-teal-300 border border-teal-500/20 inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"><Loader2 className="w-3 h-3 animate-spin text-teal-600 dark:text-teal-400" /> در حال تولید AI</span>;
       case "review":
-        return <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20 flex items-center gap-1.5"><Clock className="w-3 h-3 text-amber-600 dark:text-amber-400" /> در انتظار بازبینی</span>;
+        return <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20 inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"><Clock className="w-3 h-3 text-amber-600 dark:text-amber-400" /> در انتظار بازبینی</span>;
       case "approved":
-        return <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-sky-500/10 text-sky-700 dark:text-sky-300 border border-sky-500/20 flex items-center gap-1.5"><ShieldCheck className="w-3 h-3 text-sky-600 dark:text-sky-400" /> تایید شده (آماده انتشار)</span>;
+        return <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-sky-500/10 text-sky-700 dark:text-sky-300 border border-sky-500/20 inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"><ShieldCheck className="w-3 h-3 text-sky-600 dark:text-sky-400" /> تایید شده (آماده انتشار)</span>;
       case "published":
-        return <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20 flex items-center gap-1.5"><CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400" /> منتشر شده (در حال فروش)</span>;
+        return <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20 inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"><CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400" /> منتشر شده (در حال فروش)</span>;
       case "archived":
-        return <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-700 dark:text-rose-300 border border-rose-500/20">بایگانی شده</span>;
+        return <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-700 dark:text-rose-300 border border-rose-500/20 whitespace-nowrap shrink-0 inline-flex items-center">بایگانی شده</span>;
     }
   };
 
@@ -367,15 +367,15 @@ export function AdminContentStudioPage() {
       ) : (
         <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] overflow-hidden shadow-sm">
           <div className="overflow-x-auto">
-            <table className="w-full text-right text-xs">
+            <table className="w-full text-right text-xs min-w-[760px]">
               <thead className="bg-[var(--color-surface-warm)]/60 text-[var(--color-text-muted)] border-b border-[var(--color-border)]">
                 <tr>
-                  <th className="p-3.5 font-bold">عنوان دوره رسمی</th>
-                  <th className="p-3.5 font-bold">رشته / موضوع</th>
-                  <th className="p-3.5 font-bold">وضعیت محتوا</th>
-                  <th className="p-3.5 font-bold">اقلام آموزشی</th>
-                  <th className="p-3.5 font-bold">وضعیت تجاری و قیمت</th>
-                  <th className="p-3.5 font-bold text-center">عملیات</th>
+                  <th className="p-3.5 font-bold whitespace-nowrap">عنوان دوره رسمی</th>
+                  <th className="p-3.5 font-bold whitespace-nowrap">رشته / موضوع</th>
+                  <th className="p-3.5 font-bold whitespace-nowrap">وضعیت محتوا</th>
+                  <th className="p-3.5 font-bold whitespace-nowrap">اقلام آموزشی</th>
+                  <th className="p-3.5 font-bold whitespace-nowrap">وضعیت تجاری و قیمت</th>
+                  <th className="p-3.5 font-bold whitespace-nowrap text-center">عملیات</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--color-border)]">
@@ -388,19 +388,19 @@ export function AdminContentStudioPage() {
                         className="font-bold text-[var(--color-text)] text-sm hover:text-[var(--color-primary-default)] transition-colors text-right flex items-center gap-1.5"
                       >
                         <span>{course.name}</span>
-                        <ChevronLeft className="w-3.5 h-3.5 text-[var(--color-primary-default)] opacity-60" />
+                        <ChevronLeft className="w-3.5 h-3.5 text-[var(--color-primary-default)] opacity-60 shrink-0" />
                       </button>
                       {course.description && (
                         <div className="text-[11px] text-[var(--color-text-muted)] line-clamp-1 mt-0.5 max-w-xs">{course.description}</div>
                       )}
                     </td>
-                    <td className="p-4 text-[var(--color-text)] font-medium">
+                    <td className="p-4 text-[var(--color-text)] font-medium whitespace-nowrap">
                       {course.subject || "عمومی"}
                     </td>
-                    <td className="p-4">
+                    <td className="p-4 whitespace-nowrap">
                       {getStatusBadge(course.status)}
                     </td>
-                    <td className="p-4 text-[var(--color-text)]">
+                    <td className="p-4 text-[var(--color-text)] whitespace-nowrap">
                       <div className="flex items-center gap-3 font-semibold">
                         <span className="flex items-center gap-1 text-[var(--color-primary-default)]" title="ماژول‌ها"><Layers className="w-3.5 h-3.5" /> {toPersianDigits(course.moduleCount)}</span>
                         <span className="flex items-center gap-1 text-sky-600 dark:text-sky-400" title="درس‌ها"><BookOpen className="w-3.5 h-3.5" /> {toPersianDigits(course.lessonCount)}</span>
@@ -408,7 +408,7 @@ export function AdminContentStudioPage() {
                         <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400" title="سؤالات تستی"><HelpCircle className="w-3.5 h-3.5" /> {toPersianDigits(course.quizQuestionCount)}</span>
                       </div>
                     </td>
-                    <td className="p-4">
+                    <td className="p-4 whitespace-nowrap">
                       {course.product ? (
                         <div className="space-y-0.5">
                           <div className="font-bold text-emerald-600 dark:text-emerald-400">
@@ -422,13 +422,13 @@ export function AdminContentStudioPage() {
                         <span className="text-[var(--color-text-muted)] text-[11px]">بدون محصول</span>
                       )}
                     </td>
-                    <td className="p-4">
+                    <td className="p-4 whitespace-nowrap">
                       <div className="flex items-center justify-center gap-2">
                         {/* Open Studio Production Workspace */}
                         <button
                           type="button"
                           onClick={() => setSearchParams({ courseId: course.id })}
-                          className="px-3 py-1.5 rounded-xl bg-[var(--color-primary-default)] hover:bg-[var(--color-primary-hover)] active:bg-[var(--color-primary-active)] text-white text-[11px] font-bold transition-all shadow-sm flex items-center gap-1.5"
+                          className="px-3 py-1.5 rounded-xl bg-[var(--color-primary-default)] hover:bg-[var(--color-primary-hover)] active:bg-[var(--color-primary-active)] text-white text-[11px] font-bold transition-all shadow-sm flex items-center gap-1.5 whitespace-nowrap shrink-0"
                           title="ورود به محیط استودیوی تولید محتوا"
                         >
                           <Sparkles className="w-3.5 h-3.5" />

@@ -57,6 +57,7 @@ export function AdminCoursesPage() {
     name: string;
     status?: string;
     product?: { active?: boolean; price?: number } | null;
+    hasPurchaseHistory?: boolean;
   } | null>(null);
 
   // Create course modal state
@@ -316,7 +317,7 @@ export function AdminCoursesPage() {
                 <BookOpen className="w-6 h-6" />
               </div>
               <div>
-                <h1 className="text-xl sm:text-2xl font-black text-[var(--color-text)]">آموزش و دوره‌ها</h1>
+                <h1 className="text-xl sm:text-2xl font-black text-[var(--color-text)] text-center sm:text-right">آموزش و دوره‌ها</h1>
                 <p className="text-xs sm:text-sm text-[var(--color-text-muted)]">
                   مدیریت ساختار آموزشی، تولید محتوا، بازبینی و انتشار دوره‌ها
                 </p>
@@ -572,7 +573,15 @@ export function AdminCoursesPage() {
                     {/* Quick Delete Course Button */}
                     <button
                       type="button"
-                      onClick={() => setDeletingCourse(course)}
+                      onClick={() => {
+                        const official = officialMap.get(course.id);
+                        setDeletingCourse({
+                          ...course,
+                          status: official?.status,
+                          product: official?.product,
+                          hasPurchaseHistory: official?.hasPurchaseHistory,
+                        });
+                      }}
                       aria-label={`حذف دوره ${course.name}`}
                       className="p-2 rounded-lg text-[var(--color-text-muted)] hover:text-rose-500 bg-[var(--color-surface-subtle)] hover:bg-[var(--color-surface)] border border-[var(--color-border)] transition-colors"
                       title="حذف قطعی دوره"

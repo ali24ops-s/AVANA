@@ -950,7 +950,7 @@ export function FlashcardExperience({
           )}
 
           <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
-            <h2 className="font-bold text-xs sm:text-sm md:text-base text-[var(--color-text)] truncate max-w-[120px] sm:max-w-xs">
+            <h2 className="font-bold text-xs sm:text-sm md:text-base text-[var(--color-text)] truncate max-w-[90px] xs:max-w-[120px] sm:max-w-xs">
               {currentCourseInfo ? currentCourseInfo.title : "مرور فلش‌کارت‌ها"}
             </h2>
             {effectiveIsPreview && (
@@ -975,9 +975,9 @@ export function FlashcardExperience({
 
         {/* Progress Center Bar */}
         {effectiveCards.length > 0 && (
-          <div className="flex flex-1 justify-center max-w-[180px] sm:max-w-xs md:max-w-sm mx-2 items-center gap-2 sm:gap-3 min-w-0">
-            <span className="text-[11px] sm:text-xs text-[var(--color-text-muted)] whitespace-nowrap font-medium font-mono">
-              کارت {toPersianDigits(currentIndex + 1)} از {toPersianDigits(effectiveCards.length)}
+          <div className="flex flex-1 justify-center max-w-[90px] xs:max-w-[130px] sm:max-w-xs md:max-w-sm mx-1 sm:mx-2 items-center gap-1.5 sm:gap-3 min-w-0">
+            <span className="text-[10px] sm:text-xs text-[var(--color-text-muted)] whitespace-nowrap font-medium font-mono">
+              {toPersianDigits(currentIndex + 1)}/{toPersianDigits(effectiveCards.length)}
             </span>
             <div className="w-full bg-[var(--color-surface-warm)] border border-[var(--color-border)] rounded-full h-1.5 sm:h-2 overflow-hidden">
               <div
@@ -989,16 +989,16 @@ export function FlashcardExperience({
         )}
 
         {/* Compact 3-Stats Header Pill */}
-        <div className="inline-flex items-center gap-1.5 sm:gap-2.5 px-2 sm:px-3 py-1 bg-[var(--color-surface-warm)] rounded-full border border-[var(--color-border)] shadow-xs text-[11px] sm:text-xs shrink-0">
-          <div className="flex items-center gap-1 border-e border-[var(--color-border)] pe-1.5 sm:pe-2">
+        <div className="inline-flex items-center gap-1 sm:gap-2.5 px-1.5 sm:px-3 py-1 bg-[var(--color-surface-warm)] rounded-full border border-[var(--color-border)] shadow-xs text-[10px] sm:text-xs shrink-0">
+          <div className="flex items-center gap-0.5 sm:gap-1 border-e border-[var(--color-border)] pe-1 sm:pe-2">
             <span className="text-[var(--color-text-muted)] hidden md:inline">دیده‌نشده:</span>
             <span className="font-bold text-[var(--color-primary)]">{toPersianDigits(unseenCount)}</span>
           </div>
-          <div className="flex items-center gap-1 border-e border-[var(--color-border)] pe-1.5 sm:pe-2">
+          <div className="flex items-center gap-0.5 sm:gap-1 border-e border-[var(--color-border)] pe-1 sm:pe-2">
             <span className="text-[var(--color-text-muted)] hidden md:inline">مرور مجدد:</span>
             <span className="font-bold text-[var(--color-error)]">{toPersianDigits(reviewCount)}</span>
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-0.5 sm:gap-1">
             <span className="text-[var(--color-text-muted)] hidden md:inline">پایان‌یافته:</span>
             <span className="font-bold text-[var(--color-success)]">{toPersianDigits(finishedCount)}</span>
           </div>
@@ -1006,9 +1006,9 @@ export function FlashcardExperience({
       </header>
 
       {/* Main Review Area */}
-      <div className="flex-1 flex flex-col items-center justify-between p-2 sm:p-4 md:p-6 z-10 w-full max-w-4xl mx-auto min-h-0 overflow-hidden">
+      <div className="flex-1 flex flex-col items-center justify-center p-2 sm:p-4 md:p-6 z-10 w-full max-w-4xl mx-auto min-h-0 overflow-hidden gap-2.5 sm:gap-3.5">
         {reviewMutation.isError && (
-          <div className="w-full mb-2 sm:mb-3 shrink-0">
+          <div className="w-full mb-1 sm:mb-2 shrink-0">
             <div className="p-2 sm:p-3 bg-[var(--color-error-soft)] rounded-[10px] border border-[var(--color-error-muted)] text-xs text-[var(--color-error)] flex items-center gap-2 justify-center">
               <AlertCircle className="w-4 h-4" />
               <span>خطا در ثبت بازخورد مرور. لطفاً دوباره تلاش کنید.</span>
@@ -1033,7 +1033,7 @@ export function FlashcardExperience({
                 handleFlip();
               }
             }}
-            className="w-full flex-1 flex flex-col min-h-0 max-h-[480px] md:max-h-[500px] bg-[var(--color-surface)] rounded-[16px] sm:rounded-[18px] border border-[var(--color-border)] shadow-xs overflow-hidden transition-all duration-300 relative cursor-pointer group focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/40 my-auto"
+            className="w-full flex-1 flex flex-col min-h-0 max-h-[460px] md:max-h-[480px] bg-[var(--color-surface)] rounded-[16px] sm:rounded-[18px] border border-[var(--color-border)] shadow-xs overflow-hidden transition-all duration-300 relative cursor-pointer group focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/40"
           >
             {/* Integrated Card Top Bar */}
             <div
@@ -1116,18 +1116,18 @@ export function FlashcardExperience({
                 <>
                   {/* Question View */}
                   <div className={`w-full flex-col items-center justify-center my-auto ${isFlipped ? "hidden" : "flex"}`}>
-                    <h3 className="text-xs sm:text-sm md:text-lg lg:text-xl font-bold text-[var(--color-text)] leading-relaxed max-w-3xl text-center">
+                    <h3 className="text-sm sm:text-base md:text-lg lg:text-xl font-bold text-[var(--color-text)] leading-relaxed max-w-3xl text-center break-words">
                       <RichContent content={currentCard.question} inline />
                     </h3>
                   </div>
 
                   {/* Answer View */}
                   <div className={`w-full flex-col items-center justify-center my-auto space-y-3 sm:space-y-4 ${isFlipped ? "flex" : "hidden"}`}>
-                    <div className="text-xs sm:text-sm md:text-base lg:text-lg font-bold text-[var(--color-text)] leading-relaxed max-w-3xl text-center">
+                    <div className="text-sm sm:text-base md:text-lg lg:text-xl font-bold text-[var(--color-text)] leading-relaxed max-w-3xl text-center break-words">
                       <RichContent content={currentCard.answer} inline />
                     </div>
                     {currentCard.explanation && (
-                      <div className="w-full max-w-3xl p-3 sm:p-3.5 bg-[var(--color-surface-warm)] rounded-[12px] border border-[var(--color-border)] text-xs sm:text-sm text-[var(--color-text-secondary)] leading-relaxed text-right">
+                      <div className="w-full max-w-3xl p-3 sm:p-3.5 bg-[var(--color-surface-warm)] rounded-[12px] border border-[var(--color-border)] text-xs sm:text-sm text-[var(--color-text-secondary)] leading-relaxed text-right break-words">
                         <span className="font-bold text-[var(--color-primary)] inline-flex items-center gap-1.5 ml-1.5 align-middle">
                           <Lightbulb className="w-3.5 h-3.5 text-[var(--color-primary)] shrink-0" />
                           <span>توضیح تکمیلی:</span>
@@ -1142,42 +1142,67 @@ export function FlashcardExperience({
               )}
             </div>
 
-            {/* Clean Bottom Touch Prompt */}
-            <div className="flex justify-center items-center gap-1.5 sm:gap-2 text-[11px] sm:text-xs py-2 px-3 sm:px-4 bg-[var(--color-surface-warm)]/30 border-t border-[var(--color-border)] w-full shrink-0 text-[var(--color-text-muted)]">
-              {!isFlipped ? (
-                <>
-                  <Pointer className="w-3.5 h-3.5 text-[var(--color-primary)]" />
-                  <span>برای مشاهده پاسخ کلیک کنید یا کلید Space را فشار دهید</span>
-                </>
-              ) : (
-                <>
-                  <Sparkles className="w-3.5 h-3.5 text-[var(--color-primary)]" />
-                  <span className="text-[var(--color-primary)] font-medium">پاسخ نمایان شد — سطح یادگیری خود را انتخاب کنید</span>
-                </>
-              )}
+            {/* Clean Bottom Touch Prompt with Navigation */}
+            <div
+              className="flex items-center justify-between gap-1 sm:gap-2 py-1.5 sm:py-2 px-2 sm:px-4 bg-[var(--color-surface-warm)]/30 border-t border-[var(--color-border)] w-full shrink-0 select-none"
+              dir="ltr"
+            >
+              {/* Previous Button (Left: ← قبلی) */}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handlePrevCard();
+                }}
+                disabled={currentIndex === 0 || isSubmitting || reviewMutation.isPending}
+                aria-label="کارت قبلی"
+                title="کارت قبلی"
+                className="flex items-center justify-center min-w-[36px] min-h-[36px] w-9 h-9 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)] hover:bg-[var(--color-surface-hover)] disabled:opacity-30 disabled:pointer-events-none transition-colors shrink-0 shadow-2xs touch-manipulation cursor-pointer active:scale-95"
+              >
+                <ChevronLeft className="w-5 h-5 text-[var(--color-text)]" />
+              </button>
+
+              {/* Center Touch Prompt */}
+              <div
+                className="flex-1 flex justify-center items-center gap-1.5 sm:gap-2 text-[10px] xs:text-[11px] sm:text-xs text-[var(--color-text-muted)] min-w-0 px-1 text-center"
+                dir="rtl"
+              >
+                {!isFlipped ? (
+                  <>
+                    <Pointer className="w-3.5 h-3.5 text-[var(--color-primary)] shrink-0 hidden xs:inline-block" />
+                    <span className="truncate sm:overflow-visible">برای مشاهده پاسخ کلیک کنید یا کلید Space را فشار دهید</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-3.5 h-3.5 text-[var(--color-primary)] shrink-0 hidden xs:inline-block" />
+                    <span className="truncate sm:overflow-visible text-[var(--color-primary)] font-medium">پاسخ نمایان شد — سطح یادگیری خود را انتخاب کنید</span>
+                  </>
+                )}
+              </div>
+
+              {/* Next Button (Right: → بعدی) */}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleNextCard();
+                }}
+                disabled={(currentIndex >= effectiveCards.length - 1 && isFlipped) || isSubmitting || reviewMutation.isPending}
+                aria-label="کارت بعدی"
+                title="کارت بعدی"
+                className="flex items-center justify-center min-w-[36px] min-h-[36px] w-9 h-9 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)] hover:bg-[var(--color-surface-hover)] disabled:opacity-30 disabled:pointer-events-none transition-colors shrink-0 shadow-2xs touch-manipulation cursor-pointer active:scale-95"
+              >
+                <ChevronRight className="w-5 h-5 text-[var(--color-text)]" />
+              </button>
             </div>
           </div>
         )}
 
         {/* Spaced Repetition Review Controls */}
-        <div className="w-full max-w-4xl flex items-center gap-2 sm:gap-3 pt-2 sm:pt-3 shrink-0 z-20">
-          {/* Previous Button */}
-          <Button
-            type="button"
-            variant="outline"
-            size="md"
-            onClick={handlePrevCard}
-            disabled={currentIndex === 0 || isSubmitting || reviewMutation.isPending}
-            aria-label="کارت قبلی"
-            title="کارت قبلی"
-            className="shrink-0 w-10 h-10 sm:w-11 sm:h-11 md:w-12 md:h-12 !p-0 rounded-full"
-          >
-            <ChevronRight className="w-5 h-5 text-[var(--color-text)]" />
-          </Button>
-
+        <div className="w-full max-w-4xl flex items-center shrink-0 z-20">
           {/* 4-Button SRS Rating Grid */}
           <div
-            className={`flex-1 grid grid-cols-4 gap-1.5 sm:gap-2 md:gap-3 transition-opacity duration-300 ${
+            className={`w-full flex-1 grid grid-cols-4 gap-1.5 sm:gap-2 md:gap-3 transition-opacity duration-300 ${
               isFlipped ? "opacity-100" : "opacity-40 pointer-events-none"
             }`}
             id="review-controls"
@@ -1188,14 +1213,14 @@ export function FlashcardExperience({
               onClick={() => handleRating("again")}
               disabled={!isFlipped || isSubmitting || reviewMutation.isPending}
               aria-label="تکرار"
-              className="flex flex-col items-center justify-center py-2 sm:py-2.5 md:py-3 px-1 md:px-2 rounded-[12px] bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-[var(--color-error)] hover:bg-[var(--color-error-soft)] transition-all group disabled:opacity-50 cursor-pointer shadow-xs"
+              className="flex flex-col items-center justify-center min-h-[48px] py-1.5 sm:py-2.5 md:py-3 px-1 sm:px-1.5 md:px-2 rounded-xl bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-[var(--color-error)] hover:bg-[var(--color-error-soft)] transition-all group disabled:opacity-50 cursor-pointer shadow-xs active:scale-[0.98] touch-manipulation"
             >
               {selectedRating === "again" && isSubmitting ? (
                 <Loader2 className="w-4 h-4 animate-spin text-[var(--color-error)]" />
               ) : (
                 <>
-                  <span className="text-xs md:text-sm font-bold text-[var(--color-text)] mb-0.5">دوباره</span>
-                  <span className="text-[10px] sm:text-[11px] md:text-xs font-bold text-[var(--color-error)]">
+                  <span className="text-xs sm:text-xs md:text-sm font-bold text-[var(--color-text)] mb-0.5 whitespace-nowrap">دوباره</span>
+                  <span className="text-[10px] sm:text-[11px] md:text-xs font-bold text-[var(--color-error)] whitespace-nowrap">
                     {getIntervalHint("again", currentCard)}
                   </span>
                 </>
@@ -1208,14 +1233,14 @@ export function FlashcardExperience({
               onClick={() => handleRating("hard")}
               disabled={!isFlipped || isSubmitting || reviewMutation.isPending}
               aria-label="سخت"
-              className="flex flex-col items-center justify-center py-2 sm:py-2.5 md:py-3 px-1 md:px-2 rounded-[12px] bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-[var(--color-warning)] hover:bg-[var(--color-warning-soft)] transition-all group disabled:opacity-50 cursor-pointer shadow-xs"
+              className="flex flex-col items-center justify-center min-h-[48px] py-1.5 sm:py-2.5 md:py-3 px-1 sm:px-1.5 md:px-2 rounded-xl bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-[var(--color-warning)] hover:bg-[var(--color-warning-soft)] transition-all group disabled:opacity-50 cursor-pointer shadow-xs active:scale-[0.98] touch-manipulation"
             >
               {selectedRating === "hard" && isSubmitting ? (
                 <Loader2 className="w-4 h-4 animate-spin text-[var(--color-warning)]" />
               ) : (
                 <>
-                  <span className="text-xs md:text-sm font-bold text-[var(--color-text)] mb-0.5">سخت</span>
-                  <span className="text-[10px] sm:text-[11px] md:text-xs font-bold text-[var(--color-warning)]">
+                  <span className="text-xs sm:text-xs md:text-sm font-bold text-[var(--color-text)] mb-0.5 whitespace-nowrap">سخت</span>
+                  <span className="text-[10px] sm:text-[11px] md:text-xs font-bold text-[var(--color-warning)] whitespace-nowrap">
                     {getIntervalHint("hard", currentCard)}
                   </span>
                 </>
@@ -1228,14 +1253,14 @@ export function FlashcardExperience({
               onClick={() => handleRating("good")}
               disabled={!isFlipped || isSubmitting || reviewMutation.isPending}
               aria-label="خوب"
-              className="flex flex-col items-center justify-center py-2 sm:py-2.5 md:py-3 px-1 md:px-2 rounded-[12px] bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-[var(--color-secondary)] hover:bg-[var(--color-secondary-light)] transition-all group disabled:opacity-50 cursor-pointer shadow-xs"
+              className="flex flex-col items-center justify-center min-h-[48px] py-1.5 sm:py-2.5 md:py-3 px-1 sm:px-1.5 md:px-2 rounded-xl bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-[var(--color-secondary)] hover:bg-[var(--color-secondary-light)] transition-all group disabled:opacity-50 cursor-pointer shadow-xs active:scale-[0.98] touch-manipulation"
             >
               {selectedRating === "good" && isSubmitting ? (
                 <Loader2 className="w-4 h-4 animate-spin text-[var(--color-secondary-dark)]" />
               ) : (
                 <>
-                  <span className="text-xs md:text-sm font-bold text-[var(--color-text)] mb-0.5">خوب</span>
-                  <span className="text-[10px] sm:text-[11px] md:text-xs font-bold text-[var(--color-secondary-dark)]">
+                  <span className="text-xs sm:text-xs md:text-sm font-bold text-[var(--color-text)] mb-0.5 whitespace-nowrap">خوب</span>
+                  <span className="text-[10px] sm:text-[11px] md:text-xs font-bold text-[var(--color-secondary-dark)] whitespace-nowrap">
                     {getIntervalHint("good", currentCard)}
                   </span>
                 </>
@@ -1248,34 +1273,20 @@ export function FlashcardExperience({
               onClick={() => handleRating("easy")}
               disabled={!isFlipped || isSubmitting || reviewMutation.isPending}
               aria-label="آسان"
-              className="flex flex-col items-center justify-center py-2 sm:py-2.5 md:py-3 px-1 md:px-2 rounded-[12px] bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-[var(--color-success)] hover:bg-[var(--color-success-soft)] transition-all group disabled:opacity-50 cursor-pointer shadow-xs"
+              className="flex flex-col items-center justify-center min-h-[48px] py-1.5 sm:py-2.5 md:py-3 px-1 sm:px-1.5 md:px-2 rounded-xl bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-[var(--color-success)] hover:bg-[var(--color-success-soft)] transition-all group disabled:opacity-50 cursor-pointer shadow-xs active:scale-[0.98] touch-manipulation"
             >
               {selectedRating === "easy" && isSubmitting ? (
                 <Loader2 className="w-4 h-4 animate-spin text-[var(--color-success)]" />
               ) : (
                 <>
-                  <span className="text-xs md:text-sm font-bold text-[var(--color-text)] mb-0.5">آسان</span>
-                  <span className="text-[10px] sm:text-[11px] md:text-xs font-bold text-[var(--color-success)]">
+                  <span className="text-xs sm:text-xs md:text-sm font-bold text-[var(--color-text)] mb-0.5 whitespace-nowrap">آسان</span>
+                  <span className="text-[10px] sm:text-[11px] md:text-xs font-bold text-[var(--color-success)] whitespace-nowrap">
                     {getIntervalHint("easy", currentCard)}
                   </span>
                 </>
               )}
             </button>
           </div>
-
-          {/* Next Button */}
-          <Button
-            type="button"
-            variant="outline"
-            size="md"
-            onClick={handleNextCard}
-            disabled={(currentIndex >= effectiveCards.length - 1 && isFlipped) || isSubmitting || reviewMutation.isPending}
-            aria-label="کارت بعدی"
-            title="کارت بعدی"
-            className="flex-shrink-0 w-11 h-11 md:w-12 md:h-12 !p-0 rounded-full"
-          >
-            <ChevronLeft className="w-5 h-5 text-[var(--color-text)]" />
-          </Button>
         </div>
       </div>
     </div>

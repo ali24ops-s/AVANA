@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   isFilenameLike,
   isSuspiciousTitle,
+  isPollutedModuleTitle,
+  stripContentTypePrefix,
   cleanEducationalTitle,
   formatModuleTitle,
   resolveCanonicalContentTitle,
@@ -176,6 +178,63 @@ describe("AVANA Content Title Invariants", () => {
       const realDesc = "این فصل به بررسی دقیق پاتوفیزیولوژی، علائم بالینی و پروتکل‌های درمانی آریتمی‌های قلبی می‌پردازد.";
       expect(isFilenameOrPlaceholderDescription(realDesc)).toBe(false);
       expect(cleanEducationalDescription(realDesc)).toBe(realDesc);
+    });
+  });
+
+  describe("Anti-Pollution Invariants: Content Type Prefixes", () => {
+    it("isPollutedModuleTitle detects flashcard, quiz, and summary prefixes", () => {
+      expect(isPollutedModuleTitle("فصل: فلش‌کارت‌های آموزشی: تنظیم کلیوی الکترولیت‌ها")).toBe(true);
+      expect(isPollutedModuleTitle("فصل: فلش کارتهای آموزشی: تنظیم کلیوی")).toBe(true);
+      expect(isPollutedModuleTitle("فلش‌کارت‌های آموزشی: فیزیولوژی اعصاب")).toBe(true);
+      expect(isPollutedModuleTitle("مجموعه ۱۰ فلش‌کارت آموزشی: قلب")).toBe(true);
+      expect(isPollutedModuleTitle("فصل: آزمون ارزیابی آموخته‌ها: قلب و عروق")).toBe(true);
+      expect(isPollutedModuleTitle("فصل: خلاصه مروری: غدد درون‌ریز")).toBe(true);
+      expect(isPollutedModuleTitle("")).toBe(true);
+      expect(isPollutedModuleTitle(null)).toBe(true);
+
+      // Clean titles must NOT be flagged as polluted
+      expect(isPollutedModuleTitle("فصل: تنظیم فیزیولوژیک تعادل اسید و باز")).toBe(false);
+      expect(isPollutedModuleTitle("مقدمه‌ای بر فارماکولوژی دستگاه عصبی")).toBe(false);
+      expect(isPollutedModuleTitle("فصل ۱: فیزیولوژی سلول")).toBe(false);
+    });
+
+    it("stripContentTypePrefix cleanly removes content-type prefixes", () => {
+      expect(
+        stripContentTypePrefix("فصل: فلش‌کارت‌های آموزشی: تنظیم کلیوی الکترولیت‌ها"),
+      ).toBe("تنظیم کلیوی الکترولیت‌ها");
+      expect(
+        stripContentTypePrefix("فلش‌کارت‌های آموزشی: فیزیولوژی اعصاب مرکزی"),
+      ).toBe("فیزیولوژی اعصاب مرکزی");
+      expect(
+        stripContentTypePrefix("فصل: آزمون ارزیابی آموخته‌ها: قلب و عروق"),
+      ).toBe("قلب و عروق");
+      expect(
+        stripContentTypePrefix("فصل: خلاصه مروری: غدد درون‌ریز"),
+      ).toBe("غدد درون‌ریز");
+    });
+
+    it("formatModuleTitle never creates a module title with flashcard prefix", () => {
+      // Even if flashcard-polluted string is passed to formatModuleTitle, it must sanitize it
+      expect(
+        formatModuleTitle("فصل: فلش‌کارت‌های آموزشی: تنظیم کلیوی الکترولیت‌ها"),
+      ).toBe("فصل: تنظیم کلیوی الکترولیت‌ها");
+      expect(
+        formatModuleTitle("فلش‌کارت‌های آموزشی: مقدمه‌ای بر غدد درون‌ریز"),
+      ).toBe("فصل: مقدمه‌ای بر غدد درون‌ریز");
+      expect(
+        formatModuleTitle("مجموعه فلش‌کارت آموزشی"),
+      ).toBe("فصل: مبحث آموزشی جامع");
+      expect(
+        formatModuleTitle("فصل: فلش‌کارت‌های آموزشی:"),
+      ).toBe("فصل: مبحث آموزشی جامع");
+    });
+
+    it("isSuspiciousTitle flags polluted titles as suspicious", () => {
+      expect(isSuspiciousTitle("فصل: فلش‌کارت‌های آموزشی: تنظیم کلیوی")).toBe(true);
+      expect(isSuspiciousTitle("فصل: آزمون ارزیابی: فیزیولوژی")).toBe(true);
+      expect(isSuspiciousTitle("فصل: خلاصه مروری: کلیه")).toBe(true);
+      // Valid title remains unsuspicious
+      expect(isSuspiciousTitle("فصل: تنظیم کلیوی الکترولیت‌ها")).toBe(false);
     });
   });
 });

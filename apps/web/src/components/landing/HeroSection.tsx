@@ -86,7 +86,7 @@ export function HeroSection() {
           className="lg:col-span-5 flex flex-col gap-6 z-10"
         >
           {/* Headline */}
-          <h1 className="font-headline text-3xl sm:text-4xl md:text-5xl lg:text-[50px] leading-[1.22] font-black text-[#1a2226] tracking-tight">
+          <h1 className="font-headline text-3xl sm:text-4xl md:text-5xl lg:text-[50px] leading-[1.22] font-black text-[#1a2226] tracking-tight text-center lg:text-right">
             جزوهات را بده به آوانا.
             <br />
             <span className="text-[#008080]">یادگیریش با آوانا.</span>

@@ -611,4 +611,146 @@ describe("Popular Avana Courses (محبوب‌ترین دوره‌ها) Integrat
       await app.close();
     });
   });
+
+  describe("Publication Status Eligibility in Popular Courses (فقط دوره‌های منتشر شده)", () => {
+    function makeCustomCourse(
+      name: string,
+      orgId: string,
+      status: import("@avana/domain").CourseStatus,
+      isOfficial = false,
+      subject = "Medical",
+    ) {
+      const id = randomUUID() as CourseId;
+      const record = {
+        id,
+        organizationId: orgId as OrganizationId,
+        name,
+        subject,
+        status,
+        isOfficial,
+        examDate: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      };
+      return courseStore.create({ course: record, auditEvents: [] });
+    }
+
+    it("excludes courses in draft, generating, review, pending_review, rejected, or archived status", async () => {
+      const app = await buildApp();
+      const user = await signIn(app, "pub_check@example.com");
+      const org = await createOrg(app, user.token, "Pub Org");
+
+      // Create published course
+      const pubCourse = await makeCustomCourse(
+        "دوره منتشر شده معتبر",
+        org.id,
+        "published",
+      );
+
+      // Create non-published courses across all other lifecycle statuses
+      const nonPublishedStatuses: import("@avana/domain").CourseStatus[] = [
+        "draft",
+        "generating",
+        "review",
+        "pending_review",
+        "rejected",
+        "archived",
+      ];
+
+      for (const status of nonPublishedStatuses) {
+        const c = await makeCustomCourse(
+          `دوره در وضعیت ${status}`,
+          org.id,
+          status,
+        );
+        // Even if users add these non-published courses
+        await courseStore.addUserCourse(user.userId as UserId, c.id);
+        await courseStore.addUserCourse("u2" as UserId, c.id);
+        await courseStore.addUserCourse("u3" as UserId, c.id);
+      }
+
+      await courseStore.addUserCourse(user.userId as UserId, pubCourse.id);
+
+      const popRes = await app.inject({
+        method: "GET",
+        url: `/v1/organizations/${org.id}/courses/popular`,
+        cookies: { avana_session: user.token },
+      });
+
+      expect(popRes.statusCode).toBe(200);
+      const popData = JSON.parse(popRes.body) as { items: Array<{ id: string; title: string }> };
+
+      expect(popData.items.length).toBe(1);
+      expect(popData.items[0].id).toBe(pubCourse.id);
+
+      await app.close();
+    });
+
+    it("Combined scenario: unpublished courses with highest popularity scores are excluded, only published courses are returned preserving popularity ranking", async () => {
+      const app = await buildApp();
+      const user = await signIn(app, "hybrid_user@example.com");
+      const org = await createOrg(app, user.token, "Hybrid Org");
+
+      // Published courses with varying popularity
+      const pubTop = await makeCustomCourse("دوره منتشر شده ۱ (محبوب‌ترین)", org.id, "published");
+      const pubMid = await makeCustomCourse("دوره منتشر شده ۲ (متوسط)", org.id, "published");
+      const pubLow = await makeCustomCourse("دوره منتشر شده ۳ (کمترین)", org.id, "published");
+
+      // Unpublished courses with EVEN HIGHER popularity scores than published ones
+      const draftSuperPopular = await makeCustomCourse("دوره پیش‌نویس بسیار محبوب", org.id, "draft");
+      const pendingSuperPopular = await makeCustomCourse("دوره در حال بررسی بسیار محبوب", org.id, "pending_review");
+      const reviewSuperPopular = await makeCustomCourse("دوره در حال بازبینی بسیار محبوب", org.id, "review");
+
+      // Add users:
+      // Draft has 10 users
+      for (let i = 1; i <= 10; i++) {
+        await courseStore.addUserCourse(`user_${i}` as UserId, draftSuperPopular.id);
+      }
+      // Pending review has 8 users
+      for (let i = 1; i <= 8; i++) {
+        await courseStore.addUserCourse(`user_${i}` as UserId, pendingSuperPopular.id);
+      }
+      // Review has 7 users
+      for (let i = 1; i <= 7; i++) {
+        await courseStore.addUserCourse(`user_${i}` as UserId, reviewSuperPopular.id);
+      }
+
+      // Published courses: pubTop has 5 users, pubMid has 3 users, pubLow has 1 user
+      for (let i = 1; i <= 5; i++) {
+        await courseStore.addUserCourse(`user_${i}` as UserId, pubTop.id);
+      }
+      for (let i = 1; i <= 3; i++) {
+        await courseStore.addUserCourse(`user_${i}` as UserId, pubMid.id);
+      }
+      for (let i = 1; i <= 1; i++) {
+        await courseStore.addUserCourse(`user_${i}` as UserId, pubLow.id);
+      }
+
+      const popRes = await app.inject({
+        method: "GET",
+        url: `/v1/organizations/${org.id}/courses/popular`,
+        cookies: { avana_session: user.token },
+      });
+
+      expect(popRes.statusCode).toBe(200);
+      const popData = JSON.parse(popRes.body) as { items: Array<{ id: string; title: string }> };
+
+      // Result MUST only contain the 3 published courses
+      expect(popData.items.length).toBe(3);
+      // Order among published courses MUST be strictly preserved (Top -> Mid -> Low)
+      expect(popData.items[0].id).toBe(pubTop.id);
+      expect(popData.items[1].id).toBe(pubMid.id);
+      expect(popData.items[2].id).toBe(pubLow.id);
+
+      // Verify none of the unpublished courses are present
+      const returnedIds = popData.items.map((c) => c.id);
+      expect(returnedIds).not.toContain(draftSuperPopular.id);
+      expect(returnedIds).not.toContain(pendingSuperPopular.id);
+      expect(returnedIds).not.toContain(reviewSuperPopular.id);
+
+      await app.close();
+    });
+  });
 });
+

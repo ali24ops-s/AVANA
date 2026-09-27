@@ -355,30 +355,30 @@ export function EditContentDialog({
     >
       <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] w-full max-w-3xl overflow-hidden shadow-2xl flex flex-col max-h-[92vh]">
         {/* Header */}
-        <div className="flex items-center justify-between p-4 sm:p-5 border-b border-[var(--color-border)]">
-          <div className="flex items-center gap-2.5">
-            <h3 id="edit-draft-dialog-title" className="font-bold text-base text-[var(--color-text)]">
+        <div className="flex items-center justify-between p-3.5 sm:p-5 border-b border-[var(--color-border)] gap-2">
+          <div className="flex items-center gap-2 flex-wrap min-w-0">
+            <h3 id="edit-draft-dialog-title" className="font-bold text-sm sm:text-base text-[var(--color-text)] truncate">
               {isAccepted ? "ویرایش محتوای منتشرشده" : "ویرایش پیش‌نویس محتوا"}
             </h3>
             <Badge
               variant={isAccepted ? "success" : "neutral"}
               size="sm"
             >
-              {isAccepted ? "تایید و منتشر شده" : "پیش‌نویس / در بازبینی"}
+              {isAccepted ? "تایید و منتشر شده" : "پیش‌نویس"}
             </Badge>
           </div>
           <button
             type="button"
             onClick={handleRequestClose}
             aria-label="بستن پنجره"
-            className="p-1.5 rounded-xl text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] transition-colors cursor-pointer"
+            className="p-1.5 rounded-xl text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] transition-colors cursor-pointer shrink-0 min-w-[36px] min-h-[36px] flex items-center justify-center"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Body Content */}
-        <div className="p-4 sm:p-6 space-y-4 overflow-y-auto flex-1">
+        <div className="p-3.5 sm:p-6 space-y-4 overflow-y-auto flex-1">
           {error && (
             <div className="flex items-center gap-2 p-3 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-xl text-red-700 dark:text-red-400 text-xs">
               <AlertCircle className="w-4 h-4 flex-shrink-0" />
@@ -392,6 +392,15 @@ export function EditContentDialog({
               data={lessonData}
               onChange={setLessonData}
               errors={fieldErrors}
+              lessonId={
+                typeof payload?.lessonId === "string"
+                  ? payload.lessonId
+                  : typeof payload?.materializedLessonId === "string"
+                  ? payload.materializedLessonId
+                  : undefined
+              }
+              generatedContentId={content.id}
+              organizationId={organizationId}
             />
           )}
 
@@ -413,16 +422,16 @@ export function EditContentDialog({
         </div>
 
         {/* Footer actions */}
-        <div className="flex items-center justify-between gap-3 p-4 border-t border-[var(--color-border)] bg-[var(--color-surface-warm)]/60">
+        <div className="flex items-center justify-between gap-2.5 p-3.5 sm:p-4 border-t border-[var(--color-border)] bg-[var(--color-surface-warm)]/60">
           <span className="text-[11px] text-[var(--color-text-muted)] hidden sm:inline">
             {isDirty ? "تغییرات ذخیره‌نشده دارید." : "تغییری اعمال نشده است."}
           </span>
-          <div className="flex items-center gap-2.5 ms-auto">
+          <div className="flex items-center gap-2 ms-auto w-full sm:w-auto justify-end">
             <button
               type="button"
               onClick={handleRequestClose}
               disabled={editMutation.isPending}
-              className="px-4 py-2 text-xs font-bold text-[var(--color-text-muted)] hover:text-[var(--color-text)] cursor-pointer"
+              className="flex-1 sm:flex-initial px-4 py-2.5 text-xs font-bold text-[var(--color-text-muted)] hover:text-[var(--color-text)] cursor-pointer text-center"
             >
               انصراف
             </button>
@@ -430,7 +439,7 @@ export function EditContentDialog({
               type="button"
               onClick={() => editMutation.mutate()}
               disabled={editMutation.isPending}
-              className="px-5 py-2.5 bg-[var(--color-primary-default)] hover:bg-[var(--color-primary-hover)] text-[var(--color-primary-contrast)] rounded-xl text-xs font-bold flex items-center gap-1.5 disabled:opacity-50 shadow-sm transition-colors cursor-pointer"
+              className="flex-1 sm:flex-initial px-5 py-2.5 bg-[var(--color-primary-default)] hover:bg-[var(--color-primary-hover)] text-[var(--color-primary-contrast)] rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 disabled:opacity-50 shadow-sm transition-colors cursor-pointer"
             >
               {editMutation.isPending ? (
                 <>

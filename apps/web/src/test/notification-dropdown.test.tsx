@@ -94,7 +94,7 @@ describe("NotificationDropdown Component", () => {
     renderComponent();
 
     // The badge with unread count "1" should be rendered
-    const badge = await screen.findByText("1");
+    const badge = await screen.findByText(/1|۱/);
     expect(badge).toBeDefined();
     expect(screen.getByRole("button", { name: /اعلان/i })).toBeDefined();
   });

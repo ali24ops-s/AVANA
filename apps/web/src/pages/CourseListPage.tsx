@@ -279,11 +279,11 @@ export function CourseListPage() {
       {/* Page header with Add Course CTA */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-h1 text-[var(--color-text)]">دوره‌های من</h1>
+          <h1 className="text-h1 text-[var(--color-text)] text-center sm:text-right">دوره‌های من</h1>
           <p className="text-[var(--color-text-muted)] mt-1 text-xs">{formatWorkspaceName(organization.name)}</p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {myCourses.length > 0 && (
             <span className="text-xs font-bold text-[#006666] dark:text-teal-200 bg-primary/10 px-3 py-1.5 rounded-full border border-primary/30">
               {toPersianDigits(myCourses.length)} دوره در لیست شما
@@ -317,7 +317,7 @@ export function CourseListPage() {
           title="هنوز دوره‌ای به لیست شما اضافه نشده است"
           description="می‌توانید یک دوره شخصی جدید بسازید یا دوره‌های آماده را از کتابخانه انتخاب کنید."
           action={
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center justify-center gap-3">
               <Button
                 variant="primary"
                 size="md"

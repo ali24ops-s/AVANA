@@ -4,6 +4,8 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ExamTakingView } from "../components/quiz/ExamTakingView";
+import { PageHeader } from "../components/ui/PageHeader";
+import { SectionHeading } from "../components/about/shared/SectionHeading";
 
 describe("Phase 2G — Canonical Typography Migration", () => {
   it("renders canonical heading hierarchy elements properly", () => {
@@ -89,4 +91,56 @@ describe("Phase 2G — Canonical Typography Migration", () => {
     expect(sectionSubheading).toHaveClass("text-h4");
     expect(sectionSubheading.className).not.toContain("font-title-md");
   });
+
+  it("verifies PageHeader renders main page title with responsive mobile center alignment", () => {
+    const { container } = render(
+      <PageHeader
+        title="تراکنش‌ها و خریدهای من"
+        description="مشاهده سوابق و وضعیت اشتراک‌ها"
+      />
+    );
+
+    const h1 = container.querySelector("h1");
+    expect(h1).toBeInTheDocument();
+    expect(h1).toHaveClass("text-center");
+    expect(h1).toHaveClass("sm:text-right");
+    expect(h1?.textContent).toBe("تراکنش‌ها و خریدهای من");
+  });
+
+  it("verifies PageHeader renders badge alongside main heading centered on mobile", () => {
+    const { container } = render(
+      <PageHeader
+        title="تراکنش‌ها و خریدهای من"
+        badge={{ text: "ویژه" }}
+      />
+    );
+
+    const h1 = container.querySelector("h1");
+    expect(h1).toHaveClass("text-center");
+    expect(h1).toHaveClass("sm:text-right");
+
+    const badgeContainer = h1?.parentElement;
+    expect(badgeContainer).toHaveClass("justify-center");
+    expect(badgeContainer).toHaveClass("sm:justify-start");
+  });
+
+  it("verifies SectionHeading renders level-2 section headings with responsive mobile center alignment", () => {
+    const { container } = render(
+      <SectionHeading
+        badge="چالش اصلی"
+        title="چرا روش‌های سنتی پاسخگو نیستند؟"
+        align="right"
+      />
+    );
+
+    const h2 = container.querySelector("h2");
+    expect(h2).toBeInTheDocument();
+    expect(h2).toHaveClass("text-center");
+    expect(h2).toHaveClass("sm:text-right");
+
+    const rootContainer = h2?.parentElement;
+    expect(rootContainer).toHaveClass("items-center");
+    expect(rootContainer).toHaveClass("sm:items-start");
+  });
 });
+

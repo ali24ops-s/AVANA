@@ -88,7 +88,7 @@ export function UserSubscriptionPage() {
           <>
             <Link
               to="/account/wallet"
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-[var(--color-text)] hover:text-primary bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] border border-[var(--color-border)] transition-colors shadow-xs"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-[var(--color-text)] hover:text-primary bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] border border-[var(--color-border)] transition-colors shadow-xs whitespace-nowrap shrink-0"
             >
               <Wallet className="w-4 h-4 text-primary" />
               <span>کیف پول من</span>
@@ -96,7 +96,7 @@ export function UserSubscriptionPage() {
 
             <Link
               to="/account/purchases"
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-[var(--color-text)] hover:text-primary bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] border border-[var(--color-border)] transition-colors shadow-xs"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-[var(--color-text)] hover:text-primary bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] border border-[var(--color-border)] transition-colors shadow-xs whitespace-nowrap shrink-0"
             >
               <Receipt className="w-4 h-4 text-primary" />
               <span>فاکتورها و خریدهای من</span>

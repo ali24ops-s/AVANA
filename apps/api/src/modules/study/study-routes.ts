@@ -25,6 +25,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import {
   type Actor,
+  type Role,
   type CourseId,
   type ModuleId,
   type LessonId,
@@ -216,7 +217,7 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
   /** Helper to extract actor from authenticated request. */
   function getActor(request: unknown): Actor {
     const reqAny = request as {
-      user?: { userId: string; email: string; role: string };
+      user?: { userId: string; email: string; role: string; globalRole?: string | null };
     };
     if (!reqAny.user) {
       throw new DomainError("unauthorized", "Not signed in");
@@ -224,6 +225,7 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
     return {
       userId: reqAny.user.userId as Actor["userId"],
       role: reqAny.user.role as Actor["role"],
+      globalRole: (reqAny.user.globalRole as Role) ?? null,
     };
   }
 

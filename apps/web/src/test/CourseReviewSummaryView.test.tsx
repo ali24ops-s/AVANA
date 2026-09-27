@@ -208,4 +208,86 @@ describe("CourseReviewSummaryView & Preview Access Control", () => {
     fireEvent.click(unlockBtn);
     expect(onUnlock).toHaveBeenCalledTimes(1);
   });
+
+  it("renders short, long, and multi-line chapter titles without mobile truncation or overlap", async () => {
+    const variedLengthModules = [
+      {
+        id: "mod-short",
+        title: "قلب",
+        document_id: "doc-short",
+        sort_order: 1,
+      },
+      {
+        id: "mod-long",
+        title: "فصل ۲ — فارماکولوژی داروهای کاهنده فشار خون و گشادکننده عروق کرونر",
+        document_id: "doc-long",
+        sort_order: 2,
+      },
+      {
+        id: "mod-very-long",
+        title: "فصل ۳ — فیزیوپاتولوژی اختلالات حاد متابولیک، شوک سپتیک، مدیریت مایع‌درمانی و نارسایی ارگان‌های حیاتی در بخش مراقبت‌های ویژه",
+        document_id: "doc-very-long",
+        sort_order: 3,
+      },
+    ];
+
+    mockGetReviewSummary.mockResolvedValue({
+      content: {
+        id: "summary-short",
+        payload: {
+          text: "محتوای خلاصه",
+          keyTakeaways: ["نکته"],
+          sections: [{ heading: "بخش ۱", summary: "خلاصه" }],
+        },
+      },
+    });
+
+    render(
+      <CourseReviewSummaryView
+        organizationId="org-1"
+        courseId="course-1"
+        modules={variedLengthModules as any}
+        previewDocumentId="doc-short"
+        isPreview={true}
+      />,
+      { wrapper: createWrapper() },
+    );
+
+    // 1. Short title
+    const shortTitleSpan = await screen.findByText("قلب");
+    expect(shortTitleSpan).toBeInTheDocument();
+    expect(shortTitleSpan.className).toContain("whitespace-normal");
+    expect(shortTitleSpan.className).toContain("break-words");
+    expect(shortTitleSpan.className).toContain("sm:truncate");
+
+    // 2. Long title (stripped prefix)
+    const longTitleSpan = screen.getByText("فارماکولوژی داروهای کاهنده فشار خون و گشادکننده عروق کرونر");
+    expect(longTitleSpan).toBeInTheDocument();
+    expect(longTitleSpan.className).toContain("whitespace-normal");
+    expect(longTitleSpan.className).toContain("break-words");
+    expect(longTitleSpan.className).not.toMatch(/^truncate\s/);
+
+    // 3. Very long title (stripped prefix)
+    const veryLongTitle = "فیزیوپاتولوژی اختلالات حاد متابولیک، شوک سپتیک، مدیریت مایع‌درمانی و نارسایی ارگان‌های حیاتی در بخش مراقبت‌های ویژه";
+    const veryLongTitleSpan = screen.getByText(veryLongTitle);
+    expect(veryLongTitleSpan).toBeInTheDocument();
+    expect(veryLongTitleSpan.className).toContain("flex-1");
+    expect(veryLongTitleSpan.className).toContain("text-right");
+    expect(veryLongTitleSpan.className).toContain("leading-relaxed");
+
+    // 4. Verify button containers have accessible touch targets, whitespace wrapping, and non-overlapping badges
+    const button = veryLongTitleSpan.closest("button");
+    expect(button).toBeInTheDocument();
+    expect(button?.className).toContain("min-h-[44px]");
+    expect(button?.className).toContain("whitespace-normal");
+    expect(button?.className).toContain("w-full");
+    expect(button?.className).toContain("sm:w-auto");
+
+    // 5. Verify Persian digits and lock/preview badges are shrink-0 so they never shrink or overlap
+    const badgeNumber = screen.getByText("۳");
+    expect(badgeNumber.className).toContain("shrink-0");
+    const lockBadges = screen.getAllByText("قفل");
+    expect(lockBadges[0].parentElement?.className).toContain("shrink-0");
+  });
 });
+

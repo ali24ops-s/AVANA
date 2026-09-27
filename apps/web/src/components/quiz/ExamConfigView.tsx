@@ -7,7 +7,7 @@ import {
   TrendingUpIcon,
   PlayIcon,
 } from "./ExamIcons.js";
-import { ArrowLeft, CreditCard, ChevronDown, Wallet, Info, Trash2 } from "lucide-react";
+import { ArrowLeft, CreditCard, ChevronDown, Wallet, Info, Trash2, BookOpen, History, HelpCircle } from "lucide-react";
 import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
 import { createStudyApi } from "../../lib/api/study.js";
 import { createCommerceApi } from "../../lib/api/commerce.js";
@@ -403,7 +403,7 @@ export function ExamConfigView({
     <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8 font-sans" dir="rtl">
       {/* Header */}
       <header className="mb-8">
-        <h1 className="text-2xl sm:text-3xl font-bold text-[var(--color-text)] mb-2">تنظیمات آزمون</h1>
+        <h1 className="text-2xl sm:text-3xl font-bold text-[var(--color-text)] mb-2 text-center sm:text-right">تنظیمات آزمون</h1>
         <p className="text-[var(--color-text-muted)] text-sm sm:text-base">
           دوره‌ها و بخش‌ها را برای شروع یک جلسه تمرینی متمرکز انتخاب کنید.
         </p>
@@ -467,7 +467,7 @@ export function ExamConfigView({
                   >
                     <div className="flex items-center gap-3">
                       <span className="p-2 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400">
-                        <span className="material-symbols-outlined text-2xl">auto_stories</span>
+                        <BookOpen className="w-5 h-5" />
                       </span>
                       <div>
                         <div className="flex items-center gap-2">
@@ -754,7 +754,7 @@ export function ExamConfigView({
         <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
           <div className="flex items-center gap-3">
             <span className="p-2.5 rounded-xl bg-[var(--color-primary-soft)] text-[var(--color-primary)] flex items-center justify-center">
-              <span className="material-symbols-outlined text-2xl">history_edu</span>
+              <History className="w-5 h-5" />
             </span>
             <div>
               <h2 className="text-lg font-bold text-[var(--color-text)]">آزمون‌های اخیر شما</h2>
@@ -770,7 +770,7 @@ export function ExamConfigView({
 
         {(!historyQuery.data?.items || historyQuery.data.items.length === 0) ? (
           <div className="text-center py-12 border border-dashed border-[var(--color-border)] rounded-xl bg-[var(--color-background)]">
-            <span className="material-symbols-outlined text-[var(--color-text-muted)] text-4xl mb-2">quiz</span>
+            <HelpCircle className="w-10 h-10 text-[var(--color-text-muted)] mx-auto mb-2" />
             <p className="text-[var(--color-text)] text-sm font-semibold">هنوز آزمونی ثبت نکرده‌اید.</p>
             <p className="text-xs text-[var(--color-text-muted)] mt-1">
               با انتخاب مباحث دلخواه از بالا و زدن دکمه «شروع آزمون»، نخستین آزمون تمرینی خود را بسازید.

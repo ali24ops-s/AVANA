@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useAdmin } from "../../hooks/useAdmin.js";
 import { ShieldAlert, AlertTriangle, CheckCircle } from "lucide-react";
 import { toPersianDigits } from "@avana/domain";
+import { ContentRepairAuditView } from "../../components/admin/repair/ContentRepairAuditView.js";
 
 export function AdminIntegrityPage() {
   const adminApi = useAdmin();
@@ -73,6 +74,11 @@ export function AdminIntegrityPage() {
             </span>
           </div>
         ))}
+      </div>
+
+      {/* Content Repair & Corruption Health Audit Section */}
+      <div className="pt-6 border-t border-[var(--color-border)]">
+        <ContentRepairAuditView />
       </div>
     </div>
   );

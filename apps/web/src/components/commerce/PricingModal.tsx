@@ -225,9 +225,14 @@ export const PricingModal: React.FC<PricingModalProps> = ({
 
                       {/* Gift Bonus Row */}
                       {giftAmount > 0 && (
-                        <div className="mt-3 flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/25 text-amber-800 dark:text-amber-300 text-xs font-bold">
-                          <Gift className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
-                          <span>{giftAmount.toLocaleString("fa-IR")} تومان هدیه کیف پول</span>
+                        <div className="mt-3 flex items-start gap-1.5 px-2.5 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/25 text-amber-800 dark:text-amber-300 text-xs font-bold">
+                          <Gift className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                          <div className="min-w-0">
+                            <span>{giftAmount.toLocaleString("fa-IR")} تومان هدیه کیف پول</span>
+                            <span className="block text-[10px] text-amber-700/80 dark:text-amber-400/80 font-normal mt-0.5">
+                              هدیه فعال‌سازی فقط برای اولین خرید اشتراک شماست.
+                            </span>
+                          </div>
                         </div>
                       )}
                     </div>
@@ -298,11 +303,16 @@ export const PricingModal: React.FC<PricingModalProps> = ({
                         <strong>{selectedProduct?.duration_days} روز</strong>
                       </div>
                       {selectedGiftAmount > 0 && (
-                        <div className="text-xs text-amber-700 dark:text-amber-300 font-bold flex items-center gap-1.5 mt-1.5">
-                          <Gift className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
-                          <span>
-                            شامل {selectedGiftAmount.toLocaleString("fa-IR")} تومان اعتبار هدیه کیف پول پس از فعال‌سازی
-                          </span>
+                        <div className="text-xs text-amber-700 dark:text-amber-300 font-bold flex items-start gap-1.5 mt-1.5">
+                          <Gift className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                          <div>
+                            <span>
+                              شامل {selectedGiftAmount.toLocaleString("fa-IR")} تومان اعتبار هدیه کیف پول پس از فعال‌سازی
+                            </span>
+                            <span className="block text-[10px] text-amber-700/80 dark:text-amber-400/80 font-normal mt-0.5">
+                              (هدیه فعال‌سازی فقط برای اولین خرید اشتراک شماست)
+                            </span>
+                          </div>
                         </div>
                       )}
                     </div>

@@ -2,11 +2,11 @@ import { randomUUID } from "node:crypto";
 import {
   type Actor,
   type AuthAction,
-  type AuthContext,
   type AuthorizationPolicy,
   type CourseId,
   type DocumentId,
   type GeneratedContentId,
+  type GeneratedContentType,
   type GenerationProgress,
   type DocumentGenerationProgressResource,
   type LessonPayload,
@@ -14,20 +14,25 @@ import {
   type QuizPayload,
   type QuizId,
   type OrganizationId,
+  type ResourceContext,
+  buildActor,
   DomainError,
   defaultPolicy,
+  normalizeRequestedContentTypes,
 } from "@avana/domain";
 import type { DocumentRecord, DocumentStore, ModuleStore, LessonStore } from "../../learning/learning-store.js";
 import type { GeneratedContentStore } from "../generation-store.js";
 import type { GenerationProgressService } from "../generation-progress-service.js";
 import type { FlashcardStore, QuizStore, QuizQuestionStore } from "../../study/study-store.js";
 import type { OrganizationStore } from "../../organizations/organization-store.js";
+import type { GenerationJobStore } from "../generation-jobs-store.js";
 import type { GenerationQueryService } from "./generation-query-service.js";
 
 export type DocumentContentStatusResource = {
   request_id: string;
   document_id: DocumentId;
   course_id: CourseId | null;
+  requested_types?: GeneratedContentType[];
   lesson: { generated: boolean; count: number; accepted?: boolean };
   flashcards: { generated: boolean; count: number; accepted?: boolean };
   exam: { generated: boolean; count: number; accepted?: boolean };
@@ -55,46 +60,71 @@ export class GenerationContentStatusService {
     private readonly quizStore?: QuizStore,
     private readonly quizQuestionStore?: QuizQuestionStore,
     private readonly policy: AuthorizationPolicy = defaultPolicy,
+    private readonly generationJobStore?: GenerationJobStore,
   ) {}
 
   async authorize(
     actor: Actor,
     organizationId: OrganizationId,
     action: AuthAction,
-  ): Promise<void> {
-    if (actor.role === "platform_admin") {
-      if (
-        this.orgStore &&
-        typeof this.orgStore.findById === "function"
-      ) {
-        const org = await this.orgStore.findById(organizationId);
-        if (!org) {
-          throw new DomainError("not_found", "Organization not found");
-        }
+  ): Promise<Actor> {
+    if (
+      this.orgStore &&
+      typeof this.orgStore.findById === "function"
+    ) {
+      const org = await this.orgStore.findById(organizationId);
+      if (!org) {
+        throw new DomainError("not_found", "Organization not found");
       }
-      const context: AuthContext = { organizationId };
-      this.policy.require(action, actor, context);
-      return;
     }
 
+    let memberships = actor.memberships;
     if (
+      !memberships &&
+      this.orgStore &&
+      typeof this.orgStore.listMembershipsByUserId === "function"
+    ) {
+      memberships = await this.orgStore.listMembershipsByUserId(
+        actor.userId,
+      );
+    } else if (
+      !memberships &&
       this.orgStore &&
       typeof this.orgStore.findMembership === "function"
     ) {
-      const membership = await this.orgStore.findMembership(
+      const m = await this.orgStore.findMembership(
         organizationId,
         actor.userId,
       );
-      if (!membership) {
-        throw new DomainError("not_found", "Organization not found");
+      if (m) {
+        memberships = [
+          {
+            organizationId,
+            role: m.role as import("@avana/domain").Role,
+          },
+        ];
       }
-      const scopedActor = { ...actor, role: membership.role as Actor["role"] };
-      const context: AuthContext = { organizationId };
-      this.policy.require(action, scopedActor, context);
-      return;
     }
-    const context: AuthContext = { organizationId };
-    this.policy.require(action, actor, context);
+
+    const fullActor = buildActor({
+      userId: actor.userId,
+      globalRole:
+        actor.globalRole ??
+        (actor.role === "platform_admin" ? "platform_admin" : undefined),
+      role: actor.role,
+      memberships,
+    });
+
+    const resourceContext: ResourceContext = {
+      organizationId,
+      resourceType: "course",
+    };
+
+    if (!this.policy.can(fullActor, action, resourceContext)) {
+      throw new DomainError("not_found", "Organization not found");
+    }
+
+    return fullActor;
   }
 
   private async requireDocument(
@@ -254,9 +284,27 @@ export class GenerationContentStatusService {
       (c) => c.deletedAt === null && c.status === "regenerating",
     );
 
+    // 6. Resolve requested content types from latest generation job if available
+    let requestedTypes: GeneratedContentType[] | undefined = undefined;
+    if (this.generationJobStore) {
+      const jobs = await this.generationJobStore.listByDocument(
+        documentId,
+        organizationId,
+      );
+      const activeJobs = jobs.filter((j) => j.deletedAt === null);
+      if (activeJobs.length > 0) {
+        activeJobs.sort(
+          (a, b) =>
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+        );
+        requestedTypes = normalizeRequestedContentTypes(activeJobs[0].type);
+      }
+    }
+
     const progress = await this.queryService.getGenerationProgress(
       documentId,
       organizationId,
+      requestedTypes,
     );
 
     const generatableDocStatuses = new Set([
@@ -316,6 +364,7 @@ export class GenerationContentStatusService {
       request_id: randomUUID(),
       document_id: documentId,
       course_id: (courseId || doc.courseId || null) as CourseId | null,
+      requested_types: requestedTypes,
       lesson: {
         generated: lessonGenerated,
         count: totalLessonCount,

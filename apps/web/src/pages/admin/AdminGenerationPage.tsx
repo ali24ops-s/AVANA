@@ -271,15 +271,15 @@ export function AdminGenerationPage() {
 
           <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl overflow-hidden shadow-sm">
             <div className="overflow-x-auto">
-              <table className="w-full text-right text-sm">
+              <table className="w-full text-right text-sm min-w-[700px]">
                 <thead className="bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] border-b border-[var(--color-border)]">
                   <tr>
-                    <th className="px-6 py-4 font-medium">نوع تولید</th>
-                    <th className="px-6 py-4 font-medium">فایل مبدا</th>
-                    <th className="px-6 py-4 font-medium">کاربر</th>
-                    <th className="px-6 py-4 font-medium">وضعیت</th>
-                    <th className="px-6 py-4 font-medium">تاریخ درخواست</th>
-                    <th className="px-6 py-4 font-medium text-center">عملیات</th>
+                    <th className="px-6 py-4 font-medium whitespace-nowrap">نوع تولید</th>
+                    <th className="px-6 py-4 font-medium whitespace-nowrap">فایل مبدا</th>
+                    <th className="px-6 py-4 font-medium whitespace-nowrap">کاربر</th>
+                    <th className="px-6 py-4 font-medium whitespace-nowrap">وضعیت</th>
+                    <th className="px-6 py-4 font-medium whitespace-nowrap">تاریخ درخواست</th>
+                    <th className="px-6 py-4 font-medium whitespace-nowrap text-center">عملیات</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[var(--color-border)]">
@@ -442,17 +442,17 @@ export function AdminGenerationPage() {
 
           <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl overflow-hidden shadow-sm">
             <div className="overflow-x-auto">
-              <table className="w-full text-right text-sm">
+              <table className="w-full text-right text-sm min-w-[850px]">
                 <thead className="bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] border-b border-[var(--color-border)]">
                   <tr>
-                    <th className="px-6 py-4 font-medium">محتوا</th>
-                    <th className="px-6 py-4 font-medium">نوع</th>
-                    <th className="px-6 py-4 font-medium">دوره</th>
-                    <th className="px-6 py-4 font-medium">منبع</th>
-                    <th className="px-6 py-4 font-medium">علت رد</th>
-                    <th className="px-6 py-4 font-medium">ردشده توسط</th>
-                    <th className="px-6 py-4 font-medium">تاریخ رد</th>
-                    <th className="px-6 py-4 font-medium text-center">عملیات</th>
+                    <th className="px-6 py-4 font-medium whitespace-nowrap">محتوا</th>
+                    <th className="px-6 py-4 font-medium whitespace-nowrap">نوع</th>
+                    <th className="px-6 py-4 font-medium whitespace-nowrap">دوره</th>
+                    <th className="px-6 py-4 font-medium whitespace-nowrap">منبع</th>
+                    <th className="px-6 py-4 font-medium whitespace-nowrap">علت رد</th>
+                    <th className="px-6 py-4 font-medium whitespace-nowrap">ردشده توسط</th>
+                    <th className="px-6 py-4 font-medium whitespace-nowrap">تاریخ رد</th>
+                    <th className="px-6 py-4 font-medium whitespace-nowrap text-center">عملیات</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[var(--color-border)]">

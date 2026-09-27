@@ -138,13 +138,13 @@ export function CourseReviewSummaryView({
     <div className="space-y-6 font-sans" dir="rtl">
       {/* Document Selector Header (if more than 1 document) */}
       {documents.length > 1 && (
-        <Card className="p-4 flex flex-wrap items-center justify-between gap-3 shadow-xs">
-          <div className="flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
-            <FileText className="w-4 h-4 text-[var(--color-primary)]" />
+        <Card className="p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 shadow-xs">
+          <div className="flex items-center gap-2 text-xs text-[var(--color-text-muted)] shrink-0">
+            <FileText className="w-4 h-4 text-[var(--color-primary)] shrink-0" />
             <span className="font-bold text-[var(--color-text)]">انتخاب مبحث آموزشی:</span>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2 w-full sm:w-auto">
             {documents.map((doc: { id: string; title: string }, index: number) => {
               const isSelected = activeDocument?.id === doc.id;
               const isDocPreview = Boolean(doc.id === canonicalPreviewDocId);
@@ -157,7 +157,7 @@ export function CourseReviewSummaryView({
                   variant={isSelected ? "primary" : "outline"}
                   size="md"
                   onClick={() => setSelectedDocId(doc.id)}
-                  className="font-bold gap-2 h-auto min-h-[40px] px-3.5 sm:px-4 py-2 text-xs sm:text-sm leading-normal items-center"
+                  className="font-bold gap-2.5 h-auto min-h-[44px] sm:min-h-[40px] px-3.5 sm:px-4 py-2.5 sm:py-2 text-xs sm:text-sm leading-relaxed sm:leading-normal items-center justify-start sm:justify-center whitespace-normal w-full sm:w-auto text-right"
                 >
                   <span
                     className={`inline-flex items-center justify-center min-w-[22px] h-5.5 px-1.5 rounded-md text-xs font-bold shrink-0 leading-none ${
@@ -168,7 +168,7 @@ export function CourseReviewSummaryView({
                   >
                     {toPersianDigits(index + 1)}
                   </span>
-                  <span className="max-w-[180px] sm:max-w-[260px] truncate leading-normal py-0.5 inline-block text-right">
+                  <span className="flex-1 sm:flex-initial whitespace-normal sm:max-w-[260px] sm:truncate break-words leading-relaxed sm:leading-normal py-0.5 inline-block text-right">
                     {displayTitle}
                   </span>
                   {isPreview && isDocPreview && (

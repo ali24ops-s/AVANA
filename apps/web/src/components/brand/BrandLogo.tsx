@@ -14,9 +14,9 @@ export interface BrandLogoProps {
   /**
    * Size presets or height control
    * sm: h-6 logo
-   * md: h-20 sm:h-[88px] md:h-24 logo (doubled standard header: 80px mobile, 88px tablet, 96px desktop)
-   * lg: h-12 logo (auth cards)
-   * xl: h-16 logo
+   * md: h-9 sm:h-[88px] md:h-24 logo (compact mobile, standard header tablet & desktop)
+   * lg: h-8 sm:h-12 logo (auth cards & landing headers)
+   * xl: h-10 sm:h-16 logo
    */
   size?: "sm" | "md" | "lg" | "xl";
 
@@ -69,19 +69,19 @@ const SIZE_MAP = {
     gap: "gap-2",
   },
   md: {
-    logo: "h-20 sm:h-[88px] md:h-24 w-auto",
-    wordmark: "h-12 sm:h-14 md:h-16 w-auto",
-    gap: "gap-3",
+    logo: "h-9 sm:h-[88px] md:h-24 w-auto",
+    wordmark: "h-6 sm:h-14 md:h-16 w-auto",
+    gap: "gap-2 sm:gap-3",
   },
   lg: {
-    logo: "h-12 w-auto",
-    wordmark: "h-8 w-auto",
-    gap: "gap-3",
+    logo: "h-8 sm:h-12 w-auto",
+    wordmark: "h-5 sm:h-8 w-auto",
+    gap: "gap-2 sm:gap-3",
   },
   xl: {
-    logo: "h-16 w-auto",
-    wordmark: "h-10 w-auto",
-    gap: "gap-4",
+    logo: "h-10 sm:h-16 w-auto",
+    wordmark: "h-7 sm:h-10 w-auto",
+    gap: "gap-2.5 sm:gap-4",
   },
 };
 

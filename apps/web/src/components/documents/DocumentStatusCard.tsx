@@ -340,17 +340,17 @@ export function DocumentStatusCard({
   );
 
   return (
-    <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-5 space-y-4 shadow-xs">
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex items-start gap-3 min-w-0">
-          <div className="w-10 h-10 rounded-xl bg-teal-50 border border-teal-200 text-[#008080] flex items-center justify-center flex-shrink-0">
+    <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-4 sm:p-5 space-y-4 shadow-xs">
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 sm:gap-4">
+        <div className="flex items-start gap-3 min-w-0 flex-1">
+          <div className="w-10 h-10 rounded-xl bg-teal-50 border border-teal-200 text-[#008080] flex items-center justify-center flex-shrink-0 mt-0.5">
             <FileText className="w-5 h-5" />
           </div>
-          <div className="min-w-0">
-            <h4 className="font-bold text-sm text-[var(--color-text)] truncate" dir="ltr">
+          <div className="min-w-0 flex-1">
+            <h4 className="font-bold text-sm text-[var(--color-text)] leading-snug break-words" dir="ltr">
               {document.original_name}
             </h4>
-            <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
+            <p className="text-xs text-[var(--color-text-muted)] mt-1">
               {(document.size_bytes / (1024 * 1024)).toFixed(2)} MB • تاریخ بارگذاری:{" "}
               {new Date(document.created_at).toLocaleDateString("fa-IR")}
             </p>
@@ -358,7 +358,7 @@ export function DocumentStatusCard({
         </div>
 
         {/* Status badge & Delete button */}
-        <div className="flex items-center gap-2 flex-shrink-0">
+        <div className="flex items-center justify-between sm:justify-end gap-2 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-[var(--color-border)]/60">
           {isWaiting && (
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700">
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -546,7 +546,9 @@ export function DocumentStatusCard({
         <div className="flex items-center gap-2 p-3 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-xl text-red-700 dark:text-red-400 text-xs">
           <AlertCircle className="w-4 h-4 flex-shrink-0" />
           <span>
-            {formatGenerationErrorMessage(jobQuery.data.job?.error_message)}
+            {isPartial
+              ? "تولید بخش‌هایی از محتوا با خطا متوقف شد؛ خروجی‌های سالم تولیدشده تا این مرحله در سیستم حفظ شده‌اند و می‌توانید تولید بخش‌های باقیمانده را ادامه دهید."
+              : formatGenerationErrorMessage(jobQuery.data.job?.error_message)}
           </span>
         </div>
       )}
@@ -644,9 +646,9 @@ export function DocumentStatusCard({
 
       {/* Generation success alert */}
       {jobQuery.data?.job?.status === "succeeded" && (
-        <div className="flex items-center justify-between p-3.5 bg-teal-50 border border-teal-200 rounded-2xl text-teal-900 text-xs font-bold">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 p-3.5 bg-teal-50 border border-teal-200 rounded-2xl text-teal-900 text-xs font-bold">
           <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-[#008080]" />
+            <Sparkles className="w-4 h-4 text-[#008080] shrink-0" />
             <span>پیش‌نویس درس‌ها، فلش‌کارت‌ها و آزمون‌ها با موفقیت تولید شد.</span>
           </div>
           {onNavigateToReview && (
@@ -659,7 +661,7 @@ export function DocumentStatusCard({
                 }
                 onNavigateToReview();
               }}
-              className="underline hover:text-[#006666] mr-2 text-[#008080]"
+              className="underline hover:text-[#006666] text-[#008080] text-xs font-bold self-end sm:self-auto shrink-0"
             >
               {isGenerationPermitted ? "مشاهده صف بازبینی" : "صف بازبینی (به‌زودی)"}
             </button>
@@ -669,9 +671,9 @@ export function DocumentStatusCard({
 
       {/* Publish to Public Library CTA */}
       {hasPublishableContent && (
-        <div className="flex items-center justify-between p-3.5 bg-teal-50 border border-teal-200 rounded-2xl">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3.5 bg-teal-50 border border-teal-200 rounded-2xl">
           <div className="flex items-center gap-2 text-xs font-bold text-teal-900">
-            <LibraryIcon className="w-4 h-4 text-[#008080]" />
+            <LibraryIcon className="w-4 h-4 text-[#008080] shrink-0" />
             <span>آماده انتشار در کتابخانه عمومی آوانا</span>
           </div>
 
@@ -684,7 +686,7 @@ export function DocumentStatusCard({
             <button
               type="button"
               onClick={() => setIsPublishModalOpen(true)}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-[#008080] hover:bg-[#006666] text-white text-xs font-bold shadow-xs transition-all"
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#008080] hover:bg-[#006666] text-white text-xs font-bold shadow-xs transition-all"
             >
               <Sparkles className="w-3.5 h-3.5" />
               <span>انتشار در کتابخانه آوانا</span>

@@ -135,17 +135,6 @@ export function createApiClient(options: ApiClientOptions) {
     }
 
     if (!response.ok) {
-      if (
-        data &&
-        typeof data === "object" &&
-        "error" in data &&
-        data.error &&
-        typeof (data as ErrorEnvelope).error === "object"
-      ) {
-        throw new ApiError(data as ErrorEnvelope);
-      }
-
-      // Map raw HTTP status codes to typed ApiError
       const requestId =
         response.headers.get("x-request-id") || generateUUID();
       const codeByStatus: Record<number, ErrorEnvelope["error"]["code"]> = {
@@ -161,6 +150,37 @@ export function createApiClient(options: ApiClientOptions) {
         503: "internal_error",
         504: "internal_error",
       };
+
+      if (
+        data &&
+        typeof data === "object" &&
+        "error" in data &&
+        data.error &&
+        typeof (data as ErrorEnvelope).error === "object"
+      ) {
+        throw new ApiError(data as ErrorEnvelope);
+      }
+
+      if (data && typeof data === "object") {
+        const anyData = data as Record<string, unknown>;
+        const rawMessage =
+          (typeof anyData.message === "string" && anyData.message) ||
+          (typeof anyData.error === "string" && anyData.error);
+        if (rawMessage) {
+          const rawCode =
+            (typeof anyData.code === "string" ? anyData.code : undefined) ||
+            codeByStatus[response.status] ||
+            "internal_error";
+          throw new ApiError({
+            request_id: requestId,
+            error: {
+              code: rawCode as any,
+              message: rawMessage,
+              details: anyData.details as any,
+            },
+          });
+        }
+      }
 
       const messageByStatus: Record<number, string> = {
         401: "You are not authorized. Please sign in.",

@@ -12,8 +12,12 @@ export type {
   AuthAction,
   Actor,
   AuthContext,
+  OrganizationMembership,
+  ResourceContext,
+  ResourceType,
+  BuildActorInput,
 } from "./policy.js";
 
-export { RoleBasedPolicy, defaultPolicy } from "./policy.js";
+export { RoleBasedPolicy, defaultPolicy, buildActor } from "./policy.js";
 
 export * from "./audit.js";

@@ -85,6 +85,7 @@ export type QuizRecord = {
   id: QuizId;
   organizationId: OrganizationId;
   courseId: CourseId;
+  moduleId?: string | null;
   documentId: DocumentId | null;
   title: string;
   topic?: string | null;
@@ -110,6 +111,7 @@ export type QuizQuestionRecord = {
   sortOrder: number;
   createdAt: string;
   updatedAt: string;
+  deletedAt?: string | null;
   lesson?: QuestionLessonInfo | null;
   chapter?: QuestionChapterInfo | null;
   course?: QuestionCourseInfo | null;
@@ -176,6 +178,21 @@ export interface FlashcardStore {
   ): Promise<FlashcardRecord | undefined>;
 
   /**
+   * Find a flashcard by ID.
+   */
+  findById?(id: FlashcardId): Promise<FlashcardRecord | undefined>;
+
+  /**
+   * Update flashcard contents.
+   */
+  update?(record: FlashcardRecord): Promise<FlashcardRecord>;
+
+  /**
+   * Soft-delete a flashcard by ID.
+   */
+  delete?(id: FlashcardId): Promise<void>;
+
+  /**
    * Soft-delete all flashcards for a document.
    */
   deleteByDocument(
@@ -212,6 +229,8 @@ export interface UserFlashcardScheduleStore {
 }
 
 export interface QuizStore {
+  findById?(id: QuizId): Promise<QuizRecord | undefined>;
+
   findByIdForOrganization(
     id: QuizId,
     organizationId?: OrganizationId,
@@ -229,6 +248,9 @@ export interface QuizStore {
   ): Promise<QuizRecord[]>;
 
   create(record: QuizRecord): Promise<QuizRecord>;
+
+  update?(record: QuizRecord): Promise<QuizRecord>;
+  delete?(id: QuizId): Promise<void>;
 
   /**
    * Find a quiz by its source generated content ID.
@@ -248,6 +270,8 @@ export interface QuizStore {
 }
 
 export interface QuizQuestionStore {
+  create?(record: QuizQuestionRecord): Promise<QuizQuestionRecord>;
+  update?(record: QuizQuestionRecord): Promise<QuizQuestionRecord>;
   listByQuiz(quizId: QuizId): Promise<QuizQuestionRecord[]>;
   listByIds(ids: QuizQuestionId[]): Promise<QuizQuestionRecord[]>;
   listByFilter(filter: {
@@ -260,6 +284,9 @@ export interface QuizQuestionStore {
     organizationId?: OrganizationId,
   ): Promise<Array<{ topic: string; difficulty: string; questionCount: number }>>;
   createMany(records: QuizQuestionRecord[]): Promise<QuizQuestionRecord[]>;
+  delete?(id: QuizQuestionId): Promise<void>;
+  deleteByQuiz?(quizId: QuizId): Promise<void>;
+  restore?(id: QuizQuestionId): Promise<void>;
 }
 
 export interface QuizAttemptStore {

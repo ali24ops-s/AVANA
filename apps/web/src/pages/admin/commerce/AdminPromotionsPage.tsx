@@ -334,16 +334,16 @@ export function AdminPromotionsPage() {
       {/* Main Promotions Table */}
       <div className="border border-[var(--color-border)] rounded-2xl bg-[var(--color-surface)] shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-xs text-right">
+          <table className="w-full min-w-[820px] text-xs text-right">
             <thead className="bg-[var(--color-surface-warm)] border-b border-[var(--color-border)] text-[var(--color-text-muted)] font-bold">
               <tr>
-                <th className="p-4">نام و کد شاخص</th>
-                <th className="p-4">نوع و مقدار مزیت</th>
-                <th className="p-4 text-center">کدها / استفاده‌ها</th>
-                <th className="p-4 text-center">محدودیت‌ها</th>
-                <th className="p-4 text-center">اعتبار زمانی</th>
-                <th className="p-4 text-center">وضعیت</th>
-                <th className="p-4 text-left">عملیات</th>
+                <th className="px-4 py-3.5 whitespace-nowrap">نام و کد شاخص</th>
+                <th className="px-4 py-3.5 whitespace-nowrap">نوع و مقدار مزیت</th>
+                <th className="px-4 py-3.5 text-center whitespace-nowrap">کدها / استفاده‌ها</th>
+                <th className="px-4 py-3.5 text-center whitespace-nowrap">محدودیت‌ها</th>
+                <th className="px-4 py-3.5 text-center whitespace-nowrap">اعتبار زمانی</th>
+                <th className="px-4 py-3.5 text-center whitespace-nowrap">وضعیت</th>
+                <th className="px-4 py-3.5 text-left whitespace-nowrap">عملیات</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[var(--color-border)]">

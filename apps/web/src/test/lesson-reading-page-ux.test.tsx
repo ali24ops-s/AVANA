@@ -124,7 +124,7 @@ describe("Course Lesson Study Page UI/UX Refinements", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders course header, progress, module titles, and loads initial lesson", async () => {
+  it("renders course header, progress, and initial lesson in full-width without static sidebar", async () => {
     const queryClient = createTestQueryClient();
 
     render(
@@ -141,20 +141,22 @@ describe("Course Lesson Study Page UI/UX Refinements", () => {
 
     await waitFor(() => {
       expect(screen.getByRole("heading", { name: "فیزیولوژی قلب و عروق" })).toBeDefined();
-      expect(screen.getByText("سرفصل‌های دوره")).toBeDefined();
       // Main lesson title rendered inside markdown content
       expect(screen.getByRole("heading", { name: "گره سینوسی دهلیزی" })).toBeDefined();
     });
 
-    // Verify progress
+    // Drawer is closed by default — no static sidebar in DOM
+    expect(screen.queryByRole("dialog", { name: "سرفصل‌های دوره" })).toBeNull();
+
+    // Verify progress with Persian numbers
     expect(screen.getByText(/۱ از ۳ درس تکمیل شده/i)).toBeDefined();
-    expect(screen.getByText("33%")).toBeDefined();
+    expect(screen.getByText("۳۳٪")).toBeDefined();
 
     // Verify markdown rendered
     expect(screen.getByText(/این گره پیس‌میکر اصلی قلب انسان است/i)).toBeDefined();
   });
 
-  it("toggles desktop sidebar collapse and expansion", async () => {
+  it("opens curriculum drawer via button and closes via close button", async () => {
     const queryClient = createTestQueryClient();
 
     render(
@@ -170,29 +172,31 @@ describe("Course Lesson Study Page UI/UX Refinements", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("سرفصل‌های دوره")).toBeDefined();
+      expect(screen.getByRole("heading", { name: "گره سینوسی دهلیزی" })).toBeDefined();
     });
 
-    // Collapse sidebar via button in header
-    const focusModeBtn = screen.getByLabelText("بستن پنل سرفصل‌ها");
-    fireEvent.click(focusModeBtn);
+    // Initially drawer is closed
+    expect(screen.queryByRole("dialog", { name: "سرفصل‌های دوره" })).toBeNull();
 
-    // Sidebar should be collapsed (no longer in DOM)
-    expect(screen.queryByText("سرفصل‌های دوره")).toBeNull();
+    // Open drawer via "سرفصل‌ها" trigger button
+    const openDrawerBtn = screen.getByRole("button", { name: /نمایش سرفصل‌های دوره/i });
+    fireEvent.click(openDrawerBtn);
 
-    // Trigger button should now say "نمایش سرفصل‌ها" / "سرفصل‌ها"
-    const openSidebarBtn = screen.getByRole("button", { name: /نمایش سرفصل‌ها/i });
-    expect(openSidebarBtn).toBeDefined();
-
-    // Expand sidebar again
-    fireEvent.click(openSidebarBtn);
-
+    // Drawer should now be visible
     await waitFor(() => {
-      expect(screen.getByText("سرفصل‌های دوره")).toBeDefined();
+      expect(screen.getByRole("dialog", { name: "سرفصل‌های دوره" })).toBeDefined();
+      expect(screen.getAllByText("فصل اول: الکتروفیزیولوژی قلب").length).toBeGreaterThanOrEqual(1);
     });
+
+    // Close drawer via close button (X)
+    const closeBtn = screen.getByLabelText("بستن منوی سرفصل‌ها");
+    fireEvent.click(closeBtn);
+
+    // Drawer should be closed
+    expect(screen.queryByRole("dialog", { name: "سرفصل‌های دوره" })).toBeNull();
   });
 
-  it("handles module accordion toggling and lesson selection", async () => {
+  it("closes curriculum drawer via Escape key", async () => {
     const queryClient = createTestQueryClient();
 
     render(
@@ -206,6 +210,81 @@ describe("Course Lesson Study Page UI/UX Refinements", () => {
         </MemoryRouter>
       </QueryClientProvider>,
     );
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "گره سینوسی دهلیزی" })).toBeDefined();
+    });
+
+    // Open drawer
+    const openDrawerBtn = screen.getByRole("button", { name: /نمایش سرفصل‌های دوره/i });
+    fireEvent.click(openDrawerBtn);
+
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: "سرفصل‌های دوره" })).toBeDefined();
+    });
+
+    // Press Escape
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    // Drawer should be closed
+    expect(screen.queryByRole("dialog", { name: "سرفصل‌های دوره" })).toBeNull();
+  });
+
+  it("closes curriculum drawer via backdrop click", async () => {
+    const queryClient = createTestQueryClient();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={[`/courses/${courseId}`]}>
+          <AuthProvider>
+            <Routes>
+              <Route path="/courses/:courseId" element={<LearningPage />} />
+            </Routes>
+          </AuthProvider>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "گره سینوسی دهلیزی" })).toBeDefined();
+    });
+
+    // Open drawer
+    fireEvent.click(screen.getByRole("button", { name: /نمایش سرفصل‌های دوره/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: "سرفصل‌های دوره" })).toBeDefined();
+    });
+
+    // Click backdrop
+    const backdrop = screen.getByTestId("curriculum-backdrop");
+    fireEvent.click(backdrop);
+
+    // Drawer should be closed
+    expect(screen.queryByRole("dialog", { name: "سرفصل‌های دوره" })).toBeNull();
+  });
+
+  it("handles module accordion toggling and lesson selection with drawer closing", async () => {
+    const queryClient = createTestQueryClient();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={[`/courses/${courseId}`]}>
+          <AuthProvider>
+            <Routes>
+              <Route path="/courses/:courseId" element={<LearningPage />} />
+            </Routes>
+          </AuthProvider>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "گره سینوسی دهلیزی" })).toBeDefined();
+    });
+
+    // Open drawer
+    fireEvent.click(screen.getByRole("button", { name: /نمایش سرفصل‌های دوره/i }));
 
     await waitFor(() => {
       expect(screen.getByText("فصل دوم: دینامیک خون و فشار")).toBeDefined();
@@ -226,6 +305,9 @@ describe("Course Lesson Study Page UI/UX Refinements", () => {
     // Click to select lesson 3
     const lesson3Btn = screen.getByRole("button", { name: /قانون استارلینگ قلب/i });
     fireEvent.click(lesson3Btn);
+
+    // Selecting a lesson closes the drawer
+    expect(screen.queryByRole("dialog", { name: "سرفصل‌های دوره" })).toBeNull();
 
     // Main viewer should now display lesson 3 content
     await waitFor(() => {
@@ -249,6 +331,13 @@ describe("Course Lesson Study Page UI/UX Refinements", () => {
     );
 
     await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "گره سینوسی دهلیزی" })).toBeDefined();
+    });
+
+    // Open drawer
+    fireEvent.click(screen.getByRole("button", { name: /نمایش سرفصل‌های دوره/i }));
+
+    await waitFor(() => {
       expect(screen.getByText("گره سینوسی-دهلیزی (SA Node)")).toBeDefined();
     });
 
@@ -263,13 +352,21 @@ describe("Course Lesson Study Page UI/UX Refinements", () => {
     // Select lesson 2
     fireEvent.click(lesson2Button);
 
+    // Drawer closes upon selection
+    expect(screen.queryByRole("dialog", { name: "سرفصل‌های دوره" })).toBeNull();
+
+    // Reopen drawer to verify state
+    fireEvent.click(screen.getByRole("button", { name: /نمایش سرفصل‌های دوره/i }));
+
     await waitFor(() => {
-      expect(lesson2Button.getAttribute("aria-current")).toBe("true");
-      expect(lesson1Button.getAttribute("aria-current")).toBeNull();
+      const updatedLesson2 = screen.getByRole("button", { name: /گره دهلیزی-بطنی/i });
+      expect(updatedLesson2.getAttribute("aria-current")).toBe("true");
+      const updatedLesson1 = screen.getByRole("button", { name: /گره سینوسی-دهلیزی/i });
+      expect(updatedLesson1.getAttribute("aria-current")).toBeNull();
     });
   });
 
-  it("opens and closes mobile drawer upon lesson selection", async () => {
+  it("renders syllabus drawer in document.body portal with 480px desktop width, correct layering, and body scroll lock", async () => {
     const queryClient = createTestQueryClient();
 
     render(
@@ -285,23 +382,40 @@ describe("Course Lesson Study Page UI/UX Refinements", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("گره سینوسی-دهلیزی (SA Node)")).toBeDefined();
+      expect(screen.getByRole("heading", { name: "گره سینوسی دهلیزی" })).toBeDefined();
     });
 
-    // Trigger mobile drawer open
-    const mobileTriggerBtn = screen.getByRole("button", { name: "سرفصل‌های دوره" });
-    fireEvent.click(mobileTriggerBtn);
+    // Body overflow should initially not be hidden
+    expect(document.body.style.overflow).not.toBe("hidden");
 
-    // Mobile drawer should now be open
+    // Open drawer
+    fireEvent.click(screen.getByRole("button", { name: /نمایش سرفصل‌های دوره/i }));
+
     await waitFor(() => {
-      expect(screen.getByLabelText("سرفصل‌های دوره (موبایل)")).toBeDefined();
+      expect(screen.getByRole("dialog", { name: "سرفصل‌های دوره" })).toBeDefined();
     });
 
-    // Close button inside drawer
-    const closeBtn = screen.getByLabelText("بستن منوی سرفصل‌ها");
-    fireEvent.click(closeBtn);
+    const drawer = screen.getByRole("dialog", { name: "سرفصل‌های دوره" });
+    const backdrop = screen.getByTestId("curriculum-backdrop");
 
-    // Drawer should close
-    expect(screen.queryByLabelText("سرفصل‌های دوره (موبایل)")).toBeNull();
+    // Drawer is portaled directly under document.body
+    expect(drawer.parentElement?.parentElement).toBe(document.body);
+
+    // Verify 576px desktop width class (additional 20% wider than 480px)
+    expect(drawer.className).toContain("md:w-[576px]");
+    expect(drawer.className).toContain("max-w-[576px]");
+
+    // Verify layering z-index: backdrop is z-[60] (above sticky header at z-50), drawer is z-[70] (above backdrop)
+    expect(backdrop.className).toContain("z-[60]");
+    expect(drawer.className).toContain("z-[70]");
+
+    // Body scroll should be locked while drawer is open
+    expect(document.body.style.overflow).toBe("hidden");
+
+    // Close drawer
+    fireEvent.click(backdrop);
+
+    // Body scroll should be released
+    expect(document.body.style.overflow).not.toBe("hidden");
   });
 });

@@ -29,12 +29,14 @@ import {
 } from "../modules/learning/test/in-memory-stores.js";
 import { InMemoryAuditStore } from "../observability/test/in-memory-stores.js";
 import { AuditService } from "../observability/audit-service.js";
-import type {
-  CourseId,
-  ModuleId,
-  LessonId,
-  OrganizationId,
-  UserId,
+import {
+  type CourseId,
+  type ModuleId,
+  type LessonId,
+  type OrganizationId,
+  type UserId,
+  type Role,
+  Roles,
 } from "@avana/domain";
 import { randomUUID } from "node:crypto";
 
@@ -436,6 +438,257 @@ describe("PR-2: Learning read API", () => {
         cookies: { avana_session: token2 },
       });
       expect(res.statusCode).toBe(404);
+    });
+
+    describe("Context-Aware Authorization & Role Matrix", () => {
+      it("allows platform_admin to access any tenant course", async () => {
+        const app = await buildApp();
+        const { token: ownerToken } = await signIn(app, "owner@example.com");
+        const { courseId } = await seedCourseWithContent(
+          app,
+          ownerToken,
+          "Private Tenant Org",
+        );
+
+        const { token: adminToken, userId: adminUserId } = await signIn(
+          app,
+          "admin@example.com",
+        );
+        const adminUser = await userStore.findById(adminUserId);
+        if (adminUser) {
+          userStore.insert({
+            ...adminUser,
+            globalRole: Roles.platform_admin,
+            role: Roles.platform_admin,
+          });
+        }
+
+        const res = await app.inject({
+          method: "GET",
+          url: `/v1/courses/${courseId}/learn`,
+          cookies: { avana_session: adminToken },
+        });
+        expect(res.statusCode).toBe(200);
+        await app.close();
+      });
+
+      it("allows authorized tenant members (student, teacher, course_editor, org_admin) and denies unauthorized roles", async () => {
+        const app = await buildApp();
+        const { token: ownerToken } = await signIn(
+          app,
+          "owner@example.com",
+        );
+        const { organizationId, courseId } = await seedCourseWithContent(
+          app,
+          ownerToken,
+          "Role Test Org",
+        );
+
+        // Helper to test a user with specific role in the tenant org
+        async function testRoleAccess(role: Role, shouldAllow: boolean) {
+          const email = `user-${role}@example.com`;
+          const { token, userId } = await signIn(app, email);
+          const now = new Date().toISOString();
+          orgStore.addMembership({
+            id: randomUUID(),
+            organizationId,
+            userId,
+            role,
+            createdAt: now,
+            updatedAt: now,
+          });
+
+          const res = await app.inject({
+            method: "GET",
+            url: `/v1/courses/${courseId}/learn`,
+            cookies: { avana_session: token },
+          });
+
+          if (shouldAllow) {
+            expect(
+              res.statusCode,
+              `Role ${role} should be allowed (200)`,
+            ).toBe(200);
+          } else {
+            expect(
+              res.statusCode,
+              `Role ${role} should be denied (404 non-disclosing)`,
+            ).toBe(404);
+          }
+        }
+
+        await testRoleAccess("student", true);
+        await testRoleAccess("teacher", true);
+        await testRoleAccess("course_editor", true);
+        await testRoleAccess("organization_admin", true);
+        await testRoleAccess("support_agent", false);
+        await app.close();
+      });
+
+      it("evaluates content_worker access on System Course vs Tenant Course", async () => {
+        const systemOrgId = "11111111-1111-1111-1111-111111111111" as OrganizationId;
+        const testConfig = makeTestConfig();
+        testConfig.systemOrganizationId = systemOrgId;
+
+        const customApp = createApp({ config: testConfig });
+        await customApp.register(v1Routes, {
+          config: testConfig,
+          sessionStore,
+          userStore,
+          organizationStore: orgStore,
+          courseStore,
+          moduleStore,
+          lessonStore,
+          progressStore,
+          auditService,
+        });
+
+        // 1. Create a system course directly in store
+        const sysCourseId = randomUUID() as CourseId;
+        const now = new Date().toISOString();
+        await courseStore.create({
+          course: {
+            id: sysCourseId,
+            organizationId: systemOrgId,
+            name: "System Official Course",
+            subject: "Official",
+            examDate: null,
+            createdAt: now,
+            updatedAt: now,
+            deletedAt: null,
+            isOfficial: true,
+            status: "published",
+          },
+          auditEvents: [],
+        });
+
+        // 2. Create a tenant course
+        const tenantOrgId = "22222222-2222-2222-2222-222222222222" as OrganizationId;
+        const tenantCourseId = randomUUID() as CourseId;
+        await courseStore.create({
+          course: {
+            id: tenantCourseId,
+            organizationId: tenantOrgId,
+            name: "Tenant Private Course",
+            subject: "Private",
+            examDate: null,
+            createdAt: now,
+            updatedAt: now,
+            deletedAt: null,
+            isOfficial: false,
+            status: "published",
+          },
+          auditEvents: [],
+        });
+
+        // 3. Create content_worker user
+        const { token: workerToken, userId: workerId } = await signIn(
+          customApp,
+          "worker@example.com",
+        );
+        const workerUser = await userStore.findById(workerId);
+        if (workerUser) {
+          userStore.insert({
+            ...workerUser,
+            globalRole: Roles.content_worker,
+            role: Roles.content_worker,
+          });
+        }
+
+        // Access System Course -> Allowed (200)
+        const sysRes = await customApp.inject({
+          method: "GET",
+          url: `/v1/courses/${sysCourseId}/learn`,
+          cookies: { avana_session: workerToken },
+        });
+        expect(sysRes.statusCode).toBe(200);
+
+        // Access Tenant Course (no membership in tenantOrgId) -> Denied (404 non-disclosing)
+        const tenantRes = await customApp.inject({
+          method: "GET",
+          url: `/v1/courses/${tenantCourseId}/learn`,
+          cookies: { avana_session: workerToken },
+        });
+        expect(tenantRes.statusCode).toBe(404);
+
+        await customApp.close();
+      });
+
+      it("respects multi-organization memberships per course and prevents spoofing", async () => {
+        const app = await buildApp();
+
+        // Seed Org A + Course A
+        const { token: userAToken } = await signIn(app, "usera@example.com");
+        const { organizationId: orgA, courseId: courseA } =
+          await seedCourseWithContent(app, userAToken, "Org Alpha");
+
+        // Seed Org B + Course B
+        const { token: userBToken } = await signIn(app, "userb@example.com");
+        const { organizationId: orgB, courseId: courseB } =
+          await seedCourseWithContent(app, userBToken, "Org Beta");
+
+        // Seed Org C + Course C
+        const { token: userCToken } = await signIn(app, "userc@example.com");
+        const { courseId: courseC } =
+          await seedCourseWithContent(app, userCToken, "Org Gamma");
+
+        // Create multi-org user: member in Org A and Org B, NOT in Org C
+        const { token: multiToken, userId: multiUserId } = await signIn(
+          app,
+          "multimember@example.com",
+        );
+        const now = new Date().toISOString();
+        orgStore.addMembership({
+          id: randomUUID(),
+          organizationId: orgA,
+          userId: multiUserId,
+          role: "teacher",
+          createdAt: now,
+          updatedAt: now,
+        });
+        orgStore.addMembership({
+          id: randomUUID(),
+          organizationId: orgB,
+          userId: multiUserId,
+          role: "course_editor",
+          createdAt: now,
+          updatedAt: now,
+        });
+
+        // Access Course A -> 200 OK
+        const resA = await app.inject({
+          method: "GET",
+          url: `/v1/courses/${courseA}/learn`,
+          cookies: { avana_session: multiToken },
+        });
+        expect(resA.statusCode).toBe(200);
+
+        // Access Course B -> 200 OK
+        const resB = await app.inject({
+          method: "GET",
+          url: `/v1/courses/${courseB}/learn`,
+          cookies: { avana_session: multiToken },
+        });
+        expect(resB.statusCode).toBe(200);
+
+        // Access Course C -> 404 Not Found
+        const resC = await app.inject({
+          method: "GET",
+          url: `/v1/courses/${courseC}/learn`,
+          cookies: { avana_session: multiToken },
+        });
+        expect(resC.statusCode).toBe(404);
+
+        // Tampering attempt: pass query params pretending to be in orgB for courseC
+        const resTamper = await app.inject({
+          method: "GET",
+          url: `/v1/courses/${courseC}/learn?organizationId=${orgB}`,
+          cookies: { avana_session: multiToken },
+        });
+        expect(resTamper.statusCode).toBe(404);
+
+        await app.close();
+      });
     });
   });
 

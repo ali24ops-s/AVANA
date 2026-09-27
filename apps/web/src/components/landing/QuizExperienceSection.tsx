@@ -63,7 +63,7 @@ export function QuizExperienceSection() {
           className="lg:col-span-5 flex flex-col gap-6 z-10"
         >
           {/* Badge */}
-          <div className="w-max">
+          <div className="w-full flex justify-center lg:justify-start">
             <span className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-teal-50 border border-teal-200 text-[#008080] text-xs font-bold shadow-xs">
               <FileCheck2 className="w-3.5 h-3.5" />
               <span>خودسنجی تعاملی</span>
@@ -71,7 +71,7 @@ export function QuizExperienceSection() {
           </div>
 
           {/* Heading */}
-          <h2 className="font-headline text-3xl sm:text-4xl lg:text-[42px] leading-[1.25] font-black text-[#1a2226] tracking-tight">
+          <h2 className="font-headline text-3xl sm:text-4xl lg:text-[42px] leading-[1.25] font-black text-[#1a2226] tracking-tight text-center lg:text-right">
             فقط نخوان؛
             <br />
             <span className="text-[#008080]">خودت را امتحان کن.</span>

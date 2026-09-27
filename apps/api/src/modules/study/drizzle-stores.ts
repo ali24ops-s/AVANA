@@ -202,6 +202,7 @@ function toQuizQuestionRecord(row: {
   sortOrder: number;
   createdAt: Date;
   updatedAt: Date;
+  deletedAt?: Date | null;
 }): QuizQuestionRecord {
   return {
     id: row.id as QuizQuestionId,
@@ -218,6 +219,7 @@ function toQuizQuestionRecord(row: {
     sortOrder: row.sortOrder,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
+    deletedAt: row.deletedAt ? row.deletedAt.toISOString() : null,
   };
 }
 
@@ -473,6 +475,31 @@ export class DrizzleFlashcardStore implements FlashcardStore {
     return toFlashcardRecord(row);
   }
 
+  async update(record: FlashcardRecord): Promise<FlashcardRecord> {
+    const [row] = await this.db
+      .update(flashcards)
+      .set({
+        question: record.question,
+        answer: record.answer,
+        explanation: record.explanation ?? null,
+        cardType: record.cardType,
+        difficulty: record.difficulty,
+        updatedAt: new Date(record.updatedAt),
+        deletedAt: record.deletedAt ? new Date(record.deletedAt) : null,
+      })
+      .where(eq(flashcards.id, record.id))
+      .returning();
+
+    return toFlashcardRecord(row);
+  }
+
+  async delete(id: FlashcardId): Promise<void> {
+    await this.db
+      .update(flashcards)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(eq(flashcards.id, id));
+  }
+
   async deleteByDocument(
     documentId: DocumentId,
     organizationId: OrganizationId,
@@ -662,6 +689,18 @@ export class DrizzleQuizStore implements QuizStore {
     return toQuizRecord(row);
   }
 
+  async findById(id: QuizId): Promise<QuizRecord | undefined> {
+    const row = await this.db
+      .select()
+      .from(quizzes)
+      .where(and(eq(quizzes.id, id), isNull(quizzes.deletedAt)))
+      .limit(1)
+      .then((rows) => rows[0]);
+
+    if (!row) return undefined;
+    return toQuizRecord(row);
+  }
+
   async listByCourse(
     courseId: CourseId,
     organizationId?: OrganizationId,
@@ -739,6 +778,30 @@ export class DrizzleQuizStore implements QuizStore {
     return toQuizRecord(row);
   }
 
+  async update(record: QuizRecord): Promise<QuizRecord> {
+    const [row] = await this.db
+      .update(quizzes)
+      .set({
+        title: record.title,
+        topic: record.topic ?? null,
+        difficulty: record.difficulty ?? "medium",
+        status: record.status,
+        updatedAt: new Date(record.updatedAt),
+        deletedAt: record.deletedAt ? new Date(record.deletedAt) : null,
+      })
+      .where(eq(quizzes.id, record.id))
+      .returning();
+
+    return toQuizRecord(row);
+  }
+
+  async delete(id: QuizId): Promise<void> {
+    await this.db
+      .update(quizzes)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(eq(quizzes.id, id));
+  }
+
   async deleteByDocument(
     documentId: DocumentId,
     organizationId: OrganizationId,
@@ -767,7 +830,12 @@ export class DrizzleQuizQuestionStore implements QuizQuestionStore {
     const rows = await this.db
       .select()
       .from(quizQuestions)
-      .where(eq(quizQuestions.quizId, quizId))
+      .where(
+        and(
+          eq(quizQuestions.quizId, quizId),
+          isNull(quizQuestions.deletedAt),
+        ),
+      )
       .orderBy(asc(quizQuestions.sortOrder));
 
     return rows.map(toQuizQuestionRecord);
@@ -778,7 +846,12 @@ export class DrizzleQuizQuestionStore implements QuizQuestionStore {
     const rows = await this.db
       .select()
       .from(quizQuestions)
-      .where(inArray(quizQuestions.id, ids));
+      .where(
+        and(
+          inArray(quizQuestions.id, ids),
+          isNull(quizQuestions.deletedAt),
+        ),
+      );
 
     const map = new Map(rows.map((r) => [r.id, r]));
     const ordered: QuizQuestionRecord[] = [];
@@ -801,7 +874,10 @@ export class DrizzleQuizQuestionStore implements QuizQuestionStore {
       .innerJoin(quizzes, eq(quizQuestions.quizId, quizzes.id))
       .$dynamic();
 
-    const conditions = [isNull(quizzes.deletedAt)];
+    const conditions = [
+      isNull(quizzes.deletedAt),
+      isNull(quizQuestions.deletedAt),
+    ];
 
     if (filter.organizationId) {
       if (
@@ -861,7 +937,10 @@ export class DrizzleQuizQuestionStore implements QuizQuestionStore {
       .innerJoin(quizzes, eq(quizQuestions.quizId, quizzes.id))
       .$dynamic();
 
-    const conditions = [isNull(quizzes.deletedAt)];
+    const conditions = [
+      isNull(quizzes.deletedAt),
+      isNull(quizQuestions.deletedAt),
+    ];
     if (organizationId) {
       conditions.push(eq(quizzes.organizationId, organizationId));
     }
@@ -892,6 +971,76 @@ export class DrizzleQuizQuestionStore implements QuizQuestionStore {
     return result;
   }
 
+  async delete(id: QuizQuestionId): Promise<void> {
+    await this.db
+      .update(quizQuestions)
+      .set({ deletedAt: new Date() })
+      .where(eq(quizQuestions.id, id));
+  }
+
+  async deleteByQuiz(quizId: QuizId): Promise<void> {
+    await this.db
+      .update(quizQuestions)
+      .set({ deletedAt: new Date() })
+      .where(
+        and(
+          eq(quizQuestions.quizId, quizId),
+          isNull(quizQuestions.deletedAt),
+        ),
+      );
+  }
+
+  async restore(id: QuizQuestionId): Promise<void> {
+    await this.db
+      .update(quizQuestions)
+      .set({ deletedAt: null })
+      .where(eq(quizQuestions.id, id));
+  }
+
+  async create(record: QuizQuestionRecord): Promise<QuizQuestionRecord> {
+    const [row] = await this.db
+      .insert(quizQuestions)
+      .values({
+        id: record.id,
+        quizId: record.quizId,
+        generatedContentId: record.generatedContentId ?? null,
+        lessonId: record.lessonId ?? null,
+        question: record.question,
+        topic: record.topic ?? null,
+        difficulty: record.difficulty ?? "medium",
+        questionType: record.questionType,
+        choices: record.choices ?? [],
+        correctAnswer: record.correctAnswer,
+        explanation: record.explanation ?? null,
+        sortOrder: record.sortOrder,
+        deletedAt: record.deletedAt ? new Date(record.deletedAt) : null,
+      })
+      .returning();
+
+    return toQuizQuestionRecord(row);
+  }
+
+  async update(record: QuizQuestionRecord): Promise<QuizQuestionRecord> {
+    const [row] = await this.db
+      .update(quizQuestions)
+      .set({
+        question: record.question,
+        topic: record.topic ?? null,
+        difficulty: record.difficulty ?? "medium",
+        questionType: record.questionType,
+        choices: record.choices ?? [],
+        correctAnswer: record.correctAnswer,
+        explanation: record.explanation ?? null,
+        sortOrder: record.sortOrder,
+        updatedAt: new Date(record.updatedAt),
+        deletedAt: record.deletedAt ? new Date(record.deletedAt) : null,
+      })
+      .where(eq(quizQuestions.id, record.id))
+      .returning();
+
+    return toQuizQuestionRecord(row);
+  }
+
   async createMany(
     records: QuizQuestionRecord[],
   ): Promise<QuizQuestionRecord[]> {
@@ -914,6 +1063,7 @@ export class DrizzleQuizQuestionStore implements QuizQuestionStore {
           sortOrder: r.sortOrder,
           createdAt: new Date(r.createdAt),
           updatedAt: new Date(r.updatedAt),
+          deletedAt: r.deletedAt ? new Date(r.deletedAt) : null,
         })),
       )
       .returning();

@@ -35,7 +35,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
             {label}
           </label>
         )}
-        <div className="relative flex items-center w-full" dir={dir}>
+        <div className="relative flex items-center w-full min-w-0" dir={dir}>
           {startIcon && (
             <div className="absolute start-3.5 top-1/2 -translate-y-1/2 flex items-center justify-center text-[var(--color-text-muted)] pointer-events-none">
               {startIcon}
@@ -46,7 +46,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
             id={inputId}
             disabled={disabled}
             dir={dir}
-            className={`w-full py-2.5 px-3.5 bg-[var(--color-surface)] border ${
+            className={`w-full min-w-0 py-2.5 px-3.5 bg-[var(--color-surface)] border ${
               error
                 ? "border-[#b84c4c] focus:ring-[#b84c4c]/20 text-[var(--color-text)]"
                 : "border-[var(--color-border)] focus:border-[#008080] focus:ring-[#008080]/15"
@@ -94,7 +94,7 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
           ref={ref}
           id={textareaId}
           disabled={disabled}
-          className={`w-full py-2.5 px-3.5 bg-[var(--color-surface)] border ${
+          className={`w-full min-w-0 py-2.5 px-3.5 bg-[var(--color-surface)] border ${
             error
               ? "border-[#b84c4c] focus:ring-[#b84c4c]/20"
               : "border-[var(--color-border)] focus:border-[#008080] focus:ring-[#008080]/15"

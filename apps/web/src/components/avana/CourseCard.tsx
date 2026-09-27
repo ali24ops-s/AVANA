@@ -410,7 +410,7 @@ export function CourseCard({
       <div className="mt-4 pt-3 border-t border-[var(--color-border)]">
         {variant === "library" ? (
           !hasAccess ? (
-            <div className="flex items-center gap-2">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
               {onView && (
                 <Button
                   type="button"
@@ -422,7 +422,7 @@ export function CourseCard({
                   }}
                   data-testid={`view-course-btn-${id}`}
                   leftIcon={<Eye className="h-3.5 w-3.5" />}
-                  className="flex-1 text-xs rounded-[10px]"
+                  className="flex-1 text-xs rounded-[10px] whitespace-nowrap"
                 >
                   مشاهده بسته
                 </Button>
@@ -438,7 +438,7 @@ export function CourseCard({
                   }}
                   data-testid={`buy-course-btn-${id}`}
                   leftIcon={<Lock className="h-3.5 w-3.5" />}
-                  className="flex-1 text-xs rounded-[10px]"
+                  className="flex-1 text-xs rounded-[10px] whitespace-nowrap"
                 >
                   <span className="truncate">
                     {price > 0 ? `خرید (${formatToman(price)})` : "خرید دوره"}

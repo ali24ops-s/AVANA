@@ -161,11 +161,11 @@ export function ReviewDocumentGroup({
               }
             }
           }}
-          className="w-full text-right p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-[var(--color-surface-warm)]/60 transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-default)] focus:ring-inset"
+          className="w-full text-right p-3.5 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 hover:bg-[var(--color-surface-warm)]/60 transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-default)] focus:ring-inset"
         >
-          <div className="flex items-start sm:items-center gap-3.5 min-w-0">
+          <div className="flex items-start sm:items-center gap-3 min-w-0 flex-1">
             <div
-              className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 border ${
+              className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 border mt-0.5 sm:mt-0 ${
                 isUnknown
                   ? "bg-amber-500/10 border-amber-500/20 text-amber-500"
                   : "bg-[var(--color-primary-default)]/10 border-[var(--color-primary-default)]/20 text-[var(--color-primary-default)]"
@@ -178,9 +178,9 @@ export function ReviewDocumentGroup({
               )}
             </div>
 
-            <div className="min-w-0 space-y-1">
+            <div className="min-w-0 flex-1 space-y-1">
               <div className="flex flex-wrap items-center gap-2">
-                <h4 className="text-sm font-bold text-[var(--color-text)] truncate">
+                <h4 className="text-sm font-bold text-[var(--color-text)] leading-snug break-words">
                   {filename}
                 </h4>
                 <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] border border-[var(--color-border)]">
@@ -197,7 +197,7 @@ export function ReviewDocumentGroup({
           </div>
 
           {/* Status Breakdown Chips & Actions */}
-          <div className="flex items-center justify-between sm:justify-end gap-3 flex-wrap">
+          <div className="flex items-center justify-between sm:justify-end gap-2.5 flex-wrap pt-2 sm:pt-0 border-t sm:border-t-0 border-[var(--color-border)]/60">
             <div className="flex items-center gap-1.5 flex-wrap text-xs">
               {group.stats.pending > 0 && (
                 <span className="px-2.5 py-1 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 font-bold border border-amber-500/20">
@@ -221,48 +221,50 @@ export function ReviewDocumentGroup({
               )}
             </div>
 
-            {/* Bulk Approve Button */}
-            {onApproveAll && group.document?.id && (
-              <div className="flex items-center">
-                {group.stats.pending > 0 ? (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setModalError(null);
-                      setShowConfirmModal(true);
-                    }}
-                    disabled={isApprovingAll}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[var(--color-primary-default)] hover:bg-[var(--color-primary-hover)] text-[var(--color-primary-contrast)] font-bold text-xs shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-default)]"
-                    aria-label={`تأیید همه پیش‌نویس‌های ${filename}`}
-                  >
-                    {isApprovingAll ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <CheckCheck className="w-3.5 h-3.5" />
-                    )}
-                    <span>تأیید همه</span>
-                  </button>
-                ) : group.stats.total > 0 ? (
-                  <button
-                    type="button"
-                    disabled
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] font-bold text-xs border border-[var(--color-border)] opacity-70 cursor-not-allowed"
-                    title="تمامی پیش‌نویس‌های این بسته تأیید شده‌اند"
-                  >
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                    <span>همه تأیید شده</span>
-                  </button>
-                ) : null}
-              </div>
-            )}
-
-            <div className="flex items-center gap-1 text-[var(--color-text-muted)] p-1 rounded-lg hover:bg-[var(--color-surface-warm)]">
-              {isOpen ? (
-                <ChevronUp className="w-5 h-5" />
-              ) : (
-                <ChevronDown className="w-5 h-5" />
+            {/* Bulk Approve Button & Toggle Chevron */}
+            <div className="flex items-center gap-2 ms-auto sm:ms-0">
+              {onApproveAll && group.document?.id && (
+                <div className="flex items-center">
+                  {group.stats.pending > 0 ? (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setModalError(null);
+                        setShowConfirmModal(true);
+                      }}
+                      disabled={isApprovingAll}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[var(--color-primary-default)] hover:bg-[var(--color-primary-hover)] text-[var(--color-primary-contrast)] font-bold text-xs shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-default)]"
+                      aria-label={`تأیید همه پیش‌نویس‌های ${filename}`}
+                    >
+                      {isApprovingAll ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <CheckCheck className="w-3.5 h-3.5" />
+                      )}
+                      <span>تأیید همه</span>
+                    </button>
+                  ) : group.stats.total > 0 ? (
+                    <button
+                      type="button"
+                      disabled
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] font-bold text-xs border border-[var(--color-border)] opacity-70 cursor-not-allowed"
+                      title="تمامی پیش‌نویس‌های این بسته تأیید شده‌اند"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                      <span>همه تأیید شده</span>
+                    </button>
+                  ) : null}
+                </div>
               )}
+
+              <div className="flex items-center gap-1 text-[var(--color-text-muted)] p-1 rounded-lg hover:bg-[var(--color-surface-warm)]">
+                {isOpen ? (
+                  <ChevronUp className="w-5 h-5" />
+                ) : (
+                  <ChevronDown className="w-5 h-5" />
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -281,13 +283,13 @@ export function ReviewDocumentGroup({
                   key={item.id}
                   onClick={() => onSelectItem(item.id)}
                   aria-label={`بازبینی پیش‌نویس ${item.type}: ${item.title}`}
-                  className="w-full text-right group bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] rounded-xl border border-[var(--color-border)] hover:border-[var(--color-primary-default)] p-3.5 transition-all cursor-pointer flex items-center justify-between gap-4 focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-default)]"
+                  className="w-full text-right group bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] rounded-xl border border-[var(--color-border)] hover:border-[var(--color-primary-default)] p-3.5 sm:p-4 transition-all cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-default)] shadow-xs"
                 >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-8 h-8 rounded-lg bg-[var(--color-surface-warm)] border border-[var(--color-border)] flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
+                  <div className="flex items-start sm:items-center gap-3 min-w-0 flex-1">
+                    <div className="w-8 h-8 rounded-lg bg-[var(--color-surface-warm)] border border-[var(--color-border)] flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform mt-0.5 sm:mt-0">
                       {typeIcon(item.type)}
                     </div>
-                    <div className="min-w-0 space-y-1">
+                    <div className="min-w-0 flex-1 space-y-1">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-[var(--color-primary-default)]/10 text-[var(--color-primary-default)]">
                           {getTypeName(item.type)}
@@ -297,14 +299,14 @@ export function ReviewDocumentGroup({
                           {toPersianDigits(new Date(item.updated_at).toLocaleDateString("fa-IR"))}
                         </span>
                       </div>
-                      <h5 className="text-sm font-bold text-[var(--color-text)] truncate group-hover:text-[var(--color-primary-default)] transition-colors">
+                      <h5 className="text-sm font-bold text-[var(--color-text)] leading-snug break-words group-hover:text-[var(--color-primary-default)] transition-colors">
                         {item.title}
                       </h5>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-1 text-xs font-bold text-[var(--color-primary-default)] flex-shrink-0 group-hover:-translate-x-0.5 transition-transform">
-                    <span>بازبینی پیش‌نویس</span>
+                  <div className="flex items-center justify-between sm:justify-end gap-1 text-xs font-bold text-[var(--color-primary-default)] pt-2 sm:pt-0 border-t sm:border-t-0 border-[var(--color-border)]/50 group-hover:-translate-x-0.5 transition-transform shrink-0">
+                    <span className="sm:inline">بازبینی پیش‌نویس</span>
                     <ChevronLeft className="w-4 h-4" />
                   </div>
                 </button>

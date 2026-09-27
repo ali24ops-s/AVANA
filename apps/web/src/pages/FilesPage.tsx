@@ -348,7 +348,7 @@ export function FilesPage() {
               <FolderOpen className="w-6 h-6" />
             </div>
             <div>
-              <h1 className="text-h1 text-[var(--color-text)]">
+              <h1 className="text-h1 text-[var(--color-text)] text-center sm:text-right">
                 فایل‌ها و منابع آموزشی
               </h1>
               <p className="text-xs sm:text-sm text-[var(--color-text-muted)] mt-0.5">

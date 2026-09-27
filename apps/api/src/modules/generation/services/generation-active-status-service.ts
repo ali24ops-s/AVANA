@@ -1,13 +1,14 @@
 import {
   type Actor,
   type AuthAction,
-  type AuthContext,
   type AuthorizationPolicy,
   type CourseId,
   type DocumentId,
   type OrganizationId,
   type GenerationProgressStatus,
   type GenerationPipelineStage,
+  type ResourceContext,
+  buildActor,
   DEFAULT_GENERATION_STALE_THRESHOLD_MS,
   DomainError,
   defaultPolicy,
@@ -56,40 +57,69 @@ export class GenerationActiveStatusService {
     actor: Actor,
     organizationId: OrganizationId,
     action: AuthAction,
-  ): Promise<void> {
-    if (actor.role === "platform_admin") {
-      if (
-        this.orgStore &&
-        typeof this.orgStore.findById === "function"
-      ) {
-        const org = await this.orgStore.findById(organizationId);
-        if (!org) {
-          throw new DomainError("not_found", "Organization not found");
-        }
+  ): Promise<Actor> {
+    if (
+      this.orgStore &&
+      typeof this.orgStore.findById === "function"
+    ) {
+      const org = await this.orgStore.findById(organizationId);
+      if (!org) {
+        throw new DomainError("not_found", "Organization not found");
       }
-      const context: AuthContext = { organizationId };
-      this.policy.require(action, actor, context);
-      return;
     }
 
+    let memberships = actor.memberships;
     if (
+      !memberships &&
+      this.orgStore &&
+      typeof this.orgStore.listMembershipsByUserId === "function"
+    ) {
+      memberships = await this.orgStore.listMembershipsByUserId(
+        actor.userId,
+      );
+    } else if (
+      !memberships &&
       this.orgStore &&
       typeof this.orgStore.findMembership === "function"
     ) {
-      const membership = await this.orgStore.findMembership(
+      const m = await this.orgStore.findMembership(
         organizationId,
         actor.userId,
       );
-      if (!membership) {
-        throw new DomainError("not_found", "Organization not found");
+      if (m) {
+        memberships = [
+          {
+            organizationId,
+            role: m.role as import("@avana/domain").Role,
+          },
+        ];
       }
-      const scopedActor = { ...actor, role: membership.role as Actor["role"] };
-      const context: AuthContext = { organizationId };
-      this.policy.require(action, scopedActor, context);
-      return;
     }
-    const context: AuthContext = { organizationId };
-    this.policy.require(action, actor, context);
+
+    const fullActor = buildActor({
+      userId: actor.userId,
+      globalRole:
+        actor.globalRole ??
+        (actor.role === "platform_admin" ? "platform_admin" : undefined),
+      role: actor.role,
+      memberships,
+    });
+
+    const isSystemResource =
+      !!this.systemOrganizationId &&
+      organizationId === this.systemOrganizationId;
+
+    const resourceContext: ResourceContext = {
+      organizationId,
+      resourceType: "course",
+      isSystemResource,
+    };
+
+    if (!this.policy.can(fullActor, action, resourceContext)) {
+      throw new DomainError("not_found", "Organization not found");
+    }
+
+    return fullActor;
   }
 
   /**

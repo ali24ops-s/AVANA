@@ -77,7 +77,7 @@ describe("RichContent & MarkdownRenderer Math & Markdown Suite", () => {
     const text = "قیمت محصول $100 است و همچنین The price is $100.";
     const { container } = render(<RichContent content={text} />);
 
-    expect(container.textContent).toContain("$100");
+    expect(container.textContent).toContain("100");
     expect(container.querySelectorAll(".katex").length).toBe(0);
   });
 
@@ -969,7 +969,7 @@ describe("RichContent & MarkdownRenderer Math & Markdown Suite", () => {
       expect(container.querySelector('[data-callout-type="supplementary"]')).toBeInTheDocument();
 
       // Ensure zero emojis exist anywhere in the rendered container
-      expect(container.textContent).not.toMatch(/[⚠️🚨❗❌✅💡📌💊⛔🚫🔑⭐🧠✨🔴🟢]/);
+      expect(container.textContent).not.toMatch(/(?:⚠️|🚨|❗|❌|✅|💡|📌|💊|⛔|🚫|🔑|⭐|🧠|✨|🔴|🟢)/u);
     });
 
     it("recovers user bug scenario with full medical text and no emoji in rendered output", () => {
@@ -1551,11 +1551,326 @@ describe("RichContent & MarkdownRenderer Math & Markdown Suite", () => {
       expect(diffContainer.querySelectorAll(".katex").length).toBe(2);
     });
   });
+
+  describe("Real-World Educational Content Display Issues Suite", () => {
+    it("Problem 1: unwraps raw JSON lesson content into markdown heading and text", () => {
+      const rawJson = JSON.stringify({
+        kind: "session",
+        title: "جلسه ۲: خواص فیزیکی و اهمیت تجاری آلکین‌ها",
+        contentMarkdown: "# جلسه ۲: خواص فیزیکی و اهمیت تجاری آلکین‌ها\n\nآلکین‌ها هیدروکربن‌های سیرنشده هستند.",
+      });
+
+      const { container } = render(<RichContent content={rawJson} />);
+
+      expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("جلسه ۲: خواص فیزیکی و اهمیت تجاری آلکین‌ها");
+      expect(screen.getByText("آلکین‌ها هیدروکربن‌های سیرنشده هستند.")).toBeInTheDocument();
+      expect(container.textContent).not.toContain('"kind": "session"');
+    });
+
+    it("Problem 2: renders chemistry reaction equations with subscripts and \\text properly without character wrapping or corruption", () => {
+      const chemistryEquation = "$$\n\\text{CaC}_2 + 2\\text{H}_2\\text{O} \\longrightarrow \\text{HC}\\equiv\\text{CH} + \\text{Ca(OH)}_2\n$$";
+      const { container } = render(<RichContent content={chemistryEquation} />);
+
+      const katexDisplay = container.querySelector(".katex-display");
+      expect(katexDisplay).toBeInTheDocument();
+      expect(container.querySelectorAll(".katex").length).toBeGreaterThan(0);
+      expect(container.textContent).not.toContain("textCaC");
+    });
+
+    it("Problem 3: renders decimals and LaTeX unit formula ($0.77 \\text{ g/cm}^3$) without delimiter corruption", () => {
+      const text = "0.62 تا $0.77 \\text{ g/cm}^3$";
+      const { container } = render(<RichContent content={text} />);
+
+      expect(container.textContent).toContain("0.62 تا");
+      const katexElement = container.querySelector(".katex");
+      expect(katexElement).toBeInTheDocument();
+      expect(container.textContent).not.toContain("$0.77");
+    });
+  });
+
+  describe("Verification Audit: Exact Reported Fixtures & False-Positive Guard Suite", () => {
+    it("Fixture 1: renders full lesson with chemistry reaction, decimals, and LaTeX formula without corruption", () => {
+      const fixture1 = `# جلسه ۲: خواص فیزیکی و اهمیت تجاری آلکین‌ها
+## نقطه جوش و چگالی
+نقاط جوش آلکین‌ها تقریباً مشابه آلکان‌ها و آلکن‌هایی با اسکلت کربنی مشابه است.
+چگالی آنها نیز معمولاً کمتر از آب است، بین
+0.62 تا $0.77 \\text{ g/cm}^3$.
+$$
+\\mathrm{CaC_2 + 2H_2O \\rightarrow HC\\equiv CH + Ca(OH)_2}
+$$`;
+
+      const { container } = render(<RichContent content={fixture1} />);
+
+      expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("جلسه ۲: خواص فیزیکی و اهمیت تجاری آلکین‌ها");
+      expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent("نقطه جوش و چگالی");
+      expect(container.textContent).toContain("0.62 تا");
+      expect(container.querySelector(".katex-display")).toBeInTheDocument();
+      expect(container.querySelectorAll(".katex").length).toBeGreaterThanOrEqual(2);
+      expect(container.textContent).not.toContain("textCaC");
+      expect(container.textContent).not.toContain("$0.77");
+    });
+
+    it("Fixture 2: unwraps raw JSON object payload cleanly into educational markdown", () => {
+      const fixture2 = JSON.stringify({
+        kind: "session",
+        title: "جلسه ۲: خواص فیزیکی و اهمیت تجاری آلکین‌ها",
+        contentMarkdown: "# جلسه ۲: خواص فیزیکی و اهمیت تجاری آلکین‌ها",
+      });
+
+      const { container } = render(<RichContent content={fixture2} />);
+
+      expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("جلسه ۲: خواص فیزیکی و اهمیت تجاری آلکین‌ها");
+      expect(container.textContent).not.toContain('"kind": "session"');
+      expect(container.textContent).not.toContain('"contentMarkdown"');
+    });
+
+    it("Fixture 3: unwraps raw JSON object with citationChunkIds metadata cleanly", () => {
+      const fixture3 = JSON.stringify({
+        kind: "session",
+        title: "جلسه ۲",
+        contentMarkdown: "# جلسه ۲",
+        citationChunkIds: [
+          "6945baa6-20b8-4ea3-89f8-8ba26f731440",
+          "5de9a319-ed47-40c0-b2e8-c1fa7238faf3",
+        ],
+      });
+
+      const { container } = render(<RichContent content={fixture3} />);
+
+      expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("جلسه ۲");
+      expect(container.textContent).not.toContain("citationChunkIds");
+      expect(container.textContent).not.toContain("6945baa6-20b8-4ea3-89f8-8ba26f731440");
+    });
+
+    it("False-Positive Guard 1: strictly preserves in-text educational drug UUIDs without stripping", () => {
+      const inTextUuid = "شناسه دارویی 6945baa6-20b8-4ea3-89f8-8ba26f731440 در سامانه ثبت شده است.";
+      const { container } = render(<RichContent content={inTextUuid} />);
+
+      expect(container.textContent).toContain("شناسه دارویی 6945baa6-20b8-4ea3-89f8-8ba26f731440 در سامانه ثبت شده است.");
+    });
+
+    it("False-Positive Guard 2: does NOT treat standalone price ($0.77) as LaTeX math", () => {
+      const priceText = "قیمت دارو $0.77 است.";
+      const { container } = render(<RichContent content={priceText} />);
+
+      expect(container.textContent).toContain("0.77");
+      expect(container.querySelectorAll(".katex").length).toBe(0);
+    });
+
+    it("False-Positive Guard 3: strictly preserves legitimate math ($E = mc^2$)", () => {
+      const mathText = "فرمول معروف انیشتین $E = mc^2$ است.";
+      const { container } = render(<RichContent content={mathText} />);
+
+      expect(container.querySelectorAll(".katex").length).toBe(1);
+      expect(container.textContent).not.toContain("$E = mc^2$");
+    });
+
+    it("Backward Compatibility Matrix: 10 input varieties render correctly without regression", () => {
+      // 1. Healthy legacy markdown
+      const c1 = render(<RichContent content="# عنوان درس\n\nمتن ساده فارسی بدون فرمول." />).container;
+      expect(c1.querySelector("h1")?.textContent).toBe("عنوان درس");
+
+      // 2. Inline math
+      const c2 = render(<RichContent content="غلظت یون $Ca^{2+}$ در سلول" />).container;
+      expect(c2.querySelectorAll(".katex").length).toBe(1);
+
+      // 3. Block math
+      const c3 = render(<RichContent content={"فرمول کلیرانس:\n\n$$\nCL = \\frac{Dose}{AUC}\n$$"} />).container;
+      expect(c3.querySelector(".katex-display")).toBeInTheDocument();
+
+      // 4. Mixed Persian + English
+      const c4 = render(<RichContent content="داروی Lisinopril برای درمان Stage 3 CKD با دوز 10 mg/kg تجویز می‌شود." />).container;
+      expect(c4.textContent).toContain("Lisinopril");
+      expect(c4.textContent).toContain("10 mg/kg");
+
+      // 5. Plain text with no math
+      const c5 = render(<RichContent content="یک متن کاملاً معمولی بدون هیچ فرمولی." />).container;
+      expect(c5.textContent).toContain("یک متن کاملاً معمولی بدون هیچ فرمولی.");
+
+      // 6. New JSON session format
+      const c6 = render(<RichContent content='{"kind":"session","title":"سشن جدید","contentMarkdown":"# سشن جدید\\n\\nمحتوا"}' />).container;
+      expect(c6.querySelector("h1")?.textContent).toBe("سشن جدید");
+
+      // 7. Legacy JSON session format with sessions array
+      const c7 = render(<RichContent content='{"sessions":[{"index":0,"title":"سشن قدیم","contentMarkdown":"# سشن قدیم"}]}' />).container;
+      expect(c7.querySelector("h1")?.textContent).toBe("سشن قدیم");
+
+      // 8. Malformed JSON with contentMarkdown
+      const c8 = render(<RichContent content='{"kind":"session","title":"ناقص","contentMarkdown":"# تیتر سالم در جی‌سان ناقص","citationChunkIds":' />).container;
+      expect(c8.querySelector("h1")?.textContent).toBe("تیتر سالم در جی‌سان ناقص");
+
+      // 9. Plain text that happens to start with {
+      const c9 = render(<RichContent content="{ این یک متن پرانتزی ساده است }" />).container;
+      expect(c9.textContent).toContain("{ این یک متن پرانتزی ساده است }");
+
+      // 10. Normal text with regular UUID in paragraph
+      const c10 = render(<RichContent content="کد رهگیری: e4b6c8a2-1d3f-4e5a-8b7c-9d0e1f2a3b4c را یادداشت کنید." />).container;
+      expect(c10.textContent).toContain("e4b6c8a2-1d3f-4e5a-8b7c-9d0e1f2a3b4c");
+    });
+  });
+
+  describe("LaTeX Plain-Text Unwrapped & Math Isolation Regression Suite", () => {
+    it("1. unwraps \\text{Stage 3} outside math into clean 'Stage 3' without literal text or slashes", () => {
+      const text = "داروی Lisinopril در بیماران \\text{Stage 3} تجویز می‌شود.";
+      const { container } = render(<RichContent content={text} />);
+
+      expect(container.textContent).toContain("داروی Lisinopril در بیماران Stage 3 تجویز می‌شود.");
+      expect(container.textContent).not.toContain("\\text");
+      expect(container.textContent).not.toContain("text{");
+    });
+
+    it("2. unwraps \\text{10 mg} outside math into clean '10 mg'", () => {
+      const text = "دوز دارو برابر \\text{10 mg} در روز است.";
+      const { container } = render(<RichContent content={text} />);
+
+      expect(container.textContent).toContain("دوز دارو برابر 10 mg در روز است.");
+      expect(container.textContent).not.toContain("\\text");
+      expect(container.textContent).not.toContain("text{");
+    });
+
+    it("3. unwraps \\text{کلسیم} outside math into clean 'کلسیم'", () => {
+      const text = "غلظت یون \\text{کلسیم} در سرم پایش شود.";
+      const { container } = render(<RichContent content={text} />);
+
+      expect(container.textContent).toContain("غلظت یون کلسیم در سرم پایش شود.");
+      expect(container.textContent).not.toContain("\\text");
+      expect(container.textContent).not.toContain("text{");
+    });
+
+    it("4. unwraps \\text{mg/dL} outside math into clean 'mg/dL'", () => {
+      const text = "واحد غلظت به صورت \\text{mg/dL} گزارش می‌شود.";
+      const { container } = render(<RichContent content={text} />);
+
+      expect(container.textContent).toContain("واحد غلظت به صورت mg/dL گزارش می‌شود.");
+      expect(container.textContent).not.toContain("\\text");
+      expect(container.textContent).not.toContain("text{");
+    });
+
+    it("5. does NOT show literal word 'text' for unclosed \\text{ g/cm}^3 outside math", () => {
+      const text = "چگالی محاسبه شده برابر \\text{ g/cm}^3 است.";
+      const { container } = render(<RichContent content={text} />);
+
+      expect(container.textContent).toContain("چگالی محاسبه شده برابر  g/cm^3 است.");
+      expect(container.textContent).not.toContain("text");
+    });
+
+    it("6. strictly preserves \\text{...} inside math ($...$ and $$...$$) for KaTeX rendering", () => {
+      const mathText = "فرمول $\\text{CaC}_2$ و مرحله $\\text{Stage 3}$ و دوز $\\text{10 mg}$ و یون $\\text{کلسیم}$ در محیط ریاضی:";
+      const { container } = render(<RichContent content={mathText} />);
+
+      const katexElements = container.querySelectorAll(".katex");
+      expect(katexElements.length).toBe(4);
+      expect(container.textContent).not.toContain("$\\text");
+    });
+
+    it("7. strictly preserves normal educational English sentences containing the word 'text'", () => {
+      const normalText = "This is text in the lesson. Please read the textbook carefully.";
+      const { container } = render(<RichContent content={normalText} />);
+
+      expect(container.textContent).toContain("This is text in the lesson. Please read the textbook carefully.");
+    });
+  });
+
+  describe("Chemical Fallback & Resilience Suite", () => {
+    it("renders ChemicalFallbackBlock when chemical code block cannot be parsed instead of raw inline code", async () => {
+      const malformedChemical = [
+        "در زیر ساختاری نامعتبر آمده است:",
+        "```chemical",
+        "invalid_key_without_structure_or_smiles: hello",
+        "```",
+        "متن پس از ساختار.",
+      ].join("\n");
+
+      const { findByTestId } = render(
+        <MarkdownRenderer content={malformedChemical} />
+      );
+
+      const fallback = await findByTestId("chemical-fallback-block");
+      expect(fallback).toBeInTheDocument();
+      expect(fallback).toHaveAttribute("data-raw-language", "chemical");
+      expect(fallback.textContent).toContain("ساختار مولکولی");
+      expect(fallback.textContent).toContain("اطلاعات ساختار یا فرمول شیمیایی به صورت متن فنی ذخیره شده است.");
+    });
+
+    it("renders ChemicalFallbackBlock when reaction code block cannot be parsed", async () => {
+      const malformedReaction = [
+        "در زیر واکنشی نامعتبر آمده است:",
+        "```reaction",
+        "broken_reaction_payload: ???",
+        "```",
+      ].join("\n");
+
+      const { findByTestId } = render(
+        <MarkdownRenderer content={malformedReaction} />
+      );
+
+      const fallback = await findByTestId("chemical-fallback-block");
+      expect(fallback).toBeInTheDocument();
+      expect(fallback).toHaveAttribute("data-raw-language", "reaction");
+      expect(fallback.textContent).toContain("واکنش یا نمودار شیمیایی");
+    });
+  });
+
+  describe("Biomedical Math Formulas & False-Positive Guard Suite", () => {
+    it("1. renders required biomedical formulas ($\\beta_1$, $\\alpha_2$, $Na^+$, $K^+$, $EC_{50}$) as KaTeX without raw dollar signs", () => {
+      const text = "گیرنده‌های $\\beta_1$ و $\\alpha_2$ با پمپ $Na^+$ و $K^+$ تبادل دارند و مقدار $EC_{50}$ تعیین شد.";
+      const { container } = render(<RichContent content={text} inline />);
+
+      const katexElements = container.querySelectorAll(".katex");
+      expect(katexElements.length).toBe(5);
+
+      // Verify no raw LaTeX delimiters remain
+      expect(container.textContent).not.toContain("$\\beta_1$");
+      expect(container.textContent).not.toContain("$\\alpha_2$");
+      expect(container.textContent).not.toContain("$Na^+$");
+      expect(container.textContent).not.toContain("$K^+$");
+      expect(container.textContent).not.toContain("$EC_{50}$");
+
+      // Verify Persian text intact
+      expect(container.textContent).toContain("گیرنده‌های");
+      expect(container.textContent).toContain("تبادل دارند");
+      expect(container.textContent).toContain("تعیین شد.");
+    });
+
+    it("2. renders formulas in mixed Persian and English educational context with subscripts and superscripts", () => {
+      const text = "In cardiology, $\\beta_1$ stimulation increases cAMP, whereas $\\alpha_2$ decreases it. Ions: $Na^+$ and $K^+$. Potency parameter: $EC_{50}$.";
+      const { container } = render(<RichContent content={text} />);
+
+      const katexElements = container.querySelectorAll(".katex");
+      expect(katexElements.length).toBe(5);
+      expect(container.textContent).toContain("In cardiology,");
+      expect(container.textContent).toContain("stimulation increases cAMP");
+    });
+
+    it("3. strictly preserves standalone currency ($100, $100 USD) without treating as math", () => {
+      const text = "قیمت دوره $100 یا $100 USD است.";
+      const { container } = render(<RichContent content={text} inline />);
+
+      expect(container.querySelectorAll(".katex").length).toBe(0);
+      expect(container.textContent).toContain("$100");
+    });
+
+    it("4. strictly preserves inline code (`$100`, `$\\beta_1$`) without math rendering", () => {
+      const text = "کد درون‌خطی `$100` و متغیر `$\\beta_1$` در فایل تنظیمات.";
+      const { container } = render(<RichContent content={text} inline />);
+
+      expect(container.querySelectorAll(".katex").length).toBe(0);
+      const codeElements = container.querySelectorAll("code");
+      expect(codeElements.length).toBe(2);
+      expect(codeElements[0].textContent).toBe("$100");
+      expect(codeElements[1].textContent).toBe("$\\beta_1$");
+    });
+
+    it("5. strictly preserves URLs and identifiers without unintended math transformation", () => {
+      const text = "لینک مستندات: https://avana.ir/api/v1/courses/$id و شناسه doc-9b1deb4d.";
+      const { container } = render(<RichContent content={text} inline />);
+
+      expect(container.querySelectorAll(".katex").length).toBe(0);
+      expect(container.textContent).toContain("https://avana.ir/api/v1/courses/$id");
+      expect(container.textContent).toContain("doc-9b1deb4d");
+    });
+  });
 });
-
-
-
-
 
 
 

@@ -643,6 +643,16 @@ export function createAdminApi(client: {
       );
     },
 
+    async revokeCommerceEntitlement(
+      entitlementId: string,
+      reason?: string
+    ): Promise<{ success: boolean; entitlement: AdminEntitlementRecord; message?: string }> {
+      return client.post<{ success: boolean; entitlement: AdminEntitlementRecord; message?: string }>(
+        `/v1/admin/commerce/entitlements/${entitlementId}/revoke`,
+        { reason }
+      );
+    },
+
     async approveCommercePayment(
       paymentId: string,
     ): Promise<{ success: boolean; payment: AdminPaymentRecord; message?: string }> {
@@ -921,6 +931,51 @@ export function createAdminApi(client: {
       );
     },
 
+    async getCourseDrafts(courseId: string): Promise<{ session: CourseDraftSession; changes: CourseDraftChange[] }> {
+      return client.get<{ session: CourseDraftSession; changes: CourseDraftChange[] }>(
+        `/v1/admin/content-studio/courses/${courseId}/drafts`,
+      );
+    },
+
+    async publishCourseDraft(courseId: string, sessionId?: string): Promise<{ release: CourseRelease; course: OfficialCourse }> {
+      return client.post<{ release: CourseRelease; course: OfficialCourse }>(
+        `/v1/admin/content-studio/courses/${courseId}/publish-draft`,
+        sessionId ? { sessionId } : undefined,
+      );
+    },
+
+    async discardCourseDraft(courseId: string, sessionId?: string): Promise<{ success: boolean; sessionId: string }> {
+      return client.post<{ success: boolean; sessionId: string }>(
+        `/v1/admin/content-studio/courses/${courseId}/drafts/discard`,
+        sessionId ? { sessionId } : undefined,
+      );
+    },
+
+    async validateCourseDraft(courseId: string, sessionId?: string): Promise<{ valid: boolean; errors: string[]; warnings: string[] }> {
+      return client.get<{ valid: boolean; errors: string[]; warnings: string[] }>(
+        `/v1/admin/content-studio/courses/${courseId}/drafts/validate${sessionId ? `?sessionId=${sessionId}` : ""}`,
+      );
+    },
+
+    async getCoursePreview(courseId: string, sessionId?: string): Promise<any> {
+      return client.get<any>(
+        `/v1/admin/content-studio/courses/${courseId}/preview${sessionId ? `?sessionId=${sessionId}` : ""}`,
+      );
+    },
+
+    async listCourseReleases(courseId: string): Promise<{ releases: CourseRelease[] }> {
+      return client.get<{ releases: CourseRelease[] }>(
+        `/v1/admin/content-studio/courses/${courseId}/releases`,
+      );
+    },
+
+    async rollbackCourseRelease(courseId: string, targetVersion: number, reason?: string): Promise<{ release: CourseRelease; course: OfficialCourse }> {
+      return client.post<{ release: CourseRelease; course: OfficialCourse }>(
+        `/v1/admin/content-studio/courses/${courseId}/rollback`,
+        { targetVersion, reason },
+      );
+    },
+
     async getCourseHierarchy(
       courseId: string,
     ): Promise<AdminCourseHierarchy> {
@@ -999,6 +1054,44 @@ export interface CoursePricingSuggestionResponse extends CoursePricingBreakdown 
   currentProduct: OfficialCourseProduct | null;
 }
 
+export interface CourseDraftSession {
+  id: string;
+  courseId: string;
+  baseCourseVersion: number;
+  source: string;
+  status: string;
+  title: string | null;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CourseDraftChange {
+  id: string;
+  draftSessionId: string;
+  courseId: string;
+  entityType: string;
+  entityId: string;
+  action: string;
+  parentId: string | null;
+  sortOrder: number | null;
+  payload: Record<string, any>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CourseRelease {
+  id: string;
+  courseId: string;
+  versionNumber: number;
+  baseVersion: number;
+  draftSessionId: string | null;
+  changesSummary: Record<string, any>;
+  manifest: any[];
+  publishedBy: string;
+  publishedAt: string;
+}
+
 export interface OfficialCourse {
   id: string;
   organizationId?: string;
@@ -1007,10 +1100,12 @@ export interface OfficialCourse {
   subject: string | null;
   status: "draft" | "generating" | "review" | "approved" | "published" | "archived";
   isOfficial: boolean;
+  version?: number;
   moduleCount: number;
   lessonCount: number;
   flashcardCount: number;
   quizQuestionCount: number;
+  hasPurchaseHistory?: boolean;
   product: OfficialCourseProduct | null;
   createdAt: string;
   updatedAt: string;
@@ -1521,4 +1616,46 @@ export async function getAdminPromotionRedemptions(
   }
   return res.json();
 }
+
+// ---------------------------------------------------------------------------
+// Content Repair API
+// ---------------------------------------------------------------------------
+
+export interface ContentRepairPreviewParams {
+  content?: string;
+  lessonId?: string;
+  generatedContentId?: string;
+  organizationId?: string;
+  appliedRuleIds?: string[];
+  appliedBlockIndices?: number[];
+}
+
+export interface ContentRepairApplyParams {
+  content?: string;
+  lessonId?: string;
+  generatedContentId?: string;
+  organizationId?: string;
+  originalHash: string;
+  appliedRuleIds?: string[];
+  appliedBlockIndices?: number[];
+}
+
+export async function previewContentRepair(params: ContentRepairPreviewParams) {
+  return api.post<import("@avana/domain").RepairPreviewResult>("/admin/content-repair/preview", params);
+}
+
+export async function applyContentRepair(params: ContentRepairApplyParams) {
+  return api.post<import("@avana/domain").ApplyRepairResult>("/admin/content-repair/apply", params);
+}
+
+export async function getContentRepairAudit(params?: { batchSize?: number; maxLessons?: number; search?: string }) {
+  return api.get<import("@avana/domain").ContentCorruptionAuditReport>("/admin/content-repair/audit", {
+    params: {
+      batchSize: params?.batchSize,
+      maxLessons: params?.maxLessons,
+      search: params?.search,
+    },
+  });
+}
+
 

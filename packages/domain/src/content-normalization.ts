@@ -243,9 +243,74 @@ function normalizeLineCallout(line: string): string {
 }
 
 /**
+ * Helper to unwrap raw JSON session or lesson envelopes if an object/JSON was accidentally passed as markdown string.
+ */
+function unwrapRawJsonMarkdown(raw: string): string {
+  const trimmed = raw.trim();
+  if (
+    (trimmed.startsWith("{") && (trimmed.includes('"contentMarkdown"') || trimmed.includes('"kind"'))) ||
+    (trimmed.startsWith('"') && trimmed.endsWith('"') && (trimmed.includes("\\n") || trimmed.includes('\\"')))
+  ) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (typeof parsed === "string") {
+        return unwrapRawJsonMarkdown(parsed);
+      }
+      if (parsed && typeof parsed === "object") {
+        if (typeof (parsed as { contentMarkdown?: unknown }).contentMarkdown === "string") {
+          return (parsed as { contentMarkdown: string }).contentMarkdown;
+        }
+        if (
+          Array.isArray((parsed as { sessions?: unknown[] }).sessions) &&
+          (parsed as { sessions: Array<{ contentMarkdown?: string }> }).sessions.length > 0 &&
+          typeof (parsed as { sessions: Array<{ contentMarkdown?: string }> }).sessions[0].contentMarkdown === "string"
+        ) {
+          return (parsed as { sessions: Array<{ contentMarkdown: string }> }).sessions
+            .map((s) => s.contentMarkdown || "")
+            .join("\n\n---\n\n");
+        }
+      }
+    } catch {
+      // If full parse fails, try regex extraction of contentMarkdown
+      const match = trimmed.match(/"contentMarkdown"\s*:\s*"([\s\S]*?)(?:"\s*,\s*"citationChunkIds"|"\s*,\s*"kind"|"\s*}|"$)/);
+      if (match && match[1]) {
+        return match[1]
+          .replace(/\\n/g, "\n")
+          .replace(/\\r/g, "\r")
+          .replace(/\\t/g, "\t")
+          .replace(/\\"/g, '"')
+          .replace(/\\\\/g, "\\");
+      }
+    }
+  }
+  return raw;
+}
+
+/**
+ * Sanitizes trailing leaked metadata artifacts (like leaked citationChunkIds UUID arrays or JSON residue).
+ */
+function sanitizeTrailingMetadata(text: string): string {
+  let cleaned = text;
+
+  // Remove leaked JSON trailing properties e.g. ',\n "citationChunkIds": [ ... ] }'
+  cleaned = cleaned.replace(/,?\s*"citationChunkIds"\s*:\s*\[[\s\S]*?\]\s*}?$/s, "");
+  cleaned = cleaned.replace(/,?\s*"kind"\s*:\s*"[^"]*"\s*}?$/s, "");
+
+  // Remove standalone trailing lists of quoted UUIDs (e.g. "6945baa6-...", "5de9a319-...")
+  cleaned = cleaned.replace(
+    /(?:\n|^)\s*(?:"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"\s*,?\s*)+$/s,
+    "",
+  );
+
+  return cleaned.trimEnd();
+}
+
+/**
  * Main Educational Content Normalizer.
  *
  * Normalizes Markdown educational lessons, summaries, and notes:
+ * - Unwraps raw JSON payloads if stringified object was passed as markdown.
+ * - Sanitizes trailing metadata/UUID leakages.
  * - Keeps code blocks (``` and `) and LaTeX math ($$ and $) completely untouched.
  * - Converts legacy emoji-labeled callouts into clean semantic Markdown.
  * - Removes decorative visual stickers from Persian educational prose.
@@ -256,7 +321,10 @@ export function normalizeEducationalContent(content: string | null | undefined):
     return content || "";
   }
 
-  const lines = content.split("\n");
+  const unwrapped = unwrapRawJsonMarkdown(content);
+  const sanitized = sanitizeTrailingMetadata(unwrapped);
+
+  const lines = sanitized.split("\n");
   let inFencedCodeBlock = false;
 
   const normalizedLines = lines.map((line) => {

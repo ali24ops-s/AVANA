@@ -24,7 +24,7 @@ export const EvidenceSummary: React.FC<EvidenceSummaryProps> = ({
 
   return (
     <div
-      className={`bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-6 space-y-4 shadow-sm ${className}`}
+      className={`bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-4 sm:p-6 space-y-4 shadow-sm ${className}`}
     >
       {/* Header */}
       <div className="flex items-center justify-between pb-3 border-b border-[var(--color-border)]">

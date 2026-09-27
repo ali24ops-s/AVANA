@@ -623,17 +623,18 @@ export function calculateStreakSummary(
 // Activity Heatmap Engine
 // ---------------------------------------------------------------------------
 
-export type ActivityLevel = 0 | 1 | 2 | 3 | 4;
+export type ActivityLevel = 0 | 1 | 2 | 3 | 4 | 5;
 
 export const ACTIVITY_LEVEL_THRESHOLDS = {
   LEVEL_1_MIN_SECONDS: 1,
-  LEVEL_2_MIN_SECONDS: 900, // 15 min
-  LEVEL_3_MIN_SECONDS: 1800, // 30 min
-  LEVEL_4_MIN_SECONDS: 3600, // 60 min
+  LEVEL_2_MIN_SECONDS: 1500, // 25 min
+  LEVEL_3_MIN_SECONDS: 2700, // 45 min
+  LEVEL_4_MIN_SECONDS: 4500, // 75 min
+  LEVEL_5_MIN_SECONDS: 9000, // 150 min (2.5 hours) - Special level
 } as const;
 
 /**
- * Maps study duration in seconds into a discrete activity level (0-4).
+ * Maps study duration in seconds into a discrete activity level (0-5).
  * Single source of truth for activity level thresholds.
  */
 export function getActivityLevel(seconds: number): ActivityLevel {
@@ -642,7 +643,8 @@ export function getActivityLevel(seconds: number): ActivityLevel {
   if (s < ACTIVITY_LEVEL_THRESHOLDS.LEVEL_2_MIN_SECONDS) return 1;
   if (s < ACTIVITY_LEVEL_THRESHOLDS.LEVEL_3_MIN_SECONDS) return 2;
   if (s < ACTIVITY_LEVEL_THRESHOLDS.LEVEL_4_MIN_SECONDS) return 3;
-  return 4;
+  if (s < ACTIVITY_LEVEL_THRESHOLDS.LEVEL_5_MIN_SECONDS) return 4;
+  return 5;
 }
 
 export const PERSIAN_MONTH_NAMES = [

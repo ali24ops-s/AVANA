@@ -114,69 +114,69 @@ export function LessonSelectionToolbar({
         aria-label="ابزارهای متن انتخاب‌شده"
         dir="rtl"
         onMouseDown={(e) => e.preventDefault()}
-        className="fixed bottom-4 inset-x-3 z-[1350] flex items-center justify-between p-1.5 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl shadow-modal backdrop-blur-md animate-in fade-in slide-in-from-bottom-3 duration-200"
+        className="fixed bottom-20 sm:bottom-4 inset-x-3 z-[1350] max-w-lg mx-auto flex items-center justify-between p-1.5 sm:p-2 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl shadow-modal backdrop-blur-md animate-in fade-in slide-in-from-bottom-3 duration-200 touch-manipulation"
       >
         <button
           type="button"
           onMouseDown={(e) => e.preventDefault()}
           onClick={(e) => handleAction(e, () => onAskAvana(selectionData))}
-          className="flex-1 flex flex-col items-center justify-center gap-1 py-1.5 px-1 rounded-xl text-xs font-semibold text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] active:scale-95 transition-all text-center"
+          className="flex-1 min-h-[44px] flex flex-col items-center justify-center gap-1 py-1 px-1 rounded-xl text-xs font-semibold text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] active:scale-95 transition-all text-center cursor-pointer"
         >
-          <Sparkles className="w-4 h-4 text-teal-600 dark:text-teal-400" />
-          <span className="text-[11px] truncate">از آوانا بپرس</span>
+          <Sparkles className="w-4 h-4 text-teal-600 dark:text-teal-400 shrink-0" />
+          <span className="text-[11px] leading-tight truncate">از آوانا بپرس</span>
         </button>
 
-        <div className="w-[1px] h-6 bg-[var(--color-border)]" />
+        <div className="w-[1px] h-6 bg-[var(--color-border)] shrink-0" />
 
         <button
           type="button"
           onMouseDown={(e) => e.preventDefault()}
           onClick={(e) => handleAction(e, () => onExplainSimply(selectionData))}
-          className="flex-1 flex flex-col items-center justify-center gap-1 py-1.5 px-1 rounded-xl text-xs font-semibold text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] active:scale-95 transition-all text-center"
+          className="flex-1 min-h-[44px] flex flex-col items-center justify-center gap-1 py-1 px-1 rounded-xl text-xs font-semibold text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] active:scale-95 transition-all text-center cursor-pointer"
         >
-          <Lightbulb className="w-4 h-4 text-amber-500" />
-          <span className="text-[11px] truncate">توضیح ساده</span>
+          <Lightbulb className="w-4 h-4 text-amber-500 shrink-0" />
+          <span className="text-[11px] leading-tight truncate">توضیح ساده</span>
         </button>
 
-        <div className="w-[1px] h-6 bg-[var(--color-border)]" />
+        <div className="w-[1px] h-6 bg-[var(--color-border)] shrink-0" />
 
         <button
           type="button"
           disabled={isHighlighting}
           onMouseDown={(e) => e.preventDefault()}
           onClick={(e) => handleAction(e, () => onHighlight(selectionData), "highlight")}
-          className="flex-1 flex flex-col items-center justify-center gap-1 py-1.5 px-1 rounded-xl text-xs font-semibold text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] active:scale-95 transition-all text-center disabled:opacity-50"
+          className="flex-1 min-h-[44px] flex flex-col items-center justify-center gap-1 py-1 px-1 rounded-xl text-xs font-semibold text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] active:scale-95 transition-all text-center disabled:opacity-50 cursor-pointer"
         >
           {isHighlighting ? (
-            <Loader2 className="w-4 h-4 animate-spin text-teal-600" />
+            <Loader2 className="w-4 h-4 animate-spin text-teal-600 shrink-0" />
           ) : (
-            <Highlighter className="w-4 h-4 text-teal-600 dark:text-teal-400" />
+            <Highlighter className="w-4 h-4 text-teal-600 dark:text-teal-400 shrink-0" />
           )}
-          <span className="text-[11px] truncate">هایلایت</span>
+          <span className="text-[11px] leading-tight truncate">هایلایت</span>
         </button>
 
-        <div className="w-[1px] h-6 bg-[var(--color-border)]" />
+        <div className="w-[1px] h-6 bg-[var(--color-border)] shrink-0" />
 
         <button
           type="button"
           onMouseDown={(e) => e.preventDefault()}
           onClick={(e) => handleAction(e, () => onAddNote(selectionData))}
-          className="flex-1 flex flex-col items-center justify-center gap-1 py-1.5 px-1 rounded-xl text-xs font-semibold text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] active:scale-95 transition-all text-center"
+          className="flex-1 min-h-[44px] flex flex-col items-center justify-center gap-1 py-1 px-1 rounded-xl text-xs font-semibold text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] active:scale-95 transition-all text-center cursor-pointer"
         >
-          <StickyNote className="w-4 h-4 text-sky-600 dark:text-sky-400" />
-          <span className="text-[11px] truncate">یادداشت</span>
+          <StickyNote className="w-4 h-4 text-sky-600 dark:text-sky-400 shrink-0" />
+          <span className="text-[11px] leading-tight truncate">یادداشت</span>
         </button>
 
-        <div className="w-[1px] h-6 bg-[var(--color-border)]" />
+        <div className="w-[1px] h-6 bg-[var(--color-border)] shrink-0" />
 
         <button
           type="button"
           onMouseDown={(e) => e.preventDefault()}
           onClick={(e) => handleAction(e, () => onReportIssue(selectionData))}
-          className="flex-1 flex flex-col items-center justify-center gap-1 py-1.5 px-1 rounded-xl text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 active:scale-95 transition-all text-center"
+          className="flex-1 min-h-[44px] flex flex-col items-center justify-center gap-1 py-1 px-1 rounded-xl text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 active:scale-95 transition-all text-center cursor-pointer"
         >
-          <Flag className="w-4 h-4" />
-          <span className="text-[11px] truncate">گزارش مشکل</span>
+          <Flag className="w-4 h-4 shrink-0" />
+          <span className="text-[11px] leading-tight truncate">گزارش مشکل</span>
         </button>
       </div>
     );

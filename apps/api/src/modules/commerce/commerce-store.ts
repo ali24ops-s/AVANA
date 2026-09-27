@@ -9,7 +9,7 @@
  * - user_entitlements
  */
 
-import { eq, and, desc, isNull, or, gt, ilike } from "drizzle-orm";
+import { eq, and, desc, isNull, or, gt, lt, ilike, ne, inArray, isNotNull } from "drizzle-orm";
 import type { DbClient } from "@avana/database/client";
 import {
   products,
@@ -26,6 +26,7 @@ import {
   type ProductId,
   type ProductRecord,
   type UserId,
+  type UserSubscriptionId,
   type UserSubscriptionRecord,
   type UserEntitlementRecord,
   type EntitlementResourceType,
@@ -97,6 +98,11 @@ export interface CommerceStore {
   createSubscription(
     subscription: UserSubscriptionRecord,
   ): Promise<UserSubscriptionRecord>;
+  hasPreviousSuccessfulSubscriptionPurchase(
+    userId: UserId,
+    excludeOrderId?: OrderId,
+    excludeSubscriptionId?: UserSubscriptionId,
+  ): Promise<boolean>;
 
   // Entitlements
   findActiveEntitlement(
@@ -545,6 +551,95 @@ export class DrizzleCommerceStore implements CommerceStore {
       })
       .returning();
     return this.mapSubscription(rows[0]);
+  }
+
+  async hasPreviousSuccessfulSubscriptionPurchase(
+    userId: UserId,
+    excludeOrderId?: OrderId,
+    excludeSubscriptionId?: UserSubscriptionId,
+  ): Promise<boolean> {
+    let currentCreatedAt: Date | null = null;
+    if (excludeOrderId) {
+      const currentOrderRows = await this.db
+        .select({ createdAt: orders.createdAt })
+        .from(orders)
+        .where(eq(orders.id, excludeOrderId))
+        .limit(1);
+      if (currentOrderRows[0]) {
+        currentCreatedAt = currentOrderRows[0].createdAt;
+      }
+    } else if (excludeSubscriptionId) {
+      const currentSubRows = await this.db
+        .select({ createdAt: userSubscriptions.createdAt })
+        .from(userSubscriptions)
+        .where(eq(userSubscriptions.id, excludeSubscriptionId))
+        .limit(1);
+      if (currentSubRows[0]) {
+        currentCreatedAt = currentSubRows[0].createdAt;
+      }
+    }
+
+    // 1. Primary criterion: Paid order for a subscription product
+    const orderConditions = [
+      eq(orders.userId, userId),
+      eq(orders.status, "paid"),
+      eq(products.type, "subscription"),
+    ];
+    if (excludeOrderId) {
+      orderConditions.push(ne(orders.id, excludeOrderId));
+    }
+    if (currentCreatedAt) {
+      orderConditions.push(
+        or(
+          lt(orders.createdAt, currentCreatedAt),
+          and(eq(orders.createdAt, currentCreatedAt), lt(orders.id, excludeOrderId!)),
+        )!,
+      );
+    }
+
+    const paidOrderRows = await this.db
+      .select({ id: orders.id })
+      .from(orders)
+      .innerJoin(products, eq(orders.productId, products.id))
+      .where(and(...orderConditions))
+      .limit(1);
+
+    if (paidOrderRows.length > 0) {
+      return true;
+    }
+
+    // 2. Consistency / fallback criterion: Activated subscription record tied to an order
+    const subConditions = [
+      eq(userSubscriptions.userId, userId),
+      inArray(userSubscriptions.status, ["active", "expired", "cancelled"]),
+      isNotNull(userSubscriptions.orderId),
+    ];
+    if (excludeSubscriptionId) {
+      subConditions.push(ne(userSubscriptions.id, excludeSubscriptionId));
+    }
+    if (excludeOrderId) {
+      subConditions.push(ne(userSubscriptions.orderId, excludeOrderId));
+    }
+    if (currentCreatedAt) {
+      subConditions.push(
+        or(
+          lt(userSubscriptions.createdAt, currentCreatedAt),
+          and(
+            eq(userSubscriptions.createdAt, currentCreatedAt),
+            excludeSubscriptionId ? lt(userSubscriptions.id, excludeSubscriptionId) : undefined,
+          ),
+        )!,
+      );
+    }
+
+    const subRows = await this.db
+      .select({ id: userSubscriptions.id })
+      .from(userSubscriptions)
+      .innerJoin(products, eq(userSubscriptions.productId, products.id))
+      .where(and(...subConditions, eq(products.type, "subscription")))
+      .limit(1);
+
+    return subRows.length > 0;
   }
 
   // --- Entitlements ---
@@ -1318,6 +1413,78 @@ export class InMemoryCommerceStore implements CommerceStore {
     return { ...subscription };
   }
 
+  async hasPreviousSuccessfulSubscriptionPurchase(
+    userId: UserId,
+    excludeOrderId?: OrderId,
+    excludeSubscriptionId?: UserSubscriptionId,
+  ): Promise<boolean> {
+    let currentCreatedAt: number | null = null;
+    if (excludeOrderId) {
+      const curOrder = this.orders.find((o) => o.id === excludeOrderId);
+      if (curOrder) {
+        currentCreatedAt = new Date(curOrder.createdAt).getTime();
+      }
+    } else if (excludeSubscriptionId) {
+      const curSub = this.subscriptions.find((s) => s.id === excludeSubscriptionId);
+      if (curSub) {
+        currentCreatedAt = new Date(curSub.createdAt).getTime();
+      }
+    }
+
+    const isSubscriptionProduct = (productId: ProductId): boolean => {
+      const prod = this.products.find((p) => p.id === productId);
+      return prod?.type === "subscription";
+    };
+
+    // 1. Primary criterion: Paid order for a subscription product created before this one
+    const hasPaidOrder = this.orders.some((o) => {
+      if (o.userId !== userId) return false;
+      if (excludeOrderId && o.id === excludeOrderId) return false;
+      if (o.status !== "paid") return false;
+      if (!isSubscriptionProduct(o.productId)) return false;
+
+      if (currentCreatedAt !== null) {
+        const orderTime = new Date(o.createdAt).getTime();
+        if (orderTime < currentCreatedAt) return true;
+        if (orderTime === currentCreatedAt && excludeOrderId && o.id < excludeOrderId) return true;
+        return false;
+      }
+      return true;
+    });
+
+    if (hasPaidOrder) {
+      return true;
+    }
+
+    // 2. Consistency / fallback criterion: Activated subscription record tied to an order created before this one
+    const hasSuccessfulSub = this.subscriptions.some((s) => {
+      if (s.userId !== userId) return false;
+      if (excludeSubscriptionId && s.id === excludeSubscriptionId) return false;
+      if (excludeOrderId && s.orderId === excludeOrderId) return false;
+      if (!s.orderId) return false;
+      if (
+        s.status === "active_pending_payment_review" ||
+        s.status === "cancelled_payment_rejected"
+      ) {
+        return false;
+      }
+      if (s.status !== "active" && s.status !== "expired" && s.status !== "cancelled") {
+        return false;
+      }
+      if (!isSubscriptionProduct(s.productId)) return false;
+
+      if (currentCreatedAt !== null) {
+        const subTime = new Date(s.createdAt).getTime();
+        if (subTime < currentCreatedAt) return true;
+        if (subTime === currentCreatedAt && excludeSubscriptionId && s.id < excludeSubscriptionId) return true;
+        return false;
+      }
+      return true;
+    });
+
+    return hasSuccessfulSub;
+  }
+
   // --- Entitlements ---
 
   async findActiveEntitlement(
@@ -1447,7 +1614,7 @@ export class InMemoryCommerceStore implements CommerceStore {
           const prod = this.products.find((p) => p.id === o.productId);
           return (
             prod?.type === "wallet_topup" ||
-            (o.metadata as any)?.type === "wallet_topup"
+            (o.metadata as Record<string, unknown> | null)?.type === "wallet_topup"
           );
         })
         .map((o) => o.id),

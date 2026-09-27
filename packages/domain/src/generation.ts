@@ -16,7 +16,7 @@ import type {
   GenerationJobId,
   OrganizationId,
 } from "./ids.js";
-import type { ChemicalStructure } from "./chemistry/types.js";
+import type { ChemicalStructure, ChemicalReaction } from "./chemistry/types.js";
 
 // ---------------------------------------------------------------------------
 // Incremental / Resumable Generation Primitives
@@ -387,6 +387,7 @@ export type LessonSession = {
   citationChunkIds?: string[];
   estimatedMinutes?: number;
   chemicalStructures?: ChemicalStructure[];
+  chemicalReactions?: ChemicalReaction[];
 };
 
 export type LessonPayload = {
@@ -402,7 +403,16 @@ export type LessonPayload = {
   citationChunkIds: string[];
   coverageReport?: DocumentCoverageReport;
   chemicalStructures?: ChemicalStructure[];
+  chemicalReactions?: ChemicalReaction[];
 };
+
+export type FlashcardDifficulty = "easy" | "medium" | "hard";
+
+export const VALID_FLASHCARD_DIFFICULTIES: readonly FlashcardDifficulty[] = [
+  "easy",
+  "medium",
+  "hard",
+] as const;
 
 export type FlashcardPayload = {
   kind: "flashcard";
@@ -412,16 +422,44 @@ export type FlashcardPayload = {
   answer?: string;
   explanation?: string;
   cardType?: string;
-  difficulty?: "easy" | "medium" | "hard";
+  difficulty?: FlashcardDifficulty;
   cards?: Array<{
     question: string;
     answer: string;
     explanation?: string;
     cardType?: string;
-    difficulty?: "easy" | "medium" | "hard";
+    difficulty?: FlashcardDifficulty;
   }>;
   citationChunkIds: string[];
 };
+
+/**
+ * Validates and normalizes flashcard difficulty before persistence.
+ * Rejects arbitrary or corrupted AI output with a DomainError while preserving null/undefined fallback.
+ */
+export function validateFlashcardDifficulty(
+  raw: unknown,
+  context?: { cardIndex?: number },
+): FlashcardDifficulty {
+  if (raw === undefined || raw === null || raw === "") {
+    return "medium";
+  }
+  if (raw === "easy" || raw === "medium" || raw === "hard") {
+    return raw;
+  }
+  const indexSuffix = context?.cardIndex !== undefined ? ` at card index ${context.cardIndex}` : "";
+  const snippet = typeof raw === "string" ? raw.slice(0, 50) : String(raw);
+  throw new DomainError(
+    "unprocessable",
+    `Invalid flashcard difficulty${indexSuffix}: "${snippet}". Expected one of: "easy", "medium", "hard".`,
+    {
+      contentType: "flashcard",
+      cardIndex: context?.cardIndex,
+      field: "difficulty",
+      invalidValue: snippet,
+    },
+  );
+}
 
 export type QuizQuestionCategory =
   | "recall"
@@ -542,6 +580,37 @@ export const ENABLED_GENERATION_TYPES: readonly GeneratedContentType[] = [
 export function isGenerationTypeEnabled(type: GeneratedContentType): boolean {
   return ENABLED_GENERATION_TYPES.includes(type);
 }
+
+/**
+ * Normalizes, trims, deduplicates, and preserves canonical order for raw requested content types string.
+ */
+export function normalizeRequestedContentTypes(
+  raw?: string | string[] | null,
+): GeneratedContentType[] | undefined {
+  if (!raw) return undefined;
+  const canonicalOrder: GeneratedContentType[] = [
+    "lesson",
+    "flashcard",
+    "quiz",
+    "review_summary",
+  ];
+  const validSet = new Set<string>(canonicalOrder);
+  const items = Array.isArray(raw) ? raw : raw.split(",");
+  const matched = new Set<GeneratedContentType>();
+
+  for (const item of items) {
+    if (typeof item === "string") {
+      const trimmed = item.trim().toLowerCase();
+      if (validSet.has(trimmed)) {
+        matched.add(trimmed as GeneratedContentType);
+      }
+    }
+  }
+
+  if (matched.size === 0) return undefined;
+  return canonicalOrder.filter((t) => matched.has(t));
+}
+
 
 // ---------------------------------------------------------------------------
 // Coverage-Driven Generation & Educational Audit

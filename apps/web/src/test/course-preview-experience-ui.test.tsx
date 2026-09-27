@@ -195,11 +195,13 @@ describe("Pre-Purchase Course Preview & Free Access UI QA Verification", () => {
       expect(screen.getByText("دوره جامع فارماکولوژی قلب و عروق")).toBeDefined();
     });
 
-    // 2. Verify all chapters and lessons are in the syllabus outline
-    expect(screen.getAllByText("فصل ۱: داروهای ضد فشار خون")[0]).toBeDefined();
-    expect(screen.getAllByText("فصل ۲: بتابلوکرها و آنتاگونیست‌های کلسیم")[0]).toBeDefined();
-    expect(screen.getAllByText("درس ۱: مهارکننده‌های ACE و مکانیسم اثر")[0]).toBeDefined();
-    expect(screen.getAllByText("درس ۲: عوارض جانبی و تداخلات دارویی ACEI")[0]).toBeDefined();
+    // 2. Open syllabus drawer and verify all chapters and lessons are in the syllabus outline
+    fireEvent.click(screen.getByRole("button", { name: /نمایش سرفصل‌های دوره/i }));
+    await waitFor(() => {
+      expect(screen.getAllByText("فصل ۱: داروهای ضد فشار خون")[0]).toBeDefined();
+      expect(screen.getAllByText("فصل ۲: بتابلوکرها و آنتاگونیست‌های کلسیم")[0]).toBeDefined();
+      expect(screen.getAllByText("درس ۱: مهارکننده‌های ACE و مکانیسم اثر")[0]).toBeDefined();
+    });
 
     // 3. Verify Preview lesson is auto-selected and shows preview badge & real markdown
     expect(screen.getAllByText("مقدمه بر مهارکننده‌های ACE")[0]).toBeDefined();

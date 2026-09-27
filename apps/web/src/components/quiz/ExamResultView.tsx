@@ -1,5 +1,17 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import {
+  BarChart2,
+  ArrowLeft,
+  AlertTriangle,
+  TrendingUp,
+  BookOpen,
+  Check,
+  X,
+  HelpCircle,
+  Minus,
+  Lightbulb,
+} from "lucide-react";
 import { TrophyIcon, RefreshIcon } from "./ExamIcons.js";
 import { RichContent } from "../markdown/MarkdownRenderer.js";
 import { Button, Card, Badge } from "@avana/ui";
@@ -268,7 +280,7 @@ export function ExamResultView({
           </div>
         </div>
 
-        <div className="flex items-center justify-center gap-4 pt-2">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-3 sm:gap-4 pt-2 w-full max-w-md mx-auto">
           <Button
             type="button"
             variant="outline"
@@ -277,6 +289,7 @@ export function ExamResultView({
             disabled={isRetrying}
             isLoading={isRetrying}
             leftIcon={<RefreshIcon className="w-4 h-4" />}
+            className="w-full sm:w-auto"
           >
             شرکت مجدد در آزمون
           </Button>
@@ -285,6 +298,7 @@ export function ExamResultView({
             variant="primary"
             size="md"
             onClick={onReturnToConfig}
+            className="w-full sm:w-auto"
           >
             بازگشت به تنظیمات آزمون
           </Button>
@@ -296,7 +310,7 @@ export function ExamResultView({
         <Card className="border border-[var(--color-border)] p-6 space-y-5 bg-[var(--color-surface)] shadow-xs">
           <div className="flex items-center justify-between border-b border-[var(--color-border)] pb-3">
             <h3 className="text-base font-bold text-[var(--color-text)] flex items-center gap-2">
-              <span className="material-symbols-outlined text-[var(--color-primary)] text-lg">analytics</span>
+              <BarChart2 className="w-5 h-5 text-[var(--color-primary)]" />
               عملکرد به تفکیک مباحث آزمون
             </h3>
             <span className="text-xs text-[var(--color-text-muted)]">
@@ -347,7 +361,7 @@ export function ExamResultView({
                           className="inline-flex items-center gap-1 text-xs font-bold text-primary hover:underline bg-primary/10 hover:bg-primary/20 px-2.5 py-1 rounded-lg transition-colors"
                         >
                           <span>مطالعه جلسه</span>
-                          <span className="material-symbols-outlined text-xs">arrow_back</span>
+                          <ArrowLeft className="w-3.5 h-3.5" />
                         </Link>
                       )}
                     </div>
@@ -406,7 +420,7 @@ export function ExamResultView({
               <div className="p-4 bg-[#fde8e8]/70 border border-[#e8a0a0] rounded-2xl space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-[#7f3131] flex items-center gap-1.5">
-                    <span className="material-symbols-outlined text-base">priority_high</span>
+                    <AlertTriangle className="w-4 h-4" />
                     مباحث نیازمند مرور و تقویت:
                   </span>
                   {weaknesses.length > 0 && (
@@ -430,9 +444,7 @@ export function ExamResultView({
                               className="font-bold text-[#7f3131] hover:underline flex items-center gap-1 group truncate"
                             >
                               <span className="truncate">{w.topic}</span>
-                              <span className="material-symbols-outlined text-xs shrink-0 text-primary opacity-80 group-hover:translate-x-[-2px] transition-transform">
-                                arrow_back
-                              </span>
+                              <ArrowLeft className="w-3.5 h-3.5 shrink-0 text-primary opacity-80 group-hover:translate-x-[-2px] transition-transform" />
                             </Link>
                           ) : (
                             <span className="font-bold text-[var(--color-text)] truncate">{w.topic}</span>
@@ -471,7 +483,7 @@ export function ExamResultView({
               <div className="p-4 bg-[#e4f4ec]/70 border border-[#9ed4bb] rounded-2xl space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-[#2a624b] flex items-center gap-1.5">
-                    <span className="material-symbols-outlined text-base">trending_up</span>
+                    <TrendingUp className="w-4 h-4" />
                     نقاط قوت و تسلط بالا:
                   </span>
                   {strengths.length > 0 && (
@@ -495,9 +507,7 @@ export function ExamResultView({
                               className="font-bold text-[#2a624b] hover:underline flex items-center gap-1 group truncate"
                             >
                               <span className="truncate">{s.topic}</span>
-                              <span className="material-symbols-outlined text-xs shrink-0 text-primary opacity-80 group-hover:translate-x-[-2px] transition-transform">
-                                arrow_back
-                              </span>
+                              <ArrowLeft className="w-3.5 h-3.5 shrink-0 text-primary opacity-80 group-hover:translate-x-[-2px] transition-transform" />
                             </Link>
                           ) : (
                             <span className="font-bold text-[var(--color-text)] truncate">{s.topic}</span>
@@ -541,7 +551,7 @@ export function ExamResultView({
         <div className="space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[var(--color-border)] pb-3">
             <h3 className="text-base font-bold text-[var(--color-text)] flex items-center gap-2">
-              <span className="material-symbols-outlined text-[var(--color-primary)] text-lg">menu_book</span>
+              <BookOpen className="w-5 h-5 text-[var(--color-primary)]" />
               مرور سوالات، پاسخ‌ها و توضیحات تشریحی
             </h3>
 
@@ -611,28 +621,28 @@ export function ExamResultView({
 
                   {status === "correct" && (
                     <Badge variant="success" size="md" className="gap-1 px-2.5 py-0.5">
-                      <span className="material-symbols-outlined text-[14px]">check</span>
+                      <Check className="w-3.5 h-3.5" />
                       <span>پاسخ صحیح</span>
                     </Badge>
                   )}
 
                   {status === "incorrect" && (
                     <Badge variant="error" size="md" className="gap-1 px-2.5 py-0.5">
-                      <span className="material-symbols-outlined text-[14px]">close</span>
+                      <X className="w-3.5 h-3.5" />
                       <span>پاسخ نادرست</span>
                     </Badge>
                   )}
 
                   {status === "unanswered" && (
                     <Badge variant="warning" size="md" className="gap-1 px-2.5 py-0.5">
-                      <span className="material-symbols-outlined text-[14px]">help_outline</span>
+                      <HelpCircle className="w-3.5 h-3.5" />
                       <span>بدون پاسخ</span>
                     </Badge>
                   )}
 
                   {status === "partial" && (
                     <Badge variant="warning" size="md" className="gap-1 px-2.5 py-0.5">
-                      <span className="material-symbols-outlined text-[14px]">remove</span>
+                      <Minus className="w-3.5 h-3.5" />
                       <span>پاسخ ناقص ({toPersianDigits(Math.round(evaluation.scoreRatio * 100))}٪)</span>
                     </Badge>
                   )}
@@ -644,7 +654,7 @@ export function ExamResultView({
 
                 {status === "unanswered" && (
                   <div className="p-3 bg-[#fdf2e4] rounded-xl border border-[#e8c18a] text-xs text-[#8f5e27] flex items-center gap-2">
-                    <span className="material-symbols-outlined text-[#8f5e27] text-base shrink-0">help_outline</span>
+                    <HelpCircle className="w-4 h-4 text-[#8f5e27] shrink-0" />
                     <span>شما در زمان برگزاری آزمون به این سوال پاسخ نداده‌اید. گزینه صحیح با رنگ سبز مشخص شده است.</span>
                   </div>
                 )}
@@ -683,7 +693,7 @@ export function ExamResultView({
                                 size="sm"
                                 className="text-[11px] font-bold px-2 py-0.5 gap-1"
                               >
-                                <span className="material-symbols-outlined text-[13px]">check</span>
+                                <Check className="w-3 h-3" />
                                 پاسخ صحیح شما
                               </Badge>
                             )}
@@ -694,7 +704,7 @@ export function ExamResultView({
                                 size="sm"
                                 className="text-[11px] font-bold px-2 py-0.5 gap-1"
                               >
-                                <span className="material-symbols-outlined text-[13px]">close</span>
+                                <X className="w-3 h-3" />
                                 پاسخ شما (نادرست)
                               </Badge>
                             )}
@@ -718,7 +728,7 @@ export function ExamResultView({
                 {q.explanation && (
                   <div className="p-4 bg-[var(--color-surface-warm)] rounded-xl border border-[var(--color-border)] text-xs space-y-1.5 mt-2">
                     <p className="font-bold text-[var(--color-text)] flex items-center gap-1.5">
-                      <span className="material-symbols-outlined text-sm text-[var(--color-primary)]">lightbulb</span>
+                      <Lightbulb className="w-4 h-4 text-[var(--color-primary)]" />
                       <span>تحلیل تشریحی و راهنمایی آموزشی:</span>
                     </p>
                     <div className="text-[var(--color-text-secondary)] leading-relaxed">

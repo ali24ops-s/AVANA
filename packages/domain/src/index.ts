@@ -35,4 +35,7 @@ export * from "./promotions.js";
 export * from "./referral.js";
 export * from "./support.js";
 export * from "./chemistry/index.js";
+export * from "./chart/index.js";
+export * from "./content-repair/index.js";
+export * from "./course-draft.js";
 

@@ -642,10 +642,10 @@ describe("Pricing & Card-to-Card UX Refactor Suite", () => {
     renderWithRouter(["/checkout/card-to-card?productId=prod-sub-monthly"]);
 
     // Order summary row
-    expect(screen.getByText("هدیه اشتراک:")).toBeDefined();
+    expect(screen.getByText("هدیه فعال‌سازی — ویژه اولین خرید اشتراک:")).toBeDefined();
     expect(screen.getByText("۴۰٬۰۰۰ تومان اعتبار کیف پول")).toBeDefined();
 
     // Benefits list item
-    expect(screen.getByText("۴۰٬۰۰۰ تومان اعتبار هدیه کیف پول (ویژه تولید محتوا)")).toBeDefined();
+    expect(screen.getByText("۴۰٬۰۰۰ تومان اعتبار هدیه کیف پول (ویژه اولین خرید اشتراک)")).toBeDefined();
   });
 });

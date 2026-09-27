@@ -130,6 +130,25 @@ function toCitationRecord(row: {
 export class DrizzleGeneratedContentStore implements GeneratedContentStore {
   constructor(private readonly db: DbClient) {}
 
+  async findById(
+    id: GeneratedContentId,
+  ): Promise<GeneratedContentRecord | undefined> {
+    const row = await this.db
+      .select()
+      .from(generatedContents)
+      .where(
+        and(
+          eq(generatedContents.id, id),
+          isNull(generatedContents.deletedAt),
+        ),
+      )
+      .limit(1)
+      .then((rows) => rows[0]);
+
+    if (!row) return undefined;
+    return toGeneratedContentRecord(row);
+  }
+
   async findByIdForOrganization(
     id: GeneratedContentId,
     organizationId: OrganizationId,

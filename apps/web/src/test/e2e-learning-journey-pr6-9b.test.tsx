@@ -501,7 +501,7 @@ describe("PR6-9B: End-to-End Student Learning Journey", () => {
     // Verify results view and query invalidations
     await waitFor(() => {
       expect(screen.getByText("آزمون با موفقیت گذرانده شد!")).toBeDefined();
-      expect(screen.getByText("100%")).toBeDefined();
+      expect(screen.getByText(/۱۰۰/)).toBeDefined();
       expect(screen.getByText("مرور سوالات و پاسخ‌ها")).toBeDefined();
       expect(screen.getByText(/normal intrinsic pacemaker rate is 60 to 100/i)).toBeDefined();
       expect(invalidateSpy).toHaveBeenCalledWith({
@@ -626,7 +626,7 @@ describe("PR6-9B: End-to-End Student Learning Journey", () => {
       expect(
         screen.getByText(/generates action potentials spontaneously at 60-100 bpm/i),
       ).toBeDefined();
-      expect(screen.getByText("سرفصل‌های دوره")).toBeDefined();
+      expect(screen.getByRole("button", { name: /سرفصل/i })).toBeDefined();
     });
   });
 

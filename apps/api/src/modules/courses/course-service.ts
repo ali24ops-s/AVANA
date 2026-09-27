@@ -12,7 +12,6 @@ import {
   validateCoursePublicationEligibility,
   type Actor,
   type AuthorizationPolicy,
-  type AuthContext,
   type CourseId,
   type CoursePublicationRecord,
   type CoursePublicationSnapshot,
@@ -29,8 +28,13 @@ import {
   type SubCourseGroupId,
   type ModuleId,
   type ExamScope,
+  type ResourceContext,
+  type ResourceType,
+  type AuthAction,
+  buildActor,
 } from "@avana/domain";
 import type { CourseStore, CourseRecord, CoursePublicationStore } from "./course-store.js";
+import type { OrganizationStore } from "../organizations/organization-store.js";
 import type { SubCourseGroupStore, ModuleStore, LessonStore, DocumentStore } from "../learning/learning-store.js";
 import type { GeneratedContentStore } from "../generation/generation-store.js";
 import type { QuizStore, FlashcardStore } from "../study/study-store.js";
@@ -61,7 +65,7 @@ export const CANONICAL_COURSES = [
 export class CourseService {
   constructor(
     private readonly store: CourseStore,
-    private readonly requireOrgMembership: (
+    private readonly requireOrgMembership?: (
       actor: Actor,
       organizationId: OrganizationId,
     ) => Promise<{ role: string }>,
@@ -76,7 +80,73 @@ export class CourseService {
     private readonly coursePublicationStore?: CoursePublicationStore,
     _quizStore?: QuizStore,
     _flashcardStore?: FlashcardStore,
+    private readonly organizationStore?: OrganizationStore,
   ) {}
+
+  private async resolveActorAndAuthorize(
+    actor: Actor,
+    organizationId: OrganizationId,
+    action: AuthAction,
+    resource?: {
+      resourceType?: ResourceType;
+      resourceId?: string;
+      courseId?: CourseId;
+    },
+  ): Promise<Actor> {
+    const isSystemResource =
+      !!this.systemOrganizationId &&
+      organizationId === this.systemOrganizationId;
+
+    let memberships = this.organizationStore
+      ? await this.organizationStore.listMembershipsByUserId(actor.userId)
+      : actor.memberships;
+
+    if (!memberships && this.requireOrgMembership) {
+      try {
+        const m = await this.requireOrgMembership(actor, organizationId);
+        if (m) {
+          memberships = [
+            {
+              organizationId,
+              role: m.role as import("@avana/domain").Role,
+            },
+          ];
+        }
+      } catch {
+        // if requireOrgMembership throws, let policy evaluate without membership
+      }
+    }
+
+    const fullActor = buildActor({
+      userId: actor.userId,
+      globalRole: actor.globalRole,
+      role: actor.role,
+      memberships,
+    });
+
+    const resourceContext: ResourceContext = {
+      organizationId,
+      resourceType: resource?.resourceType ?? "course",
+      resourceId: resource?.resourceId,
+      courseId: resource?.courseId,
+      isSystemResource,
+    };
+
+    if (!this.policy.can(fullActor, action, resourceContext)) {
+      const targetMembership = memberships?.find(
+        (m) => m.organizationId === organizationId,
+      );
+      if (targetMembership) {
+        throw new DomainError(
+          "forbidden",
+          `Role does not permit ${action} in this context`,
+        );
+      }
+      throw new DomainError("not_found", "Course not found");
+    }
+
+    return fullActor;
+  }
 
   /**
    * Create a course inside an organization.
@@ -91,10 +161,9 @@ export class CourseService {
     examAt: string | null,
     examScope?: ExamScope | null,
   ): Promise<CourseRecord> {
-    const membership = await this.requireOrgMembership(actor, organizationId);
-    const scopedActor = { ...actor, role: membership.role as Actor["role"] };
-    const context: AuthContext = { organizationId };
-    this.policy.require("course:create", scopedActor, context);
+    await this.resolveActorAndAuthorize(actor, organizationId, "course:create", {
+      resourceType: "course",
+    });
 
     if (!title || title.trim().length === 0) {
       throw new DomainError("bad_request", "Course title is required");
@@ -151,10 +220,9 @@ export class CourseService {
     actor: Actor,
     organizationId: OrganizationId,
   ): Promise<CourseRecord[]> {
-    const membership = await this.requireOrgMembership(actor, organizationId);
-    const scopedActor = { ...actor, role: membership.role as Actor["role"] };
-    const context: AuthContext = { organizationId };
-    this.policy.require("course:read", scopedActor, context);
+    await this.resolveActorAndAuthorize(actor, organizationId, "course:read", {
+      resourceType: "course",
+    });
 
     const courses = await this.store.listByOrganization(
       organizationId,
@@ -190,10 +258,9 @@ export class CourseService {
     actor: Actor,
     organizationId: OrganizationId,
   ): Promise<CourseRecord[]> {
-    const membership = await this.requireOrgMembership(actor, organizationId);
-    const scopedActor = { ...actor, role: membership.role as Actor["role"] };
-    const context: AuthContext = { organizationId };
-    this.policy.require("course:read", scopedActor, context);
+    await this.resolveActorAndAuthorize(actor, organizationId, "course:read", {
+      resourceType: "course",
+    });
 
     const courses = await this.store.listUserCourses(
       actor.userId,
@@ -222,10 +289,9 @@ export class CourseService {
     organizationId: OrganizationId,
     limit = 8,
   ): Promise<CourseRecord[]> {
-    const membership = await this.requireOrgMembership(actor, organizationId);
-    const scopedActor = { ...actor, role: membership.role as Actor["role"] };
-    const context: AuthContext = { organizationId };
-    this.policy.require("course:read", scopedActor, context);
+    await this.resolveActorAndAuthorize(actor, organizationId, "course:read", {
+      resourceType: "course",
+    });
 
     return this.store.listPopular(
       organizationId,
@@ -242,10 +308,10 @@ export class CourseService {
     organizationId: OrganizationId,
     courseId: CourseId,
   ): Promise<void> {
-    const membership = await this.requireOrgMembership(actor, organizationId);
-    const scopedActor = { ...actor, role: membership.role as Actor["role"] };
-    const context: AuthContext = { organizationId, courseId };
-    this.policy.require("course:read", scopedActor, context);
+    await this.resolveActorAndAuthorize(actor, organizationId, "course:read", {
+      resourceType: "course",
+      courseId,
+    });
 
     // Verify the course exists and is accessible
     await this.getCourse(actor, organizationId, courseId);
@@ -262,10 +328,10 @@ export class CourseService {
     organizationId: OrganizationId,
     courseId: CourseId,
   ): Promise<void> {
-    const membership = await this.requireOrgMembership(actor, organizationId);
-    const scopedActor = { ...actor, role: membership.role as Actor["role"] };
-    const context: AuthContext = { organizationId, courseId };
-    this.policy.require("course:read", scopedActor, context);
+    await this.resolveActorAndAuthorize(actor, organizationId, "course:read", {
+      resourceType: "course",
+      courseId,
+    });
 
     await this.store.removeUserCourse(actor.userId, courseId);
   }
@@ -278,10 +344,9 @@ export class CourseService {
     organizationId: OrganizationId,
     courseIds: CourseId[],
   ): Promise<CourseRecord[]> {
-    const membership = await this.requireOrgMembership(actor, organizationId);
-    const scopedActor = { ...actor, role: membership.role as Actor["role"] };
-    const context: AuthContext = { organizationId };
-    this.policy.require("course:read", scopedActor, context);
+    await this.resolveActorAndAuthorize(actor, organizationId, "course:read", {
+      resourceType: "course",
+    });
 
     // Verify all specified courses exist and are accessible
     for (const cId of courseIds) {
@@ -292,7 +357,6 @@ export class CourseService {
     return this.listMyCourses(actor, organizationId);
   }
 
-
   /**
    * Get a single course by ID, scoped to the actor's organization membership or system organization.
    * No course lookup by ID alone — always requires membership context.
@@ -302,11 +366,6 @@ export class CourseService {
     organizationId: OrganizationId,
     courseId: CourseId,
   ): Promise<CourseRecord> {
-    const membership = await this.requireOrgMembership(actor, organizationId);
-    const scopedActor = { ...actor, role: membership.role as Actor["role"] };
-    const context: AuthContext = { organizationId, courseId };
-    this.policy.require("course:read", scopedActor, context);
-
     const course = await this.store.findByIdForUser(
       courseId,
       actor.userId,
@@ -325,12 +384,26 @@ export class CourseService {
       throw new DomainError("not_found", "Course not found");
     }
 
+    const fullActor = await this.resolveActorAndAuthorize(
+      actor,
+      course.organizationId as OrganizationId,
+      "course:read",
+      {
+        resourceType: "course",
+        resourceId: course.id,
+        courseId: course.id,
+      },
+    );
+
     // Unpublished official courses must not be accessible to students
+    const isPrivilegedAdmin =
+      fullActor.globalRole === "platform_admin" ||
+      fullActor.role === "platform_admin" ||
+      fullActor.role === "organization_admin";
     if (
       course.isOfficial === true &&
       course.status !== "published" &&
-      scopedActor.role !== "platform_admin" &&
-      scopedActor.role !== "organization_admin"
+      !isPrivilegedAdmin
     ) {
       throw new DomainError("not_found", "Course not found");
     }
@@ -348,21 +421,6 @@ export class CourseService {
     courseId: CourseId,
     input: CourseUpdateInput,
   ): Promise<CourseRecord> {
-    const membership = await this.requireOrgMembership(actor, organizationId);
-    const scopedActor = { ...actor, role: membership.role as Actor["role"] };
-    const context: AuthContext = { organizationId, courseId };
-
-    const isOnlyExamSettings =
-      (input.examAt !== undefined || input.examScope !== undefined) &&
-      input.title === undefined &&
-      input.subject === undefined;
-
-    if (isOnlyExamSettings) {
-      this.policy.require("course:read", scopedActor, context);
-    } else {
-      this.policy.require("course:update", scopedActor, context);
-    }
-
     const course = await this.store.findByIdForUser(
       courseId,
       actor.userId,
@@ -380,6 +438,22 @@ export class CourseService {
     ) {
       throw new DomainError("not_found", "Course not found");
     }
+
+    const isOnlyExamSettings =
+      (input.examAt !== undefined || input.examScope !== undefined) &&
+      input.title === undefined &&
+      input.subject === undefined;
+
+    await this.resolveActorAndAuthorize(
+      actor,
+      course.organizationId as OrganizationId,
+      isOnlyExamSettings ? "course:read" : "course:update",
+      {
+        resourceType: "course",
+        resourceId: course.id,
+        courseId: course.id,
+      },
+    );
 
     if (course.deletedAt) {
       throw new DomainError("bad_request", "Cannot update an archived course");
@@ -447,11 +521,6 @@ export class CourseService {
     organizationId: OrganizationId,
     courseId: CourseId,
   ): Promise<void> {
-    const membership = await this.requireOrgMembership(actor, organizationId);
-    const scopedActor = { ...actor, role: membership.role as Actor["role"] };
-    const context: AuthContext = { organizationId, courseId };
-    this.policy.require("course:archive", scopedActor, context);
-
     const course = await this.store.findByIdForUser(
       courseId,
       actor.userId,
@@ -469,6 +538,17 @@ export class CourseService {
     ) {
       throw new DomainError("not_found", "Course not found");
     }
+
+    await this.resolveActorAndAuthorize(
+      actor,
+      course.organizationId as OrganizationId,
+      "course:archive",
+      {
+        resourceType: "course",
+        resourceId: course.id,
+        courseId: course.id,
+      },
+    );
 
     if (course.deletedAt) {
       throw new DomainError("bad_request", "Course is already archived");
@@ -499,16 +579,15 @@ export class CourseService {
     courseId: CourseId,
     title: string,
   ) {
-    const membership = await this.requireOrgMembership(actor, organizationId);
-    const scopedActor = { ...actor, role: membership.role as Actor["role"] };
-    const context: AuthContext = { organizationId, courseId };
-    this.policy.require("course:update", scopedActor, context);
-
     if (!this.subCourseGroupStore) {
       throw new DomainError("internal_error", "SubCourseGroupStore not configured");
     }
 
-    await this.getCourse(actor, organizationId, courseId);
+    const course = await this.getCourse(actor, organizationId, courseId);
+    await this.resolveActorAndAuthorize(actor, course.organizationId as OrganizationId, "course:update", {
+      resourceType: "course",
+      courseId,
+    });
 
     if (!title || title.trim().length === 0) {
       throw new DomainError("bad_request", "Chapter title is required");
@@ -536,16 +615,15 @@ export class CourseService {
     chapterId: SubCourseGroupId,
     input: { title?: string; sortOrder?: number },
   ) {
-    const membership = await this.requireOrgMembership(actor, organizationId);
-    const scopedActor = { ...actor, role: membership.role as Actor["role"] };
-    const context: AuthContext = { organizationId, courseId };
-    this.policy.require("course:update", scopedActor, context);
-
     if (!this.subCourseGroupStore) {
       throw new DomainError("internal_error", "SubCourseGroupStore not configured");
     }
 
-    await this.getCourse(actor, organizationId, courseId);
+    const course = await this.getCourse(actor, organizationId, courseId);
+    await this.resolveActorAndAuthorize(actor, course.organizationId as OrganizationId, "course:update", {
+      resourceType: "course",
+      courseId,
+    });
 
     const existing = await this.subCourseGroupStore.findById(chapterId);
     if (!existing || existing.courseId !== courseId) {
@@ -568,16 +646,15 @@ export class CourseService {
     courseId: CourseId,
     chapterId: SubCourseGroupId,
   ) {
-    const membership = await this.requireOrgMembership(actor, organizationId);
-    const scopedActor = { ...actor, role: membership.role as Actor["role"] };
-    const context: AuthContext = { organizationId, courseId };
-    this.policy.require("course:update", scopedActor, context);
-
     if (!this.subCourseGroupStore) {
       throw new DomainError("internal_error", "SubCourseGroupStore not configured");
     }
 
-    await this.getCourse(actor, organizationId, courseId);
+    const course = await this.getCourse(actor, organizationId, courseId);
+    await this.resolveActorAndAuthorize(actor, course.organizationId as OrganizationId, "course:update", {
+      resourceType: "course",
+      courseId,
+    });
 
     const existing = await this.subCourseGroupStore.findById(chapterId);
     if (!existing || existing.courseId !== courseId) {
@@ -593,16 +670,15 @@ export class CourseService {
     courseId: CourseId,
     chapterIds: SubCourseGroupId[],
   ) {
-    const membership = await this.requireOrgMembership(actor, organizationId);
-    const scopedActor = { ...actor, role: membership.role as Actor["role"] };
-    const context: AuthContext = { organizationId, courseId };
-    this.policy.require("course:update", scopedActor, context);
-
     if (!this.subCourseGroupStore) {
       throw new DomainError("internal_error", "SubCourseGroupStore not configured");
     }
 
-    await this.getCourse(actor, organizationId, courseId);
+    const course = await this.getCourse(actor, organizationId, courseId);
+    await this.resolveActorAndAuthorize(actor, course.organizationId as OrganizationId, "course:update", {
+      resourceType: "course",
+      courseId,
+    });
 
     const existing = await this.subCourseGroupStore.listByCourse(courseId);
     const map = new Map(existing.map((g) => [g.id, g]));
@@ -631,10 +707,15 @@ export class CourseService {
       documentId?: import("@avana/domain").DocumentId | null;
     },
   ) {
-    const membership = await this.requireOrgMembership(actor, organizationId);
-    const scopedActor = { ...actor, role: membership.role as Actor["role"] };
-    const context: AuthContext = { organizationId, courseId };
-    this.policy.require("course:update", scopedActor, context);
+    if (!this.moduleStore) {
+      throw new DomainError("internal_error", "ModuleStore not configured");
+    }
+
+    const course = await this.getCourse(actor, organizationId, courseId);
+    await this.resolveActorAndAuthorize(actor, course.organizationId as OrganizationId, "course:update", {
+      resourceType: "course",
+      courseId,
+    });
 
     if (!this.moduleStore) {
       throw new DomainError("internal_error", "ModuleStore not configured");
@@ -676,28 +757,89 @@ export class CourseService {
       sortOrder?: number;
     },
   ) {
-    const membership = await this.requireOrgMembership(actor, organizationId);
-    const scopedActor = { ...actor, role: membership.role as Actor["role"] };
-    const context: AuthContext = { organizationId, courseId };
-    this.policy.require("course:update", scopedActor, context);
-
     if (!this.moduleStore) {
       throw new DomainError("internal_error", "ModuleStore not configured");
     }
 
-    await this.getCourse(actor, organizationId, courseId);
-
+    // 1. Authoritative Module Lookup
     const existing = await this.moduleStore.findById(moduleId);
-    if (!existing || existing.courseId !== courseId) {
+    if (
+      !existing ||
+      existing.deletedAt !== null ||
+      existing.courseId !== courseId
+    ) {
       throw new DomainError("not_found", "Module not found in this course");
     }
 
+    // 2. Authoritative Course Lookup
+    const course = await this.store.findById(courseId);
+    if (!course || course.deletedAt !== null) {
+      throw new DomainError("not_found", "Course not found");
+    }
+
+    // 3. Anti-spoofing Organization Match
+    const authoritativeOrgId = course.organizationId as OrganizationId;
+    if (
+      authoritativeOrgId !== organizationId &&
+      (!this.systemOrganizationId ||
+        authoritativeOrgId !== this.systemOrganizationId)
+    ) {
+      throw new DomainError("not_found", "Course not found");
+    }
+
+    const isSystemResource =
+      !!this.systemOrganizationId &&
+      authoritativeOrgId === this.systemOrganizationId;
+
+    // 4. Load all memberships and build full Actor
+    const memberships = this.organizationStore
+      ? await this.organizationStore.listMembershipsByUserId(actor.userId)
+      : (actor.memberships ?? []);
+
+    const fullActor = buildActor({
+      userId: actor.userId,
+      globalRole: actor.globalRole,
+      role: actor.role,
+      memberships,
+    });
+
+    // 5. Build ResourceContext
+    const resourceContext: ResourceContext = {
+      organizationId: authoritativeOrgId,
+      resourceType: "module",
+      resourceId: existing.id,
+      courseId: course.id,
+      isSystemResource,
+    };
+
+    // 6. Policy Check (Action: "course:update")
+    if (!this.policy.can(fullActor, "course:update", resourceContext)) {
+      const targetMembership = memberships.find(
+        (m) => m.organizationId === authoritativeOrgId,
+      );
+      if (targetMembership) {
+        throw new DomainError(
+          "forbidden",
+          "Role does not permit course updates",
+        );
+      }
+      throw new DomainError("not_found", "Course not found");
+    }
+
+    // 7. Perform Mutation
     const updated = await this.moduleStore.update({
       ...existing,
       title: input.title !== undefined ? input.title.trim() : existing.title,
-      description: input.description !== undefined ? input.description : existing.description,
-      subCourseGroupId: input.subCourseGroupId !== undefined ? input.subCourseGroupId : existing.subCourseGroupId,
-      sortOrder: input.sortOrder !== undefined ? input.sortOrder : existing.sortOrder,
+      description:
+        input.description !== undefined
+          ? input.description
+          : existing.description,
+      subCourseGroupId:
+        input.subCourseGroupId !== undefined
+          ? input.subCourseGroupId
+          : existing.subCourseGroupId,
+      sortOrder:
+        input.sortOrder !== undefined ? input.sortOrder : existing.sortOrder,
       updatedAt: new Date().toISOString(),
     });
 
@@ -710,22 +852,76 @@ export class CourseService {
     courseId: CourseId,
     moduleId: ModuleId,
   ) {
-    const membership = await this.requireOrgMembership(actor, organizationId);
-    const scopedActor = { ...actor, role: membership.role as Actor["role"] };
-    const context: AuthContext = { organizationId, courseId };
-    this.policy.require("course:update", scopedActor, context);
-
     if (!this.moduleStore) {
       throw new DomainError("internal_error", "ModuleStore not configured");
     }
 
-    await this.getCourse(actor, organizationId, courseId);
-
+    // 1. Authoritative Module Lookup
     const existing = await this.moduleStore.findById(moduleId);
-    if (!existing || existing.courseId !== courseId) {
+    if (
+      !existing ||
+      existing.deletedAt !== null ||
+      existing.courseId !== courseId
+    ) {
       throw new DomainError("not_found", "Module not found in this course");
     }
 
+    // 2. Authoritative Course Lookup
+    const course = await this.store.findById(courseId);
+    if (!course || course.deletedAt !== null) {
+      throw new DomainError("not_found", "Course not found");
+    }
+
+    // 3. Anti-spoofing Organization Match
+    const authoritativeOrgId = course.organizationId as OrganizationId;
+    if (
+      authoritativeOrgId !== organizationId &&
+      (!this.systemOrganizationId ||
+        authoritativeOrgId !== this.systemOrganizationId)
+    ) {
+      throw new DomainError("not_found", "Course not found");
+    }
+
+    const isSystemResource =
+      !!this.systemOrganizationId &&
+      authoritativeOrgId === this.systemOrganizationId;
+
+    // 4. Load all memberships and build full Actor
+    const memberships = this.organizationStore
+      ? await this.organizationStore.listMembershipsByUserId(actor.userId)
+      : (actor.memberships ?? []);
+
+    const fullActor = buildActor({
+      userId: actor.userId,
+      globalRole: actor.globalRole,
+      role: actor.role,
+      memberships,
+    });
+
+    // 5. Build ResourceContext
+    const resourceContext: ResourceContext = {
+      organizationId: authoritativeOrgId,
+      resourceType: "module",
+      resourceId: existing.id,
+      courseId: course.id,
+      isSystemResource,
+    };
+
+    // 6. Policy Check (Action: "course:update")
+    if (!this.policy.can(fullActor, "course:update", resourceContext)) {
+      const targetMembership = memberships.find(
+        (m) => m.organizationId === authoritativeOrgId,
+      );
+      if (targetMembership) {
+        throw new DomainError(
+          "forbidden",
+          "Role does not permit course updates",
+        );
+      }
+      throw new DomainError("not_found", "Course not found");
+    }
+
+    // 7. Perform Deletion
     await this.moduleStore.delete(moduleId);
   }
 
@@ -739,16 +935,20 @@ export class CourseService {
       subCourseGroupId?: SubCourseGroupId | null;
     }>,
   ) {
-    const membership = await this.requireOrgMembership(actor, organizationId);
-    const scopedActor = { ...actor, role: membership.role as Actor["role"] };
-    const context: AuthContext = { organizationId, courseId };
-    this.policy.require("course:update", scopedActor, context);
-
     if (!this.moduleStore) {
       throw new DomainError("internal_error", "ModuleStore not configured");
     }
 
-    await this.getCourse(actor, organizationId, courseId);
+    const course = await this.getCourse(actor, organizationId, courseId);
+    await this.resolveActorAndAuthorize(
+      actor,
+      course.organizationId as OrganizationId,
+      "course:update",
+      {
+        resourceType: "course",
+        courseId,
+      },
+    );
 
     if (this.moduleStore.reorder) {
       await this.moduleStore.reorder(courseId, items);
@@ -776,7 +976,61 @@ export class CourseService {
     organizationId: OrganizationId,
     courseId: CourseId,
   ) {
-    const course = await this.getCourse(actor, organizationId, courseId);
+    // 1. Authoritative course lookup
+    const course = await this.store.findById(courseId);
+    if (!course || course.deletedAt !== null) {
+      throw new DomainError("not_found", "Course not found");
+    }
+
+    const authoritativeOrgId = course.organizationId as OrganizationId;
+    if (
+      authoritativeOrgId !== organizationId &&
+      (!this.systemOrganizationId ||
+        authoritativeOrgId !== this.systemOrganizationId)
+    ) {
+      throw new DomainError("not_found", "Course not found");
+    }
+
+    const isSystemResource =
+      !!this.systemOrganizationId &&
+      authoritativeOrgId === this.systemOrganizationId;
+
+    // 2. Load all user memberships and build full actor
+    const memberships = this.organizationStore
+      ? await this.organizationStore.listMembershipsByUserId(actor.userId)
+      : (actor.memberships ?? []);
+
+    const fullActor = buildActor({
+      userId: actor.userId,
+      globalRole: actor.globalRole,
+      role: actor.role,
+      memberships,
+    });
+
+    const resourceContext: ResourceContext = {
+      organizationId: authoritativeOrgId,
+      resourceType: "course",
+      resourceId: course.id,
+      courseId: course.id,
+      isSystemResource,
+    };
+
+    if (!this.policy.can(fullActor, "course:read", resourceContext)) {
+      throw new DomainError("not_found", "Course not found");
+    }
+
+    // Unpublished official courses must not be accessible to students
+    const isPrivilegedAdmin =
+      fullActor.globalRole === "platform_admin" ||
+      fullActor.role === "platform_admin" ||
+      fullActor.role === "organization_admin";
+    if (
+      course.isOfficial === true &&
+      course.status !== "published" &&
+      !isPrivilegedAdmin
+    ) {
+      throw new DomainError("not_found", "Course not found");
+    }
 
     const chapters = this.subCourseGroupStore
       ? await this.subCourseGroupStore.listByCourse(courseId)
@@ -938,16 +1192,20 @@ export class CourseService {
     courseId: CourseId,
     input?: { title?: string; description?: string | null; subject?: string | null },
   ): Promise<{ publication: CoursePublicationRecord; request_id?: string }> {
-    const membership = await this.requireOrgMembership(actor, organizationId);
-    const scopedActor = { ...actor, role: membership.role as Actor["role"] };
-    const context: AuthContext = { organizationId, courseId };
-    this.policy.require("course:update", scopedActor, context);
-
     if (!this.coursePublicationStore) {
       throw new DomainError("internal_error", "CoursePublicationStore not configured");
     }
 
     const course = await this.getCourse(actor, organizationId, courseId);
+    await this.resolveActorAndAuthorize(
+      actor,
+      course.organizationId as OrganizationId,
+      "course:update",
+      {
+        resourceType: "course",
+        courseId,
+      },
+    );
 
     const isOfficialCourse =
       course.isOfficial === true ||

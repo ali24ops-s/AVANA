@@ -28,6 +28,7 @@ export type CourseRecord = {
   isOfficial?: boolean;
   examDate: string | null;
   examScope?: ExamScope | null;
+  version?: number;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;

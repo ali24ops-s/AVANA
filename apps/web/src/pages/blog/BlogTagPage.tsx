@@ -68,13 +68,13 @@ export function BlogTagPage() {
         <header className="rounded-[20px] bg-[var(--color-surface)] border border-[var(--color-border)] p-8 sm:p-12 shadow-xs relative overflow-hidden">
           <div className="absolute top-0 right-0 w-96 h-96 bg-[#008080]/5 rounded-full blur-3xl pointer-events-none" />
 
-          <div className="relative space-y-4 max-w-3xl">
+          <div className="relative space-y-4 max-w-3xl flex flex-col items-center sm:items-start text-center sm:text-right">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-[8px] text-xs font-bold bg-[#008080]/10 text-[#008080] border border-[#008080]/20">
               <TagIcon className="w-3.5 h-3.5" />
               <span>برچسب مقالات</span>
             </div>
 
-            <h1 className="text-2xl sm:text-4xl font-black text-[var(--color-text)] flex items-center gap-2">
+            <h1 className="text-2xl sm:text-4xl font-black text-[var(--color-text)] flex items-center justify-center sm:justify-start gap-2 text-center sm:text-right">
               <span>#{tag?.name || "در حال بارگذاری..."}</span>
             </h1>
 

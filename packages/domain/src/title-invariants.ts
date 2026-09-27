@@ -74,10 +74,47 @@ export function isFilenameLike(title: string | null | undefined): boolean {
 }
 
 /**
- * Checks whether a title is suspicious (either filename-like, too short, or corrupted).
+ * Regex matching content-type prefixes that mistakenly leak into module titles.
+ * Examples: "فلش‌کارت‌های آموزشی:", "مجموعه فلش‌کارت آموزشی:", "آزمون ارزیابی آموخته‌ها:", "خلاصه مروری:".
+ */
+export const CONTENT_TYPE_PREFIX_REGEX =
+  /^(فصل\s*[:\-–—]?\s*)?(فلش[\s‌]?کارت[\s‌]?(های|هاي)?(\s*آموزشی)?|مجموعه[\s‌]?([0-9\u06F0-\u06F9]+|چند)?[\s‌]?فلش[\s‌]?کارت(\s*آموزشی)?|آزمون\s*(ارزیابی\s*آموخته‌ها|ارزیابی|سنجش|جامع)?|خلاصه\s*(مروری|جامع))\s*[:\-–—]?\s*/i;
+
+/**
+ * Checks whether a module title is polluted with generated content type prefixes
+ * such as "فلش‌کارت‌های آموزشی:", "آزمون ارزیابی آموخته‌ها:", or "خلاصه مروری:".
+ */
+export function isPollutedModuleTitle(title: string | null | undefined): boolean {
+  if (!title || typeof title !== "string") return true;
+  const trimmed = title.trim();
+  if (trimmed.length === 0) return true;
+  if (CONTENT_TYPE_PREFIX_REGEX.test(trimmed)) return true;
+  const core = trimmed.replace(/^فصل\s*[:\-–—]?\s*/i, "").trim();
+  if (CONTENT_TYPE_PREFIX_REGEX.test(core)) return true;
+  if (/فلش[\s‌]?کارت[\s‌]?(های|هاي)?\s*آموزشی/i.test(trimmed)) return true;
+  return false;
+}
+
+/**
+ * Strips content-type prefixes from a title (e.g. "فلش‌کارت‌های آموزشی:", "آزمون ارزیابی:").
+ */
+export function stripContentTypePrefix(title: string | null | undefined): string {
+  if (!title || typeof title !== "string") return "";
+  let cleaned = title.trim();
+  while (CONTENT_TYPE_PREFIX_REGEX.test(cleaned)) {
+    const next = cleaned.replace(CONTENT_TYPE_PREFIX_REGEX, "").trim();
+    if (next === cleaned) break;
+    cleaned = next;
+  }
+  return cleaned;
+}
+
+/**
+ * Checks whether a title is suspicious (either filename-like, too short, corrupted, or polluted with content-type prefixes).
  */
 export function isSuspiciousTitle(title: string | null | undefined): boolean {
   if (isFilenameLike(title)) return true;
+  if (isPollutedModuleTitle(title)) return true;
   const trimmed = (title ?? "").trim();
   if (trimmed.length < 3) return true;
   // If stripped of "فصل:" it's less than 2 characters
@@ -109,7 +146,7 @@ export function cleanEducationalTitle(
 }
 
 /**
- * Ensures a module title starts cleanly with "فصل: ".
+ * Ensures a module title starts cleanly with "فصل: " and NEVER contains content-type prefixes.
  */
 export function formatModuleTitle(
   title: string | null | undefined,
@@ -118,11 +155,15 @@ export function formatModuleTitle(
   if (!title || isFilenameLike(title)) {
     return fallback;
   }
-  const cleaned = cleanEducationalTitle(title, "");
+  let cleaned = cleanEducationalTitle(title, "");
   if (!cleaned) return fallback;
 
-  if (/^فصل\s+[\d\u06F0-\u06F9]+(\.\d+)?\s*:\s*/i.test(cleaned)) {
-    return cleaned.replace(/^فصل\s+([\d\u06F0-\u06F9]+(\.\d+)?)\s*:\s*/i, "فصل $1: ");
+  // Invariant: Strip any accidental content-type prefix (e.g. "فلش‌کارت‌های آموزشی:")
+  cleaned = stripContentTypePrefix(cleaned);
+  if (!cleaned || cleaned.length < 2) return fallback;
+
+  if (/^فصل\s+[\d\u06F0-\u06F9]+(\.\d+)?\s*[:\-–—]?\s*/i.test(cleaned)) {
+    return cleaned.replace(/^فصل\s+([\d\u06F0-\u06F9]+(\.\d+)?)\s*[:\-–—]?\s*/i, "فصل $1: ");
   }
 
   if (

@@ -6,6 +6,7 @@ import {
   type UUID,
   asProductId,
   asUserId,
+  asUserSubscriptionId,
   verifyLedgerInvariant,
 } from "@avana/domain";
 import { InMemoryCommerceStore } from "../modules/commerce/commerce-store.js";
@@ -413,7 +414,7 @@ describe("Avana Credits — Phase 2: Subscription Gift Credits Test Suite", () =
   // 4. Renewal & Multiple Subscriptions
   // -------------------------------------------------------------------------
   describe("4. Renewal & Multiple Subscriptions per User", () => {
-    it("13. awards distinct gift credits for sequential subscription purchases / renewals", async () => {
+    it("13. does NOT award subsequent gift credits for sequential subscription purchases / renewals (first purchase only)", async () => {
       // 1. User buys monthly subscription -> +40,000
       const checkout1 = await commerceService.checkout(studentUser, {
         productId: monthlyPlanId,
@@ -428,7 +429,7 @@ describe("Avana Credits — Phase 2: Subscription Gift Credits Test Suite", () =
       let wallet = await walletService.getMyWallet(studentUser);
       expect(wallet.balance).toBe(40_000);
 
-      // 2. User renews / extends subscription with quarterly plan -> +100,000
+      // 2. User renews / extends subscription with quarterly plan -> NO second gift
       const checkout2 = await commerceService.checkout(studentUser, {
         productId: quarterlyPlanId,
         callbackUrl: "https://avana.app/callback",
@@ -439,18 +440,17 @@ describe("Avana Credits — Phase 2: Subscription Gift Credits Test Suite", () =
       );
       expect(verify2.success).toBe(true);
 
-      // 3. User now has 40,000 + 100,000 = 140,000
+      // 3. User still has only the initial 40,000
       wallet = await walletService.getMyWallet(studentUser);
-      expect(wallet.balance).toBe(140_000);
+      expect(wallet.balance).toBe(40_000);
 
       const txs = await walletService.listMyTransactions(studentUser);
-      expect(txs.transactions.length).toBe(2);
+      expect(txs.transactions.length).toBe(1);
       const amounts = txs.transactions.map((t) => t.amount);
-      expect(amounts).toContain(40_000);
-      expect(amounts).toContain(100_000);
+      expect(amounts).toEqual([40_000]);
 
       const allTxs = await walletStore.listTransactionsByUserId(studentUser.userId);
-      expect(verifyLedgerInvariant(allTxs.transactions, 140_000)).toBe(true);
+      expect(verifyLedgerInvariant(allTxs.transactions, 40_000)).toBe(true);
     });
   });
 
@@ -847,6 +847,289 @@ describe("Avana Credits — Phase 2: Subscription Gift Credits Test Suite", () =
 
       const txs = await walletService.listMyTransactions(studentUser);
       expect(txs.transactions.length).toBe(0);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // 8. First-Purchase Only Invariant Enforcement (Scenarios A through M)
+  // -------------------------------------------------------------------------
+  describe("8. First-Purchase Only Invariant Enforcement (Scenarios A through M)", () => {
+    // Scenario A: First purchase of subscription -> bonus granted
+    it("Scenario A: First purchase of subscription grants activation bonus", async () => {
+      const user: Actor = { userId: asUserId(randomUUID() as UUID), role: "student" };
+      const checkout = await commerceService.checkout(user, {
+        productId: monthlyPlanId,
+        callbackUrl: "https://avana.app/callback",
+      });
+      const verify = await commerceService.verifyPayment({ authority: checkout.authority }, "req-scen-a");
+      expect(verify.success).toBe(true);
+
+      const wallet = await walletService.getMyWallet(user);
+      expect(wallet.balance).toBe(40_000);
+      const txs = await walletService.listMyTransactions(user);
+      expect(txs.transactions.length).toBe(1);
+      expect(txs.transactions[0].source).toBe("subscription_bonus");
+    });
+
+    // Scenario B: Second purchase of same plan -> no bonus
+    it("Scenario B: Second purchase of same plan does not grant bonus", async () => {
+      const user: Actor = { userId: asUserId(randomUUID() as UUID), role: "student" };
+      // 1st purchase
+      const c1 = await commerceService.checkout(user, { productId: monthlyPlanId, callbackUrl: "https://avana.app/cb" });
+      await commerceService.verifyPayment({ authority: c1.authority }, "req-scen-b-1");
+      expect((await walletService.getMyWallet(user)).balance).toBe(40_000);
+
+      // 2nd purchase of same plan
+      const c2 = await commerceService.checkout(user, { productId: monthlyPlanId, callbackUrl: "https://avana.app/cb" });
+      await commerceService.verifyPayment({ authority: c2.authority }, "req-scen-b-2");
+
+      // Balance remains 40,000
+      expect((await walletService.getMyWallet(user)).balance).toBe(40_000);
+      const txs = await walletService.listMyTransactions(user);
+      expect(txs.transactions.length).toBe(1);
+    });
+
+    // Scenario C: Renewal -> no bonus
+    it("Scenario C: Renewal of existing active subscription does not grant bonus", async () => {
+      const user: Actor = { userId: asUserId(randomUUID() as UUID), role: "student" };
+      const c1 = await commerceService.checkout(user, { productId: monthlyPlanId, callbackUrl: "https://avana.app/cb" });
+      await commerceService.verifyPayment({ authority: c1.authority }, "req-scen-c-1");
+      expect((await walletService.getMyWallet(user)).balance).toBe(40_000);
+
+      // Renewal
+      const c2 = await commerceService.checkout(user, { productId: monthlyPlanId, callbackUrl: "https://avana.app/cb" });
+      await commerceService.verifyPayment({ authority: c2.authority }, "req-scen-c-2");
+
+      expect((await walletService.getMyWallet(user)).balance).toBe(40_000);
+      const txs = await walletService.listMyTransactions(user);
+      expect(txs.transactions.length).toBe(1);
+    });
+
+    // Scenario D: Different plan (monthly then annual) -> no bonus
+    it("Scenario D: Switching or purchasing a different plan after having subscription history does not grant bonus", async () => {
+      const user: Actor = { userId: asUserId(randomUUID() as UUID), role: "student" };
+      const c1 = await commerceService.checkout(user, { productId: monthlyPlanId, callbackUrl: "https://avana.app/cb" });
+      await commerceService.verifyPayment({ authority: c1.authority }, "req-scen-d-1");
+      expect((await walletService.getMyWallet(user)).balance).toBe(40_000);
+
+      // Second purchase with annual plan (which normally gives 200,000 for 1st purchase)
+      const c2 = await commerceService.checkout(user, { productId: annualPlanId, callbackUrl: "https://avana.app/cb" });
+      await commerceService.verifyPayment({ authority: c2.authority }, "req-scen-d-2");
+
+      // Balance is STILL 40,000, NOT 240,000
+      expect((await walletService.getMyWallet(user)).balance).toBe(40_000);
+      const txs = await walletService.listMyTransactions(user);
+      expect(txs.transactions.length).toBe(1);
+    });
+
+    // Scenario E: Repurchase after expiration -> no bonus
+    it("Scenario E: Repurchase after subscription expiration does not grant bonus", async () => {
+      const user: Actor = { userId: asUserId(randomUUID() as UUID), role: "student" };
+      const c1 = await commerceService.checkout(user, { productId: monthlyPlanId, callbackUrl: "https://avana.app/cb" });
+      await commerceService.verifyPayment({ authority: c1.authority }, "req-scen-e-1");
+      expect((await walletService.getMyWallet(user)).balance).toBe(40_000);
+
+      // Manually set existing subscription to expired
+      const subs = await commerceStore.listSubscriptionsByUser(user.userId);
+      expect(subs.length).toBe(1);
+      subs[0].status = "expired";
+      subs[0].expiresAt = new Date(Date.now() - 1000).toISOString();
+
+      // User repurchases after expiration
+      const c2 = await commerceService.checkout(user, { productId: monthlyPlanId, callbackUrl: "https://avana.app/cb" });
+      await commerceService.verifyPayment({ authority: c2.authority }, "req-scen-e-2");
+
+      expect((await walletService.getMyWallet(user)).balance).toBe(40_000);
+      const txs = await walletService.listMyTransactions(user);
+      expect(txs.transactions.length).toBe(1);
+    });
+
+    // Scenario F: Repurchase after cancellation -> no bonus
+    it("Scenario F: Repurchase after subscription cancellation does not grant bonus", async () => {
+      const user: Actor = { userId: asUserId(randomUUID() as UUID), role: "student" };
+      const c1 = await commerceService.checkout(user, { productId: monthlyPlanId, callbackUrl: "https://avana.app/cb" });
+      await commerceService.verifyPayment({ authority: c1.authority }, "req-scen-f-1");
+      expect((await walletService.getMyWallet(user)).balance).toBe(40_000);
+
+      // Manually cancel existing subscription
+      const subs = await commerceStore.listSubscriptionsByUser(user.userId);
+      expect(subs.length).toBe(1);
+      subs[0].status = "cancelled";
+
+      // User repurchases after cancellation
+      const c2 = await commerceService.checkout(user, { productId: quarterlyPlanId, callbackUrl: "https://avana.app/cb" });
+      await commerceService.verifyPayment({ authority: c2.authority }, "req-scen-f-2");
+
+      expect((await walletService.getMyWallet(user)).balance).toBe(40_000);
+      const txs = await walletService.listMyTransactions(user);
+      expect(txs.transactions.length).toBe(1);
+    });
+
+    // Scenario G: Failed payment prior -> first successful purchase gets bonus
+    it("Scenario G: Previous failed payment does not prevent first successful purchase from receiving bonus", async () => {
+      const user: Actor = { userId: asUserId(randomUUID() as UUID), role: "student" };
+      // 1. Failed payment
+      const c1 = await commerceService.checkout(user, { productId: monthlyPlanId, callbackUrl: "https://avana.app/cb" });
+      const v1 = await commerceService.verifyPayment({ authority: c1.authority, status: "NOK" }, "req-scen-g-1");
+      expect(v1.success).toBe(false);
+      expect((await walletService.getMyWallet(user)).balance).toBe(0);
+
+      // 2. Successful payment
+      const c2 = await commerceService.checkout(user, { productId: monthlyPlanId, callbackUrl: "https://avana.app/cb" });
+      const v2 = await commerceService.verifyPayment({ authority: c2.authority }, "req-scen-g-2");
+      expect(v2.success).toBe(true);
+
+      // Balance receives bonus
+      expect((await walletService.getMyWallet(user)).balance).toBe(40_000);
+      const txs = await walletService.listMyTransactions(user);
+      expect(txs.transactions.length).toBe(1);
+      expect(txs.transactions[0].source).toBe("subscription_bonus");
+    });
+
+    // Scenario H: C2C rejected prior -> first successful purchase gets bonus
+    it("Scenario H: Previous rejected C2C submission does not prevent subsequent approved purchase from receiving bonus", async () => {
+      const user: Actor = { userId: asUserId(randomUUID() as UUID), role: "student" };
+      // 1. C2C submitted and rejected
+      const sub1 = await commerceService.submitCardToCardPayment(
+        user,
+        {
+          productId: monthlyPlanId,
+          amount: 99_000,
+          trackingNumber: "00112233",
+          sourceCardLast4: "1111",
+        },
+        "req-scen-h-1",
+      );
+      await adminService.rejectPayment(adminUser.userId, sub1.paymentId, "نامعتبر");
+      expect((await walletService.getMyWallet(user)).balance).toBe(0);
+
+      // 2. Second C2C submitted and approved
+      const sub2 = await commerceService.submitCardToCardPayment(
+        user,
+        {
+          productId: monthlyPlanId,
+          amount: 99_000,
+          trackingNumber: "44556677",
+          sourceCardLast4: "2222",
+        },
+        "req-scen-h-2",
+      );
+      const appRes = await adminService.approvePayment(adminUser.userId, sub2.paymentId);
+      expect(appRes.success).toBe(true);
+
+      expect((await walletService.getMyWallet(user)).balance).toBe(40_000);
+      const txs = await walletService.listMyTransactions(user);
+      expect(txs.transactions.length).toBe(1);
+      expect(txs.transactions[0].source).toBe("subscription_bonus");
+    });
+
+    // Scenario I: Non-subscription purchase prior (course) -> first subscription gets bonus
+    it("Scenario I: Prior non-subscription purchase (course) does not disqualify first subscription bonus", async () => {
+      const user: Actor = { userId: asUserId(randomUUID() as UUID), role: "student" };
+      // 1. User buys course
+      const c1 = await commerceService.checkout(user, { productId: nonSubscriptionProductId, callbackUrl: "https://avana.app/cb" });
+      await commerceService.verifyPayment({ authority: c1.authority }, "req-scen-i-1");
+      expect((await walletService.getMyWallet(user)).balance).toBe(0);
+
+      // 2. User buys first subscription
+      const c2 = await commerceService.checkout(user, { productId: quarterlyPlanId, callbackUrl: "https://avana.app/cb" });
+      await commerceService.verifyPayment({ authority: c2.authority }, "req-scen-i-2");
+
+      expect((await walletService.getMyWallet(user)).balance).toBe(100_000);
+      const txs = await walletService.listMyTransactions(user);
+      expect(txs.transactions.length).toBe(1);
+      expect(txs.transactions[0].source).toBe("subscription_bonus");
+    });
+
+    // Scenario J: Manual/free subscription (orderId: null) prior -> first paid purchase gets bonus
+    it("Scenario J: Prior manual or free subscription without an order does not disqualify first paid purchase bonus", async () => {
+      const user: Actor = { userId: asUserId(randomUUID() as UUID), role: "student" };
+      // 1. Directly create active subscription with orderId: null
+      await commerceStore.createSubscription({
+        id: asUserSubscriptionId(randomUUID() as UUID),
+        userId: user.userId,
+        productId: monthlyPlanId,
+        orderId: null,
+        status: "active",
+        startsAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 30 * 86400000).toISOString(),
+        metadata: { grantType: "admin_manual_grant" },
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+      expect((await walletService.getMyWallet(user)).balance).toBe(0);
+
+      // 2. User buys their first PAID subscription
+      const c1 = await commerceService.checkout(user, { productId: annualPlanId, callbackUrl: "https://avana.app/cb" });
+      await commerceService.verifyPayment({ authority: c1.authority }, "req-scen-j-1");
+
+      expect((await walletService.getMyWallet(user)).balance).toBe(200_000);
+      const txs = await walletService.listMyTransactions(user);
+      expect(txs.transactions.length).toBe(1);
+      expect(txs.transactions[0].source).toBe("subscription_bonus");
+    });
+
+    // Scenario K: Retry on same payment -> exactly one bonus
+    it("Scenario K: Retry/resubmission on same payment records grants bonus exactly once", async () => {
+      const user: Actor = { userId: asUserId(randomUUID() as UUID), role: "student" };
+      const checkout = await commerceService.checkout(user, { productId: monthlyPlanId, callbackUrl: "https://avana.app/cb" });
+
+      const res1 = await commerceService.verifyPayment({ authority: checkout.authority }, "req-scen-k-1");
+      const res2 = await commerceService.verifyPayment({ authority: checkout.authority }, "req-scen-k-2");
+
+      expect(res1.success).toBe(true);
+      expect(res2.success).toBe(true);
+      expect((await walletService.getMyWallet(user)).balance).toBe(40_000);
+
+      const txs = await walletService.listMyTransactions(user);
+      expect(txs.transactions.length).toBe(1);
+    });
+
+    // Scenario L: Duplicate callback / webhook -> exactly one bonus
+    it("Scenario L: Duplicate callback or concurrent verify for same order grants bonus exactly once", async () => {
+      const user: Actor = { userId: asUserId(randomUUID() as UUID), role: "student" };
+      const checkout = await commerceService.checkout(user, { productId: quarterlyPlanId, callbackUrl: "https://avana.app/cb" });
+
+      // Run 3 verification calls concurrently for the same authority
+      await Promise.all([
+        commerceService.verifyPayment({ authority: checkout.authority }, "req-scen-l-1"),
+        commerceService.verifyPayment({ authority: checkout.authority }, "req-scen-l-2"),
+        commerceService.verifyPayment({ authority: checkout.authority }, "req-scen-l-3"),
+      ]);
+
+      expect((await walletService.getMyWallet(user)).balance).toBe(100_000);
+      const txs = await walletService.listMyTransactions(user);
+      expect(txs.transactions.length).toBe(1);
+    });
+
+    // Scenario M: Concurrent first purchases -> exactly one bonus credited
+    it("Scenario M: Concurrent first purchases for the same user grant exactly one bonus", async () => {
+      const user: Actor = { userId: asUserId(randomUUID() as UUID), role: "student" };
+      // User creates two checkout orders concurrently
+      const [c1, c2] = await Promise.all([
+        commerceService.checkout(user, { productId: monthlyPlanId, callbackUrl: "https://avana.app/cb" }),
+        commerceService.checkout(user, { productId: monthlyPlanId, callbackUrl: "https://avana.app/cb" }),
+      ]);
+
+      // Both verifications fire concurrently
+      const [v1, v2] = await Promise.all([
+        commerceService.verifyPayment({ authority: c1.authority }, "req-scen-m-1"),
+        commerceService.verifyPayment({ authority: c2.authority }, "req-scen-m-2"),
+      ]);
+
+      expect(v1.success).toBe(true);
+      expect(v2.success).toBe(true);
+
+      // Exactly ONE bonus (40,000) is credited to the wallet
+      const wallet = await walletService.getMyWallet(user);
+      expect(wallet.balance).toBe(40_000);
+
+      const txs = await walletService.listMyTransactions(user);
+      expect(txs.transactions.length).toBe(1);
+      expect(txs.transactions[0].source).toBe("subscription_bonus");
+
+      const allTxs = await walletStore.listTransactionsByUserId(user.userId);
+      expect(verifyLedgerInvariant(allTxs.transactions, 40_000)).toBe(true);
     });
   });
 });

@@ -199,7 +199,7 @@ export class SupportService {
     }
 
     // Ownership or Admin check
-    if (record.userId !== actor.userId && actor.role !== "platform_admin" && actor.role !== "content_worker") {
+    if (record.userId !== actor.userId && actor.role !== "platform_admin" && actor.role !== "support_agent") {
       throw new DomainError("forbidden", "شما اجازه مشاهده این بازخورد را ندارید.");
     }
 
@@ -364,7 +364,7 @@ export class SupportService {
       throw new DomainError("not_found", "تیکت پشتیبانی مورد نظر یافت نشد.");
     }
 
-    const isAdmin = actor.role === "platform_admin" || actor.role === "content_worker";
+    const isAdmin = actor.role === "platform_admin" || actor.role === "support_agent";
 
     // Strict IDOR Check
     if (ticket.userId !== actor.userId && !isAdmin) {
@@ -563,7 +563,7 @@ export class SupportService {
       throw new DomainError("not_found", "تیکت پشتیبانی مورد نظر یافت نشد.");
     }
 
-    if (ticket.userId !== actor.userId && actor.role !== "platform_admin") {
+    if (ticket.userId !== actor.userId && actor.role !== "platform_admin" && actor.role !== "support_agent") {
       throw new DomainError("forbidden", "شما اجازه بازگشایی این تیکت را ندارید.");
     }
 
@@ -664,7 +664,7 @@ export class SupportService {
     actor: Actor,
     storageKey: string,
   ): Promise<void> {
-    if (actor.role === "platform_admin" || actor.role === "content_worker") {
+    if (actor.role === "platform_admin" || actor.role === "support_agent") {
       return;
     }
 
@@ -678,7 +678,8 @@ export class SupportService {
   }
 
   private assertAdmin(actor: Actor) {
-    if (actor.role !== "platform_admin" && actor.role !== "content_worker") {
+    const role = actor.globalRole ?? actor.role;
+    if (role !== "platform_admin" && role !== "support_agent") {
       throw new DomainError(
         "forbidden",
         "دسترسی به این بخش تنها برای مدیران سیستم مجاز است.",

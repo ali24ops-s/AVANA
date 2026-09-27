@@ -1,6 +1,48 @@
 import { DomainError } from "@avana/domain";
 
 /**
+ * Safely unescapes raw string content extracted via regex fallback without corrupting LaTeX commands.
+ * Distinguishes JSON escape sequences (\", \n, \r\n) from LaTeX backslash commands (\text, \right, \nabla, etc.).
+ *
+ * In LaTeX math mode ($...$, $$...$$, \(...\), \[...\]), backslashes are preserved for all LaTeX commands
+ * (including arbitrary/custom commands like \newcommand, \notin, \operatorname, etc.).
+ * In regular Markdown text outside math mode, JSON escapes (\n, \t, \", \r\n, \\) are safely decoded.
+ */
+export function safeUnescapeMarkdown(raw: string): string {
+  if (!raw) return "";
+
+  // 1. Unescape escaped double quotes (\") -> "
+  let text = raw.replace(/\\"/g, '"');
+
+  // 2. Temporarily protect double backslashes (\\\\ -> placeholder) so that LaTeX \\\\ linebreaks and literal backslashes are preserved
+  const BS_PLACEHOLDER = "\uE000";
+  text = text.replace(/\\\\/g, BS_PLACEHOLDER);
+
+  // 3. Normalize escaped \\r\\n to \n
+  text = text.replace(/\\r\\n/g, "\n");
+
+  // 4. Handle single-escaped newlines (\n):
+  // Convert \n to real newline unless it is part of a standard LaTeX command starting with \n
+  text = text.replace(
+    /\\n(?!(?:abla|eq|u\b|otin|ull|atural|earrow|warrow|oindent|eg\b|ewline\b|ewcommand|ewenvironment|ame|operatorname|overline|underline)(?![a-zA-Z]))/g,
+    "\n",
+  );
+
+  // 5. Handle single-escaped \r:
+  // In Markdown, convert \r to \n unless it is a LaTeX command starting with \r (\right, \rho, \rightarrow, \rtau, etc.)
+  text = text.replace(/\\r(?![a-zA-Z])/g, "\n");
+
+  // 6. Handle single-escaped \t:
+  // Convert \t to tab unless it is a LaTeX command starting with \t (\text, \times, \theta, \tau, \tan, etc.)
+  text = text.replace(/\\t(?![a-zA-Z])/g, "\t");
+
+  // 7. Restore double backslashes to single backslash
+  text = text.replace(new RegExp(BS_PLACEHOLDER, "g"), "\\");
+
+  return text;
+}
+
+/**
  * Parse and validate model JSON output with multi-stage recovery.
  */
 export function cleanAndParseJson<T>(text: string, typeDesc: string): T {
@@ -59,7 +101,7 @@ export function cleanAndParseJson<T>(text: string, typeDesc: string): T {
   const sanitizeLatexBackslashesInJson = (raw: string): string => {
     return raw.replace(/"((?:[^"\\]|\\.)*)"/gs, (stringLiteral) => {
       return stringLiteral.replace(
-        /(?<!\\)\\(text|textbf|textit|textrm|textsf|texttt|beta|bar|binom|bullet|frac|forall|flat|rho|rightarrow|right|rangle|neq|nabla|nu|not|neg|alpha|gamma|theta|sigma|omega|delta|Delta|mu|lambda|pi|partial|times|le|ge|pm|approx|cdot|infty|sqrt|sum|int|lim|to|leftarrow|left|langle|cup|cap|subset|subseteq|in|notin|subset|exists|emptyset|log|ln|sin|cos|tan)(?![a-zA-Z])/g,
+        /(?<!\\)\\(text|textbf|textit|textrm|textsf|texttt|mathrm|mathbf|mathit|mathsf|mathtt|mathcal|mathbb|ce|pu|equiv|beta|bar|binom|bullet|frac|forall|flat|rho|rightarrow|longrightarrow|to|right|rangle|neq|nabla|nu|not|neg|alpha|gamma|theta|sigma|omega|delta|Delta|mu|lambda|pi|partial|times|le|ge|pm|approx|cdot|infty|sqrt|sum|int|lim|leftarrow|longleftarrow|left|langle|cup|cap|subset|subseteq|in|notin|exists|emptyset|log|ln|sin|cos|tan|cot|sec|csc|rightleftharpoons|uparrow|downarrow)(?![a-zA-Z])/g,
         "\\\\$1",
       );
     });
@@ -139,12 +181,7 @@ export function cleanAndParseJson<T>(text: string, typeDesc: string): T {
       const sessions = sessionsMatch.map((m) => ({
         index: parseInt(m[1], 10),
         title: m[2],
-        contentMarkdown: m[3]
-          .replace(/\\n/g, "\n")
-          .replace(/\\r/g, "\r")
-          .replace(/\\t/g, "\t")
-          .replace(/\\"/g, '"')
-          .replace(/\\\\/g, "\\"),
+        contentMarkdown: safeUnescapeMarkdown(m[3]),
         citationChunkIds: [],
       }));
       return {
@@ -161,21 +198,26 @@ export function cleanAndParseJson<T>(text: string, typeDesc: string): T {
       text.match(/"title"\s*:\s*"([^"]+)"/i);
 
     let content = "";
-    const contentMatch = jsonStr.match(
-      /"contentMarkdown"\s*:\s*"([\s\S]*?)"(?:\s*,\s*"citationChunkIds"|\s*,\s*"kind"|\s*})/,
-    );
+    const contentMatch =
+      jsonStr.match(
+        /"contentMarkdown"\s*:\s*"([\s\S]*?)"(?:\s*,\s*"citationChunkIds"|\s*,\s*"kind"|\s*})/,
+      ) ||
+      text.match(
+        /"contentMarkdown"\s*:\s*"([\s\S]*?)"(?:\s*,\s*"citationChunkIds"|\s*,\s*"kind"|\s*})/,
+      );
     if (contentMatch && contentMatch[1]) {
       content = contentMatch[1];
     } else {
-      const idx = jsonStr.indexOf('"contentMarkdown"');
+      const src = jsonStr.includes('"contentMarkdown"') ? jsonStr : text;
+      const idx = src.indexOf('"contentMarkdown"');
       if (idx !== -1) {
-        const after = jsonStr.slice(idx + 17);
+        const after = src.slice(idx + 17);
         const startQuote = after.indexOf('"');
         if (startQuote !== -1) {
           const rawContent = after.slice(startQuote + 1);
           const endCitation = rawContent.lastIndexOf('"citationChunkIds"');
           if (endCitation !== -1) {
-            content = rawContent.slice(0, endCitation).replace(/",\s*$/, "").trim();
+            content = rawContent.slice(0, endCitation).replace(/",?\s*$/, "").trim();
           } else {
             content = rawContent.replace(/"\s*}\s*$/, "").trim();
           }
@@ -183,13 +225,21 @@ export function cleanAndParseJson<T>(text: string, typeDesc: string): T {
       }
     }
 
-    const finalContent = content || text;
-    const unescaped = finalContent
-      .replace(/\\n/g, "\n")
-      .replace(/\\r/g, "\r")
-      .replace(/\\t/g, "\t")
-      .replace(/\\"/g, '"')
-      .replace(/\\\\/g, "\\");
+    // Strip any trailing citationChunkIds / JSON metadata that might have leaked into content string
+    content = content
+      .replace(/",\s*"citationChunkIds"\s*:\s*\[[\s\S]*\]\s*}?$/s, "")
+      .replace(/",\s*"kind"\s*:\s*"[^"]*"\s*}?$/s, "")
+      .replace(/"\s*}\s*$/s, "")
+      .trim();
+
+    if (!content) {
+      throw new DomainError(
+        "unprocessable",
+        `STAGE2_INVALID_MODEL_JSON: Model returned invalid session JSON without contentMarkdown`,
+      );
+    }
+
+    const unescaped = safeUnescapeMarkdown(content);
 
     let citationChunkIds: string[] = [];
     const citMatch =
@@ -220,9 +270,9 @@ export function cleanAndParseJson<T>(text: string, typeDesc: string): T {
     if (cardMatches.length > 0) {
       const cards = cardMatches.map((m) => ({
         sessionIndex: m[1] ? parseInt(m[1], 10) : undefined,
-        question: m[2].replace(/\\"/g, '"').replace(/\\n/g, "\n"),
-        answer: m[3].replace(/\\"/g, '"').replace(/\\n/g, "\n"),
-        explanation: m[4] ? m[4].replace(/\\"/g, '"').replace(/\\n/g, "\n") : undefined,
+        question: safeUnescapeMarkdown(m[2]),
+        answer: safeUnescapeMarkdown(m[3]),
+        explanation: m[4] ? safeUnescapeMarkdown(m[4]) : undefined,
         cardType: (m[5] as unknown as "key_fact") || "key_fact",
         difficulty: (m[6] as unknown as "medium") || "medium",
       }));

@@ -28,7 +28,7 @@ export const SectionHeading: React.FC<SectionHeadingProps> = ({
   return (
     <div
       className={`flex flex-col ${
-        isCenter ? "items-center text-center mx-auto" : "items-start text-right"
+        isCenter ? "items-center text-center mx-auto" : "items-center sm:items-start text-center sm:text-right"
       } max-w-3xl mb-12 sm:mb-16 ${className}`}
     >
       {badge && (
@@ -50,7 +50,7 @@ export const SectionHeading: React.FC<SectionHeadingProps> = ({
       )}
 
       <HeadingTag
-        className="font-headline text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-black leading-tight text-[var(--color-text)]"
+        className="font-headline text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-black leading-tight text-[var(--color-text)] text-center sm:text-right"
       >
         {title}{" "}
         {highlightText && (

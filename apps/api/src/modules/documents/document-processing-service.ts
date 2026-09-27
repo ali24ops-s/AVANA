@@ -23,10 +23,11 @@
 
 import {
   type Actor,
-  type AuthContext,
   type AuthorizationPolicy,
   type DocumentId,
   type OrganizationId,
+  type ResourceContext,
+  buildActor,
   DomainError,
   auditDocumentProcessed,
   auditDocumentFailed,
@@ -87,40 +88,64 @@ export class DocumentProcessingService {
     actor: Actor,
     organizationId: OrganizationId,
     action: "document:read",
-  ): Promise<void> {
-    if (actor.role === "platform_admin") {
-      if (
-        this.organizationStore &&
-        typeof this.organizationStore.findById === "function"
-      ) {
-        const org = await this.organizationStore.findById(organizationId);
-        if (!org) {
-          throw new DomainError("not_found", "Organization not found");
-        }
+  ): Promise<Actor> {
+    if (
+      this.organizationStore &&
+      typeof this.organizationStore.findById === "function"
+    ) {
+      const org = await this.organizationStore.findById(organizationId);
+      if (!org) {
+        throw new DomainError("not_found", "Organization not found");
       }
-      const context: AuthContext = { organizationId };
-      this.policy.require(action, actor, context);
-      return;
     }
 
+    let memberships = actor.memberships;
     if (
+      !memberships &&
+      this.organizationStore &&
+      typeof this.organizationStore.listMembershipsByUserId === "function"
+    ) {
+      memberships = await this.organizationStore.listMembershipsByUserId(
+        actor.userId,
+      );
+    } else if (
+      !memberships &&
       this.organizationStore &&
       typeof this.organizationStore.findMembership === "function"
     ) {
-      const membership = await this.organizationStore.findMembership(
+      const m = await this.organizationStore.findMembership(
         organizationId,
         actor.userId,
       );
-      if (!membership) {
-        throw new DomainError("forbidden", "Forbidden");
+      if (m) {
+        memberships = [
+          {
+            organizationId,
+            role: m.role as import("@avana/domain").Role,
+          },
+        ];
       }
-      const scopedActor = { ...actor, role: membership.role as Actor["role"] };
-      const context: AuthContext = { organizationId };
-      this.policy.require(action, scopedActor, context);
-      return;
     }
-    const context: AuthContext = { organizationId };
-    this.policy.require(action, actor, context);
+
+    const fullActor = buildActor({
+      userId: actor.userId,
+      globalRole:
+        actor.globalRole ??
+        (actor.role === "platform_admin" ? "platform_admin" : undefined),
+      role: actor.role,
+      memberships,
+    });
+
+    const resourceContext: ResourceContext = {
+      organizationId,
+      resourceType: "document",
+    };
+
+    if (!this.policy.can(fullActor, action, resourceContext)) {
+      throw new DomainError("forbidden", "Forbidden");
+    }
+
+    return fullActor;
   }
 
   /**

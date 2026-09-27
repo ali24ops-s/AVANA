@@ -70,10 +70,6 @@ export function UserPurchasesPage() {
       {/* 1. Header Banner */}
       <PageHeader
         title="خریدهای من و تاریخچه سفارش‌ها"
-        badge={{
-          text: "سوابق خرید و سفارش‌ها",
-          icon: <Receipt className="w-3.5 h-3.5 shrink-0" />,
-        }}
         description="مشاهده دوره‌ها و بسته‌های خریداری‌شده دائمی و صورت‌حساب تراکنش‌ها"
         actions={
           <>
@@ -280,46 +276,91 @@ export function UserPurchasesPage() {
               </p>
             </div>
           ) : (
-            <div className="rounded-3xl bg-[var(--color-surface)] border border-[var(--color-border)] overflow-hidden shadow-xs">
-              <div className="overflow-x-auto">
-                <table className="w-full text-right text-xs">
-                  <thead className="bg-[var(--color-surface-warm)] border-b border-[var(--color-border)] text-[var(--color-text-muted)] font-bold">
-                    <tr>
-                      <th className="p-4">شماره سفارش</th>
-                      <th className="p-4">محصول</th>
-                      <th className="p-4">مبلغ</th>
-                      <th className="p-4">تاریخ ثبت</th>
-                      <th className="p-4">وضعیت</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[var(--color-border)] text-[var(--color-text-secondary)]">
-                    {orders.map((order) => {
-                      const prod = getProductById(order.product_id);
-                      const badge = getOrderStatusBadge(order.status);
-                      return (
-                        <tr key={order.id} className="hover:bg-[var(--color-surface-warm)]/50 transition-colors">
-                          <td className="p-4 font-mono font-bold text-primary text-xs">
-                            {order.order_number}
-                          </td>
-                          <td className="p-4 font-medium text-[var(--color-text)]">
-                            {prod?.title || "محصول آموزشی"}
-                          </td>
-                          <td className="p-4 font-bold text-[var(--color-text)]">
-                            {formatToman(order.amount)}
-                          </td>
-                          <td className="p-4 text-[var(--color-text-muted)]">
+            <div className="space-y-3">
+              {/* Mobile Card Layout (< sm) */}
+              <div className="block sm:hidden space-y-3">
+                {orders.map((order) => {
+                  const prod = getProductById(order.product_id);
+                  const badge = getOrderStatusBadge(order.status);
+                  return (
+                    <div
+                      key={`mob-order-${order.id}`}
+                      className="p-4 rounded-2xl bg-[var(--color-surface)] border border-[var(--color-border)] shadow-xs space-y-3"
+                    >
+                      <div className="flex items-center justify-between gap-2 border-b border-[var(--color-border)] pb-2.5">
+                        <div className="flex items-center gap-1.5 font-mono font-bold text-primary text-xs">
+                          <Receipt className="w-3.5 h-3.5" />
+                          <span>{order.order_number}</span>
+                        </div>
+                        <span className={`inline-block px-2.5 py-0.5 rounded-full text-[11px] font-bold whitespace-nowrap ${badge.className}`}>
+                          {badge.label}
+                        </span>
+                      </div>
+
+                      <div className="space-y-1">
+                        <h4 className="text-xs font-bold text-[var(--color-text)]">
+                          {prod?.title || "محصول آموزشی"}
+                        </h4>
+                        <div className="flex items-center justify-between text-[11px] pt-1">
+                          <span className="text-[var(--color-text-muted)]">تاریخ ثبت:</span>
+                          <span className="text-[var(--color-text-secondary)] font-mono">
                             {formatPersianDate(order.created_at, true)}
-                          </td>
-                          <td className="p-4">
-                            <span className={`inline-block px-2.5 py-1 rounded-full text-[11px] font-bold ${badge.className}`}>
-                              {badge.label}
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs pt-1 border-t border-[var(--color-border-subtle,var(--color-border))]">
+                          <span className="text-[var(--color-text-muted)] font-medium">مبلغ پرداختی:</span>
+                          <span className="font-bold text-[var(--color-text)]">
+                            {formatToman(order.amount)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Desktop Table View (sm+) */}
+              <div className="hidden sm:block rounded-3xl bg-[var(--color-surface)] border border-[var(--color-border)] overflow-hidden shadow-xs">
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[600px] text-right text-xs">
+                    <thead className="bg-[var(--color-surface-warm)] border-b border-[var(--color-border)] text-[var(--color-text-muted)] font-bold">
+                      <tr>
+                        <th className="px-4 py-3.5 whitespace-nowrap">شماره سفارش</th>
+                        <th className="px-4 py-3.5">محصول</th>
+                        <th className="px-4 py-3.5 whitespace-nowrap">مبلغ</th>
+                        <th className="px-4 py-3.5 whitespace-nowrap">تاریخ ثبت</th>
+                        <th className="px-4 py-3.5 whitespace-nowrap">وضعیت</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[var(--color-border)] text-[var(--color-text-secondary)]">
+                      {orders.map((order) => {
+                        const prod = getProductById(order.product_id);
+                        const badge = getOrderStatusBadge(order.status);
+                        return (
+                          <tr key={order.id} className="hover:bg-[var(--color-surface-warm)]/50 transition-colors">
+                            <td className="px-4 py-3.5 font-mono font-bold text-primary text-xs whitespace-nowrap">
+                              {order.order_number}
+                            </td>
+                            <td className="px-4 py-3.5 font-medium text-[var(--color-text)]">
+                              {prod?.title || "محصول آموزشی"}
+                            </td>
+                            <td className="px-4 py-3.5 font-bold text-[var(--color-text)] whitespace-nowrap">
+                              {formatToman(order.amount)}
+                            </td>
+                            <td className="px-4 py-3.5 text-[var(--color-text-muted)] whitespace-nowrap">
+                              {formatPersianDate(order.created_at, true)}
+                            </td>
+                            <td className="px-4 py-3.5 whitespace-nowrap">
+                              <span className={`inline-block px-2.5 py-1 rounded-full text-[11px] font-bold whitespace-nowrap ${badge.className}`}>
+                                {badge.label}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           )}

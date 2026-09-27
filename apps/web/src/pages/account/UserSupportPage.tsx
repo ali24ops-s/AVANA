@@ -130,7 +130,7 @@ export function UserSupportPage() {
             <div className="w-10 h-10 rounded-2xl bg-primary/10 text-primary flex items-center justify-center">
               <LifeBuoy className="w-5 h-5" />
             </div>
-            <h1 className="text-xl sm:text-2xl font-black text-[var(--color-text)]">
+            <h1 className="text-xl sm:text-2xl font-black text-[var(--color-text)] text-center sm:text-right">
               پشتیبانی و بازخورد
             </h1>
           </div>
@@ -214,11 +214,11 @@ export function UserSupportPage() {
           </div>
 
           {/* Quick Filter Tabs */}
-          <div className="flex items-center gap-1.5 p-1 rounded-2xl bg-[var(--color-surface-warm)] border border-[var(--color-border)] self-start sm:self-auto text-xs font-semibold">
+          <div className="flex items-center gap-1.5 p-1 rounded-2xl bg-[var(--color-surface-warm)] border border-[var(--color-border)] self-start sm:self-auto text-xs font-semibold overflow-x-auto max-w-full">
             <button
               type="button"
               onClick={() => setTabFilter("all")}
-              className={`px-3 py-1.5 rounded-xl transition-all ${
+              className={`px-3 py-1.5 rounded-xl transition-all whitespace-nowrap shrink-0 cursor-pointer ${
                 tabFilter === "all"
                   ? "bg-[var(--color-surface)] text-primary shadow-sm font-bold"
                   : "text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
@@ -229,7 +229,7 @@ export function UserSupportPage() {
             <button
               type="button"
               onClick={() => setTabFilter("tickets")}
-              className={`px-3 py-1.5 rounded-xl transition-all ${
+              className={`px-3 py-1.5 rounded-xl transition-all whitespace-nowrap shrink-0 cursor-pointer ${
                 tabFilter === "tickets"
                   ? "bg-[var(--color-surface)] text-primary shadow-sm font-bold"
                   : "text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
@@ -240,7 +240,7 @@ export function UserSupportPage() {
             <button
               type="button"
               onClick={() => setTabFilter("feedback")}
-              className={`px-3 py-1.5 rounded-xl transition-all ${
+              className={`px-3 py-1.5 rounded-xl transition-all whitespace-nowrap shrink-0 cursor-pointer ${
                 tabFilter === "feedback"
                   ? "bg-[var(--color-surface)] text-primary shadow-sm font-bold"
                   : "text-[var(--color-text-muted)] hover:text-[var(--color-text)]"

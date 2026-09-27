@@ -495,7 +495,7 @@ export function LibraryPage() {
         <div className="relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-center">
           {/* Right: Primary Hero Content */}
           <div className="lg:col-span-7 space-y-3 sm:space-y-4">
-            <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight text-[var(--color-text)] leading-tight">
+            <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight text-[var(--color-text)] leading-tight text-center lg:text-right">
               کتابخانه آوانا
             </h1>
 
@@ -760,7 +760,7 @@ export function LibraryPage() {
         {!isLoading && !isError && (activeTab === "all" || activeTab === "courses") && courses.length > 0 && (
           <div className="space-y-4" data-testid="library-courses-section">
             {activeTab === "all" && (
-              <h2 className="text-h2 text-[var(--color-text)] flex items-center gap-2">
+              <h2 className="text-h2 text-[var(--color-text)] flex items-center justify-center sm:justify-start gap-2 text-center sm:text-right">
                 <GraduationCap className="w-5 h-5 text-primary" />
                 <span>دوره‌ها</span>
               </h2>
@@ -782,7 +782,7 @@ export function LibraryPage() {
         {!isLoading && !isError && (activeTab === "all" || activeTab === "packs") && coursePackages.length > 0 && (
           <div className="space-y-6" data-testid="library-packs-section">
             <div className="flex items-center justify-between" data-testid="public-content-packs-section">
-              <h2 className="text-h2 text-[var(--color-text)] flex items-center gap-2">
+              <h2 className="text-h2 text-[var(--color-text)] flex items-center justify-center sm:justify-start gap-2 text-center sm:text-right">
                 <Layers className="w-5 h-5 text-amber-400" />
                 <span>بسته‌های آموزشی آماده سرفصل‌ها</span>
               </h2>

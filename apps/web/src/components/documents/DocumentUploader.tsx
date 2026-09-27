@@ -158,13 +158,13 @@ export function DocumentUploader({
   };
 
   return (
-    <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-6 space-y-4 shadow-xs">
+    <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-4 sm:p-6 space-y-4 shadow-xs">
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-base font-bold text-[var(--color-text)]">
             بارگذاری منابع و جزوات آموزشی
           </h3>
-          <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
+          <p className="text-xs text-[var(--color-text-muted)] mt-0.5 leading-relaxed">
             فایل جزوه، اسلاید یا سرفصل دوره را بارگذاری کنید (PDF, PPTX, DOCX تا حداکثر ۵۰ مگابایت)
           </p>
         </div>
@@ -184,7 +184,7 @@ export function DocumentUploader({
             fileInputRef.current?.click();
           }
         }}
-        className={`border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-[#008080] ${
+        className={`border-2 border-dashed rounded-2xl p-5 sm:p-8 text-center cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-[#008080] ${
           isDragOver
             ? "border-[#008080] bg-teal-50/50"
             : "border-[var(--color-border)] hover:border-[#008080] hover:bg-slate-50"
@@ -205,10 +205,10 @@ export function DocumentUploader({
             <UploadIcon className="w-6 h-6" />
           </div>
           <div className="space-y-1">
-            <p className="text-sm font-bold text-[var(--color-text)]">
+            <p className="text-xs sm:text-sm font-bold text-[var(--color-text)]">
               برای انتخاب فایل کلیک کنید یا فایل را به اینجا بکشید
             </p>
-            <p className="text-xs text-[var(--color-text-muted)] font-mono" dir="ltr">
+            <p className="text-[11px] sm:text-xs text-[var(--color-text-muted)] font-mono" dir="ltr">
               PDF, PPTX, DOCX, PPT, DOC (Max 50MB)
             </p>
           </div>
@@ -218,7 +218,7 @@ export function DocumentUploader({
               e.stopPropagation();
               fileInputRef.current?.click();
             }}
-            className="mt-2 px-5 py-2.5 bg-[#008080] hover:bg-[#006666] text-white rounded-xl text-xs font-bold shadow-xs transition-all"
+            className="mt-1 sm:mt-2 px-5 py-2.5 bg-[#008080] hover:bg-[#006666] text-white rounded-xl text-xs font-bold shadow-xs transition-all w-full sm:w-auto"
           >
             انتخاب فایل از سیستم
           </button>
@@ -237,7 +237,7 @@ export function DocumentUploader({
       )}
 
       {selectedFile && (
-        <div className="flex items-center justify-between p-4 bg-[var(--color-surface-warm)] rounded-xl border border-[var(--color-border)]">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 p-3.5 sm:p-4 bg-[var(--color-surface-warm)] rounded-xl border border-[var(--color-border)]">
           <div className="flex items-center gap-3 min-w-0">
             <FileText className="w-5 h-5 text-[#008080] flex-shrink-0" />
             <div className="min-w-0">
@@ -249,12 +249,12 @@ export function DocumentUploader({
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="flex items-center gap-2 shrink-0 justify-end">
             <button
               type="button"
               onClick={() => setSelectedFile(null)}
               disabled={uploadMutation.isPending}
-              className="px-3 py-1.5 text-xs font-bold text-[var(--color-text-muted)] hover:text-[var(--color-text)] rounded-xl"
+              className="flex-1 sm:flex-initial px-3 py-2 text-xs font-bold text-[var(--color-text-muted)] hover:text-[var(--color-text)] rounded-xl text-center"
             >
               انصراف
             </button>
@@ -262,12 +262,12 @@ export function DocumentUploader({
               type="button"
               onClick={handleStartUpload}
               disabled={uploadMutation.isPending}
-              className="px-4 py-2 bg-[#008080] hover:bg-[#006666] text-white rounded-xl text-xs font-bold flex items-center gap-1.5 disabled:opacity-50 transition-all shadow-xs"
+              className="flex-1 sm:flex-initial px-4 py-2 bg-[#008080] hover:bg-[#006666] text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 disabled:opacity-50 transition-all shadow-xs"
             >
               {uploadMutation.isPending ? (
                 <>
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>در حال آپلود و پردازش...</span>
+                  <span>در حال آپلود...</span>
                 </>
               ) : (
                 <>

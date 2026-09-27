@@ -67,13 +67,13 @@ export function BlogCategoryPage() {
         <header className="rounded-[20px] bg-[var(--color-surface)] border border-[var(--color-border)] p-8 sm:p-12 shadow-xs relative overflow-hidden">
           <div className="absolute top-0 right-0 w-96 h-96 bg-[#008080]/5 rounded-full blur-3xl pointer-events-none" />
 
-          <div className="relative space-y-4 max-w-3xl">
+          <div className="relative space-y-4 max-w-3xl flex flex-col items-center sm:items-start text-center sm:text-right">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-[8px] text-xs font-bold bg-[#008080]/10 text-[#008080] border border-[#008080]/20">
               <FolderOpen className="w-3.5 h-3.5" />
               <span>دسته‌بندی مقالات</span>
             </div>
 
-            <h1 className="text-2xl sm:text-4xl font-black text-[var(--color-text)]">
+            <h1 className="text-2xl sm:text-4xl font-black text-[var(--color-text)] text-center sm:text-right">
               {category?.name || "در حال بارگذاری..."}
             </h1>
 

@@ -55,6 +55,9 @@ export type PromotionCodeId = Brand<UUID, "promotionCodeId">;
 export type PromotionRedemptionId = Brand<UUID, "promotionRedemptionId">;
 export type ReferralId = Brand<UUID, "referralId">;
 export type ReferralCodeId = Brand<UUID, "referralCodeId">;
+export type CourseDraftSessionId = Brand<UUID, "courseDraftSessionId">;
+export type CourseDraftChangeId = Brand<UUID, "courseDraftChangeId">;
+export type CourseReleaseId = Brand<UUID, "courseReleaseId">;
 
 export function asUserId(id: UUID): UserId {
   return id as UserId;
@@ -595,4 +598,58 @@ export function parseReferralCodeId(
     throw new Error(`Invalid UUID for ${fieldName}`);
   }
   return value as ReferralCodeId;
+}
+
+export function asCourseDraftSessionId(id: UUID): CourseDraftSessionId {
+  return id as CourseDraftSessionId;
+}
+
+export function isCourseDraftSessionId(value: string): value is CourseDraftSessionId {
+  return isUUID(value);
+}
+
+export function parseCourseDraftSessionId(
+  value: string,
+  fieldName = "courseDraftSessionId",
+): CourseDraftSessionId {
+  if (!isCourseDraftSessionId(value)) {
+    throw new Error(`Invalid UUID for ${fieldName}`);
+  }
+  return value as CourseDraftSessionId;
+}
+
+export function asCourseDraftChangeId(id: UUID): CourseDraftChangeId {
+  return id as CourseDraftChangeId;
+}
+
+export function isCourseDraftChangeId(value: string): value is CourseDraftChangeId {
+  return isUUID(value);
+}
+
+export function parseCourseDraftChangeId(
+  value: string,
+  fieldName = "courseDraftChangeId",
+): CourseDraftChangeId {
+  if (!isCourseDraftChangeId(value)) {
+    throw new Error(`Invalid UUID for ${fieldName}`);
+  }
+  return value as CourseDraftChangeId;
+}
+
+export function asCourseReleaseId(id: UUID): CourseReleaseId {
+  return id as CourseReleaseId;
+}
+
+export function isCourseReleaseId(value: string): value is CourseReleaseId {
+  return isUUID(value);
+}
+
+export function parseCourseReleaseId(
+  value: string,
+  fieldName = "courseReleaseId",
+): CourseReleaseId {
+  if (!isCourseReleaseId(value)) {
+    throw new Error(`Invalid UUID for ${fieldName}`);
+  }
+  return value as CourseReleaseId;
 }

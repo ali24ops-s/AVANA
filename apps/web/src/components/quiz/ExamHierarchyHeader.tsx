@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, BookOpen } from "lucide-react";
 import { type ExamCoverageCourse, toPersianDigits } from "@avana/domain";
 import { isInternalIdentifier } from "../../lib/utils/exam-title-formatter.js";
 
@@ -71,7 +71,7 @@ export function ExamHierarchyHeader({
 
     return (
       <nav aria-label="مسیر آزمون" className="flex items-center gap-2 text-[var(--color-text-muted)] font-body-md text-xs md:text-sm">
-        <span className="material-symbols-outlined text-[18px]">menu_book</span>
+        <BookOpen className="w-4 h-4" />
         <span className="hidden sm:inline text-[var(--color-text-muted)]">آزمون</span>
         <span className="hidden sm:inline text-[var(--color-text-muted)] text-xs">←</span>
         <span className="text-[var(--color-text)] font-medium truncate max-w-[150px] sm:max-w-none">{cleanFallback}</span>
@@ -86,7 +86,7 @@ export function ExamHierarchyHeader({
       className="flex items-center gap-2 sm:gap-2.5 flex-wrap text-sm"
     >
       <div className="hidden sm:flex items-center gap-1.5 text-[var(--color-text-muted)] font-medium">
-        <span className="material-symbols-outlined text-[18px] text-[var(--color-primary)]">menu_book</span>
+        <BookOpen className="w-4 h-4 text-[var(--color-primary)]" />
         <span>آزمون</span>
         <span className="text-[var(--color-text-muted)] text-xs">←</span>
       </div>
@@ -115,7 +115,7 @@ export function ExamHierarchyHeader({
                     : "bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] border-[var(--color-border)] hover:border-[var(--color-primary)]/40 text-[var(--color-text)]"
                 }`}
               >
-                <span className="font-semibold truncate max-w-[180px] sm:max-w-xs">{course.title}</span>
+                <span className="font-semibold truncate max-w-[110px] xs:max-w-[150px] sm:max-w-xs">{course.title}</span>
                 <ChevronDown
                   className={`w-4 h-4 shrink-0 transition-transform duration-200 ${
                     isExpanded ? "text-[var(--color-primary)] rotate-180" : "text-[var(--color-text-muted)] group-hover:text-[var(--color-text)]"

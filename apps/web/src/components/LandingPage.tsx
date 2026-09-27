@@ -117,7 +117,7 @@ export function LandingPage() {
           style={{ scaleX }}
         />
 
-        <div className="flex justify-between items-center px-4 sm:px-6 max-w-[1280px] mx-auto h-20">
+        <div className="flex justify-between items-center px-4 sm:px-6 max-w-[1280px] mx-auto h-16 sm:h-20">
           {/* Brand Logo (Right side in RTL) */}
           <div className="flex items-center gap-3">
             <BrandLogo
@@ -179,7 +179,7 @@ export function LandingPage() {
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
-            className="lg:hidden absolute top-20 left-0 w-full bg-white border-b border-[#E2E7EA] shadow-elevated flex flex-col px-6 py-5 gap-3"
+            className="lg:hidden absolute top-16 sm:top-20 left-0 w-full bg-white border-b border-[#E2E7EA] shadow-elevated flex flex-col px-6 py-5 gap-3"
           >
             {navLinks.map((item) =>
               item.isInternalRoute ? (

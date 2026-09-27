@@ -232,8 +232,8 @@ describe("Real Browser & Viewport Layout E2E Verification Suite", () => {
       />
     );
 
-    // Timer is running from startedAt (at least 30s elapsed)
-    expect(screen.getByText("timer")).toBeDefined();
+    // Timer is running
+    expect(screen.getByText(/\d\d:\d\d/)).toBeDefined();
 
     // Select Option B on Question 1
     const optB = screen.getByText("جلوگیری از تبدیل آنژیوتانسین I به آنژیوتانسین II");

@@ -475,28 +475,33 @@ describe("Study Session Domain Primitives", () => {
 
   describe("Activity Heatmap Domain Engine", () => {
     describe("Activity Level Thresholds", () => {
-      it("maps seconds to discrete levels 0-4 correctly", () => {
+      it("maps seconds to discrete levels 0-5 correctly", () => {
         expect(getActivityLevel(0)).toBe(0);
         expect(getActivityLevel(-10)).toBe(0);
 
-        // Level 1: > 0 and < 900s (15 min)
+        // Level 1: > 0 and < 1500s (25 min)
         expect(getActivityLevel(1)).toBe(1);
-        expect(getActivityLevel(300)).toBe(1); // 5 min
-        expect(getActivityLevel(899)).toBe(1);
+        expect(getActivityLevel(600)).toBe(1); // 10 min
+        expect(getActivityLevel(1499)).toBe(1);
 
-        // Level 2: >= 900s (15 min) and < 1800s (30 min)
-        expect(getActivityLevel(900)).toBe(2);
-        expect(getActivityLevel(1200)).toBe(2); // 20 min
-        expect(getActivityLevel(1799)).toBe(2);
+        // Level 2: >= 1500s (25 min) and < 2700s (45 min)
+        expect(getActivityLevel(1500)).toBe(2);
+        expect(getActivityLevel(1800)).toBe(2); // 30 min
+        expect(getActivityLevel(2699)).toBe(2);
 
-        // Level 3: >= 1800s (30 min) and < 3600s (60 min)
-        expect(getActivityLevel(1800)).toBe(3);
-        expect(getActivityLevel(2700)).toBe(3); // 45 min
-        expect(getActivityLevel(3599)).toBe(3);
+        // Level 3: >= 2700s (45 min) and < 4500s (75 min)
+        expect(getActivityLevel(2700)).toBe(3);
+        expect(getActivityLevel(3600)).toBe(3); // 60 min
+        expect(getActivityLevel(4499)).toBe(3);
 
-        // Level 4: >= 3600s (60 min)
-        expect(getActivityLevel(3600)).toBe(4);
-        expect(getActivityLevel(7200)).toBe(4); // 2 hours
+        // Level 4: >= 4500s (75 min) and < 9000s (150 min)
+        expect(getActivityLevel(4500)).toBe(4);
+        expect(getActivityLevel(7200)).toBe(4); // 120 min
+        expect(getActivityLevel(8999)).toBe(4);
+
+        // Level 5 (Special Level): >= 9000s (150 min / 2.5 hours)
+        expect(getActivityLevel(9000)).toBe(5);
+        expect(getActivityLevel(12000)).toBe(5);
       });
     });
 
@@ -601,7 +606,7 @@ describe("Study Session Domain Primitives", () => {
         expect(todayCell!.seconds).toBe(2100);
         expect(todayCell!.minutes).toBe(35);
         expect(todayCell!.sessionCount).toBe(3);
-        expect(todayCell!.level).toBe(3);
+        expect(todayCell!.level).toBe(2);
       });
 
       it("does not give artificial high level to sessions with zero duration", () => {
@@ -655,7 +660,7 @@ describe("Study Session Domain Primitives", () => {
         const cell20 = tehranWeek.find((d) => d.date === "2026-09-20");
 
         expect(cell21!.seconds).toBe(1200);
-        expect(cell21!.level).toBe(2);
+        expect(cell21!.level).toBe(1);
         expect(cell20!.seconds).toBe(0);
         expect(cell20!.level).toBe(0);
       });

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, Building2 } from "lucide-react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ExamConfigView } from "../components/quiz/ExamConfigView.js";
@@ -61,7 +61,7 @@ export function ExamsPage() {
     return (
       <div className="w-full py-16 px-4 flex items-center justify-center font-sans" dir="rtl">
         <Card className="max-w-md w-full text-center p-8 shadow-xs border border-[var(--color-border)]">
-          <span className="material-symbols-outlined text-[var(--avana-warning)] text-5xl mb-4">domain_disabled</span>
+          <Building2 className="w-12 h-12 text-[var(--avana-warning)] mx-auto mb-4" />
           <h3 className="text-xl font-bold text-[var(--color-text)] mb-2">سازمانی یافت نشد</h3>
           <p className="text-[var(--color-text-muted)] text-sm mb-6">
             هیچ سازمان فعالی برای حساب کاربری شما یافت نشد. لطفاً وارد حساب کاربری خود شوید یا با پشتیبانی تماس بگیرید.

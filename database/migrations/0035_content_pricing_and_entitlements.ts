@@ -21,7 +21,7 @@ export async function up(db: any) {
     ALTER TABLE user_entitlements
       ADD CONSTRAINT chk_user_entitlements_resource_id CHECK (
         (resource_type = 'subscription' AND resource_id IS NULL) OR
-        (resource_type IN ('course', 'content_pack', 'content') AND resource_id IS NOT NULL)
+        (resource_type IN ('course', 'content_pack', 'content', 'special_exam') AND resource_id IS NOT NULL)
       );
   `);
 }

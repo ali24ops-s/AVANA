@@ -66,8 +66,8 @@ export function RejectContentDialog({
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 font-sans"
       dir="rtl"
     >
-      <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] w-full max-w-md overflow-hidden shadow-2xl">
-        <div className="flex items-center justify-between p-5 border-b border-[var(--color-border)]">
+      <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] w-full max-w-md overflow-hidden shadow-2xl my-auto">
+        <div className="flex items-center justify-between p-4 sm:p-5 border-b border-[var(--color-border)]">
           <h3 id="reject-dialog-title" className="font-bold text-base text-[var(--color-text)] flex items-center gap-2">
             <Ban className="w-5 h-5 text-rose-500" />
             <span>رد کردن پیش‌نویس محتوا</span>
@@ -76,13 +76,13 @@ export function RejectContentDialog({
             type="button"
             onClick={onClose}
             aria-label="بستن پنجره"
-            className="p-1 rounded-xl text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-warm)]"
+            className="p-1.5 rounded-xl text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] min-h-[36px] min-w-[36px] flex items-center justify-center"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="p-6 space-y-4">
+        <div className="p-4 sm:p-6 space-y-4">
           <p className="text-xs text-[var(--color-text-muted)] leading-relaxed">
             لطفاً دلیل عدم تایید این پیش‌نویس را یادداشت کنید تا در فرآیند بازتولید یا اصلاح محتوا مورد استفاده قرار گیرد.
           </p>
@@ -105,12 +105,12 @@ export function RejectContentDialog({
           />
         </div>
 
-        <div className="flex items-center justify-end gap-3 p-4 border-t border-[var(--color-border)] bg-[var(--color-surface-warm)]">
+        <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2 sm:gap-3 p-4 border-t border-[var(--color-border)] bg-[var(--color-surface-warm)]">
           <button
             type="button"
             onClick={onClose}
             disabled={rejectMutation.isPending}
-            className="px-4 py-2 text-xs font-bold text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+            className="w-full sm:w-auto px-4 py-2.5 text-xs font-bold text-[var(--color-text-muted)] hover:text-[var(--color-text)] text-center"
           >
             انصراف
           </button>
@@ -118,7 +118,7 @@ export function RejectContentDialog({
             type="button"
             onClick={() => rejectMutation.mutate()}
             disabled={rejectMutation.isPending || !reason.trim()}
-            className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition-colors"
+            className="w-full sm:w-auto px-5 py-2.5 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm transition-colors text-center"
           >
             {rejectMutation.isPending ? (
               <>

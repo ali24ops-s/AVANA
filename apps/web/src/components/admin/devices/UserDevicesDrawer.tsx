@@ -97,8 +97,8 @@ export function UserDevicesDrawer({
   return (
     <div className="fixed inset-0 z-50 overflow-hidden bg-black/60 backdrop-blur-sm">
       <div className="absolute inset-0" onClick={onClose} />
-      <div className="fixed inset-y-0 start-0 max-w-full flex ps-10" dir="rtl">
-        <div className="w-screen max-w-2xl bg-[var(--color-surface)] border-e border-[var(--color-border)] shadow-2xl flex flex-col">
+      <div className="fixed inset-y-0 start-0 max-w-full flex ps-0 sm:ps-10" dir="rtl">
+        <div className="w-full max-w-2xl bg-[var(--color-surface)] border-e border-[var(--color-border)] shadow-2xl flex flex-col">
           {/* Drawer Header */}
           <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--color-border)] bg-[var(--color-surface-warm)]">
             <div className="flex items-center gap-3">
@@ -124,12 +124,12 @@ export function UserDevicesDrawer({
 
           {/* User Info Bar */}
           {deviceData && (
-            <div className="px-6 py-3 bg-[var(--color-surface-warm)] border-b border-[var(--color-border)] flex items-center justify-between text-xs">
-              <div className="flex items-center gap-4">
-                <span className="text-[var(--color-text-muted)]">
+            <div className="px-6 py-3 bg-[var(--color-surface-warm)] border-b border-[var(--color-border)] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+              <div className="flex flex-wrap items-center gap-4">
+                <span className="text-[var(--color-text-muted)] whitespace-nowrap">
                   وضعیت اشتراک:{" "}
                   <span
-                    className={`font-semibold px-2 py-0.5 rounded-full ${
+                    className={`font-semibold px-2 py-0.5 rounded-full whitespace-nowrap inline-flex items-center ${
                       deviceData.subscriptionStatus === "active"
                         ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
                         : "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
@@ -140,7 +140,7 @@ export function UserDevicesDrawer({
                       : "عادی"}
                   </span>
                 </span>
-                <span className="text-[var(--color-text-muted)]">
+                <span className="text-[var(--color-text-muted)] whitespace-nowrap">
                   دستگاه‌های فعال:{" "}
                   <span className="text-[var(--color-text)] font-medium">
                     {formatPersianOf(
@@ -155,12 +155,12 @@ export function UserDevicesDrawer({
               <button
                 onClick={handleResetDevices}
                 disabled={isResetting}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 hover:bg-rose-500/20 transition-colors disabled:opacity-50 text-xs font-medium cursor-pointer"
+                className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 hover:bg-rose-500/20 transition-colors disabled:opacity-50 text-xs font-medium cursor-pointer whitespace-nowrap shrink-0"
               >
                 <RotateCcw
                   className={`w-3.5 h-3.5 ${isResetting ? "animate-spin" : ""}`}
                 />
-                بازنشانی دستگاه‌ها
+                <span>بازنشانی دستگاه‌ها</span>
               </button>
             </div>
           )}

@@ -1,7 +1,6 @@
 import {
   type Actor,
   type AuthAction,
-  type AuthContext,
   type AuthorizationPolicy,
   type CourseId,
   type DocumentId,
@@ -10,9 +9,12 @@ import {
   type GenerationProgress,
   type DocumentGenerationProgressResource,
   type OrganizationId,
+  type ResourceContext,
+  buildActor,
   DEFAULT_GENERATION_STALE_THRESHOLD_MS,
   DomainError,
   defaultPolicy,
+  normalizeRequestedContentTypes,
 } from "@avana/domain";
 import type { DocumentRecord, DocumentStore } from "../../learning/learning-store.js";
 import type { GenerationChunkStore } from "../generation-chunk-store.js";
@@ -37,40 +39,64 @@ export class GenerationQueryService {
     actor: Actor,
     organizationId: OrganizationId,
     action: AuthAction,
-  ): Promise<void> {
-    if (actor.role === "platform_admin") {
-      if (
-        this.orgStore &&
-        typeof this.orgStore.findById === "function"
-      ) {
-        const org = await this.orgStore.findById(organizationId);
-        if (!org) {
-          throw new DomainError("not_found", "Organization not found");
-        }
+  ): Promise<Actor> {
+    if (
+      this.orgStore &&
+      typeof this.orgStore.findById === "function"
+    ) {
+      const org = await this.orgStore.findById(organizationId);
+      if (!org) {
+        throw new DomainError("not_found", "Organization not found");
       }
-      const context: AuthContext = { organizationId };
-      this.policy.require(action, actor, context);
-      return;
     }
 
+    let memberships = actor.memberships;
     if (
+      !memberships &&
+      this.orgStore &&
+      typeof this.orgStore.listMembershipsByUserId === "function"
+    ) {
+      memberships = await this.orgStore.listMembershipsByUserId(
+        actor.userId,
+      );
+    } else if (
+      !memberships &&
       this.orgStore &&
       typeof this.orgStore.findMembership === "function"
     ) {
-      const membership = await this.orgStore.findMembership(
+      const m = await this.orgStore.findMembership(
         organizationId,
         actor.userId,
       );
-      if (!membership) {
-        throw new DomainError("not_found", "Organization not found");
+      if (m) {
+        memberships = [
+          {
+            organizationId,
+            role: m.role as import("@avana/domain").Role,
+          },
+        ];
       }
-      const scopedActor = { ...actor, role: membership.role as Actor["role"] };
-      const context: AuthContext = { organizationId };
-      this.policy.require(action, scopedActor, context);
-      return;
     }
-    const context: AuthContext = { organizationId };
-    this.policy.require(action, actor, context);
+
+    const fullActor = buildActor({
+      userId: actor.userId,
+      globalRole:
+        actor.globalRole ??
+        (actor.role === "platform_admin" ? "platform_admin" : undefined),
+      role: actor.role,
+      memberships,
+    });
+
+    const resourceContext: ResourceContext = {
+      organizationId,
+      resourceType: "course",
+    };
+
+    if (!this.policy.can(fullActor, action, resourceContext)) {
+      throw new DomainError("not_found", "Organization not found");
+    }
+
+    return fullActor;
   }
 
   private async requireDocument(
@@ -115,26 +141,45 @@ export class GenerationQueryService {
       }
     }
 
-    const types =
+    let types =
       requestedTypes && requestedTypes.length > 0
         ? requestedTypes
-        : ([
-            "lesson",
-            "flashcard",
-            "quiz",
-            "review_summary",
-          ] as GeneratedContentType[]);
+        : undefined;
+
+    if (!types && this.generationJobStore) {
+      const jobs = await this.generationJobStore.listByDocument(
+        documentId,
+        organizationId,
+      );
+      const activeJobs = jobs.filter((j) => j.deletedAt === null);
+      if (activeJobs.length > 0) {
+        activeJobs.sort(
+          (a, b) =>
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+        );
+        types = normalizeRequestedContentTypes(activeJobs[0].type);
+      }
+    }
+
+    const effectiveTypes =
+      types ??
+      ([
+        "lesson",
+        "flashcard",
+        "quiz",
+        "review_summary",
+      ] as GeneratedContentType[]);
 
     const effectiveSessionCount = sessionCount > 0 ? sessionCount : 8;
     const stagesCount =
-      (types.includes("lesson") ? 1 : 0) +
-      (types.includes("flashcard") ? 1 : 0) +
-      (types.includes("quiz") ? 1 : 0);
+      (effectiveTypes.includes("lesson") ? 1 : 0) +
+      (effectiveTypes.includes("flashcard") ? 1 : 0) +
+      (effectiveTypes.includes("quiz") ? 1 : 0);
 
     const total =
       1 + // planning
       effectiveSessionCount * stagesCount +
-      (types.includes("review_summary") ? 1 : 0);
+      (effectiveTypes.includes("review_summary") ? 1 : 0);
 
     const activeChunks = chunks.filter(
       (c) => c.deletedAt === null || c.deletedAt === undefined,
@@ -160,7 +205,7 @@ export class GenerationQueryService {
     });
 
     let effectiveTotal = total;
-    if (!requestedTypes && !isRunning && failed === 0 && completed > 0) {
+    if (!types && !isRunning && failed === 0 && completed > 0) {
       effectiveTotal = completed;
     }
 

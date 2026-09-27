@@ -83,7 +83,7 @@ export function PricingPage() {
 
     const giftHighlight =
       giftAmount > 0
-        ? `${giftAmount.toLocaleString("fa-IR")} تومان اعتبار هدیه کیف پول (ویژه تولید محتوا)`
+        ? `${giftAmount.toLocaleString("fa-IR")} تومان اعتبار هدیه کیف پول (ویژه اولین خرید اشتراک)`
         : null;
 
     if (code === "sub_yearly" || durationDays === 365) {
@@ -224,12 +224,12 @@ export function PricingPage() {
               >
                 {/* Badges */}
                 {isYearly && (
-                  <div className="absolute -top-3.5 right-6 bg-gradient-to-r from-amber-500 to-orange-500 text-white text-xs font-black px-3 py-1 rounded-full shadow-xs">
+                  <div className="absolute -top-3.5 start-6 bg-gradient-to-r from-amber-500 to-orange-500 text-white text-xs font-black px-3 py-1 rounded-full shadow-xs">
                     پیشنهاد ویژه (۳۰٪ صرفه‌جویی)
                   </div>
                 )}
                 {isQuarterly && (
-                  <div className="absolute -top-3.5 right-6 bg-[#008080] text-white text-xs font-black px-3 py-1 rounded-full shadow-xs">
+                  <div className="absolute -top-3.5 start-6 bg-[#008080] text-white text-xs font-black px-3 py-1 rounded-full shadow-xs">
                     محبوب‌ترین پلن
                   </div>
                 )}
@@ -273,6 +273,9 @@ export function PricingPage() {
                         <span className="leading-snug font-black text-amber-900 dark:text-amber-200">
                           {giftAmount.toLocaleString("fa-IR")} تومان اعتبار کیف پول
                         </span>
+                        <span className="block text-[10px] text-amber-700/90 dark:text-amber-400/90 font-medium mt-0.5">
+                          هدیه فعال‌سازی فقط برای اولین خرید اشتراک شماست.
+                        </span>
                       </div>
                     </div>
                   )}
@@ -283,11 +286,11 @@ export function PricingPage() {
                       ویژگی‌های این پلن:
                     </span>
                     {highlights.map((highlight, i) => (
-                      <div key={i} className="flex items-center gap-2 text-xs text-[var(--color-text)] min-w-0">
-                        <div className="w-4 h-4 rounded-full bg-[#008080]/10 text-[#008080] flex items-center justify-center shrink-0">
+                      <div key={i} className="flex items-start gap-2 text-xs text-[var(--color-text)] min-w-0">
+                        <div className="w-4 h-4 rounded-full bg-[#008080]/10 text-[#008080] flex items-center justify-center shrink-0 mt-0.5">
                           <Check className="w-3 h-3" />
                         </div>
-                        <span className="leading-snug truncate">{highlight}</span>
+                        <span className="leading-relaxed break-words">{highlight}</span>
                       </div>
                     ))}
                   </div>
@@ -298,9 +301,9 @@ export function PricingPage() {
                   <button
                     type="button"
                     onClick={() => handleSelectPlan(product.id)}
-                    className="w-full py-3.5 px-6 rounded-[10px] text-xs sm:text-sm font-black transition-all flex items-center justify-center gap-2 bg-[#008080] hover:bg-[#006666] active:bg-[#005050] text-white shadow-sm cursor-pointer"
+                    className="w-full py-3.5 px-4 sm:px-6 rounded-[10px] text-xs sm:text-sm font-black transition-all flex items-center justify-center gap-2 bg-[#008080] hover:bg-[#007575] active:bg-[#006060] text-white shadow-sm whitespace-nowrap cursor-pointer"
                   >
-                    <Zap className="w-4 h-4 text-amber-300 fill-current" />
+                    <Zap className="w-4 h-4 text-amber-300 fill-current shrink-0" />
                     <span>خرید و فعال‌سازی آنی</span>
                   </button>
                 </div>
@@ -318,7 +321,7 @@ export function PricingPage() {
               <Sparkles className="w-5 h-5 text-[#008080]" />
             </div>
             <div>
-              <h2 className="text-base sm:text-lg font-bold text-[var(--color-text)]">
+              <h2 className="text-base sm:text-lg font-bold text-[var(--color-text)] text-center sm:text-right">
                 امکانات مشترک همه پلن‌ها
               </h2>
               <p className="text-xs text-[var(--color-text-muted)] mt-0.5">

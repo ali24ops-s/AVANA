@@ -29,6 +29,7 @@ import { randomUUID } from "node:crypto";
 import {
   DomainError,
   asOrderId,
+  asPaymentId,
   asUserId,
   asOrganizationId,
   asUserEntitlementId,
@@ -36,13 +37,12 @@ import {
   type ContentGenerationPricingConfig,
   type UpdateContentGenerationPricingInput,
   type SubscriptionCreditBonusesConfig,
-  resolveSubscriptionPlanType,
-  resolveGiftCreditAmount,
   validateSubscriptionCreditBonuses,
 } from "@avana/domain";
 import type { WalletService } from "../wallet/wallet-service.js";
 import type { CommerceStore } from "../commerce/commerce-store.js";
 import type { NotificationService } from "../notifications/notification-service.js";
+import { grantSubscriptionActivationGiftIfEligible } from "../commerce/subscription-gift-helper.js";
 import type { PromotionService } from "../commerce/promotion-service.js";
 import type { StudyService } from "../study/study-service.js";
 
@@ -201,6 +201,17 @@ export class AdminService {
     return this.store.cancelCommerceSubscription(adminId, subscriptionId, reason);
   }
 
+  async revokeCommerceEntitlement(
+    adminId: string,
+    entitlementId: string,
+    reason?: string,
+  ): Promise<{ success: boolean; entitlement: any; message?: string }> {
+    if (!entitlementId) {
+      throw new DomainError("bad_request", "شناسه دسترسی الزامی است.");
+    }
+    return this.store.revokeCommerceEntitlement(adminId, entitlementId, reason);
+  }
+
   async approvePayment(
     adminId: string,
     paymentId: string,
@@ -269,38 +280,23 @@ export class AdminService {
           }
         }
 
-        if (product && product.type === "subscription" && this.commerceStore) {
-          const planType = resolveSubscriptionPlanType(product);
-          if (planType && this.walletService) {
-            const subscriptions = await this.commerceStore.listSubscriptionsByUser(
-              order!.userId,
-            );
-            const sub = subscriptions.find((s) => s.orderId === order!.id);
-            if (sub) {
-              const config = await this.store.getSubscriptionCreditBonuses();
-              const giftAmount = resolveGiftCreditAmount(planType, config);
-              if (giftAmount > 0) {
-                await this.walletService.credit({
-                  userId: order!.userId,
-                  amount: giftAmount,
-                  source: "subscription_bonus",
-                  referenceType: "user_subscription",
-                  referenceId: sub.id,
-                  idempotencyKey: `subscription-gift:${sub.id}`,
-                  metadata: {
-                    subscriptionId: sub.id,
-                    productId: product.id,
-                    productTitle: product.title,
-                    planType,
-                    durationDays: product.durationDays,
-                    giftAmount,
-                    paymentId,
-                    orderId: order!.id,
-                    grantedAt: new Date().toISOString(),
-                  },
-                });
-              }
-            }
+        if (product && product.type === "subscription" && this.commerceStore && order) {
+          const subscriptions = await this.commerceStore.listSubscriptionsByUser(
+            order.userId,
+          );
+          const sub = subscriptions.find((s) => s.orderId === order.id);
+          if (sub && this.walletService) {
+            await grantSubscriptionActivationGiftIfEligible({
+              userId: order.userId,
+              orderId: order.id,
+              subscriptionId: sub.id,
+              product,
+              paymentId: asPaymentId(paymentId as UUID),
+              commerceStore: this.commerceStore,
+              walletService: this.walletService,
+              getBonusesConfig: () => this.store.getSubscriptionCreditBonuses(),
+              grantedAt: new Date().toISOString(),
+            });
           }
           if (this.notificationService && userId) {
             await this.notificationService.notifyPurchaseCompleted(asUserId(userId as any), {

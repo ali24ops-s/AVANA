@@ -7,5 +7,7 @@ export * from "./admin-routes.js";
 export * from "./content-export-import-types.js";
 export * from "./content-export-service.js";
 export * from "./content-import-service.js";
+export * from "./content-repair-service.js";
+export * from "./content-repair-audit-service.js";
 
 

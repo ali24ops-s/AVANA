@@ -73,6 +73,7 @@ export interface DocumentRouteOptions {
   lessonStore?: LessonStore;
   auditService?: AuditService;
   entitlementService?: EntitlementService;
+  systemOrganizationId?: OrganizationId;
 }
 
 const UUID_RE =
@@ -100,6 +101,7 @@ export const documentRoutes: FastifyPluginAsync<DocumentRouteOptions> = async (
     lessonStore,
     auditService,
     entitlementService,
+    systemOrganizationId,
   } = opts;
 
   const { requireAuth } = makeAuthMiddleware({ sessionService, userStore });
@@ -118,6 +120,7 @@ export const documentRoutes: FastifyPluginAsync<DocumentRouteOptions> = async (
     moduleStore,
     lessonStore,
     entitlementService,
+    systemOrganizationId,
   );
   const processingService = new DocumentProcessingService(
     documentStore,

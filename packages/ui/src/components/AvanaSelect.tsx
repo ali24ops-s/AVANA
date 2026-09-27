@@ -222,7 +222,7 @@ export const AvanaSelect: React.FC<AvanaSelectProps> = ({
         aria-labelledby={label ? labelId : undefined}
         disabled={disabled || isLoading}
         onClick={() => setIsOpen(!isOpen)}
-        className={`w-full min-h-[42px] py-2 px-3.5 bg-[var(--color-surface)] border ${
+        className={`w-full min-h-[44px] sm:min-h-[38px] py-2 px-3.5 bg-[var(--color-surface)] border ${
           error
             ? "border-[#b84c4c] ring-1 ring-[#b84c4c]"
             : isOpen
@@ -251,7 +251,7 @@ export const AvanaSelect: React.FC<AvanaSelectProps> = ({
           id={listboxId}
           role="listbox"
           aria-multiselectable={isMulti}
-          className="absolute z-[1400] top-full start-0 end-0 mt-1.5 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-[16px] shadow-[0_4px_16px_rgba(0,0,0,.1)] overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150"
+          className="absolute z-[1400] top-full start-0 end-0 mt-1.5 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-[16px] shadow-[0_4px_16px_rgba(0,0,0,.1)] overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150 max-w-[calc(100vw-2rem)]"
         >
           {isSearchable && (
             <div className="p-2 border-b border-[var(--color-border)]">
@@ -338,7 +338,7 @@ const OptionItem: React.FC<{
     aria-selected={isSelected}
     onClick={() => !option.disabled && onSelect()}
     onMouseEnter={onHover}
-    className={`w-full px-3 py-2 rounded-xl text-xs sm:text-sm flex items-center justify-between text-start transition-colors select-none ${
+    className={`w-full px-3 py-2.5 rounded-xl text-xs sm:text-sm flex items-center justify-between text-start transition-colors select-none gap-2 min-h-[40px] ${
       isSelected
         ? "bg-[#008080]/15 text-[#006666] dark:text-teal-200 font-bold"
         : isHighlighted
@@ -346,12 +346,12 @@ const OptionItem: React.FC<{
         : "text-[var(--color-text)]"
     } ${option.disabled ? "opacity-40 cursor-not-allowed" : "cursor-pointer"}`}
   >
-    <span className="flex items-center gap-2">
+    <span className="flex items-center gap-2 min-w-0 flex-1 break-words leading-relaxed">
       {option.icon}
-      {option.label}
+      <span>{option.label}</span>
     </span>
     {isSelected && (
-      <svg className="w-4 h-4 text-[#008080]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <svg className="w-4 h-4 text-[#008080] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" />
       </svg>
     )}

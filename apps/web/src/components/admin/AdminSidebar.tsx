@@ -103,8 +103,8 @@ export function AdminSidebar({
 
       {/* Mobile Drawer */}
       <aside
-        className={`fixed inset-y-0 start-0 z-50 w-72 sm:w-80 bg-[var(--color-surface-warm)] border-e border-[var(--color-border)] flex flex-col font-sans text-[var(--color-text)] shadow-2xl transition-transform duration-300 ease-in-out lg:hidden ${
-          mobileOpen ? "translate-x-0" : "translate-x-full"
+        className={`fixed inset-y-0 start-0 z-50 w-[63vw] min-w-[210px] max-w-[320px] sm:w-80 bg-[var(--color-surface-warm)] border-e border-[var(--color-border)] flex flex-col font-sans text-[var(--color-text)] shadow-2xl transition-transform duration-300 ease-in-out lg:hidden ${
+          mobileOpen ? "translate-x-0" : "translate-x-full rtl:translate-x-full ltr:-translate-x-full"
         }`}
         dir="rtl"
         aria-label="ناوبری مدیریت موبایل"

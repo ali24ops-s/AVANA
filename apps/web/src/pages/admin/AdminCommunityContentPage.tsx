@@ -428,16 +428,16 @@ export function AdminCommunityContentPage() {
       ) : (
         <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl overflow-hidden shadow-sm">
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm min-w-[760px]">
               <thead className="bg-[var(--color-surface-subtle)] text-[var(--color-text-muted)] border-b border-[var(--color-border)] text-xs font-semibold">
                 <tr>
-                  <th className="py-3.5 px-4 text-start">عنوان بسته</th>
-                  <th className="py-3.5 px-4 text-start">سازنده</th>
-                  <th className="py-3.5 px-4 text-start">محتویات</th>
-                  <th className="py-3.5 px-4 text-start">وضعیت</th>
-                  <th className="py-3.5 px-4 text-start">مدل دسترسی و قیمت</th>
-                  <th className="py-3.5 px-4 text-start">تاریخ</th>
-                  <th className="py-3.5 px-4 text-center">عملیات</th>
+                  <th className="py-3.5 px-4 text-start whitespace-nowrap">عنوان بسته</th>
+                  <th className="py-3.5 px-4 text-start whitespace-nowrap">سازنده</th>
+                  <th className="py-3.5 px-4 text-start whitespace-nowrap">محتویات</th>
+                  <th className="py-3.5 px-4 text-start whitespace-nowrap">وضعیت</th>
+                  <th className="py-3.5 px-4 text-start whitespace-nowrap">مدل دسترسی و قیمت</th>
+                  <th className="py-3.5 px-4 text-start whitespace-nowrap">تاریخ</th>
+                  <th className="py-3.5 px-4 text-center whitespace-nowrap">عملیات</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--color-border)] text-[var(--color-text)]">
@@ -459,18 +459,18 @@ export function AdminCommunityContentPage() {
                           {pack.title}
                         </div>
                         {pack.subject && (
-                          <span className="inline-block mt-0.5 text-xs text-[var(--color-primary-default)] bg-[var(--color-surface-warm)] border border-[var(--color-border)] px-2 py-0.5 rounded">
+                          <span className="inline-block mt-0.5 text-xs text-[var(--color-primary-default)] bg-[var(--color-surface-warm)] border border-[var(--color-border)] px-2 py-0.5 rounded whitespace-nowrap">
                             {pack.subject}
                           </span>
                         )}
                       </td>
-                      <td className="py-3.5 px-4">
+                      <td className="py-3.5 px-4 whitespace-nowrap">
                         <div className="flex items-center gap-1.5 text-[var(--color-text)]">
-                          <User className="w-3.5 h-3.5 text-[var(--color-text-muted)]" />
+                          <User className="w-3.5 h-3.5 text-[var(--color-text-muted)] shrink-0" />
                           <span>{pack.creator?.name || "کاربر آوانا"}</span>
                         </div>
                       </td>
-                      <td className="py-3.5 px-4">
+                      <td className="py-3.5 px-4 whitespace-nowrap">
                         <div className="flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
                           <span title="تعداد جلسات">{toPersianDigits(pack.stats?.sessionCount ?? 0)} درس</span>
                           <span>•</span>
@@ -479,10 +479,10 @@ export function AdminCommunityContentPage() {
                           <span title="تعداد سوالات آزمون">{toPersianDigits(pack.stats?.quizQuestionCount ?? 0)} سوال</span>
                         </div>
                       </td>
-                      <td className="py-3.5 px-4">
+                      <td className="py-3.5 px-4 whitespace-nowrap">
                         <AdminStatusBadge status={pack.status} />
                       </td>
-                      <td className="py-3.5 px-4">
+                      <td className="py-3.5 px-4 whitespace-nowrap">
                         {isFree ? (
                           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
                             رایگان
@@ -495,17 +495,17 @@ export function AdminCommunityContentPage() {
                           </span>
                         )}
                       </td>
-                      <td className="py-3.5 px-4 text-xs text-[var(--color-text-muted)]">
+                      <td className="py-3.5 px-4 text-xs text-[var(--color-text-muted)] whitespace-nowrap">
                         {new Date(pack.createdAt).toLocaleDateString("fa-IR")}
                       </td>
-                      <td className="py-3.5 px-4 text-center">
+                      <td className="py-3.5 px-4 text-center whitespace-nowrap">
                         <button
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
                             handleSelectPack(pack.id);
                           }}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-[var(--color-primary-default)] bg-[var(--color-surface-warm)] hover:bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl transition-all shadow-xs"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-[var(--color-primary-default)] bg-[var(--color-surface-warm)] hover:bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl transition-all shadow-xs whitespace-nowrap shrink-0"
                         >
                           <Eye className="w-3.5 h-3.5" />
                           <span>بررسی و تصمیم‌گیری</span>

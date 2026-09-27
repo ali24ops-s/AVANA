@@ -487,7 +487,7 @@ export function TermsPage() {
                       <div className="w-12 h-12 rounded-[12px] bg-amber-100 border border-amber-300 text-amber-700 flex items-center justify-center shrink-0 shadow-xs">
                         <Icon className="w-6 h-6" />
                       </div>
-                      <div className="space-y-1">
+                      <div className="space-y-1 flex flex-col items-center sm:items-start text-center sm:text-right">
                         <div className="inline-flex items-center gap-2 text-xs font-bold text-amber-700">
                           <span>بخش {toPersianDigits(section.number)}</span>
                           <span>•</span>
@@ -497,7 +497,7 @@ export function TermsPage() {
                         </div>
                         <h2
                           id={`heading-${section.id}`}
-                          className="text-xl sm:text-2xl font-black text-amber-950 tracking-tight"
+                          className="text-xl sm:text-2xl font-black text-amber-950 tracking-tight text-center sm:text-right"
                         >
                           {section.title}
                         </h2>
@@ -506,7 +506,7 @@ export function TermsPage() {
 
                     {/* Intro */}
                     {section.intro && (
-                      <p className="text-xs sm:text-sm text-amber-900 leading-relaxed font-medium">
+                      <p className="text-xs sm:text-sm text-amber-900 leading-relaxed font-medium text-center sm:text-right">
                         {section.intro}
                       </p>
                     )}
@@ -547,17 +547,17 @@ export function TermsPage() {
                   aria-labelledby={`heading-${section.id}`}
                 >
                   {/* Section Title */}
-                  <div className="flex items-center gap-3.5 pb-4 border-b border-[var(--color-border)]">
+                  <div className="flex flex-col sm:flex-row items-center sm:items-center justify-center sm:justify-start gap-3.5 pb-4 border-b border-[var(--color-border)]">
                     <div className="w-10 h-10 rounded-[10px] bg-[#008080]/10 border border-[#008080]/20 text-[#008080] flex items-center justify-center shrink-0">
                       <Icon className="w-5 h-5" />
                     </div>
-                    <div>
+                    <div className="text-center sm:text-right">
                       <span className="text-[11px] font-bold text-[#008080] block">
                         بخش {toPersianDigits(section.number)}
                       </span>
                       <h2
                         id={`heading-${section.id}`}
-                        className="text-lg sm:text-xl font-bold text-[var(--color-text)] tracking-tight"
+                        className="text-lg sm:text-xl font-bold text-[var(--color-text)] tracking-tight text-center sm:text-right"
                       >
                         {section.title}
                       </h2>

@@ -1,5 +1,18 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
-import { Sparkles } from "lucide-react";
+import {
+  Sparkles,
+  Grid,
+  Timer,
+  HelpCircle,
+  Eye,
+  EyeOff,
+  ArrowRight,
+  ArrowLeft,
+  Check,
+  X,
+  AlertTriangle,
+  CheckCircle2,
+} from "lucide-react";
 import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
 import { createStudyApi } from "../../lib/api/study.js";
 import { useStudySessionTracker } from "../../hooks/useStudySessionTracker.js";
@@ -84,6 +97,7 @@ export function ExamTakingView({
 
   // Modals & mentor state
   const [showConfirmModal, setShowConfirmModal] = useState<boolean>(false);
+  const [isMobileMapOpen, setIsMobileMapOpen] = useState<boolean>(false);
   const [isMentorOpen, setIsMentorOpen] = useState<boolean>(false);
   const mentorPopoverRef = useRef<HTMLDivElement | null>(null);
   const mentorButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -234,7 +248,7 @@ export function ExamTakingView({
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const saveSeqRef = useRef<number>(0);
 
-  const handleExitClick = useCallback(async () => {
+  const handleExitClick = useCallback(() => {
     const total = closeActiveSlice();
     const latestAnswers = answersRef.current;
     const formattedAnswers = Object.entries(latestAnswers).map(([qid, val]) => ({
@@ -242,14 +256,12 @@ export function ExamTakingView({
       answer: val,
     }));
 
-    try {
-      await studyApi.saveExamAnswers(organizationId, attemptId, {
+    void studyApi
+      .saveExamAnswers(organizationId, attemptId, {
         answers: formattedAnswers,
         elapsedSeconds: total,
-      });
-    } catch {
-      // Best-effort flush on exit
-    }
+      })
+      .catch(() => {});
     onExit();
   }, [closeActiveSlice, onExit, organizationId, attemptId, studyApi]);
 
@@ -451,7 +463,7 @@ export function ExamTakingView({
     return (
       <div className="max-w-2xl mx-auto py-16 px-4 text-center" dir="rtl">
         <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl p-8 shadow-xs">
-          <span className="material-symbols-outlined text-[var(--avana-warning)] text-5xl mb-4">warning</span>
+          <AlertTriangle className="w-12 h-12 text-[var(--avana-warning)] mx-auto mb-4" />
           <h3 className="text-xl font-bold text-[var(--color-text)] mb-2">هیچ سوالی برای این آزمون یافت نشد</h3>
           <p className="text-[var(--color-text-muted)] text-sm mb-6">لطفاً سرفصل‌های دیگری را برای آزمون انتخاب فرمایید.</p>
           <button
@@ -489,7 +501,7 @@ export function ExamTakingView({
       hours > 0
         ? `${hours.toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`
         : `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
-    return toPersianDigits(timeStr);
+    return timeStr;
   };
 
   const displayTimeSeconds = hasTimeLimit
@@ -634,7 +646,7 @@ export function ExamTakingView({
         {/* Sidebar Header */}
         <div className="p-4 border-b border-[var(--color-border)] flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-[var(--color-primary)] text-[20px]">grid_view</span>
+            <Grid className="w-5 h-5 text-[var(--color-primary)]" />
             <h3 className="text-[var(--color-text)] font-bold text-base">نقشه آزمون</h3>
           </div>
           <span className="text-xs text-[var(--color-text-muted)] font-mono bg-[var(--color-surface-warm)] border border-[var(--color-border)] px-2 py-0.5 rounded">
@@ -734,9 +746,21 @@ export function ExamTakingView({
           </div>
 
           {/* Right Header Actions */}
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1.5 bg-[var(--color-surface-warm)] border border-[var(--color-border)] px-2.5 py-1 rounded-lg text-[var(--color-text)] font-label-sm">
-              <span className="material-symbols-outlined text-[16px]">timer</span>
+          <div className="flex items-center gap-2 sm:gap-3">
+            {/* Mobile Question Map Trigger */}
+            <button
+              type="button"
+              onClick={() => setIsMobileMapOpen(true)}
+              className="md:hidden flex items-center gap-1.5 bg-[var(--color-surface-warm)] border border-[var(--color-border)] px-2.5 py-1.5 rounded-lg text-[var(--color-text)] text-xs font-semibold cursor-pointer active:scale-95 transition-transform"
+              title="نقشه سوالات"
+              aria-label="مشاهده نقشه سوالات"
+            >
+              <Grid className="w-4 h-4 text-[var(--color-primary)] shrink-0" />
+              <span className="font-mono text-xs">{toPersianDigits(currentIndex + 1)}/{toPersianDigits(totalQuestions)}</span>
+            </button>
+
+            <div className="flex items-center gap-1 sm:gap-1.5 bg-[var(--color-surface-warm)] border border-[var(--color-border)] px-2 sm:px-2.5 py-1 rounded-lg text-[var(--color-text)] font-label-sm">
+              <Timer className="w-4 h-4 text-[var(--color-primary)]" />
               <span className="font-mono text-xs mt-0.5" dir="ltr">
                 {formatTimer(displayTimeSeconds)}
               </span>
@@ -748,13 +772,13 @@ export function ExamTakingView({
               title="خروج از آزمون"
               className="hidden md:flex text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors p-1.5 rounded-full hover:bg-[var(--color-surface-warm)]"
             >
-              <span className="material-symbols-outlined text-[20px]">help_outline</span>
+              <HelpCircle className="w-5 h-5" />
             </button>
 
             <button
               type="button"
               onClick={() => setShowConfirmModal(true)}
-              className="bg-[var(--color-primary)] text-white px-3.5 py-1.5 rounded-lg text-xs md:text-sm hover:bg-[var(--color-primary-hover)] transition-colors hidden sm:block shadow-xs font-semibold"
+              className="bg-[var(--color-primary)] text-white px-2.5 sm:px-3.5 py-1 sm:py-1.5 rounded-lg text-xs md:text-sm hover:bg-[var(--color-primary-hover)] transition-colors shadow-xs font-semibold shrink-0"
             >
               پایان آزمون
             </button>
@@ -778,7 +802,7 @@ export function ExamTakingView({
             )}
 
             {/* Question Card */}
-            <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl p-5 md:p-6 shadow-xs relative w-full min-w-0">
+            <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl p-4 sm:p-5 md:p-6 shadow-xs relative w-full min-w-0">
               <div className="flex items-center justify-between gap-3 mb-3">
                 <span className="bg-[var(--color-primary-soft)] text-[var(--color-primary-dark)] border border-[var(--color-primary)]/30 px-2.5 py-0.5 rounded-md text-xs font-semibold">
                   سوال {toPersianDigits(currentIndex + 1)}
@@ -791,10 +815,10 @@ export function ExamTakingView({
                       <button
                         type="button"
                         onClick={() => handleToggleSource(currentQuestion.id)}
-                        className="flex items-center gap-1 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors py-1 px-2.5 rounded-lg bg-[var(--color-surface-warm)] hover:bg-[var(--color-surface-warm)]/80 border border-[var(--color-border)]"
+                        className="flex items-center gap-1 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors py-1 px-2.5 rounded-lg bg-[var(--color-surface-warm)] hover:bg-[var(--color-surface-warm)]/80 border border-[var(--color-border)] cursor-pointer"
                         aria-expanded={false}
                       >
-                        <span className="material-symbols-outlined text-[15px]">visibility</span>
+                        <Eye className="w-3.5 h-3.5 text-primary" />
                         <span>نمایش منبع سوال</span>
                       </button>
                     ) : (
@@ -805,10 +829,10 @@ export function ExamTakingView({
                         <button
                           type="button"
                           onClick={() => handleToggleSource(currentQuestion.id)}
-                          className="flex items-center gap-1 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors py-1 px-2 rounded-lg bg-[var(--color-surface-warm)] border border-[var(--color-border)]"
+                          className="flex items-center gap-1 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors py-1 px-2 rounded-lg bg-[var(--color-surface-warm)] border border-[var(--color-border)] cursor-pointer"
                           aria-expanded={true}
                         >
-                          <span className="material-symbols-outlined text-[15px]">visibility_off</span>
+                          <EyeOff className="w-3.5 h-3.5 text-primary" />
                           <span>مخفی کردن</span>
                         </button>
                       </div>
@@ -868,17 +892,15 @@ export function ExamTakingView({
             )}
 
             {/* Footer Actions */}
-            <div className="mt-3 pt-3 border-t border-[var(--color-border)] flex justify-between items-center gap-3">
+            <div className="mt-3 pt-3 border-t border-[var(--color-border)] flex flex-wrap sm:flex-nowrap justify-between items-center gap-2 sm:gap-3">
               <button
                 type="button"
                 onClick={() => setCurrentIndex((prev) => Math.max(0, prev - 1))}
                 disabled={currentIndex === 0 || isSubmitting}
-                className="px-4 py-2 rounded-xl border border-[var(--color-border)] text-[var(--color-text-muted)] text-xs md:text-sm font-title-md hover:bg-[var(--color-surface-warm)] hover:text-[var(--color-text)] transition-colors flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:pointer-events-none"
+                className="min-h-[42px] px-3.5 sm:px-4 py-2 rounded-xl border border-[var(--color-border)] text-[var(--color-text-muted)] text-xs md:text-sm font-title-md hover:bg-[var(--color-surface-warm)] hover:text-[var(--color-text)] transition-colors flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:pointer-events-none flex-1 sm:flex-initial cursor-pointer"
               >
-                <span className="material-symbols-outlined text-[18px]" dir="ltr">
-                  arrow_forward
-                </span>
-                سوال قبلی
+                <ArrowRight className="w-4 h-4" />
+                <span>سوال قبلی</span>
               </button>
 
               {/* Mentor CTA Button */}
@@ -886,7 +908,7 @@ export function ExamTakingView({
                 ref={mentorButtonRef}
                 type="button"
                 onClick={() => setIsMentorOpen((prev) => !prev)}
-                className={`px-4 py-2 rounded-xl border text-xs md:text-sm transition-colors flex items-center justify-center gap-1.5 shadow-xs font-semibold ${
+                className={`min-h-[42px] px-3.5 sm:px-4 py-2 rounded-xl border text-xs md:text-sm transition-colors flex items-center justify-center gap-1.5 shadow-xs font-semibold order-last sm:order-none w-full sm:w-auto cursor-pointer ${
                   isMentorOpen
                     ? "border-primary bg-primary/10 text-primary"
                     : "border-[#d8b4fe] text-[#7c3aed] bg-[#f3e8ff]/60 hover:bg-[#f3e8ff]"
@@ -895,7 +917,7 @@ export function ExamTakingView({
                 aria-haspopup="dialog"
               >
                 <Sparkles className="w-4 h-4" />
-                {isMentorOpen ? "بستن راهنمایی" : "راهنمایی از منتور هوشمند"}
+                <span>{isMentorOpen ? "بستن راهنمایی" : "راهنمایی از منتور هوشمند"}</span>
               </button>
 
               {isLastQuestion ? (
@@ -903,30 +925,103 @@ export function ExamTakingView({
                   type="button"
                   onClick={() => setShowConfirmModal(true)}
                   disabled={isSubmitting}
-                  className="px-5 py-2 rounded-xl bg-[var(--color-primary)] text-white text-xs md:text-sm hover:bg-[var(--color-primary-hover)] transition-colors flex items-center justify-center gap-1.5 shadow-xs disabled:opacity-50 font-semibold"
+                  className="min-h-[42px] px-4 sm:px-5 py-2 rounded-xl bg-[var(--color-primary)] text-white text-xs md:text-sm hover:bg-[var(--color-primary-hover)] transition-colors flex items-center justify-center gap-1.5 shadow-xs disabled:opacity-50 font-semibold flex-1 sm:flex-initial cursor-pointer"
                 >
-                  ثبت و پایان آزمون
-                  <span className="material-symbols-outlined text-[18px]" dir="ltr">
-                    check
-                  </span>
+                  <span>ثبت و پایان آزمون</span>
+                  <Check className="w-4 h-4" />
                 </button>
               ) : (
                 <button
                   type="button"
                   onClick={() => setCurrentIndex((prev) => Math.min(totalQuestions - 1, prev + 1))}
                   disabled={isSubmitting}
-                  className="px-5 py-2 rounded-xl bg-[var(--color-primary)] text-white text-xs md:text-sm font-title-md hover:bg-[var(--color-primary-hover)] transition-colors flex items-center justify-center gap-1.5 shadow-xs font-semibold"
+                  className="min-h-[42px] px-4 sm:px-5 py-2 rounded-xl bg-[var(--color-primary)] text-white text-xs md:text-sm font-title-md hover:bg-[var(--color-primary-hover)] transition-colors flex items-center justify-center gap-1.5 shadow-xs font-semibold flex-1 sm:flex-initial cursor-pointer"
                 >
-                  سوال بعدی
-                  <span className="material-symbols-outlined text-[18px]" dir="ltr">
-                    arrow_back
-                  </span>
+                  <span>سوال بعدی</span>
+                  <ArrowLeft className="w-4 h-4" />
                 </button>
               )}
             </div>
           </div>
         </main>
       </div>
+
+      {/* Mobile Question Map Modal */}
+      {isMobileMapOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs md:hidden animate-in fade-in" dir="rtl">
+          <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl p-4 max-w-sm w-full max-h-[85vh] flex flex-col shadow-modal">
+            <div className="flex items-center justify-between pb-3 border-b border-[var(--color-border)] shrink-0">
+              <div className="flex items-center gap-2">
+                <Grid className="w-5 h-5 text-[var(--color-primary)]" />
+                <h3 className="text-[var(--color-text)] font-bold text-sm">نقشه آزمون</h3>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-[var(--color-text-muted)] font-mono bg-[var(--color-surface-warm)] border border-[var(--color-border)] px-2 py-0.5 rounded">
+                  {formatPersianOf(currentIndex + 1, totalQuestions)}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setIsMobileMapOpen(false)}
+                  className="p-1.5 rounded-lg text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] min-h-[36px] min-w-[36px] flex items-center justify-center cursor-pointer"
+                  aria-label="بستن نقشه سوالات"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto py-3 min-h-0">
+              <div className="grid grid-cols-5 gap-2 sm:gap-2.5" dir="ltr">
+                {questions.map((q, idx) => {
+                  const isCurrent = idx === currentIndex;
+                  const isAns = answers[q.id] !== undefined && answers[q.id] !== null && answers[q.id] !== "";
+
+                  return (
+                    <button
+                      key={q.id}
+                      type="button"
+                      onClick={() => {
+                        setCurrentIndex(idx);
+                        setIsMobileMapOpen(false);
+                      }}
+                      className={`w-full aspect-square min-h-[42px] max-h-[48px] rounded-xl flex items-center justify-center font-mono text-sm relative font-bold transition-all active:scale-95 touch-manipulation cursor-pointer ${
+                        isCurrent
+                          ? "bg-[var(--color-primary)] text-white ring-2 ring-[var(--color-primary-soft)] font-bold shadow-xs"
+                          : isAns
+                          ? "bg-[var(--color-primary-soft)]/60 border border-[var(--color-primary)]/40 text-[var(--color-primary-dark)] hover:bg-[var(--color-primary-soft)]"
+                          : "bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text-muted)] hover:border-[var(--color-primary)]/40 hover:text-[var(--color-text)]"
+                      }`}
+                    >
+                      {toPersianDigits(idx + 1)}
+                      {isAns && !isCurrent && (
+                        <div className="absolute bottom-1 right-1 w-1.5 h-1.5 bg-[#3d8f6e] rounded-full" />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Mobile Visual Legend Footer */}
+            <div className="pt-3 border-t border-[var(--color-border)] shrink-0 flex flex-col gap-2 bg-[var(--color-surface)]">
+              <div className="grid grid-cols-3 gap-1.5 text-[11px] text-[var(--color-text-muted)]">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <div className="w-2.5 h-2.5 bg-[#3d8f6e] rounded-full shrink-0" />
+                  <span className="truncate">پاسخ‌داده ({toPersianDigits(answeredCount)})</span>
+                </div>
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <div className="w-2.5 h-2.5 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-full shrink-0" />
+                  <span className="truncate">بدون پاسخ ({toPersianDigits(unansweredCount)})</span>
+                </div>
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <div className="w-2.5 h-2.5 bg-[var(--color-primary)] rounded-full ring-2 ring-[var(--color-primary-soft)] shrink-0" />
+                  <span className="truncate">سوال فعلی</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Educational Mentor Popup with Soft Backdrop Blur */}
       {isMentorOpen && (
@@ -984,7 +1079,7 @@ export function ExamTakingView({
           {/* Modal Card */}
           <div className="relative bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl p-6 max-w-md w-full shadow-modal flex flex-col items-center text-center z-10">
             <div className="w-14 h-14 bg-[var(--color-primary-soft)] text-[var(--color-primary)] rounded-full flex items-center justify-center mb-4">
-              <span className="material-symbols-outlined text-3xl">task_alt</span>
+              <CheckCircle2 className="w-8 h-8" />
             </div>
             <h2 className="text-h3 text-[var(--color-text)] mb-2">پایان آزمون</h2>
             <p className="text-[var(--color-text-muted)] text-sm mb-6">

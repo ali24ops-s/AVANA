@@ -62,7 +62,16 @@ export const errorHandlerPlugin: FastifyPluginAsync = async (app) => {
       return;
     }
 
-    // Fallback for unknown errors.
+    // Fallback for unknown errors (e.g. unexpected DB/driver exceptions).
+    request.log.error(
+      {
+        err,
+        requestId: request.id,
+        method: request.method,
+        url: request.url,
+      },
+      "Unhandled server error in request pipeline",
+    );
     writeErrorEnvelope(reply, request, "internal_error", "Internal error", 500);
   });
 

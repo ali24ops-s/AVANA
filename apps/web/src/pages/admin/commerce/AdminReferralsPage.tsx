@@ -290,17 +290,17 @@ export function AdminReferralsPage() {
       <div className="space-y-4">
         <div className="border border-[var(--color-border)] rounded-2xl bg-[var(--color-surface)] overflow-hidden shadow-xs">
           <div className="overflow-x-auto">
-            <table className="w-full text-start text-xs">
+            <table className="w-full min-w-[860px] text-start text-xs">
               <thead className="bg-[var(--color-bg-default)] text-[var(--color-text-muted)] border-b border-[var(--color-border)] font-semibold">
                 <tr>
-                  <th className="px-4 py-3 text-start">کد معرف</th>
-                  <th className="px-4 py-3 text-start">کاربر معرف (Inviter)</th>
-                  <th className="px-4 py-3 text-start">کاربر دعوت‌شده (Invitee)</th>
-                  <th className="px-4 py-3 text-start">وضعیت ارجاع</th>
-                  <th className="px-4 py-3 text-start">وضعیت پاداش</th>
-                  <th className="px-4 py-3 text-start">پاداش اشتراک</th>
-                  <th className="px-4 py-3 text-start">تاریخ ثبت‌نام</th>
-                  <th className="px-4 py-3 text-start">تاریخ پاداش</th>
+                  <th className="px-4 py-3 text-start whitespace-nowrap">کد معرف</th>
+                  <th className="px-4 py-3 text-start whitespace-nowrap">کاربر معرف (Inviter)</th>
+                  <th className="px-4 py-3 text-start whitespace-nowrap">کاربر دعوت‌شده (Invitee)</th>
+                  <th className="px-4 py-3 text-start whitespace-nowrap">وضعیت ارجاع</th>
+                  <th className="px-4 py-3 text-start whitespace-nowrap">وضعیت پاداش</th>
+                  <th className="px-4 py-3 text-start whitespace-nowrap">پاداش اشتراک</th>
+                  <th className="px-4 py-3 text-start whitespace-nowrap">تاریخ ثبت‌نام</th>
+                  <th className="px-4 py-3 text-start whitespace-nowrap">تاریخ پاداش</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--color-border)]">

@@ -56,6 +56,7 @@ import { up as up0052 } from "./migrations/0052_referral_system.js";
 import { up as up0053 } from "./migrations/0053_daily_study_planner.js";
 import { up as up0054 } from "./migrations/0054_course_exam_scope.js";
 import { up as up0055 } from "./migrations/0055_support_and_feedback.js";
+import { up as up0056 } from "./migrations/0056_course_drafts_and_releases.js";
 
 
 
@@ -187,6 +188,8 @@ async function runMigrations() {
     await up0054(db);
     console.log("Applying 0055_support_and_feedback...");
     await up0055(db);
+    console.log("Applying 0056_course_drafts_and_releases...");
+    await up0056(db);
 
 
 

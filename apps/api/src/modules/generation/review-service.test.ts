@@ -1086,4 +1086,275 @@ describe("ReviewService", () => {
       expect(item2After?.status).toBe("draft");
     });
   });
+
+  describe("Anti-Pollution & Module Title Resolution", () => {
+    it("Scenario 1: Flashcard processed before lesson establishes clean module title from sibling lesson", async () => {
+      documentStore.insert(
+        makeDocument({ id: documentId, originalName: "neurophysiology.pdf" }, organizationId, courseId),
+      );
+
+      // Sibling lesson draft in content store
+      const lessonItem = seedContent({
+        type: "lesson",
+        status: "draft",
+        payload: {
+          kind: "lesson",
+          title: "فیزیولوژی اعصاب",
+          moduleTitle: "فیزیولوژی اعصاب",
+          contentMarkdown: "# مبانی اعصاب",
+          citationChunkIds: [],
+        },
+      });
+
+      // Flashcard item draft with polluted title
+      const flashcardItem = seedContent({
+        type: "flashcard",
+        status: "draft",
+        payload: {
+          title: "فلش‌کارت‌های آموزشی: فیزیولوژی اعصاب",
+          cards: [{ front: "سیناپس چیست؟", back: "محل اتصال دو نورون" }],
+        },
+      });
+
+      // 1. Flashcard is accepted FIRST (before lesson)
+      await service.acceptContent(editor, organizationId, flashcardItem.id);
+
+      const modAfterFlashcard = await moduleStore.findByDocument(documentId);
+      expect(modAfterFlashcard).toBeDefined();
+      expect(modAfterFlashcard!.title).toBe("فصل: فیزیولوژی اعصاب");
+      expect(modAfterFlashcard!.title).not.toContain("فلش‌کارت");
+
+      // 2. Lesson is accepted SECOND
+      await service.acceptContent(editor, organizationId, lessonItem.id);
+
+      const modAfterLesson = await moduleStore.findByDocument(documentId);
+      expect(modAfterLesson).toBeDefined();
+      expect(modAfterLesson!.id).toBe(modAfterFlashcard!.id);
+      expect(modAfterLesson!.title).toBe("فصل: فیزیولوژی اعصاب");
+    });
+
+    it("Scenario 2: Flashcard materialized without moduleTitle or sibling lesson does not create polluted module", async () => {
+      const isolatedDocId = randomUUID() as DocumentId;
+      documentStore.insert(
+        makeDocument({ id: isolatedDocId, originalName: "chapter-renal.pdf" }, organizationId, courseId),
+      );
+
+      const fc = makeContent(
+        {
+          id: randomUUID() as GeneratedContentId,
+          documentId: isolatedDocId,
+          type: "flashcard",
+          status: "draft",
+          payload: {
+            title: "فلش کارت های آموزشی",
+            cards: [{ front: "نفرون چیست؟", back: "واحد عملکردی کلیه" }],
+          },
+        },
+        organizationId,
+        isolatedDocId,
+        courseId,
+      );
+      contentStore.insert(fc);
+
+      await service.acceptContent(editor, organizationId, fc.id);
+
+      const mod = await moduleStore.findByDocument(isolatedDocId);
+      expect(mod).toBeDefined();
+      expect(mod!.title).not.toContain("فلش کارت");
+      expect(mod!.title).not.toContain("فلش‌کارت");
+      expect(mod!.title).toBe("فصل: chapter renal");
+    });
+
+    it("Scenario 3: Existing polluted module is repaired when authoritative lesson arrives", async () => {
+      const pollutedDocId = randomUUID() as DocumentId;
+      documentStore.insert(
+        makeDocument({ id: pollutedDocId, originalName: "acid-base.pdf" }, organizationId, courseId),
+      );
+
+      // Pre-existing polluted module from prior buggy materialization
+      const pollutedModId = randomUUID() as ModuleId;
+      await moduleStore.create({
+        id: pollutedModId,
+        courseId,
+        documentId: pollutedDocId,
+        title: "فصل: فلش‌کارت‌های آموزشی: تنظیم فیزیولوژیک تعادل اسید و باز",
+        description: "قدیمی",
+        sortOrder: 0,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+
+      // Arrival of authoritative lesson
+      const lessonItem = makeContent(
+        {
+          id: randomUUID() as GeneratedContentId,
+          documentId: pollutedDocId,
+          type: "lesson",
+          status: "draft",
+          payload: {
+            kind: "lesson",
+            title: "تنظیم فیزیولوژیک تعادل اسید و باز",
+            moduleTitle: "تنظیم فیزیولوژیک تعادل اسید و باز",
+            contentMarkdown: "# اسید و باز",
+            citationChunkIds: [],
+          },
+        },
+        organizationId,
+        pollutedDocId,
+        courseId,
+      );
+      contentStore.insert(lessonItem);
+
+      await service.acceptContent(editor, organizationId, lessonItem.id);
+
+      const repairedMod = await moduleStore.findById(pollutedModId);
+      expect(repairedMod).toBeDefined();
+      expect(repairedMod!.title).toBe("فصل: تنظیم فیزیولوژیک تعادل اسید و باز");
+      expect(repairedMod!.title).not.toContain("فلش‌کارت");
+    });
+
+    it("Scenario 4: Existing clean module title is preserved and never overwritten", async () => {
+      const cleanDocId = randomUUID() as DocumentId;
+      documentStore.insert(
+        makeDocument({ id: cleanDocId, originalName: "clean-doc.pdf" }, organizationId, courseId),
+      );
+
+      // Pre-existing clean custom title
+      const cleanModId = randomUUID() as ModuleId;
+      await moduleStore.create({
+        id: cleanModId,
+        courseId,
+        documentId: cleanDocId,
+        title: "فصل ۱: مبانی داروشناسی و فارماکوکینتیک",
+        description: "دقیق و سفارشی",
+        sortOrder: 0,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+
+      // Flashcard arrives with different title
+      const fc = makeContent(
+        {
+          id: randomUUID() as GeneratedContentId,
+          documentId: cleanDocId,
+          type: "flashcard",
+          status: "draft",
+          payload: {
+            title: "فلش‌کارت‌های آموزشی: فارماکوکینتیک بالینی",
+            cards: [{ front: "نیمه عمر چیست؟", back: "زمان لازم برای کاهش غلظت" }],
+          },
+        },
+        organizationId,
+        cleanDocId,
+        courseId,
+      );
+      contentStore.insert(fc);
+
+      await service.acceptContent(editor, organizationId, fc.id);
+
+      const mod = await moduleStore.findById(cleanModId);
+      expect(mod).toBeDefined();
+      // Clean custom title must be preserved 100% without modification
+      expect(mod!.title).toBe("فصل ۱: مبانی داروشناسی و فارماکوکینتیک");
+    });
+
+    it("Scenario 5: Quiz assessment prefix is stripped when creating module", async () => {
+      const quizDocId = randomUUID() as DocumentId;
+      documentStore.insert(
+        makeDocument({ id: quizDocId, originalName: "renal-quiz.pdf" }, organizationId, courseId),
+      );
+
+      const q = makeContent(
+        {
+          id: randomUUID() as GeneratedContentId,
+          documentId: quizDocId,
+          type: "quiz",
+          status: "draft",
+          payload: {
+            title: "آزمون ارزیابی آموخته‌ها: فیزیولوژی کلیه و تعادل مایعات",
+            questions: [
+              {
+                prompt: "GFR چیست؟",
+                options: ["نرخ فیلتراسیون گلومرولی", "فشار اسمزی", "ترشح توبولار", "هیچکدام"],
+                correctIndex: 0,
+              },
+            ],
+          },
+        },
+        organizationId,
+        quizDocId,
+        courseId,
+      );
+      contentStore.insert(q);
+
+      await service.acceptContent(editor, organizationId, q.id);
+
+      const mod = await moduleStore.findByDocument(quizDocId);
+      expect(mod).toBeDefined();
+      expect(mod!.title).toBe("فصل: فیزیولوژی کلیه و تعادل مایعات");
+      expect(mod!.title).not.toContain("آزمون");
+      expect(mod!.title).not.toContain("ارزیابی");
+    });
+
+    it("Scenario 6: acceptPack processes items deterministically (lesson -> flashcard -> quiz -> review_summary)", async () => {
+      const packDocId = randomUUID() as DocumentId;
+      documentStore.insert(
+        makeDocument({ id: packDocId, originalName: "pharmacology.pdf" }, organizationId, courseId),
+      );
+
+      // Flashcard inserted with earlier timestamp
+      const fc = makeContent(
+        {
+          id: randomUUID() as GeneratedContentId,
+          documentId: packDocId,
+          type: "flashcard",
+          status: "draft",
+          createdAt: "2026-01-01T10:00:00.000Z",
+          payload: {
+            title: "فلش‌کارت‌های آموزشی: فارماکودینامیک و اثر دارو",
+            cards: [{ front: "آگونیست", back: "فعال‌کننده گیرنده" }],
+          },
+        },
+        organizationId,
+        packDocId,
+        courseId,
+      );
+      contentStore.insert(fc);
+
+      // Lesson inserted with later timestamp
+      const lesson = makeContent(
+        {
+          id: randomUUID() as GeneratedContentId,
+          documentId: packDocId,
+          type: "lesson",
+          status: "draft",
+          createdAt: "2026-01-01T10:05:00.000Z",
+          payload: {
+            kind: "lesson",
+            title: "فارماکودینامیک و گیرنده‌ها",
+            moduleTitle: "فارماکودینامیک و گیرنده‌ها",
+            contentMarkdown: "# فارماکودینامیک",
+            citationChunkIds: [],
+          },
+        },
+        organizationId,
+        packDocId,
+        courseId,
+      );
+      contentStore.insert(lesson);
+
+      // Bulk accept pack
+      const result = await service.acceptPack(editor, organizationId, courseId, packDocId, "req-order-test");
+
+      expect(result.accepted_count).toBe(2);
+
+      const mod = await moduleStore.findByDocument(packDocId);
+      expect(mod).toBeDefined();
+      // Even though flashcard was created earlier, lesson must have established canonical module title
+      expect(mod!.title).toBe("فصل: فارماکودینامیک و گیرنده‌ها");
+      expect(mod!.title).not.toContain("فلش‌کارت");
+    });
+  });
 });

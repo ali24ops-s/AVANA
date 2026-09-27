@@ -20,21 +20,21 @@ export function AdminSearch({ value, onChange, placeholder }: { value: string; o
 
 export function AdminPagination({ page, totalPages, totalCount, onPageChange }: { page: number; totalPages: number; totalCount: number; onPageChange: (p: number) => void }) {
   return (
-    <div className="flex items-center justify-between px-6 py-4 border-t border-[var(--color-border)] bg-[var(--color-surface-warm)]/50">
-      <span className="text-xs sm:text-sm text-[var(--color-text-muted)]">
+    <div className="flex flex-col sm:flex-row items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-t border-[var(--color-border)] bg-[var(--color-surface-warm)]/50 gap-2 sm:gap-4">
+      <span className="text-xs sm:text-sm text-[var(--color-text-muted)] whitespace-nowrap">
         مجموع: {toPersianDigits(totalCount)} رکورد
       </span>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 shrink-0">
         <button
           type="button"
           disabled={page === 1}
           onClick={() => onPageChange(page - 1)}
           aria-label="صفحه قبل"
-          className="p-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--color-surface-warm)] transition-colors"
+          className="p-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--color-surface-warm)] transition-colors cursor-pointer"
         >
           <ChevronRight className="w-4 h-4" />
         </button>
-        <span className="text-xs sm:text-sm text-[var(--color-text)] px-2 py-1 font-medium">
+        <span className="text-xs sm:text-sm text-[var(--color-text)] px-2 py-1 font-medium whitespace-nowrap">
           {formatPersianOf(page, totalPages, { prefix: "صفحه" })}
         </span>
         <button
@@ -42,7 +42,7 @@ export function AdminPagination({ page, totalPages, totalCount, onPageChange }: 
           disabled={page >= totalPages}
           onClick={() => onPageChange(page + 1)}
           aria-label="صفحه بعد"
-          className="p-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--color-surface-warm)] transition-colors"
+          className="p-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--color-surface-warm)] transition-colors cursor-pointer"
         >
           <ChevronLeft className="w-4 h-4" />
         </button>
@@ -74,7 +74,7 @@ export function AdminStatusBadge({ status, colorMap }: { status: string; colorMa
   const color = mapToUse[status.toLowerCase()] || "text-[var(--color-text-muted)] bg-[var(--color-surface-warm)] border-[var(--color-border)]";
   
   return (
-    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${color}`}>
+    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap shrink-0 border ${color}`}>
       {status}
     </span>
   );
@@ -135,15 +135,23 @@ export function AdminErrorState({ message, colSpan }: { message: string; colSpan
   );
 }
 
-export function AdminTable({ headers, children }: { headers: string[]; children: ReactNode }) {
+export function AdminTable({
+  headers,
+  children,
+  minWidth = "min-w-[640px]",
+}: {
+  headers: string[];
+  children: ReactNode;
+  minWidth?: string;
+}) {
   return (
     <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl overflow-hidden shadow-sm">
       <div className="overflow-x-auto">
-        <table className="w-full text-right text-sm">
+        <table className={`w-full text-right text-sm ${minWidth}`}>
           <thead className="bg-[var(--color-surface-warm)]/60 text-[var(--color-text-muted)] border-b border-[var(--color-border)]">
             <tr>
               {headers.map((h, i) => (
-                <th key={i} className="px-6 py-3.5 font-bold whitespace-nowrap text-xs sm:text-sm">{h}</th>
+                <th key={i} className="px-4 sm:px-6 py-3 sm:py-3.5 font-bold whitespace-nowrap text-xs sm:text-sm">{h}</th>
               ))}
             </tr>
           </thead>

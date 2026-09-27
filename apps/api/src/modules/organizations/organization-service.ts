@@ -9,14 +9,15 @@ import { randomUUID } from "node:crypto";
 import {
   auditMembershipCreated,
   auditOrgCreated,
+  buildActor,
   defaultPolicy,
   DomainError,
 } from "@avana/domain";
 import type {
   Actor,
   AuthorizationPolicy,
-  AuthContext,
   OrganizationId,
+  ResourceContext,
 } from "@avana/domain";
 import type {
   OrganizationStore,
@@ -130,10 +131,29 @@ export class OrganizationService {
     actor: Actor,
     organizationId: OrganizationId,
   ): Promise<MembershipRecord[]> {
-    const membership = await this.requireMembership(actor, organizationId);
-    const scopedActor = { ...actor, role: membership.role };
-    const context: AuthContext = { organizationId };
-    this.policy.require("org:list_members", scopedActor, context);
+    const memberships = await this.store.listMembershipsByUserId(actor.userId);
+    const fullActor = buildActor({
+      userId: actor.userId,
+      globalRole: actor.globalRole,
+      role: actor.role,
+      memberships,
+    });
+
+    const resourceContext: ResourceContext = {
+      organizationId,
+      resourceType: "organization",
+      resourceId: organizationId,
+    };
+
+    if (!this.policy.can(fullActor, "org:list_members", resourceContext)) {
+      const targetMembership = memberships.find(
+        (m) => m.organizationId === organizationId,
+      );
+      if (targetMembership) {
+        throw new DomainError("forbidden", "Forbidden");
+      }
+      throw new DomainError("not_found", "Organization not found");
+    }
 
     return this.store.listMemberships(organizationId);
   }
@@ -149,10 +169,29 @@ export class OrganizationService {
     actor: Actor,
     organizationId: OrganizationId,
   ): Promise<OrganizationRecord> {
-    const membership = await this.requireMembership(actor, organizationId);
-    const scopedActor = { ...actor, role: membership.role };
-    const context: AuthContext = { organizationId };
-    this.policy.require("org:read", scopedActor, context);
+    const memberships = await this.store.listMembershipsByUserId(actor.userId);
+    const fullActor = buildActor({
+      userId: actor.userId,
+      globalRole: actor.globalRole,
+      role: actor.role,
+      memberships,
+    });
+
+    const resourceContext: ResourceContext = {
+      organizationId,
+      resourceType: "organization",
+      resourceId: organizationId,
+    };
+
+    if (!this.policy.can(fullActor, "org:read", resourceContext)) {
+      const targetMembership = memberships.find(
+        (m) => m.organizationId === organizationId,
+      );
+      if (targetMembership) {
+        throw new DomainError("forbidden", "Forbidden");
+      }
+      throw new DomainError("not_found", "Organization not found");
+    }
 
     const organization = await this.store.findByIdForUser(
       organizationId,
@@ -163,19 +202,5 @@ export class OrganizationService {
     }
 
     return organization;
-  }
-
-  private async requireMembership(
-    actor: Actor,
-    organizationId: OrganizationId,
-  ): Promise<MembershipRecord> {
-    const membership = await this.store.findMembership(
-      organizationId,
-      actor.userId,
-    );
-    if (!membership) {
-      throw new DomainError("not_found", "Organization not found");
-    }
-    return membership;
   }
 }

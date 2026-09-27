@@ -433,4 +433,176 @@ describe("Lesson Annotation & Note API Routes End-to-End Suite", () => {
     });
     expect(notFoundRes.statusCode).toBe(404);
   });
+
+  it("enforces strict context-aware authorization, multi-org boundaries, and tampering protection on GET /v1/lessons/:lessonId/annotations", async () => {
+    const app = await buildTestApp();
+
+    const orgA = orgId;
+    const orgB = randomUUID() as OrganizationId;
+    const orgC = randomUUID() as OrganizationId;
+    const sysOrg = config.systemOrganizationId as OrganizationId;
+
+    // Helper to create course -> module -> lesson
+    async function setupLessonInOrg(targetOrg: OrganizationId, title: string) {
+      const cId = randomUUID() as CourseId;
+      await courseStore.create({
+        course: {
+          id: cId,
+          organizationId: targetOrg,
+          name: `Course ${title}`,
+          subject: "Medical",
+          examDate: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          deletedAt: null,
+        },
+        auditEvents: [],
+      });
+      const mId = randomUUID() as ModuleId;
+      const m = await moduleStore.create({
+        id: mId,
+        courseId: cId,
+        title: `Module ${title}`,
+        description: null,
+        sortOrder: 0,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+      const lId = randomUUID() as LessonId;
+      const l = await lessonStore.create({
+        id: lId,
+        moduleId: mId,
+        title: `Lesson ${title}`,
+        contentType: "markdown",
+        contentMarkdown: `# ${title}`,
+        sortOrder: 0,
+        estimatedMinutes: 10,
+        publicationStatus: "published",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+      return { courseId: cId, module: m, lesson: l };
+    }
+
+    const { lesson: lessonInOrgA } = await setupLessonInOrg(orgA, "Org A");
+    const { lesson: lessonInOrgB } = await setupLessonInOrg(orgB, "Org B");
+    const { lesson: lessonInOrgC } = await setupLessonInOrg(orgC, "Org C");
+    const { lesson: systemLesson } = await setupLessonInOrg(sysOrg, "System");
+
+    // 1. Setup multi-org worker: globalRole = content_worker, orgA = teacher, orgB = course_editor, orgC = none
+    const multiWorker = await userStore.createUserWithPassword({
+      email: "multiworker-study@test.com",
+      passwordHash: "x",
+    });
+    multiWorker.globalRole = "content_worker";
+    multiWorker.role = "content_worker";
+    userStore.insert({ ...multiWorker });
+
+    organizationStore.addMembership({
+      id: randomUUID(),
+      organizationId: orgA,
+      userId: multiWorker.id as UserId,
+      role: "teacher",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    organizationStore.addMembership({
+      id: randomUUID(),
+      organizationId: orgB,
+      userId: multiWorker.id as UserId,
+      role: "course_editor",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    const workerSession = await new (await import("../modules/identity/index.js")).SessionService(sessionStore, config.session).createSession(multiWorker.id as UserId);
+    const workerCookie = `avana_session=${workerSession.sessionToken}`;
+
+    // A. Multi-worker accessing Lesson in Org A (where user is teacher member) -> 200 OK
+    const getWorkerA = await app.inject({
+      method: "GET",
+      url: `/v1/lessons/${lessonInOrgA.id}/annotations`,
+      headers: { cookie: workerCookie },
+    });
+    expect(getWorkerA.statusCode).toBe(200);
+
+    // B. Multi-worker accessing Lesson in Org B (where user is course_editor member) -> 200 OK
+    const getWorkerB = await app.inject({
+      method: "GET",
+      url: `/v1/lessons/${lessonInOrgB.id}/annotations`,
+      headers: { cookie: workerCookie },
+    });
+    expect(getWorkerB.statusCode).toBe(200);
+
+    // C. Multi-worker accessing Lesson in Org C (where user has NO membership) -> 403 Forbidden
+    const getWorkerC = await app.inject({
+      method: "GET",
+      url: `/v1/lessons/${lessonInOrgC.id}/annotations`,
+      headers: { cookie: workerCookie },
+    });
+    expect(getWorkerC.statusCode).toBe(403);
+
+    // D. Multi-worker accessing System Lesson -> 200 OK
+    const getWorkerSys = await app.inject({
+      method: "GET",
+      url: `/v1/lessons/${systemLesson.id}/annotations`,
+      headers: { cookie: workerCookie },
+    });
+    expect(getWorkerSys.statusCode).toBe(200);
+
+    // 2. Tampering test: Passing ?organizationId=orgB for lessonInOrgA does NOT alter resource ownership
+    const tamperingRes = await app.inject({
+      method: "GET",
+      url: `/v1/lessons/${lessonInOrgA.id}/annotations?organizationId=${orgB}`,
+      headers: { cookie: workerCookie },
+    });
+    expect(tamperingRes.statusCode).toBe(200); // Successfully evaluated against orgA's membership
+
+    // 3. Role Matrix: platform_admin has global access across all lessons
+    const platformAdmin = await userStore.createUserWithPassword({
+      email: "admin-study@test.com",
+      passwordHash: "x",
+    });
+    platformAdmin.globalRole = "platform_admin";
+    platformAdmin.role = "platform_admin";
+    userStore.insert({ ...platformAdmin });
+    const adminSession = await new (await import("../modules/identity/index.js")).SessionService(sessionStore, config.session).createSession(platformAdmin.id as UserId);
+    const adminCookie = `avana_session=${adminSession.sessionToken}`;
+
+    const adminResC = await app.inject({
+      method: "GET",
+      url: `/v1/lessons/${lessonInOrgC.id}/annotations`,
+      headers: { cookie: adminCookie },
+    });
+    expect(adminResC.statusCode).toBe(200);
+
+    // 4. Role Matrix: support_agent is forbidden from studying lessons
+    const supportUser = await userStore.createUserWithPassword({
+      email: "support-study@test.com",
+      passwordHash: "x",
+    });
+    supportUser.globalRole = "support_agent";
+    supportUser.role = "support_agent";
+    userStore.insert({ ...supportUser });
+    organizationStore.addMembership({
+      id: randomUUID(),
+      organizationId: orgA,
+      userId: supportUser.id as UserId,
+      role: "support_agent",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    const supportSession = await new (await import("../modules/identity/index.js")).SessionService(sessionStore, config.session).createSession(supportUser.id as UserId);
+    const supportCookie = `avana_session=${supportSession.sessionToken}`;
+
+    const supportRes = await app.inject({
+      method: "GET",
+      url: `/v1/lessons/${lessonInOrgA.id}/annotations`,
+      headers: { cookie: supportCookie },
+    });
+    expect(supportRes.statusCode).toBe(403);
+  });
 });
+

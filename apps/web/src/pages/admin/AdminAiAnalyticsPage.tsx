@@ -44,7 +44,7 @@ export function AdminAiAnalyticsPage() {
       {/* Top Header & Analytics Sub-navigation */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-[var(--color-text)]">آمار هوش مصنوعی</h1>
+          <h1 className="text-2xl font-bold text-[var(--color-text)] text-center sm:text-right">آمار هوش مصنوعی</h1>
           <p className="text-sm text-[var(--color-text-muted)] mt-1">مصرف و عملکرد سیستم‌های پردازشی</p>
         </div>
 

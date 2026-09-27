@@ -33,7 +33,6 @@
 import { randomUUID } from "node:crypto";
 import {
   type Actor,
-  type AuthContext,
   type AuthorizationPolicy,
   type CourseId,
   type DocumentChunkId,
@@ -42,6 +41,9 @@ import {
   type LessonId,
   type ModuleId,
   type OrganizationId,
+  type QuizId,
+  type ResourceContext,
+  buildActor,
   defaultPolicy,
   DomainError,
   normalizeQuestionOptions,
@@ -62,6 +64,9 @@ import {
   formatModuleTitle,
   isFilenameLike,
   isSuspiciousTitle,
+  isPollutedModuleTitle,
+  stripContentTypePrefix,
+  validateFlashcardDifficulty,
 } from "@avana/domain";
 import type { CommerceStore } from "../commerce/commerce-store.js";
 import type {
@@ -79,8 +84,10 @@ import type {
 } from "./generation-store.js";
 import type {
   FlashcardStore,
+  FlashcardRecord,
   QuizStore,
   QuizQuestionStore,
+  QuizQuestionRecord,
 } from "../study/study-store.js";
 import type { OrganizationStore } from "../organizations/organization-store.js";
 import type { GenerationQueue, GenerationContext } from "./generation-queue.js";
@@ -266,27 +273,54 @@ export class ReviewService {
       | "content:reject"
       | "content:edit"
       | "content:regenerate",
-  ): Promise<void> {
-    let scopedActor = actor;
+  ): Promise<Actor> {
+    let memberships = actor.memberships;
     if (
+      !memberships &&
+      this.organizationStore &&
+      typeof this.organizationStore.listMembershipsByUserId === "function"
+    ) {
+      memberships = await this.organizationStore.listMembershipsByUserId(
+        actor.userId,
+      );
+    } else if (
+      !memberships &&
       this.organizationStore &&
       typeof this.organizationStore.findMembership === "function"
     ) {
-      const membership = await this.organizationStore.findMembership(
+      const m = await this.organizationStore.findMembership(
         organizationId,
         actor.userId,
       );
-      if (!membership && actor.role !== "platform_admin") {
-        throw new DomainError("not_found", "Organization not found");
+      if (m) {
+        memberships = [
+          {
+            organizationId,
+            role: m.role as import("@avana/domain").Role,
+          },
+        ];
       }
-      const role =
-        actor.role === "platform_admin"
-          ? "platform_admin"
-          : (membership?.role as Actor["role"] ?? actor.role);
-      scopedActor = { ...actor, role };
     }
-    const context: AuthContext = { organizationId };
-    this.policy.require(action, scopedActor, context);
+
+    const fullActor = buildActor({
+      userId: actor.userId,
+      globalRole:
+        actor.globalRole ??
+        (actor.role === "platform_admin" ? "platform_admin" : undefined),
+      role: actor.role,
+      memberships,
+    });
+
+    const resourceContext: ResourceContext = {
+      organizationId,
+      resourceType: "course",
+    };
+
+    if (!this.policy.can(fullActor, action, resourceContext)) {
+      throw new DomainError("not_found", "Organization not found");
+    }
+
+    return fullActor;
   }
 
   /**
@@ -306,28 +340,55 @@ export class ReviewService {
       | "content:edit"
       | "content:regenerate",
     record: GeneratedContentRecord,
-  ): Promise<void> {
-    let scopedActor = actor;
+  ): Promise<Actor> {
+    let memberships = actor.memberships;
     if (
+      !memberships &&
+      this.organizationStore &&
+      typeof this.organizationStore.listMembershipsByUserId === "function"
+    ) {
+      memberships = await this.organizationStore.listMembershipsByUserId(
+        actor.userId,
+      );
+    } else if (
+      !memberships &&
       this.organizationStore &&
       typeof this.organizationStore.findMembership === "function"
     ) {
-      const membership = await this.organizationStore.findMembership(
+      const m = await this.organizationStore.findMembership(
         organizationId,
         actor.userId,
       );
-      if (!membership && actor.role !== "platform_admin") {
-        throw new DomainError("not_found", "Organization not found");
+      if (m) {
+        memberships = [
+          {
+            organizationId,
+            role: m.role as import("@avana/domain").Role,
+          },
+        ];
       }
-      const role =
-        actor.role === "platform_admin"
-          ? "platform_admin"
-          : (membership?.role as Actor["role"] ?? actor.role);
-      scopedActor = { ...actor, role };
     }
 
-    const context: AuthContext = { organizationId };
-    const hasRolePermission = this.policy.check(action, scopedActor, context);
+    const fullActor = buildActor({
+      userId: actor.userId,
+      globalRole:
+        actor.globalRole ??
+        (actor.role === "platform_admin" ? "platform_admin" : undefined),
+      role: actor.role,
+      memberships,
+    });
+
+    const resourceContext: ResourceContext = {
+      organizationId,
+      resourceType: "course",
+      resourceId: record.id,
+    };
+
+    const hasRolePermission = this.policy.can(
+      fullActor,
+      action,
+      resourceContext,
+    );
 
     let isOwner = false;
     if (record.documentId && this.documentStore) {
@@ -343,9 +404,11 @@ export class ReviewService {
     if (!hasRolePermission && !isOwner) {
       throw new DomainError(
         "forbidden",
-        `Action '${action}' not permitted for role '${scopedActor.role}' on content not owned by user`,
+        `Action '${action}' not permitted for role '${fullActor.role}' on content not owned by user`,
       );
     }
+
+    return fullActor;
   }
 
   private async requireContent(
@@ -967,30 +1030,53 @@ export class ReviewService {
     courseId: CourseId,
     documentId: DocumentId,
   ): Promise<BulkAcceptPackResult> {
-    let scopedActor = actor;
+    let memberships = actor.memberships;
     if (
+      !memberships &&
+      this.organizationStore &&
+      typeof this.organizationStore.listMembershipsByUserId === "function"
+    ) {
+      memberships = await this.organizationStore.listMembershipsByUserId(
+        actor.userId,
+      );
+    } else if (
+      !memberships &&
       this.organizationStore &&
       typeof this.organizationStore.findMembership === "function"
     ) {
-      const membership = await this.organizationStore.findMembership(
+      const m = await this.organizationStore.findMembership(
         organizationId,
         actor.userId,
       );
-      if (!membership && actor.role !== "platform_admin") {
-        throw new DomainError("not_found", "Organization not found");
+      if (m) {
+        memberships = [
+          {
+            organizationId,
+            role: m.role as import("@avana/domain").Role,
+          },
+        ];
       }
-      const role =
-        actor.role === "platform_admin"
-          ? "platform_admin"
-          : (membership?.role as Actor["role"] ?? actor.role);
-      scopedActor = { ...actor, role };
     }
 
-    const context: AuthContext = { organizationId };
-    const hasRolePermission = this.policy.check(
+    const fullActor = buildActor({
+      userId: actor.userId,
+      globalRole:
+        actor.globalRole ??
+        (actor.role === "platform_admin" ? "platform_admin" : undefined),
+      role: actor.role,
+      memberships,
+    });
+
+    const resourceContext: ResourceContext = {
+      organizationId,
+      resourceType: "course",
+      courseId,
+    };
+
+    const hasRolePermission = this.policy.can(
+      fullActor,
       "content:accept",
-      scopedActor,
-      context,
+      resourceContext,
     );
 
     let isOwner = false;
@@ -1010,7 +1096,7 @@ export class ReviewService {
     if (!hasRolePermission && !isOwner) {
       throw new DomainError(
         "forbidden",
-        `Action 'content:accept' not permitted for role '${scopedActor.role}' on content pack not owned by user`,
+        `Action 'content:accept' not permitted for role '${fullActor.role}' on content pack not owned by user`,
       );
     }
 
@@ -1112,7 +1198,22 @@ export class ReviewService {
     const newlyAcceptedIds: GeneratedContentId[] = [];
     const auditEvents = [];
 
-    for (const record of toAccept) {
+    // Deterministic materialization order: lessons must be processed first to establish
+    // the canonical module title, followed by flashcards, quizzes, and summaries.
+    const typeOrder: Record<string, number> = {
+      lesson: 1,
+      flashcard: 2,
+      quiz: 3,
+      review_summary: 4,
+    };
+    const orderedToAccept = [...toAccept].sort((a, b) => {
+      const orderA = typeOrder[a.type] ?? 99;
+      const orderB = typeOrder[b.type] ?? 99;
+      if (orderA !== orderB) return orderA - orderB;
+      return (a.createdAt || "").localeCompare(b.createdAt || "");
+    });
+
+    for (const record of orderedToAccept) {
       let materializedLessonId: LessonId | null = record.materializedLessonId;
       if (record.type === "lesson" && !record.materializedLessonId) {
         materializedLessonId = await this.materializeLesson(record, stores);
@@ -1220,8 +1321,6 @@ export class ReviewService {
     const lessonStore = this.getLessonStore(stores);
     const moduleStore = this.getModuleStore(stores);
     const generatedContentStore = this.getGeneratedContentStore(stores);
-    const flashcardStore = this.getFlashcardStore(stores);
-    const quizStore = this.getQuizStore(stores);
     const commerceStore = this.getCommerceStore(stores);
 
     if (!lessonStore || !moduleStore) {
@@ -1251,18 +1350,31 @@ export class ReviewService {
     const now = new Date().toISOString();
 
     // 2. Determine sessions to materialize
-    const sessionList: Array<{ title: string; contentMarkdown: string }> =
+    const sessionList: Array<{
+      id?: string;
+      lessonId?: string;
+      sourceId?: string;
+      title: string;
+      contentMarkdown: string;
+      sortOrder?: number;
+    }> =
       Array.isArray(payload.sessions) && payload.sessions.length > 0
         ? payload.sessions
         : [
             {
+              id: (payload as any).id || (payload as any).lessonId,
               title: payload.title ?? "درس آموزشی",
               contentMarkdown: payload.contentMarkdown ?? "",
             },
           ];
 
-    // 3. Clean up / soft-delete prior lessons materialized for this document/module to avoid duplication
+    // 3. Stable Identity Preservation: Match existing lessons to preserve live IDs & learner progress
+    const existingLessons = (await lessonStore.listByModule(targetModule.id)).filter(
+      (l) => !l.deletedAt,
+    );
+    const matchedLessonIds = new Set<LessonId>();
     const priorLessonIds: LessonId[] = [];
+
     if (record.documentId) {
       const priorDrafts = await generatedContentStore.listByDocument(
         record.documentId,
@@ -1274,24 +1386,6 @@ export class ReviewService {
       for (const prior of priorLessonDrafts) {
         if (prior.materializedLessonId) {
           priorLessonIds.push(prior.materializedLessonId as LessonId);
-          const priorLesson = await lessonStore.findById(
-            prior.materializedLessonId as LessonId,
-          );
-          if (priorLesson) {
-            await lessonStore.delete(priorLesson.id);
-            if (flashcardStore && record.documentId) {
-              await flashcardStore.deleteByDocument(
-                record.documentId,
-                record.organizationId,
-              );
-            }
-            if (quizStore && record.documentId) {
-              await quizStore.deleteByDocument(
-                record.documentId,
-                record.organizationId,
-              );
-            }
-          }
         }
         await generatedContentStore.update({
           ...prior,
@@ -1301,26 +1395,93 @@ export class ReviewService {
       }
     }
 
-    // 4. Create each session as a distinct LessonRecord
+    // 4. Stable Two-Phase Matching to preserve Lesson IDs & Learner Progress
+    // Phase 1: Match existing lessons strictly by explicit ID or exact normalized title.
+    // Positional matching is NEVER used standalone to hijack an existing lesson's identity.
+    const sessionMatches: Array<LessonRecord | null> = new Array(sessionList.length).fill(null);
+
+    // 4.1 First claim matches by explicit stable ID if present
+    for (let idx = 0; idx < sessionList.length; idx++) {
+      const sess = sessionList[idx];
+      const explicitId = sess.id || sess.lessonId || sess.sourceId;
+      if (explicitId) {
+        const match = existingLessons.find(
+          (l) => !matchedLessonIds.has(l.id) && l.id === explicitId,
+        );
+        if (match) {
+          sessionMatches[idx] = match;
+          matchedLessonIds.add(match.id);
+        }
+      }
+    }
+
+    // 4.2 Then claim matches by exact normalized title
+    for (let idx = 0; idx < sessionList.length; idx++) {
+      if (sessionMatches[idx]) continue;
+      const sess = sessionList[idx];
+      const normalizedSessTitle = sess.title.trim().toLowerCase();
+
+      const candidates = existingLessons.filter(
+        (l) => !matchedLessonIds.has(l.id) && l.title.trim().toLowerCase() === normalizedSessTitle,
+      );
+      if (candidates.length === 1) {
+        sessionMatches[idx] = candidates[0];
+        matchedLessonIds.add(candidates[0].id);
+      } else if (candidates.length > 1) {
+        // If multiple candidates have the same title, use sortOrder as supporting tie-breaker
+        const closest = candidates.find((c) => c.sortOrder === idx) || candidates[0];
+        sessionMatches[idx] = closest;
+        matchedLessonIds.add(closest.id);
+      }
+    }
+
+    // Phase 2: Materialize - update matched lessons or create new UUID for genuinely new lessons
     let firstLessonId: LessonId | null = null;
     for (let idx = 0; idx < sessionList.length; idx++) {
       const sess = sessionList[idx];
-      const lessonRecord: LessonRecord = {
-        id: randomUUID() as LessonId,
-        moduleId: targetModule.id,
-        title: sess.title,
-        contentType: "markdown",
-        contentMarkdown: normalizeEducationalContent(sess.contentMarkdown),
-        sortOrder: idx,
-        estimatedMinutes: null,
-        publicationStatus: "published",
-        createdAt: now,
-        updatedAt: now,
-        deletedAt: null,
-      };
-      await lessonStore.create(lessonRecord);
+      const matchingLiveLesson = sessionMatches[idx];
+
+      let targetLessonId: LessonId;
+      if (matchingLiveLesson) {
+        // PRESERVE LIVE ID!
+        targetLessonId = matchingLiveLesson.id;
+
+        matchingLiveLesson.title = sess.title;
+        matchingLiveLesson.contentMarkdown = normalizeEducationalContent(sess.contentMarkdown);
+        matchingLiveLesson.sortOrder = idx;
+        matchingLiveLesson.publicationStatus = "published";
+        matchingLiveLesson.updatedAt = now;
+        await lessonStore.update(matchingLiveLesson);
+      } else {
+        // Brand new lesson: generate new UUID (never hijack existing lesson by index!)
+        targetLessonId = randomUUID() as LessonId;
+        matchedLessonIds.add(targetLessonId);
+
+        const lessonRecord: LessonRecord = {
+          id: targetLessonId,
+          moduleId: targetModule.id,
+          title: sess.title,
+          contentType: "markdown",
+          contentMarkdown: normalizeEducationalContent(sess.contentMarkdown),
+          sortOrder: idx,
+          estimatedMinutes: null,
+          publicationStatus: "published",
+          createdAt: now,
+          updatedAt: now,
+          deletedAt: null,
+        };
+        await lessonStore.create(lessonRecord);
+      }
+
       if (!firstLessonId) {
-        firstLessonId = lessonRecord.id;
+        firstLessonId = targetLessonId;
+      }
+    }
+
+    // 4.3 Soft-delete only unmatched prior lessons in targetModule
+    for (const oldLesson of existingLessons) {
+      if (!matchedLessonIds.has(oldLesson.id)) {
+        await lessonStore.delete(oldLesson.id);
       }
     }
 
@@ -1466,12 +1627,9 @@ export class ReviewService {
     let targetModule = record.documentId
       ? await moduleStore.findByDocument(record.documentId)
       : undefined;
-    if (targetModule) {
-      return targetModule;
-    }
 
     // 2. Check previously materialized generated content records for this document
-    if (generatedContentStore && record.documentId) {
+    if (!targetModule && generatedContentStore && record.documentId) {
       const docContents = await generatedContentStore.listByDocument(
         record.documentId,
         record.organizationId,
@@ -1482,12 +1640,8 @@ export class ReviewService {
           if (lesson) {
             const mod = await moduleStore.findById(lesson.moduleId);
             if (mod) {
-              // Update module's documentId reference if missing
-              if (!mod.documentId && record.documentId) {
-                mod.documentId = record.documentId;
-                await moduleStore.update(mod).catch(() => {});
-              }
-              return mod;
+              targetModule = mod;
+              break;
             }
           }
         }
@@ -1505,79 +1659,140 @@ export class ReviewService {
       ? doc.originalName.replace(/\.pdf$/i, "").replace(/[-_]/g, " ").trim()
       : null;
 
-    const modules = await moduleStore.listByCourse(record.courseId);
-
     // 3. Title-based match for existing course modules
-    targetModule = modules.find((m) => {
-      if (doc?.originalName && m.description?.includes(doc.originalName)) {
-        return true;
-      }
-      if (payloadModuleTitle && m.title === payloadModuleTitle.trim()) {
-        return true;
-      }
-      if (cleanDocName && (m.title === `فصل: ${cleanDocName}` || m.title.includes(cleanDocName))) {
-        return true;
-      }
-      return false;
-    });
-
-    // Determine clean extracted title from AI payload
-    type PayloadWithTitle = { title?: string; moduleTitle?: string; topic?: string };
-    const payloadTitle = (record.payload as PayloadWithTitle | undefined)?.title;
-    let extractedTitle =
-      payloadModuleTitle?.trim() ||
-      payloadTopic?.trim() ||
-      (payloadTitle
-        ? payloadTitle.replace(/^آزمون (ارزیابی آموخته‌ها: |ارزیابی: |)/, "").trim()
-        : null);
-
-    if (extractedTitle && this.isFilenameFallback(extractedTitle)) {
-      extractedTitle = null;
+    if (!targetModule) {
+      const modules = await moduleStore.listByCourse(record.courseId);
+      targetModule = modules.find((m) => {
+        if (doc?.originalName && m.description?.includes(doc.originalName)) {
+          return true;
+        }
+        if (payloadModuleTitle && m.title === payloadModuleTitle.trim()) {
+          return true;
+        }
+        if (cleanDocName && (m.title === `فصل: ${cleanDocName}` || m.title.includes(cleanDocName))) {
+          return true;
+        }
+        return false;
+      });
     }
 
-    // If current record lacks a clean educational module title, look up sibling contents for this document
-    if (!extractedTitle && record.documentId && this.generatedContentStore) {
-      try {
-        const siblings = await this.generatedContentStore.listByCourse(
-          record.courseId,
-          record.organizationId,
-        );
-        const docSiblings = siblings.filter((s) => s.documentId === record.documentId);
-        for (const s of docSiblings) {
-          const sp = s.payload as { moduleTitle?: string; title?: string; topic?: string } | undefined;
-          const candidate =
-            sp?.moduleTitle?.trim() ||
-            sp?.topic?.trim() ||
-            (s.type === "lesson" ? sp?.title?.trim() : null);
-          if (candidate && !this.isFilenameFallback(candidate)) {
-            extractedTitle = candidate;
-            break;
+    // Invariant: If an existing target module already has a clean/canonical title, NEVER overwrite it!
+    const isTargetPolluted = targetModule ? isPollutedModuleTitle(targetModule.title) : false;
+    const isTargetFallback = targetModule ? this.isFilenameFallback(targetModule.title) : false;
+
+    if (targetModule && !isTargetPolluted && !isTargetFallback) {
+      if (!targetModule.documentId && record.documentId) {
+        targetModule.documentId = record.documentId;
+        await moduleStore.update(targetModule).catch(() => {});
+      }
+      return targetModule;
+    }
+
+    // Determine clean extracted title from AI payload or sibling content
+    type PayloadWithTitle = { title?: string; moduleTitle?: string; topic?: string };
+    const contentStore = this.getGeneratedContentStore(stores) ?? this.generatedContentStore;
+
+    let extractedTitle: string | null = null;
+
+    // Priority 1: If current record is a lesson, its payload is authoritative
+    if (record.type === "lesson") {
+      const p = (record.payload as PayloadWithTitle | undefined) || {};
+      const candidate =
+        payloadModuleTitle?.trim() ||
+        payloadTopic?.trim() ||
+        p.moduleTitle?.trim() ||
+        p.topic?.trim() ||
+        p.title?.trim();
+      if (candidate && !this.isFilenameFallback(candidate)) {
+        extractedTitle = stripContentTypePrefix(candidate);
+      }
+    } else {
+      // Priority 2: Non-lesson record. First check if payloadModuleTitle is explicitly clean
+      if (
+        payloadModuleTitle?.trim() &&
+        !isPollutedModuleTitle(payloadModuleTitle) &&
+        !this.isFilenameFallback(payloadModuleTitle)
+      ) {
+        extractedTitle = stripContentTypePrefix(payloadModuleTitle.trim());
+      }
+
+      // Priority 3: Sibling lesson in generated content for this document
+      if (!extractedTitle && record.documentId && contentStore) {
+        try {
+          const siblings = await contentStore.listByDocument(
+            record.documentId,
+            record.organizationId,
+          );
+          const lessonSibling = siblings.find(
+            (s) => s.type === "lesson" && s.deletedAt === null,
+          );
+          if (lessonSibling) {
+            const sp = lessonSibling.payload as PayloadWithTitle | undefined;
+            const candidate =
+              sp?.moduleTitle?.trim() ||
+              sp?.topic?.trim() ||
+              sp?.title?.trim();
+            if (candidate && !this.isFilenameFallback(candidate)) {
+              extractedTitle = stripContentTypePrefix(candidate);
+            }
+          }
+        } catch {
+          // Fallback gracefully
+        }
+      }
+
+      // Priority 4: If no sibling lesson, sanitize current non-lesson payload title
+      if (!extractedTitle) {
+        const p = (record.payload as PayloadWithTitle | undefined) || {};
+        const raw = payloadTopic?.trim() || p.topic?.trim() || p.title?.trim();
+        if (raw) {
+          const stripped = stripContentTypePrefix(raw);
+          if (stripped && stripped.length >= 2 && !this.isFilenameFallback(stripped)) {
+            extractedTitle = stripped;
           }
         }
-      } catch {
-        // Fallback gracefully
       }
     }
 
+    // Priority 5: If targetModule exists and was polluted, sanitize its current title
+    if (!extractedTitle && targetModule && isPollutedModuleTitle(targetModule.title)) {
+      const strippedExisting = stripContentTypePrefix(targetModule.title);
+      if (strippedExisting && strippedExisting.length >= 2 && !this.isFilenameFallback(strippedExisting)) {
+        extractedTitle = strippedExisting;
+      }
+    }
+
+    // Priority 6: Fall back to clean document name if valid
+    if (!extractedTitle && cleanDocName && !this.isFilenameFallback(cleanDocName)) {
+      extractedTitle = cleanDocName;
+    }
+
+    // If targetModule exists (and needs repair or documentId linking)
     if (targetModule) {
       let needsUpdate = false;
       if (!targetModule.documentId && record.documentId) {
         targetModule.documentId = record.documentId;
         needsUpdate = true;
       }
-      if (extractedTitle && this.isFilenameFallback(targetModule.title)) {
-        targetModule.title = formatModuleTitle(extractedTitle);
-        needsUpdate = true;
+
+      if (extractedTitle && (isPollutedModuleTitle(targetModule.title) || this.isFilenameFallback(targetModule.title))) {
+        const canonicalFormatted = formatModuleTitle(extractedTitle);
+        if (targetModule.title !== canonicalFormatted) {
+          targetModule.title = canonicalFormatted;
+          needsUpdate = true;
+        }
       }
+
       if (needsUpdate) {
         await moduleStore.update(targetModule).catch(() => {});
       }
       return targetModule;
     }
 
-    // 4. Determine title for new module (Guaranteed educational, never filename)
+    // 4. Determine title for new module (Guaranteed educational, never polluted or filename)
     const resolvedTitle = formatModuleTitle(extractedTitle, "فصل آموزشی جامع");
 
+    const existingModules = await moduleStore.listByCourse(record.courseId);
     const now = new Date().toISOString();
 
     // 5. Create new Module with concurrency safety against race conditions
@@ -1588,7 +1803,7 @@ export class ReviewService {
         documentId: record.documentId,
         title: resolvedTitle,
         description: "مباحث و جلسات آموزشی جامع",
-        sortOrder: modules.length,
+        sortOrder: existingModules.length,
         createdAt: now,
         updatedAt: now,
         deletedAt: null,
@@ -1600,7 +1815,16 @@ export class ReviewService {
       // Race condition catch: if another concurrent process inserted the module milliseconds ago
       if (e?.code === "23505" || e?.message?.includes("idx_modules_course_document_unique")) {
         const raceModule = record.documentId ? await moduleStore.findByDocument(record.documentId) : undefined;
-        if (raceModule) return raceModule;
+        if (raceModule) {
+          if (
+            extractedTitle &&
+            (isPollutedModuleTitle(raceModule.title) || this.isFilenameFallback(raceModule.title))
+          ) {
+            raceModule.title = formatModuleTitle(extractedTitle);
+            await moduleStore.update(raceModule).catch(() => {});
+          }
+          return raceModule;
+        }
       }
       throw err;
     }
@@ -1625,14 +1849,6 @@ export class ReviewService {
         record.id,
       );
       if (existing) return;
-    }
-
-    // Clean up previous flashcards for this document to avoid duplicate card piles
-    if (record.documentId) {
-      await flashcardStore.deleteByDocument(
-        record.documentId,
-        record.organizationId,
-      );
     }
 
     const now = new Date().toISOString();
@@ -1679,7 +1895,50 @@ export class ReviewService {
         ? [payload]
         : [];
 
-    const cards = rawCards.map((c: RawFlashcardItem) => {
+    // Stable Identity Preservation: Match existing flashcards to preserve live IDs & FSRS review schedules
+    const existingCards = record.courseId
+      ? (await flashcardStore.listByCourse(record.courseId, record.organizationId)).filter(
+          (fc) => !fc.deletedAt && (!record.documentId || fc.documentId === record.documentId),
+        )
+      : [];
+    const matchedCardIds = new Set<string>();
+    const cardMatches: Array<FlashcardRecord | null> = new Array(rawCards.length).fill(null);
+    const cardsToCreate: FlashcardRecord[] = [];
+
+    // Phase 1.1: First claim matches by explicit stable ID if present
+    for (let idx = 0; idx < rawCards.length; idx++) {
+      const c = rawCards[idx] as any;
+      const explicitId = c.id || c.flashcardId || c.sourceId;
+      if (explicitId) {
+        const match = existingCards.find(
+          (e) => !matchedCardIds.has(e.id) && e.id === explicitId,
+        );
+        if (match) {
+          cardMatches[idx] = match;
+          matchedCardIds.add(match.id);
+        }
+      }
+    }
+
+    // Phase 1.2: Then claim matches by exact normalized prompt
+    for (let idx = 0; idx < rawCards.length; idx++) {
+      if (cardMatches[idx]) continue;
+      const c = rawCards[idx];
+      const qText = c.front ?? c.question ?? "سوال Flashcard";
+      const normalizedQ = qText.trim().toLowerCase();
+
+      const match = existingCards.find(
+        (e) => !matchedCardIds.has(e.id) && e.question.trim().toLowerCase() === normalizedQ,
+      );
+      if (match) {
+        cardMatches[idx] = match;
+        matchedCardIds.add(match.id);
+      }
+    }
+
+    // Phase 2: Materialize - update matched or create new
+    for (let cardIndex = 0; cardIndex < rawCards.length; cardIndex++) {
+      const c = rawCards[cardIndex];
       let cLessonId: LessonId | null = null;
       if (lessons.length > 0) {
         if (typeof c.sessionIndex === "number" && !isNaN(c.sessionIndex)) {
@@ -1700,30 +1959,56 @@ export class ReviewService {
 
       const qText = c.front ?? c.question ?? "سوال Flashcard";
       const aText = c.back ?? c.answer ?? "پاسخ Flashcard";
+      const matchingCard = cardMatches[cardIndex];
 
-      return {
-        id: parseFlashcardId(randomUUID()),
-        organizationId: record.organizationId,
-        courseId: record.courseId,
-        documentId: record.documentId,
-        generatedContentId: record.id,
-        lessonId: cLessonId,
-        question: qText,
-        answer: aText,
-        explanation: c.explanation ?? null,
-        cardType: c.cardType ?? "definition",
-        difficulty: c.difficulty ?? "medium",
-        dueAt: now,
-        intervalDays: 0,
-        easeFactor: 2.5,
-        createdAt: now,
-        updatedAt: now,
-        deletedAt: null,
-      };
-    });
+      if (matchingCard) {
+        // PRESERVE LIVE FLASHCARD ID!
+        matchedCardIds.add(matchingCard.id);
+        matchingCard.answer = aText;
+        matchingCard.explanation = c.explanation ?? null;
+        matchingCard.cardType = (c.cardType ?? "definition") as any;
+        matchingCard.difficulty = validateFlashcardDifficulty(c.difficulty, { cardIndex }) as any;
+        if (cLessonId) matchingCard.lessonId = cLessonId;
+        matchingCard.updatedAt = now;
+        if (flashcardStore.update) {
+          await flashcardStore.update(matchingCard);
+        }
+      } else {
+        const newCardId = parseFlashcardId(randomUUID());
+        matchedCardIds.add(newCardId);
+        cardsToCreate.push({
+          id: newCardId,
+          organizationId: record.organizationId,
+          courseId: record.courseId,
+          documentId: record.documentId,
+          generatedContentId: record.id,
+          lessonId: cLessonId,
+          question: qText,
+          answer: aText,
+          explanation: c.explanation ?? null,
+          cardType: (c.cardType ?? "definition") as any,
+          difficulty: validateFlashcardDifficulty(c.difficulty, { cardIndex }) as any,
+          dueAt: now,
+          intervalDays: 0,
+          easeFactor: 2.5,
+          createdAt: now,
+          updatedAt: now,
+          deletedAt: null,
+        });
+      }
+    }
 
-    if (cards.length > 0) {
-      await flashcardStore.createMany(cards);
+    if (cardsToCreate.length > 0) {
+      await flashcardStore.createMany(cardsToCreate);
+    }
+
+    // Soft-delete unmatched cards only when force is specified
+    if (force) {
+      for (const oldCard of existingCards) {
+        if (!matchedCardIds.has(oldCard.id) && flashcardStore.delete) {
+          await flashcardStore.delete(oldCard.id);
+        }
+      }
     }
   }
 
@@ -1748,14 +2033,6 @@ export class ReviewService {
     if (!force) {
       const existing = await quizStore.findByGeneratedContent(record.id);
       if (existing) return record.materializedLessonId ?? null;
-    }
-
-    // Clean up previous quizzes for this document to avoid duplicate quizzes
-    if (record.documentId) {
-      await quizStore.deleteByDocument(
-        record.documentId,
-        record.organizationId,
-      );
     }
 
     const now = new Date().toISOString();
@@ -1799,7 +2076,6 @@ export class ReviewService {
       ? await lessonStore.listByModule(targetModule.id)
       : [];
 
-    const quizId = parseQuizId(randomUUID());
     const defaultTopic = payload.topic ?? targetModule.title;
     const defaultDifficulty = payload.difficulty ?? "medium";
 
@@ -1809,19 +2085,43 @@ export class ReviewService {
         ? `آزمون: ${payload.question.slice(0, 30)}`
         : `آزمون ارزیابی: ${targetModule.title}`);
 
-    await quizStore.create({
-      id: quizId,
-      organizationId: record.organizationId,
-      courseId: record.courseId,
-      documentId: record.documentId,
-      title,
-      topic: defaultTopic,
-      difficulty: defaultDifficulty,
-      status: "published",
-      createdAt: now,
-      updatedAt: now,
-      deletedAt: null,
-    });
+    // Stable Identity Preservation: Match existing quiz to preserve live ID & student quiz attempts
+    const courseQuizzes = record.courseId
+      ? (await quizStore.listByCourse(record.courseId, record.organizationId)).filter(
+          (q) => !q.deletedAt && (!record.documentId || q.documentId === record.documentId),
+        )
+      : [];
+    const existingQuiz =
+      (await quizStore.findByGeneratedContent(record.id)) ||
+      (record.documentId ? courseQuizzes.find((q) => q.documentId === record.documentId) : undefined) ||
+      courseQuizzes[0];
+
+    let quizId: QuizId;
+    if (existingQuiz) {
+      quizId = existingQuiz.id;
+      existingQuiz.title = title;
+      existingQuiz.topic = defaultTopic;
+      existingQuiz.difficulty = defaultDifficulty;
+      existingQuiz.updatedAt = now;
+      if (quizStore.update) {
+        await quizStore.update(existingQuiz);
+      }
+    } else {
+      quizId = parseQuizId(randomUUID());
+      await quizStore.create({
+        id: quizId,
+        organizationId: record.organizationId,
+        courseId: record.courseId,
+        documentId: record.documentId,
+        title,
+        topic: defaultTopic,
+        difficulty: defaultDifficulty,
+        status: "published",
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      });
+    }
 
     const rawQuestions =
       Array.isArray(payload.questions) && payload.questions.length > 0
@@ -1842,8 +2142,51 @@ export class ReviewService {
         : [];
 
     let matchedLessonId: LessonId | null = null;
+    const existingQuestions = (await quizQuestionStore.listByQuiz(quizId)).filter(
+      (q) => !q.deletedAt,
+    );
+    const matchedQuestionIds = new Set<string>();
+    const questionMatches: Array<QuizQuestionRecord | null> = new Array(rawQuestions.length).fill(null);
+    const questionsToCreate: QuizQuestionRecord[] = [];
 
-    const questions = rawQuestions.map((q, index) => {
+    // Phase 1.1: First claim matches by explicit stable ID if present
+    for (let index = 0; index < rawQuestions.length; index++) {
+      const q = rawQuestions[index] as any;
+      const explicitId = q.id || q.questionId || q.sourceId;
+      if (explicitId) {
+        const match = existingQuestions.find(
+          (e) => !matchedQuestionIds.has(e.id) && e.id === explicitId,
+        );
+        if (match) {
+          questionMatches[index] = match;
+          matchedQuestionIds.add(match.id);
+        }
+      }
+    }
+
+    // Phase 1.2: Then claim matches by exact normalized prompt
+    for (let index = 0; index < rawQuestions.length; index++) {
+      if (questionMatches[index]) continue;
+      const q = rawQuestions[index];
+      const normalizedPrompt = (q.question || "").trim().toLowerCase();
+
+      const candidates = existingQuestions.filter(
+        (e) => !matchedQuestionIds.has(e.id) && e.question.trim().toLowerCase() === normalizedPrompt,
+      );
+      if (candidates.length === 1) {
+        questionMatches[index] = candidates[0];
+        matchedQuestionIds.add(candidates[0].id);
+      } else if (candidates.length > 1) {
+        // Supporting signal: closest position
+        const closest = candidates.find((c) => c.sortOrder === index) || candidates[0];
+        questionMatches[index] = closest;
+        matchedQuestionIds.add(closest.id);
+      }
+    }
+
+    // Phase 2: Materialize - update matched questions or create new UUID
+    for (let index = 0; index < rawQuestions.length; index++) {
+      const q = rawQuestions[index];
       const choices = q.choices ?? q.options ?? payload.choices ?? payload.options ?? [];
       const rawAns =
         q.correctAnswer ??
@@ -1913,27 +2256,57 @@ export class ReviewService {
       });
 
       const shuffled = canonicalizeAndShuffleQuestion(normalized.normalized);
+      const matchingQuestion = questionMatches[index];
 
-      return {
-        id: parseQuizQuestionId(randomUUID()),
-        quizId,
-        generatedContentId: record.id,
-        lessonId: qLessonId,
-        question: shuffled.question ?? q.question,
-        topic: cleanQuestionTopic,
-        difficulty: q.difficulty ?? payload.difficulty ?? defaultDifficulty,
-        questionType: q.questionType ?? "multiple_choice",
-        choices: shuffled.choices && shuffled.choices.length > 0 ? shuffled.choices : null,
-        correctAnswer: shuffled.correctAnswer,
-        explanation: q.explanation ?? payload.explanation ?? null,
-        sortOrder: index,
-        createdAt: now,
-        updatedAt: now,
-      };
-    });
+      if (matchingQuestion) {
+        matchedQuestionIds.add(matchingQuestion.id);
+        matchingQuestion.question = shuffled.question ?? q.question;
+        matchingQuestion.topic = cleanQuestionTopic;
+        matchingQuestion.difficulty = (q.difficulty ?? payload.difficulty ?? defaultDifficulty) as any;
+        matchingQuestion.questionType = (q.questionType ?? "multiple_choice") as any;
+        matchingQuestion.choices = shuffled.choices && shuffled.choices.length > 0 ? shuffled.choices : null;
+        matchingQuestion.correctAnswer = shuffled.correctAnswer;
+        matchingQuestion.explanation = q.explanation ?? payload.explanation ?? null;
+        matchingQuestion.lessonId = qLessonId;
+        matchingQuestion.sortOrder = index;
+        matchingQuestion.updatedAt = now;
+        if (quizQuestionStore.update) {
+          await quizQuestionStore.update(matchingQuestion);
+        }
+      } else {
+        const newQuestionId = parseQuizQuestionId(randomUUID());
+        matchedQuestionIds.add(newQuestionId);
+        questionsToCreate.push({
+          id: newQuestionId,
+          quizId,
+          generatedContentId: record.id,
+          lessonId: qLessonId,
+          question: shuffled.question ?? q.question,
+          topic: cleanQuestionTopic,
+          difficulty: (q.difficulty ?? payload.difficulty ?? defaultDifficulty) as any,
+          questionType: (q.questionType ?? "multiple_choice") as any,
+          choices: shuffled.choices && shuffled.choices.length > 0 ? shuffled.choices : null,
+          correctAnswer: shuffled.correctAnswer,
+          explanation: q.explanation ?? payload.explanation ?? null,
+          sortOrder: index,
+          createdAt: now,
+          updatedAt: now,
+          deletedAt: null,
+        });
+      }
+    }
 
-    if (questions.length > 0) {
-      await quizQuestionStore.createMany(questions);
+    if (questionsToCreate.length > 0) {
+      await quizQuestionStore.createMany(questionsToCreate);
+    }
+
+    // Soft-delete unmatched questions only when force is specified
+    if (force) {
+      for (const oldQ of existingQuestions) {
+        if (!matchedQuestionIds.has(oldQ.id) && quizQuestionStore.delete) {
+          await quizQuestionStore.delete(oldQ.id);
+        }
+      }
     }
 
     // Auto-reconcile special exams for chapter and course

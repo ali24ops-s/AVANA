@@ -217,7 +217,7 @@ describe("Pipeline Generation Stage Mapping & Traceability", () => {
       await queryClient.refetchQueries({ queryKey: ["active-generations", mockOrgId] });
       await waitFor(() => {
         expect(screen.getByText(/برنامه‌ریزی/i)).toBeInTheDocument();
-        expect(screen.getByText(/10٪/)).toBeInTheDocument();
+        expect(screen.getByText(/(10|۱۰)٪/)).toBeInTheDocument();
       });
 
       // Step 2: lesson -> "تولید درس‌ها"
@@ -225,8 +225,8 @@ describe("Pipeline Generation Stage Mapping & Traceability", () => {
       await queryClient.refetchQueries({ queryKey: ["active-generations", mockOrgId] });
       await waitFor(() => {
         expect(screen.getByText(/تولید درس‌ها/i)).toBeInTheDocument();
-        expect(screen.getByText(/35٪/)).toBeInTheDocument();
-        expect(screen.getByText(/2\/8/)).toBeInTheDocument();
+        expect(screen.getByText(/(35|۳۵)٪/)).toBeInTheDocument();
+        expect(screen.getByText(/(2\/8|۲ از ۸)/)).toBeInTheDocument();
       });
 
       // Step 3: flashcard -> "تولید فلش‌کارت‌ها"
@@ -234,8 +234,8 @@ describe("Pipeline Generation Stage Mapping & Traceability", () => {
       await queryClient.refetchQueries({ queryKey: ["active-generations", mockOrgId] });
       await waitFor(() => {
         expect(screen.getByText(/تولید فلش‌کارت‌ها/i)).toBeInTheDocument();
-        expect(screen.getByText(/60٪/)).toBeInTheDocument();
-        expect(screen.getByText(/4\/8/)).toBeInTheDocument();
+        expect(screen.getByText(/(60|۶۰)٪/)).toBeInTheDocument();
+        expect(screen.getByText(/(4\/8|۴ از ۸)/)).toBeInTheDocument();
       });
 
       // Step 4: quiz -> "تولید سوالات"
@@ -243,8 +243,8 @@ describe("Pipeline Generation Stage Mapping & Traceability", () => {
       await queryClient.refetchQueries({ queryKey: ["active-generations", mockOrgId] });
       await waitFor(() => {
         expect(screen.getByText(/تولید سوالات/i)).toBeInTheDocument();
-        expect(screen.getByText(/85٪/)).toBeInTheDocument();
-        expect(screen.getByText(/7\/8/)).toBeInTheDocument();
+        expect(screen.getByText(/(85|۸۵)٪/)).toBeInTheDocument();
+        expect(screen.getByText(/(7\/8|۷ از ۸)/)).toBeInTheDocument();
       });
 
       unmount();

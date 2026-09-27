@@ -12,6 +12,8 @@ import {
   type LessonId,
   type OrganizationId,
   type AuthorizationPolicy,
+  type ResourceContext,
+  buildActor,
   defaultPolicy,
 } from "@avana/domain";
 import type {
@@ -70,27 +72,37 @@ export class AnnotationService {
       );
     }
 
-    const isSystemOrg =
-      this.systemOrganizationId &&
+    const isSystemResource =
+      !!this.systemOrganizationId &&
       this.systemOrganizationId === course.organizationId;
 
-    if (!isSystemOrg) {
-      const membership = await this.organizationStore.findMembership(
-        course.organizationId,
-        actor.userId,
-      );
-      if (!membership && actor.role !== "platform_admin") {
-        throw new DomainError(
-          "forbidden",
-          "You do not have access to this course or organization",
-        );
-      }
-    }
+    const memberships = await this.organizationStore.listMembershipsByUserId(
+      actor.userId,
+    );
 
-    this.policy.require("study:read", actor, {
-      organizationId: course.organizationId,
-      courseId: course.id,
+    const fullActor = buildActor({
+      userId: actor.userId,
+      globalRole: actor.globalRole,
+      role: actor.role,
+      memberships,
     });
+
+    const resourceContext: ResourceContext = {
+      organizationId: course.organizationId,
+      resourceType: "lesson",
+      resourceId: lesson.id,
+      courseId: course.id,
+      moduleId: moduleRecord.id,
+      lessonId: lesson.id,
+      isSystemResource,
+    };
+
+    if (!this.policy.can(fullActor, "study:read", resourceContext)) {
+      throw new DomainError(
+        "forbidden",
+        "You do not have access to this course or organization",
+      );
+    }
 
     return { courseId: course.id, organizationId: course.organizationId };
   }

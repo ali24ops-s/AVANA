@@ -83,9 +83,9 @@ describe("UserReferralPage UI Component", () => {
     expect(screen.getByText("5 نفر")).toBeInTheDocument();
     expect(screen.getByText("3 نفر")).toBeInTheDocument();
     expect(screen.getByText("2 از ۴")).toBeInTheDocument();
-    expect(screen.getByText("ع*** م***")).toBeInTheDocument();
-    expect(screen.getByText("پاداش داده شد")).toBeInTheDocument();
-    expect(screen.getByText("+15 روز")).toBeInTheDocument();
+    expect(screen.getAllByText("ع*** م***")[0]).toBeInTheDocument();
+    expect(screen.getAllByText("پاداش داده شد")[0]).toBeInTheDocument();
+    expect(screen.getAllByText("+15 روز")[0]).toBeInTheDocument();
   });
 
   it("renders empty state when user has not invited anyone yet", () => {

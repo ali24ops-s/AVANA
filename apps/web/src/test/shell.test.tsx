@@ -504,5 +504,44 @@ describe("AuthenticatedShell", () => {
       expect(referralLink).toHaveAttribute("href", "/account/referral");
     });
   });
+
+  it("does not render 'تنظیمات' option in the mobile navigation drawer", async () => {
+    const mockMeResponse = {
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          request_id: "test-req",
+          user: {
+            id: "user-1",
+            email: "mobile@example.com",
+            name: "کاربر موبایل",
+            role: "student" as const,
+          },
+        }),
+    } as Response;
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(mockMeResponse);
+
+    renderWithProviders(
+      <AuthProvider>
+        <AuthenticatedShell />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("کاربر موبایل")).toBeInTheDocument();
+    });
+
+    // Open the mobile menu drawer
+    const menuButton = screen.getByRole("button", { name: "منو" });
+    fireEvent.click(menuButton);
+
+    // Verify other drawer items are visible
+    expect(screen.getByText("پشتیبانی و بازخورد")).toBeInTheDocument();
+
+    // Verify 'تنظیمات' is NOT rendered in the mobile drawer
+    expect(screen.queryByText("تنظیمات")).not.toBeInTheDocument();
+  });
 });
 

@@ -163,22 +163,22 @@ export function HomePage() {
   const dailyQuote = useDailyMotivationalQuote();
 
   return (
-    <div className="space-y-8 pb-12">
+    <div className="space-y-6 sm:space-y-8 pb-12">
       {/* 1. Welcome Greeting Header & Date Badge */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
-        <div>
-          <h2 className="text-2xl md:text-3xl font-bold text-[var(--color-text)] mb-1">
+      <div className="flex flex-col gap-1.5 sm:gap-2">
+        <div className="flex items-center justify-center sm:justify-between gap-3 flex-wrap sm:flex-nowrap">
+          <h2 className="text-xl sm:text-2xl md:text-3xl font-extrabold text-[var(--color-text)] tracking-tight text-center sm:text-right">
             سلام {userDisplayName} 👋
           </h2>
-          <p className="text-sm md:text-base text-[var(--color-text-muted)]">
-            {dailyQuote}
-          </p>
+          <div className="bg-[var(--color-surface)] px-3 py-1 sm:px-4 sm:py-1.5 rounded-full border border-[var(--color-border)] shadow-xs text-xs md:text-sm text-[var(--color-text)] flex items-center gap-1.5 shrink-0">
+            <Calendar className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-primary" />
+            <span className="text-primary font-bold">{currentDate.formattedHeader}</span>
+            <span className="text-[var(--color-text-muted)]">{currentDate.year}</span>
+          </div>
         </div>
-        <div className="bg-[var(--color-surface)] px-4 py-2 rounded-full border border-[var(--color-border)] shadow-xs text-xs md:text-sm text-[var(--color-text)] flex items-center gap-1.5">
-          <Calendar className="w-4 h-4 text-primary" />
-          <span className="text-primary font-bold">{currentDate.formattedHeader}</span>
-          <span>{currentDate.year}</span>
-        </div>
+        <p className="text-xs sm:text-sm md:text-base text-[var(--color-text-muted)] leading-relaxed max-w-2xl text-center sm:text-right">
+          {dailyQuote}
+        </p>
       </div>
 
       {/* 2. Main 12-Column Grid */}
@@ -840,7 +840,7 @@ function AddExamModal({
           </div>
 
           {/* Footer Actions */}
-          <div className="pt-3 flex items-center justify-between gap-3 border-t border-[var(--color-border)]">
+          <div className="pt-3 flex flex-col-reverse sm:flex-row sm:items-center justify-between gap-3 border-t border-[var(--color-border)]">
             <div>
               {selectedCourse?.exam_at && onDeleteExam && (
                 <Button
@@ -852,19 +852,20 @@ function AddExamModal({
                   disabled={isSubmitting}
                   variant="ghost"
                   size="sm"
-                  className="!text-rose-500 hover:!text-rose-600 hover:!bg-rose-500/10"
+                  className="w-full sm:w-auto !text-rose-500 hover:!text-rose-600 hover:!bg-rose-500/10"
                   leftIcon={<Trash2 className="w-3.5 h-3.5" />}
                 >
                   حذف تاریخ امتحان
                 </Button>
               )}
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center justify-end gap-3 w-full sm:w-auto">
               <Button
                 type="button"
                 onClick={onClose}
                 variant="ghost"
                 size="sm"
+                className="flex-1 sm:flex-initial"
               >
                 انصراف
               </Button>
@@ -874,6 +875,7 @@ function AddExamModal({
                 isLoading={isSubmitting}
                 variant="primary"
                 size="sm"
+                className="flex-1 sm:flex-initial"
               >
                 ثبت امتحان
               </Button>
@@ -1268,13 +1270,14 @@ function HeroCoursesCarousel({
 
   return (
     <section
-      className="bg-[var(--color-surface)] rounded-card p-6 md:p-8 border border-[var(--color-border)] shadow-card relative overflow-hidden flex flex-col md:flex-row justify-between items-center gap-6 min-h-[250px] transition-all duration-300"
+      className="bg-[var(--color-surface)] rounded-card p-4 sm:p-6 md:p-8 border border-[var(--color-border)] shadow-card relative overflow-hidden flex flex-col md:flex-row justify-between items-center gap-4 sm:gap-6 min-h-[220px] sm:min-h-[250px] transition-all duration-300"
       onMouseEnter={() => setIsPaused(true)}
       onMouseLeave={() => setIsPaused(false)}
     >
-      <div className="z-10 w-full md:w-2/3 space-y-4">
-        <div className="flex items-center justify-between gap-3">
-          <div className="min-w-0">
+      <div className="z-10 w-full md:w-2/3 space-y-3 sm:space-y-4">
+        {/* Header Metadata Bar: Subject Badge + Carousel Controls */}
+        <div className="flex items-center justify-between gap-2 min-w-0">
+          <div className="min-w-0 flex-1">
             <AnimatePresence mode="wait" custom={direction} initial={false}>
               <motion.span
                 key={`badge-${current.course.id}`}
@@ -1283,7 +1286,7 @@ function HeroCoursesCarousel({
                 initial="enter"
                 animate="center"
                 exit="exit"
-                className="inline-block px-3 py-1 bg-[var(--avana-accent-soft)] text-primary text-xs font-semibold rounded-full border border-primary/20 truncate"
+                className="inline-block px-2.5 py-0.5 sm:px-3 sm:py-1 bg-[var(--avana-accent-soft)] text-primary text-[11px] sm:text-xs font-semibold rounded-full border border-primary/20 truncate max-w-[140px] sm:max-w-none"
               >
                 {current.course.subject || "دوره آموزشی"}
               </motion.span>
@@ -1292,8 +1295,8 @@ function HeroCoursesCarousel({
 
           {/* Carousel Indicator & Controls (Shown ONLY if 2 or 3 courses exist) */}
           {totalCount > 1 && (
-            <div className="flex items-center gap-2 shrink-0">
-              <span className="text-[11px] text-[var(--color-text-muted)] font-medium ml-1">
+            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 bg-[var(--color-surface-warm)]/70 px-2 py-1 rounded-full border border-[var(--color-border)]">
+              <span className="text-[10px] sm:text-[11px] text-[var(--color-text-muted)] font-medium">
                 {formatPersianOf(activeIndex + 1, totalCount, { prefix: "دوره " })}
               </span>
 
@@ -1308,23 +1311,23 @@ function HeroCoursesCarousel({
                     aria-label={`رفتن به دوره ${toPersianDigits(i + 1)}`}
                     className={`h-1.5 rounded-full transition-all duration-300 cursor-pointer ${
                       i === activeIndex
-                        ? "w-5 bg-primary shadow-xs"
+                        ? "w-4 sm:w-5 bg-primary shadow-xs"
                         : "w-1.5 bg-[var(--color-border-hover)] hover:bg-primary/50"
                     }`}
                   />
                 ))}
               </div>
 
-              <div className="flex items-center gap-1 mr-2">
+              <div className="flex items-center gap-0.5 sm:gap-1">
                 <motion.button
                   type="button"
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.9 }}
                   onClick={handlePrev}
                   aria-label="دوره قبلی"
-                  className="p-1 rounded-button bg-[var(--color-surface-warm)] hover:bg-[var(--color-surface)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] border border-[var(--color-border)] transition-colors cursor-pointer"
+                  className="p-0.5 sm:p-1 rounded-button bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] border border-[var(--color-border)] transition-colors cursor-pointer"
                 >
-                  <ChevronRight className="w-3.5 h-3.5" />
+                  <ChevronRight className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                 </motion.button>
                 <motion.button
                   type="button"
@@ -1332,9 +1335,9 @@ function HeroCoursesCarousel({
                   whileTap={{ scale: 0.9 }}
                   onClick={handleNext}
                   aria-label="دوره بعدی"
-                  className="p-1 rounded-button bg-[var(--color-surface-warm)] hover:bg-[var(--color-surface)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] border border-[var(--color-border)] transition-colors cursor-pointer"
+                  className="p-0.5 sm:p-1 rounded-button bg-[var(--color-surface)] hover:bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] border border-[var(--color-border)] transition-colors cursor-pointer"
                 >
-                  <ChevronLeft className="w-3.5 h-3.5" />
+                  <ChevronLeft className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                 </motion.button>
               </div>
             </div>
@@ -1413,7 +1416,7 @@ function HeroCoursesCarousel({
       </div>
 
       {/* Glowing Brain / Artwork Frame */}
-      <div className="z-10 w-full md:w-1/3 flex justify-center">
+      <div className="hidden sm:flex z-10 w-full md:w-1/3 justify-center">
         <div className="w-32 h-32 md:w-40 md:h-40 rounded-full border border-[var(--color-border)] shadow-card overflow-hidden relative bg-[var(--color-surface-warm)] flex items-center justify-center group">
           <Brain className="w-16 h-16 md:w-20 md:h-20 text-primary group-hover:scale-110 transition-transform duration-500" />
         </div>
