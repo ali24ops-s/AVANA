@@ -135,8 +135,11 @@ export function createApiClient(options: ApiClientOptions) {
     }
 
     if (!response.ok) {
-      const requestId =
-        response.headers.get("x-request-id") || generateUUID();
+      const headerRequestId =
+        typeof response.headers?.get === "function"
+          ? response.headers.get("x-request-id")
+          : undefined;
+      const requestId = headerRequestId || generateUUID();
       const codeByStatus: Record<number, ErrorEnvelope["error"]["code"]> = {
         400: "bad_request",
         401: "unauthorized",

@@ -79,6 +79,34 @@ describe("API Client", () => {
       await expect(client.get("/v1/health")).rejects.toThrow(ApiError);
     });
 
+    it("converts ErrorEnvelope to ApiError when Response has no headers property", async () => {
+      const mockResponse = {
+        ok: false,
+        status: 403,
+        json: () =>
+          Promise.resolve({
+            request_id: "safe-req-123",
+            error: {
+              code: "forbidden",
+              message: "Access denied",
+            },
+          }),
+      } as Response;
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(mockResponse);
+
+      const client = createApiClient({ baseUrl: "" });
+      let thrownError: unknown;
+      try {
+        await client.get("/v1/protected");
+      } catch (err) {
+        thrownError = err;
+      }
+      expect(thrownError).toBeInstanceOf(ApiError);
+      expect((thrownError as ApiError).code).toBe("forbidden");
+      expect((thrownError as ApiError).message).toBe("Access denied");
+      expect((thrownError as ApiError).requestId).toBe("safe-req-123");
+    });
+
     it("handles 204 no content responses", async () => {
       const mockResponse = {
         ok: true,
