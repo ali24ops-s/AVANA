@@ -194,21 +194,31 @@ export const EDUCATIONAL_CHART_POLICY = [
   `Decision Framework for Chart Generation:`,
   `* Condition A (Chart in Reference): If the user's reference contains an important scientific chart, curve, or plot, reconstruct its data points faithfully into a \`\`\`chart block.`,
   `* Condition B (Quantitative Data in Reference): If the reference contains verified, explicit quantitative numbers or data distributions where a chart meaningfully aids comprehension, generate a \`\`\`chart block.`,
-  `* Condition C (Insufficient or Missing Data): If the reference does NOT provide verifiable quantitative data, DO NOT generate a chart.`,
+  `* Condition C (Insufficient or Missing Data): If the reference does NOT provide verifiable quantitative data and the topic does not involve standard scientific conceptual models, DO NOT generate a chart.`,
+  `* Condition D (Canonical Scientific & Pharmacological Conceptual Curves): When the educational topic inherently requires standard conceptual or theoretical dose-response relationships (e.g. Emax/EC50, reversible competitive antagonism rightward shifts, partial vs. full agonists, receptor reserve / spare receptors, two-state receptor models / inverse agonists), generate a deterministic conceptual chart with "mode": "conceptual" using standard mathematical "curves". Parameter semantics must be normalized (e.g. biological response in %, log molar concentration) and you MUST NOT fabricate fake empirical data points for named drugs.`,
   ``,
   `Strict Anti-Hallucination & Scientific Fidelity Rules:`,
   `* NEVER invent numbers, percentages, values, data points, or clinical relationships that are not present in the reference.`,
   `* Never present approximate or guessed values as real data points.`,
-  `* Never generate purely decorative charts simply to make the lesson visually attractive.`,
+  `* Empirical Data Mode ("mode": "data"): Used for real clinical/experimental measurements from the reference. Requires "sourceCitation" and verified points in "series".`,
+  `* Conceptual Mode ("mode": "conceptual"): Used for standard normalized scientific models (e.g. Hill equation sigmoidal dose-response curves). Uses the "curves" array instead of fabricated discrete series points.`,
+  `* Density Cap: Maximum 1-2 charts per session where pedagogy genuinely demands visualization. Never generate purely decorative charts.`,
+  `* Intent Gating: If the session blueprint specifies NO suggestedVisualizations (or empty array []), DO NOT generate any \`\`\`chart blocks. Generating unrequested charts is strictly forbidden and causes automated validation failure.`,
+  `* When suggestedVisualizations are approved in the blueprint, generate only charts that strictly match the approved mode, type, and pedagogical concept.`,
   `* If a table is more appropriate for comparing discrete values or properties, use a Markdown table instead of a chart.`,
   `* The chart must be positioned exactly in its pedagogical context inside contentMarkdown (between paragraphs, before/after discussions).`,
   ``,
   `Canonical JSON Schema Format:`,
   `Supported types: "bar", "line", "pie", "scatter".`,
+  `Supported modes: "data" (default, empirical with source citation), "conceptual" (theoretical/canonical curves).`,
+  ``,
+  `Example 1: Empirical Line Chart ("mode": "data"):`,
   `\`\`\`chart`,
   `{`,
   `  "type": "line",`,
   `  "title": "پروفایل غلظت دارویی بر حسب زمان",`,
+  `  "mode": "data",`,
+  `  "sourceCitation": "Goodman & Gilman 14th ed.",`,
   `  "xAxis": { "label": "زمان", "unit": "ساعت" },`,
   `  "yAxis": { "label": "غلظت پلاسمایی", "unit": "mg/L" },`,
   `  "series": [`,
@@ -226,7 +236,31 @@ export const EDUCATIONAL_CHART_POLICY = [
   `}`,
   `\`\`\``,
   ``,
-  `Pie Chart Example:`,
+  `Example 2: Canonical Scientific Conceptual Curve ("mode": "conceptual", e.g. Emax/EC50 & Antagonism):`,
+  `\`\`\`chart`,
+  `{`,
+  `  "type": "line",`,
+  `  "title": "رابطه دوز-پاسخ و شیفت به راست در آنتاگونیسم رقابتی",`,
+  `  "mode": "conceptual",`,
+  `  "xAxis": { "label": "غلظت آگونیست (M)", "unit": "M", "scale": "log", "min": 1e-10, "max": 1e-4 },`,
+  `  "yAxis": { "label": "پاسخ زیستی", "unit": "%", "min": 0, "max": 100 },`,
+  `  "curves": [`,
+  `    {`,
+  `      "name": "آگونیست به تنهایی",`,
+  `      "model": "sigmoidal",`,
+  `      "parameters": { "emax": 100, "logEC50": -8 }`,
+  `    },`,
+  `    {`,
+  `      "name": "آگونیست + آنتاگونیست رقابتی",`,
+  `      "model": "sigmoidal",`,
+  `      "parameters": { "emax": 100, "logEC50": -6 },`,
+  `      "lineStyle": "dashed"`,
+  `    }`,
+  `  ]`,
+  `}`,
+  `\`\`\``,
+  ``,
+  `Example 3: Pie Chart:`,
   `\`\`\`chart`,
   `{`,
   `  "type": "pie",`,
@@ -248,7 +282,7 @@ export const EDUCATIONAL_CHART_POLICY = [
 // ---------------------------------------------------------------------------
 
 export const CONTENT_PLANNING_SYSTEM_PROMPT =
-  "You produce structured JSON educational content plans.";
+  "You produce structured JSON educational content plans. Return ONLY valid JSON matching the schema. In all JSON strings, properly escape LaTeX backslashes (e.g. \\\\Delta, \\\\alpha, \\\\frac) and escape internal double quotes (\\\") or use Persian quotation marks (« »). Do not output markdown code fences or conversational text.";
 
 export interface ContentPlanningPromptParams {
   docName: string;
@@ -561,6 +595,15 @@ export function getContentPlanningTemplate(): string {
     ``,
     `⸻`,
     ``,
+    `13.5. PEDAGOGICAL VISUALIZATION INTENT (suggestedVisualizations)`,
+    `For each session blueprint, evaluate if an educational chart provides genuine learning value over plain text or tables:`,
+    `* A. No Visualization ([]): If the session covers definitions, qualitative classifications, taxonomy, or lists without functional relationships, set suggestedVisualizations: []. NEVER force decorative charts.`,
+    `* B. Conceptual Visualization: When the topic features canonical relationships (e.g. Emax/EC50 dose-response, competitive antagonism rightward shifts, partial vs full agonist ceiling, inverse agonism/two-state receptor models), set mode: "conceptual", type: "line", sourceDataRequired: false, and specify the concept and educational rationale. NEVER output mathematical parameters or fabricated numbers.`,
+    `* C. Data-driven Visualization: Only when the source chunks explicitly contain verified numbers, tables, or time-series data. Set mode: "data", sourceDataRequired: true, and list citationChunkIds. NEVER invent data.`,
+    `* Density: Maximum 1-2 charts per session where pedagogy genuinely demands visualization. Most sessions should have [].`,
+    ``,
+    `⸻`,
+    ``,
     `14. OUTPUT VALIDITY`,
     ``,
     `Return ONLY valid JSON.`,
@@ -617,6 +660,15 @@ export function getContentPlanningTemplate(): string {
                 sourceChunkIds: ["{{chunkId}}"],
               },
             ],
+            suggestedVisualizations: [
+              {
+                type: "line",
+                mode: "conceptual",
+                concept: "رابطه دوز-پاسخ و شیفت به راست در آنتاگونیسم رقابتی",
+                rationale: "تفهیم بصری تغییر EC50 بدون تغییر Emax در حضور مهارکننده رقابتی",
+                sourceDataRequired: false,
+              },
+            ],
             relevantChunkIds: ["{{chunkId}}"],
             targetFlashcardCount: 12,
             targetQuizCount: 10,
@@ -661,7 +713,7 @@ export function buildContentPlanningUserPrompt(
 // ---------------------------------------------------------------------------
 
 export const LESSON_GENERATION_SYSTEM_PROMPT =
-  "You produce structured JSON educational lesson content.";
+  "You produce structured JSON educational lesson content. Return ONLY valid JSON matching the schema. In all JSON strings including contentMarkdown, properly escape LaTeX backslashes (e.g. \\\\Delta, \\\\alpha, \\\\frac, \\\\ce{...}, \\\\rightarrow) and escape internal double quotes (\\\") or use Persian quotation marks (« »). Do not output markdown code fences or conversational text.";
 
 export interface LessonGenerationPromptParams {
   documentTitle: string;
@@ -1857,7 +1909,7 @@ export function getLessonGenerationTemplate(): string {
 // ---------------------------------------------------------------------------
 
 export const FLASHCARD_GENERATION_SYSTEM_PROMPT =
-  "You produce structured JSON atomic flashcards.";
+  "You produce structured JSON atomic flashcards. Return ONLY valid JSON matching the schema. In all JSON strings (question, answer, explanation), properly escape LaTeX backslashes (e.g. \\\\Delta, \\\\alpha, \\\\frac, \\\\ce{...}, \\\\rightarrow) and escape internal double quotes (\\\") or use Persian quotation marks (« »). Do not output markdown code fences or conversational text.";
 
 export interface FlashcardGenerationPromptParams {
   documentTitle: string;
@@ -2387,7 +2439,7 @@ export function buildFlashcardBatchGenerationUserPrompt(
 // ---------------------------------------------------------------------------
 
 export const QUIZ_GENERATION_SYSTEM_PROMPT =
-  "You produce structured JSON multiple-choice quiz questions.";
+  "You produce structured JSON multiple-choice quiz questions. Return ONLY valid JSON matching the schema. In all JSON strings (question, choices, correctAnswer, explanation), properly escape LaTeX backslashes (e.g. \\\\Delta, \\\\alpha, \\\\frac, \\\\ce{...}, \\\\rightarrow) and escape internal double quotes (\\\") or use Persian quotation marks (« »). Do not output markdown code fences or conversational text.";
 
 export interface QuizGenerationPromptParams {
   documentTitle: string;
@@ -2621,7 +2673,7 @@ export function getQuizGenerationTemplate(): string {
 // ---------------------------------------------------------------------------
 
 export const REVIEW_SUMMARY_SYSTEM_PROMPT =
-  "You produce structured JSON high-density educational review summaries.";
+  "You produce structured JSON high-density educational review summaries. Return ONLY valid JSON matching the schema. In all JSON strings, properly escape LaTeX backslashes (e.g. \\\\Delta, \\\\alpha, \\\\frac) and escape internal double quotes (\\\") or use Persian quotation marks (« »). Do not output markdown code fences or conversational text.";
 
 export interface ReviewSummaryPromptParams {
   docName?: string;

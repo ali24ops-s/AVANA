@@ -924,6 +924,55 @@ describe("GenerationService", () => {
       expect(drafts[0].type).toBe("flashcard");
       expect(drafts.some((d) => d.type === "lesson")).toBe(false);
     });
+
+    it("Admin pipeline: retries Gemini when model outputs malformed JSON without falling back to secondary providers", async () => {
+      const docId = randomUUID() as DocumentId;
+      const doc = makeDocument({ id: docId, pageCount: 2 }, organizationId);
+      await documentStore.create(doc);
+      const chunks = makeChunks(docId, organizationId, 3);
+      await chunkStore.createMany(chunks);
+
+      let geminiAttempts = 0;
+      const mockGeminiGateway = {
+        provider: "gemini" as const,
+        model: "gemini-3.5-flash-lite",
+        complete: async (req: Parameters<MockModelGateway["complete"]>[0]) => {
+          geminiAttempts++;
+          const schemaType = (req.jsonSchema as { type?: string } | undefined)?.type;
+          if (schemaType === "flashcards" && geminiAttempts === 1) {
+            // Return malformed JSON on attempt 1
+            return {
+              text: "INVALID NON JSON GARBAGE {",
+              model: "gemini-3.5-flash-lite",
+              usage: { inputTokens: 50, outputTokens: 20 },
+              finishReason: "STOP",
+            };
+          }
+          // On retry or other stages, return standard valid completion
+          const defaultGateway = new MockModelGateway();
+          return defaultGateway.complete(req);
+        },
+      };
+
+      const testService = new GenerationService(
+        contentStore,
+        citationStore,
+        mockGeminiGateway as unknown as MockModelGateway,
+        documentStore,
+        chunkStore,
+        new RoleBasedPolicy(),
+        auditService,
+      );
+
+      const res = await testService.generateForDocument(actor, organizationId, docId, {
+        types: ["flashcard"],
+      });
+
+      expect(res.contents.length).toBe(1);
+      expect(res.contents[0].type).toBe("flashcard");
+      // Assert that Gemini was retried directly
+      expect(geminiAttempts).toBeGreaterThanOrEqual(2);
+      expect(mockGeminiGateway.provider).toBe("gemini");
+    });
   });
 });
-

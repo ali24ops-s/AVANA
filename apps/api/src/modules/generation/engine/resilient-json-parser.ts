@@ -60,24 +60,33 @@ export function cleanAndParseJson<T>(text: string, typeDesc: string): T {
   }
 
   let jsonStr = text.trim();
-  const jsonBlockMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-  if (jsonBlockMatch && jsonBlockMatch[1]) {
-    jsonStr = jsonBlockMatch[1].trim();
-  } else {
-    const firstBrace = jsonStr.indexOf("{");
-    const lastBrace = jsonStr.lastIndexOf("}");
-    const firstBracket = jsonStr.indexOf("[");
-    const lastBracket = jsonStr.lastIndexOf("]");
+  if (jsonStr.startsWith("```")) {
+    const jsonBlockMatch =
+      jsonStr.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i) ||
+      jsonStr.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+    if (jsonBlockMatch && jsonBlockMatch[1]) {
+      jsonStr = jsonBlockMatch[1].trim();
+    }
+  } else if (!jsonStr.startsWith("{") && !jsonStr.startsWith("[")) {
+    const jsonBlockMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+    if (jsonBlockMatch && jsonBlockMatch[1]) {
+      jsonStr = jsonBlockMatch[1].trim();
+    } else {
+      const firstBrace = jsonStr.indexOf("{");
+      const lastBrace = jsonStr.lastIndexOf("}");
+      const firstBracket = jsonStr.indexOf("[");
+      const lastBracket = jsonStr.lastIndexOf("]");
 
-    if (
-      firstBracket !== -1 &&
-      lastBracket !== -1 &&
-      lastBracket > firstBracket &&
-      (firstBrace === -1 || firstBracket < firstBrace)
-    ) {
-      jsonStr = jsonStr.slice(firstBracket, lastBracket + 1).trim();
-    } else if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-      jsonStr = jsonStr.slice(firstBrace, lastBrace + 1).trim();
+      if (
+        firstBracket !== -1 &&
+        lastBracket !== -1 &&
+        lastBracket > firstBracket &&
+        (firstBrace === -1 || firstBracket < firstBrace)
+      ) {
+        jsonStr = jsonStr.slice(firstBracket, lastBracket + 1).trim();
+      } else if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+        jsonStr = jsonStr.slice(firstBrace, lastBrace + 1).trim();
+      }
     }
   }
 
@@ -96,20 +105,130 @@ export function cleanAndParseJson<T>(text: string, typeDesc: string): T {
     return val;
   };
 
-  // Helper to safely preserve single-backslash LaTeX commands inside JSON string literals
-  // Prevents JSON.parse from converting \t (in \text), \b (in \beta), \f (in \frac), \r (in \rho), \n (in \neq) into control characters
-  const sanitizeLatexBackslashesInJson = (raw: string): string => {
-    return raw.replace(/"((?:[^"\\]|\\.)*)"/gs, (stringLiteral) => {
-      return stringLiteral.replace(
-        /(?<!\\)\\(text|textbf|textit|textrm|textsf|texttt|mathrm|mathbf|mathit|mathsf|mathtt|mathcal|mathbb|ce|pu|equiv|beta|bar|binom|bullet|frac|forall|flat|rho|rightarrow|longrightarrow|to|right|rangle|neq|nabla|nu|not|neg|alpha|gamma|theta|sigma|omega|delta|Delta|mu|lambda|pi|partial|times|le|ge|pm|approx|cdot|infty|sqrt|sum|int|lim|leftarrow|longleftarrow|left|langle|cup|cap|subset|subseteq|in|notin|exists|emptyset|log|ln|sin|cos|tan|cot|sec|csc|rightleftharpoons|uparrow|downarrow)(?![a-zA-Z])/g,
-        "\\\\$1",
-      );
-    });
+  // Helper to safely sanitize unescaped backslashes and invalid JSON escapes inside string literals
+  // Handles all LaTeX commands (\Delta, \alpha, \circ, \ce, \to, \Gamma, \epsilon, \xrightarrow, etc.)
+  // and prevents JSON.parse from converting \t, \b, \f, \r, \n in LaTeX words into ASCII control characters.
+  const sanitizeJsonStringEscapes = (raw: string): string => {
+    let result = "";
+    let inString = false;
+    let i = 0;
+    const len = raw.length;
+
+    while (i < len) {
+      const ch = raw[i];
+
+      if (!inString) {
+        if (ch === '"') {
+          inString = true;
+        }
+        result += ch;
+        i++;
+        continue;
+      }
+
+      // Inside string literal
+      if (ch === '"') {
+        inString = false;
+        result += ch;
+        i++;
+        continue;
+      }
+
+      if (ch === "\\") {
+        if (i + 1 >= len) {
+          result += "\\\\";
+          i++;
+          continue;
+        }
+
+        const next = raw[i + 1];
+
+        // 1. Escaped backslash (\\) -> preserve both
+        if (next === "\\") {
+          result += "\\\\";
+          i += 2;
+          continue;
+        }
+
+        // 2. Escaped quote (\") -> preserve both
+        if (next === '"') {
+          result += '\\"';
+          i += 2;
+          continue;
+        }
+
+        // 3. Valid unicode escape (\uXXXX)
+        if (next === "u" && i + 5 < len && /^[0-9a-fA-F]{4}$/.test(raw.slice(i + 2, i + 6))) {
+          result += raw.slice(i, i + 6);
+          i += 6;
+          continue;
+        }
+
+        // 4. Valid forward slash escape (\/)
+        if (next === "/") {
+          result += "\\/";
+          i += 2;
+          continue;
+        }
+
+        // 5. Handle \b, \f, \n, \r, \t:
+        // If followed by known LaTeX command words, double the backslash so JSON.parse receives
+        // \frac, \beta, \text, etc. instead of converting them to ASCII control characters.
+        // Otherwise, it is a genuine JSON escape (\n, \t, \r, \b, \f).
+        if (next === "b" || next === "f" || next === "n" || next === "r" || next === "t") {
+          const rest = raw.slice(i + 1);
+          const isLatexCmd =
+            /^(?:beta|bar|binom|bullet|begin|bm|boldsymbol|boxed|bf|bold|frac|forall|flat|fbox|nabla|neq|nu\b|notin|null|natural|nearrow|nwarrow|noindent|neg\b|newline|newcommand|newenvironment|not\b|rho|rightarrow|longrightarrow|right|rangle|rightleftharpoons|rtau|rfloor|rceil|ref\b|text|textbf|textit|textrm|textsf|texttt|times|theta|tau\b|tan\b|tanh|to\b|tilde|tfrac|top\b|triangle)(?![a-zA-Z])/i.test(
+              rest,
+            );
+          if (isLatexCmd) {
+            result += "\\\\" + next;
+            i += 2;
+            continue;
+          } else {
+            result += "\\" + next;
+            i += 2;
+            continue;
+          }
+        }
+
+        // 6. Any other character after backslash (\Delta, \alpha, \circ, \ce, \Gamma, \epsilon, \xrightarrow, \sqrt, \sum, \int, \le, \ge, \pm, \approx, \cdot, \infty, \ , \{, \})
+        // In standard RFC 8259 JSON, \X is an illegal escape. Double it so JSON.parse receives \X.
+        result += "\\\\" + next;
+        i += 2;
+        continue;
+      }
+
+      // Literal unescaped newlines/tabs inside string literals
+      if (ch === "\n") {
+        result += "\\n";
+        i++;
+        continue;
+      }
+      if (ch === "\r") {
+        if (i + 1 < len && raw[i + 1] === "\n") {
+          i++; // skip \r of \r\n
+        }
+        result += "\\n";
+        i++;
+        continue;
+      }
+      if (ch === "\t") {
+        result += "\\t";
+        i++;
+        continue;
+      }
+
+      result += ch;
+      i++;
+    }
+
+    return result;
   };
 
-  const latexSafeJson = sanitizeLatexBackslashesInJson(jsonStr);
+  const latexSafeJson = sanitizeJsonStringEscapes(jsonStr);
 
-  // Attempt 1: Standard JSON parse with LaTeX escape protection
+  // Attempt 1: Standard JSON parse with LaTeX & escape protection
   try {
     const parsed = normalizeResult(JSON.parse(latexSafeJson));
     if (typeof parsed === "object" && parsed !== null) {
@@ -121,7 +240,7 @@ export function cleanAndParseJson<T>(text: string, typeDesc: string): T {
 
   // Attempt 2: Remove trailing commas
   try {
-    const noTrailingCommas = jsonStr.replace(/,\s*([}\]])/g, "$1");
+    const noTrailingCommas = latexSafeJson.replace(/,\s*([}\]])/g, "$1");
     const parsed = normalizeResult(JSON.parse(noTrailingCommas));
     if (typeof parsed === "object" && parsed !== null) {
       return parsed as T;
@@ -130,7 +249,7 @@ export function cleanAndParseJson<T>(text: string, typeDesc: string): T {
     // Continue
   }
 
-  // Attempt 3: Fix unescaped newlines and tabs inside string literals
+  // Attempt 3: Fix unescaped newlines and tabs on raw string then sanitize
   try {
     const escapedStrings = jsonStr
       .replace(/,\s*([}\]])/g, "$1")
@@ -141,7 +260,7 @@ export function cleanAndParseJson<T>(text: string, typeDesc: string): T {
           .replace(/\r/g, "\\n")
           .replace(/\t/g, "\\t");
       });
-    const parsed = normalizeResult(JSON.parse(escapedStrings));
+    const parsed = normalizeResult(JSON.parse(sanitizeJsonStringEscapes(escapedStrings)));
     if (typeof parsed === "object" && parsed !== null) {
       return parsed as T;
     }
@@ -162,7 +281,7 @@ export function cleanAndParseJson<T>(text: string, typeDesc: string): T {
       })
       // eslint-disable-next-line no-control-regex
       .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "");
-    const parsed = JSON.parse(sanitized);
+    const parsed = JSON.parse(sanitizeJsonStringEscapes(sanitized));
     if (typeof parsed === "object" && parsed !== null) {
       return parsed as T;
     }
@@ -262,25 +381,48 @@ export function cleanAndParseJson<T>(text: string, typeDesc: string): T {
   }
 
   if (typeDesc.includes("flashcard")) {
-    const cardMatches = [
-      ...jsonStr.matchAll(
-        /{\s*(?:"sessionIndex"\s*:\s*(\d+)\s*,\s*)?"question"\s*:\s*"([\s\S]*?)"\s*,\s*"answer"\s*:\s*"([\s\S]*?)"(?:\s*,\s*"explanation"\s*:\s*"([\s\S]*?)")?(?:\s*,\s*"cardType"\s*:\s*"([\s\S]*?)")?(?:\s*,\s*"difficulty"\s*:\s*"([\s\S]*?)")?\s*}/g,
-      ),
-    ];
-    if (cardMatches.length > 0) {
-      const cards = cardMatches.map((m) => ({
-        sessionIndex: m[1] ? parseInt(m[1], 10) : undefined,
-        question: safeUnescapeMarkdown(m[2]),
-        answer: safeUnescapeMarkdown(m[3]),
-        explanation: m[4] ? safeUnescapeMarkdown(m[4]) : undefined,
-        cardType: (m[5] as unknown as "key_fact") || "key_fact",
-        difficulty: (m[6] as unknown as "medium") || "medium",
-      }));
-      return {
-        kind: "flashcards_batch",
-        cards,
-        citationChunkIds: [],
-      } as T;
+    const cardSnippets = jsonStr.split(/(?=\{\s*(?:"question"|"answer"|"citationChunkIds"|"difficulty"|"cardType"|"sessionIndex"))/);
+    if (cardSnippets.length > 0) {
+      const cards = cardSnippets
+        .map((block) => {
+          const qMatch = block.match(/"question"\s*:\s*"([\s\S]*?)"(?=\s*,\s*"|\s*}|$)/);
+          const aMatch = block.match(/"answer"\s*:\s*"([\s\S]*?)"(?=\s*,\s*"|\s*}|$)/);
+          if (!qMatch || !aMatch) return null;
+
+          const expMatch = block.match(/"explanation"\s*:\s*"([\s\S]*?)"(?=\s*,\s*"|\s*}|$)/);
+          const typeMatch = block.match(/"cardType"\s*:\s*"([^"]+)"/);
+          const diffMatch = block.match(/"difficulty"\s*:\s*"([^"]+)"/);
+          const idxMatch = block.match(/"sessionIndex"\s*:\s*(\d+)/);
+          const citMatch = block.match(/"citationChunkIds"\s*:\s*(\[[^\]]*\])/);
+
+          let citations: string[] = [];
+          if (citMatch && citMatch[1]) {
+            try {
+              citations = JSON.parse(citMatch[1]);
+            } catch {
+              citations = [...citMatch[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+            }
+          }
+
+          return {
+            sessionIndex: idxMatch ? parseInt(idxMatch[1], 10) : undefined,
+            question: safeUnescapeMarkdown(qMatch[1]),
+            answer: safeUnescapeMarkdown(aMatch[1]),
+            explanation: expMatch ? safeUnescapeMarkdown(expMatch[1]) : undefined,
+            cardType: (typeMatch ? typeMatch[1] : "key_fact") as "key_fact",
+            difficulty: (diffMatch ? diffMatch[1] : "medium") as "medium",
+            citationChunkIds: citations,
+          };
+        })
+        .filter((c): c is NonNullable<typeof c> => Boolean(c));
+
+      if (cards.length > 0) {
+        return {
+          kind: "flashcards_batch",
+          cards,
+          citationChunkIds: [],
+        } as T;
+      }
     }
   }
 

@@ -219,6 +219,188 @@ describe("ResilientJsonParser (cleanAndParseJson)", () => {
       });
     });
   });
+
+  describe("Step 0 / Phase 7 Comprehensive Regression Tests", () => {
+    it("Case A: safely parses JSON with raw unescaped LaTeX backslashes without syntax error or corruption", () => {
+      // Raw single-backslash LaTeX commands that usually cause JSON SyntaxError (bad escape)
+      const rawModelOutput = `{
+  "kind": "flashcards",
+  "cards": [
+    {
+      "question": "واکنش تبدیل با آنتالپی \\Delta H و ثابت \\alpha و دمای 37^\\circ C چیست؟",
+      "answer": "فرمول \\ce{A -> B} با سرعت \\frac{d[A]}{dt} و زاویه \\theta و ضریب \\Gamma و ضریب \\epsilon و \\to و \\xrightarrow[cat]{\\Delta}",
+      "explanation": "مقدار \\beta و \\rho و \\tau و \\nabla f و \\neq 0 به همراه واحد \\pu{10 J/mol} و \\degree C بررسی شد.",
+      "cardType": "mechanism",
+      "difficulty": "medium",
+      "citationChunkIds": ["chunk-1"]
+    }
+  ]
+}`;
+      const result = cleanAndParseJson<{
+        kind: string;
+        cards: Array<{
+          question: string;
+          answer: string;
+          explanation: string;
+          cardType: string;
+          difficulty: string;
+          citationChunkIds: string[];
+        }>;
+      }>(rawModelOutput, "flashcard");
+
+      expect(result.cards).toHaveLength(1);
+      const card = result.cards[0];
+      expect(card.question).toContain("\\Delta H");
+      expect(card.question).toContain("\\alpha");
+      expect(card.question).toContain("37^\\circ C");
+      expect(card.answer).toContain("\\ce{A -> B}");
+      expect(card.answer).toContain("\\frac{d[A]}{dt}");
+      expect(card.answer).toContain("\\Gamma");
+      expect(card.answer).toContain("\\epsilon");
+      expect(card.answer).toContain("\\xrightarrow[cat]{\\Delta}");
+      expect(card.explanation).toContain("\\beta");
+      expect(card.explanation).toContain("\\rho");
+      expect(card.explanation).toContain("\\nabla f");
+      expect(card.explanation).toContain("\\pu{10 J/mol}");
+      // Verify no formfeed or backspace control characters
+      expect(card.answer).not.toContain("\x0Crac");
+      expect(card.explanation).not.toContain("\x08eta");
+    });
+
+    it("Case B: safely handles Persian and English quotes without breaking parsing", () => {
+      const rawModelOutput = `{
+  "kind": "flashcards",
+  "cards": [
+    {
+      "question": "آیا داروی «پروپرانولول» یک داروی \\"بتابلاکر\\" غیراختصاصی است؟",
+      "answer": "بله، داروی «پروپرانولول» گیرنده‌های \\"Beta-1\\" و \\"Beta-2\\" را مهار می‌کند.",
+      "explanation": "In English: \\"Propranolol is a non-selective beta blocker\\".",
+      "cardType": "definition",
+      "difficulty": "easy",
+      "citationChunkIds": ["chunk-1"]
+    }
+  ]
+}`;
+      const result = cleanAndParseJson<{
+        kind: string;
+        cards: Array<{ question: string; answer: string; explanation: string }>;
+      }>(rawModelOutput, "flashcard");
+
+      expect(result.cards[0].question).toContain("«پروپرانولول»");
+      expect(result.cards[0].question).toContain('"بتابلاکر"');
+      expect(result.cards[0].answer).toContain('"Beta-1"');
+      expect(result.cards[0].explanation).toContain('English: "Propranolol');
+    });
+
+    it("Case C: safely parses Chemistry SMILES and reactions without modification", () => {
+      const smilesJson = `{
+  "kind": "flashcards",
+  "cards": [
+    {
+      "question": "ساختار SMILES آسپرین چیست؟",
+      "answer": "CC(=O)Oc1ccccc1C(=O)O",
+      "explanation": "بنزن: C1=CC=CC=C1 و واکنش: \\ce{C6H6 + HNO3 -> C6H5NO2 + H2O}",
+      "cardType": "key_fact",
+      "difficulty": "medium",
+      "citationChunkIds": ["chunk-chem-1"]
+    }
+  ]
+}`;
+      const result = cleanAndParseJson<{
+        kind: string;
+        cards: Array<{ question: string; answer: string; explanation: string }>;
+      }>(smilesJson, "flashcard");
+
+      expect(result.cards[0].answer).toBe("CC(=O)Oc1ccccc1C(=O)O");
+      expect(result.cards[0].explanation).toContain("C1=CC=CC=C1");
+      expect(result.cards[0].explanation).toContain("\\ce{C6H6 + HNO3 -> C6H5NO2 + H2O}");
+    });
+
+    it("Case D: safely parses nested chart data structures", () => {
+      const chartJson = `{
+  "kind": "session",
+  "title": "فارماکوکینتیک",
+  "contentMarkdown": "نمودار غلظت پلاسمایی:\\n\`\`\`mermaid\\ngraph TD; A-->B;\\n\`\`\`",
+  "chartData": {
+    "type": "line",
+    "points": [
+      { "time": 0, "concentration": 0 },
+      { "time": 1, "concentration": 10.5 },
+      { "time": 2, "concentration": 8.2 }
+    ]
+  },
+  "citationChunkIds": ["chunk-1"]
+}`;
+      const result = cleanAndParseJson<{
+        kind: string;
+        title: string;
+        contentMarkdown: string;
+        chartData: { type: string; points: Array<{ time: number; concentration: number }> };
+      }>(chartJson, "session");
+
+      expect(result.title).toBe("فارماکوکینتیک");
+      expect(result.chartData.type).toBe("line");
+      expect(result.chartData.points).toHaveLength(3);
+      expect(result.chartData.points[1].concentration).toBe(10.5);
+    });
+
+    it("Case E & Flashcard Fallback: recovers flashcards from malformed output with citationChunkIds and arbitrary property order", () => {
+      // Malformed JSON: unclosed array/object at the end, citationChunkIds first, question/answer order reversed
+      const malformedFlashcards = `{
+  "kind": "flashcards",
+  "cards": [
+    {
+      "citationChunkIds": ["chk-99"],
+      "difficulty": "hard",
+      "answer": "مهار آنزیم HMG-CoA ردوکتاز با آنتالپی \\Delta H",
+      "cardType": "mechanism",
+      "question": "مکانیسم عمل آتورواستاتین چیست؟",
+      "explanation": "کاهش کلسترول با فرمول \\frac{A}{B}",
+      "sessionIndex": 3
+    },
+    {
+      "question": "عارضه شایع متفورمین چیست؟",
+      "answer": "عوارض گوارشی (تهوع و اسهال)",
+      "citationChunkIds": ["chk-100"]
+    }
+  ]
+}`;
+      const result = cleanAndParseJson<{
+        kind: string;
+        cards: Array<{
+          sessionIndex?: number;
+          question: string;
+          answer: string;
+          explanation?: string;
+          cardType: string;
+          difficulty: string;
+          citationChunkIds?: string[];
+        }>;
+      }>(malformedFlashcards, "flashcard");
+
+      expect(result.cards).toHaveLength(2);
+      expect(result.cards[0].question).toBe("مکانیسم عمل آتورواستاتین چیست؟");
+      expect(result.cards[0].answer).toContain("\\Delta H");
+      expect(result.cards[0].explanation).toContain("\\frac{A}{B}");
+      expect(result.cards[0].sessionIndex).toBe(3);
+      expect(result.cards[0].citationChunkIds).toEqual(["chk-99"]);
+
+      expect(result.cards[1].question).toBe("عارضه شایع متفورمین چیست؟");
+      expect(result.cards[1].answer).toBe("عوارض گوارشی (تهوع و اسهال)");
+      expect(result.cards[1].citationChunkIds).toEqual(["chk-100"]);
+    });
+
+    it("distinguishes syntax errors (repaired) from domain schema errors", () => {
+      // Syntax error is successfully repaired into valid object
+      const syntaxErrorJson = `{\n  "kind": "session",\n  "title": "درس اول",\n  "contentMarkdown": "متن \\Delta",\n}`;
+      const parsed = cleanAndParseJson<{ kind: string; title: string; contentMarkdown: string }>(syntaxErrorJson, "session");
+      expect(parsed.kind).toBe("session");
+      expect(parsed.contentMarkdown).toBe("متن \\Delta");
+
+      // An unparseable non-JSON garbage string throws DomainError
+      expect(() => cleanAndParseJson("Some completely non-json text with no braces", "lesson")).toThrow(DomainError);
+    });
+  });
 });
 
 

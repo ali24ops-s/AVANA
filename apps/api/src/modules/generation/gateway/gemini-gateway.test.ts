@@ -483,3 +483,96 @@ describe("createModelGateway with Gemini Multi-Key", () => {
     expect(gateway.model).toBe("gemini-3.5-flash-lite");
   });
 });
+
+describe("Gemini Structured Output (adaptToGeminiJsonSchema)", () => {
+  it("adapts flashcards schema correctly and includes responseSchema in generationConfig", async () => {
+    let capturedBody: Record<string, unknown> = {};
+
+    const mockFetch = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      capturedBody = JSON.parse(String(init?.body || "{}"));
+      return makeSuccessResponse();
+    });
+
+    const gateway = new GeminiModelGateway({
+      apiKey: FAKE_API_KEY,
+      fetchFn: mockFetch as unknown as typeof fetch,
+    });
+
+    await gateway.complete(
+      makeRequest({
+        stage: "flashcard",
+        jsonSchema: { type: "flashcards" },
+      }),
+    );
+
+    const genConfig = capturedBody.generationConfig as {
+      responseMimeType: string;
+      responseSchema: {
+        type: string;
+        properties: {
+          kind: { type: string };
+          cards: {
+            type: string;
+            items: {
+              type: string;
+              properties: {
+                question: { type: string };
+                answer: { type: string };
+                cardType: { type: string; enum: string[] };
+                difficulty: { type: string; enum: string[] };
+              };
+              required: string[];
+            };
+          };
+        };
+        required: string[];
+      };
+    };
+
+    expect(genConfig.responseMimeType).toBe("application/json");
+    expect(genConfig.responseSchema).toBeDefined();
+    expect(genConfig.responseSchema.type).toBe("object");
+    expect(genConfig.responseSchema.properties.cards.type).toBe("array");
+    expect(genConfig.responseSchema.properties.cards.items.required).toEqual([
+      "question",
+      "answer",
+      "cardType",
+      "difficulty",
+    ]);
+  });
+
+  it("adapts session, content_plan, quizzes, and review_summary schemas", async () => {
+    let capturedBody: Record<string, unknown> = {};
+
+    const mockFetch = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      capturedBody = JSON.parse(String(init?.body || "{}"));
+      return makeSuccessResponse();
+    });
+
+    const gateway = new GeminiModelGateway({
+      apiKey: FAKE_API_KEY,
+      fetchFn: mockFetch as unknown as typeof fetch,
+    });
+
+    // 1. Session schema
+    await gateway.complete(makeRequest({ jsonSchema: { type: "session" } }));
+    let genConfig = capturedBody.generationConfig as { responseSchema: { required: string[] } };
+    expect(genConfig.responseSchema.required).toEqual(["kind", "title", "contentMarkdown"]);
+
+    // 2. Content plan schema
+    await gateway.complete(makeRequest({ jsonSchema: { type: "content_plan" } }));
+    genConfig = capturedBody.generationConfig as { responseSchema: { required: string[] } };
+    expect(genConfig.responseSchema.required).toContain("moduleTitle");
+    expect(genConfig.responseSchema.required).toContain("sessions");
+
+    // 3. Quizzes schema
+    await gateway.complete(makeRequest({ jsonSchema: { type: "quizzes" } }));
+    genConfig = capturedBody.generationConfig as { responseSchema: { required: string[] } };
+    expect(genConfig.responseSchema.required).toEqual(["kind", "questions"]);
+
+    // 4. Review summary schema
+    await gateway.complete(makeRequest({ jsonSchema: { type: "review_summary" } }));
+    genConfig = capturedBody.generationConfig as { responseSchema: { required: string[] } };
+    expect(genConfig.responseSchema.required).toEqual(["kind", "title", "summaryMarkdown", "keyTakeaways"]);
+  });
+});

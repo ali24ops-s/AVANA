@@ -81,6 +81,262 @@ export class GeminiHttpError extends Error {
   }
 }
 
+/**
+ * Adapt AVANA jsonSchema request into Gemini's responseSchema OpenAPI/JSON Schema format.
+ */
+export function adaptToGeminiJsonSchema(jsonSchema: unknown): Record<string, unknown> | null {
+  if (!jsonSchema || typeof jsonSchema !== "object") {
+    return null;
+  }
+
+  const schemaObj = jsonSchema as Record<string, unknown>;
+  const typeKey = typeof schemaObj.type === "string" ? schemaObj.type.toLowerCase() : "";
+
+  if (typeKey === "content_plan") {
+    return {
+      type: "object",
+      properties: {
+        kind: { type: "string" },
+        moduleTitle: { type: "string" },
+        sourceTopics: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              id: { type: "string" },
+              title: { type: "string" },
+              description: { type: "string" },
+              category: { type: "string" },
+              relevantChunkIds: { type: "array", items: { type: "string" } },
+            },
+            required: ["id", "title", "description", "category", "relevantChunkIds"],
+          },
+        },
+        sessions: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              index: { type: "integer" },
+              title: { type: "string" },
+              description: { type: "string" },
+              coreConcepts: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    id: { type: "string" },
+                    name: { type: "string" },
+                    category: { type: "string" },
+                    description: { type: "string" },
+                    sourceChunkIds: { type: "array", items: { type: "string" } },
+                  },
+                  required: ["id", "name", "category", "description", "sourceChunkIds"],
+                },
+              },
+              relevantChunkIds: { type: "array", items: { type: "string" } },
+              targetFlashcardCount: { type: "integer" },
+              targetQuizCount: { type: "integer" },
+            },
+            required: [
+              "index",
+              "title",
+              "description",
+              "coreConcepts",
+              "relevantChunkIds",
+              "targetFlashcardCount",
+              "targetQuizCount",
+            ],
+          },
+        },
+        highYieldFacts: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              id: { type: "string" },
+              fact: { type: "string" },
+              category: { type: "string" },
+              sessionIndex: { type: "integer" },
+            },
+            required: ["id", "fact", "category", "sessionIndex"],
+          },
+        },
+        citationChunkIds: { type: "array", items: { type: "string" } },
+      },
+      required: [
+        "kind",
+        "moduleTitle",
+        "sourceTopics",
+        "sessions",
+        "highYieldFacts",
+        "citationChunkIds",
+      ],
+    };
+  }
+
+  if (typeKey === "sessions_batch") {
+    return {
+      type: "object",
+      properties: {
+        kind: { type: "string" },
+        sessions: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              index: { type: "integer" },
+              title: { type: "string" },
+              contentMarkdown: { type: "string" },
+              citationChunkIds: { type: "array", items: { type: "string" } },
+            },
+            required: ["index", "title", "contentMarkdown", "citationChunkIds"],
+          },
+        },
+      },
+      required: ["kind", "sessions"],
+    };
+  }
+
+  if (typeKey === "session" || typeKey === "lesson") {
+    return {
+      type: "object",
+      properties: {
+        kind: { type: "string" },
+        title: { type: "string" },
+        contentMarkdown: { type: "string" },
+        citationChunkIds: { type: "array", items: { type: "string" } },
+      },
+      required: ["kind", "title", "contentMarkdown"],
+    };
+  }
+
+  if (
+    typeKey === "flashcards_batch" ||
+    typeKey === "flashcard" ||
+    typeKey === "flashcards"
+  ) {
+    return {
+      type: "object",
+      properties: {
+        kind: { type: "string" },
+        cards: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              sessionIndex: { type: "integer" },
+              question: { type: "string" },
+              answer: { type: "string" },
+              explanation: { type: "string" },
+              cardType: {
+                type: "string",
+                enum: [
+                  "definition",
+                  "mechanism",
+                  "comparison",
+                  "key_fact",
+                  "application",
+                  "clinical_reasoning",
+                  "cloze",
+                ],
+              },
+              difficulty: {
+                type: "string",
+                enum: ["easy", "medium", "hard"],
+              },
+              citationChunkIds: {
+                type: "array",
+                items: { type: "string" },
+              },
+            },
+            required: ["question", "answer", "cardType", "difficulty"],
+          },
+        },
+        citationChunkIds: {
+          type: "array",
+          items: { type: "string" },
+        },
+      },
+      required: ["kind", "cards"],
+    };
+  }
+
+  if (
+    typeKey === "quizzes_batch" ||
+    typeKey === "quiz" ||
+    typeKey === "quizzes"
+  ) {
+    return {
+      type: "object",
+      properties: {
+        kind: { type: "string" },
+        questions: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              sessionIndex: { type: "integer" },
+              question: { type: "string" },
+              questionType: { type: "string", enum: ["multiple_choice"] },
+              choices: { type: "array", items: { type: "string" } },
+              correctAnswer: { type: "string" },
+              explanation: { type: "string" },
+              citationChunkIds: { type: "array", items: { type: "string" } },
+            },
+            required: [
+              "question",
+              "questionType",
+              "choices",
+              "correctAnswer",
+              "explanation",
+            ],
+          },
+        },
+        citationChunkIds: {
+          type: "array",
+          items: { type: "string" },
+        },
+      },
+      required: ["kind", "questions"],
+    };
+  }
+
+  if (typeKey === "review_summary") {
+    return {
+      type: "object",
+      properties: {
+        kind: { type: "string" },
+        title: { type: "string" },
+        summaryMarkdown: { type: "string" },
+        keyTakeaways: { type: "array", items: { type: "string" } },
+        clinicalPearls: { type: "array", items: { type: "string" } },
+        examTips: { type: "array", items: { type: "string" } },
+        citationChunkIds: { type: "array", items: { type: "string" } },
+      },
+      required: ["kind", "title", "summaryMarkdown", "keyTakeaways"],
+    };
+  }
+
+  // If already a full schema object with properties:
+  if (schemaObj.properties && typeof schemaObj.properties === "object") {
+    const rawProps = schemaObj.properties as Record<string, unknown>;
+    const propKeys = Object.keys(rawProps);
+    const existingReq = Array.isArray(schemaObj.required)
+      ? (schemaObj.required as string[])
+      : [];
+    const requiredKeys = Array.from(new Set([...existingReq, ...propKeys]));
+
+    return {
+      type: "object",
+      required: requiredKeys,
+      properties: schemaObj.properties,
+    };
+  }
+
+  return null;
+}
+
 export class GeminiModelGateway implements ModelGateway {
   readonly provider = "gemini" as const;
   private readonly keyPool: GeminiKeyPool;
@@ -412,12 +668,17 @@ export class GeminiModelGateway implements ModelGateway {
     }
 
     // 2. Build Gemini REST API request body
+    const adaptedSchema = req.jsonSchema
+      ? adaptToGeminiJsonSchema(req.jsonSchema)
+      : null;
+
     const requestBody: Record<string, unknown> = {
       contents,
       generationConfig: {
         responseMimeType: "application/json",
         temperature: req.temperature ?? 0.2,
         ...(req.maxTokens ? { maxOutputTokens: req.maxTokens } : {}),
+        ...(adaptedSchema ? { responseSchema: adaptedSchema } : {}),
       },
     };
 
