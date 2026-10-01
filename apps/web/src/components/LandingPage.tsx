@@ -27,6 +27,7 @@ import { LearningPipelineSection } from "./landing/LearningPipelineSection.js";
 import { QuizExperienceSection } from "./landing/QuizExperienceSection.js";
 import { ReviewSummarySection } from "./landing/ReviewSummarySection.js";
 import { FinalCTASection } from "./landing/FinalCTASection.js";
+import { TeacherCTASection } from "./landing/TeacherCTASection.js";
 import { Footer } from "./landing/Footer.js";
 import { useAuth } from "../providers/AuthProvider.js";
 import { BrandLogo } from "./brand/BrandLogo.js";
@@ -96,6 +97,7 @@ export function LandingPage() {
     { label: "خانه", href: "#hero", isInternalRoute: false },
     { label: "امکانات", href: "#living-textbook", isInternalRoute: false },
     { label: "مسیر یادگیری", href: "#learning-pipeline", isInternalRoute: false },
+    { label: "برای اساتید", href: "/teachers", isInternalRoute: true },
     { label: "وبلاگ", href: "/blog", isInternalRoute: true },
     { label: "قیمت‌گذاری", href: "/pricing", isInternalRoute: true },
   ];
@@ -241,7 +243,10 @@ export function LandingPage() {
         {/* 7. Review Summary ("وقتی وقت کم است، دقیق مرور کن") */}
         <ReviewSummarySection />
 
-        {/* 8. Final CTA ("منبعت را بده به آوانا. از همین‌جا شروع کن.") */}
+        {/* 8. Teacher CTA Section ("استاد هستید؟") */}
+        <TeacherCTASection />
+
+        {/* 9. Final CTA ("منبعت را بده به آوانا. از همین‌جا شروع کن.") */}
         <FinalCTASection />
       </main>
 

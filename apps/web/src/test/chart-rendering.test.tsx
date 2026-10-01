@@ -1,10 +1,15 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import React from "react";
-import { ChartBlock } from "../components/chart/ChartBlock.js";
+import {
+  ChartBlock,
+  evaluateSigmoidal,
+  sampleSigmoidalCurve,
+  formatLog10Exponent,
+} from "../components/chart/ChartBlock.js";
 import { ChartFallbackBlock } from "../components/chart/ChartFallbackBlock.js";
 import { MarkdownRenderer } from "../components/markdown/MarkdownRenderer.js";
-import type { EducationalChart } from "@avana/domain";
+import type { EducationalChart, ParametricCurve } from "@avana/domain";
 
 describe("Educational Chart Web Rendering Suite", () => {
   describe("ChartBlock Direct SVG Rendering", () => {
@@ -402,6 +407,334 @@ $$Dose = V_d \\times C_{target}$$
       // Check unit badge has dir="ltr"
       const unitBadge = screen.getByText("(mg/L)");
       expect(unitBadge.getAttribute("dir")).toBe("ltr");
+    });
+  });
+
+  describe("Scientific Parametric Curves & Logarithmic Rendering", () => {
+    it("evaluates the Hill equation mathematically with proper boundaries, EC50 midpoint, and exponent clamping", () => {
+      // At x <= 0: returns baseline
+      expect(evaluateSigmoidal(-1, 100, -7, 1, 0)).toBe(0);
+      expect(evaluateSigmoidal(0, 100, -7, 1, 0)).toBe(0);
+
+      // At x = 10^(logEC50) = 1e-7: exactly 50% between baseline and emax
+      expect(evaluateSigmoidal(1e-7, 100, -7, 1, 0)).toBeCloseTo(50, 4);
+
+      // With baseline = 20 and emax = 100: midpoint is (20 + 100) / 2 = 60
+      expect(evaluateSigmoidal(1e-7, 100, -7, 1, 20)).toBeCloseTo(60, 4);
+
+      // Extreme small x (far below EC50): asymptotically baseline
+      expect(evaluateSigmoidal(1e-15, 100, -7, 1, 0)).toBeCloseTo(0, 4);
+
+      // Extreme large x (far above EC50): asymptotically emax
+      expect(evaluateSigmoidal(1e-1, 100, -7, 1, 0)).toBeCloseTo(100, 3);
+
+      // Steep Hill slope (e.g. n = 3)
+      const steepMid = evaluateSigmoidal(1e-7, 100, -7, 3, 0);
+      expect(steepMid).toBeCloseTo(50, 4);
+    });
+
+    it("samples exactly 60 points per curve deterministically distributed across log space", () => {
+      const curve: ParametricCurve = {
+        name: "منحنی نمونه‌برداری",
+        model: "sigmoidal",
+        parameters: { emax: 100, logEC50: -7, hillSlope: 1, baseline: 0 },
+      };
+
+      const pts = sampleSigmoidalCurve(curve, 1e-10, 1e-4, true, 60);
+      expect(pts.length).toBe(60);
+      expect(pts[0].x).toBeCloseTo(1e-10, 12);
+      expect(pts[59].x).toBeCloseTo(1e-4, 6);
+
+      // Points should be monotonically increasing in x
+      for (let i = 1; i < pts.length; i++) {
+        expect(pts[i].x).toBeGreaterThan(pts[i - 1].x);
+        // And response for positive agonist is monotonically increasing
+        expect(pts[i].y).toBeGreaterThanOrEqual(pts[i - 1].y);
+      }
+
+      // Check log spacing: difference of log10 between consecutive points is uniform
+      const logStep = Math.log10(pts[1].x) - Math.log10(pts[0].x);
+      const expectedStep = (-4 - (-10)) / 59;
+      expect(logStep).toBeCloseTo(expectedStep, 5);
+    });
+
+    it("formats log exponents correctly using Unicode superscripts", () => {
+      expect(formatLog10Exponent(-7)).toBe("10⁻⁷");
+      expect(formatLog10Exponent(-10)).toBe("10⁻¹⁰");
+      expect(formatLog10Exponent(0)).toBe("10⁰");
+      expect(formatLog10Exponent(3)).toBe("10³");
+    });
+
+    it("renders parametric curve SVG path with 60 sampled points (1 M and 59 L commands)", () => {
+      const chart: EducationalChart = {
+        type: "line",
+        title: "رابطه دوز-پاسخ دارویی",
+        mode: "conceptual",
+        xAxis: { label: "غلظت آگونیست (M)", unit: "M", scale: "log", min: 1e-10, max: 1e-4 },
+        yAxis: { label: "پاسخ زیستی", unit: "%", min: 0, max: 100 },
+        curves: [
+          {
+            name: "آگونیست کامل",
+            model: "sigmoidal",
+            parameters: { emax: 100, logEC50: -7 },
+          },
+        ],
+      };
+
+      const { container } = render(<ChartBlock chart={chart} />);
+
+      const curveGroup = container.querySelector('[data-testid="chart-curve-0"]');
+      expect(curveGroup).not.toBeNull();
+
+      const path = curveGroup?.querySelector("path");
+      expect(path).not.toBeNull();
+      const dAttr = path?.getAttribute("d") || "";
+      expect(dAttr.startsWith("M")).toBe(true);
+
+      const lMatches = dAttr.match(/L /g);
+      expect(lMatches?.length).toBe(59); // 1 M + 59 L = 60 sampled points
+    });
+
+    it("demonstrates rightward shift in competitive antagonism (higher logEC50 shifts midpoint to higher X)", () => {
+      const agonistAlone: ParametricCurve = {
+        name: "آگونیست به تنهایی",
+        model: "sigmoidal",
+        parameters: { emax: 100, logEC50: -8 },
+      };
+      const agonistWithAntagonist: ParametricCurve = {
+        name: "آگونیست + آنتاگونیست رقابتی",
+        model: "sigmoidal",
+        parameters: { emax: 100, logEC50: -6 },
+      };
+
+      const chart: EducationalChart = {
+        type: "line",
+        title: "آنتاگونیسم رقابتی برگشت‌پذیر",
+        mode: "conceptual",
+        xAxis: { label: "غلظت آگونیست (M)", scale: "log", min: 1e-10, max: 1e-4 },
+        yAxis: { label: "پاسخ", unit: "%", min: 0, max: 100 },
+        curves: [agonistAlone, agonistWithAntagonist],
+      };
+
+      const { container } = render(<ChartBlock chart={chart} />);
+
+      const path0 = container.querySelector('[data-testid="chart-curve-0"] path')?.getAttribute("d") || "";
+      const path1 = container.querySelector('[data-testid="chart-curve-1"] path')?.getAttribute("d") || "";
+
+      // Parse coordinates from SVG path: "M x y L x y ..."
+      const parseCoords = (d: string) => {
+        return d
+          .replace(/[ML]/g, "")
+          .trim()
+          .split(/\s+/)
+          .reduce<{ x: number; y: number }[]>((acc, val, i, arr) => {
+            if (i % 2 === 0) acc.push({ x: parseFloat(val), y: parseFloat(arr[i + 1]) });
+            return acc;
+          }, []);
+      };
+
+      const coords0 = parseCoords(path0);
+      const coords1 = parseCoords(path1);
+
+      // Find the point closest to 50% response (in screenY space: midpoint is (top + bottom)/2)
+      const findMidpointX = (coords: { x: number; y: number }[]) => {
+        const minY = Math.min(...coords.map((c) => c.y));
+        const maxY = Math.max(...coords.map((c) => c.y));
+        const midY = (minY + maxY) / 2;
+        let closest = coords[0];
+        let minDiff = Math.abs(closest.y - midY);
+        for (const pt of coords) {
+          const diff = Math.abs(pt.y - midY);
+          if (diff < minDiff) {
+            minDiff = diff;
+            closest = pt;
+          }
+        }
+        return closest.x;
+      };
+
+      const midX0 = findMidpointX(coords0);
+      const midX1 = findMidpointX(coords1);
+
+      // Antagonist curve (logEC50 = -6) requires higher concentration than agonist alone (logEC50 = -8)
+      // Thus its screen X at 50% response MUST be significantly to the right (greater screenX)
+      expect(midX1).toBeGreaterThan(midX0);
+    });
+
+    it("demonstrates Emax change between full agonist and partial agonist (different plateaus)", () => {
+      const fullAgonist: ParametricCurve = {
+        name: "آگونیست کامل",
+        model: "sigmoidal",
+        parameters: { emax: 100, logEC50: -7 },
+      };
+      const partialAgonist: ParametricCurve = {
+        name: "آگونیست نسبی",
+        model: "sigmoidal",
+        parameters: { emax: 50, logEC50: -7 },
+        lineStyle: "dashed",
+      };
+
+      const chart: EducationalChart = {
+        type: "line",
+        title: "مقایسه آگونیست کامل و نسبی",
+        mode: "conceptual",
+        xAxis: { label: "غلظت آگونیست (M)", scale: "log", min: 1e-10, max: 1e-4 },
+        yAxis: { label: "پاسخ", unit: "%", min: 0, max: 100 },
+        curves: [fullAgonist, partialAgonist],
+      };
+
+      const { container } = render(<ChartBlock chart={chart} />);
+
+      const pathFull = container.querySelector('[data-testid="chart-curve-0"] path');
+      const pathPartial = container.querySelector('[data-testid="chart-curve-1"] path');
+
+      expect(pathPartial?.getAttribute("stroke-dasharray")).toBe("6,4");
+      expect(pathFull?.getAttribute("stroke-dasharray")).toBeNull();
+
+      const parseFinalY = (d: string) => {
+        const parts = d.trim().split(/\s+/);
+        return parseFloat(parts[parts.length - 1]);
+      };
+
+      const finalYFull = parseFinalY(pathFull?.getAttribute("d") || "");
+      const finalYPartial = parseFinalY(pathPartial?.getAttribute("d") || "");
+
+      // In SVG coordinates, Y=0 is at the top, so higher response value gives smaller screen Y.
+      // Emax=100 (Full) should reach closer to the top than Emax=50 (Partial).
+      expect(finalYFull).toBeLessThan(finalYPartial);
+    });
+
+    it("renders log axis ticks correctly formatted as 10^k", () => {
+      const chart: EducationalChart = {
+        type: "line",
+        title: "محور لگاریتمی غلظت",
+        mode: "conceptual",
+        xAxis: { label: "غلظت", scale: "log", min: 1e-10, max: 1e-4 },
+        yAxis: { label: "پاسخ", unit: "%", min: 0, max: 100 },
+        curves: [
+          {
+            name: "آگونیست",
+            model: "sigmoidal",
+            parameters: { emax: 100, logEC50: -7 },
+          },
+        ],
+      };
+
+      render(<ChartBlock chart={chart} />);
+
+      expect(screen.getByText("10⁻¹⁰")).toBeDefined();
+      expect(screen.getByText("10⁻⁹")).toBeDefined();
+      expect(screen.getByText("10⁻⁸")).toBeDefined();
+      expect(screen.getByText("10⁻⁷")).toBeDefined();
+      expect(screen.getByText("10⁻⁶")).toBeDefined();
+      expect(screen.getByText("10⁻⁵")).toBeDefined();
+      expect(screen.getByText("10⁻⁴")).toBeDefined();
+    });
+
+    it("defensively skips invalid non-positive points (x <= 0) on log axis without mutating original points", () => {
+      const originalPoints = [
+        { x: -5, y: 10 },
+        { x: 0, y: 20 },
+        { x: 1e-7, y: 50 },
+        { x: 1e-5, y: 90 },
+      ];
+
+      const chart: EducationalChart = {
+        type: "line",
+        title: "نقاط داده روی محور لگاریتمی",
+        xAxis: { label: "غلظت (M)", scale: "log", min: 1e-10, max: 1e-4 },
+        series: [
+          {
+            name: "سری داده آزمایشی",
+            data: originalPoints,
+          },
+        ],
+      };
+
+      const { container } = render(<ChartBlock chart={chart} />);
+
+      // Original points must NOT be mutated
+      expect(originalPoints[0].x).toBe(-5);
+      expect(originalPoints[1].x).toBe(0);
+
+      // Only the 2 valid points (1e-7 and 1e-5) should be rendered as circles
+      const circles = container.querySelectorAll("circle");
+      expect(circles.length).toBe(2);
+    });
+
+    it("displays the «نمایش مفهومی / شماتیک» badge only when mode is 'conceptual'", () => {
+      const conceptualChart: EducationalChart = {
+        type: "line",
+        title: "نمودار مفهومی فارماکولوژی",
+        mode: "conceptual",
+        xAxis: { label: "غلظت", scale: "log", min: 1e-10, max: 1e-4 },
+        curves: [{ name: "منحنی", model: "sigmoidal", parameters: { emax: 100, logEC50: -7 } }],
+      };
+
+      const { unmount } = render(<ChartBlock chart={conceptualChart} />);
+      expect(screen.getByTestId("conceptual-badge")).toBeDefined();
+      expect(screen.getByText("نمایش مفهومی / شماتیک")).toBeDefined();
+      unmount();
+
+      const dataChart: EducationalChart = {
+        type: "line",
+        title: "نمودار داده‌محور تجربی",
+        mode: "data",
+        sourceCitation: "Goodman & Gilman 14th ed.",
+        series: [{ name: "داده", data: [{ x: 1, y: 10 }] }],
+      };
+
+      render(<ChartBlock chart={dataChart} />);
+      expect(screen.queryByTestId("conceptual-badge")).toBeNull();
+    });
+
+    it("renders responsively across viewports (320px, 375px, 414px, 768px, 1280px) preserving viewBox and fluid container", () => {
+      const chart: EducationalChart = {
+        type: "line",
+        title: "آزمون واکنش‌گرایی",
+        mode: "conceptual",
+        xAxis: { scale: "log", min: 1e-10, max: 1e-4 },
+        curves: [{ name: "منحنی", model: "sigmoidal", parameters: { emax: 100, logEC50: -7 } }],
+      };
+
+      const viewports = [320, 375, 414, 768, 1280];
+
+      for (const width of viewports) {
+        window.innerWidth = width;
+        const { container, unmount } = render(<ChartBlock chart={chart} />);
+
+        const wrapper = container.querySelector('[data-testid="chart-block"]');
+        expect(wrapper?.className).toContain("max-w-full");
+
+        const svg = container.querySelector("svg[role='img']");
+        expect(svg?.getAttribute("viewBox")).toBe("0 0 560 320");
+        expect(svg?.classList.contains("w-full")).toBe(true);
+
+        unmount();
+      }
+    });
+
+    it("maintains strict backward compatibility for legacy line charts without curves or mode", () => {
+      const legacyChart: EducationalChart = {
+        type: "line",
+        title: "نمودار خطی قدیمی",
+        series: [
+          {
+            name: "سری ۱",
+            data: [
+              { x: 1, y: 10 },
+              { x: 2, y: 20 },
+            ],
+          },
+        ],
+      };
+
+      const { container } = render(<ChartBlock chart={legacyChart} />);
+
+      expect(screen.getByText("نمودار خطی قدیمی")).toBeDefined();
+      expect(screen.queryByTestId("conceptual-badge")).toBeNull();
+      expect(container.querySelectorAll("circle").length).toBe(2);
+      expect(container.querySelector('[data-testid^="chart-curve-"]')).toBeNull();
     });
   });
 });

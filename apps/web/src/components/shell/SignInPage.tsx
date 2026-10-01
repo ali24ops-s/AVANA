@@ -6,7 +6,7 @@
  */
 
 import { useState, useEffect, type FormEvent } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
   Mail,
@@ -23,6 +23,7 @@ import { ApiError } from "../../lib/api/errors.js";
 import { validateAndNormalizeIranPhone } from "@avana/domain";
 import { Button } from "@avana/ui";
 import { WORKER_MODE_ENABLED } from "../../config/features.js";
+import { getSafeInternalRedirect } from "../../utils/urlSecurity.js";
 
 type LoginMethod = "email" | "phone";
 
@@ -36,6 +37,11 @@ function maskPhone(phone?: string | null): string {
 }
 
 export function SignInPage() {
+  const [searchParams] = useSearchParams();
+  const redirectParam = searchParams.get("redirect") || searchParams.get("from");
+  const safeRedirect = getSafeInternalRedirect(redirectParam, "/home");
+  const isTeacherContext = safeRedirect.startsWith("/teacher") || searchParams.get("role") === "teacher";
+
   const [method, setMethod] = useState<LoginMethod>("email");
 
   // Email form state
@@ -60,7 +66,7 @@ export function SignInPage() {
     setIsSubmitting(true);
     try {
       await workerAutoLogin();
-      navigate("/home", { replace: true });
+      navigate(safeRedirect, { replace: true });
     } catch (err) {
       if (err instanceof ApiError) {
         setError(err.message);
@@ -81,12 +87,12 @@ export function SignInPage() {
     return () => clearInterval(timer);
   }, [cooldown]);
 
-  // If already authenticated, redirect to home
+  // If already authenticated, redirect to safeRedirect
   useEffect(() => {
     if (isAuthenticated) {
-      navigate("/home", { replace: true });
+      navigate(safeRedirect, { replace: true });
     }
-  }, [isAuthenticated, navigate]);
+  }, [isAuthenticated, navigate, safeRedirect]);
 
   // Handle Email + Password Sign-in
   async function handleEmailSubmit(e: FormEvent) {
@@ -107,7 +113,7 @@ export function SignInPage() {
     setIsSubmitting(true);
     try {
       await signIn(trimmedEmail, password);
-      navigate("/home", { replace: true });
+      navigate(safeRedirect, { replace: true });
     } catch (err) {
       if (err instanceof ApiError) {
         const errorMsg =
@@ -177,7 +183,7 @@ export function SignInPage() {
     setIsSubmitting(true);
     try {
       await verifyPhoneLoginOtp(validation.normalized, cleanCode);
-      navigate("/home", { replace: true });
+      navigate(safeRedirect, { replace: true });
     } catch (err) {
       if (err instanceof ApiError) {
         setError(err.message);
@@ -237,10 +243,12 @@ export function SignInPage() {
                 <BrandLogo variant="logo-only" size="lg" />
               </div>
               <h1 className="text-xl sm:text-2xl font-bold text-[var(--color-text)]">
-                ورود به آوانا
+                {isTeacherContext ? "ورود به پنل استاد" : "ورود به آوانا"}
               </h1>
               <p className="text-[var(--color-text-muted)] mt-1.5 text-xs sm:text-sm">
-                روش موردنظر خود را برای ورود به حساب کاربری انتخاب کنید.
+                {isTeacherContext
+                  ? "برای دسترسی به پنل مدیریت کلاس‌ها و آزمون‌ها وارد شوید."
+                  : "روش موردنظر خود را برای ورود به حساب کاربری انتخاب کنید."}
               </p>
             </div>
 
@@ -319,12 +327,12 @@ export function SignInPage() {
                     >
                       رمز عبور
                     </label>
-                    <span
-                      className="text-xs text-[var(--color-text-muted)] opacity-60 cursor-not-allowed"
-                      title="بازیابی رمز عبور فعال نیست"
+                    <Link
+                      to="/forgot-password"
+                      className="text-xs text-primary hover:underline transition-colors font-medium"
                     >
-                      رمز عبور را فراموش کرده‌اید؟
-                    </span>
+                      رمز عبورتان را فراموش کرده‌اید؟
+                    </Link>
                   </div>
                   <div className="relative flex items-center" dir="ltr">
                     <Lock className="absolute start-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-muted)] pointer-events-none" />
@@ -526,7 +534,11 @@ export function SignInPage() {
               <div className="text-xs text-[var(--color-text-muted)]">
                 حساب کاربری ندارید؟{" "}
                 <Link
-                  to="/register"
+                  to={
+                    isTeacherContext
+                      ? `/sign-up?redirect=${encodeURIComponent(safeRedirect)}&role=teacher`
+                      : "/register"
+                  }
                   className="font-bold text-primary hover:underline transition-colors"
                 >
                   ثبت‌نام کنید

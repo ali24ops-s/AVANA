@@ -19,6 +19,7 @@ import {
 import { useAdmin } from "../../../hooks/useAdmin.js";
 import type { OfficialCourse } from "../../../lib/api/admin.js";
 import { AdminCourseDeleteModal } from "../courses/AdminCourseDeleteModal.js";
+import { ACADEMIC_FIELDS } from "@avana/domain";
 
 export interface CourseSettingsPanelProps {
   course: OfficialCourse;
@@ -32,6 +33,9 @@ export function CourseSettingsPanel({ course, onRefresh }: CourseSettingsPanelPr
   // Form state
   const [name, setName] = useState(course.name || "");
   const [subject, setSubject] = useState(course.subject || "");
+  const [targetAcademicFields, setTargetAcademicFields] = useState<string[]>(
+    course.targetAcademicFields || [],
+  );
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -52,7 +56,8 @@ export function CourseSettingsPanel({ course, onRefresh }: CourseSettingsPanelPr
   useEffect(() => {
     setName(course.name || "");
     setSubject(course.subject || "");
-  }, [course.name, course.subject]);
+    setTargetAcademicFields(course.targetAcademicFields || []);
+  }, [course.name, course.subject, course.targetAcademicFields]);
 
   const handleCopyId = async () => {
     try {
@@ -79,6 +84,7 @@ export function CourseSettingsPanel({ course, onRefresh }: CourseSettingsPanelPr
       const res = await adminApi.updateCourseMetadata(course.id, {
         name: name.trim(),
         subject: subject.trim() || undefined,
+        targetAcademicFields,
       });
 
       if (res && res.success) {
@@ -95,6 +101,20 @@ export function CourseSettingsPanel({ course, onRefresh }: CourseSettingsPanelPr
       setSaving(false);
     }
   };
+
+  const handleToggleAcademicField = (fieldId: string) => {
+    setTargetAcademicFields((prev) =>
+      prev.includes(fieldId)
+        ? prev.filter((id) => id !== fieldId)
+        : [...prev, fieldId],
+    );
+  };
+
+  const hasChanges =
+    name !== course.name ||
+    subject !== (course.subject || "") ||
+    JSON.stringify(targetAcademicFields) !==
+      JSON.stringify(course.targetAcademicFields || []);
 
   const handleArchiveCourse = async () => {
     try {
@@ -190,6 +210,36 @@ export function CourseSettingsPanel({ course, onRefresh }: CourseSettingsPanelPr
                 />
               </div>
 
+              <div>
+                <label className="block text-xs font-bold text-[var(--color-text)] mb-2">
+                  رشته‌های تحصیلی هدف (جهت پیشنهاد و رتبه‌بندی به دانشجویان)
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 p-3 bg-[var(--color-surface-subtle)] border border-[var(--color-border)] rounded-xl">
+                  {ACADEMIC_FIELDS.map((field) => {
+                    const isChecked = targetAcademicFields.includes(field.id);
+                    return (
+                      <label
+                        key={field.id}
+                        className={`flex items-center gap-2 p-2 rounded-lg cursor-pointer text-xs transition-colors select-none ${
+                          isChecked
+                            ? "bg-primary/10 text-primary font-bold border border-primary/20"
+                            : "hover:bg-[var(--color-surface)] text-[var(--color-text-muted)] border border-transparent"
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => handleToggleAcademicField(field.id)}
+                          disabled={saving}
+                          className="rounded border-[var(--color-border)] text-primary focus:ring-primary"
+                        />
+                        <span>{field.label}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
               {course.description && (
                 <div>
                   <label className="block text-xs font-bold text-[var(--color-text-muted)] mb-2">
@@ -205,7 +255,7 @@ export function CourseSettingsPanel({ course, onRefresh }: CourseSettingsPanelPr
             <div className="pt-3 border-t border-[var(--color-border)] flex items-center justify-end">
               <button
                 type="submit"
-                disabled={saving || (name === course.name && subject === (course.subject || ""))}
+                disabled={saving || !hasChanges}
                 className="px-6 py-2.5 rounded-xl bg-[var(--color-primary-default)] hover:bg-[var(--color-primary-dark)] disabled:opacity-50 disabled:cursor-not-allowed text-[var(--color-primary-contrast)] text-xs font-bold transition-all shadow-sm flex items-center gap-2"
               >
                 {saving ? (

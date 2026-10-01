@@ -1,4 +1,4 @@
-import { count, eq, ne, sql, gte, lte, gt, ilike, or, desc, isNull, isNotNull, and, inArray, type SQL } from "drizzle-orm";
+import { count, eq, ne, sql, gte, lte, gt, ilike, or, desc, isNull, isNotNull, and, inArray, notInArray, type SQL } from "drizzle-orm";
 import type { DbClient } from "@avana/database/client";
 import { randomUUID } from "node:crypto";
 import {
@@ -23,9 +23,16 @@ import {
   userEntitlements,
   contentPacks,
   systemConfigurations,
+  classrooms,
+  classroomMembers,
+  teacherExams,
+  teacherExamQuestions,
+  teacherExamAttempts,
 } from "@avana/database/schema";
 import {
   resolveEffectiveRole,
+  Roles,
+  ORGANIZATION_ROLE_PRECEDENCE,
   calculateSubscriptionExpiry,
   resolveCanonicalContentTitle,
   type Role,
@@ -42,6 +49,7 @@ import {
   DEFAULT_SUBSCRIPTION_CREDIT_BONUSES,
   SUBSCRIPTION_CREDIT_BONUSES_CONFIG_KEY,
   asPromotionId,
+  normalizeAcademicFields,
 } from "@avana/domain";
 import { PromotionService } from "../commerce/promotion-service.js";
 import { checkRedisHealth } from "./redis-health.js";
@@ -56,6 +64,13 @@ import type {
   AdminDocumentRecord,
   AdminSystemHealth,
   AdminStoreOptions,
+  AdminTeacherRecord,
+  AdminTeacherStats,
+  AdminTeachersList,
+  AdminTeacherClassroom,
+  AdminTeacherExam,
+  AdminTeacherActivity,
+  AdminTeacherOverview,
   AdminLogRecord,
   AdminAuditRecord,
   AdminLessonRecord,
@@ -78,6 +93,38 @@ import type {
   AdminUserCommerceProfile,
   AdminGrantInput,
 } from "./admin-store.js";
+
+function safeToIsoString(val: unknown, fallback = new Date().toISOString()): string {
+  if (val === null || val === undefined) return fallback;
+  if (val instanceof Date) {
+    return isNaN(val.getTime()) ? fallback : val.toISOString();
+  }
+  if (typeof val === "string") {
+    const d = new Date(val);
+    return isNaN(d.getTime()) ? val : d.toISOString();
+  }
+  if (typeof val === "number") {
+    const d = new Date(val);
+    return isNaN(d.getTime()) ? fallback : d.toISOString();
+  }
+  return fallback;
+}
+
+function safeToIsoOrNull(val: unknown): string | null {
+  if (val === null || val === undefined) return null;
+  if (val instanceof Date) {
+    return isNaN(val.getTime()) ? null : val.toISOString();
+  }
+  if (typeof val === "string") {
+    const d = new Date(val);
+    return isNaN(d.getTime()) ? val : d.toISOString();
+  }
+  if (typeof val === "number") {
+    const d = new Date(val);
+    return isNaN(d.getTime()) ? null : d.toISOString();
+  }
+  return null;
+}
 
 export class DrizzleAdminStore implements AdminStore {
   constructor(
@@ -152,14 +199,72 @@ export class DrizzleAdminStore implements AdminStore {
     }
 
     if (role) {
-      conditions.push(
-        inArray(
-          users.id,
-          this.db.select({ userId: organizationMemberships.userId })
-            .from(organizationMemberships)
-            .where(eq(organizationMemberships.role, role))
-        )
-      );
+      if (role === Roles.platform_admin) {
+        conditions.push(eq(users.globalRole, Roles.platform_admin));
+      } else if (role === Roles.content_worker) {
+        const higherRoles: Role[] = [Roles.support_agent, Roles.organization_admin, Roles.course_editor];
+        conditions.push(
+          or(
+            eq(users.globalRole, Roles.content_worker),
+            and(
+              or(isNull(users.globalRole), ne(users.globalRole, Roles.platform_admin)),
+              notInArray(
+                users.id,
+                this.db
+                  .select({ userId: organizationMemberships.userId })
+                  .from(organizationMemberships)
+                  .where(inArray(organizationMemberships.role, higherRoles))
+              ),
+              inArray(
+                users.id,
+                this.db
+                  .select({ userId: organizationMemberships.userId })
+                  .from(organizationMemberships)
+                  .where(eq(organizationMemberships.role, Roles.content_worker))
+              )
+            )
+          )
+        );
+      } else if (role === Roles.student) {
+        const higherRoles = ORGANIZATION_ROLE_PRECEDENCE.filter((r) => r !== Roles.student);
+        conditions.push(
+          and(
+            or(isNull(users.globalRole), and(ne(users.globalRole, Roles.platform_admin), ne(users.globalRole, Roles.content_worker))),
+            notInArray(
+              users.id,
+              this.db
+                .select({ userId: organizationMemberships.userId })
+                .from(organizationMemberships)
+                .where(inArray(organizationMemberships.role, higherRoles))
+            )
+          )
+        );
+      } else {
+        const roleIndex = ORGANIZATION_ROLE_PRECEDENCE.indexOf(role as Role);
+        const higherRoles = roleIndex > 0 ? ORGANIZATION_ROLE_PRECEDENCE.slice(0, roleIndex) : [];
+        const roleConditions: Array<SQL | undefined> = [
+          or(isNull(users.globalRole), and(ne(users.globalRole, Roles.platform_admin), ne(users.globalRole, Roles.content_worker))),
+          inArray(
+            users.id,
+            this.db
+              .select({ userId: organizationMemberships.userId })
+              .from(organizationMemberships)
+              .where(eq(organizationMemberships.role, role))
+          ),
+        ];
+        if (higherRoles.length > 0) {
+          roleConditions.push(
+            notInArray(
+              users.id,
+              this.db
+                .select({ userId: organizationMemberships.userId })
+                .from(organizationMemberships)
+                .where(inArray(organizationMemberships.role, higherRoles))
+            )
+          );
+        }
+        conditions.push(and(...roleConditions));
+      }
     }
 
     const whereClause = and(...conditions);
@@ -194,7 +299,7 @@ export class DrizzleAdminStore implements AdminStore {
       totalCount: totalRes[0].count,
       users: userRows.map((u) => {
         const userRoles = rolesMap.get(u.id) || [];
-        const effectiveRole = resolveEffectiveRole(userRoles);
+        const effectiveRole = resolveEffectiveRole(u.globalRole, userRoles);
         return {
           id: u.id,
           email: u.email,
@@ -1141,33 +1246,40 @@ export class DrizzleAdminStore implements AdminStore {
     await this.db.transaction(async (tx) => {
       const memberships = await tx.select().from(organizationMemberships)
         .where(eq(organizationMemberships.userId, targetUserId));
-      
-      if (memberships.length === 0) {
-        throw new Error("user_has_no_org");
-      }
-      
-      if (memberships.length > 1) {
-        throw new Error("multi_org_requires_explicit_handling");
-      }
-      
-      const membership = memberships[0];
-      
-      if (newRole === "platform_admin") {
+
+      if (newRole === Roles.platform_admin) {
         await tx.update(users)
-          .set({ globalRole: "platform_admin", updatedAt: new Date() })
+          .set({ globalRole: Roles.platform_admin, updatedAt: new Date() })
           .where(eq(users.id, targetUserId));
-      } else if (newRole === "content_worker") {
+      } else if (newRole === Roles.content_worker) {
         await tx.update(users)
-          .set({ globalRole: "content_worker", updatedAt: new Date() })
+          .set({ globalRole: Roles.content_worker, updatedAt: new Date() })
           .where(eq(users.id, targetUserId));
+      } else if (newRole === Roles.student) {
+        await tx.update(users)
+          .set({ globalRole: null, updatedAt: new Date() })
+          .where(eq(users.id, targetUserId));
+
+        if (memberships.length === 1) {
+          await tx.update(organizationMemberships)
+            .set({ role: Roles.student, updatedAt: new Date() })
+            .where(eq(organizationMemberships.id, memberships[0].id));
+        }
       } else {
+        if (memberships.length === 0) {
+          throw new Error("user_has_no_org");
+        }
+        if (memberships.length > 1) {
+          throw new Error("multi_org_requires_explicit_handling");
+        }
+
         await tx.update(users)
           .set({ globalRole: null, updatedAt: new Date() })
           .where(eq(users.id, targetUserId));
 
         await tx.update(organizationMemberships)
           .set({ role: newRole, updatedAt: new Date() })
-          .where(eq(organizationMemberships.id, membership.id));
+          .where(eq(organizationMemberships.id, memberships[0].id));
       }
 
       await tx.insert(auditLogs).values({
@@ -1176,17 +1288,29 @@ export class DrizzleAdminStore implements AdminStore {
         action: "USER_ROLE_CHANGED",
         entityType: "user",
         entityId: targetUserId,
-        details: { newRole, organizationId: membership.organizationId },
+        details: { newRole, organizationId: memberships.length > 0 ? memberships[0].organizationId : null },
         createdAt: new Date()
       });
     });
   }
   
-  async updateCourseMetadata(adminId: string, courseId: string, payload: { name?: string; subject?: string }): Promise<void> {
+  async updateCourseMetadata(
+    adminId: string,
+    courseId: string,
+    payload: { name?: string; subject?: string; targetAcademicFields?: string[] },
+  ): Promise<void> {
     await this.db.transaction(async (tx) => {
-      const updateData: { updatedAt: Date; name?: string; subject?: string } = { updatedAt: new Date() };
+      const updateData: {
+        updatedAt: Date;
+        name?: string;
+        subject?: string;
+        targetAcademicFields?: any;
+      } = { updatedAt: new Date() };
       if (payload.name !== undefined) updateData.name = payload.name;
       if (payload.subject !== undefined) updateData.subject = payload.subject;
+      if (payload.targetAcademicFields !== undefined) {
+        updateData.targetAcademicFields = normalizeAcademicFields(payload.targetAcademicFields);
+      }
       
       const [res] = await tx.update(courses)
         .set(updateData)
@@ -3388,5 +3512,438 @@ export class DrizzleAdminStore implements AdminStore {
     params: { page: number; pageSize: number },
   ): Promise<{ items: any[]; totalCount: number }> {
     return this.promotionService.listPromotionRedemptions(asPromotionId(id as any), params);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Teacher Platform Management
+  // ---------------------------------------------------------------------------
+
+  async listTeachers(params: {
+    page: number;
+    pageSize: number;
+    search?: string;
+    status?: string;
+  }): Promise<AdminTeachersList> {
+    const { page, pageSize, search, status } = params;
+    const offset = (page - 1) * pageSize;
+
+    const roleIndex = ORGANIZATION_ROLE_PRECEDENCE.indexOf(Roles.teacher);
+    const higherRoles = roleIndex > 0 ? ORGANIZATION_ROLE_PRECEDENCE.slice(0, roleIndex) : [];
+
+    const teacherRoleConditions: Array<SQL | undefined> = [
+      eq(users.globalRole, Roles.teacher),
+      and(
+        or(isNull(users.globalRole), and(ne(users.globalRole, Roles.platform_admin), ne(users.globalRole, Roles.content_worker))),
+        inArray(
+          users.id,
+          this.db
+            .select({ userId: organizationMemberships.userId })
+            .from(organizationMemberships)
+            .where(eq(organizationMemberships.role, Roles.teacher))
+        ),
+        higherRoles.length > 0
+          ? notInArray(
+              users.id,
+              this.db
+                .select({ userId: organizationMemberships.userId })
+                .from(organizationMemberships)
+                .where(inArray(organizationMemberships.role, higherRoles))
+            )
+          : undefined,
+      ),
+      inArray(
+        users.id,
+        this.db
+          .select({ teacherId: classrooms.teacherId })
+          .from(classrooms)
+      ),
+    ];
+
+    const conditions: Array<SQL | undefined> = [
+      isNull(users.deletedAt),
+      or(...teacherRoleConditions),
+    ];
+
+    if (search && search.trim()) {
+      const s = `%${search.trim()}%`;
+      conditions.push(
+        or(
+          ilike(users.email, s),
+          ilike(users.name, s)
+        )
+      );
+    }
+
+    if (status && status !== "all") {
+      if (status === "approved" || status === "active") {
+        conditions.push(eq(users.teacherStatus, "approved"));
+      } else if (status === "pending" || status === "inactive") {
+        conditions.push(eq(users.teacherStatus, "pending"));
+      } else if (status === "rejected") {
+        conditions.push(eq(users.teacherStatus, "rejected"));
+      }
+    }
+
+    const whereClause = and(...conditions);
+
+    const [countResult, userRows] = await Promise.all([
+      this.db.select({ count: count() }).from(users).where(whereClause),
+      this.db.select().from(users).where(whereClause).limit(pageSize).offset(offset).orderBy(desc(users.createdAt)),
+    ]);
+
+    const totalCount = Number(countResult[0]?.count ?? 0);
+    const userIds = userRows.map((u) => u.id);
+
+    const allTeachersWhere = and(isNull(users.deletedAt), or(...teacherRoleConditions));
+    const [globalTeachersCountRes, allClassrooms, allMembers, allExams] = await Promise.all([
+      this.db.select({ count: count() }).from(users).where(allTeachersWhere),
+      this.db.select({ id: classrooms.id, teacherId: classrooms.teacherId }).from(classrooms),
+      this.db
+        .select({ studentId: classroomMembers.studentId, classroomId: classroomMembers.classroomId })
+        .from(classroomMembers)
+        .where(eq(classroomMembers.status, "active")),
+      this.db.select({ id: teacherExams.id, classroomId: teacherExams.classroomId }).from(teacherExams),
+    ]);
+
+    const totalTeachers = Number(globalTeachersCountRes[0]?.count ?? 0);
+    const totalClassrooms = allClassrooms.length;
+    const totalExams = allExams.length;
+
+    const uniqueStudentIds = new Set(allMembers.map((m) => m.studentId));
+    const totalStudents = uniqueStudentIds.size;
+
+    const stats: AdminTeacherStats = {
+      totalTeachers,
+      totalClassrooms,
+      totalExams,
+      totalStudents,
+    };
+
+    if (userIds.length === 0) {
+      return {
+        teachers: [],
+        totalCount,
+        stats,
+      };
+    }
+
+    const classroomsByTeacher = new Map<string, string[]>();
+    for (const c of allClassrooms) {
+      const existing = classroomsByTeacher.get(c.teacherId) || [];
+      existing.push(c.id);
+      classroomsByTeacher.set(c.teacherId, existing);
+    }
+
+    const examsByClassroom = new Map<string, number>();
+    for (const e of allExams) {
+      examsByClassroom.set(e.classroomId, (examsByClassroom.get(e.classroomId) || 0) + 1);
+    }
+
+    const membersByClassroom = new Map<string, Set<string>>();
+    for (const m of allMembers) {
+      const set = membersByClassroom.get(m.classroomId) || new Set<string>();
+      set.add(m.studentId);
+      membersByClassroom.set(m.classroomId, set);
+    }
+
+    const teachers: AdminTeacherRecord[] = userRows.map((u) => {
+      const classroomIds = classroomsByTeacher.get(u.id) || [];
+      const classroomsCount = classroomIds.length;
+
+      let examsCount = 0;
+      const teacherStudentSet = new Set<string>();
+
+      for (const cId of classroomIds) {
+        examsCount += examsByClassroom.get(cId) || 0;
+        const cMembers = membersByClassroom.get(cId);
+        if (cMembers) {
+          for (const sId of cMembers) {
+            teacherStudentSet.add(sId);
+          }
+        }
+      }
+
+      return {
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        role: "teacher",
+        teacherStatus: (u.teacherStatus as "pending" | "approved" | "rejected") || "approved",
+        emailVerified: !!u.emailVerifiedAt,
+        createdAt: safeToIsoString(u.createdAt),
+        lastActiveAt: safeToIsoString(u.updatedAt),
+        classroomsCount,
+        examsCount,
+        studentsCount: teacherStudentSet.size,
+      };
+    });
+
+    return {
+      teachers,
+      totalCount,
+      stats,
+    };
+  }
+
+  async getTeacherOverview(teacherId: string): Promise<AdminTeacherOverview> {
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(teacherId);
+    if (!isUuid) {
+      throw new Error("teacher_not_found");
+    }
+
+    const [userRecord] = await this.db
+      .select()
+      .from(users)
+      .where(and(eq(users.id, teacherId), isNull(users.deletedAt)))
+      .limit(1);
+
+    if (!userRecord) {
+      throw new Error("teacher_not_found");
+    }
+
+    const classroomRows = await this.db
+      .select({
+        classroom: classrooms,
+        course: { id: courses.id, name: courses.name },
+      })
+      .from(classrooms)
+      .leftJoin(courses, and(eq(classrooms.courseId, courses.id), isNull(courses.deletedAt)))
+      .where(eq(classrooms.teacherId, teacherId))
+      .orderBy(desc(classrooms.createdAt));
+
+    const classroomIds = classroomRows.map((r) => r.classroom.id).filter(Boolean);
+
+    let memberRows: Array<{ classroomId: string; studentId: string; status: string }> = [];
+    let examRows: Array<typeof teacherExams.$inferSelect> = [];
+    let questionRows: Array<{ id: string; examId: string }> = [];
+    let attemptRows: Array<typeof teacherExamAttempts.$inferSelect & { studentName?: string; studentEmail?: string }> = [];
+
+    if (classroomIds.length > 0) {
+      const [members, exams] = await Promise.all([
+        this.db
+          .select({
+            classroomId: classroomMembers.classroomId,
+            studentId: classroomMembers.studentId,
+            status: classroomMembers.status,
+          })
+          .from(classroomMembers)
+          .where(and(inArray(classroomMembers.classroomId, classroomIds), eq(classroomMembers.status, "active"))),
+        this.db
+          .select()
+          .from(teacherExams)
+          .where(inArray(teacherExams.classroomId, classroomIds))
+          .orderBy(desc(teacherExams.createdAt)),
+      ]);
+      memberRows = members;
+      examRows = exams;
+
+      const examIds = examRows.map((e) => e.id).filter(Boolean);
+      if (examIds.length > 0) {
+        const [questions, rawAttempts] = await Promise.all([
+          this.db
+            .select({ id: teacherExamQuestions.id, examId: teacherExamQuestions.examId })
+            .from(teacherExamQuestions)
+            .where(inArray(teacherExamQuestions.examId, examIds)),
+          this.db
+            .select({
+              attempt: teacherExamAttempts,
+              student: { id: users.id, name: users.name, email: users.email },
+            })
+            .from(teacherExamAttempts)
+            .leftJoin(users, eq(teacherExamAttempts.studentId, users.id))
+            .where(inArray(teacherExamAttempts.examId, examIds))
+            .orderBy(desc(teacherExamAttempts.startedAt)),
+        ]);
+        questionRows = questions;
+        attemptRows = rawAttempts.map((r) => ({
+          ...r.attempt,
+          studentName: r.student?.name ?? "دانش‌آموز",
+          studentEmail: r.student?.email ?? "",
+        }));
+      }
+    }
+
+    const membersByClassroomId = new Map<string, Set<string>>();
+    const uniqueTeacherStudents = new Set<string>();
+    for (const m of memberRows) {
+      const set = membersByClassroomId.get(m.classroomId) || new Set<string>();
+      set.add(m.studentId);
+      membersByClassroomId.set(m.classroomId, set);
+      uniqueTeacherStudents.add(m.studentId);
+    }
+
+    const examsByClassroomId = new Map<string, number>();
+    const classroomTitleById = new Map<string, string>();
+    for (const r of classroomRows) {
+      classroomTitleById.set(r.classroom.id, r.classroom.title);
+    }
+    for (const e of examRows) {
+      examsByClassroomId.set(e.classroomId, (examsByClassroomId.get(e.classroomId) || 0) + 1);
+    }
+
+    const questionsByExamId = new Map<string, number>();
+    for (const q of questionRows) {
+      questionsByExamId.set(q.examId, (questionsByExamId.get(q.examId) || 0) + 1);
+    }
+
+    const attemptsByExamId = new Map<string, number>();
+    const scoresByExamId = new Map<string, { total: number; count: number }>();
+    for (const a of attemptRows) {
+      attemptsByExamId.set(a.examId, (attemptsByExamId.get(a.examId) || 0) + 1);
+      if (a.score !== null && a.score !== undefined && (a.status === "submitted" || a.status === "graded" || a.status === "timed_out")) {
+        const scoreNum = Number(a.score);
+        const maxScoreNum = Number(a.maxScore) || 100;
+        const percentageNum = a.percentage !== null && a.percentage !== undefined ? Number(a.percentage) : (maxScoreNum > 0 ? (scoreNum / maxScoreNum) * 100 : 0);
+        if (!isNaN(percentageNum)) {
+          const current = scoresByExamId.get(a.examId) || { total: 0, count: 0 };
+          current.total += percentageNum;
+          current.count += 1;
+          scoresByExamId.set(a.examId, current);
+        }
+      }
+    }
+
+    const classroomsList: AdminTeacherClassroom[] = classroomRows.map((r) => ({
+      id: r.classroom.id,
+      title: r.classroom.title,
+      description: r.classroom.description ?? null,
+      inviteCode: r.classroom.inviteCode,
+      status: r.classroom.status,
+      createdAt: safeToIsoString(r.classroom.createdAt),
+      courseId: r.course?.id ?? null,
+      courseTitle: r.course?.name ?? null,
+      membersCount: (membersByClassroomId.get(r.classroom.id) || new Set()).size,
+      examsCount: examsByClassroomId.get(r.classroom.id) || 0,
+    }));
+
+    const examsList: AdminTeacherExam[] = examRows.map((e) => {
+      const scoreObj = scoresByExamId.get(e.id);
+      const averageScore = scoreObj && scoreObj.count > 0 ? Math.round((scoreObj.total / scoreObj.count) * 10) / 10 : null;
+      return {
+        id: e.id,
+        classroomId: e.classroomId,
+        classroomTitle: classroomTitleById.get(e.classroomId) || "کلاس",
+        title: e.title,
+        status: e.status,
+        durationMinutes: e.durationMinutes ?? null,
+        startsAt: safeToIsoString(e.startsAt),
+        endsAt: safeToIsoString(e.endsAt),
+        questionsCount: questionsByExamId.get(e.id) || 0,
+        attemptsCount: attemptsByExamId.get(e.id) || 0,
+        averageScore,
+      };
+    });
+
+    const recentActivity: AdminTeacherActivity[] = attemptRows.slice(0, 10).map((a) => {
+      const examTitle = examRows.find((e) => e.id === a.examId)?.title || "آزمون";
+      const classroomId = examRows.find((e) => e.id === a.examId)?.classroomId;
+      const classroomTitle = (classroomId && classroomTitleById.get(classroomId)) || "کلاس";
+      return {
+        attemptId: a.id,
+        studentId: a.studentId,
+        studentName: a.studentName || "دانش‌آموز",
+        studentEmail: a.studentEmail || "",
+        examId: a.examId,
+        examTitle,
+        classroomTitle,
+        status: a.status,
+        score: a.score !== null && a.score !== undefined ? Number(a.score) : null,
+        maxScore: a.maxScore !== null && a.maxScore !== undefined ? Number(a.maxScore) : null,
+        percentage: a.percentage !== null && a.percentage !== undefined ? Number(a.percentage) : null,
+        passed: a.passed ?? null,
+        startedAt: safeToIsoString(a.startedAt),
+        submittedAt: safeToIsoOrNull(a.submittedAt),
+      };
+    });
+
+    return {
+      teacher: {
+        id: userRecord.id,
+        name: userRecord.name,
+        email: userRecord.email,
+        role: "teacher",
+        teacherStatus: (userRecord.teacherStatus as "pending" | "approved" | "rejected") || "approved",
+        emailVerified: !!userRecord.emailVerifiedAt,
+        createdAt: safeToIsoString(userRecord.createdAt),
+        lastActiveAt: safeToIsoString(userRecord.updatedAt),
+      },
+      stats: {
+        classroomsCount: classroomRows.length,
+        examsCount: examRows.length,
+        studentsCount: uniqueTeacherStudents.size,
+        attemptsCount: attemptRows.length,
+      },
+      classrooms: classroomsList,
+      exams: examsList,
+      recentActivity,
+    };
+  }
+
+  async approveTeacher(adminId: string, teacherId: string): Promise<void> {
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(teacherId);
+    if (!isUuid) {
+      throw new Error("teacher_not_found");
+    }
+
+    await this.db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select()
+        .from(users)
+        .where(and(eq(users.id, teacherId), isNull(users.deletedAt)))
+        .limit(1);
+
+      if (!existing) {
+        throw new Error("teacher_not_found");
+      }
+
+      await tx
+        .update(users)
+        .set({ teacherStatus: "approved", updatedAt: new Date() })
+        .where(eq(users.id, teacherId));
+
+      await tx.insert(auditLogs).values({
+        id: randomUUID(),
+        actorId: adminId,
+        action: "TEACHER_APPROVED",
+        entityType: "teacher",
+        entityId: teacherId,
+        details: { previousStatus: existing.teacherStatus, newStatus: "approved" },
+        createdAt: new Date(),
+      });
+    });
+  }
+
+  async rejectTeacher(adminId: string, teacherId: string, reason?: string): Promise<void> {
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(teacherId);
+    if (!isUuid) {
+      throw new Error("teacher_not_found");
+    }
+
+    await this.db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select()
+        .from(users)
+        .where(and(eq(users.id, teacherId), isNull(users.deletedAt)))
+        .limit(1);
+
+      if (!existing) {
+        throw new Error("teacher_not_found");
+      }
+
+      await tx
+        .update(users)
+        .set({ teacherStatus: "rejected", updatedAt: new Date() })
+        .where(eq(users.id, teacherId));
+
+      await tx.insert(auditLogs).values({
+        id: randomUUID(),
+        actorId: adminId,
+        action: "TEACHER_REJECTED",
+        entityType: "teacher",
+        entityId: teacherId,
+        details: { previousStatus: existing.teacherStatus, newStatus: "rejected", reason: reason || null },
+        createdAt: new Date(),
+      });
+    });
   }
 }

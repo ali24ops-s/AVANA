@@ -202,6 +202,36 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
     return reply.send(result);
   });
 
+  app.get("/teachers", async (request, reply) => {
+    const query = request.query as { page?: string; pageSize?: string; search?: string; status?: string };
+    const page = query.page ? parseInt(query.page, 10) : 1;
+    const pageSize = query.pageSize ? parseInt(query.pageSize, 10) : 20;
+
+    const result = await adminService.listTeachers(page, pageSize, query.search, query.status);
+    return reply.send(result);
+  });
+
+  app.get<{ Params: { id: string } }>("/teachers/:id", async (request, reply) => {
+    const { id } = request.params;
+    const result = await adminService.getTeacherOverview(id);
+    return reply.send(result);
+  });
+
+  app.post<{ Params: { id: string } }>("/teachers/:id/approve", async (request, reply) => {
+    const user = (request as unknown as { user: { userId: string } }).user;
+    const { id } = request.params;
+    await adminService.approveTeacher(user.userId, id);
+    return reply.send({ success: true, teacherId: id, status: "approved" });
+  });
+
+  app.post<{ Params: { id: string }; Body: { reason?: string } }>("/teachers/:id/reject", async (request, reply) => {
+    const user = (request as unknown as { user: { userId: string } }).user;
+    const { id } = request.params;
+    const body = (request.body || {}) as { reason?: string };
+    await adminService.rejectTeacher(user.userId, id, body.reason);
+    return reply.send({ success: true, teacherId: id, status: "rejected" });
+  });
+
   app.get("/generation", async (request, reply) => {
     const query = request.query as { page?: string; pageSize?: string; status?: string };
     const page = query.page ? parseInt(query.page, 10) : 1;
@@ -1268,7 +1298,15 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
     }
   );
 
-  app.patch<{ Params: { id: string }; Body: { name?: string; subject?: string } }>(
+  app.patch<{
+    Params: { id: string };
+    Body: {
+      name?: string;
+      subject?: string;
+      target_academic_fields?: string[];
+      targetAcademicFields?: string[];
+    };
+  }>(
     "/courses/:id",
     async (request, reply) => {
       const user = (request as unknown as { user: { userId: string; email: string; role: string } }).user;
@@ -1276,13 +1314,23 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
       const { id } = request.params;
       const body = request.body || {};
 
-      const payload: { name?: string; subject?: string } = {};
+      const payload: {
+        name?: string;
+        subject?: string;
+        targetAcademicFields?: string[];
+      } = {};
       if (typeof body.name === "string" && body.name.trim().length > 0) {
         payload.name = body.name.trim();
       }
       if (body.subject !== undefined) {
         if (typeof body.subject === "string") {
           payload.subject = body.subject.trim();
+        }
+      }
+      if (body.target_academic_fields !== undefined || body.targetAcademicFields !== undefined) {
+        const fields = body.target_academic_fields ?? body.targetAcademicFields;
+        if (Array.isArray(fields)) {
+          payload.targetAcademicFields = fields;
         }
       }
 
@@ -2121,13 +2169,23 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
 
     // 1. Create Official Course
     app.post<{
-      Body: { name: string; subject?: string | null; description?: string | null; examDate?: string | null };
+      Body: {
+        name: string;
+        subject?: string | null;
+        description?: string | null;
+        examDate?: string | null;
+        target_academic_fields?: string[] | null;
+        targetAcademicFields?: string[] | null;
+      };
     }>("/content-studio/courses", async (request, reply) => {
       const user = (request as unknown as { user: { userId: string; role: Role } }).user;
       const body = request.body || {};
       const course = await officialContentService.createOfficialCourse(
         { userId: asUserId(user.userId as unknown as import("@avana/domain").UUID), role: user.role },
-        body,
+        {
+          ...body,
+          targetAcademicFields: body.target_academic_fields ?? body.targetAcademicFields ?? null,
+        },
       );
       return reply.status(201).send({ success: true, course });
     });

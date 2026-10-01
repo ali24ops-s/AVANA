@@ -11,6 +11,7 @@ export interface CourseSearchItem {
   id: CourseId;
   name: string;
   subject: string | null;
+  targetAcademicFields?: string[] | null;
   organizationId: OrganizationId;
   createdAt: string;
 }

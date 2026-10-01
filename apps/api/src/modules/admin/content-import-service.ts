@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import path from "node:path";
 import JSZip from "jszip";
-import { eq, and, isNull, inArray, sql } from "drizzle-orm";
+import { eq, and, isNull, isNotNull, inArray, sql } from "drizzle-orm";
 import type { DbClient } from "@avana/database/client";
 import {
   courses,
@@ -1054,6 +1054,19 @@ export class ContentImportService {
             qualityLevel: doc.qualityLevel,
             qualityReport: doc.qualityReport,
           };
+
+          // Purge any soft-deleted document with the same sha256 in the same org
+          // to satisfy the idx_documents_org_hash unique constraint, adhering to
+          // the semantics in DrizzleDocumentStore.create.
+          await tx
+            .delete(documents)
+            .where(
+              and(
+                eq(documents.organizationId, organizationId),
+                eq(documents.sha256, doc.sha256),
+                isNotNull(documents.deletedAt),
+              ),
+            );
 
           await tx.insert(documents).values(newDocRecord);
 

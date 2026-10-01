@@ -17,6 +17,7 @@ import type {
   OrganizationId,
 } from "./ids.js";
 import type { ChemicalStructure, ChemicalReaction } from "./chemistry/types.js";
+import type { SuggestedVisualization } from "./chart/types.js";
 
 // ---------------------------------------------------------------------------
 // Incremental / Resumable Generation Primitives
@@ -654,6 +655,7 @@ export type ContentPlan = {
     relevantChunkIds: string[];
     targetFlashcardCount: number;
     targetQuizCount: number;
+    suggestedVisualizations?: SuggestedVisualization[];
   }>;
   highYieldFacts: Array<{
     id: string;

@@ -460,6 +460,9 @@ describe("Admin Content Generation = Gemini ONLY Guarantee", () => {
     const regenResult = await reviewService.regenerateContent(adminActor, systemOrgId, lessonDraft!.id);
     expect(regenResult.status).toBe("regenerating");
 
+    // Clear chunk cache for this regeneration so worker generates a fresh draft
+    await generationChunkStore.deleteByDocumentAndStages(documentId, ["lesson"], systemOrgId);
+
     // 4. Simulate BullMQ worker processing the regenerate job
     const mockBullJob = {
       id: regenResult.job_id,
@@ -815,5 +818,199 @@ describe("Admin Content Generation = Gemini ONLY Guarantee", () => {
         generationContext: "admin",
       }),
     ).rejects.toThrow("Admin generation invariant violation");
+  });
+
+  // -------------------------------------------------------------------------
+  // L — Admin Malformed JSON Flashcard Retry: Retries strictly with Gemini
+  // -------------------------------------------------------------------------
+  it("Scenario L: Gemini returns malformed JSON on flashcard chunk -> retry executes strictly with Gemini", async () => {
+    let flashcardAttempts = 0;
+    const recordedProviders: string[] = [];
+
+    const malformedFlashcardGeminiGateway: ModelGateway = {
+      provider: "gemini",
+      model: "gemini-3.5-flash-lite",
+      complete: vi.fn().mockImplementation(async (req: CompletionRequest): Promise<CompletionResult> => {
+        recordedProviders.push("gemini");
+        geminiCalls.push(req);
+
+        if (req.stage === "planning" || (req.jsonSchema && (req.jsonSchema as any).type === "content_plan")) {
+          return {
+            text: JSON.stringify({
+              kind: "content_plan",
+              syllabus: ["مقدمه"],
+              majorConcepts: ["مفاهیم"],
+              highYieldFacts: ["نکات"],
+              sessionBlueprints: [{ index: 0, title: "جلسه ۱", description: "", coreConcepts: [], relevantChunkIds: ["chunk-1"], estimatedMinutes: 10 }],
+            }),
+            model: "gemini-3.5-flash-lite",
+            usage: { inputTokens: 50, outputTokens: 100 },
+            finishReason: "stop",
+          };
+        }
+
+        if (req.stage === "flashcard") {
+          flashcardAttempts++;
+          if (flashcardAttempts === 1) {
+            // Return unparseable malformed JSON with unescaped nested quotes and syntax breakage
+            return {
+              text: `{ "cards": [ { "question": "سوال با فرمول LaTeX \\frac{a}{b} و "نقل‌قول باز نشده بدون escape", "answer": "پاسخ ناقص... `,
+              model: "gemini-3.5-flash-lite",
+              usage: { inputTokens: 40, outputTokens: 30 },
+              finishReason: "stop",
+            };
+          }
+          // Attempt 2 (retry) returns valid JSON
+          return {
+            text: JSON.stringify({
+              kind: "flashcards_batch",
+              cards: [
+                {
+                  question: "سوال تصحیح شده پس از retry",
+                  answer: "پاسخ صحیح",
+                  explanation: "توضیح کامل",
+                  cardType: "key_fact",
+                  difficulty: "easy",
+                },
+              ],
+            }),
+            model: "gemini-3.5-flash-lite",
+            usage: { inputTokens: 40, outputTokens: 80 },
+            finishReason: "stop",
+          };
+        }
+
+        return {
+          text: JSON.stringify({ title: "درس ۱", contentMarkdown: "# درس ۱", citationChunkIds: ["chunk-1"] }),
+          model: "gemini-3.5-flash-lite",
+          usage: { inputTokens: 30, outputTokens: 60 },
+          finishReason: "stop",
+        };
+      }),
+    };
+
+    const adminService = new GenerationService(
+      generatedContentStore,
+      generatedContentCitationStore,
+      malformedFlashcardGeminiGateway,
+      documentStore,
+      documentChunkStore,
+      defaultPolicy,
+      undefined,
+      organizationStore,
+      moduleStore,
+      lessonStore,
+      flashcardStore,
+      quizStore,
+      quizQuestionStore,
+      courseStore,
+      systemOrgId,
+      generationChunkStore,
+      generationJobStore,
+    );
+
+    const result = await adminService.generateForDocument(adminActor, systemOrgId, documentId, {
+      types: ["flashcard"],
+      courseId,
+      generationContext: "admin",
+    });
+
+    expect(result.contents.some((c) => c.type === "flashcard")).toBe(true);
+    expect(flashcardAttempts).toBe(2); // 1 initial malformed + 1 successful retry
+    expect(deepseekCalls.length).toBe(0); // Zero DeepSeek calls
+    expect(recordedProviders.every((p) => p === "gemini")).toBe(true);
+  });
+
+  // -------------------------------------------------------------------------
+  // M — Admin Malformed JSON Lesson Retry: Retries strictly with Gemini
+  // -------------------------------------------------------------------------
+  it("Scenario M: Gemini returns malformed JSON on lesson chunk -> retry executes strictly with Gemini", async () => {
+    let lessonAttempts = 0;
+    const recordedProviders: string[] = [];
+
+    const malformedLessonGeminiGateway: ModelGateway = {
+      provider: "gemini",
+      model: "gemini-3.5-flash-lite",
+      complete: vi.fn().mockImplementation(async (req: CompletionRequest): Promise<CompletionResult> => {
+        recordedProviders.push("gemini");
+        geminiCalls.push(req);
+
+        if (req.stage === "planning" || (req.jsonSchema && (req.jsonSchema as any).type === "content_plan")) {
+          return {
+            text: JSON.stringify({
+              kind: "content_plan",
+              syllabus: ["مقدمه"],
+              majorConcepts: ["مفاهیم"],
+              highYieldFacts: ["نکات"],
+              sessionBlueprints: [{ index: 0, title: "جلسه ۱", description: "", coreConcepts: [], relevantChunkIds: ["chunk-1"], estimatedMinutes: 10 }],
+            }),
+            model: "gemini-3.5-flash-lite",
+            usage: { inputTokens: 50, outputTokens: 100 },
+            finishReason: "stop",
+          };
+        }
+
+        if (req.stage === "lesson") {
+          lessonAttempts++;
+          if (lessonAttempts === 1) {
+            // Return unparseable malformed JSON
+            return {
+              text: `{"title": "درس ناقص`,
+              model: "gemini-3.5-flash-lite",
+              usage: { inputTokens: 30, outputTokens: 10 },
+              finishReason: "length",
+            };
+          }
+          return {
+            text: JSON.stringify({
+              title: "درس تولیدشده پس از retry",
+              contentMarkdown: "# محتوای کامل درس",
+              citationChunkIds: ["chunk-1"],
+            }),
+            model: "gemini-3.5-flash-lite",
+            usage: { inputTokens: 30, outputTokens: 60 },
+            finishReason: "stop",
+          };
+        }
+
+        return {
+          text: "{}",
+          model: "gemini-3.5-flash-lite",
+          usage: { inputTokens: 10, outputTokens: 10 },
+          finishReason: "stop",
+        };
+      }),
+    };
+
+    const adminService = new GenerationService(
+      generatedContentStore,
+      generatedContentCitationStore,
+      malformedLessonGeminiGateway,
+      documentStore,
+      documentChunkStore,
+      defaultPolicy,
+      undefined,
+      organizationStore,
+      moduleStore,
+      lessonStore,
+      flashcardStore,
+      quizStore,
+      quizQuestionStore,
+      courseStore,
+      systemOrgId,
+      generationChunkStore,
+      generationJobStore,
+    );
+
+    const result = await adminService.generateForDocument(adminActor, systemOrgId, documentId, {
+      types: ["lesson"],
+      courseId,
+      generationContext: "admin",
+    });
+
+    expect(result.contents.some((c) => c.type === "lesson")).toBe(true);
+    expect(lessonAttempts).toBe(2);
+    expect(deepseekCalls.length).toBe(0);
+    expect(recordedProviders.every((p) => p === "gemini")).toBe(true);
   });
 });

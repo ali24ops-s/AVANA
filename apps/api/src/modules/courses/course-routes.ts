@@ -23,7 +23,7 @@ import {
 import { CourseService } from "./course-service.js";
 import type { AuthMiddlewareDeps } from "../../http/authMiddleware.js";
 import { makeAuthMiddleware } from "../../http/authMiddleware.js";
-import type { CourseStore, CoursePublicationStore } from "./course-store.js";
+import type { CourseStore, CoursePublicationStore, CourseRecord } from "./course-store.js";
 import type { OrganizationStore } from "../organizations/organization-store.js";
 import type {
   SubCourseGroupStore,
@@ -105,6 +105,7 @@ export const courseRoutes: FastifyPluginAsync<CourseRouteOptions> = async (
     quizStore,
     flashcardStore,
     organizationStore,
+    userStore,
   );
 
   /**
@@ -161,6 +162,26 @@ export const courseRoutes: FastifyPluginAsync<CourseRouteOptions> = async (
     return params.courseId as CourseId;
   }
 
+  function toCoursePayload(course: CourseRecord) {
+    const isOfficial =
+      course.isOfficial ??
+      (!!systemOrganizationId && course.organizationId === systemOrganizationId);
+    return {
+      id: course.id,
+      title: course.name,
+      subject: course.subject,
+      target_academic_fields: course.targetAcademicFields ?? [],
+      targetAcademicFields: course.targetAcademicFields ?? [],
+      exam_at: course.examDate,
+      exam_scope: course.examScope ?? null,
+      created_at: course.createdAt,
+      updated_at: course.updatedAt,
+      archived: course.deletedAt !== null,
+      isOfficial,
+      is_official: isOfficial,
+    };
+  }
+
   // ---------------------------------------------------------------------------
   // POST /v1/organizations/:organizationId/courses — Create a course
   // ---------------------------------------------------------------------------
@@ -174,6 +195,8 @@ export const courseRoutes: FastifyPluginAsync<CourseRouteOptions> = async (
       const body = request.body as {
         title?: string;
         subject?: string | null;
+        target_academic_fields?: string[] | null;
+        targetAcademicFields?: string[] | null;
         exam_at?: string | null;
         exam_scope?: {
           moduleIds?: string[];
@@ -196,23 +219,13 @@ export const courseRoutes: FastifyPluginAsync<CourseRouteOptions> = async (
         body.subject ?? null,
         body.exam_at ?? null,
         body.exam_scope ?? null,
+        body.target_academic_fields ?? body.targetAcademicFields ?? null,
       );
 
       reply.code(201);
       return {
         request_id: request.id,
-        course: {
-          id: course.id,
-          title: course.name,
-          subject: course.subject,
-          exam_at: course.examDate,
-          exam_scope: course.examScope ?? null,
-          created_at: course.createdAt,
-          updated_at: course.updatedAt,
-          archived: course.deletedAt !== null,
-          isOfficial: course.isOfficial ?? (!!systemOrganizationId && course.organizationId === systemOrganizationId),
-          is_official: course.isOfficial ?? (!!systemOrganizationId && course.organizationId === systemOrganizationId),
-        },
+        course: toCoursePayload(course),
       };
     },
   );
@@ -232,18 +245,7 @@ export const courseRoutes: FastifyPluginAsync<CourseRouteOptions> = async (
 
       return {
         request_id: request.id,
-        items: courses.map((c) => ({
-          id: c.id,
-          title: c.name,
-          subject: c.subject,
-          exam_at: c.examDate,
-          exam_scope: c.examScope ?? null,
-          created_at: c.createdAt,
-          updated_at: c.updatedAt,
-          archived: c.deletedAt !== null,
-          isOfficial: c.isOfficial ?? (!!systemOrganizationId && c.organizationId === systemOrganizationId),
-          is_official: c.isOfficial ?? (!!systemOrganizationId && c.organizationId === systemOrganizationId),
-        })),
+        items: courses.map(toCoursePayload),
         pagination: {
           limit: Math.max(1, courses.length),
           next_cursor: null,
@@ -267,18 +269,7 @@ export const courseRoutes: FastifyPluginAsync<CourseRouteOptions> = async (
 
       return {
         request_id: request.id,
-        items: courses.map((c) => ({
-          id: c.id,
-          title: c.name,
-          subject: c.subject,
-          exam_at: c.examDate,
-          exam_scope: c.examScope ?? null,
-          created_at: c.createdAt,
-          updated_at: c.updatedAt,
-          archived: c.deletedAt !== null,
-          isOfficial: c.isOfficial ?? (!!systemOrganizationId && c.organizationId === systemOrganizationId),
-          is_official: c.isOfficial ?? (!!systemOrganizationId && c.organizationId === systemOrganizationId),
-        })),
+        items: courses.map(toCoursePayload),
         pagination: {
           limit: Math.max(1, courses.length),
           next_cursor: null,
@@ -306,18 +297,7 @@ export const courseRoutes: FastifyPluginAsync<CourseRouteOptions> = async (
 
       return {
         request_id: request.id,
-        items: courses.map((c) => ({
-          id: c.id,
-          title: c.name,
-          subject: c.subject,
-          exam_at: c.examDate,
-          exam_scope: c.examScope ?? null,
-          created_at: c.createdAt,
-          updated_at: c.updatedAt,
-          archived: c.deletedAt !== null,
-          isOfficial: c.isOfficial ?? (!!systemOrganizationId && c.organizationId === systemOrganizationId),
-          is_official: c.isOfficial ?? (!!systemOrganizationId && c.organizationId === systemOrganizationId),
-        })),
+        items: courses.map(toCoursePayload),
         pagination: {
           limit: 8,
           next_cursor: null,
@@ -404,17 +384,7 @@ export const courseRoutes: FastifyPluginAsync<CourseRouteOptions> = async (
 
       return {
         request_id: request.id,
-        items: courses.map((c) => ({
-          id: c.id,
-          title: c.name,
-          subject: c.subject,
-          exam_at: c.examDate,
-          created_at: c.createdAt,
-          updated_at: c.updatedAt,
-          archived: c.deletedAt !== null,
-          isOfficial: c.isOfficial ?? (!!systemOrganizationId && c.organizationId === systemOrganizationId),
-          is_official: c.isOfficial ?? (!!systemOrganizationId && c.organizationId === systemOrganizationId),
-        })),
+        items: courses.map(toCoursePayload),
         pagination: {
           limit: Math.max(1, courses.length),
           next_cursor: null,
@@ -469,18 +439,7 @@ export const courseRoutes: FastifyPluginAsync<CourseRouteOptions> = async (
 
       return {
         request_id: request.id,
-        course: {
-          id: course.id,
-          title: course.name,
-          subject: course.subject,
-          exam_at: course.examDate,
-          exam_scope: course.examScope ?? null,
-          created_at: course.createdAt,
-          updated_at: course.updatedAt,
-          archived: course.deletedAt !== null,
-          isOfficial: course.isOfficial ?? (!!systemOrganizationId && course.organizationId === systemOrganizationId),
-          is_official: course.isOfficial ?? (!!systemOrganizationId && course.organizationId === systemOrganizationId),
-        },
+        course: toCoursePayload(course),
       };
     },
   );
@@ -502,6 +461,8 @@ export const courseRoutes: FastifyPluginAsync<CourseRouteOptions> = async (
       const body = request.body as {
         title?: string;
         subject?: string | null;
+        target_academic_fields?: string[] | null;
+        targetAcademicFields?: string[] | null;
         exam_at?: string | null;
         exam_scope?: {
           moduleIds?: string[];
@@ -516,6 +477,12 @@ export const courseRoutes: FastifyPluginAsync<CourseRouteOptions> = async (
         {
           title: body.title,
           subject: body.subject !== undefined ? body.subject : undefined,
+          targetAcademicFields:
+            body.target_academic_fields !== undefined
+              ? body.target_academic_fields
+              : body.targetAcademicFields !== undefined
+                ? body.targetAcademicFields
+                : undefined,
           examAt: body.exam_at !== undefined ? body.exam_at : undefined,
           examScope: body.exam_scope !== undefined ? body.exam_scope : undefined,
         },
@@ -523,18 +490,7 @@ export const courseRoutes: FastifyPluginAsync<CourseRouteOptions> = async (
 
       return {
         request_id: request.id,
-        course: {
-          id: course.id,
-          title: course.name,
-          subject: course.subject,
-          exam_at: course.examDate,
-          exam_scope: course.examScope ?? null,
-          created_at: course.createdAt,
-          updated_at: course.updatedAt,
-          archived: course.deletedAt !== null,
-          isOfficial: course.isOfficial ?? (!!systemOrganizationId && course.organizationId === systemOrganizationId),
-          is_official: course.isOfficial ?? (!!systemOrganizationId && course.organizationId === systemOrganizationId),
-        },
+        course: toCoursePayload(course),
       };
     },
   );

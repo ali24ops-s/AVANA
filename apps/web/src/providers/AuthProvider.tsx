@@ -50,7 +50,7 @@ export type AuthState = {
   sendPhoneLoginOtp: (phoneNumber: string) => Promise<void>;
   /** Verify login OTP and create session. */
   verifyPhoneLoginOtp: (phoneNumber: string, code: string) => Promise<void>;
-  /** Register a new user account with email, password, name, phone, firstName, lastName. */
+  /** Register a new user account with email, password, name, phone, firstName, lastName, major. */
   signUp: (
     email: string,
     password: string,
@@ -59,6 +59,7 @@ export type AuthState = {
     firstName?: string,
     lastName?: string,
     referralCode?: string,
+    major?: string,
   ) => Promise<void>;
   /** Send a verification code to chosen channel (email or phone). */
   sendVerification: (channel: VerificationChannel) => Promise<void>;
@@ -68,6 +69,17 @@ export type AuthState = {
   verifyEmail: (code: string) => Promise<void>;
   /** Request resending a verification code (legacy). */
   resendVerification: (email?: string) => Promise<void>;
+  /** Request password reset email. */
+  forgotPassword: (email: string) => Promise<{ message: string; cooldown_seconds?: number }>;
+  /** Reset password using token. */
+  resetPassword: (token: string, password: string) => Promise<{ message: string }>;
+  /** Update profile name and/or academic major. */
+  updateProfile: (
+    firstName?: string,
+    lastName?: string,
+    name?: string,
+    major?: string | null,
+  ) => Promise<void>;
   /** Sign out (revoke session). */
   signOut: () => Promise<void>;
   /** Clear any auth error. */
@@ -249,6 +261,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       firstName?: string,
       lastName?: string,
       referralCode?: string,
+      major?: string,
     ) => {
       setIsLoading(true);
       setError(null);
@@ -261,6 +274,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           firstName,
           lastName,
           referralCode,
+          major,
         );
         setUser(response.user);
         setMemberships(response.memberships ?? []);
@@ -346,6 +360,70 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [authApi],
   );
 
+  const forgotPassword = useCallback(
+    async (email: string) => {
+      try {
+        return await authApi.forgotPassword(email);
+      } catch (err) {
+        const message =
+          err instanceof ApiError
+            ? err.message
+            : "ارسال لینک بازیابی رمز عبور با خطا مواجه شد.";
+        setError(message);
+        throw err;
+      }
+    },
+    [authApi],
+  );
+
+  const resetPassword = useCallback(
+    async (token: string, password: string) => {
+      try {
+        return await authApi.resetPassword(token, password);
+      } catch (err) {
+        const message =
+          err instanceof ApiError
+            ? err.message
+            : "تغییر رمز عبور با خطا مواجه شد.";
+        setError(message);
+        throw err;
+      }
+    },
+    [authApi],
+  );
+
+  const updateProfile = useCallback(
+    async (
+      firstName?: string,
+      lastName?: string,
+      name?: string,
+      major?: string | null,
+    ) => {
+      setIsLoading(true);
+      setError(null);
+      try {
+        const response = await authApi.updateProfile({
+          firstName,
+          lastName,
+          name,
+          major,
+        });
+        setUser(response.user);
+        if (response.memberships) {
+          setMemberships(response.memberships);
+        }
+      } catch (err) {
+        const message =
+          err instanceof ApiError ? err.message : "ویرایش مشخصات با خطا مواجه شد.";
+        setError(message);
+        throw err;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [authApi],
+  );
+
   const signOut = useCallback(async () => {
     if (typeof window !== "undefined") {
       window.sessionStorage?.setItem("avana_worker_logged_out", "true");
@@ -384,6 +462,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     verifyChannel,
     verifyEmail,
     resendVerification,
+    forgotPassword,
+    resetPassword,
+    updateProfile,
     signOut,
     clearError,
   };
@@ -415,6 +496,9 @@ export function useAuth(): AuthState {
       verifyChannel: async () => {},
       verifyEmail: async () => {},
       resendVerification: async () => {},
+      forgotPassword: async () => ({ message: "" }),
+      resetPassword: async () => ({ message: "" }),
+      updateProfile: async () => {},
       signOut: async () => {},
       clearError: () => {},
     };

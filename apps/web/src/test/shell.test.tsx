@@ -105,7 +105,6 @@ describe("AuthenticatedShell", () => {
       expect(screen.getByText("فلش‌کارت‌ها")).toBeInTheDocument();
       expect(screen.getByText("آزمون‌ها")).toBeInTheDocument();
       expect(screen.getByText("کتابخانه")).toBeInTheDocument();
-      expect(screen.getByText("وبلاگ")).toBeInTheDocument();
     });
 
     // Files link must NOT be rendered when feature is disabled

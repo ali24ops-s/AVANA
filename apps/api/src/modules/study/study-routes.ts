@@ -1220,7 +1220,13 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
     const req = request as {
       params: { organizationId: string; attemptId: string };
       body: {
-        answers?: Array<{ questionId?: string; answer?: unknown; selectedChoice?: unknown }>;
+        answers?: Array<{
+          questionId?: string;
+          answer?: unknown;
+          selectedChoice?: unknown;
+          revision?: number;
+          clientUpdatedAt?: string;
+        }>;
         elapsedSeconds?: number;
       };
       id: string;
@@ -1241,6 +1247,8 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
       return {
         questionId: a.questionId,
         answer: a.answer ?? a.selectedChoice,
+        revision: typeof a.revision === "number" ? a.revision : undefined,
+        clientUpdatedAt: typeof a.clientUpdatedAt === "string" ? a.clientUpdatedAt : undefined,
       };
     });
 
@@ -1260,6 +1268,7 @@ export const studyRoutes: FastifyPluginAsync<StudyRouteOptions> = async (
     return {
       request_id: req.id,
       success: true,
+      acknowledged: res.acknowledged,
       answers: res.answers,
       elapsedSeconds: res.elapsedSeconds,
     };

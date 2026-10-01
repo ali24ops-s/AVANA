@@ -14,6 +14,8 @@ export interface UserRecord {
   role: string;
   globalRole?: string | null;
   phoneNumber?: string | null;
+  major?: string | null;
+  teacherStatus?: "pending" | "approved" | "rejected";
   emailVerifiedAt?: string | null;
   emailVerified?: boolean;
   phoneVerifiedAt?: string | null;
@@ -40,12 +42,19 @@ export interface UserStore {
     passwordHash: string;
     name?: string;
     phoneNumber?: string;
+    major?: string | null;
     globalRole?: string | null;
   }): Promise<UserRecord>;
 
   setEmailVerified(userId: UserId): Promise<void>;
 
   setPhoneVerified(userId: UserId): Promise<void>;
+
+  updatePassword(userId: UserId, passwordHash: string): Promise<void>;
+
+  updateName(userId: UserId, name: string): Promise<void>;
+
+  updateMajor?(userId: UserId, major: string | null): Promise<void>;
 
   updatePhoneNumber?(userId: UserId, phoneNumber: string): Promise<void>;
 

@@ -435,12 +435,18 @@ export function createStudyApi(client: ApiClient) {
       organizationId: string,
       attemptId: string,
       data: {
-        answers?: Array<{ questionId: string; answer: unknown }>;
+        answers?: Array<{
+          questionId: string;
+          answer: unknown;
+          revision?: number;
+          clientUpdatedAt?: string;
+        }>;
         elapsedSeconds?: number;
       },
     ): Promise<{
       request_id: string;
       success: boolean;
+      acknowledged?: Array<{ questionId: string; revision: number }>;
       answers: Record<string, unknown>;
       elapsedSeconds?: number;
     }> {

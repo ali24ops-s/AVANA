@@ -42,6 +42,10 @@ export const users = pgTable(
     globalRole: varchar("global_role", { length: 50 }),
     passwordHash: varchar("password_hash", { length: 255 }),
     phoneNumber: varchar("phone_number", { length: 20 }),
+    major: varchar("major", { length: 50 }),
+    teacherStatus: varchar("teacher_status", { length: 20 })
+      .notNull()
+      .default("approved"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -55,7 +59,9 @@ export const users = pgTable(
   (table) => ({
     emailIdx: uniqueIndex("idx_users_email").on(table.email),
     phoneIdx: uniqueIndex("idx_users_phone_number").on(table.phoneNumber),
+    majorIdx: index("idx_users_major").on(table.major),
     globalRoleIdx: index("idx_users_global_role").on(table.globalRole),
+    teacherStatusIdx: index("idx_users_teacher_status").on(table.teacherStatus),
   }),
 );
 
@@ -85,6 +91,31 @@ export const emailVerificationCodes = pgTable(
     channelIdx: index("idx_email_verification_codes_channel").on(
       table.userId,
       table.channel,
+    ),
+  }),
+);
+
+export const passwordResetTokens = pgTable(
+  "password_reset_tokens",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    tokenHash: varchar("token_hash", { length: 64 }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    tokenHashIdx: uniqueIndex("idx_password_reset_tokens_hash").on(
+      table.tokenHash,
+    ),
+    userIdx: index("idx_password_reset_tokens_user").on(table.userId),
+    expiresAtIdx: index("idx_password_reset_tokens_expires_at").on(
+      table.expiresAt,
     ),
   }),
 );
@@ -158,6 +189,9 @@ export const courses = pgTable(
     isOfficial: boolean("is_official").notNull().default(false),
     examDate: timestamp("exam_date", { withTimezone: true }),
     examScope: jsonb("exam_scope"),
+    targetAcademicFields: jsonb("target_academic_fields")
+      .$type<string[]>()
+      .default([]),
     version: integer("version").notNull().default(1),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
@@ -2849,3 +2883,341 @@ export type NewSupportTicketRecord = typeof supportTickets.$inferInsert;
 export type SupportMessageRecord = typeof supportMessages.$inferSelect;
 export type NewSupportMessageRecord = typeof supportMessages.$inferInsert;
 
+// ---------------------------------------------------------------------------
+// Teacher Platform (Classrooms, Exams, Questions, Attempts)
+// ---------------------------------------------------------------------------
+
+export const classrooms = pgTable(
+  "classrooms",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    teacherId: uuid("teacher_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    courseId: uuid("course_id").references(() => courses.id, {
+      onDelete: "set null",
+    }),
+    title: varchar("title", { length: 255 }).notNull(),
+    description: text("description"),
+    inviteCode: varchar("invite_code", { length: 16 }).notNull().unique(),
+    status: varchar("status", { length: 20 }).notNull().default("active"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+  },
+  (table) => ({
+    orgIdx: index("idx_classrooms_org_id").on(table.organizationId),
+    teacherIdx: index("idx_classrooms_teacher_id").on(table.teacherId),
+    inviteCodeIdx: uniqueIndex("idx_classrooms_invite_code").on(table.inviteCode),
+  }),
+);
+
+export const classroomMembers = pgTable(
+  "classroom_members",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    classroomId: uuid("classroom_id")
+      .notNull()
+      .references(() => classrooms.id, { onDelete: "cascade" }),
+    studentId: uuid("student_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    status: varchar("status", { length: 20 }).notNull().default("active"),
+    firstJoinedAt: timestamp("first_joined_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    lastJoinedAt: timestamp("last_joined_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    leftAt: timestamp("left_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    memberLookupIdx: index("idx_classroom_members_lookup").on(
+      table.classroomId,
+      table.studentId,
+    ),
+    activeMemberUniqueIdx: uniqueIndex("idx_classroom_members_active_unique")
+      .on(table.classroomId, table.studentId)
+      .where(sql`status = 'active'`),
+  }),
+);
+
+export const teacherExams = pgTable(
+  "teacher_exams",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    classroomId: uuid("classroom_id")
+      .notNull()
+      .references(() => classrooms.id, { onDelete: "restrict" }),
+    title: varchar("title", { length: 255 }).notNull(),
+    description: text("description"),
+    durationMinutes: integer("duration_minutes"),
+    startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+    endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+    passingScorePercentage: numeric("passing_score_percentage", {
+      precision: 5,
+      scale: 2,
+    }),
+    shuffleQuestions: boolean("shuffle_questions").notNull().default(true),
+    shuffleOptions: boolean("shuffle_options").notNull().default(true),
+    showResultsImmediately: boolean("show_results_immediately")
+      .notNull()
+      .default(false),
+    allowBackNavigation: boolean("allow_back_navigation")
+      .notNull()
+      .default(true),
+    perQuestionTimeSeconds: integer("per_question_time_seconds"),
+    status: varchar("status", { length: 20 }).notNull().default("draft"),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+    resultsReleasedAt: timestamp("results_released_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+  },
+  (table) => ({
+    classroomIdx: index("idx_teacher_exams_classroom_id").on(table.classroomId),
+    statusTimingIdx: index("idx_teacher_exams_status_timing").on(
+      table.status,
+      table.startsAt,
+      table.endsAt,
+    ),
+  }),
+);
+
+export const teacherExamQuestions = pgTable(
+  "teacher_exam_questions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    examId: uuid("exam_id")
+      .notNull()
+      .references(() => teacherExams.id, { onDelete: "cascade" }),
+    orderIndex: integer("order_index").notNull(),
+    questionType: varchar("question_type", { length: 30 })
+      .notNull()
+      .default("single_choice"),
+    prompt: text("prompt").notNull(),
+    options: jsonb("options").$type<Array<{ id: string; text: string }>>(),
+    correctOptionId: varchar("correct_option_id", { length: 64 }),
+    points: numeric("points", { precision: 5, scale: 2 })
+      .notNull()
+      .default("1.00"),
+    explanation: text("explanation"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    examOrderIdx: index("idx_teacher_exam_questions_order").on(
+      table.examId,
+      table.orderIndex,
+    ),
+  }),
+);
+
+export const teacherExamAttempts = pgTable(
+  "teacher_exam_attempts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    examId: uuid("exam_id")
+      .notNull()
+      .references(() => teacherExams.id, { onDelete: "restrict" }),
+    studentId: uuid("student_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    status: varchar("status", { length: 20 }).notNull().default("in_progress"),
+    gradingStatus: varchar("grading_status", { length: 30 })
+      .notNull()
+      .default("fully_graded"),
+    startedAt: timestamp("started_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    deadlineAt: timestamp("deadline_at", { withTimezone: true }).notNull(),
+    submittedAt: timestamp("submitted_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    score: numeric("score", { precision: 6, scale: 2 }),
+    maxScore: numeric("max_score", { precision: 6, scale: 2 }),
+    percentage: numeric("percentage", { precision: 5, scale: 2 }),
+    passed: boolean("passed"),
+    allowBackNavigation: boolean("allow_back_navigation")
+      .notNull()
+      .default(true),
+    perQuestionTimeSeconds: integer("per_question_time_seconds"),
+    questionSnapshot: jsonb("question_snapshot")
+      .$type<
+        Array<{
+          id: string;
+          orderIndex: number;
+          questionType?: string;
+          prompt: string;
+          options?: Array<{ id: string; text: string }>;
+          correctOptionId?: string | null;
+          points: number;
+          explanation?: string | null;
+        }>
+      >()
+      .notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    singleAttemptIdx: uniqueIndex("idx_exam_attempts_single_student").on(
+      table.examId,
+      table.studentId,
+    ),
+    studentIdx: index("idx_exam_attempts_student_id").on(table.studentId),
+    examStatusIdx: index("idx_exam_attempts_exam_status").on(
+      table.examId,
+      table.status,
+    ),
+  }),
+);
+
+export const teacherExamAttemptAnswers = pgTable(
+  "teacher_exam_attempt_answers",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    attemptId: uuid("attempt_id")
+      .notNull()
+      .references(() => teacherExamAttempts.id, { onDelete: "cascade" }),
+    questionId: uuid("question_id").notNull(),
+    selectedOptionId: varchar("selected_option_id", { length: 64 }),
+    textAnswer: text("text_answer"),
+    teacherFeedback: text("teacher_feedback"),
+    gradingStatus: varchar("grading_status", { length: 30 })
+      .notNull()
+      .default("auto_graded"),
+    isCorrect: boolean("is_correct"),
+    pointsEarned: numeric("points_earned", { precision: 5, scale: 2 }),
+    answeredAt: timestamp("answered_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    finalizedAt: timestamp("finalized_at", { withTimezone: true }),
+  },
+  (table) => ({
+    attemptQuestionUniqueIdx: uniqueIndex("idx_attempt_answers_unique").on(
+      table.attemptId,
+      table.questionId,
+    ),
+  }),
+);
+
+export type ClassroomRecord = typeof classrooms.$inferSelect;
+export type NewClassroomRecord = typeof classrooms.$inferInsert;
+export type ClassroomMemberRecord = typeof classroomMembers.$inferSelect;
+export type NewClassroomMemberRecord = typeof classroomMembers.$inferInsert;
+export type TeacherExamRecord = typeof teacherExams.$inferSelect;
+export type NewTeacherExamRecord = typeof teacherExams.$inferInsert;
+export type TeacherExamQuestionRecord = typeof teacherExamQuestions.$inferSelect;
+export type NewTeacherExamQuestionRecord = typeof teacherExamQuestions.$inferInsert;
+export type TeacherExamAttemptRecord = typeof teacherExamAttempts.$inferSelect;
+export type NewTeacherExamAttemptRecord = typeof teacherExamAttempts.$inferInsert;
+export type TeacherExamAttemptAnswerRecord =
+  typeof teacherExamAttemptAnswers.$inferSelect;
+export type NewTeacherExamAttemptAnswerRecord =
+  typeof teacherExamAttemptAnswers.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Classroom Assignments & Submissions
+// ---------------------------------------------------------------------------
+
+export const classroomAssignments = pgTable(
+  "classroom_assignments",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    classroomId: uuid("classroom_id")
+      .notNull()
+      .references(() => classrooms.id, { onDelete: "cascade" }),
+    teacherId: uuid("teacher_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    title: varchar("title", { length: 255 }).notNull(),
+    description: text("description"),
+    startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+    dueAt: timestamp("due_at", { withTimezone: true }).notNull(),
+    status: varchar("status", { length: 20 }).notNull().default("draft"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+  },
+  (table) => ({
+    classroomIdx: index("idx_classroom_assignments_classroom_id").on(
+      table.classroomId,
+    ),
+    teacherIdx: index("idx_classroom_assignments_teacher_id").on(table.teacherId),
+    statusTimingIdx: index("idx_classroom_assignments_status_timing").on(
+      table.status,
+      table.startsAt,
+      table.dueAt,
+    ),
+  }),
+);
+
+export const classroomAssignmentSubmissions = pgTable(
+  "classroom_assignment_submissions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    assignmentId: uuid("assignment_id")
+      .notNull()
+      .references(() => classroomAssignments.id, { onDelete: "cascade" }),
+    studentId: uuid("student_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    answerText: text("answer_text").notNull().default(""),
+    status: varchar("status", { length: 20 }).notNull().default("submitted"),
+    submittedAt: timestamp("submitted_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    singleSubmissionIdx: uniqueIndex(
+      "idx_assignment_submissions_single_student",
+    ).on(table.assignmentId, table.studentId),
+    assignmentIdx: index("idx_assignment_submissions_assignment_id").on(
+      table.assignmentId,
+    ),
+    studentIdx: index("idx_assignment_submissions_student_id").on(
+      table.studentId,
+    ),
+  }),
+);
+
+export type ClassroomAssignmentRecord = typeof classroomAssignments.$inferSelect;
+export type NewClassroomAssignmentRecord = typeof classroomAssignments.$inferInsert;
+export type ClassroomAssignmentSubmissionRecord =
+  typeof classroomAssignmentSubmissions.$inferSelect;
+export type NewClassroomAssignmentSubmissionRecord =
+  typeof classroomAssignmentSubmissions.$inferInsert;

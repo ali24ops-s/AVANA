@@ -86,12 +86,27 @@ class InMemoryMockDb {
         const tableName = self.getTableName(tableObj);
         return {
           where(condition?: any) {
+            let rows = [...(self.tables[tableName] || [])];
+            const hasDeletedCondition = (cond: any): boolean => {
+              if (!cond) return false;
+              if (Array.isArray(cond.queryChunks)) {
+                for (const chunk of cond.queryChunks) {
+                  if (!chunk) continue;
+                  if (chunk.name === "deleted_at" || chunk.name === "deletedAt") return true;
+                  if (chunk.queryChunks && hasDeletedCondition(chunk)) return true;
+                }
+              }
+              return false;
+            };
+            if (hasDeletedCondition(condition)) {
+              rows = rows.filter((r) => !r.deletedAt);
+            }
             return {
               orderBy(..._args: any[]) {
-                return Promise.resolve([...(self.tables[tableName] || [])]);
+                return Promise.resolve(rows);
               },
               then(resolve: any) {
-                return resolve([...(self.tables[tableName] || [])]);
+                return resolve(rows);
               },
             };
           },
@@ -171,6 +186,23 @@ class InMemoryMockDb {
                 return resolve({ rowCount: 1 });
               },
             };
+          },
+        };
+      },
+    };
+  }
+
+  delete(tableObj: any) {
+    const self = this;
+    const tableName = self.getTableName(tableObj);
+    return {
+      where(_condition: any) {
+        return {
+          then(resolve: any) {
+            if (tableName === "documents") {
+              self.tables.documents = (self.tables.documents || []).filter((d) => !d.deletedAt);
+            }
+            return resolve({ rowCount: 1 });
           },
         };
       },
@@ -1033,5 +1065,70 @@ describe("Content Export & Import Production-Ready System", () => {
     const savedQq = targetDb.tables.quiz_questions.find((qq) => qq.question === "سوال با درس ناموجود")!;
     expect(savedQq).toBeDefined();
     expect(savedQq.lessonId).toBeNull(); // Gracefully fell back to course-level
+  });
+
+  it("13. Re-importing a package when document was previously soft-deleted purges dead record and links to new course", async () => {
+    const courseId = "course-source-13";
+    const docId = "doc-source-13";
+
+    sourceDb.tables.courses.push({
+      id: courseId,
+      organizationId: orgA,
+      name: "فیزیولوژی تنفس",
+      status: "published",
+    });
+
+    const fileContent = Buffer.from("PDF Content for Physiology Respiration");
+    const fileSha = crypto.createHash("sha256").update(fileContent).digest("hex");
+    const storageKey = `uploads/${docId}.pdf`;
+
+    sourceDb.tables.documents.push({
+      id: docId,
+      organizationId: orgA,
+      courseId,
+      originalName: "1فیزیو یک تنفس(1).PDF",
+      mimeType: "application/pdf",
+      sizeBytes: fileContent.length,
+      sha256: fileSha,
+      storageKey,
+      pageCount: 1,
+      qualityScore: 100,
+      qualityLevel: "excellent",
+      qualityReport: { level: "excellent", score: 100 },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      deletedAt: null,
+    });
+    sourceStorage.files.set(storageKey, fileContent);
+
+    // 1. Export package
+    const zipBuffer = await exportService.exportContent(orgA, { courseId });
+
+    // 2. First import into target orgB
+    const plan1 = await importService.validatePackage(zipBuffer, actorId, orgB);
+    const exec1 = await importService.executeImport(plan1.planId, actorId, orgB);
+    expect(exec1.success).toBe(true);
+
+    const docInTarget1 = targetDb.tables.documents.find((d) => d.sha256 === fileSha)!;
+    expect(docInTarget1).toBeDefined();
+    expect(docInTarget1.deletedAt).toBeFalsy();
+    expect(docInTarget1.courseId).toBeTruthy();
+
+    // 3. Soft-delete the document in targetDb (simulating user deleting document in UI)
+    docInTarget1.deletedAt = new Date();
+
+    // 4. Re-import package into target orgB
+    // Before the fix, this would crash with duplicate key on idx_documents_org_hash
+    const plan2 = await importService.validatePackage(zipBuffer, actorId, orgB);
+    const exec2 = await importService.executeImport(plan2.planId, actorId, orgB);
+    expect(exec2.success).toBe(true);
+
+    // 5. Verification:
+    // Only 1 document with fileSha must exist in targetDb (soft-deleted purged, new one active)
+    const matchingDocs = targetDb.tables.documents.filter((d) => d.sha256 === fileSha);
+    expect(matchingDocs).toHaveLength(1);
+    expect(matchingDocs[0].deletedAt).toBeFalsy();
+    expect(matchingDocs[0].courseId).toBeTruthy();
+    expect(matchingDocs[0].status).toBe("ready");
   });
 });

@@ -88,6 +88,7 @@ import type { AuditService } from "../observability/audit-service.js";
 
 import type {
   EmailVerificationStore,
+  PasswordResetStore,
   EmailService,
 } from "../modules/identity/index.js";
 
@@ -129,6 +130,19 @@ import {
 } from "../modules/support/index.js";
 
 import type { SmsProvider } from "../modules/identity/sms-service.js";
+import {
+  ClassroomService,
+  TeacherExamService,
+  TeacherExamAttemptService,
+  TeacherExamResultService,
+  AssignmentService,
+  DrizzleAssignmentStore,
+  DrizzleAssignmentSubmissionStore,
+  InMemoryAssignmentStore,
+  InMemoryAssignmentSubmissionStore,
+  teacherRoutes,
+  studentTeacherPlatformRoutes,
+} from "../modules/teacher-platform/index.js";
 
 export interface V1RouteOptions {
   config: IdentityPluginOptions["config"];
@@ -140,6 +154,7 @@ export interface V1RouteOptions {
   supportService?: SupportService;
   deviceStore?: DeviceStore;
   emailVerificationStore?: EmailVerificationStore;
+  passwordResetStore?: PasswordResetStore;
   emailService?: EmailService;
   smsProvider?: SmsProvider;
   organizationStore: OrganizationStore;
@@ -193,8 +208,18 @@ export interface V1RouteOptions {
   annotationService?: import("../modules/study/index.js").AnnotationService;
   dailyPlanStore?: import("../modules/study/index.js").DailyStudyPlanStore;
   studyPlannerService?: import("../modules/study/index.js").StudyPlannerService;
+  classroomStore?: import("../modules/teacher-platform/stores.js").ClassroomStore;
+  classroomMemberStore?: import("../modules/teacher-platform/stores.js").ClassroomMemberStore;
+  teacherExamStore?: import("../modules/teacher-platform/stores.js").TeacherExamStore;
+  teacherExamQuestionStore?: import("../modules/teacher-platform/stores.js").TeacherExamQuestionStore;
+  teacherExamAttemptStore?: import("../modules/teacher-platform/stores.js").TeacherExamAttemptStore;
+  teacherExamAttemptAnswerStore?: import("../modules/teacher-platform/stores.js").TeacherExamAttemptAnswerStore;
+  assignmentStore?: import("../modules/teacher-platform/stores.js").AssignmentStore;
+  assignmentSubmissionStore?: import("../modules/teacher-platform/stores.js").AssignmentSubmissionStore;
+  assignmentService?: AssignmentService;
   db?: import("@avana/database/client").DbClient;
 }
+
 
 export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
   app,
@@ -232,6 +257,7 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       userStore: opts.userStore,
       deviceStore: opts.deviceStore,
       emailVerificationStore: opts.emailVerificationStore,
+      passwordResetStore: opts.passwordResetStore,
       emailService: opts.emailService,
       smsProvider: opts.smsProvider,
       organizationStore: opts.organizationStore,
@@ -997,7 +1023,99 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       supportService,
     });
   }
+
+  // Register Teacher Platform routes
+  if (
+    opts.config &&
+    opts.sessionStore &&
+    opts.userStore &&
+    opts.organizationStore &&
+    opts.classroomStore &&
+    opts.classroomMemberStore &&
+    opts.teacherExamStore &&
+    opts.teacherExamQuestionStore &&
+    opts.teacherExamAttemptStore &&
+    opts.teacherExamAttemptAnswerStore
+  ) {
+    const classroomService = new ClassroomService(
+      opts.classroomStore,
+      opts.classroomMemberStore,
+      opts.teacherExamStore,
+      opts.organizationStore,
+      opts.userStore,
+    );
+
+    const examService = new TeacherExamService(
+      opts.teacherExamStore,
+      opts.teacherExamQuestionStore,
+      opts.classroomStore,
+      opts.organizationStore,
+    );
+
+    const attemptService = new TeacherExamAttemptService(
+      opts.teacherExamAttemptStore,
+      opts.teacherExamAttemptAnswerStore,
+      opts.teacherExamStore,
+      opts.teacherExamQuestionStore,
+      opts.classroomStore,
+      opts.classroomMemberStore,
+    );
+
+    const resultService = new TeacherExamResultService(
+      opts.teacherExamStore,
+      opts.teacherExamAttemptStore,
+      opts.teacherExamAttemptAnswerStore,
+      opts.classroomStore,
+      opts.classroomMemberStore,
+      opts.organizationStore,
+      opts.userStore,
+    );
+
+    const assignmentStore =
+      opts.assignmentStore ??
+      (opts.db
+        ? new DrizzleAssignmentStore(opts.db)
+        : new InMemoryAssignmentStore());
+
+    const assignmentSubmissionStore =
+      opts.assignmentSubmissionStore ??
+      (opts.db
+        ? new DrizzleAssignmentSubmissionStore(opts.db)
+        : new InMemoryAssignmentSubmissionStore());
+
+    const assignmentService =
+      opts.assignmentService ??
+      new AssignmentService(
+        assignmentStore,
+        assignmentSubmissionStore,
+        opts.classroomStore,
+        opts.classroomMemberStore,
+        opts.organizationStore,
+        opts.userStore,
+      );
+
+    await app.register(teacherRoutes, {
+      sessionService: new SessionService(
+        opts.sessionStore,
+        opts.config.session,
+      ),
+      userStore: opts.userStore,
+      classroomService,
+      examService,
+      resultService,
+      assignmentService,
+    });
+
+    await app.register(studentTeacherPlatformRoutes, {
+      sessionService: new SessionService(
+        opts.sessionStore,
+        opts.config.session,
+      ),
+      userStore: opts.userStore,
+      classroomService,
+      attemptService,
+      resultService,
+      assignmentService,
+    });
+  }
 };
-
-
-

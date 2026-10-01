@@ -20,6 +20,8 @@ import { isContentManagerOrAdmin } from "../utils/generationPermissions.js";
 import { AuthenticatedShell } from "../components/shell/AuthenticatedShell.js";
 import { SignInPage } from "../components/shell/SignInPage.js";
 import { RegisterPage } from "../components/shell/RegisterPage.js";
+import { ForgotPasswordPage } from "../components/shell/ForgotPasswordPage.js";
+import { ResetPasswordPage } from "../components/shell/ResetPasswordPage.js";
 import { LandingPage } from "../components/LandingPage.js";
 import { HomePage } from "../pages/HomePage.js";
 import { CourseListPage } from "../pages/CourseListPage.js";
@@ -47,6 +49,7 @@ import { AdminDashboardPage } from "../pages/admin/AdminDashboardPage.js";
 import { AdminSupportPage } from "../pages/admin/support/AdminSupportPage.js";
 
 import { AdminUsersPage } from "../pages/admin/AdminUsersPage.js";
+import { AdminTeachersPage } from "../pages/admin/AdminTeachersPage.js";
 import { AdminUserSubscriptionsPage } from "../pages/admin/users/AdminUserSubscriptionsPage.js";
 import { AdminUserPurchasesPage } from "../pages/admin/users/AdminUserPurchasesPage.js";
 import { AdminUserWalletTopupsPage } from "../pages/admin/users/AdminUserWalletTopupsPage.js";
@@ -85,6 +88,26 @@ import { BlogTagPage } from "../pages/blog/BlogTagPage.js";
 import { AdminBlogListPage } from "../pages/admin/blog/AdminBlogListPage.js";
 import { AdminBlogEditPage } from "../pages/admin/blog/AdminBlogEditPage.js";
 import { AdminBlogPreviewPage } from "../pages/admin/blog/AdminBlogPreviewPage.js";
+
+// Teacher Platform Imports
+import { TeacherRouteGuard } from "../components/teacher/TeacherRouteGuard.js";
+import { TeacherShell } from "../components/teacher/TeacherShell.js";
+import { TeacherIntroPage } from "../pages/TeacherIntroPage.js";
+import { TeacherDashboardPage } from "../pages/teacher/TeacherDashboardPage.js";
+import { TeacherClassroomsPage } from "../pages/teacher/TeacherClassroomsPage.js";
+import { TeacherClassroomDetailPage } from "../pages/teacher/TeacherClassroomDetailPage.js";
+import { TeacherExamCreatePage } from "../pages/teacher/TeacherExamCreatePage.js";
+import { TeacherExamDetailPage } from "../pages/teacher/TeacherExamDetailPage.js";
+import { TeacherExamEditorPage } from "../pages/teacher/TeacherExamEditorPage.js";
+import { TeacherExamResultsPage } from "../pages/teacher/TeacherExamResultsPage.js";
+import { TeacherStudentResultDetailPage } from "../pages/teacher/TeacherStudentResultDetailPage.js";
+
+// Student Platform Imports
+import { StudentClassroomsPage } from "../pages/student/StudentClassroomsPage.js";
+import { StudentClassroomDetailPage } from "../pages/student/StudentClassroomDetailPage.js";
+import { StudentExamDetailPage } from "../pages/student/StudentExamDetailPage.js";
+import { StudentExamTakingPage } from "../pages/student/StudentExamTakingPage.js";
+import { StudentExamResultsPage } from "../pages/student/StudentExamResultsPage.js";
 
 const getRouterBasename = () => {
   if (typeof window !== "undefined") {
@@ -142,6 +165,22 @@ export const router = createBrowserRouter(
       element: <RegisterPage />,
     },
     {
+      path: "/forgot-password",
+      element: <ForgotPasswordPage />,
+    },
+    {
+      path: "/reset-password",
+      element: <ResetPasswordPage />,
+    },
+    {
+      path: "/teachers",
+      element: <TeacherIntroPage />,
+    },
+    {
+      path: "/for-teachers",
+      element: <Navigate to="/teachers" replace />,
+    },
+    {
       path: "/terms",
       element: <TermsPage />,
     },
@@ -166,6 +205,21 @@ export const router = createBrowserRouter(
       element: <BlogTagPage />,
     },
 
+    // Anatomy Lesson POC Route (Directly viewable in AVANA AuthenticatedShell without authentication barriers)
+    {
+      element: <AuthenticatedShell />,
+      children: [
+        {
+          path: "/courses/anatomy-heart",
+          element: <LearningPage initialCourseId="anatomy-heart" />,
+        },
+        {
+          path: "/anatomy-poc",
+          element: <Navigate to="/courses/anatomy-heart" replace />,
+        },
+      ],
+    },
+
     // Protected routes (require authentication)
     {
       path: "/",
@@ -180,11 +234,31 @@ export const router = createBrowserRouter(
           element: <ExamsPage />,
         },
         {
+          path: "classrooms/:classroomId/exams/:examId/take",
+          element: <StudentExamTakingPage />,
+        },
+        {
           element: <AuthenticatedShell />,
           children: [
             {
               path: "home",
               element: <HomePage />,
+            },
+            {
+              path: "classrooms",
+              element: <StudentClassroomsPage />,
+            },
+            {
+              path: "classrooms/:classroomId",
+              element: <StudentClassroomDetailPage />,
+            },
+            {
+              path: "classrooms/:classroomId/exams/:examId",
+              element: <StudentExamDetailPage />,
+            },
+            {
+              path: "classrooms/:classroomId/exams/:examId/results",
+              element: <StudentExamResultsPage />,
             },
             {
               path: "courses",
@@ -278,6 +352,57 @@ export const router = createBrowserRouter(
             {
               path: "*",
               element: <Navigate to="/home" replace />,
+            },
+          ],
+        },
+        // Teacher Platform Routes
+        {
+          path: "teacher",
+          element: (
+            <TeacherRouteGuard>
+              <TeacherShell />
+            </TeacherRouteGuard>
+          ),
+          children: [
+            {
+              index: true,
+              element: <TeacherDashboardPage />,
+            },
+            {
+              path: "dashboard",
+              element: <Navigate to="/teacher" replace />,
+            },
+            {
+              path: "classrooms",
+              element: <TeacherClassroomsPage />,
+            },
+            {
+              path: "classrooms/:classroomId",
+              element: <TeacherClassroomDetailPage />,
+            },
+            {
+              path: "classrooms/:classroomId/exams/new",
+              element: <TeacherExamCreatePage />,
+            },
+            {
+              path: "exams/:examId",
+              element: <TeacherExamDetailPage />,
+            },
+            {
+              path: "exams/:examId/edit",
+              element: <TeacherExamEditorPage />,
+            },
+            {
+              path: "exams/:examId/results",
+              element: <TeacherExamResultsPage />,
+            },
+            {
+              path: "exams/:examId/results/:studentId",
+              element: <TeacherStudentResultDetailPage />,
+            },
+            {
+              path: "*",
+              element: <Navigate to="/teacher" replace />,
             },
           ],
         },
@@ -397,6 +522,10 @@ export const router = createBrowserRouter(
             {
               path: "users",
               element: <AdminUsersPage />,
+            },
+            {
+              path: "teachers",
+              element: <AdminTeachersPage />,
             },
             {
               path: "users/subscriptions",

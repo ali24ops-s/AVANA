@@ -87,6 +87,13 @@ describe("RegisterPage Desktop Layout & Viewport Tests", () => {
     const referralCode = container.querySelector("#referralCode");
     expect(referralCode).toBeInTheDocument();
 
+    // Major select input with Persian labels
+    const majorSelect = container.querySelector("#major");
+    expect(majorSelect).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "داروسازی" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "پزشکی" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "دندانپزشکی" })).toBeInTheDocument();
+
     // Submit button and legal link
     expect(screen.getByRole("button", { name: "ثبت‌نام" })).toBeInTheDocument();
     expect(screen.getByText("قوانین و مقررات استفاده")).toBeInTheDocument();
@@ -104,6 +111,7 @@ describe("RegisterPage Desktop Layout & Viewport Tests", () => {
     const lastNameInput = container.querySelector("#lastName") as HTMLInputElement;
     const emailInput = container.querySelector("#email") as HTMLInputElement;
     const phoneInput = container.querySelector("#phoneNumber") as HTMLInputElement;
+    const majorInput = container.querySelector("#major") as HTMLSelectElement;
     const passwordInput = container.querySelector("#password") as HTMLInputElement;
     const confirmInput = container.querySelector("#confirmPassword") as HTMLInputElement;
 
@@ -111,6 +119,7 @@ describe("RegisterPage Desktop Layout & Viewport Tests", () => {
     fireEvent.change(lastNameInput, { target: { value: "احمدی" } });
     fireEvent.change(emailInput, { target: { value: "sara@example.com" } });
     fireEvent.change(phoneInput, { target: { value: "09121112233" } });
+    fireEvent.change(majorInput, { target: { value: "medicine" } });
     fireEvent.change(passwordInput, { target: { value: "password123" } });
     fireEvent.change(confirmInput, { target: { value: "differentPassword" } });
 
@@ -120,5 +129,36 @@ describe("RegisterPage Desktop Layout & Viewport Tests", () => {
     await waitFor(() => {
       expect(screen.getByText("رمز عبور و تکرار آن یکسان نیستند.")).toBeInTheDocument();
     });
+  });
+
+  it("keeps submit button disabled when major is not selected", async () => {
+    const { container } = renderWithProviders(
+      <AuthProvider>
+        <RegisterPage />
+      </AuthProvider>,
+    );
+
+    const firstNameInput = container.querySelector("#firstName") as HTMLInputElement;
+    const lastNameInput = container.querySelector("#lastName") as HTMLInputElement;
+    const emailInput = container.querySelector("#email") as HTMLInputElement;
+    const phoneInput = container.querySelector("#phoneNumber") as HTMLInputElement;
+    const passwordInput = container.querySelector("#password") as HTMLInputElement;
+    const confirmInput = container.querySelector("#confirmPassword") as HTMLInputElement;
+    const submitBtn = screen.getByRole("button", { name: "ثبت‌نام" });
+
+    fireEvent.change(firstNameInput, { target: { value: "سارا" } });
+    fireEvent.change(lastNameInput, { target: { value: "احمدی" } });
+    fireEvent.change(emailInput, { target: { value: "sara@example.com" } });
+    fireEvent.change(phoneInput, { target: { value: "09121112233" } });
+    fireEvent.change(passwordInput, { target: { value: "password123" } });
+    fireEvent.change(confirmInput, { target: { value: "password123" } });
+
+    // Major not selected yet -> disabled
+    expect(submitBtn).toBeDisabled();
+
+    // Select major -> enabled
+    const majorInput = container.querySelector("#major") as HTMLSelectElement;
+    fireEvent.change(majorInput, { target: { value: "pharmacy" } });
+    expect(submitBtn).not.toBeDisabled();
   });
 });

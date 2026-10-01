@@ -8,6 +8,7 @@ import {
   BrainCircuit,
   ShieldCheck,
   LifeBuoy,
+  GraduationCap,
 } from "lucide-react";
 
 export interface AdminNavItem {
@@ -98,6 +99,14 @@ export const PLATFORM_ADMIN_NAV_ITEMS: AdminNavItem[] = [
     icon: ShieldCheck,
     description: "سلامت سرور، لاگ‌ها، حسابرسی داده‌ها و تنظیمات",
     matchPrefixes: ["/admin/system", "/admin/settings"],
+  },
+  {
+    id: "teacher-platform",
+    name: "مدیریت اساتید",
+    href: "/admin/teachers",
+    icon: GraduationCap,
+    description: "مدیریت اساتید، کلاس‌ها، آزمون‌ها و آمار آموزشی",
+    matchPrefixes: ["/admin/teachers"],
   },
 ];
 
@@ -383,6 +392,14 @@ export function getAdminPageInfo(currentPathname: string): {
         { label: "کاربران و دسترسی‌ها", href: "/admin/users" },
         { label: "پروفایل کاربر", isCurrent: true },
       ],
+    };
+  }
+
+  // Teachers Management
+  if (currentPathname === "/admin/teachers" || currentPathname.startsWith("/admin/teachers/")) {
+    return {
+      title: "مدیریت اساتید",
+      breadcrumbs: [rootCrumb, { label: "مدیریت اساتید", isCurrent: true }],
     };
   }
 

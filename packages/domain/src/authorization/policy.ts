@@ -72,7 +72,32 @@ export type AuthAction =
   | "flashcard:review"
   | "quiz:attempt"
   | "study:read"
-  | "content:export";
+  | "content:export"
+  | "classroom:create"
+  | "classroom:read"
+  | "classroom:update"
+  | "classroom:archive"
+  | "classroom:delete"
+  | "classroom:join"
+  | "classroom:manage_members"
+  | "teacher_exam:create"
+  | "teacher_exam:read"
+  | "teacher_exam:update"
+  | "teacher_exam:publish"
+  | "teacher_exam:close"
+  | "teacher_exam:archive"
+  | "teacher_exam:attempt"
+  | "teacher_exam:grade"
+  | "teacher_exam:view_results"
+  | "assignment:create"
+  | "assignment:read"
+  | "assignment:update"
+  | "assignment:publish"
+  | "assignment:archive"
+  | "assignment:delete"
+  | "assignment:submit"
+  | "assignment:view_submissions";
+
 
 // ---------------------------------------------------------------------------
 // Actor & Membership
@@ -161,7 +186,9 @@ export type ResourceType =
   | "content_export"
   | "content_import"
   | "support_ticket"
-  | "commerce_order";
+  | "commerce_order"
+  | "classroom"
+  | "teacher_exam";
 
 /**
  * Rich resource context for context-aware policy evaluation (Phase 3).
@@ -293,6 +320,12 @@ export class RoleBasedPolicy implements AuthorizationPolicy {
         "flashcard:review",
         "quiz:attempt",
         "study:read",
+        "classroom:read",
+        "classroom:join",
+        "teacher_exam:read",
+        "teacher_exam:attempt",
+        "assignment:read",
+        "assignment:submit",
       ]),
     );
 
@@ -312,6 +345,26 @@ export class RoleBasedPolicy implements AuthorizationPolicy {
         "flashcard:review",
         "quiz:attempt",
         "study:read",
+        "classroom:create",
+        "classroom:read",
+        "classroom:update",
+        "classroom:archive",
+        "classroom:delete",
+        "classroom:manage_members",
+        "teacher_exam:create",
+        "teacher_exam:read",
+        "teacher_exam:update",
+        "teacher_exam:publish",
+        "teacher_exam:close",
+        "teacher_exam:archive",
+        "teacher_exam:view_results",
+        "assignment:create",
+        "assignment:read",
+        "assignment:update",
+        "assignment:publish",
+        "assignment:archive",
+        "assignment:delete",
+        "assignment:view_submissions",
       ]),
     );
 
@@ -340,6 +393,7 @@ export class RoleBasedPolicy implements AuthorizationPolicy {
         "flashcard:review",
         "quiz:attempt",
         "study:read",
+        "assignment:read",
       ]),
     );
 
@@ -370,6 +424,7 @@ export class RoleBasedPolicy implements AuthorizationPolicy {
         "quiz:attempt",
         "study:read",
         "content:export",
+        "assignment:read",
       ]),
     );
 
@@ -404,6 +459,26 @@ export class RoleBasedPolicy implements AuthorizationPolicy {
         "quiz:attempt",
         "study:read",
         "content:export",
+        "classroom:create",
+        "classroom:read",
+        "classroom:update",
+        "classroom:archive",
+        "classroom:delete",
+        "classroom:manage_members",
+        "teacher_exam:create",
+        "teacher_exam:read",
+        "teacher_exam:update",
+        "teacher_exam:publish",
+        "teacher_exam:close",
+        "teacher_exam:archive",
+        "teacher_exam:view_results",
+        "assignment:create",
+        "assignment:read",
+        "assignment:update",
+        "assignment:publish",
+        "assignment:archive",
+        "assignment:delete",
+        "assignment:view_submissions",
       ]),
     );
 
@@ -440,11 +515,44 @@ export class RoleBasedPolicy implements AuthorizationPolicy {
         "quiz:attempt",
         "study:read",
         "content:export",
+        "classroom:create",
+        "classroom:read",
+        "classroom:update",
+        "classroom:archive",
+        "classroom:delete",
+        "classroom:manage_members",
+        "teacher_exam:create",
+        "teacher_exam:read",
+        "teacher_exam:update",
+        "teacher_exam:publish",
+        "teacher_exam:close",
+        "teacher_exam:archive",
+        "teacher_exam:attempt",
+        "teacher_exam:grade",
+        "teacher_exam:view_results",
+        "assignment:create",
+        "assignment:read",
+        "assignment:update",
+        "assignment:publish",
+        "assignment:archive",
+        "assignment:delete",
+        "assignment:submit",
+        "assignment:view_submissions",
       ]),
     );
 
     // Reserved support role
-    this.rolePermissions.set("support_agent", new Set());
+    this.rolePermissions.set(
+      "support_agent",
+      new Set([
+        "classroom:read",
+        "teacher_exam:read",
+        "teacher_exam:view_results",
+        "assignment:read",
+        "assignment:view_submissions",
+      ]),
+    );
+
   }
 
   can(actor: Actor, action: AuthAction, context?: ResourceContext): boolean {

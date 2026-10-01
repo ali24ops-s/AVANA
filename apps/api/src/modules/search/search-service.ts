@@ -14,9 +14,10 @@
  * - Description contains query: 20 pts
  */
 
-import { DomainError } from "@avana/domain";
+import { DomainError, scoreCourseRelevance } from "@avana/domain";
 import type { Actor, OrganizationId } from "@avana/domain";
 import type { SearchStore } from "./search-store.js";
+import type { UserStore } from "../identity/user-store.js";
 import type {
   SearchResponse,
   SearchResultItem,
@@ -69,6 +70,7 @@ export class SearchService {
   constructor(
     private readonly store: SearchStore,
     private readonly systemOrganizationId?: OrganizationId,
+    private readonly userStore?: UserStore,
   ) {}
 
   /**
@@ -87,8 +89,8 @@ export class SearchService {
 
     const safeLimit = Math.max(1, Math.min(50, limit));
 
-    // Parallel fetch: Accessible courses & Published content packs
-    const [coursesList, sharedList] = await Promise.all([
+    // Parallel fetch: Accessible courses & Published content packs & User major
+    const [coursesList, sharedList, userRecord] = await Promise.all([
       this.store.searchCourses(
         actor.userId,
         trimmedQuery,
@@ -100,16 +102,35 @@ export class SearchService {
         safeLimit * 2,
         this.systemOrganizationId,
       ),
+      this.userStore
+        ? this.userStore.findById(actor.userId).catch(() => null)
+        : Promise.resolve(null),
     ]);
+
+    const userMajor = userRecord?.major ?? null;
 
     // Rank & format Course items
     const scoredCourses = coursesList.map((c) => {
-      const score = computeRelevanceScore(
+      let score = computeRelevanceScore(
         c.name,
         trimmedQuery,
         c.subject,
         null,
       );
+
+      // Additive boost based on student's academic major
+      if (userMajor) {
+        const academicRelevance = scoreCourseRelevance(
+          c.targetAcademicFields,
+          userMajor,
+        );
+        if (academicRelevance.score === 100) {
+          score += 25;
+        } else if (academicRelevance.score === 50) {
+          score += 10;
+        }
+      }
+
       const item: SearchResultItem = {
         id: c.id,
         type: "course",
@@ -120,6 +141,7 @@ export class SearchService {
         metadata: {
           subject: c.subject,
           organizationId: c.organizationId,
+          targetAcademicFields: c.targetAcademicFields ?? [],
         },
       };
       return { item, score, timestamp: new Date(c.createdAt).getTime() };

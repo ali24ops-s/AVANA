@@ -286,7 +286,7 @@ describe("Admin Users Management — Phase 4", () => {
     renderUsersPage();
 
     await waitFor(() => {
-      expect(screen.getByText("مجموع: 40 کاربر")).toBeInTheDocument();
+      expect(screen.getByText(/مجموع:\s*۴۰\s*کاربر/)).toBeInTheDocument();
       expect(screen.getByLabelText("صفحه بعد")).toBeInTheDocument();
     });
 

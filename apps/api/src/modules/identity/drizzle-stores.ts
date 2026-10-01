@@ -9,7 +9,7 @@
  * on read to match the domain shape expected by in-memory stores.
  */
 
-import { eq, and, desc, sql } from "drizzle-orm";
+import { eq, and, desc, sql, isNull, gt, ne } from "drizzle-orm";
 import type { DbClient } from "@avana/database/client";
 import {
   users,
@@ -17,6 +17,7 @@ import {
   userDevices,
   authenticationAttempts,
   emailVerificationCodes,
+  passwordResetTokens,
   auditLogs,
   organizationMemberships,
 } from "@avana/database/schema";
@@ -33,6 +34,10 @@ import type {
   EmailVerificationCodeRecord,
   EmailVerificationStore,
 } from "./email-verification-store.js";
+import type {
+  PasswordResetTokenRecord,
+  PasswordResetStore,
+} from "./password-reset-store.js";
 import {
   resolveEffectiveRole,
   type Role,
@@ -127,6 +132,7 @@ function toUserRecord(
     name: string;
     globalRole?: string | null;
     phoneNumber?: string | null;
+    major?: string | null;
     emailVerifiedAt?: Date | string | null;
     phoneVerifiedAt?: Date | string | null;
   },
@@ -139,6 +145,7 @@ function toUserRecord(
     role: effectiveRole,
     globalRole: row.globalRole ?? null,
     phoneNumber: row.phoneNumber ?? null,
+    major: row.major ?? null,
     emailVerifiedAt: toISOStringSafe(row.emailVerifiedAt),
     emailVerified: row.emailVerifiedAt != null,
     phoneVerifiedAt: toISOStringSafe(row.phoneVerifiedAt),
@@ -689,6 +696,7 @@ export class DrizzleUserStore implements UserStore {
     passwordHash: string;
     name?: string;
     phoneNumber?: string;
+    major?: string | null;
     globalRole?: string | null;
   }): Promise<UserRecord> {
     const normalizedEmail = params.email.trim().toLowerCase();
@@ -700,6 +708,7 @@ export class DrizzleUserStore implements UserStore {
         passwordHash: params.passwordHash,
         name: params.name ?? normalizedEmail.split("@")[0],
         phoneNumber: params.phoneNumber ?? null,
+        major: params.major ?? null,
         globalRole: params.globalRole ?? null,
       })
       .returning({
@@ -708,6 +717,7 @@ export class DrizzleUserStore implements UserStore {
         name: users.name,
         globalRole: users.globalRole,
         phoneNumber: users.phoneNumber,
+        major: users.major,
         emailVerifiedAt: users.emailVerifiedAt,
         phoneVerifiedAt: users.phoneVerifiedAt,
       });
@@ -727,6 +737,33 @@ export class DrizzleUserStore implements UserStore {
     await this.db
       .update(users)
       .set({ phoneVerifiedAt: new Date(), updatedAt: new Date() })
+      .where(eq(users.id, userId));
+  }
+
+  async updatePassword(userId: UserId, passwordHash: string): Promise<void> {
+    await this.db
+      .update(users)
+      .set({ passwordHash, updatedAt: new Date() })
+      .where(eq(users.id, userId));
+  }
+
+  async updateName(userId: UserId, name: string): Promise<void> {
+    await this.db
+      .update(users)
+      .set({
+        name: name.trim(),
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, userId));
+  }
+
+  async updateMajor(userId: UserId, major: string | null): Promise<void> {
+    await this.db
+      .update(users)
+      .set({
+        major: major ? major.trim() : null,
+        updatedAt: new Date(),
+      })
       .where(eq(users.id, userId));
   }
 
@@ -847,6 +884,157 @@ export class DrizzleEmailVerificationStore implements EmailVerificationStore {
       .update(emailVerificationCodes)
       .set({ usedAt: new Date() })
       .where(and(...conditions));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// DrizzlePasswordResetStore
+// ---------------------------------------------------------------------------
+
+export class DrizzlePasswordResetStore implements PasswordResetStore {
+  constructor(private readonly db: DbClient) {}
+
+  async createToken(values: {
+    userId: UserId;
+    tokenHash: string;
+    expiresAt: string;
+  }): Promise<PasswordResetTokenRecord> {
+    const [row] = await this.db
+      .insert(passwordResetTokens)
+      .values({
+        userId: values.userId,
+        tokenHash: values.tokenHash,
+        expiresAt: new Date(values.expiresAt),
+      })
+      .returning();
+
+    return {
+      id: row.id,
+      userId: row.userId as UserId,
+      tokenHash: row.tokenHash,
+      expiresAt: row.expiresAt.toISOString(),
+      createdAt: row.createdAt.toISOString(),
+      usedAt: row.usedAt?.toISOString() ?? null,
+    };
+  }
+
+  async findByTokenHash(
+    tokenHash: string,
+  ): Promise<PasswordResetTokenRecord | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(passwordResetTokens)
+      .where(eq(passwordResetTokens.tokenHash, tokenHash))
+      .limit(1);
+
+    if (!row) return undefined;
+    return {
+      id: row.id,
+      userId: row.userId as UserId,
+      tokenHash: row.tokenHash,
+      expiresAt: row.expiresAt.toISOString(),
+      createdAt: row.createdAt.toISOString(),
+      usedAt: row.usedAt?.toISOString() ?? null,
+    };
+  }
+
+  async atomicConsumeAndResetPassword(params: {
+    tokenHash: string;
+    newPasswordHash: string;
+  }): Promise<{
+    success: boolean;
+    userId?: UserId;
+    reason?: "invalid" | "expired" | "already_used";
+  }> {
+    const now = new Date();
+
+    return await this.db.transaction(async (tx) => {
+      // 1. Conditional atomic update on the token
+      const [consumed] = await tx
+        .update(passwordResetTokens)
+        .set({ usedAt: now })
+        .where(
+          and(
+            eq(passwordResetTokens.tokenHash, params.tokenHash),
+            isNull(passwordResetTokens.usedAt),
+            gt(passwordResetTokens.expiresAt, now),
+          ),
+        )
+        .returning();
+
+      if (!consumed) {
+        const [existing] = await tx
+          .select()
+          .from(passwordResetTokens)
+          .where(eq(passwordResetTokens.tokenHash, params.tokenHash))
+          .limit(1);
+
+        if (!existing) {
+          return { success: false, reason: "invalid" as const };
+        }
+        if (existing.usedAt != null) {
+          return { success: false, reason: "already_used" as const };
+        }
+        return { success: false, reason: "expired" as const };
+      }
+
+      const targetUserId = consumed.userId as UserId;
+
+      // 2. Update user's password in the SAME transaction
+      await tx
+        .update(users)
+        .set({ passwordHash: params.newPasswordHash, updatedAt: now })
+        .where(eq(users.id, targetUserId));
+
+      // 3. Invalidate any other active reset tokens for this user
+      await tx
+        .update(passwordResetTokens)
+        .set({ usedAt: now })
+        .where(
+          and(
+            eq(passwordResetTokens.userId, targetUserId),
+            isNull(passwordResetTokens.usedAt),
+            ne(passwordResetTokens.id, consumed.id),
+          ),
+        );
+
+      // 4. Invalidate all active sessions for this user with revocationReason = "password_reset"
+      await tx
+        .update(sessions)
+        .set({
+          revokedAt: now,
+          revocationReason: "password_reset",
+        })
+        .where(
+          and(
+            eq(sessions.userId, targetUserId),
+            isNull(sessions.revokedAt),
+          ),
+        );
+
+      return {
+        success: true,
+        userId: targetUserId,
+      };
+    });
+  }
+
+  async deleteToken(id: string): Promise<void> {
+    await this.db
+      .delete(passwordResetTokens)
+      .where(eq(passwordResetTokens.id, id));
+  }
+
+  async invalidateAllForUser(userId: UserId): Promise<void> {
+    await this.db
+      .update(passwordResetTokens)
+      .set({ usedAt: new Date() })
+      .where(
+        and(
+          eq(passwordResetTokens.userId, userId),
+          isNull(passwordResetTokens.usedAt),
+        ),
+      );
   }
 }
 

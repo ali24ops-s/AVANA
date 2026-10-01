@@ -18,6 +18,7 @@ import type {
   AuthorizationPolicy,
   OrganizationId,
   ResourceContext,
+  Role,
 } from "@avana/domain";
 import type {
   OrganizationStore,
@@ -55,6 +56,7 @@ export class OrganizationService {
     actor: Actor,
     name: string,
     customSlug?: string,
+    initialRole: Role = "organization_admin",
   ): Promise<OrganizationRecord> {
     const slug = customSlug
       ? generateSlug(customSlug) || customSlug.slice(0, 100)
@@ -88,7 +90,7 @@ export class OrganizationService {
       id: membershipId,
       organizationId,
       userId: actor.userId,
-      role: "organization_admin",
+      role: initialRole,
       createdAt,
       updatedAt: createdAt,
     };

@@ -24,6 +24,8 @@ import type {
   CreateAdminPromotionInput,
   UpdateAdminPromotionInput,
   AdminPromotionRedemptionListItem,
+  AdminTeachersList,
+  AdminTeacherOverview,
 } from "./admin-store.js";
 import { randomUUID } from "node:crypto";
 import {
@@ -66,6 +68,55 @@ export class AdminService {
     if (pageSize < 1 || pageSize > 100) throw new DomainError("bad_request", "Page size must be between 1 and 100");
     
     return this.store.listUsers({ page, pageSize, search, role, status });
+  }
+
+  async listTeachers(page: number, pageSize: number, search?: string, status?: string): Promise<AdminTeachersList> {
+    if (page < 1) throw new DomainError("bad_request", "Page must be >= 1");
+    if (pageSize < 1 || pageSize > 100) throw new DomainError("bad_request", "Page size must be between 1 and 100");
+
+    return this.store.listTeachers({ page, pageSize, search, status });
+  }
+
+  async getTeacherOverview(teacherId: string): Promise<AdminTeacherOverview> {
+    if (!teacherId || typeof teacherId !== "string") {
+      throw new DomainError("bad_request", "Teacher ID is required");
+    }
+    try {
+      return await this.store.getTeacherOverview(teacherId);
+    } catch (err: unknown) {
+      if (err instanceof Error && err.message === "teacher_not_found") {
+        throw new DomainError("not_found", "استاد یافت نشد");
+      }
+      throw err;
+    }
+  }
+
+  async approveTeacher(adminId: string, teacherId: string): Promise<void> {
+    if (!teacherId || typeof teacherId !== "string") {
+      throw new DomainError("bad_request", "Teacher ID is required");
+    }
+    try {
+      await this.store.approveTeacher(adminId, teacherId);
+    } catch (err: unknown) {
+      if (err instanceof Error && err.message === "teacher_not_found") {
+        throw new DomainError("not_found", "استاد یافت نشد");
+      }
+      throw err;
+    }
+  }
+
+  async rejectTeacher(adminId: string, teacherId: string, reason?: string): Promise<void> {
+    if (!teacherId || typeof teacherId !== "string") {
+      throw new DomainError("bad_request", "Teacher ID is required");
+    }
+    try {
+      await this.store.rejectTeacher(adminId, teacherId, reason);
+    } catch (err: unknown) {
+      if (err instanceof Error && err.message === "teacher_not_found") {
+        throw new DomainError("not_found", "استاد یافت نشد");
+      }
+      throw err;
+    }
   }
 
   async listGenerationJobs(page: number, pageSize: number, status?: string): Promise<{ jobs: AdminGenerationJobRecord[]; totalCount: number }> {

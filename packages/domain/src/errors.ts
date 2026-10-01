@@ -15,6 +15,7 @@ export type DomainErrorCode =
   | "too_many_requests"
   | "service_unavailable"
   | "internal_error"
+  | "timeout"
   | "SESSION_REVOKED"
   | "DEVICE_LIMIT_REACHED"
   | "UNAUTHORIZED"

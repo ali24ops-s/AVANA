@@ -22,6 +22,7 @@ import type {
   OrganizationStore,
 } from "./organization-store.js";
 import type { OrganizationId, Role, UserId } from "@avana/domain";
+import { isUUID } from "@avana/domain";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -217,6 +218,7 @@ export class DrizzleOrganizationStore implements OrganizationStore {
   }
 
   async listMembershipsByUserId(userId: UserId): Promise<MembershipRecord[]> {
+    if (!isUUID(userId)) return [];
     const rows = await this.db
       .select()
       .from(organizationMemberships)
@@ -229,6 +231,7 @@ export class DrizzleOrganizationStore implements OrganizationStore {
     organizationId: OrganizationId,
     userId: UserId,
   ): Promise<MembershipRecord | undefined> {
+    if (!isUUID(organizationId) || !isUUID(userId)) return undefined;
     const row = await this.db
       .select()
       .from(organizationMemberships)

@@ -289,8 +289,27 @@ export interface QuizQuestionStore {
   restore?(id: QuizQuestionId): Promise<void>;
 }
 
+export interface QuizAttemptSyncMeta {
+  id: QuizAttemptId;
+  userId: UserId;
+  status: string;
+  startedAt: string;
+  completedAt: string | null;
+  answers: Record<string, unknown>;
+  metrics: Record<string, unknown> | null;
+  questionIds: string[] | null;
+}
+
 export interface QuizAttemptStore {
   findById(id: QuizAttemptId): Promise<QuizAttemptRecord | undefined>;
+  /**
+   * Lightweight projection for answer synchronization.
+   * Reads only the minimal columns needed for validation and merging,
+   * completely avoiding the heavy questionSnapshot JSONB column.
+   */
+  findAttemptForAnswerSync?(
+    id: QuizAttemptId,
+  ): Promise<QuizAttemptSyncMeta | undefined>;
   listByUserAndQuiz(userId: UserId, quizId: QuizId): Promise<QuizAttemptRecord[]>;
   listByUser(userId: UserId): Promise<QuizAttemptRecord[]>;
   /** Count total completed/submitted attempts for a user across all exams/quizzes. */
@@ -302,6 +321,38 @@ export interface QuizAttemptStore {
   listByUserAndCourse(userId: UserId, courseId: CourseId): Promise<QuizAttemptRecord[]>;
   create(record: QuizAttemptRecord): Promise<QuizAttemptRecord>;
   update(record: QuizAttemptRecord): Promise<QuizAttemptRecord>;
+  /**
+   * Lightweight update that persists only answers and metrics,
+   * avoiding costly JSONB rewrites of questionSnapshot on every sync.
+   */
+  updateAnswersAndMetrics(
+    id: QuizAttemptId,
+    answers: Record<string, unknown>,
+    metrics: Record<string, unknown>,
+  ): Promise<void>;
+  /**
+   * Atomic row-locked sync update:
+   * Acquires a row-level lock (e.g. SELECT ... FOR UPDATE in PostgreSQL) on the quiz_attempt,
+   * passes the locked latest snapshot to mutateFn, and commits the updated answers and metrics
+   * in the same transaction to guarantee monotonic revision safety under real concurrency.
+   */
+  saveAttemptAnswersAtomic?(
+    id: QuizAttemptId,
+    mutateFn: (attempt: QuizAttemptSyncMeta) => Promise<{
+      answers: Record<string, unknown>;
+      metrics: Record<string, unknown>;
+      acknowledged: Array<{ questionId: string; revision: number }>;
+    }> | {
+      answers: Record<string, unknown>;
+      metrics: Record<string, unknown>;
+      acknowledged: Array<{ questionId: string; revision: number }>;
+    },
+  ): Promise<{
+    attemptId: QuizAttemptId;
+    answers: Record<string, unknown>;
+    acknowledged: Array<{ questionId: string; revision: number }>;
+    elapsedSeconds?: number;
+  } | undefined>;
 }
 
 export interface StudySessionStore {

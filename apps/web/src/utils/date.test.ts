@@ -5,6 +5,12 @@ import {
   useCurrentPersianDate,
   calculateDaysRemaining,
   formatPersianExamDate,
+  extractLocalDateAndTimeString,
+  combineLocalDateAndTimeToIso,
+  formatPersianTimeOnly,
+  formatPersianExamDateTime,
+  formatPersianExamTimeRange,
+  formatStudentExamScheduleNotice,
   gregorianToJalali,
   jalaliToGregorian,
   getJalaliMonthDays,
@@ -162,6 +168,107 @@ describe("Persian Date Utilities (utils/date.ts)", () => {
       const formatted = formatPersianExamDate(date);
       expect(formatted).toContain("شهریور");
       expect(formatted).toContain("۱۴۰۵");
+    });
+  });
+
+  describe("Exam Date & Time Utilities", () => {
+    it("extractLocalDateAndTimeString extracts YYYY-MM-DD and HH:mm correctly from Date and ISO string", () => {
+      // Create local date: 2026-10-07 10:00:00
+      const localD = new Date(2026, 9, 7, 10, 0, 0);
+      const extracted = extractLocalDateAndTimeString(localD.toISOString());
+
+      expect(extracted.dateStr).toBe("2026-10-07");
+      expect(extracted.timeStr).toBe("10:00");
+    });
+
+    it("handles single digit hours and minutes like 09:05", () => {
+      const localD = new Date(2026, 9, 7, 9, 5, 0);
+      const extracted = extractLocalDateAndTimeString(localD.toISOString());
+
+      expect(extracted.dateStr).toBe("2026-10-07");
+      expect(extracted.timeStr).toBe("09:05");
+    });
+
+    it("combineLocalDateAndTimeToIso combines local date string and time string accurately", () => {
+      const iso = combineLocalDateAndTimeToIso("2026-10-07", "10:00");
+      const d = new Date(iso);
+
+      expect(d.getFullYear()).toBe(2026);
+      expect(d.getMonth()).toBe(9); // October
+      expect(d.getDate()).toBe(7);
+      expect(d.getHours()).toBe(10);
+      expect(d.getMinutes()).toBe(0);
+    });
+
+    it("performs exact round-trip without timezone drift or double conversion", () => {
+      const inputDateStr = "2026-10-07";
+      const inputTimeStr = "11:30";
+
+      const iso = combineLocalDateAndTimeToIso(inputDateStr, inputTimeStr);
+      const extracted = extractLocalDateAndTimeString(iso);
+
+      expect(extracted.dateStr).toBe(inputDateStr);
+      expect(extracted.timeStr).toBe(inputTimeStr);
+    });
+
+    it("handles invalid or empty inputs gracefully", () => {
+      expect(extractLocalDateAndTimeString("")).toEqual({ dateStr: "", timeStr: "" });
+      expect(extractLocalDateAndTimeString(null)).toEqual({ dateStr: "", timeStr: "" });
+      expect(extractLocalDateAndTimeString("invalid-date")).toEqual({ dateStr: "", timeStr: "" });
+
+      expect(combineLocalDateAndTimeToIso("", "10:00")).toBe("");
+      expect(combineLocalDateAndTimeToIso("2026-10-07", "")).toBe("");
+      expect(combineLocalDateAndTimeToIso("invalid", "invalid")).toBe("");
+    });
+
+    it("formatPersianTimeOnly formats time with Persian digits", () => {
+      const localD = new Date(2026, 9, 7, 10, 0, 0);
+      expect(formatPersianTimeOnly(localD)).toBe("۱۰:۰۰");
+
+      const localD2 = new Date(2026, 9, 7, 9, 5, 0);
+      expect(formatPersianTimeOnly(localD2)).toBe("۰۹:۰۵");
+
+      const localD3 = new Date(2026, 9, 7, 14, 30, 0);
+      expect(formatPersianTimeOnly(localD3)).toBe("۱۴:۳۰");
+    });
+
+    it("formatPersianExamDateTime formats date + time in Persian", () => {
+      const localD = new Date(2026, 9, 7, 10, 0, 0);
+      const formatted = formatPersianExamDateTime(localD);
+      expect(formatted).toContain("مهر");
+      expect(formatted).toContain("۱۴۰۵");
+      expect(formatted).toContain("ساعت ۱۰:۰۰");
+    });
+
+    it("formatPersianExamTimeRange formats same-day time range", () => {
+      const start = new Date(2026, 9, 7, 10, 0, 0);
+      const end = new Date(2026, 9, 7, 11, 30, 0);
+
+      const formatted = formatPersianExamTimeRange(start, end);
+      expect(formatted).toContain("مهر");
+      expect(formatted).toContain("۱۴۰۵");
+      expect(formatted).toContain("ساعت ۱۰:۰۰ تا ۱۱:۳۰");
+    });
+
+    it("formatPersianExamTimeRange formats multi-day time range", () => {
+      const start = new Date(2026, 9, 7, 10, 0, 0);
+      const end = new Date(2026, 9, 8, 12, 0, 0);
+
+      const formatted = formatPersianExamTimeRange(start, end);
+      expect(formatted).toContain("از");
+      expect(formatted).toContain("تا");
+      expect(formatted).toContain("ساعت ۱۰:۰۰");
+      expect(formatted).toContain("ساعت ۱۲:۰۰");
+    });
+
+    it("formatStudentExamScheduleNotice formats clean student notice", () => {
+      const start = new Date(2026, 9, 7, 10, 0, 0);
+      const end = new Date(2026, 9, 7, 11, 30, 0);
+
+      const notice = formatStudentExamScheduleNotice(start, end);
+      expect(notice).toContain("آزمون در تاریخ");
+      expect(notice).toContain("مهر");
+      expect(notice).toContain("از ساعت ۱۰:۰۰ تا ۱۱:۳۰ برگزار می‌شود.");
     });
   });
 

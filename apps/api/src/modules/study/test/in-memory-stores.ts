@@ -29,6 +29,7 @@ import type {
   QuizStore,
   QuizQuestionStore,
   QuizAttemptStore,
+  QuizAttemptSyncMeta,
   StudySessionStore,
   FlashcardStudySessionStore,
 } from "../study-store.js";
@@ -574,6 +575,29 @@ export class InMemoryQuizAttemptStore implements QuizAttemptStore {
     return record ? { ...record } : undefined;
   }
 
+  async findAttemptForAnswerSync(
+    id: QuizAttemptId,
+  ): Promise<QuizAttemptSyncMeta | undefined> {
+    const existing = this.attempts.get(id);
+    if (!existing) return undefined;
+    const questionIds =
+      (existing.questionIds as string[] | undefined) ||
+      (Array.isArray(existing.questionSnapshot)
+        ? (existing.questionSnapshot as Array<{ id: string }>).map((q) => q.id)
+        : null);
+
+    return {
+      id: existing.id,
+      userId: existing.userId,
+      status: existing.status ?? "in_progress",
+      startedAt: existing.startedAt,
+      completedAt: existing.completedAt ?? null,
+      answers: (existing.answers ?? {}) as Record<string, unknown>,
+      metrics: (existing.metrics ?? {}) as Record<string, unknown>,
+      questionIds,
+    };
+  }
+
   async listByUserAndQuiz(
     userId: UserId,
     quizId: QuizId,
@@ -624,6 +648,70 @@ export class InMemoryQuizAttemptStore implements QuizAttemptStore {
     };
     this.attempts.set(record.id, updated);
     return { ...updated };
+  }
+
+  async updateAnswersAndMetrics(
+    id: QuizAttemptId,
+    answers: Record<string, unknown>,
+    metrics: Record<string, unknown>,
+  ): Promise<void> {
+    const existing = this.attempts.get(id);
+    if (existing) {
+      this.attempts.set(id, {
+        ...existing,
+        answers: { ...answers },
+        metrics: { ...metrics },
+      });
+    }
+  }
+
+  private syncLocks: Map<string, Promise<void>> = new Map();
+
+  async saveAttemptAnswersAtomic(
+    id: QuizAttemptId,
+    mutateFn: (attempt: QuizAttemptSyncMeta) => Promise<{
+      answers: Record<string, unknown>;
+      metrics: Record<string, unknown>;
+      acknowledged: Array<{ questionId: string; revision: number }>;
+    }> | {
+      answers: Record<string, unknown>;
+      metrics: Record<string, unknown>;
+      acknowledged: Array<{ questionId: string; revision: number }>;
+    },
+  ): Promise<{
+    attemptId: QuizAttemptId;
+    answers: Record<string, unknown>;
+    acknowledged: Array<{ questionId: string; revision: number }>;
+    elapsedSeconds?: number;
+  } | undefined> {
+    let releaseLock: () => void = () => {};
+    const lockPromise = new Promise<void>((resolve) => {
+      releaseLock = resolve;
+    });
+    const prevLock = this.syncLocks.get(id) ?? Promise.resolve();
+    this.syncLocks.set(id, prevLock.then(() => lockPromise));
+
+    await prevLock;
+    try {
+      const syncMeta = await this.findAttemptForAnswerSync(id);
+      if (!syncMeta) return undefined;
+
+      const mutation = await mutateFn(syncMeta);
+
+      await this.updateAnswersAndMetrics(id, mutation.answers, mutation.metrics);
+
+      return {
+        attemptId: id,
+        answers: mutation.answers,
+        acknowledged: mutation.acknowledged,
+        elapsedSeconds: (mutation.metrics as { elapsedSeconds?: number })?.elapsedSeconds,
+      };
+    } finally {
+      releaseLock();
+      if (this.syncLocks.get(id) === lockPromise) {
+        this.syncLocks.delete(id);
+      }
+    }
   }
 
   /** Directly insert an attempt (used for seeding). */

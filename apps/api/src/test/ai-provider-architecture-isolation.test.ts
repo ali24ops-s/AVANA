@@ -458,29 +458,11 @@ describe("AI Provider Architecture & Request-Path Isolation Tests", () => {
             lessons: [{ title: "درس ۱", estimatedMinutes: 10 }],
           });
         } else if (
-          promptText.includes("educational lesson content") ||
-          promptText.includes("COMPLETE LESSON GENERATION") ||
-          promptText.includes("LESSON GENERATION") ||
-          promptText.includes("lesson_batch")
-        ) {
-          stagesCalled.push("lesson");
-          responseContent = JSON.stringify({
-            results: [
-              {
-                sessionIndex: 0,
-                title: "درس ۱: مقدمه فارماکولوژی",
-                contentMarkdown: "# مقدمه فارماکولوژی\nمحتوای درس...",
-                objectives: ["هدف ۱"],
-              },
-            ],
-            title: "درس ۱: مقدمه فارماکولوژی",
-            contentMarkdown: "# مقدمه فارماکولوژی\nمحتوای درس...",
-            objectives: ["هدف ۱"],
-          });
-        } else if (
           promptText.includes("multiple-choice quiz questions") ||
           promptText.includes("QUIZ & DISTRACTOR") ||
-          promptText.includes("quiz_batch")
+          promptText.includes("quizzes_batch") ||
+          promptText.includes("quiz_batch") ||
+          promptText.includes("QUIZ")
         ) {
           stagesCalled.push("quiz");
           responseContent = JSON.stringify({
@@ -509,7 +491,9 @@ describe("AI Provider Architecture & Request-Path Isolation Tests", () => {
         } else if (
           promptText.includes("atomic flashcards") ||
           promptText.includes("FLASHCARD GENERATION") ||
-          promptText.includes("flashcard_batch")
+          promptText.includes("flashcards_batch") ||
+          promptText.includes("flashcard_batch") ||
+          promptText.includes("FLASHCARD")
         ) {
           stagesCalled.push("flashcard");
           responseContent = JSON.stringify({
@@ -520,6 +504,26 @@ describe("AI Provider Architecture & Request-Path Isolation Tests", () => {
               },
             ],
             cards: [{ question: "تعریف فارماکوکینتیک؟", answer: "حرکت دارو در بدن" }],
+          });
+        } else if (
+          promptText.includes("educational lesson content") ||
+          promptText.includes("COMPLETE LESSON GENERATION") ||
+          promptText.includes("LESSON GENERATION") ||
+          promptText.includes("lesson_batch")
+        ) {
+          stagesCalled.push("lesson");
+          responseContent = JSON.stringify({
+            results: [
+              {
+                sessionIndex: 0,
+                title: "درس ۱: مقدمه فارماکولوژی",
+                contentMarkdown: "# مقدمه فارماکولوژی\nمحتوای درس...",
+                objectives: ["هدف ۱"],
+              },
+            ],
+            title: "درس ۱: مقدمه فارماکولوژی",
+            contentMarkdown: "# مقدمه فارماکولوژی\nمحتوای درس...",
+            objectives: ["هدف ۱"],
           });
         } else {
           stagesCalled.push("review_summary");

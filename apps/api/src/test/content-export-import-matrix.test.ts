@@ -167,6 +167,20 @@ class ComprehensiveMockDb {
     };
   }
 
+  delete(tableObj: TableMeta) {
+    const tableName = this.getTableName(tableObj);
+    return {
+      where: (_condition: unknown) => ({
+        then: (resolve: (res: { rowCount: number }) => void) => {
+          if (tableName === "documents") {
+            this.tables.documents = (this.tables.documents || []).filter((d) => !d.deletedAt);
+          }
+          return resolve({ rowCount: 1 });
+        },
+      }),
+    };
+  }
+
   async transaction<T>(callback: (tx: DbClient) => Promise<T>): Promise<T> {
     const snapshot: Record<string, DbRow[]> = {};
     for (const key of Object.keys(this.tables)) {

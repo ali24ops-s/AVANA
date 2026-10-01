@@ -75,6 +75,7 @@ import type {
   QuizStore,
   QuizQuestionStore,
   QuizAttemptStore,
+  QuizAttemptSyncMeta,
   StudySessionStore,
   FlashcardStudySessionStore,
   FlashcardRecord,
@@ -3235,7 +3236,7 @@ export class StudyService {
 
   private async checkSpecialExamAccess(
     actor: Actor,
-    attempt: QuizAttemptRecord,
+    attempt: QuizAttemptRecord | QuizAttemptSyncMeta,
     metrics: Record<string, unknown>,
   ): Promise<void> {
     if (!metrics.isSpecialExam || actor.role === "platform_admin") {
@@ -3292,52 +3293,133 @@ export class StudyService {
     actor: Actor,
     organizationId: OrganizationId,
     attemptId: QuizAttemptId,
-    inputAnswers: Array<{ questionId: string; answer: unknown }>,
+    inputAnswers: Array<{
+      questionId: string;
+      answer: unknown;
+      revision?: number;
+      clientUpdatedAt?: string;
+    }>,
     elapsedSeconds?: number,
   ) {
     await this.authorizeQuizAttempt(actor, organizationId);
 
-    const attempt = await this.quizAttemptStore.findById(attemptId);
-    if (!attempt || attempt.userId !== actor.userId) {
+    const computeAnswerMutation = async (attempt: QuizAttemptSyncMeta | QuizAttemptRecord) => {
+      if (attempt.userId !== actor.userId) {
+        throw new DomainError("not_found", "Quiz attempt not found");
+      }
+
+      const metrics = (attempt.metrics ?? {}) as Record<string, unknown>;
+      await this.checkSpecialExamAccess(actor, attempt, metrics);
+
+      if (attempt.status === "completed" || attempt.completedAt != null) {
+        throw new DomainError("bad_request", "امکان تغییر پاسخ‌های آزمون پایان‌یافته وجود ندارد.");
+      }
+
+      // Authoritative server-side time limit check
+      const timeLimitMinutes =
+        (typeof metrics.timeLimitMinutes === "number" ? metrics.timeLimitMinutes : null) ??
+        (typeof metrics.durationMinutes === "number" ? metrics.durationMinutes : null);
+      if (timeLimitMinutes && timeLimitMinutes > 0 && attempt.startedAt) {
+        const startedAtMs = new Date(attempt.startedAt).getTime();
+        // Allow 120s grace period for batch sync interval and clock skew
+        const maxAllowedMs = startedAtMs + (timeLimitMinutes * 60 + 120) * 1000;
+        if (Date.now() > maxAllowedMs) {
+          throw new DomainError("bad_request", "مهلت شرکت در این آزمون به پایان رسیده است.");
+        }
+      }
+
+      // Validate that questions belong to this exam attempt without transferring questionSnapshot
+      let questionIds = attempt.questionIds;
+      if (!questionIds || questionIds.length === 0) {
+        // Safe fallback if legacy record did not have questionIds column populated
+        const fullAttempt = await this.quizAttemptStore.findById(attemptId);
+        const snapshot = fullAttempt?.questionSnapshot as Array<{ id: string }> | undefined;
+        questionIds = (fullAttempt?.questionIds as string[] | undefined) || snapshot?.map((q) => q.id) || null;
+      }
+      const allowedQuestionIds = questionIds && questionIds.length > 0 ? new Set(questionIds) : null;
+
+      const currentMeta = {
+        ...((metrics.answersMeta as Record<string, number> | undefined) || {}),
+      };
+      const updatedAnswers = { ...((attempt.answers as Record<string, unknown>) || {}) };
+      const acknowledged: Array<{ questionId: string; revision: number }> = [];
+
+      for (const item of inputAnswers) {
+        if (!item.questionId) continue;
+
+        if (allowedQuestionIds && !allowedQuestionIds.has(item.questionId)) {
+          throw new DomainError("bad_request", `سؤال ${item.questionId} متعلق به این آزمون نیست.`);
+        }
+
+        const existingRevision = currentMeta[item.questionId];
+        const itemRevision =
+          typeof item.revision === "number"
+            ? item.revision
+            : (existingRevision !== undefined ? existingRevision + 1 : 1);
+
+        if (existingRevision !== undefined && itemRevision < existingRevision) {
+          // Stale revision arriving after a newer revision:
+          // Do NOT overwrite answer, but acknowledge the current higher revision so client knows server has newer
+          acknowledged.push({ questionId: item.questionId, revision: existingRevision });
+          continue;
+        }
+
+        // Newer or equal revision:
+        updatedAnswers[item.questionId] = item.answer;
+        currentMeta[item.questionId] = itemRevision;
+        acknowledged.push({ questionId: item.questionId, revision: itemRevision });
+      }
+
+      const updatedMetrics: Record<string, unknown> = {
+        ...metrics,
+        answersMeta: currentMeta,
+        ...(typeof elapsedSeconds === "number" && elapsedSeconds >= 0
+          ? {
+              elapsedSeconds: Math.max(
+                typeof metrics.elapsedSeconds === "number" ? metrics.elapsedSeconds : 0,
+                elapsedSeconds,
+              ),
+            }
+          : {}),
+      };
+
+      return {
+        answers: updatedAnswers,
+        metrics: updatedMetrics,
+        acknowledged,
+      };
+    };
+
+    if (this.quizAttemptStore.saveAttemptAnswersAtomic) {
+      const atomicResult = await this.quizAttemptStore.saveAttemptAnswersAtomic(
+        attemptId,
+        computeAnswerMutation,
+      );
+      if (!atomicResult) {
+        throw new DomainError("not_found", "Quiz attempt not found");
+      }
+      return atomicResult;
+    }
+
+    const attempt = this.quizAttemptStore.findAttemptForAnswerSync
+      ? await this.quizAttemptStore.findAttemptForAnswerSync(attemptId)
+      : await this.quizAttemptStore.findById(attemptId);
+    if (!attempt) {
       throw new DomainError("not_found", "Quiz attempt not found");
     }
 
-    const metrics = (attempt.metrics ?? {}) as Record<string, unknown>;
-    await this.checkSpecialExamAccess(actor, attempt, metrics);
+    const mutation = await computeAnswerMutation(attempt);
+    await this.quizAttemptStore.updateAnswersAndMetrics(
+      attemptId,
+      mutation.answers,
+      mutation.metrics,
+    );
 
-    if (attempt.status === "completed" || attempt.completedAt != null) {
-      throw new DomainError("bad_request", "امکان تغییر پاسخ‌های آزمون پایان‌یافته وجود ندارد.");
-    }
-
-    const updatedAnswers = { ...(attempt.answers as Record<string, unknown> || {}) };
-    for (const item of inputAnswers) {
-      if (item.questionId) {
-        updatedAnswers[item.questionId] = item.answer;
-      }
-    }
-
-    const updatedMetrics =
-      typeof elapsedSeconds === "number" && elapsedSeconds >= 0
-        ? {
-            ...metrics,
-            elapsedSeconds: Math.max(
-              typeof metrics.elapsedSeconds === "number" ? metrics.elapsedSeconds : 0,
-              elapsedSeconds,
-            ),
-          }
-        : metrics;
-
-    const updatedAttempt: QuizAttemptRecord = {
-      ...attempt,
-      answers: updatedAnswers,
-      metrics: updatedMetrics,
-    };
-
-    await this.quizAttemptStore.update(updatedAttempt);
     return {
       attemptId,
-      answers: updatedAnswers,
-      elapsedSeconds: (updatedMetrics as { elapsedSeconds?: number }).elapsedSeconds,
+      answers: mutation.answers,
+      acknowledged: mutation.acknowledged,
+      elapsedSeconds: (mutation.metrics as { elapsedSeconds?: number }).elapsedSeconds,
     };
   }
 
@@ -3600,9 +3682,10 @@ export class StudyService {
     const answersMap: Record<string, unknown> = {};
     const questionResults: Record<string, QuestionEvaluationResult> = {};
 
+    const existingAnswers = (attempt.answers as Record<string, unknown>) || {};
     for (const q of questions) {
       const studentAns = inputAnswers.find((a) => a.questionId === q.id);
-      const val = studentAns?.answer ?? null;
+      const val = studentAns !== undefined ? studentAns.answer : (existingAnswers[q.id] ?? null);
       answersMap[q.id] = val;
 
       const evaluation = evaluateQuestionAnswer(val, q);

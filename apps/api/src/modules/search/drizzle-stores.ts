@@ -50,6 +50,7 @@ export class DrizzleSearchStore implements SearchStore {
         id: courses.id,
         name: courses.name,
         subject: courses.subject,
+        targetAcademicFields: courses.targetAcademicFields,
         organizationId: courses.organizationId,
         createdAt: courses.createdAt,
       })
@@ -71,6 +72,7 @@ export class DrizzleSearchStore implements SearchStore {
       id: r.id as CourseId,
       name: r.name,
       subject: r.subject,
+      targetAcademicFields: (r.targetAcademicFields as string[] | null) ?? [],
       organizationId: r.organizationId as OrganizationId,
       createdAt:
         r.createdAt instanceof Date

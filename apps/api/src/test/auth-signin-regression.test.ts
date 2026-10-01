@@ -263,6 +263,7 @@ describe("Authentication Sign-In Regression & Password Isolation Test Suite", ()
         email: "ali.mohammadi@example.com",
         password: "ValidPassword123!",
         phoneNumber: "09123456789",
+        major: "medicine",
       },
     });
 

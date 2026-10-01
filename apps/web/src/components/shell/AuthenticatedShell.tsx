@@ -13,11 +13,12 @@ import {
   Library as LibraryIcon,
   Crown,
   Receipt,
-  Newspaper,
   ShieldCheck,
   Wallet,
   Gift,
   LifeBuoy,
+  GraduationCap,
+  UserCog,
 } from "lucide-react";
 import { BrandLogo } from "../brand/BrandLogo.js";
 import { useAuth } from "../../providers/AuthProvider.js";
@@ -28,17 +29,21 @@ import {
   getUserChipSubscriptionInfo,
 } from "../commerce/userCommerceUtils.js";
 import { isUserAdmin } from "../../utils/adminPermissions.js";
+import { isTeacherOrAdmin } from "../teacher/TeacherRouteGuard.js";
 import { GlobalGenerationIndicator } from "../generation/GlobalGenerationIndicator.js";
 import { Button, Badge, LoadingState, Alert, Skeleton } from "../ui/index.js";
 import { FILES_ENABLED } from "../../config/features.js";
 import { NotificationDropdown } from "../notifications/NotificationDropdown.js";
+import { EditProfileModal } from "./EditProfileModal.js";
 
 export function AuthenticatedShell() {
   const { user, memberships, isLoading, error, signOut } = useAuth();
   const isAdmin = isUserAdmin(user, memberships);
+  const isTeacher = isTeacherOrAdmin(user?.role, memberships);
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [editProfileOpen, setEditProfileOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -87,7 +92,8 @@ export function AuthenticatedShell() {
   // Dedicated full-screen experiences (e.g. exam taking attempt, flashcard study session) bypass shell chrome
   if (
     location.pathname.startsWith("/exams/attempt") ||
-    location.pathname.startsWith("/flashcards/review")
+    location.pathname.startsWith("/flashcards/review") ||
+    (location.pathname.includes("/exams/") && location.pathname.endsWith("/take"))
   ) {
     return <Outlet />;
   }
@@ -95,6 +101,7 @@ export function AuthenticatedShell() {
   const isHomeActive =
     location.pathname === "/" || location.pathname === "/home";
   const isCoursesActive = location.pathname.startsWith("/courses");
+  const isClassroomsActive = location.pathname.startsWith("/classrooms");
   const isFlashcardsActive = location.pathname.startsWith("/flashcards");
   const isExamsActive = location.pathname.startsWith("/exams");
   const isFilesActive = location.pathname.startsWith("/files");
@@ -133,6 +140,11 @@ export function AuthenticatedShell() {
                 <span>فلش‌کارت‌ها</span>
               </HeaderNavLink>
 
+              <HeaderNavLink to="/classrooms" active={isClassroomsActive}>
+                <GraduationCap className="w-4 h-4" />
+                <span>کلاس‌های من</span>
+              </HeaderNavLink>
+
               <HeaderNavLink to="/exams" active={isExamsActive}>
                 <HelpCircle className="w-4 h-4" />
                 <span>آزمون‌ها</span>
@@ -148,11 +160,6 @@ export function AuthenticatedShell() {
               <HeaderNavLink to="/library" active={isLibraryActive}>
                 <LibraryIcon className="w-4 h-4" />
                 <span>کتابخانه</span>
-              </HeaderNavLink>
-
-              <HeaderNavLink to="/blog" active={location.pathname.startsWith("/blog")}>
-                <Newspaper className="w-4 h-4" />
-                <span>وبلاگ</span>
               </HeaderNavLink>
             </nav>
           </div>
@@ -170,10 +177,25 @@ export function AuthenticatedShell() {
 
             {/* Admin Badge link if admin */}
             {isAdmin && (
-              <Link to="/admin" className="hidden sm:inline-flex shrink-0">
-                <Badge variant="primary" icon={<ShieldCheck className="w-3.5 h-3.5" />}>
-                  پنل مدیریت
-                </Badge>
+              <Link
+                to="/admin"
+                className="hidden sm:inline-flex shrink-0"
+                title="پنل مدیریت"
+                aria-label="پنل مدیریت"
+              >
+                <Badge variant="primary" icon={<ShieldCheck className="w-3.5 h-3.5" />} className="px-2" />
+              </Link>
+            )}
+
+            {/* Teacher Platform Badge link if teacher/admin */}
+            {isTeacher && (
+              <Link
+                to="/teacher"
+                className="hidden sm:inline-flex shrink-0"
+                title="پنل اساتید"
+                aria-label="پنل اساتید"
+              >
+                <Badge variant="neutral" icon={<GraduationCap className="w-3.5 h-3.5 text-[#008080]" />} className="px-2" />
               </Link>
             )}
 
@@ -234,6 +256,18 @@ export function AuthenticatedShell() {
                     )}
                   </div>
 
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUserMenuOpen(false);
+                      setEditProfileOpen(true);
+                    }}
+                    className="flex items-center gap-2.5 px-3.5 py-2 text-xs font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] hover:text-[#008080] transition-colors w-full text-start cursor-pointer"
+                  >
+                    <UserCog className="w-4 h-4 text-[#008080] shrink-0" />
+                    <span>ویرایش مشخصات</span>
+                  </button>
+
                   <Link
                     to="/account/subscription"
                     onClick={() => setUserMenuOpen(false)}
@@ -278,6 +312,17 @@ export function AuthenticatedShell() {
                     <LifeBuoy className="w-4 h-4 text-primary shrink-0" />
                     <span>پشتیبانی و بازخورد</span>
                   </Link>
+
+                  {isTeacher && (
+                    <Link
+                      to="/teacher"
+                      onClick={() => setUserMenuOpen(false)}
+                      className="flex items-center gap-2.5 px-3.5 py-2 text-xs font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] hover:text-[#008080] transition-colors"
+                    >
+                      <GraduationCap className="w-4 h-4 text-[#008080] shrink-0" />
+                      <span>پنل اساتید</span>
+                    </Link>
+                  )}
 
 
                   <div className="my-1 border-t border-[var(--color-border)]" />
@@ -362,6 +407,15 @@ export function AuthenticatedShell() {
             </MobileDrawerLink>
 
             <MobileDrawerLink
+              to="/classrooms"
+              active={isClassroomsActive}
+              onClick={() => setMobileMenuOpen(false)}
+            >
+              <GraduationCap className="w-5 h-5 text-[#008080]" />
+              <span>کلاس‌های من</span>
+            </MobileDrawerLink>
+
+            <MobileDrawerLink
               to="/exams"
               active={isExamsActive}
               onClick={() => setMobileMenuOpen(false)}
@@ -388,15 +442,6 @@ export function AuthenticatedShell() {
             >
               <LibraryIcon className="w-5 h-5" />
               <span>کتابخانه</span>
-            </MobileDrawerLink>
-
-            <MobileDrawerLink
-              to="/blog"
-              active={location.pathname.startsWith("/blog")}
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              <Newspaper className="w-5 h-5" />
-              <span>وبلاگ آموزشی</span>
             </MobileDrawerLink>
 
             <MobileDrawerLink
@@ -443,10 +488,39 @@ export function AuthenticatedShell() {
               <LifeBuoy className="w-5 h-5 text-primary" />
               <span>پشتیبانی و بازخورد</span>
             </MobileDrawerLink>
+
+            <button
+              type="button"
+              onClick={() => {
+                setMobileMenuOpen(false);
+                setEditProfileOpen(true);
+              }}
+              className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-surface-warm)] hover:text-[#008080] w-full text-start cursor-pointer transition-colors"
+            >
+              <UserCog className="w-5 h-5 text-[#008080]" />
+              <span>ویرایش مشخصات</span>
+            </button>
+
+            {isTeacher && (
+              <MobileDrawerLink
+                to="/teacher"
+                active={location.pathname.startsWith("/teacher")}
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                <GraduationCap className="w-5 h-5 text-[#008080]" />
+                <span>پنل اساتید</span>
+              </MobileDrawerLink>
+            )}
           </nav>
         </div>
         </>
       )}
+
+      {/* Edit Profile Modal */}
+      <EditProfileModal
+        isOpen={editProfileOpen}
+        onClose={() => setEditProfileOpen(false)}
+      />
 
       {/* API Error Banner */}
       {error && (

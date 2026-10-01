@@ -23,6 +23,10 @@ import type {
   SendVerificationResponse,
   VerifyChannelRequest,
   VerifyChannelResponse,
+  ForgotPasswordRequest,
+  ForgotPasswordResponse,
+  ResetPasswordRequest,
+  ResetPasswordResponse,
 } from "@avana/contracts";
 import type { ApiClient } from "./client.js";
 
@@ -33,6 +37,18 @@ export function createAuthApi(client: ApiClient) {
      */
     getMe(): Promise<MeResponse> {
       return client.get<MeResponse>("/v1/me");
+    },
+
+    /**
+     * PATCH /v1/auth/profile — Update current authenticated user profile.
+     */
+    updateProfile(params: {
+      firstName?: string;
+      lastName?: string;
+      name?: string;
+      major?: string | null;
+    }): Promise<MeResponse> {
+      return client.patch<MeResponse>("/v1/auth/profile", params);
     },
 
     /**
@@ -73,6 +89,7 @@ export function createAuthApi(client: ApiClient) {
       firstName?: string,
       lastName?: string,
       referralCode?: string,
+      major?: string,
     ): Promise<RegisterResponse> {
       const body: RegisterRequest = {
         email,
@@ -82,6 +99,7 @@ export function createAuthApi(client: ApiClient) {
         firstName,
         lastName,
         referralCode,
+        major,
       };
       return client.post<RegisterResponse>("/v1/auth/register", body);
     },
@@ -119,6 +137,22 @@ export function createAuthApi(client: ApiClient) {
     resendVerification(email?: string): Promise<ResendVerificationResponse> {
       const body: ResendVerificationRequest = { email };
       return client.post<ResendVerificationResponse>("/v1/auth/resend-verification", body);
+    },
+
+    /**
+     * POST /v1/auth/forgot-password — Request password reset email.
+     */
+    forgotPassword(email: string): Promise<ForgotPasswordResponse> {
+      const body: ForgotPasswordRequest = { email };
+      return client.post<ForgotPasswordResponse>("/v1/auth/forgot-password", body);
+    },
+
+    /**
+     * POST /v1/auth/reset-password — Atomically reset password using token.
+     */
+    resetPassword(token: string, password: string): Promise<ResetPasswordResponse> {
+      const body: ResetPasswordRequest = { token, password };
+      return client.post<ResetPasswordResponse>("/v1/auth/reset-password", body);
     },
 
     /**

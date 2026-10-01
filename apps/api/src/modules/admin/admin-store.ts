@@ -21,6 +21,7 @@ export type AdminUserRecord = {
   email: string;
   name?: string;
   role: string;
+  teacherStatus?: "pending" | "approved" | "rejected";
   emailVerified: boolean;
   createdAt: string;
   lastActiveAt?: string;
@@ -423,7 +424,7 @@ export interface AdminStore {
 
   // Phase 4: Mutations
   updateUserRole(adminId: string, targetUserId: string, newRole: string): Promise<void>;
-  updateCourseMetadata(adminId: string, courseId: string, payload: { name?: string; subject?: string }): Promise<void>;
+  updateCourseMetadata(adminId: string, courseId: string, payload: { name?: string; subject?: string; targetAcademicFields?: string[] }): Promise<void>;
   retryDocumentProcessing(adminId: string, documentId: string): Promise<void>;
   retryGenerationJob(adminId: string, jobId: string): Promise<void>;
 
@@ -507,6 +508,17 @@ export interface AdminStore {
     id: string,
     params: { page: number; pageSize: number },
   ): Promise<{ items: AdminPromotionRedemptionListItem[]; totalCount: number }>;
+
+  // Teacher Platform Management
+  listTeachers(params: {
+    page: number;
+    pageSize: number;
+    search?: string;
+    status?: string;
+  }): Promise<AdminTeachersList>;
+  getTeacherOverview(teacherId: string): Promise<AdminTeacherOverview>;
+  approveTeacher(adminId: string, teacherId: string): Promise<void>;
+  rejectTeacher(adminId: string, teacherId: string, reason?: string): Promise<void>;
 }
 
 export interface AdminPromotionListItem {
@@ -626,6 +638,90 @@ export interface AdminPromotionRedemptionListItem {
   status: string;
   redeemedAt: string;
   completedAt: string | null;
+}
+
+export interface AdminTeacherRecord {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  teacherStatus: "pending" | "approved" | "rejected";
+  emailVerified: boolean;
+  createdAt: string;
+  lastActiveAt?: string;
+  classroomsCount: number;
+  examsCount: number;
+  studentsCount: number;
+}
+
+export interface AdminTeacherStats {
+  totalTeachers: number;
+  totalClassrooms: number;
+  totalExams: number;
+  totalStudents: number;
+}
+
+export interface AdminTeachersList {
+  teachers: AdminTeacherRecord[];
+  totalCount: number;
+  stats: AdminTeacherStats;
+}
+
+export interface AdminTeacherClassroom {
+  id: string;
+  title: string;
+  description: string | null;
+  inviteCode: string;
+  status: string;
+  createdAt: string;
+  courseId: string | null;
+  courseTitle: string | null;
+  membersCount: number;
+  examsCount: number;
+}
+
+export interface AdminTeacherExam {
+  id: string;
+  classroomId: string;
+  classroomTitle: string;
+  title: string;
+  status: string;
+  durationMinutes: number | null;
+  startsAt: string;
+  endsAt: string;
+  questionsCount: number;
+  attemptsCount: number;
+  averageScore: number | null;
+}
+
+export interface AdminTeacherActivity {
+  attemptId: string;
+  studentId: string;
+  studentName: string;
+  studentEmail: string;
+  examId: string;
+  examTitle: string;
+  classroomTitle: string;
+  status: string;
+  score: number | null;
+  maxScore: number | null;
+  percentage: number | null;
+  passed: boolean | null;
+  startedAt: string;
+  submittedAt: string | null;
+}
+
+export interface AdminTeacherOverview {
+  teacher: AdminUserRecord;
+  stats: {
+    classroomsCount: number;
+    examsCount: number;
+    studentsCount: number;
+    attemptsCount: number;
+  };
+  classrooms: AdminTeacherClassroom[];
+  exams: AdminTeacherExam[];
+  recentActivity: AdminTeacherActivity[];
 }
 
 export interface AdminRejectedContentRecord {

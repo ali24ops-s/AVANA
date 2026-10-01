@@ -24,6 +24,7 @@ export type CourseRecord = {
   name: string;
   description?: string | null;
   subject: string | null;
+  targetAcademicFields?: string[] | null;
   status?: CourseStatus;
   isOfficial?: boolean;
   examDate: string | null;

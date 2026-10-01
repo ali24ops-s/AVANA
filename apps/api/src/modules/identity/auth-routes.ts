@@ -4,17 +4,19 @@ import {
   DomainError,
   resolveEffectiveRole,
   validateAndNormalizeIranPhone,
+  isValidAcademicField,
   type Role,
 } from "@avana/domain";
 import { type SessionService, generateSessionToken, hashToken } from "./session-service.js";
 import type { UserRecord, UserStore } from "./user-store.js";
 import type { EmailVerificationStore } from "./email-verification-store.js";
+import type { PasswordResetStore } from "./password-reset-store.js";
 import type { EmailService } from "./email-service.js";
 import type { SmsProvider } from "./sms-service.js";
 import type { OrganizationStore } from "../organizations/organization-store.js";
 import { OrganizationService, generateSlug } from "../organizations/organization-service.js";
 import { hashPassword, verifyPassword } from "./password-hasher.js";
-import { randomInt, createHmac, randomUUID } from "node:crypto";
+import { randomInt, createHmac, randomUUID, randomBytes, createHash } from "node:crypto";
 import type { DeviceService } from "./device-service.js";
 import { detectDeviceType } from "./device-service.js";
 
@@ -26,12 +28,14 @@ export interface AuthRouteOptions {
   userStore: UserStore;
   deviceService?: DeviceService;
   emailVerificationStore?: EmailVerificationStore;
+  passwordResetStore?: PasswordResetStore;
   emailService?: EmailService;
   smsProvider?: SmsProvider;
   organizationStore?: OrganizationStore;
   verificationSecret?: string;
   notificationService?: NotificationService;
   referralService?: import("../referral/referral-service.js").ReferralService;
+  appUrl?: string;
 }
 
 /**
@@ -99,9 +103,11 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
     userStore,
     deviceService,
     emailVerificationStore,
+    passwordResetStore,
     emailService,
     smsProvider,
     organizationStore,
+    appUrl,
     // eslint-disable-next-line no-secrets/no-secrets
     verificationSecret = "avana_verification_hmac_secret_2026_dev_key",
   } = opts;
@@ -134,6 +140,22 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
 
     const record = rateLimitAttempts.get(key);
     if (record && now <= record.resetAt && record.count >= RATE_LIMIT_MAX) {
+      throw new DomainError(
+        "too_many_requests",
+        "تعداد درخواست‌های بیش از حد مجاز. لطفاً یک دقیقه دیگر دوباره تلاش کنید.",
+      );
+    }
+  };
+
+  const RESET_PASSWORD_RATE_LIMIT_MAX = 10;
+  const resetPasswordRateLimitPreHandler = async (
+    request: import("fastify").FastifyRequest,
+  ) => {
+    const key = `reset_pw_ip_${request.ip}`;
+    const now = Date.now();
+
+    const record = rateLimitAttempts.get(key);
+    if (record && now <= record.resetAt && record.count >= RESET_PASSWORD_RATE_LIMIT_MAX) {
       throw new DomainError(
         "too_many_requests",
         "تعداد درخواست‌های بیش از حد مجاز. لطفاً یک دقیقه دیگر دوباره تلاش کنید.",
@@ -315,6 +337,156 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
         name: userRecord.name,
         role: effectiveRole,
         phoneNumber: userRecord.phoneNumber ?? null,
+        major: userRecord.major ?? null,
+        emailVerified: verificationState.emailVerified,
+        phoneVerified: verificationState.phoneVerified,
+        isVerified: verificationState.isVerified,
+      },
+      memberships,
+    };
+  });
+
+  /**
+   * PATCH /v1/auth/profile — Update current authenticated user's profile name and/or major.
+   */
+  app.patch("/v1/auth/profile", async (request, _reply) => {
+    const token = extractSessionToken(request);
+    if (!token) {
+      throw new DomainError("unauthorized", "Not signed in");
+    }
+
+    const details = await sessionService.validateSessionDetails(token);
+    if (details.revoked) {
+      if (
+        details.revocationReason === "session_takeover" ||
+        details.revocationReason === "admin_reset"
+      ) {
+        throw new DomainError(
+          "SESSION_REVOKED",
+          "نشست شما به دلیل ورود از دستگاه دیگر یا بازنشانی توسط مدیر نامعتبر شده است.",
+          {
+            code: "SESSION_REVOKED",
+            reason: details.revocationReason,
+          },
+        );
+      }
+      throw new DomainError("unauthorized", "Not signed in");
+    }
+
+    if (!details.valid || !details.user) {
+      throw new DomainError("unauthorized", "Not signed in");
+    }
+
+    const actorUserId = details.user.userId;
+
+    const body = (typeof request.body === "object" && request.body !== null
+      ? request.body
+      : {}) as {
+      firstName?: unknown;
+      lastName?: unknown;
+      name?: unknown;
+      major?: unknown;
+    };
+
+    let updatedAny = false;
+
+    // 1. Handle Name update if provided
+    if (body.firstName !== undefined || body.lastName !== undefined) {
+      const firstStr =
+        typeof body.firstName === "string"
+          ? body.firstName.trim().replace(/\s+/g, " ")
+          : "";
+      const lastStr =
+        typeof body.lastName === "string"
+          ? body.lastName.trim().replace(/\s+/g, " ")
+          : "";
+
+      if (!firstStr) {
+        throw new DomainError("bad_request", "نام الزامی است.");
+      }
+      if (firstStr.length < 2 || firstStr.length > 50) {
+        throw new DomainError("bad_request", "نام باید بین ۲ تا ۵۰ کاراکتر باشد.");
+      }
+      if (!lastStr) {
+        throw new DomainError("bad_request", "نام خانوادگی الزامی است.");
+      }
+      if (lastStr.length < 2 || lastStr.length > 50) {
+        throw new DomainError("bad_request", "نام خانوادگی باید بین ۲ تا ۵۰ کاراکتر باشد.");
+      }
+
+      const fullName = `${firstStr} ${lastStr}`;
+      await userStore.updateName(actorUserId, fullName);
+      updatedAny = true;
+    } else if (typeof body.name === "string") {
+      const normName = body.name.trim().replace(/\s+/g, " ");
+      const parts = normName.split(" ");
+      if (parts.length < 2 || !parts[0] || !parts[1]) {
+        throw new DomainError("bad_request", "نام و نام خانوادگی الزامی است.");
+      }
+      const firstStr = parts[0];
+      const lastStr = parts.slice(1).join(" ");
+      if (firstStr.length < 2 || firstStr.length > 50) {
+        throw new DomainError("bad_request", "نام باید بین ۲ تا ۵۰ کاراکتر باشد.");
+      }
+      if (lastStr.length < 2 || lastStr.length > 50) {
+        throw new DomainError("bad_request", "نام خانوادگی باید بین ۲ تا ۵۰ کاراکتر باشد.");
+      }
+
+      const fullName = `${firstStr} ${lastStr}`;
+      await userStore.updateName(actorUserId, fullName);
+      updatedAny = true;
+    }
+
+    // 2. Handle Major update if provided
+    if (body.major !== undefined) {
+      if (body.major === null || body.major === "") {
+        if (userStore.updateMajor) {
+          await userStore.updateMajor(actorUserId, null);
+          updatedAny = true;
+        }
+      } else if (typeof body.major === "string") {
+        const trimmedMajor = body.major.trim();
+        if (!isValidAcademicField(trimmedMajor)) {
+          throw new DomainError("bad_request", "رشته تحصیلی نامعتبر است.");
+        }
+        if (userStore.updateMajor) {
+          await userStore.updateMajor(actorUserId, trimmedMajor);
+          updatedAny = true;
+        }
+      } else {
+        throw new DomainError("bad_request", "رشته تحصیلی نامعتبر است.");
+      }
+    }
+
+    if (!updatedAny) {
+      throw new DomainError("bad_request", "اطلاعاتی جهت ویرایش ارسال نشده است.");
+    }
+
+    const userRecord = await userStore.findById(actorUserId);
+    if (!userRecord) {
+      throw new DomainError("not_found", "کاربر یافت نشد.");
+    }
+
+    const memberships = await resolveMemberships(
+      organizationStore,
+      userRecord.id,
+    );
+    const verificationState = resolveUserVerificationState(userRecord);
+    const membershipRoles = memberships.map((m) => m.role as Role);
+    const effectiveRole = resolveEffectiveRole(
+      userRecord.globalRole ?? userRecord.role,
+      membershipRoles,
+    );
+
+    return {
+      request_id: request.id,
+      user: {
+        id: userRecord.id,
+        email: userRecord.email,
+        name: userRecord.name,
+        role: effectiveRole,
+        phoneNumber: userRecord.phoneNumber ?? null,
+        major: userRecord.major ?? null,
         emailVerified: verificationState.emailVerified,
         phoneVerified: verificationState.phoneVerified,
         isVerified: verificationState.isVerified,
@@ -428,6 +600,7 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
       firstName?: string;
       lastName?: string;
       phoneNumber?: string;
+      major?: string;
       referralCode?: string;
     };
 
@@ -442,23 +615,17 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
       if (!firstName) {
         throw new DomainError("bad_request", "نام الزامی است.");
       }
-      if (!lastName) {
-        throw new DomainError("bad_request", "نام خانوادگی الزامی است.");
-      }
       resolvedFirstName = firstName;
-      resolvedLastName = lastName;
+      resolvedLastName = lastName || "";
     } else if (rawName) {
       const parts = rawName.split(/\s+/);
-      if (parts.length < 2 || !parts[0] || !parts[1]) {
-        throw new DomainError("bad_request", "نام و نام خانوادگی الزامی است.");
-      }
-      resolvedFirstName = parts[0];
+      resolvedFirstName = parts[0] || "";
       resolvedLastName = parts.slice(1).join(" ");
     } else {
       throw new DomainError("bad_request", "نام الزامی است.");
     }
 
-    const fullName = `${resolvedFirstName} ${resolvedLastName}`;
+    const fullName = resolvedLastName ? `${resolvedFirstName} ${resolvedLastName}` : resolvedFirstName;
 
     const rawEmail = body?.email !== undefined ? String(body.email).trim().toLowerCase() : "";
     if (!rawEmail || !rawEmail.includes("@") || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rawEmail)) {
@@ -472,18 +639,31 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
     }
 
     const rawPhoneNumber = body?.phoneNumber;
-    if (!rawPhoneNumber || typeof rawPhoneNumber !== "string" || !rawPhoneNumber.trim()) {
-      throw new DomainError("bad_request", "شماره موبایل الزامی است.");
+    let normalizedPhoneNumber: string | undefined = undefined;
+    if (rawPhoneNumber && typeof rawPhoneNumber === "string" && rawPhoneNumber.trim()) {
+      const phoneValidation = validateAndNormalizeIranPhone(rawPhoneNumber);
+      if (!phoneValidation.valid || !phoneValidation.normalized) {
+        throw new DomainError(
+          "bad_request",
+          phoneValidation.error || "شماره موبایل معتبر نیست.",
+        );
+      }
+      normalizedPhoneNumber = phoneValidation.normalized;
     }
 
-    const phoneValidation = validateAndNormalizeIranPhone(rawPhoneNumber);
-    if (!phoneValidation.valid || !phoneValidation.normalized) {
-      throw new DomainError(
-        "bad_request",
-        phoneValidation.error || "شماره موبایل معتبر نیست.",
-      );
+    // Major validation (optional, validated if provided)
+    const rawMajor = body?.major;
+    let major: string | undefined = undefined;
+    if (rawMajor && typeof rawMajor === "string" && rawMajor.trim()) {
+      const trimmedMajor = rawMajor.trim();
+      if (!isValidAcademicField(trimmedMajor)) {
+        throw new DomainError(
+          "bad_request",
+          "رشته تحصیلی انتخاب شده معتبر نیست.",
+        );
+      }
+      major = trimmedMajor;
     }
-    const normalizedPhoneNumber = phoneValidation.normalized;
 
     // Check duplicate email
     const existingUser = await userStore.findByEmail(email);
@@ -495,7 +675,7 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
     }
 
     // Check duplicate phone number if store supports phone lookup
-    if (userStore.findByPhoneNumber) {
+    if (normalizedPhoneNumber && userStore.findByPhoneNumber) {
       const existingPhoneUser = await userStore.findByPhoneNumber(normalizedPhoneNumber);
       if (existingPhoneUser) {
         throw new DomainError(
@@ -511,6 +691,7 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
       passwordHash: hashedPassword,
       name: fullName,
       phoneNumber: normalizedPhoneNumber,
+      major,
     });
 
     if (organizationStore) {
@@ -518,11 +699,11 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
       const actor: Actor = { userId: userRecord.id, role: resolveEffectiveRole(userRecord.role) };
       const orgName = fullName ? `فضای یادگیری ${fullName}` : "فضای یادگیری آوانا";
       try {
-        await orgService.createOrganization(actor, orgName);
+        await orgService.createOrganization(actor, orgName, undefined, "student");
       } catch {
         try {
           const uniqueSlug = `${generateSlug(orgName) || "org"}-${randomUUID().slice(0, 8)}`;
-          await orgService.createOrganization(actor, orgName, uniqueSlug);
+          await orgService.createOrganization(actor, orgName, uniqueSlug, "student");
         } catch {
           // Ignore organization creation collision fallback
         }
@@ -604,6 +785,7 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
         name: userRecord.name,
         role: effectiveRole,
         phoneNumber: userRecord.phoneNumber ?? null,
+        major: userRecord.major ?? null,
         emailVerified: false,
         phoneVerified: false,
         isVerified: false,
@@ -1446,6 +1628,165 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
       cooldown_seconds: 60,
     };
   });
+
+  /**
+   * POST /v1/auth/forgot-password — Request secure password recovery link via email.
+   */
+  app.post(
+    "/v1/auth/forgot-password",
+    { preHandler: [rateLimitPreHandler] },
+    async (request, _reply) => {
+      const body =
+        typeof request.body === "object" && request.body !== null
+          ? (request.body as { email?: string })
+          : {};
+      const rawEmail = body?.email;
+      const email = typeof rawEmail === "string" ? rawEmail.trim().toLowerCase() : "";
+
+      if (!email || !email.includes("@") || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        throw new DomainError("bad_request", "نشانی ایمیل معتبر نیست.");
+      }
+
+      // Cooldown rate limiting to prevent spamming reset requests (60 seconds per email)
+      const rateKey = `forgot_pw_${email}`;
+      const now = Date.now();
+      const nextAllowed = resendCooldowns.get(rateKey);
+
+      if (nextAllowed && now < nextAllowed) {
+        throw new DomainError(
+          "too_many_requests",
+          "لطفاً پیش از درخواست مجدد ۶۰ ثانیه صبر کنید.",
+        );
+      }
+
+      resendCooldowns.set(rateKey, now + RESEND_COOLDOWN_MS);
+
+      // Check if user exists
+      const userRecord = await userStore.findByEmail(email);
+
+      if (userRecord && passwordResetStore && emailService) {
+        // Generate cryptographically secure random token (32 bytes = 64 hex chars)
+        const rawToken = randomBytes(32).toString("hex");
+        // Hash token with SHA-256 for secure storage (raw token never saved in DB)
+        const tokenHash = createHash("sha256").update(rawToken).digest("hex");
+        // Short expiration (15 minutes)
+        const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+
+        const tokenRecord = await passwordResetStore.createToken({
+          userId: userRecord.id,
+          tokenHash,
+          expiresAt,
+        });
+
+        const baseUrl = appUrl || "http://localhost:5173";
+        const cleanBaseUrl = baseUrl.replace(/\/+$/, "");
+        const resetUrl = `${cleanBaseUrl}/reset-password?token=${rawToken}`;
+
+        try {
+          await emailService.sendPasswordResetEmail(email, resetUrl);
+        } catch (err) {
+          // If sending email fails, remove the newly created token to keep state clean
+          await passwordResetStore.deleteToken(tokenRecord.id).catch(() => {});
+          app.log.error(
+            { err: err instanceof Error ? err.message : String(err) },
+            "Failed to dispatch password reset email",
+          );
+          throw new DomainError(
+            "internal_error",
+            "ارسال ایمیل بازیابی رمز عبور با خطا مواجه شد. لطفاً دوباره تلاش کنید.",
+          );
+        }
+      }
+
+      // Always return generic response to prevent account/user enumeration
+      return {
+        request_id: request.id,
+        message:
+          "اگر حسابی با این ایمیل وجود داشته باشد، لینک بازیابی رمز عبور برای شما ارسال می‌شود.",
+        cooldown_seconds: 60,
+      };
+    },
+  );
+
+  /**
+   * POST /v1/auth/reset-password — Atomically reset password with valid one-time token.
+   */
+  app.post(
+    "/v1/auth/reset-password",
+    { preHandler: [resetPasswordRateLimitPreHandler] },
+    async (request, _reply) => {
+      const body =
+        typeof request.body === "object" && request.body !== null
+          ? (request.body as { token?: string; password?: string })
+          : {};
+      const token = typeof body.token === "string" ? body.token.trim() : "";
+      const password = typeof body.password === "string" ? body.password : "";
+
+      if (!token) {
+        throw new DomainError("bad_request", "توکن بازیابی رمز عبور الزامی است.");
+      }
+
+      if (!password || password.length < 8) {
+        throw new DomainError(
+          "bad_request",
+          "رمز عبور باید حداقل ۸ کاراکتر باشد.",
+        );
+      }
+
+      if (!passwordResetStore) {
+        throw new DomainError(
+          "internal_error",
+          "سرویس بازیابی رمز عبور در دسترس نیست.",
+        );
+      }
+
+      const tokenHash = createHash("sha256").update(token).digest("hex");
+      const newPasswordHash = await hashPassword(password);
+
+      // Atomic conditional update + transaction (consume token, update password, revoke all active sessions)
+      const result = await passwordResetStore.atomicConsumeAndResetPassword({
+        tokenHash,
+        newPasswordHash,
+      });
+
+      if (!result.success) {
+        // Record failed attempt for IP rate limit
+        const key = `reset_pw_ip_${request.ip}`;
+        const record = rateLimitAttempts.get(key);
+        const now = Date.now();
+        if (!record || now > record.resetAt) {
+          rateLimitAttempts.set(key, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+        } else {
+          record.count++;
+        }
+
+        if (result.reason === "expired") {
+          throw new DomainError(
+            "bad_request",
+            "لینک بازیابی رمز عبور منقضی شده است. لطفاً دوباره درخواست دهید.",
+          );
+        } else if (result.reason === "already_used") {
+          throw new DomainError(
+            "bad_request",
+            "این لینک بازیابی قبلاً استفاده شده است. لطفاً دوباره درخواست دهید.",
+          );
+        } else {
+          throw new DomainError(
+            "bad_request",
+            "لینک بازیابی رمز عبور نامعتبر است.",
+          );
+        }
+      }
+
+      // Clear failed rate limit attempts on success
+      rateLimitAttempts.delete(`reset_pw_ip_${request.ip}`);
+
+      return {
+        request_id: request.id,
+        message: "رمز عبور شما با موفقیت تغییر کرد.",
+      };
+    },
+  );
 
   /**
    * POST /v1/auth/sign-out — Revoke session.

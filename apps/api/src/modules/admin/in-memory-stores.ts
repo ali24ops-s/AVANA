@@ -4,6 +4,7 @@
  */
 
 import {
+  Roles,
   STAGE_LABELS_FA,
   type UserId,
   type Role,
@@ -55,6 +56,13 @@ import type {
   AdminProductRecord,
   AdminUserCommerceProfile,
   AdminGrantInput,
+  AdminTeacherRecord,
+  AdminTeacherStats,
+  AdminTeachersList,
+  AdminTeacherClassroom,
+  AdminTeacherExam,
+  AdminTeacherActivity,
+  AdminTeacherOverview,
 } from "./admin-store.js";
 
 export class InMemoryAdminStore implements AdminStore {
@@ -85,8 +93,53 @@ export class InMemoryAdminStore implements AdminStore {
     };
   }
 
-  async listUsers(_params?: { page: number; pageSize: number; search?: string }): Promise<AdminUsersList> {
-    return { users: [], totalCount: 0 };
+  async listUsers(params?: { page: number; pageSize: number; search?: string; role?: string; status?: string }): Promise<AdminUsersList> {
+    const userStoreAny = this.userStore as { listAllUsers?: () => Promise<UserRecord[]> } | undefined;
+    let allUsers: UserRecord[] = [];
+    if (userStoreAny && typeof userStoreAny.listAllUsers === "function") {
+      allUsers = await userStoreAny.listAllUsers();
+    }
+
+    let filtered = allUsers;
+    if (params?.search && params.search.trim()) {
+      const s = params.search.trim().toLowerCase();
+      filtered = filtered.filter(
+        (u) =>
+          u.email.toLowerCase().includes(s) ||
+          (u.name && u.name.toLowerCase().includes(s))
+      );
+    }
+
+    if (params?.status) {
+      if (params.status === "active") {
+        filtered = filtered.filter((u) => u.emailVerified);
+      } else if (params.status === "inactive") {
+        filtered = filtered.filter((u) => !u.emailVerified);
+      }
+    }
+
+    if (params?.role && params.role !== "all") {
+      filtered = filtered.filter((u) => u.role === params.role);
+    }
+
+    const totalCount = filtered.length;
+    const page = params?.page || 1;
+    const pageSize = params?.pageSize || 20;
+    const start = (page - 1) * pageSize;
+    const paginated = filtered.slice(start, start + pageSize);
+
+    return {
+      totalCount,
+      users: paginated.map((u) => ({
+        id: u.id,
+        email: u.email,
+        name: u.name ?? undefined,
+        role: u.role,
+        emailVerified: !!u.emailVerified,
+        createdAt: (u as unknown as { createdAt?: string }).createdAt || new Date().toISOString(),
+        lastActiveAt: (u as unknown as { updatedAt?: string }).updatedAt || new Date().toISOString(),
+      })),
+    };
   }
 
   public rejectedContents: AdminRejectedContentRecord[] = [];
@@ -507,23 +560,37 @@ export class InMemoryAdminStore implements AdminStore {
     if (this.userStore) {
       const user = await this.userStore.findById(targetUserId as UserId);
       if (user) {
-        if (newRole === "platform_admin") {
-          user.globalRole = "platform_admin";
-          user.role = "platform_admin";
-        } else if (newRole === "content_worker") {
-          user.globalRole = "content_worker";
-          user.role = "content_worker";
+        let memberships: Array<{ role: Role; updatedAt: string }> = [];
+        if (this.organizationStore && typeof this.organizationStore.listMembershipsByUserId === "function") {
+          memberships = await this.organizationStore.listMembershipsByUserId(targetUserId as UserId);
+        }
+
+        if (newRole === Roles.platform_admin) {
+          user.globalRole = Roles.platform_admin;
+          user.role = Roles.platform_admin;
+        } else if (newRole === Roles.content_worker) {
+          user.globalRole = Roles.content_worker;
+          user.role = Roles.content_worker;
+        } else if (newRole === Roles.student) {
+          user.globalRole = null;
+          user.role = Roles.student;
+          if (memberships.length === 1) {
+            const mem = memberships[0];
+            mem.role = Roles.student;
+            mem.updatedAt = new Date().toISOString();
+          }
         } else {
+          if (memberships.length === 0) {
+            throw new Error("user_has_no_org");
+          }
+          if (memberships.length > 1) {
+            throw new Error("multi_org_requires_explicit_handling");
+          }
+          const mem = memberships[0];
+          mem.role = newRole as Role;
+          mem.updatedAt = new Date().toISOString();
           user.globalRole = null;
           user.role = newRole as Role;
-          if (this.organizationStore && typeof this.organizationStore.listMembershipsByUserId === "function") {
-            const memberships = await this.organizationStore.listMembershipsByUserId(targetUserId as UserId);
-            if (memberships.length === 1) {
-              const mem = memberships[0];
-              mem.role = newRole as Role;
-              mem.updatedAt = new Date().toISOString();
-            }
-          }
         }
         if (typeof this.userStore.insert === "function") {
           this.userStore.insert({
@@ -536,7 +603,11 @@ export class InMemoryAdminStore implements AdminStore {
     }
   }
 
-  async updateCourseMetadata(_adminId: string, _courseId: string, _payload: { name?: string; subject?: string }): Promise<void> {
+  async updateCourseMetadata(
+    _adminId: string,
+    _courseId: string,
+    _payload: { name?: string; subject?: string; targetAcademicFields?: string[] },
+  ): Promise<void> {
     return;
   }
 
@@ -1758,5 +1829,277 @@ export class InMemoryAdminStore implements AdminStore {
     });
 
     return { items, totalCount };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Teacher Platform Management (In-Memory)
+  // ---------------------------------------------------------------------------
+
+  async listTeachers(params: {
+    page: number;
+    pageSize: number;
+    search?: string;
+    status?: string;
+  }): Promise<AdminTeachersList> {
+    const userStoreAny = this.userStore as { listAllUsers?: () => Promise<UserRecord[]>; users?: UserRecord[] } | undefined;
+    let allUsers: UserRecord[] = [];
+    if (userStoreAny && typeof userStoreAny.listAllUsers === "function") {
+      allUsers = await userStoreAny.listAllUsers();
+    } else if (userStoreAny && Array.isArray(userStoreAny.users)) {
+      allUsers = userStoreAny.users;
+    }
+
+    const classroomStore = (this.options as any)?.classroomStore;
+    const memberStore = (this.options as any)?.classroomMemberStore;
+    const examStore = (this.options as any)?.teacherExamStore;
+
+    const extractItems = (store: any, propName: string): any[] => {
+      if (!store) return [];
+      if (Array.isArray(store)) return store;
+      if (store instanceof Map) return Array.from(store.values());
+      const map = store[propName];
+      if (map instanceof Map) return Array.from(map.values());
+      if (Array.isArray(map)) return map;
+      return [];
+    };
+
+    const allClassrooms: any[] = extractItems(classroomStore, "classrooms");
+    const allMembers: any[] = extractItems(memberStore, "members");
+    const allExams: any[] = extractItems(examStore, "exams");
+
+    const teacherIdsWithClassrooms = new Set(allClassrooms.map((c) => c.teacherId));
+
+    let teachers = allUsers.filter(
+      (u) => u.role === Roles.teacher || (u as any).globalRole === Roles.teacher || teacherIdsWithClassrooms.has(u.id)
+    );
+
+    if (params.search && params.search.trim()) {
+      const s = params.search.trim().toLowerCase();
+      teachers = teachers.filter(
+        (u) =>
+          u.email.toLowerCase().includes(s) ||
+          (u.name && u.name.toLowerCase().includes(s))
+      );
+    }
+
+    if (params.status && params.status !== "all") {
+      if (params.status === "approved" || params.status === "active") {
+        teachers = teachers.filter((u) => !u.teacherStatus || u.teacherStatus === "approved");
+      } else if (params.status === "pending" || params.status === "inactive") {
+        teachers = teachers.filter((u) => u.teacherStatus === "pending");
+      } else if (params.status === "rejected") {
+        teachers = teachers.filter((u) => u.teacherStatus === "rejected");
+      }
+    }
+
+    const totalCount = teachers.length;
+    const page = params.page || 1;
+    const pageSize = params.pageSize || 20;
+    const offset = (page - 1) * pageSize;
+    const paginated = teachers.slice(offset, offset + pageSize);
+
+    const uniqueStudents = new Set(allMembers.filter((m: any) => m.status === "active").map((m: any) => m.studentId));
+
+    const stats: AdminTeacherStats = {
+      totalTeachers: allUsers.filter((u) => u.role === Roles.teacher || (u as any).globalRole === Roles.teacher || teacherIdsWithClassrooms.has(u.id)).length,
+      totalClassrooms: allClassrooms.length,
+      totalExams: allExams.length,
+      totalStudents: uniqueStudents.size,
+    };
+
+    const teacherRecords: AdminTeacherRecord[] = paginated.map((u) => {
+      const teacherClassrooms = allClassrooms.filter((c: any) => c.teacherId === u.id);
+      const classroomIds = teacherClassrooms.map((c: any) => c.id);
+      const teacherExamsList = allExams.filter((e: any) => classroomIds.includes(e.classroomId));
+      const teacherMembers = allMembers.filter((m: any) => classroomIds.includes(m.classroomId) && m.status === "active");
+      const teacherStudentIds = new Set(teacherMembers.map((m: any) => m.studentId));
+
+      return {
+        id: u.id,
+        name: u.name || "استاد",
+        email: u.email,
+        role: "teacher",
+        teacherStatus: u.teacherStatus || "approved",
+        emailVerified: !!u.emailVerified,
+        createdAt: (u as any).createdAt || new Date().toISOString(),
+        lastActiveAt: (u as any).updatedAt || new Date().toISOString(),
+        classroomsCount: teacherClassrooms.length,
+        examsCount: teacherExamsList.length,
+        studentsCount: teacherStudentIds.size,
+      };
+    });
+
+    return {
+      teachers: teacherRecords,
+      totalCount,
+      stats,
+    };
+  }
+
+  async getTeacherOverview(teacherId: string): Promise<AdminTeacherOverview> {
+    const userStoreAny = this.userStore as { listAllUsers?: () => Promise<UserRecord[]>; users?: UserRecord[] | Map<string, UserRecord> } | undefined;
+    let allUsers: UserRecord[] = [];
+    if (userStoreAny && typeof userStoreAny.listAllUsers === "function") {
+      allUsers = await userStoreAny.listAllUsers();
+    } else if (userStoreAny && Array.isArray(userStoreAny.users)) {
+      allUsers = userStoreAny.users;
+    } else if (userStoreAny && userStoreAny.users instanceof Map) {
+      allUsers = Array.from(userStoreAny.users.values());
+    }
+
+    const user = allUsers.find((u) => u.id === teacherId);
+    if (!user) {
+      throw new Error("teacher_not_found");
+    }
+
+    const classroomStore = (this.options as any)?.classroomStore;
+    const memberStore = (this.options as any)?.classroomMemberStore;
+    const examStore = (this.options as any)?.teacherExamStore;
+    const questionStore = (this.options as any)?.teacherExamQuestionStore;
+    const attemptStore = (this.options as any)?.teacherExamAttemptStore;
+
+    const extractItems = (store: any, propName: string): any[] => {
+      if (!store) return [];
+      if (Array.isArray(store)) return store;
+      if (store instanceof Map) return Array.from(store.values());
+      const map = store[propName];
+      if (map instanceof Map) return Array.from(map.values());
+      if (Array.isArray(map)) return map;
+      return [];
+    };
+
+    const allClassrooms: any[] = extractItems(classroomStore, "classrooms");
+    const allMembers: any[] = extractItems(memberStore, "members");
+    const allExams: any[] = extractItems(examStore, "exams");
+    const allQuestions: any[] = extractItems(questionStore, "questions");
+    const allAttempts: any[] = extractItems(attemptStore, "attempts");
+
+    const teacherClassrooms = allClassrooms.filter((c) => c.teacherId === teacherId);
+    const classroomIds = teacherClassrooms.map((c) => c.id);
+    const teacherExamsList = allExams.filter((e) => classroomIds.includes(e.classroomId));
+    const examIds = teacherExamsList.map((e) => e.id);
+    const teacherAttempts = allAttempts.filter((a) => examIds.includes(a.examId));
+    const teacherMembers = allMembers.filter((m) => classroomIds.includes(m.classroomId) && m.status === "active");
+    const uniqueStudentIds = new Set(teacherMembers.map((m) => m.studentId));
+
+    const classroomsList: AdminTeacherClassroom[] = teacherClassrooms.map((c) => {
+      const cMembers = allMembers.filter((m) => m.classroomId === c.id && m.status === "active");
+      const cExams = allExams.filter((e) => e.classroomId === c.id);
+      return {
+        id: c.id,
+        title: c.title,
+        description: c.description || null,
+        inviteCode: c.inviteCode,
+        status: c.status || "active",
+        createdAt: c.createdAt ? new Date(c.createdAt).toISOString() : new Date().toISOString(),
+        courseId: c.courseId || null,
+        courseTitle: c.courseTitle || null,
+        membersCount: cMembers.length,
+        examsCount: cExams.length,
+      };
+    });
+
+    const examsList: AdminTeacherExam[] = teacherExamsList.map((e) => {
+      const classroom = teacherClassrooms.find((c) => c.id === e.classroomId);
+      const qCount = allQuestions.filter((q) => q.examId === e.id).length;
+      const eAttempts = allAttempts.filter((a) => a.examId === e.id);
+      const validAttempts = eAttempts.filter((a) => a.score !== null && (a.status === "submitted" || a.status === "graded" || a.status === "timed_out"));
+      const averageScore = validAttempts.length > 0
+        ? Math.round((validAttempts.reduce((acc, a) => acc + Number(a.percentage ?? ((a.score / (a.maxScore || 100)) * 100)), 0) / validAttempts.length) * 10) / 10
+        : null;
+
+      return {
+        id: e.id,
+        classroomId: e.classroomId,
+        classroomTitle: classroom?.title || "کلاس",
+        title: e.title,
+        status: e.status,
+        durationMinutes: e.durationMinutes || null,
+        startsAt: e.startsAt ? new Date(e.startsAt).toISOString() : new Date().toISOString(),
+        endsAt: e.endsAt ? new Date(e.endsAt).toISOString() : new Date().toISOString(),
+        questionsCount: qCount,
+        attemptsCount: eAttempts.length,
+        averageScore,
+      };
+    });
+
+    const recentActivity: AdminTeacherActivity[] = teacherAttempts.slice(0, 10).map((a) => {
+      const student = allUsers.find((u) => u.id === a.studentId);
+      const exam = allExams.find((e) => e.id === a.examId);
+      const classroom = teacherClassrooms.find((c) => c.id === exam?.classroomId);
+
+      return {
+        attemptId: a.id,
+        studentId: a.studentId,
+        studentName: student?.name || "دانش‌آموز",
+        studentEmail: student?.email || "",
+        examId: a.examId,
+        examTitle: exam?.title || "آزمون",
+        classroomTitle: classroom?.title || "کلاس",
+        status: a.status,
+        score: a.score !== null && a.score !== undefined ? Number(a.score) : null,
+        maxScore: a.maxScore !== null && a.maxScore !== undefined ? Number(a.maxScore) : null,
+        percentage: a.percentage !== null && a.percentage !== undefined ? Number(a.percentage) : null,
+        passed: a.passed !== undefined ? a.passed : null,
+        startedAt: a.startedAt ? new Date(a.startedAt).toISOString() : new Date().toISOString(),
+        submittedAt: a.submittedAt ? new Date(a.submittedAt).toISOString() : null,
+      };
+    });
+
+    return {
+      teacher: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: "teacher",
+        teacherStatus: user.teacherStatus || "approved",
+        emailVerified: !!user.emailVerified,
+        createdAt: (user as any).createdAt || new Date().toISOString(),
+        lastActiveAt: (user as any).updatedAt || new Date().toISOString(),
+      },
+      stats: {
+        classroomsCount: teacherClassrooms.length,
+        examsCount: teacherExamsList.length,
+        studentsCount: uniqueStudentIds.size,
+        attemptsCount: teacherAttempts.length,
+      },
+      classrooms: classroomsList,
+      exams: examsList,
+      recentActivity,
+    };
+  }
+
+  async approveTeacher(_adminId: string, teacherId: string): Promise<void> {
+    const userStoreAny = this.userStore as { listAllUsers?: () => Promise<UserRecord[]>; users?: UserRecord[] | Map<string, UserRecord> } | undefined;
+    let user: UserRecord | undefined;
+    if (userStoreAny && userStoreAny.users instanceof Map) {
+      user = userStoreAny.users.get(teacherId);
+    } else if (userStoreAny && Array.isArray(userStoreAny.users)) {
+      user = userStoreAny.users.find((u) => u.id === teacherId);
+    } else if (userStoreAny && typeof userStoreAny.listAllUsers === "function") {
+      const all = await userStoreAny.listAllUsers();
+      user = all.find((u) => u.id === teacherId);
+    }
+    if (!user) {
+      throw new Error("teacher_not_found");
+    }
+    user.teacherStatus = "approved";
+  }
+
+  async rejectTeacher(_adminId: string, teacherId: string, _reason?: string): Promise<void> {
+    const userStoreAny = this.userStore as { listAllUsers?: () => Promise<UserRecord[]>; users?: UserRecord[] | Map<string, UserRecord> } | undefined;
+    let user: UserRecord | undefined;
+    if (userStoreAny && userStoreAny.users instanceof Map) {
+      user = userStoreAny.users.get(teacherId);
+    } else if (userStoreAny && Array.isArray(userStoreAny.users)) {
+      user = userStoreAny.users.find((u) => u.id === teacherId);
+    } else if (userStoreAny && typeof userStoreAny.listAllUsers === "function") {
+      const all = await userStoreAny.listAllUsers();
+      user = all.find((u) => u.id === teacherId);
+    }
+    if (!user) {
+      throw new Error("teacher_not_found");
+    }
+    user.teacherStatus = "rejected";
   }
 }

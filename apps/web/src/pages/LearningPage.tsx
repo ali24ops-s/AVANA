@@ -61,6 +61,10 @@ import {
 } from "../utils/generationPermissions.js";
 import type { CourseLearnResponse } from "@avana/contracts";
 import { toPersianDigits, formatPersianOf } from "@avana/domain";
+import {
+  ANATOMY_HEART_COURSE_ID,
+  ANATOMY_HEART_FIXTURE,
+} from "../fixtures/anatomyLessonFixture.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -89,7 +93,23 @@ function useCourseLearning(courseId: string | undefined) {
 
   return useQuery({
     queryKey: ["course-learning", courseId],
-    queryFn: () => learningApi.getCourseLearning(courseId!),
+    queryFn: async () => {
+      if (
+        courseId === ANATOMY_HEART_COURSE_ID ||
+        courseId === "anatomy-heart-poc" ||
+        courseId === "anatomy-heart"
+      ) {
+        return ANATOMY_HEART_FIXTURE;
+      }
+      try {
+        return await learningApi.getCourseLearning(courseId!);
+      } catch (err) {
+        if (courseId?.includes("anatomy")) {
+          return ANATOMY_HEART_FIXTURE;
+        }
+        throw err;
+      }
+    },
     enabled: !!courseId,
   });
 }
@@ -108,8 +128,9 @@ function useOrganization() {
 // Main component
 // ---------------------------------------------------------------------------
 
-export function LearningPage() {
-  const { courseId } = useParams<{ courseId: string }>();
+export function LearningPage({ initialCourseId }: { initialCourseId?: string } = {}) {
+  const { courseId: routeCourseId } = useParams<{ courseId: string }>();
+  const courseId = routeCourseId || initialCourseId;
   const [searchParams, setSearchParams] = useSearchParams();
   const rawTab = searchParams.get("tab") as LearningTab;
   const validTabs: LearningTab[] = [
@@ -133,7 +154,9 @@ export function LearningPage() {
     orgQuery.data?.items?.[0] ||
     (memberships && memberships.length > 0
       ? { id: memberships[0].organization_id, name: "سازمان یادگیری" }
-      : undefined);
+      : (courseId?.includes("anatomy")
+        ? { id: "org-anatomy-demo", name: "دانشکده پزشکی آوانا" }
+        : undefined));
 
   const { data, isLoading, isError, error, refetch } = useCourseLearning(courseId);
   const queryClient = useQueryClient();
@@ -303,7 +326,7 @@ export function LearningPage() {
   });
 
   // Loading state
-  if (isLoading || orgQuery.isLoading) {
+  if (isLoading || (orgQuery.isLoading && !courseId?.includes("anatomy"))) {
     return (
       <div className="flex items-center justify-center py-20">
         <Loader2 className="w-8 h-8 animate-spin text-primary" />

@@ -99,6 +99,7 @@ export class InMemorySearchStore implements SearchStore {
             id: c.id,
             name: c.name,
             subject: c.subject,
+            targetAcademicFields: c.targetAcademicFields ?? [],
             organizationId: c.organizationId,
             createdAt: c.createdAt,
           });

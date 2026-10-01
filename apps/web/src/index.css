@@ -458,6 +458,140 @@ optgroup,
   background-color: rgba(0, 122, 122, 0.2);
 }
 
+/* ======================================================================
+   AVANA Educational Content Table & Responsive Scroll Container
+   ====================================================================== */
+
+.table-scroll-container {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  margin: 1rem 0;
+  border-radius: var(--radius-card, 16px);
+  border: 1px solid var(--color-border);
+  background-color: var(--color-surface);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  /* Override any inherited overflow-wrap: anywhere from ancestor containers */
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.content-table,
+.table-scroll-container table {
+  min-width: 100%;
+  width: max-content;
+  border-collapse: collapse;
+  border-spacing: 0;
+  border: none !important;
+  margin: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  background-color: transparent !important;
+  text-align: right;
+  font-size: 0.875rem;
+  line-height: 1.65;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+/* Explicit direction rules for RTL tables */
+.content-table[dir="rtl"],
+.table-scroll-container[dir="rtl"] table,
+[dir="rtl"] .content-table,
+[dir="rtl"] .table-scroll-container table {
+  direction: rtl;
+  text-align: right;
+}
+
+/* Explicit direction rules for LTR tables */
+.content-table[dir="ltr"],
+.table-scroll-container[dir="ltr"] table,
+[dir="ltr"] .content-table,
+[dir="ltr"] .table-scroll-container table {
+  direction: ltr;
+  text-align: left;
+}
+
+.content-table th,
+.content-table td,
+.table-scroll-container th,
+.table-scroll-container td {
+  padding: 0.75rem 1rem;
+  vertical-align: top;
+  text-align: right;
+  border-bottom: 1px solid var(--color-border);
+  overflow-wrap: break-word !important;
+  word-break: normal !important;
+  unicode-bidi: isolate;
+  max-width: 26rem;
+}
+
+.content-table[dir="ltr"] th,
+.content-table[dir="ltr"] td,
+.table-scroll-container[dir="ltr"] th,
+.table-scroll-container[dir="ltr"] td,
+[dir="ltr"] .content-table th,
+[dir="ltr"] .content-table td,
+[dir="ltr"] .table-scroll-container th,
+[dir="ltr"] .table-scroll-container td {
+  text-align: left;
+}
+
+.content-table th,
+.table-scroll-container th {
+  font-weight: 800;
+  color: var(--color-text);
+  background-color: var(--color-surface-warm);
+  white-space: normal;
+  letter-spacing: -0.01em;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.content-table td,
+.table-scroll-container td {
+  color: var(--color-text);
+}
+
+.dark .content-table td,
+.dark .table-scroll-container td {
+  color: #e2e8f0;
+}
+
+.content-table tr:last-child td,
+.table-scroll-container tr:last-child td {
+  border-bottom: none;
+}
+
+.content-table tbody tr:hover,
+.table-scroll-container tbody tr:hover {
+  background-color: var(--color-surface-warm);
+  transition: background-color 150ms ease-in-out;
+}
+
+/* Neutralize legacy .prose table properties when inside .table-scroll-container */
+.prose .table-scroll-container {
+  margin: 1.25rem 0;
+}
+
+.prose .table-scroll-container table {
+  width: max-content;
+  min-width: 100%;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  margin: 0 !important;
+  overflow: visible !important;
+}
+
+.prose .table-scroll-container th,
+.prose .table-scroll-container td {
+  border-bottom: 1px solid var(--color-border);
+  padding: 0.75rem 1rem;
+}
+
 /* Glassmorphism & Stitch Reference Utilities */
 .shadow-ambient {
   box-shadow: 0px 4px 20px rgba(0, 0, 0, 0.4);
@@ -662,6 +796,29 @@ a {
   background: transparent;
   border: none;
 }
+
+/* KaTeX Fraction Spacing Optimization
+   TeX Appendix G Rule 15 hardcodes fraction line clearance to only 0.04em (~0.6px) in text mode.
+   This override provides balanced vertical clearance between the fraction bar and numerator/denominator,
+   preventing visual collisions while strictly preserving math axis alignment, inline baseline, and font metrics. */
+.katex .mfrac > .vlist-t > .vlist-r > .vlist > span:nth-child(1):nth-last-child(3) {
+  transform: translateY(0.24em);
+}
+
+.katex .mfrac > .vlist-t > .vlist-r > .vlist > span:nth-child(3) {
+  transform: translateY(-0.24em);
+}
+
+/* Nested fractions: when numerator/denominator contains an inner fraction,
+   apply proportional offset so inner fraction elements never collide with the outer fraction bar */
+.katex .mfrac > .vlist-t > .vlist-r > .vlist > span:nth-child(1):nth-last-child(3):has(.mfrac) {
+  transform: translateY(0.72em);
+}
+
+.katex .mfrac > .vlist-t > .vlist-r > .vlist > span:nth-child(3):has(.mfrac) {
+  transform: translateY(-0.72em);
+}
+
 
 /* ======================================================================
    AVANA Text Highlighting & Note Annotations (DOM Layer)

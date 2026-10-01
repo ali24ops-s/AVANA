@@ -8,19 +8,26 @@
 import { useState, useEffect, type FormEvent } from "react";
 import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Mail, Phone, Lock, User, Eye, EyeOff, Gift } from "lucide-react";
+import { Mail, Phone, Lock, User, Eye, EyeOff, Gift, GraduationCap } from "lucide-react";
 import { BrandLogo } from "../brand/BrandLogo.js";
 import { useAuth } from "../../providers/AuthProvider.js";
 import { ApiError } from "../../lib/api/errors.js";
-import { validateAndNormalizeIranPhone } from "@avana/domain";
+import { validateAndNormalizeIranPhone, ACADEMIC_FIELDS, isValidAcademicField } from "@avana/domain";
 import { Button } from "@avana/ui";
+import { getSafeInternalRedirect } from "../../utils/urlSecurity.js";
 
 export function RegisterPage() {
   const [searchParams] = useSearchParams();
+  const redirectParam = searchParams.get("redirect") || searchParams.get("from");
+  const roleParam = searchParams.get("role");
+  const safeRedirect = getSafeInternalRedirect(redirectParam, "/home");
+  const isTeacherContext = roleParam === "teacher" || safeRedirect.startsWith("/teacher");
+
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
+  const [major, setMajor] = useState<string>("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [referralCode, setReferralCode] = useState(
@@ -39,9 +46,9 @@ export function RegisterPage() {
     }
   }, [searchParams]);
 
-  // If already authenticated, redirect to home
+  // If already authenticated, redirect to safeRedirect
   if (isAuthenticated) {
-    navigate("/home", { replace: true });
+    navigate(safeRedirect, { replace: true });
     return null;
   }
 
@@ -82,6 +89,11 @@ export function RegisterPage() {
       return;
     }
 
+    if (!major || !isValidAcademicField(major)) {
+      setError("لطفاً رشته تحصیلی خود را انتخاب نمایید.");
+      return;
+    }
+
     if (password.length < 8) {
       setError("رمز عبور باید حداقل ۸ کاراکتر باشد.");
       return;
@@ -102,8 +114,13 @@ export function RegisterPage() {
         trimmedFirstName,
         trimmedLastName,
         referralCode.trim() || undefined,
+        major,
       );
-      navigate("/verify-email", { replace: true });
+      const verifyRedirect =
+        safeRedirect !== "/home"
+          ? `/verify-email?redirect=${encodeURIComponent(safeRedirect)}`
+          : "/verify-email";
+      navigate(verifyRedirect, { replace: true });
     } catch (err) {
       if (err instanceof ApiError) {
         const errorMsg =
@@ -148,10 +165,12 @@ export function RegisterPage() {
                 <BrandLogo variant="logo-only" size="lg" logoClassName="h-9 sm:h-10 w-auto" />
               </div>
               <h1 className="text-lg sm:text-xl font-bold text-[var(--color-text)]">
-                ثبت‌نام در آوانا
+                {isTeacherContext ? "ثبت‌نام به‌ عنوان استاد" : "ثبت‌نام در آوانا"}
               </h1>
               <p className="text-[var(--color-text-muted)] mt-1 text-xs">
-                برای ایجاد حساب جدید، اطلاعات زیر را تکمیل نمایید.
+                {isTeacherContext
+                  ? "برای ایجاد حساب کاربری اساتید، اطلاعات زیر را تکمیل نمایید."
+                  : "برای ایجاد حساب جدید، اطلاعات زیر را تکمیل نمایید."}
               </p>
             </div>
 
@@ -177,7 +196,7 @@ export function RegisterPage() {
                       type="text"
                       value={firstName}
                       onChange={(e) => setFirstName(e.target.value)}
-                      placeholder="علی"
+                      placeholder="مثلاً: علی"
                       required
                       disabled={isSubmitting}
                       className="w-full ps-10 pe-4 py-2 rounded-input border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary text-start text-xs sm:text-sm disabled:opacity-50 transition-all"
@@ -199,10 +218,10 @@ export function RegisterPage() {
                       type="text"
                       value={lastName}
                       onChange={(e) => setLastName(e.target.value)}
-                      placeholder="محمدی"
+                      placeholder="مثلاً: محمدلو"
                       required
                       disabled={isSubmitting}
-                      className="w-full ps-10 pe-4 py-2 rounded-input border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary text-start text-xs sm:text-sm disabled:opacity-50 transition-all"
+                      className="w-full ps-10 pe-4 py-2 rounded-input border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:ring-primary focus:border-primary text-start text-xs sm:text-sm disabled:opacity-50 transition-all"
                     />
                   </div>
                 </div>
@@ -259,6 +278,43 @@ export function RegisterPage() {
                       dir="ltr"
                       className="w-full ps-10 pe-4 py-2 rounded-input border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary text-start font-mono text-xs sm:text-sm disabled:opacity-50 transition-all"
                     />
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label
+                    htmlFor="major"
+                    className="block text-xs font-semibold text-[var(--color-text)]"
+                  >
+                    رشته تحصیلی شما چیست؟
+                  </label>
+                  <span className="text-[11px] text-[var(--color-text-muted)]">
+                    جهت شخصی‌سازی محتوا
+                  </span>
+                </div>
+                <div className="relative">
+                  <GraduationCap className="absolute start-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-muted)] pointer-events-none" />
+                  <select
+                    id="major"
+                    value={major}
+                    onChange={(e) => setMajor(e.target.value)}
+                    required
+                    disabled={isSubmitting}
+                    className="w-full ps-10 pe-8 py-2 rounded-input border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary text-start text-xs sm:text-sm disabled:opacity-50 transition-all appearance-none cursor-pointer"
+                  >
+                    <option value="" disabled>
+                      رشته تحصیلی خود را انتخاب کنید...
+                    </option>
+                    {ACADEMIC_FIELDS.map((field) => (
+                      <option key={field.id} value={field.id}>
+                        {field.label}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="absolute end-3 top-1/2 -translate-y-1/2 pointer-events-none text-[var(--color-text-muted)] text-[10px]">
+                    ▼
                   </div>
                 </div>
               </div>
@@ -363,6 +419,7 @@ export function RegisterPage() {
                     !lastName.trim() ||
                     !email.trim() ||
                     !phoneNumber.trim() ||
+                    !major ||
                     !password ||
                     !confirmPassword
                   }
@@ -394,7 +451,11 @@ export function RegisterPage() {
                 قبلاً حساب کاربری داشته‌اید؟{" "}
               </span>
               <Link
-                to="/login"
+                to={
+                  isTeacherContext
+                    ? `/sign-in?redirect=${encodeURIComponent(safeRedirect)}&role=teacher`
+                    : "/login"
+                }
                 className="text-xs font-bold text-primary hover:underline transition-colors"
               >
                 ورود به حساب

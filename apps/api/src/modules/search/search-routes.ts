@@ -26,7 +26,11 @@ export const searchRoutes: FastifyPluginAsync<SearchRouteOptions> = async (
   const { sessionService, userStore, searchStore, systemOrganizationId } = opts;
 
   const { requireAuth } = makeAuthMiddleware({ sessionService, userStore });
-  const searchService = new SearchService(searchStore, systemOrganizationId);
+  const searchService = new SearchService(
+    searchStore,
+    systemOrganizationId,
+    userStore,
+  );
 
   /**
    * Helper to extract actor from authenticated request.

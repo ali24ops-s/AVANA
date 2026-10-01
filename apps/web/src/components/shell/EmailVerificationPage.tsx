@@ -1,5 +1,5 @@
 import { useState, useEffect, type FormEvent } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
   Mail,
@@ -14,6 +14,7 @@ import { useAuth } from "../../providers/AuthProvider.js";
 import { ApiError } from "../../lib/api/errors.js";
 import type { VerificationChannel } from "@avana/contracts";
 import { Button } from "@avana/ui";
+import { getSafeInternalRedirect } from "../../utils/urlSecurity.js";
 
 function maskEmail(email?: string): string {
   if (!email || !email.includes("@")) return "ایمیل شما";
@@ -35,6 +36,9 @@ function maskPhone(phone?: string | null): string {
 
 export function EmailVerificationPage() {
   const location = useLocation();
+  const [searchParams] = useSearchParams();
+  const safeRedirect = getSafeInternalRedirect(searchParams.get("redirect"), "/home");
+
   const locationState = location.state as {
     step?: "select_channel" | "enter_code";
     channel?: VerificationChannel;
@@ -78,12 +82,12 @@ export function EmailVerificationPage() {
     return () => clearInterval(timer);
   }, [cooldown]);
 
-  // If user is already verified (either email or phone), redirect to home
+  // If user is already verified (either email or phone), redirect to safeRedirect
   useEffect(() => {
     if (isAuthenticated && (isVerified || isEmailVerified || isPhoneVerified)) {
-      navigate("/home", { replace: true });
+      navigate(safeRedirect, { replace: true });
     }
-  }, [isAuthenticated, isVerified, isEmailVerified, isPhoneVerified, navigate]);
+  }, [isAuthenticated, isVerified, isEmailVerified, isPhoneVerified, navigate, safeRedirect]);
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -161,7 +165,7 @@ export function EmailVerificationPage() {
           : "ایمیل شما با موفقیت تأیید شد!",
       );
       setTimeout(() => {
-        navigate("/home", { replace: true });
+        navigate(safeRedirect, { replace: true });
       }, 1000);
     } catch (err) {
       if (err instanceof ApiError) {

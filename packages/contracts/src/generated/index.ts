@@ -55,6 +55,7 @@ export type UserResource = {
   name?: string;
   role: Role;
   phoneNumber?: string | null;
+  major?: string | null;
   emailVerified?: boolean;
   phoneVerified?: boolean;
   isVerified?: boolean;
@@ -153,6 +154,8 @@ export type CourseResource = {
   id: UUID;
   title: string;
   subject: string | null;
+  target_academic_fields?: string[] | null;
+  targetAcademicFields?: string[] | null;
   exam_at: string | null;
   exam_scope?: {
     moduleIds?: string[];
@@ -179,6 +182,8 @@ export type CourseListResponse = {
 export type CreateCourseRequest = {
   title: string;
   subject: string | null;
+  target_academic_fields?: string[] | null;
+  targetAcademicFields?: string[] | null;
   exam_at: string | null;
   exam_scope?: {
     moduleIds?: string[];
@@ -189,6 +194,8 @@ export type CreateCourseRequest = {
 export type UpdateCourseRequest = {
   title?: string;
   subject?: string | null;
+  target_academic_fields?: string[] | null;
+  targetAcademicFields?: string[] | null;
   exam_at?: string | null;
   exam_scope?: {
     moduleIds?: string[];
@@ -212,6 +219,7 @@ export type RegisterRequest = {
   firstName?: string;
   lastName?: string;
   phoneNumber?: string;
+  major?: string | null;
   referralCode?: string;
 };
 
@@ -239,6 +247,26 @@ export type PhoneVerifyOtpRequest = {
 };
 
 export type PhoneVerifyOtpResponse = SignInResponse;
+
+export type ForgotPasswordRequest = {
+  email: string;
+};
+
+export type ForgotPasswordResponse = {
+  request_id: string;
+  message: string;
+  cooldown_seconds?: number;
+};
+
+export type ResetPasswordRequest = {
+  token: string;
+  password: string;
+};
+
+export type ResetPasswordResponse = {
+  request_id: string;
+  message: string;
+};
 
 
 // ---------------------------------------------------------------------------

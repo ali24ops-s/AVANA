@@ -12,7 +12,10 @@ import {
   X,
   AlertTriangle,
   CheckCircle2,
+  WifiOff,
+  RefreshCw,
 } from "lucide-react";
+import { defaultExamOfflineStore } from "../../lib/storage/exam-offline-store.js";
 import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
 import { createStudyApi } from "../../lib/api/study.js";
 import { useStudySessionTracker } from "../../hooks/useStudySessionTracker.js";
@@ -57,6 +60,18 @@ export interface ExamTakingViewProps {
   onSubmitSuccess: (result: unknown) => void;
 }
 
+/**
+ * Calculates reconnect delay with randomized jitter (1500ms base + 0 to 7000ms jitter)
+ * to prevent synchronized request storms when networks recover.
+ */
+export function calculateReconnectDelayMs(
+  baseDelayMs = 1500,
+  maxJitterMs = 7000,
+  randomFn: () => number = Math.random,
+): number {
+  return baseDelayMs + Math.floor(randomFn() * maxJitterMs);
+}
+
 export function ExamTakingView({
   organizationId,
   attemptId,
@@ -70,8 +85,10 @@ export function ExamTakingView({
   onExit,
   onSubmitSuccess,
 }: ExamTakingViewProps) {
-  const apiClient = createApiClient({ baseUrl: getApiBaseUrl() });
-  const studyApi = createStudyApi(apiClient);
+  const studyApi = useMemo(() => {
+    const apiClient = createApiClient({ baseUrl: getApiBaseUrl() });
+    return createStudyApi(apiClient);
+  }, []);
 
   const [currentIndex, setCurrentIndex] = useState<number>(() => {
     if (initialAnswers && questions && questions.length > 0) {
@@ -245,30 +262,93 @@ export function ExamTakingView({
   const answersRef = useRef<Record<string, unknown>>(initialAnswers || {});
   answersRef.current = answers;
 
-  const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
-  const saveSeqRef = useRef<number>(0);
+  const [syncStatus, setSyncStatus] = useState<
+    "idle" | "saving_local" | "syncing" | "synced" | "offline" | "sync_error"
+  >("idle");
+
+  // Stable sync jitter between 55s and 65s chosen once per attempt session
+  const syncIntervalMs = useMemo(() => {
+    let hash = 0;
+    for (let i = 0; i < attemptId.length; i++) {
+      hash = (hash << 5) - hash + attemptId.charCodeAt(i);
+      hash |= 0;
+    }
+    const pseudoRandom = Math.abs(hash % 10000);
+    return 55000 + (pseudoRandom % 10001); // 55,000ms to 65,000ms
+  }, [attemptId]);
+
+  const isSyncingRef = useRef<boolean>(false);
+
+  // Flush pending/unsynced answers to server in batch
+  const flushPendingAnswers = useCallback(async (): Promise<boolean> => {
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      setSyncStatus("offline");
+      return false;
+    }
+    if (isSyncingRef.current) return false;
+
+    try {
+      const pending = await defaultExamOfflineStore.getPendingAnswers(attemptId);
+      if (!pending || pending.length === 0) {
+        return true; // Nothing to sync
+      }
+
+      isSyncingRef.current = true;
+      setSyncStatus("syncing");
+      const currentElapsed = getActiveElapsedSeconds();
+
+      const payload = pending.map((p) => ({
+        questionId: p.questionId,
+        answer: p.answer,
+        revision: p.revision,
+        clientUpdatedAt: p.updatedAt,
+      }));
+
+      const res = await studyApi.saveExamAnswers(organizationId, attemptId, {
+        answers: payload,
+        elapsedSeconds: currentElapsed,
+      });
+
+      const ackList =
+        res.acknowledged ||
+        pending.map((p) => ({ questionId: p.questionId, revision: p.revision }));
+      await defaultExamOfflineStore.markAnswersAsSynced(attemptId, ackList);
+
+      setSyncStatus("synced");
+      setTimeout(() => {
+        setSyncStatus((s) => (s === "synced" ? "idle" : s));
+      }, 2500);
+      return true;
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn("Background batch sync failed, will retry on next cycle", err);
+      setSyncStatus("sync_error");
+      return false;
+    } finally {
+      isSyncingRef.current = false;
+    }
+  }, [attemptId, organizationId, getActiveElapsedSeconds, studyApi]);
 
   const handleExitClick = useCallback(() => {
-    const total = closeActiveSlice();
-    const latestAnswers = answersRef.current;
-    const formattedAnswers = Object.entries(latestAnswers).map(([qid, val]) => ({
-      questionId: qid,
-      answer: val,
-    }));
-
-    void studyApi
-      .saveExamAnswers(organizationId, attemptId, {
-        answers: formattedAnswers,
-        elapsedSeconds: total,
-      })
-      .catch(() => {});
+    closeActiveSlice();
+    void flushPendingAnswers().catch(() => {});
     onExit();
-  }, [closeActiveSlice, onExit, organizationId, attemptId, studyApi]);
+  }, [closeActiveSlice, flushPendingAnswers, onExit]);
 
   const handleFinalSubmit = useCallback(async () => {
+    if (isSubmitting) return; // Prevent double submit
     setErrorMsg(null);
     setIsSubmitting(true);
     const finalElapsed = closeActiveSlice();
+
+    // 1. Flush all pending answers before final submission
+    const flushed = await flushPendingAnswers();
+    if (!flushed && typeof navigator !== "undefined" && !navigator.onLine) {
+      setErrorMsg("اتصال اینترنت برقرار نیست. پاسخ‌های شما در دستگاه ذخیره شده است. پس از اتصال مجدد، دکمه ثبت نهایی را بزنید.");
+      setIsSubmitting(false);
+      startActiveSlice();
+      return;
+    }
 
     try {
       const formattedAnswers = questions.map((q) => ({
@@ -281,7 +361,8 @@ export function ExamTakingView({
         elapsedSeconds: finalElapsed,
       });
 
-      // Clear local storage after successful submit
+      // 2. Clear local storage and IndexedDB ONLY upon successful submit
+      await defaultExamOfflineStore.clearAttempt(attemptId);
       if (typeof window !== "undefined" && window.localStorage) {
         try {
           window.localStorage.removeItem(`avana_exam_elapsed_${attemptId}`);
@@ -294,19 +375,35 @@ export function ExamTakingView({
       onSubmitSuccess(res);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : undefined;
-      setErrorMsg(msg || "خطا در ثبت نتیجه آزمون. لطفاً دوباره تلاش کنید.");
+      setErrorMsg(msg || "خطا در ثبت نتیجه آزمون. پاسخ‌های شما محفوظ است. لطفاً دوباره تلاش کنید.");
       setIsSubmitting(false);
       startActiveSlice(); // Resume timer if submit failed
     }
   }, [
     attemptId,
     closeActiveSlice,
+    flushPendingAnswers,
+    isSubmitting,
     onSubmitSuccess,
     organizationId,
     questions,
     startActiveSlice,
     studyApi,
   ]);
+
+  const flushPendingAnswersRef = useRef(flushPendingAnswers);
+  flushPendingAnswersRef.current = flushPendingAnswers;
+
+  const handleFinalSubmitRef = useRef(handleFinalSubmit);
+  handleFinalSubmitRef.current = handleFinalSubmit;
+
+  // On unmount: close active slice and flush pending answers asynchronously
+  useEffect(() => {
+    return () => {
+      closeActiveSlice();
+      void flushPendingAnswersRef.current().catch(() => {});
+    };
+  }, [closeActiveSlice]);
 
   // Active presence tracking & UI update loop
   useEffect(() => {
@@ -327,7 +424,7 @@ export function ExamTakingView({
           !isSubmitting
         ) {
           hasAutoSubmittedRef.current = true;
-          void handleFinalSubmit();
+          void handleFinalSubmitRef.current();
         }
       }
     }, 1000);
@@ -382,20 +479,6 @@ export function ExamTakingView({
         window.removeEventListener("pagehide", handlePageHide);
         window.removeEventListener("beforeunload", handlePageHide);
       }
-
-      // Synchronously close active slice and persist on unmount
-      const total = closeActiveSlice();
-      const latestAnswers = answersRef.current;
-      const formattedAnswers = Object.entries(latestAnswers).map(([qid, val]) => ({
-        questionId: qid,
-        answer: val,
-      }));
-      void studyApi
-        .saveExamAnswers(organizationId, attemptId, {
-          answers: formattedAnswers,
-          elapsedSeconds: total,
-        })
-        .catch(() => {});
     };
   }, [
     attemptId,
@@ -407,11 +490,9 @@ export function ExamTakingView({
     closeActiveSlice,
     getActiveElapsedSeconds,
     persistLocally,
-    handleFinalSubmit,
-    studyApi,
   ]);
 
-  // Periodic server sync loop every 15s while active
+  // Periodic server batch sync loop with stable jitter (55-65s)
   useEffect(() => {
     const syncInterval = setInterval(() => {
       if (
@@ -419,22 +500,69 @@ export function ExamTakingView({
         document.visibilityState === "visible" &&
         !isSubmitting
       ) {
-        const current = getActiveElapsedSeconds();
-        const formattedAnswers = Object.entries(answersRef.current).map(([qid, val]) => ({
-          questionId: qid,
-          answer: val,
-        }));
-        void studyApi
-          .saveExamAnswers(organizationId, attemptId, {
-            answers: formattedAnswers,
-            elapsedSeconds: current,
-          })
-          .catch(() => {});
+        void flushPendingAnswers();
       }
-    }, 15000);
+    }, syncIntervalMs);
 
     return () => clearInterval(syncInterval);
-  }, [attemptId, organizationId, isSubmitting, getActiveElapsedSeconds, studyApi]);
+  }, [syncIntervalMs, isSubmitting, flushPendingAnswers]);
+
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Online / offline event listeners with reconnect jitter and storm prevention
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const handleOnline = () => {
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+      const delay = calculateReconnectDelayMs();
+      reconnectTimeoutRef.current = setTimeout(() => {
+        reconnectTimeoutRef.current = null;
+        void flushPendingAnswers();
+      }, delay);
+    };
+
+    const handleOffline = () => {
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+      setSyncStatus("offline");
+    };
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    return () => {
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, [flushPendingAnswers]);
+
+  // Load offline persisted answers upon mount (reconciliation with initialAnswers)
+  useEffect(() => {
+    let isMounted = true;
+    void defaultExamOfflineStore.getAllAnswers(attemptId).then((localAnswers) => {
+      if (!isMounted) return;
+      if (localAnswers && Object.keys(localAnswers).length > 0) {
+        setAnswers((prev) => {
+          const merged = { ...initialAnswers, ...prev, ...localAnswers };
+          answersRef.current = merged;
+          return merged;
+        });
+      }
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, [attemptId, initialAnswers]);
 
   // Sync initialAnswers if updated from backend on load / refetch (authoritative backend)
   useEffect(() => {
@@ -511,8 +639,10 @@ export function ExamTakingView({
   const handleSelectChoice = (choice: string) => {
     if (isSubmitting) return;
 
-    // Optimistic UI update
     const qId = currentQuestion.id;
+    if (answersRef.current[qId] === choice) return;
+
+    // Optimistic UI update
     const updatedAnswers = { ...answersRef.current, [qId]: choice };
     answersRef.current = updatedAnswers;
     setAnswers(updatedAnswers);
@@ -520,23 +650,15 @@ export function ExamTakingView({
     const currentElapsed = getActiveElapsedSeconds();
     persistLocally(currentElapsed);
 
-    const thisSeq = ++saveSeqRef.current;
-    // Sequential promise queue to guarantee monotonic latest-write-wins in networking
-    saveQueueRef.current = saveQueueRef.current
-      .catch(() => {})
-      .then(async () => {
-        if (thisSeq < saveSeqRef.current) {
-          // A newer choice was made while waiting; skip stale request
-          return;
-        }
-        await studyApi.saveExamAnswers(organizationId, attemptId, {
-          answers: [{ questionId: qId, answer: choice }],
-          elapsedSeconds: currentElapsed,
-        });
-      })
-      .catch(() => {
-        // Background save error handled gracefully
-      });
+    // Save locally into durable storage (IndexedDB -> localStorage -> Memory)
+    setSyncStatus("saving_local");
+    void defaultExamOfflineStore.saveAnswer(attemptId, qId, choice).then(() => {
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        setSyncStatus("offline");
+      } else {
+        setSyncStatus("idle");
+      }
+    });
   };
 
   const handleToggleSource = (questionId: string) => {
@@ -758,6 +880,52 @@ export function ExamTakingView({
               <Grid className="w-4 h-4 text-[var(--color-primary)] shrink-0" />
               <span className="font-mono text-xs">{toPersianDigits(currentIndex + 1)}/{toPersianDigits(totalQuestions)}</span>
             </button>
+
+            {/* Sync Status Badge */}
+            {syncStatus === "syncing" && (
+              <div
+                className="flex items-center gap-1 bg-[var(--color-surface-warm)] border border-[var(--color-border)] px-2 py-1 rounded-lg text-[var(--color-primary)] text-xs font-label-sm"
+                title="در حال همگام‌سازی با سرور"
+              >
+                <RefreshCw className="w-3.5 h-3.5 animate-spin shrink-0" />
+                <span className="hidden sm:inline">همگام‌سازی...</span>
+              </div>
+            )}
+            {syncStatus === "synced" && (
+              <div
+                className="flex items-center gap-1 bg-[#3d8f6e]/10 border border-[#3d8f6e]/30 px-2 py-1 rounded-lg text-[#3d8f6e] text-xs font-label-sm"
+                title="پاسخ‌ها با موفقیت همگام‌سازی شدند"
+              >
+                <Check className="w-3.5 h-3.5 shrink-0" />
+                <span className="hidden sm:inline">همگام شد</span>
+              </div>
+            )}
+            {syncStatus === "offline" && (
+              <div
+                className="flex items-center gap-1 bg-amber-500/10 border border-amber-500/30 px-2 py-1 rounded-lg text-amber-600 dark:text-amber-400 text-xs font-label-sm"
+                title="اتصال قطع است؛ پاسخ‌ها روی دستگاه ذخیره می‌شوند"
+              >
+                <WifiOff className="w-3.5 h-3.5 shrink-0" />
+                <span className="hidden sm:inline">آفلاین (ذخیره روی دستگاه)</span>
+              </div>
+            )}
+            {syncStatus === "sync_error" && (
+              <div
+                className="flex items-center gap-1 bg-red-500/10 border border-red-500/30 px-2 py-1 rounded-lg text-red-500 text-xs font-label-sm"
+                title="همگام‌سازی ناموفق؛ تلاش مجدد انجام می‌شود"
+              >
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                <span className="hidden sm:inline">تلاش مجدد همگام‌سازی</span>
+              </div>
+            )}
+            {syncStatus === "saving_local" && (
+              <div
+                className="flex items-center gap-1 bg-[var(--color-surface-warm)] border border-[var(--color-border)] px-2 py-1 rounded-lg text-[var(--color-text-muted)] text-xs font-label-sm"
+                title="پاسخ در حافظه دستگاه ذخیره شد"
+              >
+                <span className="hidden sm:inline">ذخیره روی دستگاه...</span>
+              </div>
+            )}
 
             <div className="flex items-center gap-1 sm:gap-1.5 bg-[var(--color-surface-warm)] border border-[var(--color-border)] px-2 sm:px-2.5 py-1 rounded-lg text-[var(--color-text)] font-label-sm">
               <Timer className="w-4 h-4 text-[var(--color-primary)]" />

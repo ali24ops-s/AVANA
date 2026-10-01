@@ -43,6 +43,7 @@ export type ApiConfig = {
     redactHeaders: string[];
     level: string;
   };
+  appUrl: string;
   security: SecurityConfig;
   session: SessionConfig;
   csrf: {
@@ -245,6 +246,17 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     .split(",")
     .map((origin) => origin.trim());
 
+  const defaultAppUrl = corsOrigins[0] || (isProd ? "https://app.avana.ai" : "http://localhost:5173");
+  const appUrl = getOptionalString(
+    env,
+    "AVANA_APP_URL",
+    getOptionalString(
+      env,
+      "APP_URL",
+      getOptionalString(env, "FRONTEND_URL", defaultAppUrl),
+    ),
+  );
+
   function localDatabaseUrl(): string {
     const user = "avana";
     const password = "avana";
@@ -278,6 +290,7 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
       redactHeaders: ["authorization", "cookie", "set-cookie"],
       level: nodeEnv === "test" ? "silent" : "info",
     },
+    appUrl,
     security: {
       cors: {
         origin: corsOrigins,

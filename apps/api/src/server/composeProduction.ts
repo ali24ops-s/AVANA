@@ -20,6 +20,7 @@ import {
   DrizzleSessionStore,
   DrizzleUserStore,
   DrizzleEmailVerificationStore,
+  DrizzlePasswordResetStore,
   DrizzleDeviceStore,
   MockEmailService,
   ResendEmailService,
@@ -37,6 +38,17 @@ export interface ProductionDependencies {
   close: () => Promise<void>;
 }
 import { DrizzleOrganizationStore } from "../modules/organizations/drizzle-stores.js";
+import {
+  DrizzleClassroomStore,
+  DrizzleClassroomMemberStore,
+  DrizzleTeacherExamStore,
+  DrizzleTeacherExamQuestionStore,
+  DrizzleTeacherExamAttemptStore,
+  DrizzleTeacherExamAttemptAnswerStore,
+  DrizzleAssignmentStore,
+  DrizzleAssignmentSubmissionStore,
+} from "../modules/teacher-platform/stores.js";
+
 import {
   DrizzleCourseStore,
   DrizzleCoursePublicationStore,
@@ -268,6 +280,7 @@ export async function composeProduction(
   const userStore = new DrizzleUserStore(db);
   const deviceStore = new DrizzleDeviceStore(db);
   const emailVerificationStore = new DrizzleEmailVerificationStore(db);
+  const passwordResetStore = new DrizzlePasswordResetStore(db);
   const notificationStore = new DrizzleNotificationStore(db);
   const notificationService = new NotificationService(notificationStore);
   let emailService: EmailService;
@@ -439,6 +452,15 @@ export async function composeProduction(
     auditService,
   );
 
+  const classroomStore = new DrizzleClassroomStore(db);
+  const classroomMemberStore = new DrizzleClassroomMemberStore(db);
+  const teacherExamStore = new DrizzleTeacherExamStore(db);
+  const teacherExamQuestionStore = new DrizzleTeacherExamQuestionStore(db);
+  const teacherExamAttemptStore = new DrizzleTeacherExamAttemptStore(db);
+  const teacherExamAttemptAnswerStore = new DrizzleTeacherExamAttemptAnswerStore(db);
+  const assignmentStore = new DrizzleAssignmentStore(db);
+  const assignmentSubmissionStore = new DrizzleAssignmentSubmissionStore(db);
+
   const v1Options: V1RouteOptions = {
     config,
     sessionStore,
@@ -449,6 +471,7 @@ export async function composeProduction(
     supportService,
     deviceStore,
     emailVerificationStore,
+    passwordResetStore,
     emailService,
     smsProvider,
     organizationStore,
@@ -492,8 +515,17 @@ export async function composeProduction(
     referralStore,
     paymentGateway,
     blogStore,
+    classroomStore,
+    classroomMemberStore,
+    teacherExamStore,
+    teacherExamQuestionStore,
+    teacherExamAttemptStore,
+    teacherExamAttemptAnswerStore,
+    assignmentStore,
+    assignmentSubmissionStore,
     db,
   };
+
 
   // Explicit opt-in dev seed: never seed automatically on regular dev/restart
   if (config.nodeEnv === "development" && process.env.ENABLE_DEV_AUTO_SEED === "true") {

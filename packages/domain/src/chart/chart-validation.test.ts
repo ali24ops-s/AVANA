@@ -71,8 +71,8 @@ describe("Educational Chart Domain & Validation Suite", () => {
       expect(parsed?.xAxis?.unit).toBe("ساعت");
       expect(parsed?.yAxis?.unit).toBe("mg/L");
       expect(parsed?.series).toHaveLength(1);
-      expect(parsed?.series[0].data).toHaveLength(5);
-      expect(parsed?.series[0].data[1].y).toBe(15.2);
+      expect(parsed?.series![0].data).toHaveLength(5);
+      expect(parsed?.series![0].data[1].y).toBe(15.2);
 
       const validation = validateEducationalChart(parsed!);
       expect(validation.valid).toBe(true);
@@ -131,7 +131,7 @@ describe("Educational Chart Domain & Validation Suite", () => {
       const parsed = parseChartCodeContent(json, "chart");
       expect(parsed).not.toBeNull();
       expect(parsed?.type).toBe("pie");
-      expect(parsed?.series[0].data).toHaveLength(4);
+      expect(parsed?.series![0].data).toHaveLength(4);
 
       const validation = validateEducationalChart(parsed!);
       expect(validation.valid).toBe(true);
@@ -160,9 +160,9 @@ describe("Educational Chart Domain & Validation Suite", () => {
       const parsed = parseChartCodeContent(json, "chart");
       expect(parsed).not.toBeNull();
       expect(parsed?.type).toBe("scatter");
-      expect(parsed?.series[0].data).toHaveLength(4);
-      expect(parsed?.series[0].data[0].x).toBe(25);
-      expect(parsed?.series[0].data[0].y).toBe(120);
+      expect(parsed?.series![0].data).toHaveLength(4);
+      expect(parsed?.series![0].data[0].x).toBe(25);
+      expect(parsed?.series![0].data[0].y).toBe(120);
 
       const validation = validateEducationalChart(parsed!);
       expect(validation.valid).toBe(true);
@@ -182,9 +182,9 @@ describe("Educational Chart Domain & Validation Suite", () => {
 
       const parsed = parseChartCodeContent(json, "chart");
       expect(parsed).not.toBeNull();
-      expect(parsed?.series[0].data[0].value).toBe(12.5);
-      expect(parsed?.series[0].data[1].value).toBe(25);
-      expect(parsed?.series[0].data[2].value).toBe(37.8);
+      expect(parsed?.series![0].data[0].value).toBe(12.5);
+      expect(parsed?.series![0].data[1].value).toBe(25);
+      expect(parsed?.series![0].data[2].value).toBe(37.8);
 
       const validation = validateEducationalChart(parsed!);
       expect(validation.valid).toBe(true);
@@ -394,10 +394,10 @@ describe("Educational Chart Domain & Validation Suite", () => {
       expect(chart).not.toBeNull();
       const validation = validateEducationalChart(chart!);
       expect(validation.valid).toBe(true);
-      expect(validation.chart?.series[0].data[0].y).toBe(0.0035);
-      expect(validation.chart?.series[0].data[1].y).toBe(0.0125);
-      expect(validation.chart?.series[0].data[2].y).toBe(12.5);
-      expect(validation.chart?.series[0].data[3].y).toBe(125.123456);
+      expect(validation.chart?.series![0].data[0].y).toBe(0.0035);
+      expect(validation.chart?.series![0].data[1].y).toBe(0.0125);
+      expect(validation.chart?.series![0].data[2].y).toBe(12.5);
+      expect(validation.chart?.series![0].data[3].y).toBe(125.123456);
     });
 
     it("rejects charts exceeding maximum allowed points to prevent browser freeze", () => {
@@ -417,6 +417,239 @@ describe("Educational Chart Domain & Validation Suite", () => {
       const validation = validateEducationalChart(chart!);
       expect(validation.valid).toBe(false);
       expect(validation.errors[0]).toContain("بیشتر است");
+    });
+  });
+
+  describe("Conceptual & Parametric Curves, Logarithmic Axes & Backward Compatibility", () => {
+    it("validates a legacy chart without mode and sourceCitation as valid (backward compatibility)", () => {
+      const legacy = parseChartCodeContent(
+        JSON.stringify({
+          type: "line",
+          title: "نمودار قدیمی بدون مود",
+          data: [{ x: 1, y: 10 }, { x: 2, y: 20 }],
+        }),
+      );
+      expect(legacy).not.toBeNull();
+      const result = validateEducationalChart(legacy!);
+      expect(result.valid).toBe(true);
+      expect(result.errors).toHaveLength(0);
+      expect(result.warnings).toHaveLength(0);
+    });
+
+    it("validates a conceptual sigmoidal curve as valid with normalized parameters", () => {
+      const parsed = parseChartCodeContent(
+        JSON.stringify({
+          type: "line",
+          mode: "conceptual",
+          title: "منحنی دوز-پاسخ مفهومی",
+          xAxis: { label: "غلظت", scale: "log", min: 1e-10, max: 1e-4 },
+          yAxis: { label: "پاسخ", unit: "%" },
+          curves: [
+            {
+              name: "آگونیست کامل",
+              model: "sigmoidal",
+              parameters: { emax: 100, logEC50: -7, hillSlope: 1, baseline: 0 },
+              parameterSemantics: "normalized",
+            },
+          ],
+        }),
+      );
+      expect(parsed).not.toBeNull();
+      expect(parsed?.curves).toHaveLength(1);
+      const result = validateEducationalChart(parsed!);
+      expect(result.valid).toBe(true);
+      expect(result.errors).toHaveLength(0);
+      expect(result.warnings).toHaveLength(0);
+    });
+
+    it("rejects non-finite emax in curves", () => {
+      const invalid = {
+        type: "line",
+        title: "تست emax نامعتبر",
+        curves: [
+          {
+            name: "تست",
+            model: "sigmoidal",
+            parameters: { emax: NaN, logEC50: -7 },
+          },
+        ],
+      };
+      const result = validateEducationalChart(invalid);
+      expect(result.valid).toBe(false);
+      expect(result.errors.some((e) => e.includes("emax"))).toBe(true);
+    });
+
+    it("rejects non-finite logEC50 in curves", () => {
+      const invalid = {
+        type: "line",
+        title: "تست logEC50 نامعتبر",
+        curves: [
+          {
+            name: "تست",
+            model: "sigmoidal",
+            parameters: { emax: 100, logEC50: Infinity },
+          },
+        ],
+      };
+      const result = validateEducationalChart(invalid);
+      expect(result.valid).toBe(false);
+      expect(result.errors.some((e) => e.includes("logEC50"))).toBe(true);
+    });
+
+    it("rejects hillSlope <= 0 in curves", () => {
+      const invalid = {
+        type: "line",
+        title: "تست hillSlope نامعتبر",
+        curves: [
+          {
+            name: "تست",
+            model: "sigmoidal",
+            parameters: { emax: 100, logEC50: -7, hillSlope: 0 },
+          },
+        ],
+      };
+      const result = validateEducationalChart(invalid);
+      expect(result.valid).toBe(false);
+      expect(result.errors.some((e) => e.includes("hillSlope"))).toBe(true);
+
+      const invalidNegative = {
+        type: "line",
+        title: "تست hillSlope منفی",
+        curves: [
+          {
+            name: "تست",
+            model: "sigmoidal",
+            parameters: { emax: 100, logEC50: -7, hillSlope: -1.5 },
+          },
+        ],
+      };
+      const resultNeg = validateEducationalChart(invalidNegative);
+      expect(resultNeg.valid).toBe(false);
+      expect(resultNeg.errors.some((e) => e.includes("hillSlope"))).toBe(true);
+    });
+
+    it("rejects non-finite baseline in curves", () => {
+      const invalid = {
+        type: "line",
+        title: "تست baseline نامعتبر",
+        curves: [
+          {
+            name: "تست",
+            model: "sigmoidal",
+            parameters: { emax: 100, logEC50: -7, baseline: NaN },
+          },
+        ],
+      };
+      const result = validateEducationalChart(invalid);
+      expect(result.valid).toBe(false);
+      expect(result.errors.some((e) => e.includes("baseline"))).toBe(true);
+    });
+
+    it("rejects parametric curves on non-line chart types", () => {
+      const invalid = {
+        type: "bar",
+        title: "منحنی روی میله‌ای",
+        curves: [
+          {
+            name: "تست",
+            model: "sigmoidal",
+            parameters: { emax: 100, logEC50: -7 },
+          },
+        ],
+      };
+      const result = validateEducationalChart(invalid);
+      expect(result.valid).toBe(false);
+      expect(result.errors.some((e) => e.includes("خطی (line)"))).toBe(true);
+    });
+
+    it("rejects log axis with min <= 0", () => {
+      const invalid = {
+        type: "line",
+        title: "تست محور لگاریتمی",
+        xAxis: { scale: "log" as const, min: 0, max: 10 },
+        data: [{ x: 1, y: 10 }],
+      };
+      const result = validateEducationalChart(invalid);
+      expect(result.valid).toBe(false);
+      expect(result.errors.some((e) => e.includes("min") && e.includes("بزرگ‌تر از صفر"))).toBe(true);
+    });
+
+    it("rejects log axis with max <= 0", () => {
+      const invalid = {
+        type: "line",
+        title: "تست محور لگاریتمی max منفی",
+        xAxis: { scale: "log" as const, min: 1e-10, max: -1 },
+        data: [{ x: 1, y: 10 }],
+      };
+      const result = validateEducationalChart(invalid);
+      expect(result.valid).toBe(false);
+      expect(result.errors.some((e) => e.includes("max") && e.includes("بزرگ‌تر از صفر"))).toBe(true);
+    });
+
+    it("rejects log axis where min >= max", () => {
+      const invalid = {
+        type: "line",
+        title: "تست min >= max",
+        xAxis: { scale: "log" as const, min: 10, max: 1 },
+        data: [{ x: 5, y: 10 }],
+      };
+      const result = validateEducationalChart(invalid);
+      expect(result.valid).toBe(false);
+      expect(result.errors.some((e) => e.includes("کوچک‌تر از حداکثر"))).toBe(true);
+    });
+
+    it("rejects data points with x <= 0 on log axis", () => {
+      const invalid = {
+        type: "line",
+        title: "نقطه صفر در محور لگاریتمی",
+        xAxis: { scale: "log" as const },
+        series: [{ name: "سری", data: [{ x: 0, y: 10 }, { x: 1, y: 20 }] }],
+      };
+      const result = validateEducationalChart(invalid);
+      expect(result.valid).toBe(false);
+      expect(result.errors.some((e) => e.includes("مقیاس لگاریتمی") && e.includes("بزرگ‌تر از صفر"))).toBe(true);
+    });
+
+    it("generates warning but remains valid when mode=data is missing sourceCitation", () => {
+      const chart = {
+        type: "line" as const,
+        mode: "data" as const,
+        title: "داده بدون استناد",
+        series: [{ name: "سری", data: [{ x: 1, y: 10 }] }],
+      };
+      const result = validateEducationalChart(chart);
+      expect(result.valid).toBe(true);
+      expect(result.errors).toHaveLength(0);
+      expect(result.warnings.some((w) => w.includes("sourceCitation"))).toBe(true);
+    });
+
+    it("generates neither warning nor error when mode=conceptual is missing sourceCitation", () => {
+      const chart = {
+        type: "line" as const,
+        mode: "conceptual" as const,
+        title: "مفهومی بدون استناد",
+        curves: [
+          {
+            name: "آگونیست",
+            model: "sigmoidal" as const,
+            parameters: { emax: 100, logEC50: -7 },
+          },
+        ],
+      };
+      const result = validateEducationalChart(chart);
+      expect(result.valid).toBe(true);
+      expect(result.errors).toHaveLength(0);
+      expect(result.warnings.filter((w) => w.includes("sourceCitation"))).toHaveLength(0);
+    });
+
+    it("rejects charts without series, data, or curves", () => {
+      const empty = {
+        type: "line" as const,
+        title: "کاملا خالی",
+      };
+      const result = validateEducationalChart(empty);
+      expect(result.valid).toBe(false);
+      expect(result.errors.some((e) => e.includes("فاقد سری داده"))).toBe(true);
     });
   });
 });

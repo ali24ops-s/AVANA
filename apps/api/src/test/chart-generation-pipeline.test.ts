@@ -4,6 +4,7 @@ import {
   buildLessonGenerationUserPrompt,
   buildLessonBatchGenerationUserPrompt,
   getLessonGenerationTemplate,
+  getContentPlanningTemplate,
   EDUCATIONAL_CHART_POLICY,
 } from "../modules/generation/prompt-registry.js";
 import {
@@ -13,14 +14,18 @@ import {
 } from "@avana/domain";
 
 describe("Educational Chart AI Prompt & Pipeline Policy Suite", () => {
-  it("ensures EDUCATIONAL_CHART_POLICY defines strict anti-hallucination and decision framework", () => {
+  it("ensures EDUCATIONAL_CHART_POLICY defines strict anti-hallucination and decision framework including Condition D", () => {
     expect(EDUCATIONAL_CHART_POLICY).toContain("12.3. SCIENTIFIC & EDUCATIONAL CHART POLICY");
     expect(EDUCATIONAL_CHART_POLICY).toContain("Condition A (Chart in Reference)");
     expect(EDUCATIONAL_CHART_POLICY).toContain("Condition B (Quantitative Data in Reference)");
     expect(EDUCATIONAL_CHART_POLICY).toContain("Condition C (Insufficient or Missing Data)");
+    expect(EDUCATIONAL_CHART_POLICY).toContain("Condition D (Canonical Scientific & Pharmacological Conceptual Curves)");
     expect(EDUCATIONAL_CHART_POLICY).toContain("Strict Anti-Hallucination & Scientific Fidelity Rules");
     expect(EDUCATIONAL_CHART_POLICY).toContain("NEVER invent numbers, percentages, values, data points");
     expect(EDUCATIONAL_CHART_POLICY).toContain("Supported types: \"bar\", \"line\", \"pie\", \"scatter\"");
+    expect(EDUCATIONAL_CHART_POLICY).toContain("Supported modes: \"data\" (default, empirical with source citation), \"conceptual\" (theoretical/canonical curves)");
+    expect(EDUCATIONAL_CHART_POLICY).toContain("Density Cap: Maximum 1-2 charts per session");
+    expect(EDUCATIONAL_CHART_POLICY).toContain("Example 2: Canonical Scientific Conceptual Curve");
   });
 
   it("ensures buildLessonGenerationUserPrompt contains Section 12.3 Chart Policy", () => {
@@ -137,6 +142,59 @@ describe("Educational Chart AI Prompt & Pipeline Policy Suite", () => {
     expect(LANGUAGE_REQUIREMENT_PROMPT).toContain("SCIENTIFIC & EDUCATIONAL CHART POLICY");
     expect(LANGUAGE_REQUIREMENT_PROMPT).toContain("Anti-Hallucination Guard: NEVER invent numbers");
     expect(LESSON_GENERATION_SYSTEM_PROMPT).toBe("You produce structured JSON educational lesson content.");
+  });
+
+  it("extracts and validates canonical conceptual charts with parametric curves from generated lesson markdown", () => {
+    const lessonWithConceptualChart = `
+# فارماکودینامیک: برهم‌کنش دارو-گیرنده
+
+در این بخش، اثر آنتاگونیست رقابتی برگشت‌پذیر بر منحنی دوز-پاسخ آگونیست بررسی می‌شود.
+
+\`\`\`chart
+{
+  "type": "line",
+  "title": "آنتاگونیسم رقابتی برگشت‌پذیر و شیفت به راست",
+  "mode": "conceptual",
+  "xAxis": { "label": "غلظت آگونیست (M)", "unit": "M", "scale": "log", "min": 1e-10, "max": 1e-4 },
+  "yAxis": { "label": "پاسخ زیستی", "unit": "%", "min": 0, "max": 100 },
+  "curves": [
+    {
+      "name": "آگونیست به تنهایی",
+      "model": "sigmoidal",
+      "parameters": { "emax": 100, "logEC50": -8 }
+    },
+    {
+      "name": "آگونیست + آنتاگونیست رقابتی",
+      "model": "sigmoidal",
+      "parameters": { "emax": 100, "logEC50": -6 },
+      "lineStyle": "dashed"
+    }
+  ]
+}
+\`\`\`
+
+آنتاگونیست رقابتی موجب افزایش EC50 و شیفت موازی منحنی به سمت راست می‌شود، بدون آنکه Emax کاهش یابد.
+`;
+
+    const extracted = extractEducationalChartsFromMarkdown(lessonWithConceptualChart);
+    expect(extracted).toHaveLength(1);
+    expect(extracted[0].type).toBe("line");
+    expect(extracted[0].mode).toBe("conceptual");
+    expect(extracted[0].curves).toHaveLength(2);
+    expect(extracted[0].curves![0].parameters.emax).toBe(100);
+    expect(extracted[0].curves![0].parameters.logEC50).toBe(-8);
+    expect(extracted[0].curves![1].parameters.logEC50).toBe(-6);
+
+    const validation = validateEducationalChart(extracted[0]);
+    expect(validation.valid).toBe(true);
+    expect(validation.errors).toHaveLength(0);
+  });
+
+  it("ensures getContentPlanningTemplate includes advisory suggestedVisualizations in session blueprints", () => {
+    const planningTemplate = getContentPlanningTemplate();
+    expect(planningTemplate).toContain("suggestedVisualizations");
+    expect(planningTemplate).toContain('"mode": "conceptual"');
+    expect(planningTemplate).toContain("شیفت به راست در آنتاگونیسم رقابتی");
   });
 });
 

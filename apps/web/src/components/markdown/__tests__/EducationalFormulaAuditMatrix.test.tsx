@@ -476,4 +476,130 @@ describe("AVANA Educational Formula Comprehensive Audit Matrix (30+ Cases)", () 
     expect(container.querySelector(".katex-display")).toBeInTheDocument();
     expect(container.textContent).not.toContain("\\[");
   });
+
+  // Dedicated Fraction Spacing & Nested Fraction Audit Suite
+  describe("KaTeX Fraction Spacing & Nested Fractions Audit Suite", () => {
+    it("renders simple fractions (a/b, (a+b)/c, a/(b+c)) with proper 3-child vlist structure", () => {
+      const content = "$$\\frac{a}{b}$$ $$\\frac{a+b}{c}$$ $$\\frac{a}{b+c}$$";
+      const { container } = render(<RichContent content={content} />);
+
+      const mfracs = container.querySelectorAll(".mfrac");
+      expect(mfracs.length).toBe(3);
+
+      mfracs.forEach((mfrac) => {
+        const vlist = mfrac.querySelector(".vlist");
+        expect(vlist).toBeInTheDocument();
+        const children = Array.from(vlist!.children);
+        expect(children.length).toBe(3);
+        // Child 0: denominator, Child 1: frac-line, Child 2: numerator
+        expect(children[1].querySelector(".frac-line")).toBeInTheDocument();
+        expect(children[0].querySelector(".frac-line")).toBeNull();
+        expect(children[2].querySelector(".frac-line")).toBeNull();
+      });
+    });
+
+    it("renders nested fraction in numerator ((a/b)/c) with proper hierarchy and nested mfrac", () => {
+      const content = "$$\\frac{\\frac{a}{b}}{c}$$";
+      const { container } = render(<RichContent content={content} />);
+
+      const mfracs = container.querySelectorAll(".mfrac");
+      expect(mfracs.length).toBe(2);
+
+      const outerMfrac = mfracs[0];
+      const outerVlist = outerMfrac.querySelector(".vlist");
+      expect(outerVlist).toBeInTheDocument();
+
+      // Outer numerator (child 2) must contain the inner fraction
+      const outerNumerator = outerVlist!.children[2];
+      expect(outerNumerator.querySelector(".mfrac")).toBeInTheDocument();
+
+      // Outer denominator (child 0) must NOT contain an inner fraction
+      const outerDenominator = outerVlist!.children[0];
+      expect(outerDenominator.querySelector(".mfrac")).toBeNull();
+    });
+
+    it("renders nested fraction in denominator (a/(b/c)) with proper hierarchy", () => {
+      const content = "$$\\frac{a}{\\frac{b}{c}}$$";
+      const { container } = render(<RichContent content={content} />);
+
+      const mfracs = container.querySelectorAll(".mfrac");
+      expect(mfracs.length).toBe(2);
+
+      const outerMfrac = mfracs[0];
+      const outerVlist = outerMfrac.querySelector(".vlist");
+      expect(outerVlist).toBeInTheDocument();
+
+      // Outer denominator (child 0) must contain the inner fraction
+      const outerDenominator = outerVlist!.children[0];
+      expect(outerDenominator.querySelector(".mfrac")).toBeInTheDocument();
+
+      // Outer numerator (child 2) must NOT contain an inner fraction
+      const outerNumerator = outerVlist!.children[2];
+      expect(outerNumerator.querySelector(".mfrac")).toBeNull();
+    });
+
+    it("renders nested fractions in both numerator and denominator ((a/b)/(c/d))", () => {
+      const content = "$$\\frac{\\frac{a}{b}}{\\frac{c}{d}}$$";
+      const { container } = render(<RichContent content={content} />);
+
+      const mfracs = container.querySelectorAll(".mfrac");
+      expect(mfracs.length).toBe(3);
+
+      const outerMfrac = mfracs[0];
+      const outerVlist = outerMfrac.querySelector(".vlist");
+      expect(outerVlist).toBeInTheDocument();
+
+      // Both outer denominator and outer numerator must contain inner mfrac
+      expect(outerVlist!.children[0].querySelector(".mfrac")).toBeInTheDocument();
+      expect(outerVlist!.children[2].querySelector(".mfrac")).toBeInTheDocument();
+    });
+
+    it("renders multi-level nested continuous fraction correctly", () => {
+      const content = "$$\n\\frac{1}{1 + \\frac{1}{1 + \\frac{1}{x}}}\n$$";
+      const { container } = render(<RichContent content={content} />);
+
+      const mfracs = container.querySelectorAll(".mfrac");
+      expect(mfracs.length).toBe(3);
+      expect(container.querySelector(".katex-display")).toBeInTheDocument();
+    });
+
+    it("strictly preserves binomial coefficients \\binom{n}{k} without frac-line", () => {
+      const content = "$$\\binom{n}{k}$$";
+      const { container } = render(<RichContent content={content} />);
+
+      const mfrac = container.querySelector(".mfrac");
+      expect(mfrac).toBeInTheDocument();
+      expect(container.querySelector(".frac-line")).toBeNull();
+
+      // In \\binom, vlist has only 2 children (n and k), no fraction line
+      const vlist = mfrac!.querySelector(".vlist");
+      expect(vlist!.children.length).toBe(2);
+    });
+
+    it("preserves baseline and line-height of inline math fractions inside Persian text", () => {
+      const content = "غلظت تعادلی با کسر $\\frac{A}{B}$ محاسبه می‌شود و ادامه متن.";
+      const { container } = render(<RichContent content={content} />);
+
+      const katex = container.querySelector(".katex");
+      expect(katex).toBeInTheDocument();
+      expect(container.querySelector(".mfrac")).toBeInTheDocument();
+      expect(container.textContent).toContain("غلظت تعادلی با کسر");
+      expect(container.textContent).toContain("محاسبه می‌شود و ادامه متن.");
+    });
+
+    it("verifies index.css contains exact calibrated fraction spacing rules (0.24em simple, 0.72em nested)", async () => {
+      const fs = await import("fs");
+      const path = await import("path");
+      const cssPath = path.resolve(__dirname, "../../../index.css");
+      const cssContent = fs.readFileSync(cssPath, "utf8");
+
+      // Verify simple fraction rules (0.24em)
+      expect(cssContent).toContain(".katex .mfrac > .vlist-t > .vlist-r > .vlist > span:nth-child(1):nth-last-child(3) {\n  transform: translateY(0.24em);\n}");
+      expect(cssContent).toContain(".katex .mfrac > .vlist-t > .vlist-r > .vlist > span:nth-child(3) {\n  transform: translateY(-0.24em);\n}");
+
+      // Verify nested fraction rules (0.72em)
+      expect(cssContent).toContain(".katex .mfrac > .vlist-t > .vlist-r > .vlist > span:nth-child(1):nth-last-child(3):has(.mfrac) {\n  transform: translateY(0.72em);\n}");
+      expect(cssContent).toContain(".katex .mfrac > .vlist-t > .vlist-r > .vlist > span:nth-child(3):has(.mfrac) {\n  transform: translateY(-0.72em);\n}");
+    });
+  });
 });

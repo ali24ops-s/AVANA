@@ -45,6 +45,7 @@ type CourseRowInput = {
   name: string;
   description?: string | null;
   subject?: string | null;
+  targetAcademicFields?: unknown;
   status?: string | null;
   isOfficial?: boolean | null;
   examDate: Date | string | null;
@@ -62,6 +63,9 @@ function toCourseRecord(row: CourseRowInput): CourseRecord {
     name: row.name,
     description: row.description ?? null,
     subject: row.subject ?? null,
+    targetAcademicFields: Array.isArray(row.targetAcademicFields)
+      ? (row.targetAcademicFields as string[])
+      : [],
     status: (row.status as any) ?? "published",
     isOfficial: Boolean(row.isOfficial),
     examDate:
@@ -102,6 +106,7 @@ export class DrizzleCourseStore implements CourseStore {
           name: records.course.name,
           description: records.course.description ?? null,
           subject: records.course.subject,
+          targetAcademicFields: records.course.targetAcademicFields ?? [],
           status: records.course.status ?? "published",
           isOfficial: records.course.isOfficial ?? false,
           examDate: records.course.examDate
@@ -162,6 +167,7 @@ export class DrizzleCourseStore implements CourseStore {
         name: courses.name,
         description: courses.description,
         subject: courses.subject,
+        targetAcademicFields: courses.targetAcademicFields,
         status: courses.status,
         isOfficial: courses.isOfficial,
         examDate: courses.examDate,
@@ -212,6 +218,7 @@ export class DrizzleCourseStore implements CourseStore {
         name: courses.name,
         description: courses.description,
         subject: courses.subject,
+        targetAcademicFields: courses.targetAcademicFields,
         status: courses.status,
         isOfficial: courses.isOfficial,
         examDate: courses.examDate,
@@ -233,6 +240,10 @@ export class DrizzleCourseStore implements CourseStore {
         name: course.name,
         description: course.description ?? null,
         subject: course.subject,
+        targetAcademicFields:
+          course.targetAcademicFields !== undefined
+            ? course.targetAcademicFields
+            : [],
         status: course.status ?? "published",
         isOfficial: course.isOfficial ?? false,
         examDate: course.examDate ? new Date(course.examDate) : null,
@@ -291,6 +302,7 @@ export class DrizzleCourseStore implements CourseStore {
         name: courses.name,
         description: courses.description,
         subject: courses.subject,
+        targetAcademicFields: courses.targetAcademicFields,
         status: courses.status,
         isOfficial: courses.isOfficial,
         examDate: courses.examDate,
@@ -389,6 +401,7 @@ export class DrizzleCourseStore implements CourseStore {
         c.name,
         c.description,
         c.subject,
+        c.target_academic_fields AS "targetAcademicFields",
         c.status,
         c.is_official AS "isOfficial",
         c.exam_date AS "examDate",

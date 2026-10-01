@@ -22,6 +22,8 @@ function mapDomainCodeToStatus(code: DomainError["code"]): number {
       return 404;
     case "conflict":
       return 409;
+    case "timeout":
+      return 408;
     case "unprocessable":
       return 422;
     case "service_unavailable":

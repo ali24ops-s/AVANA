@@ -57,6 +57,15 @@ import { up as up0053 } from "./migrations/0053_daily_study_planner.js";
 import { up as up0054 } from "./migrations/0054_course_exam_scope.js";
 import { up as up0055 } from "./migrations/0055_support_and_feedback.js";
 import { up as up0056 } from "./migrations/0056_course_drafts_and_releases.js";
+import { up as up0057 } from "./migrations/0057_teacher_platform_core.js";
+import { up as up0058 } from "./migrations/0058_password_reset_tokens.js";
+import { up as up0059 } from "./migrations/0059_allow_back_navigation.js";
+import { up as up0060 } from "./migrations/0060_per_question_time_seconds.js";
+import { up as up0061 } from "./migrations/0061_descriptive_exam_questions.js";
+import { up as up0062 } from "./migrations/0062_optional_exam_duration_and_passing_score.js";
+import { up as up0063 } from "./migrations/0063_classroom_assignments.js";
+import { up as up0064 } from "./migrations/0064_teacher_approval_status.js";
+import { up as up0065 } from "./migrations/0065_user_major_and_course_academic_fields.js";
 
 
 
@@ -190,6 +199,24 @@ async function runMigrations() {
     await up0055(db);
     console.log("Applying 0056_course_drafts_and_releases...");
     await up0056(db);
+    console.log("Applying 0057_teacher_platform_core...");
+    await up0057(db);
+    console.log("Applying 0058_password_reset_tokens...");
+    await up0058(db);
+    console.log("Applying 0059_allow_back_navigation...");
+    await up0059(db);
+    console.log("Applying 0060_per_question_time_seconds...");
+    await up0060(db);
+    console.log("Applying 0061_descriptive_exam_questions...");
+    await up0061(db);
+    console.log("Applying 0062_optional_exam_duration_and_passing_score...");
+    await up0062(db);
+    console.log("Applying 0063_classroom_assignments...");
+    await up0063(db);
+    console.log("Applying 0064_teacher_approval_status...");
+    await up0064(db);
+    console.log("Applying 0065_user_major_and_course_academic_fields...");
+    await up0065(db);
 
 
 

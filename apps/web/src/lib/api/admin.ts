@@ -37,6 +37,7 @@ export interface AdminUserRecord {
   email: string;
   name?: string;
   role: string;
+  teacherStatus?: "pending" | "approved" | "rejected";
   emailVerified: boolean;
   createdAt: string;
   lastActiveAt?: string;
@@ -45,6 +46,90 @@ export interface AdminUserRecord {
 export interface AdminUsersList {
   users: AdminUserRecord[];
   totalCount: number;
+}
+
+export interface AdminTeacherRecord {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  teacherStatus: "pending" | "approved" | "rejected";
+  emailVerified: boolean;
+  createdAt: string;
+  lastActiveAt?: string;
+  classroomsCount: number;
+  examsCount: number;
+  studentsCount: number;
+}
+
+export interface AdminTeacherStats {
+  totalTeachers: number;
+  totalClassrooms: number;
+  totalExams: number;
+  totalStudents: number;
+}
+
+export interface AdminTeachersList {
+  teachers: AdminTeacherRecord[];
+  totalCount: number;
+  stats: AdminTeacherStats;
+}
+
+export interface AdminTeacherClassroom {
+  id: string;
+  title: string;
+  description: string | null;
+  inviteCode: string;
+  status: string;
+  createdAt: string;
+  courseId: string | null;
+  courseTitle: string | null;
+  membersCount: number;
+  examsCount: number;
+}
+
+export interface AdminTeacherExam {
+  id: string;
+  classroomId: string;
+  classroomTitle: string;
+  title: string;
+  status: string;
+  durationMinutes: number | null;
+  startsAt: string;
+  endsAt: string;
+  questionsCount: number;
+  attemptsCount: number;
+  averageScore: number | null;
+}
+
+export interface AdminTeacherActivity {
+  attemptId: string;
+  studentId: string;
+  studentName: string;
+  studentEmail: string;
+  examId: string;
+  examTitle: string;
+  classroomTitle: string;
+  status: string;
+  score: number | null;
+  maxScore: number | null;
+  percentage: number | null;
+  passed: boolean | null;
+  startedAt: string;
+  submittedAt: string | null;
+}
+
+export interface AdminTeacherOverview {
+  teacher: AdminUserRecord;
+  stats: {
+    classroomsCount: number;
+    examsCount: number;
+    studentsCount: number;
+    attemptsCount: number;
+  };
+  classrooms: AdminTeacherClassroom[];
+  exams: AdminTeacherExam[];
+  recentActivity: AdminTeacherActivity[];
 }
 
 export interface CourseCounts {
@@ -385,6 +470,24 @@ export function createAdminApi(client: {
       return client.get<AdminUsersList>(`/v1/admin/users?page=${page}&pageSize=${pageSize}${searchParam}${roleParam}${statusParam}`);
     },
 
+    async listTeachers(page = 1, pageSize = 20, search?: string, status?: string): Promise<AdminTeachersList> {
+      const searchParam = search ? `&search=${encodeURIComponent(search)}` : "";
+      const statusParam = status ? `&status=${encodeURIComponent(status)}` : "";
+      return client.get<AdminTeachersList>(`/v1/admin/teachers?page=${page}&pageSize=${pageSize}${searchParam}${statusParam}`);
+    },
+
+    async getTeacherOverview(teacherId: string): Promise<AdminTeacherOverview> {
+      return client.get<AdminTeacherOverview>(`/v1/admin/teachers/${encodeURIComponent(teacherId)}`);
+    },
+
+    async approveTeacher(teacherId: string): Promise<{ success: boolean; teacherId: string; status: string }> {
+      return client.post<{ success: boolean; teacherId: string; status: string }>(`/v1/admin/teachers/${encodeURIComponent(teacherId)}/approve`, {});
+    },
+
+    async rejectTeacher(teacherId: string, reason?: string): Promise<{ success: boolean; teacherId: string; status: string }> {
+      return client.post<{ success: boolean; teacherId: string; status: string }>(`/v1/admin/teachers/${encodeURIComponent(teacherId)}/reject`, { reason });
+    },
+
     async listCourses(page = 1, pageSize = 20, search?: string): Promise<AdminCoursesList> {
       const searchParam = search ? `&search=${encodeURIComponent(search)}` : "";
       return client.get<AdminCoursesList>(`/v1/admin/courses?page=${page}&pageSize=${pageSize}${searchParam}`);
@@ -466,7 +569,15 @@ export function createAdminApi(client: {
     async resetUserDevices(userId: string): Promise<AdminResetDevicesResponse> {
       return client.post<AdminResetDevicesResponse>(`/v1/admin/users/${userId}/reset-devices`, {});
     },
-    async updateCourseMetadata(courseId: string, payload: { name?: string; subject?: string }): Promise<{ success: boolean }> {
+    async updateCourseMetadata(
+      courseId: string,
+      payload: {
+        name?: string;
+        subject?: string;
+        target_academic_fields?: string[];
+        targetAcademicFields?: string[];
+      },
+    ): Promise<{ success: boolean }> {
       return client.patch<{ success: boolean }>(`/v1/admin/courses/${courseId}`, payload);
     },
     async retryDocument(documentId: string): Promise<{ success: boolean }> {
@@ -821,6 +932,8 @@ export function createAdminApi(client: {
     async createOfficialCourse(data: {
       name: string;
       subject?: string;
+      targetAcademicFields?: string[];
+      target_academic_fields?: string[];
       description?: string;
       examDate?: string;
     }): Promise<{ success: boolean; course: OfficialCourse }> {
@@ -1098,6 +1211,7 @@ export interface OfficialCourse {
   name: string;
   description: string | null;
   subject: string | null;
+  targetAcademicFields?: string[];
   status: "draft" | "generating" | "review" | "approved" | "published" | "archived";
   isOfficial: boolean;
   version?: number;

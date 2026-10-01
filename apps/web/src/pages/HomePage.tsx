@@ -52,6 +52,7 @@ import { StudyPlanner } from "../components/planner/StudyPlanner.js";
 import { ExamDeleteConfirmModal } from "../components/courses/ExamDeleteConfirmModal.js";
 import { CourseCard } from "../components/avana/CourseCard.js";
 import { StudyActivityHeatmap } from "../components/dashboard/StudyActivityHeatmap.js";
+import { StudentClassroomExamsWidget } from "../components/dashboard/StudentClassroomExamsWidget.js";
 import type { CourseResource } from "@avana/contracts";
 
 export function HomePage() {
@@ -298,6 +299,9 @@ export function HomePage() {
               )}
             </div>
           </section>
+
+          {/* Active/Upcoming Student Classroom Exams (Non-blocking) */}
+          <StudentClassroomExamsWidget />
 
           {/* Today's Study Plan (Real Planner Component) */}
           <StudyPlanner />

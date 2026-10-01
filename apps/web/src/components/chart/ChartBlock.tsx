@@ -1,5 +1,5 @@
 import React, { useState, useId } from "react";
-import type { EducationalChart, ChartSeries, ChartDataPoint } from "@avana/domain";
+import type { EducationalChart, ChartSeries, ChartDataPoint, ParametricCurve } from "@avana/domain";
 import {
   BarChart3,
   LineChart as LineChartIcon,
@@ -33,6 +33,85 @@ interface ActiveTooltip {
   items: Array<{ label: string; value: string | number; color?: string }>;
 }
 
+export interface SampledCurvePoint {
+  x: number;
+  y: number;
+}
+
+/**
+ * Evaluates the sigmoidal Hill equation deterministically.
+ * Exponent is clamped to [-12, 12] to prevent numerical overflow/underflow.
+ * If x <= 0, returns baseline (safe guard without mutating input).
+ */
+export const evaluateSigmoidal = (
+  x: number,
+  emax: number,
+  logEC50: number,
+  hillSlope = 1,
+  baseline = 0,
+): number => {
+  if (x <= 0) return baseline;
+  const logX = Math.log10(x);
+  const exponent = Math.max(-12, Math.min(12, hillSlope * (logEC50 - logX)));
+  return baseline + (emax - baseline) / (1 + Math.pow(10, exponent));
+};
+
+/**
+ * Samples exactly sampleCount points (default 60) for a parametric sigmoidal curve.
+ * In logarithmic mode, points are distributed evenly across log10 space.
+ */
+export const sampleSigmoidalCurve = (
+  curve: ParametricCurve,
+  minX: number,
+  maxX: number,
+  isLog = true,
+  sampleCount = 60,
+): SampledCurvePoint[] => {
+  const pts: SampledCurvePoint[] = [];
+  const { emax, logEC50, hillSlope = 1, baseline = 0 } = curve.parameters;
+
+  for (let i = 0; i < sampleCount; i++) {
+    const t = i / (sampleCount - 1);
+    let xVal: number;
+    if (isLog) {
+      const logMin = Math.log10(minX);
+      const logMax = Math.log10(maxX);
+      xVal = Math.pow(10, logMin + t * (logMax - logMin));
+    } else {
+      xVal = minX + t * (maxX - minX);
+    }
+    const yVal = evaluateSigmoidal(xVal, emax, logEC50, hillSlope, baseline);
+    pts.push({ x: xVal, y: yVal });
+  }
+
+  return pts;
+};
+
+/**
+ * Formats a base-10 exponent using Unicode superscripts (e.g. -7 -> 10⁻⁷).
+ */
+export const formatLog10Exponent = (k: number): string => {
+  const superscriptMap: Record<string, string> = {
+    "-": "⁻",
+    "0": "⁰",
+    "1": "¹",
+    "2": "²",
+    "3": "³",
+    "4": "⁴",
+    "5": "⁵",
+    "6": "⁶",
+    "7": "⁷",
+    "8": "⁸",
+    "9": "⁹",
+  };
+  const str = k.toString();
+  const superStr = str
+    .split("")
+    .map((ch) => superscriptMap[ch] || ch)
+    .join("");
+  return `10${superStr}`;
+};
+
 export const ChartBlock: React.FC<ChartBlockProps> = ({ chart, className = "" }) => {
   const chartId = useId();
   const [activeTooltip, setActiveTooltip] = useState<ActiveTooltip | null>(null);
@@ -45,8 +124,10 @@ export const ChartBlock: React.FC<ChartBlockProps> = ({ chart, className = "" })
     xAxis,
     yAxis,
     series = [],
+    curves = [],
     unit,
     sourceCitation,
+    mode,
   } = chart;
 
   const handleCopyJson = async () => {
@@ -248,11 +329,13 @@ export const ChartBlock: React.FC<ChartBlockProps> = ({ chart, className = "" })
     );
   };
 
-  // --- 2. LINE CHART RENDERER (Scientific Straight Segments) ---
+  // --- 2. LINE CHART RENDERER (Scientific Straight Segments & Parametric Curves) ---
   const renderLineChart = () => {
-    if (!series.length) return null;
+    if (!series.length && !curves.length) return null;
 
-    // Collect all points
+    const isLogX = xAxis?.scale === "log";
+
+    // Collect all points and curve ranges
     let minY = Infinity;
     let maxY = -Infinity;
     let minX = Infinity;
@@ -262,38 +345,117 @@ export const ChartBlock: React.FC<ChartBlockProps> = ({ chart, className = "" })
     let isNumericX = true;
     const catLabels: string[] = [];
 
-    series.forEach((s) => {
-      s.data.forEach((pt, i) => {
-        const yVal = pt.y ?? pt.value ?? 0;
-        if (yVal < minY) minY = yVal;
-        if (yVal > maxY) maxY = yVal;
+    if (series.length > 0) {
+      series.forEach((s) => {
+        s.data.forEach((pt, i) => {
+          const yVal = pt.y ?? pt.value ?? 0;
+          if (yVal < minY) minY = yVal;
+          if (yVal > maxY) maxY = yVal;
 
-        if (typeof pt.x === "number") {
-          if (pt.x < minX) minX = pt.x;
-          if (pt.x > maxX) maxX = pt.x;
-        } else {
-          isNumericX = false;
-          const label = pt.label || (typeof pt.x === "string" ? pt.x : `نقطه ${i + 1}`);
-          if (!catLabels.includes(label)) catLabels.push(label);
-        }
+          if (typeof pt.x === "number") {
+            if (pt.x < minX) minX = pt.x;
+            if (pt.x > maxX) maxX = pt.x;
+          } else {
+            isNumericX = false;
+            const label = pt.label || (typeof pt.x === "string" ? pt.x : `نقطه ${i + 1}`);
+            if (!catLabels.includes(label)) catLabels.push(label);
+          }
+        });
       });
-    });
+    }
+
+    if (curves.length > 0) {
+      curves.forEach((c) => {
+        const base = c.parameters.baseline ?? 0;
+        const emax = c.parameters.emax;
+        const cMin = Math.min(base, emax);
+        const cMax = Math.max(base, emax);
+        if (cMin < minY) minY = cMin;
+        if (cMax > maxY) maxY = cMax;
+      });
+    }
+
+    // Explicit Y overrides
+    if (yAxis?.min !== undefined) minY = yAxis.min;
+    if (yAxis?.max !== undefined) maxY = yAxis.max;
 
     if (minY === Infinity) {
       minY = 0;
       maxY = 10;
     }
-    if (minY > 0) minY = 0; // Default baseline at zero for concentration/amounts
-    if (maxY === minY) maxY = maxY > 0 ? maxY * 1.2 : 10;
-    else maxY *= 1.1;
+    if (yAxis?.min === undefined && minY > 0) {
+      minY = 0; // Default baseline at zero for concentration/amounts
+    }
+    if (yAxis?.max === undefined) {
+      if (maxY === minY) {
+        maxY = maxY > 0 ? maxY * 1.2 : 10;
+      } else if ((unit === "%" || yAxis?.unit === "%") && maxY <= 100 && maxY >= 80) {
+        maxY = 100;
+      } else {
+        maxY *= 1.1;
+      }
+    }
 
     const yRange = maxY - minY || 1;
 
+    // X Range computation (Log or Linear)
+    let computedMinX = minX;
+    let computedMaxX = maxX;
+
+    if (isLogX) {
+      if (xAxis?.min !== undefined && xAxis.min > 0 && xAxis?.max !== undefined && xAxis.max > xAxis.min) {
+        computedMinX = xAxis.min;
+        computedMaxX = xAxis.max;
+      } else if (curves.length > 0) {
+        const logEC50Vals = curves.map((c) => c.parameters.logEC50);
+        const minLog = Math.min(...logEC50Vals);
+        const maxLog = Math.max(...logEC50Vals);
+        computedMinX = Math.pow(10, Math.floor(minLog - 2.5));
+        computedMaxX = Math.pow(10, Math.ceil(maxLog + 2.5));
+      } else {
+        let sMin = Infinity;
+        let sMax = -Infinity;
+        series.forEach((s) => {
+          s.data.forEach((pt) => {
+            if (typeof pt.x === "number" && pt.x > 0) {
+              if (pt.x < sMin) sMin = pt.x;
+              if (pt.x > sMax) sMax = pt.x;
+            }
+          });
+        });
+        if (sMin === Infinity) {
+          computedMinX = 1e-10;
+          computedMaxX = 1e-4;
+        } else {
+          computedMinX = Math.pow(10, Math.floor(Math.log10(sMin)));
+          computedMaxX = Math.pow(10, Math.ceil(Math.log10(sMax)));
+          if (computedMinX === computedMaxX) {
+            computedMinX = computedMinX / 10;
+            computedMaxX = computedMaxX * 10;
+          }
+        }
+      }
+    } else {
+      if (xAxis?.min !== undefined) computedMinX = xAxis.min;
+      if (xAxis?.max !== undefined) computedMaxX = xAxis.max;
+      if (computedMinX === Infinity) {
+        computedMinX = 0;
+        computedMaxX = 10;
+      }
+    }
+
     // X scale helper
     const getXCoord = (pt: ChartDataPoint, idx: number): number => {
-      if (isNumericX && minX !== Infinity && maxX !== minX) {
+      if (isLogX) {
+        const xVal = typeof pt.x === "number" ? pt.x : 0;
+        if (xVal <= 0) return margin.left;
+        const logMin = Math.log10(computedMinX);
+        const logMax = Math.log10(computedMaxX);
+        return margin.left + ((Math.log10(xVal) - logMin) / (logMax - logMin || 1)) * plotWidth;
+      }
+      if (isNumericX && computedMinX !== Infinity && computedMaxX !== computedMinX) {
         const xVal = typeof pt.x === "number" ? pt.x : idx;
-        return margin.left + ((xVal - minX) / (maxX - minX)) * plotWidth;
+        return margin.left + ((xVal - computedMinX) / (computedMaxX - computedMinX)) * plotWidth;
       }
       const total = catLabels.length > 1 ? catLabels.length - 1 : 1;
       return margin.left + (idx / total) * plotWidth;
@@ -307,6 +469,18 @@ export const ChartBlock: React.FC<ChartBlockProps> = ({ chart, className = "" })
     // Y Grid Ticks
     const tickCount = 4;
     const yTicks = Array.from({ length: tickCount + 1 }, (_, i) => minY + (yRange / tickCount) * i);
+
+    // Log Ticks
+    const logMin = isLogX ? Math.round(Math.log10(computedMinX)) : 0;
+    const logMax = isLogX ? Math.round(Math.log10(computedMaxX)) : 0;
+    const totalDecades = logMax - logMin;
+    const step = totalDecades > 7 ? 2 : 1;
+    const logTicks: number[] = [];
+    if (isLogX) {
+      for (let k = logMin; k <= logMax; k += step) {
+        logTicks.push(k);
+      }
+    }
 
     return (
       <g>
@@ -337,8 +511,9 @@ export const ChartBlock: React.FC<ChartBlockProps> = ({ chart, className = "" })
           );
         })}
 
-        {/* X Grid & Ticks (if categorical or numeric) */}
-        {!isNumericX &&
+        {/* X Grid & Ticks (Categorical, Numeric Linear, or Logarithmic) */}
+        {!isLogX &&
+          !isNumericX &&
           catLabels.map((lbl, idx) => {
             const total = catLabels.length > 1 ? catLabels.length - 1 : 1;
             const xPos = margin.left + (idx / total) * plotWidth;
@@ -355,31 +530,136 @@ export const ChartBlock: React.FC<ChartBlockProps> = ({ chart, className = "" })
             );
           })}
 
-        {isNumericX &&
-          [minX, minX + (maxX - minX) * 0.25, minX + (maxX - minX) * 0.5, minX + (maxX - minX) * 0.75, maxX].map(
-            (val, idx) => {
-              const xPos = margin.left + ((val - minX) / (maxX - minX || 1)) * plotWidth;
-              return (
+        {!isLogX &&
+          isNumericX &&
+          [
+            computedMinX,
+            computedMinX + (computedMaxX - computedMinX) * 0.25,
+            computedMinX + (computedMaxX - computedMinX) * 0.5,
+            computedMinX + (computedMaxX - computedMinX) * 0.75,
+            computedMaxX,
+          ].map((val, idx) => {
+            const xPos = margin.left + ((val - computedMinX) / (computedMaxX - computedMinX || 1)) * plotWidth;
+            return (
+              <text
+                key={idx}
+                x={xPos}
+                y={margin.top + plotHeight + 18}
+                textAnchor="middle"
+                className="text-[10px] font-sans fill-slate-600 dark:fill-slate-400"
+              >
+                {formatNumber(val)}
+              </text>
+            );
+          })}
+
+        {isLogX &&
+          logTicks.map((k) => {
+            const curLogMin = Math.log10(computedMinX);
+            const curLogMax = Math.log10(computedMaxX);
+            const xPos = margin.left + ((k - curLogMin) / (curLogMax - curLogMin || 1)) * plotWidth;
+            return (
+              <g key={`log-tick-${k}`}>
+                <line
+                  x1={xPos}
+                  y1={margin.top}
+                  x2={xPos}
+                  y2={margin.top + plotHeight}
+                  stroke="currentColor"
+                  strokeWidth={1}
+                  strokeDasharray="3,3"
+                  opacity={0.2}
+                  className="text-slate-400 dark:text-slate-600"
+                />
                 <text
-                  key={idx}
                   x={xPos}
                   y={margin.top + plotHeight + 18}
                   textAnchor="middle"
                   className="text-[10px] font-sans fill-slate-600 dark:fill-slate-400"
                 >
-                  {formatNumber(val)}
+                  {formatLog10Exponent(k)}
                 </text>
-              );
-            },
-          )}
+              </g>
+            );
+          })}
+
+        {/* Parametric Curves */}
+        {curves.map((c, cIdx) => {
+          const curveColor = c.color || DEFAULT_PALETTE[(series.length + cIdx) % DEFAULT_PALETTE.length];
+          const pts = sampleSigmoidalCurve(
+            c,
+            isLogX ? computedMinX : computedMinX,
+            isLogX ? computedMaxX : computedMaxX,
+            isLogX,
+            60,
+          );
+
+          const dPath = pts
+            .map((pt, i) => {
+              const screenX = isLogX
+                ? margin.left +
+                  ((Math.log10(pt.x) - Math.log10(computedMinX)) /
+                    (Math.log10(computedMaxX) - Math.log10(computedMinX) || 1)) *
+                    plotWidth
+                : margin.left + ((pt.x - computedMinX) / (computedMaxX - computedMinX || 1)) * plotWidth;
+              const screenY = margin.top + plotHeight - ((pt.y - minY) / yRange) * plotHeight;
+              return `${i === 0 ? "M" : "L"} ${screenX.toFixed(2)} ${screenY.toFixed(2)}`;
+            })
+            .join(" ");
+
+          return (
+            <g key={`curve-${cIdx}`} data-testid={`chart-curve-${cIdx}`}>
+              <path
+                d={dPath}
+                fill="none"
+                stroke={curveColor}
+                strokeWidth={2.5}
+                strokeDasharray={c.lineStyle === "dashed" ? "6,4" : undefined}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="cursor-pointer transition-opacity duration-150 hover:opacity-80"
+                onMouseEnter={(e) => {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  setActiveTooltip({
+                    x: rect.left + rect.width / 2,
+                    y: rect.top - 8,
+                    title: c.name,
+                    items: [
+                      {
+                        label: "Emax",
+                        value: `${formatNumber(c.parameters.emax)} ${yAxis?.unit || unit || ""}`.trim(),
+                        color: curveColor,
+                      },
+                      {
+                        label: "logEC50",
+                        value: formatNumber(c.parameters.logEC50),
+                      },
+                      ...(c.parameters.hillSlope && c.parameters.hillSlope !== 1
+                        ? [{ label: "Hill Slope", value: formatNumber(c.parameters.hillSlope) }]
+                        : []),
+                    ],
+                  });
+                }}
+                onMouseLeave={() => setActiveTooltip(null)}
+              />
+            </g>
+          );
+        })}
 
         {/* Series Lines & Dots */}
         {series.map((s, sIdx) => {
           const color = getSeriesColor(s, sIdx);
           if (s.data.length === 0) return null;
 
+          // Defensive guard for log scale: safely omit non-positive x without mutating original data
+          const validData = isLogX
+            ? s.data.filter((pt) => typeof pt.x === "number" && pt.x > 0)
+            : s.data;
+
+          if (validData.length === 0) return null;
+
           // Scientific straight lines between points
-          const pathPoints = s.data.map((pt, i) => {
+          const pathPoints = validData.map((pt, i) => {
             const xPos = getXCoord(pt, i);
             const yVal = pt.y ?? pt.value ?? 0;
             const yPos = getYCoord(yVal);
@@ -401,7 +681,7 @@ export const ChartBlock: React.FC<ChartBlockProps> = ({ chart, className = "" })
               />
 
               {/* Data marker dots */}
-              {s.data.map((pt, ptIdx) => {
+              {validData.map((pt, ptIdx) => {
                 const xPos = getXCoord(pt, ptIdx);
                 const yVal = pt.y ?? pt.value ?? 0;
                 const yPos = getYCoord(yVal);
@@ -779,6 +1059,14 @@ export const ChartBlock: React.FC<ChartBlockProps> = ({ chart, className = "" })
 
         {/* Toolbar & Badges */}
         <div className="flex items-center gap-2 shrink-0">
+          {mode === "conceptual" && (
+            <span
+              className="px-2 py-0.5 rounded-md text-[11px] font-medium bg-teal-50 text-teal-800 border border-teal-200/70 dark:bg-teal-950/60 dark:text-teal-300 dark:border-teal-800/60 select-none"
+              data-testid="conceptual-badge"
+            >
+              نمایش مفهومی / شماتیک
+            </span>
+          )}
           {(xAxis?.unit || yAxis?.unit || unit) && (
             <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-[var(--color-text-muted)]">
               {yAxis?.unit && (
@@ -868,8 +1156,11 @@ export const ChartBlock: React.FC<ChartBlockProps> = ({ chart, className = "" })
         )}
       </div>
 
-      {/* Legend Area (if multiple series, pie chart, or named single series) */}
-      {(series.length > 1 || type === "pie" || (series.length === 1 && Boolean(series[0]?.name))) && (
+      {/* Legend Area (if multiple series/curves, pie chart, or named single series/curve) */}
+      {(series.length + curves.length > 1 ||
+        type === "pie" ||
+        (series.length === 1 && Boolean(series[0]?.name)) ||
+        (curves.length === 1 && Boolean(curves[0]?.name))) && (
         <div className="mt-4 pt-3 border-t border-[var(--color-border)] flex flex-wrap items-center justify-center gap-4 text-xs font-sans">
           {type === "pie"
             ? (series[0]?.data || []).map((pt, i) => (
@@ -881,15 +1172,38 @@ export const ChartBlock: React.FC<ChartBlockProps> = ({ chart, className = "" })
                   <span dir="auto" className="[unicode-bidi:isolate]">{pt.label || `بخش ${i + 1}`}</span>
                 </div>
               ))
-            : series.map((s, i) => (
-                <div key={i} className="flex items-center gap-1.5 text-[var(--color-text)]">
-                  <span
-                    className="w-2.5 h-2.5 rounded-full shrink-0"
-                    style={{ backgroundColor: getSeriesColor(s, i) }}
-                  />
-                  <span dir="auto" className="[unicode-bidi:isolate]">{s.name || `سری ${i + 1}`}</span>
-                </div>
-              ))}
+            : (
+                <>
+                  {series.map((s, i) => (
+                    <div key={`series-${i}`} className="flex items-center gap-1.5 text-[var(--color-text)]">
+                      <span
+                        className="w-2.5 h-2.5 rounded-full shrink-0"
+                        style={{ backgroundColor: getSeriesColor(s, i) }}
+                      />
+                      <span dir="auto" className="[unicode-bidi:isolate]">{s.name || `سری ${i + 1}`}</span>
+                    </div>
+                  ))}
+                  {curves.map((c, i) => {
+                    const curveColor = c.color || DEFAULT_PALETTE[(series.length + i) % DEFAULT_PALETTE.length];
+                    return (
+                      <div key={`curve-legend-${i}`} className="flex items-center gap-1.5 text-[var(--color-text)]">
+                        {c.lineStyle === "dashed" ? (
+                          <span
+                            className="w-3.5 h-0 border-t-2 border-dashed shrink-0"
+                            style={{ borderColor: curveColor }}
+                          />
+                        ) : (
+                          <span
+                            className="w-2.5 h-2.5 rounded-full shrink-0"
+                            style={{ backgroundColor: curveColor }}
+                          />
+                        )}
+                        <span dir="auto" className="[unicode-bidi:isolate]">{c.name || `منحنی ${i + 1}`}</span>
+                      </div>
+                    );
+                  })}
+                </>
+              )}
         </div>
       )}
 

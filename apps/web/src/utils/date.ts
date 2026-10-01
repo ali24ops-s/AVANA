@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { toPersianDigits } from "@avana/domain";
 
 export interface PersianDateInfo {
   weekday: string;
@@ -312,5 +313,145 @@ export function formatPersianExamDate(dateInput: string | Date): string {
     const d = typeof dateInput === "string" ? new Date(dateInput) : dateInput;
     return d.toLocaleDateString();
   }
+}
+
+/**
+ * Extracts local date (YYYY-MM-DD) and local 24-hour time (HH:mm) strings
+ * from an ISO string or Date object, without timezone skew.
+ */
+export function extractLocalDateAndTimeString(
+  dateInput?: string | Date | null,
+): { dateStr: string; timeStr: string } {
+  if (!dateInput) return { dateStr: "", timeStr: "" };
+  const d = typeof dateInput === "string" ? new Date(dateInput) : dateInput;
+  if (isNaN(d.getTime())) return { dateStr: "", timeStr: "" };
+
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const hours = String(d.getHours()).padStart(2, "0");
+  const minutes = String(d.getMinutes()).padStart(2, "0");
+
+  return {
+    dateStr: `${yyyy}-${mm}-${dd}`,
+    timeStr: `${hours}:${minutes}`,
+  };
+}
+
+/**
+ * Combines a local date string (YYYY-MM-DD or ISO string) and a local time string (HH:mm)
+ * into a single valid ISO datetime string using local system timezone.
+ */
+export function combineLocalDateAndTimeToIso(dateStr: string, timeStr: string): string {
+  if (!dateStr || !timeStr) return "";
+
+  let year: number;
+  let monthIndex: number;
+  let day: number;
+
+  if (dateStr.includes("T")) {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return "";
+    year = d.getFullYear();
+    monthIndex = d.getMonth();
+    day = d.getDate();
+  } else {
+    const parts = dateStr.split("-").map(Number);
+    if (parts.length < 3 || parts.some(isNaN)) return "";
+    year = parts[0];
+    monthIndex = parts[1] - 1;
+    day = parts[2];
+  }
+
+  const timeParts = timeStr.split(":").map(Number);
+  if (timeParts.length < 2 || timeParts.some(isNaN)) return "";
+  const hours = timeParts[0];
+  const minutes = timeParts[1];
+
+  const localDate = new Date(year, monthIndex, day, hours, minutes, 0, 0);
+  if (isNaN(localDate.getTime())) return "";
+  return localDate.toISOString();
+}
+
+/**
+ * Formats time only with Persian digits: e.g. "۱۰:۰۰", "۰۹:۰۵", "۱۱:۳۰".
+ */
+export function formatPersianTimeOnly(dateInput: string | Date): string {
+  const d = typeof dateInput === "string" ? new Date(dateInput) : dateInput;
+  if (isNaN(d.getTime())) return "";
+  const hours = String(d.getHours()).padStart(2, "0");
+  const minutes = String(d.getMinutes()).padStart(2, "0");
+  return toPersianDigits(`${hours}:${minutes}`);
+}
+
+/**
+ * Formats a single datetime into Persian date + time string:
+ * e.g. "۱۵ مهر ۱۴۰۵ - ساعت ۱۰:۰۰"
+ */
+export function formatPersianExamDateTime(dateInput: string | Date): string {
+  const d = typeof dateInput === "string" ? new Date(dateInput) : dateInput;
+  if (isNaN(d.getTime())) return "";
+  const persianDate = formatPersianExamDate(d);
+  const time = formatPersianTimeOnly(d);
+  return `${persianDate} - ساعت ${time}`;
+}
+
+/**
+ * Formats an exam time range into clean, readable Persian:
+ * Same-day: "۱۵ مهر ۱۴۰۵، ساعت ۱۰:۰۰ تا ۱۱:۳۰"
+ * Multi-day: "از ۱۵ مهر ۱۴۰۵ ساعت ۱۰:۰۰ تا ۱۶ مهر ۱۴۰۵ ساعت ۱۱:۳۰"
+ */
+export function formatPersianExamTimeRange(
+  startsAt: string | Date,
+  endsAt: string | Date,
+): string {
+  const sDate = typeof startsAt === "string" ? new Date(startsAt) : startsAt;
+  const eDate = typeof endsAt === "string" ? new Date(endsAt) : endsAt;
+  if (isNaN(sDate.getTime()) || isNaN(eDate.getTime())) return "";
+
+  const persianStartDate = formatPersianExamDate(sDate);
+  const startTime = formatPersianTimeOnly(sDate);
+  const endTime = formatPersianTimeOnly(eDate);
+
+  const isSameDay =
+    sDate.getFullYear() === eDate.getFullYear() &&
+    sDate.getMonth() === eDate.getMonth() &&
+    sDate.getDate() === eDate.getDate();
+
+  if (isSameDay) {
+    return `${persianStartDate}، ساعت ${startTime} تا ${endTime}`;
+  }
+
+  const persianEndDate = formatPersianExamDate(eDate);
+  return `از ${persianStartDate} ساعت ${startTime} تا ${persianEndDate} ساعت ${endTime}`;
+}
+
+/**
+ * Formats the student-facing schedule notice string:
+ * e.g. "آزمون در تاریخ ۱۵ مهر ۱۴۰۵ از ساعت ۱۰:۰۰ تا ۱۱:۳۰ برگزار می‌شود."
+ */
+export function formatStudentExamScheduleNotice(
+  startsAt: string | Date,
+  endsAt: string | Date,
+): string {
+  const sDate = typeof startsAt === "string" ? new Date(startsAt) : startsAt;
+  const eDate = typeof endsAt === "string" ? new Date(endsAt) : endsAt;
+  if (isNaN(sDate.getTime()) || isNaN(eDate.getTime())) return "";
+
+  const persianStartDate = formatPersianExamDate(sDate);
+  const startTime = formatPersianTimeOnly(sDate);
+  const endTime = formatPersianTimeOnly(eDate);
+
+  const isSameDay =
+    sDate.getFullYear() === eDate.getFullYear() &&
+    sDate.getMonth() === eDate.getMonth() &&
+    sDate.getDate() === eDate.getDate();
+
+  if (isSameDay) {
+    return `آزمون در تاریخ ${persianStartDate} از ساعت ${startTime} تا ${endTime} برگزار می‌شود.`;
+  }
+
+  const persianEndDate = formatPersianExamDate(eDate);
+  return `آزمون از ${persianStartDate} ساعت ${startTime} تا ${persianEndDate} ساعت ${endTime} برگزار می‌شود.`;
 }
 

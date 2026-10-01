@@ -54,7 +54,6 @@ describe("Files Feature Temporary Disable", () => {
       expect(screen.getByText("فلش‌کارت‌ها")).toBeInTheDocument();
       expect(screen.getByText("آزمون‌ها")).toBeInTheDocument();
       expect(screen.getByText("کتابخانه")).toBeInTheDocument();
-      expect(screen.getByText("وبلاگ")).toBeInTheDocument();
     });
 
     // Verify 'فایل‌ها' is NOT rendered anywhere in header or drawer

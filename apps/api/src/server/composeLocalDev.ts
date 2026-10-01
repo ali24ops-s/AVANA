@@ -13,6 +13,7 @@ import {
   InMemoryUserStore,
   InMemoryDeviceStore,
   InMemoryEmailVerificationStore,
+  InMemoryPasswordResetStore,
 } from "../modules/identity/test/in-memory-stores.js";
 import { MockEmailService } from "../modules/identity/email-service.js";
 import {
@@ -75,6 +76,14 @@ import {
   InMemorySupportStore,
   SupportService,
 } from "../modules/support/index.js";
+import {
+  InMemoryClassroomStore,
+  InMemoryClassroomMemberStore,
+  InMemoryTeacherExamStore,
+  InMemoryTeacherExamQuestionStore,
+  InMemoryTeacherExamAttemptStore,
+  InMemoryTeacherExamAttemptAnswerStore,
+} from "../modules/teacher-platform/index.js";
 import { seedLocalDevData } from "../dev/seed.js";
 import type { V1RouteOptions } from "../routes/v1.js";
 import type { ApiConfig } from "../config.js";
@@ -105,6 +114,7 @@ export async function composeLocalDev(
   const organizationStore = new InMemoryOrganizationStore();
   const userStore = new InMemoryUserStore(organizationStore);
   const emailVerificationStore = new InMemoryEmailVerificationStore();
+  const passwordResetStore = new InMemoryPasswordResetStore(userStore, sessionStore);
   const emailService = new MockEmailService();
   const smsProvider =
     config.nodeEnv === "test" || config.sms.provider === "mock"
@@ -136,13 +146,25 @@ export async function composeLocalDev(
   const reportStore = new InMemoryContentReportStore();
 
   // Admin store
-  const adminStore = new InMemoryAdminStore();
+  const adminStore = new InMemoryAdminStore(userStore, organizationStore);
   adminStore.setLearningStores({
     courseStore,
     moduleStore,
     subCourseGroupStore,
     lessonStore,
   });
+
+  // Teacher Platform stores
+  const classroomStore = new InMemoryClassroomStore();
+  const classroomMemberStore = new InMemoryClassroomMemberStore();
+  const teacherExamStore = new InMemoryTeacherExamStore();
+  const teacherExamQuestionStore = new InMemoryTeacherExamQuestionStore();
+  const teacherExamAttemptStore = new InMemoryTeacherExamAttemptStore();
+  const teacherExamAttemptAnswerStore = new InMemoryTeacherExamAttemptAnswerStore();
+  classroomStore.examStore = teacherExamStore;
+  classroomStore.attemptStore = teacherExamAttemptStore;
+  teacherExamStore.attemptStore = teacherExamAttemptStore;
+  teacherExamQuestionStore.examStore = teacherExamStore;
 
   // Library & Content Pack stores
   const contentPackUsageStore = new InMemoryContentPackUsageStore();
@@ -186,7 +208,18 @@ export async function composeLocalDev(
   const auditStore = new InMemoryAuditStore();
   const auditService = new AuditService(auditStore);
 
-  const generationService = new GenerationService(
+  const adminGenerationService = new GenerationService(
+    generatedContentStore,
+    generatedContentCitationStore,
+    adminGateway,
+    documentStore,
+    documentChunkStore,
+    defaultPolicy,
+    auditService,
+    organizationStore,
+  );
+
+  const userGenerationService = new GenerationService(
     generatedContentStore,
     generatedContentCitationStore,
     userGateway,
@@ -198,7 +231,11 @@ export async function composeLocalDev(
   );
 
   // In-memory generation queue with background execution.
-  const queue = new InMemoryGenerationQueue(generationJobStore, generationService);
+  const queue = new InMemoryGenerationQueue(generationJobStore, {
+    adminGenerationService,
+    userGenerationService,
+    generationService: userGenerationService,
+  });
 
   // Local filesystem storage for document uploads (dev).
   const storageProvider = new LocalStorageProvider(
@@ -226,6 +263,7 @@ export async function composeLocalDev(
     supportService,
     deviceStore,
     emailVerificationStore,
+    passwordResetStore,
     emailService,
     smsProvider,
     organizationStore,
@@ -261,6 +299,12 @@ export async function composeLocalDev(
     contentPackUsageStore,
     commerceStore: new InMemoryCommerceStore(),
     walletStore: new InMemoryWalletStore(),
+    classroomStore,
+    classroomMemberStore,
+    teacherExamStore,
+    teacherExamQuestionStore,
+    teacherExamAttemptStore,
+    teacherExamAttemptAnswerStore,
   };
 
   // Seed demo data for local development — awaited before routes register

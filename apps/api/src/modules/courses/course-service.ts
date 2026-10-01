@@ -32,6 +32,8 @@ import {
   type ResourceType,
   type AuthAction,
   buildActor,
+  scoreCourseRelevance,
+  normalizeAcademicFields,
 } from "@avana/domain";
 import type { CourseStore, CourseRecord, CoursePublicationStore } from "./course-store.js";
 import type { OrganizationStore } from "../organizations/organization-store.js";
@@ -39,11 +41,13 @@ import type { SubCourseGroupStore, ModuleStore, LessonStore, DocumentStore } fro
 import type { GeneratedContentStore } from "../generation/generation-store.js";
 import type { QuizStore, FlashcardStore } from "../study/study-store.js";
 import type { AuditService } from "../../observability/audit-service.js";
+import type { UserStore } from "../identity/user-store.js";
 
 export type CourseUpdateInput = {
   title?: string;
   description?: string | null;
   subject?: string | null;
+  targetAcademicFields?: string[] | null;
   examAt?: string | null;
   examScope?: ExamScope | null;
 };
@@ -81,6 +85,7 @@ export class CourseService {
     _quizStore?: QuizStore,
     _flashcardStore?: FlashcardStore,
     private readonly organizationStore?: OrganizationStore,
+    private readonly userStore?: UserStore,
   ) {}
 
   private async resolveActorAndAuthorize(
@@ -160,6 +165,7 @@ export class CourseService {
     subject: string | null,
     examAt: string | null,
     examScope?: ExamScope | null,
+    targetAcademicFields?: string[] | null,
   ): Promise<CourseRecord> {
     await this.resolveActorAndAuthorize(actor, organizationId, "course:create", {
       resourceType: "course",
@@ -183,6 +189,7 @@ export class CourseService {
       organizationId,
       name: title.trim(),
       subject: subject ?? null,
+      targetAcademicFields: normalizeAcademicFields(targetAcademicFields),
       examDate: examAt ?? null,
       examScope: examScope ?? null,
       createdAt: now,
@@ -214,7 +221,7 @@ export class CourseService {
   /**
    * List active courses for an organization scoped to the actor's membership.
    * Only returns courses where the actor has organization membership or shared system courses.
-   * Courses are sorted according to CANONICAL_COURSES priority order.
+   * Courses are sorted according to academic field relevance, with CANONICAL_COURSES priority order as tie-breaker.
    */
   async listCourses(
     actor: Actor,
@@ -239,8 +246,25 @@ export class CourseService {
       return true;
     });
 
+    let userMajor: string | null = null;
+    if (this.userStore && actor.userId) {
+      try {
+        const user = await this.userStore.findById(actor.userId);
+        if (user?.major) {
+          userMajor = user.major;
+        }
+      } catch {
+        // Gracefully continue without user personalization if lookup fails
+      }
+    }
+
     const canonicalOrder: readonly string[] = CANONICAL_COURSES;
     return visibleCourses.slice().sort((a, b) => {
+      const scoreA = scoreCourseRelevance(a.targetAcademicFields, userMajor).score;
+      const scoreB = scoreCourseRelevance(b.targetAcademicFields, userMajor).score;
+      if (scoreB !== scoreA) {
+        return scoreB - scoreA;
+      }
       const idxA = canonicalOrder.indexOf(a.name);
       const idxB = canonicalOrder.indexOf(b.name);
       if (idxA !== -1 && idxB !== -1) return idxA - idxB;
@@ -252,7 +276,7 @@ export class CourseService {
 
   /**
    * List courses enrolled/selected by the authenticated user in the given organization.
-   * Courses are sorted according to CANONICAL_COURSES priority order.
+   * Courses are sorted according to academic field relevance, with CANONICAL_COURSES priority order as tie-breaker.
    */
   async listMyCourses(
     actor: Actor,
@@ -268,8 +292,25 @@ export class CourseService {
       this.systemOrganizationId,
     );
 
+    let userMajor: string | null = null;
+    if (this.userStore && actor.userId) {
+      try {
+        const user = await this.userStore.findById(actor.userId);
+        if (user?.major) {
+          userMajor = user.major;
+        }
+      } catch {
+        // Gracefully continue without user personalization if lookup fails
+      }
+    }
+
     const canonicalOrder: readonly string[] = CANONICAL_COURSES;
     return courses.slice().sort((a, b) => {
+      const scoreA = scoreCourseRelevance(a.targetAcademicFields, userMajor).score;
+      const scoreB = scoreCourseRelevance(b.targetAcademicFields, userMajor).score;
+      if (scoreB !== scoreA) {
+        return scoreB - scoreA;
+      }
       const idxA = canonicalOrder.indexOf(a.name);
       const idxB = canonicalOrder.indexOf(b.name);
       if (idxA !== -1 && idxB !== -1) return idxA - idxB;
@@ -482,6 +523,12 @@ export class CourseService {
     if (input.subject !== undefined) {
       course.subject = input.subject;
       changes.subject = input.subject;
+    }
+
+    if (input.targetAcademicFields !== undefined) {
+      const normalized = normalizeAcademicFields(input.targetAcademicFields);
+      course.targetAcademicFields = normalized;
+      changes.target_academic_fields = normalized as any;
     }
 
     if (input.examAt !== undefined) {

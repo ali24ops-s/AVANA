@@ -287,6 +287,28 @@ describe("Comprehensive Auth Flow Suite", () => {
 
       await app.close();
     });
+
+    it("registers student with firstName 'علی' and lastName 'محمدلو' storing canonical name 'علی محمدلو'", async () => {
+      const app = await createTestApp();
+      const res = await app.inject({
+        method: "POST",
+        url: "/v1/auth/register",
+        payload: {
+          firstName: "علی",
+          lastName: "محمدلو",
+          email: "ali.mohammadloo@example.com",
+          phoneNumber: "09121234567",
+          password: "password123",
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.body);
+      expect(body.user.name).toBe("علی محمدلو");
+      expect(body.user.email).toBe("ali.mohammadloo@example.com");
+
+      await app.close();
+    });
   });
 
   describe("2. Dual-Channel Verification Independence & Single Channel Sufficiency", () => {
@@ -915,6 +937,219 @@ describe("Comprehensive Auth Flow Suite", () => {
       expect(verifyRes.statusCode).toBe(200);
       const body = JSON.parse(verifyRes.body);
       expect(body.user.emailVerified).toBe(true);
+
+      await app.close();
+    });
+  });
+
+  describe("6. Profile & Name Update (PATCH /v1/auth/profile)", () => {
+    it("allows authenticated user to update their first and last name canonically", async () => {
+      const app = await createTestApp();
+
+      // 1. Register a user originally with single name or different name
+      const regRes = await app.inject({
+        method: "POST",
+        url: "/v1/auth/register",
+        payload: {
+          firstName: "علی",
+          lastName: "رضایی",
+          email: "ali_profile@example.com",
+          phoneNumber: "09121113344",
+          password: "password123",
+        },
+      });
+      const token = extractSessionToken(regRes)!;
+
+      // 2. PATCH /v1/auth/profile with new first & last name
+      const patchRes = await app.inject({
+        method: "PATCH",
+        url: "/v1/auth/profile",
+        cookies: { avana_session: token },
+        payload: {
+          firstName: "علی",
+          lastName: "محمدلو",
+        },
+      });
+
+      expect(patchRes.statusCode).toBe(200);
+      const body = JSON.parse(patchRes.body);
+      expect(body.user.name).toBe("علی محمدلو");
+
+      // 3. Verify in userStore directly
+      const stored = await userStore.findByEmail("ali_profile@example.com");
+      expect(stored?.name).toBe("علی محمدلو");
+
+      // 4. Verify GET /v1/me returns updated canonical name
+      const meRes = await app.inject({
+        method: "GET",
+        url: "/v1/me",
+        cookies: { avana_session: token },
+      });
+      expect(meRes.statusCode).toBe(200);
+      const meBody = JSON.parse(meRes.body);
+      expect(meBody.user.name).toBe("علی محمدلو");
+
+      await app.close();
+    });
+
+    it("rejects unauthenticated requests with 401", async () => {
+      const app = await createTestApp();
+
+      const res = await app.inject({
+        method: "PATCH",
+        url: "/v1/auth/profile",
+        payload: {
+          firstName: "علی",
+          lastName: "محمدلو",
+        },
+      });
+
+      expect(res.statusCode).toBe(401);
+      await app.close();
+    });
+
+    it("rejects invalid/empty firstName with 400", async () => {
+      const app = await createTestApp();
+      const regRes = await app.inject({
+        method: "POST",
+        url: "/v1/auth/register",
+        payload: {
+          firstName: "علی",
+          lastName: "محمدلو",
+          email: "val_test1@example.com",
+          phoneNumber: "09122223344",
+          password: "password123",
+        },
+      });
+      const token = extractSessionToken(regRes)!;
+
+      const res = await app.inject({
+        method: "PATCH",
+        url: "/v1/auth/profile",
+        cookies: { avana_session: token },
+        payload: {
+          firstName: " ",
+          lastName: "محمدلو",
+        },
+      });
+
+      expect(res.statusCode).toBe(400);
+      const body = JSON.parse(res.body);
+      expect(body.error.message).toContain("نام الزامی است");
+
+      await app.close();
+    });
+
+    it("rejects invalid/empty lastName with 400", async () => {
+      const app = await createTestApp();
+      const regRes = await app.inject({
+        method: "POST",
+        url: "/v1/auth/register",
+        payload: {
+          firstName: "علی",
+          lastName: "محمدلو",
+          email: "val_test2@example.com",
+          phoneNumber: "09123334455",
+          password: "password123",
+        },
+      });
+      const token = extractSessionToken(regRes)!;
+
+      const res = await app.inject({
+        method: "PATCH",
+        url: "/v1/auth/profile",
+        cookies: { avana_session: token },
+        payload: {
+          firstName: "علی",
+          lastName: "  ",
+        },
+      });
+
+      expect(res.statusCode).toBe(400);
+      const body = JSON.parse(res.body);
+      expect(body.error.message).toContain("نام خانوادگی الزامی است");
+
+      await app.close();
+    });
+
+    it("rejects names shorter than 2 characters", async () => {
+      const app = await createTestApp();
+      const regRes = await app.inject({
+        method: "POST",
+        url: "/v1/auth/register",
+        payload: {
+          firstName: "علی",
+          lastName: "محمدلو",
+          email: "val_test3@example.com",
+          phoneNumber: "09124445566",
+          password: "password123",
+        },
+      });
+      const token = extractSessionToken(regRes)!;
+
+      const res = await app.inject({
+        method: "PATCH",
+        url: "/v1/auth/profile",
+        cookies: { avana_session: token },
+        payload: {
+          firstName: "ع",
+          lastName: "م",
+        },
+      });
+
+      expect(res.statusCode).toBe(400);
+      await app.close();
+    });
+
+    it("strictly isolates user profile changes to session actor and normalizes spaces", async () => {
+      const app = await createTestApp();
+
+      // Register User A
+      const regA = await app.inject({
+        method: "POST",
+        url: "/v1/auth/register",
+        payload: {
+          firstName: "کاربر",
+          lastName: "اول",
+          email: "user_a@example.com",
+          phoneNumber: "09125556677",
+          password: "password123",
+        },
+      });
+      const tokenA = extractSessionToken(regA)!;
+
+      // Register User B
+      const regB = await app.inject({
+        method: "POST",
+        url: "/v1/auth/register",
+        payload: {
+          firstName: "کاربر",
+          lastName: "دوم",
+          email: "user_b@example.com",
+          phoneNumber: "09126667788",
+          password: "password123",
+        },
+      });
+
+      // User A updates profile with extra spaces; also passes rogue userId in body
+      const patchRes = await app.inject({
+        method: "PATCH",
+        url: "/v1/auth/profile",
+        cookies: { avana_session: tokenA },
+        payload: {
+          firstName: "  علی   ",
+          lastName: "  محمدلو   ",
+          userId: "some-other-uuid",
+        },
+      });
+
+      expect(patchRes.statusCode).toBe(200);
+      const body = JSON.parse(patchRes.body);
+      expect(body.user.name).toBe("علی محمدلو");
+
+      // Verify User B remained intact
+      const userB = await userStore.findByEmail("user_b@example.com");
+      expect(userB?.name).toBe("کاربر دوم");
 
       await app.close();
     });

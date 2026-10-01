@@ -28,6 +28,7 @@ import {
   isCompleteReviewSummary,
   type ContentPricingBreakdown,
   type CoursePricingBreakdown,
+  normalizeAcademicFields,
 } from "@avana/domain";
 import type { CourseStore, CourseRecord } from "../courses/course-store.js";
 import type { CourseDraftService } from "../courses/course-draft-service.js";
@@ -70,6 +71,7 @@ import { eq, and, or, isNull, isNotNull, inArray, gt, sql } from "drizzle-orm";
 export interface CreateOfficialCourseInput {
   name: string;
   subject?: string | null;
+  targetAcademicFields?: string[] | null;
   description?: string | null;
   examDate?: string | null;
 }
@@ -93,6 +95,7 @@ export interface OfficialCourseSummary {
   name: string;
   description: string | null;
   subject: string | null;
+  targetAcademicFields?: string[];
   status: CourseStatus;
   isOfficial: boolean;
   moduleCount: number;
@@ -203,6 +206,7 @@ export class OfficialContentService {
       name: input.name.trim(),
       description: input.description?.trim() ?? null,
       subject: input.subject?.trim() ?? null,
+      targetAcademicFields: normalizeAcademicFields(input.targetAcademicFields),
       status: "draft",
       isOfficial: true,
       examDate: input.examDate ?? null,
@@ -354,6 +358,7 @@ export class OfficialContentService {
         name: c.name,
         description: c.description ?? null,
         subject: c.subject ?? null,
+        targetAcademicFields: c.targetAcademicFields ?? [],
         status: (c.status as CourseStatus) ?? "draft",
         isOfficial: Boolean(c.isOfficial),
         moduleCount: activeModules.length,

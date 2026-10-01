@@ -33,6 +33,7 @@ import type {
   QuizStore,
   QuizQuestionStore,
   QuizAttemptStore,
+  QuizAttemptSyncMeta,
   StudySessionStore,
   FlashcardStudySessionStore,
   DailyStudyPlanStore,
@@ -1091,6 +1092,38 @@ export class DrizzleQuizAttemptStore implements QuizAttemptStore {
     return toQuizAttemptRecord(row);
   }
 
+  async findAttemptForAnswerSync(
+    id: QuizAttemptId,
+  ): Promise<QuizAttemptSyncMeta | undefined> {
+    const row = await this.db
+      .select({
+        id: quizAttempts.id,
+        userId: quizAttempts.userId,
+        status: quizAttempts.status,
+        startedAt: quizAttempts.startedAt,
+        completedAt: quizAttempts.completedAt,
+        answers: quizAttempts.answers,
+        metrics: quizAttempts.metrics,
+        questionIds: quizAttempts.questionIds,
+      })
+      .from(quizAttempts)
+      .where(eq(quizAttempts.id, id))
+      .limit(1)
+      .then((rows) => rows[0]);
+
+    if (!row) return undefined;
+    return {
+      id: row.id as QuizAttemptId,
+      userId: row.userId as UserId,
+      status: row.status ?? "in_progress",
+      startedAt: row.startedAt.toISOString(),
+      completedAt: row.completedAt ? row.completedAt.toISOString() : null,
+      answers: (row.answers as Record<string, unknown>) ?? {},
+      metrics: (row.metrics as Record<string, unknown>) ?? null,
+      questionIds: (row.questionIds as string[]) ?? null,
+    };
+  }
+
   async listByUserAndQuiz(
     userId: UserId,
     quizId: QuizId,
@@ -1190,6 +1223,90 @@ export class DrizzleQuizAttemptStore implements QuizAttemptStore {
       .returning();
 
     return toQuizAttemptRecord(row);
+  }
+
+  async updateAnswersAndMetrics(
+    id: QuizAttemptId,
+    answers: Record<string, unknown>,
+    metrics: Record<string, unknown>,
+  ): Promise<void> {
+    await this.db
+      .update(quizAttempts)
+      .set({
+        answers,
+        metrics,
+      })
+      .where(eq(quizAttempts.id, id));
+  }
+
+  async saveAttemptAnswersAtomic(
+    id: QuizAttemptId,
+    mutateFn: (attempt: QuizAttemptSyncMeta) => Promise<{
+      answers: Record<string, unknown>;
+      metrics: Record<string, unknown>;
+      acknowledged: Array<{ questionId: string; revision: number }>;
+    }> | {
+      answers: Record<string, unknown>;
+      metrics: Record<string, unknown>;
+      acknowledged: Array<{ questionId: string; revision: number }>;
+    },
+  ): Promise<{
+    attemptId: QuizAttemptId;
+    answers: Record<string, unknown>;
+    acknowledged: Array<{ questionId: string; revision: number }>;
+    elapsedSeconds?: number;
+  } | undefined> {
+    return await this.db.transaction(async (tx) => {
+      // 1. SELECT ... FOR UPDATE (pessimistic row lock, reading latest committed state)
+      const rows = await tx
+        .select({
+          id: quizAttempts.id,
+          userId: quizAttempts.userId,
+          status: quizAttempts.status,
+          startedAt: quizAttempts.startedAt,
+          completedAt: quizAttempts.completedAt,
+          answers: quizAttempts.answers,
+          metrics: quizAttempts.metrics,
+          questionIds: quizAttempts.questionIds,
+        })
+        .from(quizAttempts)
+        .where(eq(quizAttempts.id, id))
+        .for("update")
+        .limit(1);
+
+      const row = rows[0];
+      if (!row) return undefined;
+
+      const syncMeta: QuizAttemptSyncMeta = {
+        id: row.id as QuizAttemptId,
+        userId: row.userId as UserId,
+        status: row.status ?? "in_progress",
+        startedAt: row.startedAt.toISOString(),
+        completedAt: row.completedAt ? row.completedAt.toISOString() : null,
+        answers: (row.answers as Record<string, unknown>) ?? {},
+        metrics: (row.metrics as Record<string, unknown>) ?? null,
+        questionIds: (row.questionIds as string[]) ?? null,
+      };
+
+      // 2. Perform in-lock monotonic revision validation and merging
+      const mutation = await mutateFn(syncMeta);
+
+      // 3. Atomically update only answers and metrics within the same transaction
+      await tx
+        .update(quizAttempts)
+        .set({
+          answers: mutation.answers,
+          metrics: mutation.metrics,
+        })
+        .where(eq(quizAttempts.id, id));
+
+      return {
+        attemptId: id,
+        answers: mutation.answers,
+        acknowledged: mutation.acknowledged,
+        elapsedSeconds: (mutation.metrics as { elapsedSeconds?: number })?.elapsedSeconds,
+      };
+    });
   }
 }
 

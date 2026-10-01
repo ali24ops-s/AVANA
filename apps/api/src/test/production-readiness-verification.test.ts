@@ -23,6 +23,14 @@ import { InMemoryOrganizationStore } from "../modules/organizations/test/in-memo
 import { InMemoryAdminStore } from "../modules/admin/in-memory-stores.js";
 import { composeProduction } from "../server/composeProduction.js";
 import { DrizzleAdminStore } from "../modules/admin/drizzle-stores.js";
+import {
+  DrizzleClassroomStore,
+  DrizzleClassroomMemberStore,
+  DrizzleTeacherExamStore,
+  DrizzleTeacherExamQuestionStore,
+  DrizzleTeacherExamAttemptStore,
+  DrizzleTeacherExamAttemptAnswerStore,
+} from "../modules/teacher-platform/stores.js";
 
 describe("Production Readiness & Real Data Verification", () => {
   it("1. Verifies Production Store Composition Wiring", async () => {
@@ -34,6 +42,20 @@ describe("Production Readiness & Real Data Verification", () => {
       expect(v1Options.adminStore).toBeDefined();
       expect(v1Options.adminStore instanceof DrizzleAdminStore).toBe(true);
       expect(v1Options.commerceStore).toBeDefined();
+
+      // Teacher Platform stores in production composition
+      expect(v1Options.classroomStore).toBeDefined();
+      expect(v1Options.classroomStore instanceof DrizzleClassroomStore).toBe(true);
+      expect(v1Options.classroomMemberStore).toBeDefined();
+      expect(v1Options.classroomMemberStore instanceof DrizzleClassroomMemberStore).toBe(true);
+      expect(v1Options.teacherExamStore).toBeDefined();
+      expect(v1Options.teacherExamStore instanceof DrizzleTeacherExamStore).toBe(true);
+      expect(v1Options.teacherExamQuestionStore).toBeDefined();
+      expect(v1Options.teacherExamQuestionStore instanceof DrizzleTeacherExamQuestionStore).toBe(true);
+      expect(v1Options.teacherExamAttemptStore).toBeDefined();
+      expect(v1Options.teacherExamAttemptStore instanceof DrizzleTeacherExamAttemptStore).toBe(true);
+      expect(v1Options.teacherExamAttemptAnswerStore).toBeDefined();
+      expect(v1Options.teacherExamAttemptAnswerStore instanceof DrizzleTeacherExamAttemptAnswerStore).toBe(true);
     } finally {
       await close();
     }

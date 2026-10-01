@@ -55,6 +55,7 @@ import {
   type SessionCoverageAudit,
   type ContentPlan,
   type CoverageConcept,
+  type CoverageConceptCategory,
   type ReviewSummaryPayload,
   type ReviewSummarySection,
   type ReviewSummaryComparison,
@@ -89,6 +90,9 @@ import {
   normalizeEducationalContent,
   extractChemicalStructuresFromMarkdown,
   extractChemicalReactionsFromMarkdown,
+  validateLessonChartGate,
+  type SuggestedVisualization,
+  MAX_CHARTS_PER_SESSION,
   isLessonChunkSetCurrent,
   cleanEducationalTitle,
   resolveCanonicalContentTitle,
@@ -201,6 +205,106 @@ export class GenerationDeletedError extends DomainError {
     this.name = "GenerationDeletedError";
     Object.setPrototypeOf(this, GenerationDeletedError.prototype);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Pure Planning & Blueprint Helpers
+// ---------------------------------------------------------------------------
+
+export function mapPlannerSessionsToContentPlan(
+  rawSessions: Array<{
+    index?: number;
+    title: string;
+    description?: string;
+    coreConcepts?: Array<
+      Partial<CoverageConcept> & {
+        title?: string;
+        sourceChunkIds?: string[];
+      }
+    >;
+    relevantChunkIds?: string[];
+    targetFlashcardCount?: number;
+    targetQuizCount?: number;
+    suggestedVisualizations?: SuggestedVisualization[];
+  }>,
+  chunkIdSet: Set<string>,
+  defaultCardsPerTopic: number,
+  defaultQuestionsPerTopic: number,
+  fallbackChunkIds: string[] = [],
+): ContentPlan["sessions"] {
+  return rawSessions.map((s, idx) => ({
+    index: typeof s.index === "number" ? s.index : idx,
+    title: s.title,
+    description: s.description || "",
+    coreConcepts: (s.coreConcepts || []).map((c, cIdx) => ({
+      id: c.id || `concept-${s.index ?? idx}-${cIdx + 1}`,
+      name: c.name || c.title || `Concept ${cIdx + 1}`,
+      category: (c.category as CoverageConceptCategory) || "major_concept",
+      description: c.description || "",
+      sourceChunkIds: Array.isArray(c.sourceChunkIds)
+        ? c.sourceChunkIds.filter((id) => chunkIdSet.has(id))
+        : undefined,
+    })),
+    relevantChunkIds:
+      Array.isArray(s.relevantChunkIds) && s.relevantChunkIds.length > 0
+        ? s.relevantChunkIds.filter((id) => chunkIdSet.has(id))
+        : rawSessions.length === 1
+          ? fallbackChunkIds
+          : [],
+    targetFlashcardCount: s.targetFlashcardCount || defaultCardsPerTopic,
+    targetQuizCount: s.targetQuizCount || defaultQuestionsPerTopic,
+    suggestedVisualizations: (() => {
+      if (!Array.isArray(s.suggestedVisualizations)) return [];
+      if (s.suggestedVisualizations.length > MAX_CHARTS_PER_SESSION) {
+        throw new DomainError(
+          "bad_request",
+          `تعداد مقاصد بصری‌سازی (Visualization Intents) در جلسه ${s.index ?? idx + 1} (${s.suggestedVisualizations.length}) از سقف مجاز (${MAX_CHARTS_PER_SESSION}) بیشتر است.`,
+        );
+      }
+      return s.suggestedVisualizations.map((v: SuggestedVisualization) => {
+        const rawType = typeof v?.type === "string" ? v.type.toLowerCase().trim() : "";
+        const validTypes = ["bar", "line", "pie", "scatter"] as const;
+        const type = validTypes.includes(rawType as (typeof validTypes)[number])
+          ? (rawType as (typeof validTypes)[number])
+          : "line";
+        const mode = v?.mode === "data" ? "data" : "conceptual";
+        const concept = typeof v?.concept === "string" ? v.concept.trim() : "";
+        const rationale = typeof v?.rationale === "string" ? v.rationale.trim() : "";
+        const sourceDataRequired = Boolean(v?.sourceDataRequired);
+        const citationChunkIds =
+          Array.isArray(v?.citationChunkIds)
+            ? v.citationChunkIds.filter((id: string) => chunkIdSet.has(id))
+            : undefined;
+
+        return {
+          type,
+          mode,
+          concept,
+          rationale,
+          sourceDataRequired,
+          citationChunkIds,
+        } satisfies SuggestedVisualization;
+      });
+    })(),
+  }));
+}
+
+export function buildSessionBlueprintPayload(blueprint: ContentPlan["sessions"][number]): {
+  index: number;
+  title: string;
+  description: string;
+  coreConcepts: unknown[];
+  relevantChunkIds: string[];
+  suggestedVisualizations: SuggestedVisualization[];
+} {
+  return {
+    index: blueprint.index,
+    title: blueprint.title,
+    description: blueprint.description,
+    coreConcepts: blueprint.coreConcepts,
+    relevantChunkIds: blueprint.relevantChunkIds,
+    suggestedVisualizations: blueprint.suggestedVisualizations || [],
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -614,7 +718,7 @@ export class GenerationService {
    * - Inventory of all major concepts and high-yield facts across 11 pharmacological/educational categories.
    * - Session blueprints mapping source chunks, concepts, and target flashcard/quiz counts.
    */
-  private async extractContentPlan(
+  public async extractContentPlan(
     doc: DocumentRecord,
     chunks: Array<{ id: string; content: string; heading: string | null }>,
     budget: GenerationBudget,
@@ -773,6 +877,7 @@ export class GenerationService {
               relevantChunkIds?: string[];
               targetFlashcardCount?: number;
               targetQuizCount?: number;
+              suggestedVisualizations?: SuggestedVisualization[];
             }>;
             outline?: Array<{ title: string; description: string; relevantChunkIds?: string[] }>;
             highYieldFacts?: Array<{
@@ -801,6 +906,7 @@ export class GenerationService {
                     coreConcepts: [],
                     targetFlashcardCount: budget.flashcardBudget.targetCardsPerTopic,
                     targetQuizCount: budget.quizBudget.targetQuestionsPerTopic,
+                    suggestedVisualizations: [] as SuggestedVisualization[],
                   }))
                 : [
                     {
@@ -811,6 +917,7 @@ export class GenerationService {
                       coreConcepts: [],
                       targetFlashcardCount: budget.flashcardBudget.targetCardsPerTopic,
                       targetQuizCount: budget.quizBudget.targetQuestionsPerTopic,
+                      suggestedVisualizations: [] as SuggestedVisualization[],
                     },
                   ]);
 
@@ -846,6 +953,7 @@ export class GenerationService {
                 coreConcepts: [],
                 targetFlashcardCount: budget.flashcardBudget.targetCardsPerTopic,
                 targetQuizCount: budget.quizBudget.targetQuestionsPerTopic,
+                suggestedVisualizations: [] as SuggestedVisualization[],
               });
             }
             rawSessions = expanded;
@@ -866,25 +974,13 @@ export class GenerationService {
                   ? t.relevantChunkIds.filter((id) => chunkIdSet.has(id))
                   : chunkIdList,
             })),
-            sessions: rawSessions.map((s, idx) => ({
-              index: typeof s.index === "number" ? s.index : idx,
-              title: s.title,
-              description: s.description || "",
-              coreConcepts: (s.coreConcepts || []).map((c) => ({
-                ...c,
-                sourceChunkIds: Array.isArray(c.sourceChunkIds)
-                  ? c.sourceChunkIds.filter((id) => chunkIdSet.has(id))
-                  : undefined,
-              })),
-              relevantChunkIds:
-                Array.isArray(s.relevantChunkIds) && s.relevantChunkIds.length > 0
-                  ? s.relevantChunkIds.filter((id) => chunkIdSet.has(id))
-                  : rawSessions.length === 1
-                    ? chunkIdList
-                    : [],
-              targetFlashcardCount: s.targetFlashcardCount || budget.flashcardBudget.targetCardsPerTopic,
-              targetQuizCount: s.targetQuizCount || budget.quizBudget.targetQuestionsPerTopic,
-            })),
+            sessions: mapPlannerSessionsToContentPlan(
+              rawSessions,
+              chunkIdSet,
+              budget.flashcardBudget.targetCardsPerTopic,
+              budget.quizBudget.targetQuestionsPerTopic,
+              chunkIdList,
+            ),
             highYieldFacts: (parsed.highYieldFacts || []).map((hy, idx) => ({
               id: hy.id || `fact-${idx + 1}`,
               fact: hy.fact,
@@ -1100,13 +1196,7 @@ export class GenerationService {
             .join("\n\n---\n\n");
           const chunkIdList = effectiveChunks.map((c) => c.id);
           const sessionBlueprintJson = JSON.stringify(
-            {
-              index: blueprint.index,
-              title: blueprint.title,
-              description: blueprint.description,
-              coreConcepts: blueprint.coreConcepts,
-              relevantChunkIds: blueprint.relevantChunkIds,
-            },
+            buildSessionBlueprintPayload(blueprint),
             null,
             2,
           );
@@ -1250,6 +1340,35 @@ export class GenerationService {
             validCitations.length > 0 ? validCitations : item.chunkIdList;
 
           const normalizedContentMarkdown = normalizeEducationalContent(matched.contentMarkdown);
+
+          // Backend Chart Gate: Deterministic validation against intent, density, and hallucination rules
+          const chartGateResult = validateLessonChartGate(
+            normalizedContentMarkdown,
+            blueprint.suggestedVisualizations || [],
+            item.effectiveChunks,
+          );
+
+          if (!chartGateResult.valid) {
+            const failedAt = new Date().toISOString();
+            await this.chunkRecordStore.upsert({
+              id: randomUUID(),
+              organizationId,
+              documentId,
+              courseId: targetCourseId ?? doc.courseId,
+              stage: "lesson",
+              chunkIndex: blueprint.index,
+              chunkKey,
+              status: "failed",
+              payload: null,
+              errorCode: "STAGE2_CHART_VALIDATION_FAILED",
+              errorMessage: `Chart validation failed for session ${blueprint.index + 1}: ${chartGateResult.errors.join("; ")}`,
+              attempts: 1,
+              createdAt: failedAt,
+              updatedAt: failedAt,
+            });
+            continue;
+          }
+
           const chemicalStructures = extractChemicalStructuresFromMarkdown(normalizedContentMarkdown);
           const chemicalReactions = extractChemicalReactionsFromMarkdown(normalizedContentMarkdown);
 
@@ -1400,13 +1519,7 @@ export class GenerationService {
       const chunkIdList = effectiveChunks.map((c) => c.id);
 
       const sessionBlueprintJson = JSON.stringify(
-        {
-          index: blueprint.index,
-          title: blueprint.title,
-          description: blueprint.description,
-          coreConcepts: blueprint.coreConcepts,
-          relevantChunkIds: blueprint.relevantChunkIds,
-        },
+        buildSessionBlueprintPayload(blueprint),
         null,
         2,
       );
@@ -1493,6 +1606,20 @@ export class GenerationService {
                 : chunkIdList;
 
             const normalizedContentMarkdown = normalizeEducationalContent(contentMarkdown);
+
+            // Backend Chart Gate: Deterministic validation against intent, density, and hallucination rules
+            const chartGateResult = validateLessonChartGate(
+              normalizedContentMarkdown,
+              blueprint.suggestedVisualizations || [],
+              effectiveChunks,
+            );
+
+            if (!chartGateResult.valid) {
+              throw new Error(
+                `Chart validation failed for session ${idx + 1} ("${blueprint.title}"): ${chartGateResult.errors.join("; ")}`,
+              );
+            }
+
             const chemicalStructures = extractChemicalStructuresFromMarkdown(normalizedContentMarkdown);
             const chemicalReactions = extractChemicalReactionsFromMarkdown(normalizedContentMarkdown);
 

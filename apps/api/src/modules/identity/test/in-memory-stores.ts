@@ -12,6 +12,10 @@ import type {
   EmailVerificationCodeRecord,
   EmailVerificationStore,
 } from "../email-verification-store.js";
+import type {
+  PasswordResetTokenRecord,
+  PasswordResetStore,
+} from "../password-reset-store.js";
 
 import type {
   DeviceStore,
@@ -438,6 +442,7 @@ export class InMemoryUserStore implements UserStore {
       role: "student",
       globalRole: null,
       phoneNumber: null,
+      major: null,
       emailVerifiedAt: new Date().toISOString(),
       emailVerified: true,
       phoneVerifiedAt: null,
@@ -452,6 +457,7 @@ export class InMemoryUserStore implements UserStore {
     passwordHash: string;
     name?: string;
     phoneNumber?: string;
+    major?: string | null;
     globalRole?: string | null;
   }): Promise<UserRecord> {
     const id = randomUUID() as UserId;
@@ -465,6 +471,7 @@ export class InMemoryUserStore implements UserStore {
       role,
       globalRole,
       phoneNumber: params.phoneNumber ?? null,
+      major: params.major ?? null,
       passwordHash: params.passwordHash,
       emailVerifiedAt: null,
       emailVerified: false,
@@ -479,6 +486,7 @@ export class InMemoryUserStore implements UserStore {
       role,
       globalRole,
       phoneNumber: params.phoneNumber ?? null,
+      major: params.major ?? null,
       emailVerifiedAt: null,
       emailVerified: false,
       phoneVerifiedAt: null,
@@ -504,6 +512,27 @@ export class InMemoryUserStore implements UserStore {
     }
   }
 
+  async updatePassword(userId: UserId, passwordHash: string): Promise<void> {
+    const user = this.users.get(userId);
+    if (user) {
+      user.passwordHash = passwordHash;
+    }
+  }
+
+  async updateName(userId: UserId, name: string): Promise<void> {
+    const user = this.users.get(userId);
+    if (user) {
+      user.name = name.trim();
+    }
+  }
+
+  async updateMajor(userId: UserId, major: string | null): Promise<void> {
+    const user = this.users.get(userId);
+    if (user) {
+      user.major = major ? major.trim() : null;
+    }
+  }
+
   async updatePhoneNumber(userId: UserId, phoneNumber: string): Promise<void> {
     const user = this.users.get(userId);
     if (user) {
@@ -523,6 +552,17 @@ export class InMemoryUserStore implements UserStore {
     const phoneVerified = record.phoneVerified ?? (record.phoneVerifiedAt != null);
     const globalRole = record.globalRole !== undefined ? record.globalRole : (record.role === "platform_admin" ? "platform_admin" : null);
     this.users.set(record.id, { ...record, globalRole, emailVerified, phoneVerified });
+  }
+
+  async listAllUsers(): Promise<UserRecord[]> {
+    const list: UserRecord[] = [];
+    for (const id of this.users.keys()) {
+      const u = await this.findById(id as UserId);
+      if (u) {
+        list.push(u);
+      }
+    }
+    return list;
   }
 }
 
@@ -587,6 +627,124 @@ export class InMemoryEmailVerificationStore implements EmailVerificationStore {
         code.usedAt = now;
       }
     }
+  }
+}
+
+export class InMemoryPasswordResetStore implements PasswordResetStore {
+  private tokens: Map<string, PasswordResetTokenRecord> = new Map();
+  private userStore?: UserStore;
+  private sessionStore?: SessionStore;
+
+  constructor(userStore?: UserStore, sessionStore?: SessionStore) {
+    this.userStore = userStore;
+    this.sessionStore = sessionStore;
+  }
+
+  setStores(userStore: UserStore, sessionStore?: SessionStore): void {
+    this.userStore = userStore;
+    this.sessionStore = sessionStore;
+  }
+
+  async createToken(values: {
+    userId: UserId;
+    tokenHash: string;
+    expiresAt: string;
+  }): Promise<PasswordResetTokenRecord> {
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    const record: PasswordResetTokenRecord = {
+      id,
+      userId: values.userId,
+      tokenHash: values.tokenHash,
+      expiresAt: values.expiresAt,
+      createdAt: now,
+      usedAt: null,
+    };
+    this.tokens.set(id, record);
+    return { ...record };
+  }
+
+  async findByTokenHash(
+    tokenHash: string,
+  ): Promise<PasswordResetTokenRecord | undefined> {
+    for (const record of this.tokens.values()) {
+      if (record.tokenHash === tokenHash) {
+        return { ...record };
+      }
+    }
+    return undefined;
+  }
+
+  async atomicConsumeAndResetPassword(params: {
+    tokenHash: string;
+    newPasswordHash: string;
+  }): Promise<{
+    success: boolean;
+    userId?: UserId;
+    reason?: "invalid" | "expired" | "already_used";
+  }> {
+    let matched: PasswordResetTokenRecord | undefined;
+    for (const record of this.tokens.values()) {
+      if (record.tokenHash === params.tokenHash) {
+        matched = record;
+        break;
+      }
+    }
+
+    if (!matched) {
+      return { success: false, reason: "invalid" };
+    }
+
+    if (matched.usedAt != null) {
+      return { success: false, reason: "already_used" };
+    }
+
+    const now = Date.now();
+    const expiry = new Date(matched.expiresAt).getTime();
+    if (expiry <= now) {
+      return { success: false, reason: "expired" };
+    }
+
+    // Atomic consumption: set usedAt
+    matched.usedAt = new Date().toISOString();
+
+    const targetUserId = matched.userId;
+
+    // Update password
+    if (this.userStore?.updatePassword) {
+      await this.userStore.updatePassword(targetUserId, params.newPasswordHash);
+    }
+
+    // Invalidate all other tokens for this user
+    await this.invalidateAllForUser(targetUserId);
+
+    // Invalidate active sessions
+    if (this.sessionStore) {
+      await this.sessionStore.revokeAllByUser(
+        targetUserId,
+        new Date().toISOString(),
+        "password_reset",
+      );
+    }
+
+    return { success: true, userId: targetUserId };
+  }
+
+  async deleteToken(id: string): Promise<void> {
+    this.tokens.delete(id);
+  }
+
+  async invalidateAllForUser(userId: UserId): Promise<void> {
+    const now = new Date().toISOString();
+    for (const record of this.tokens.values()) {
+      if (record.userId === userId && record.usedAt == null) {
+        record.usedAt = now;
+      }
+    }
+  }
+
+  clear(): void {
+    this.tokens.clear();
   }
 }
 

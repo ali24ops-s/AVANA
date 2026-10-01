@@ -137,28 +137,32 @@ describe("Admin Shell & Navigation Architecture", () => {
       expect(screen.getByText("Platform Admin User")).toBeInTheDocument();
     });
 
-    // Check 7 workspaces for platform_admin
+    // Check 9 workspaces for platform_admin
     const platformItems = getVisibleNavItems("platform_admin");
-    expect(platformItems).toHaveLength(7);
+    expect(platformItems).toHaveLength(9);
     expect(platformItems.map((i) => i.name)).toEqual([
       "داشبورد و آمار",
       "آموزش و دوره‌ها",
+      "پشتیبانی و بازخورد",
       "کاربران و دسترسی‌ها",
       "امور مالی و فروش",
       "مقالات و وبلاگ",
       "مرکز هوش مصنوعی",
       "سیستم و نظارت",
+      "مدیریت اساتید",
     ]);
 
     // Check links in desktop sidebar
     const desktopNav = screen.getByRole("complementary", { name: "ناوبری مدیریت" });
     expect(desktopNav.querySelectorAll('a[href="/admin/dashboard"]')).toHaveLength(1);
     expect(desktopNav.querySelectorAll('a[href="/admin/courses"]')).toHaveLength(1);
+    expect(desktopNav.querySelectorAll('a[href="/admin/support"]')).toHaveLength(1);
     expect(desktopNav.querySelectorAll('a[href="/admin/users"]')).toHaveLength(1);
     expect(desktopNav.querySelectorAll('a[href="/admin/commerce"]')).toHaveLength(1);
     expect(desktopNav.querySelectorAll('a[href="/admin/blog"]')).toHaveLength(1);
     expect(desktopNav.querySelectorAll('a[href="/admin/generation"]')).toHaveLength(1);
     expect(desktopNav.querySelectorAll('a[href="/admin/system/health"]')).toHaveLength(1);
+    expect(desktopNav.querySelectorAll('a[href="/admin/teachers"]')).toHaveLength(1);
   });
 
   it("Case 2 — renders Admin Shell with exactly 2 workspaces for content_worker", async () => {

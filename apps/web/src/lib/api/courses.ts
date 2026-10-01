@@ -95,6 +95,8 @@ export function createCourseApi(client: ApiClient) {
       payload: {
         title?: string;
         subject?: string | null;
+        target_academic_fields?: string[] | null;
+        targetAcademicFields?: string[] | null;
         exam_at?: string | null;
         exam_scope?: {
           moduleIds?: string[];
@@ -117,6 +119,8 @@ export function createCourseApi(client: ApiClient) {
         title: string;
         description?: string | null;
         subject?: string | null;
+        target_academic_fields?: string[] | null;
+        targetAcademicFields?: string[] | null;
         exam_at?: string | null;
         exam_scope?: {
           moduleIds?: string[];

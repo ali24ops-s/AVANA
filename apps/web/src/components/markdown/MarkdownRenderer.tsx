@@ -58,6 +58,24 @@ const LazyChartFallbackBlock = React.lazy(() =>
   })),
 );
 
+const LazyHeartAnatomyDiagram = React.lazy(() =>
+  import("../anatomy/HeartAnatomyDiagram.js").then((m) => ({
+    default: m.HeartAnatomyDiagram,
+  })),
+);
+
+const LazyBloodFlowVisualizer = React.lazy(() =>
+  import("../anatomy/BloodFlowVisualizer.js").then((m) => ({
+    default: m.BloodFlowVisualizer,
+  })),
+);
+
+const LazyAnatomyQuizCard = React.lazy(() =>
+  import("../anatomy/AnatomyQuizCard.js").then((m) => ({
+    default: m.AnatomyQuizCard,
+  })),
+);
+
 
 export interface RichContentProps {
   content?: string | null;
@@ -572,7 +590,11 @@ export function RichContent({
                 cls.includes("language-chemical-reaction") ||
                 cls.includes("language-chart") ||
                 cls.includes("language-charts") ||
-                cls.includes("language-chart-json")
+                cls.includes("language-chart-json") ||
+                cls.includes("language-anatomy") ||
+                cls.includes("language-bloodflow") ||
+                cls.includes("language-blood-flow") ||
+                cls.includes("language-anatomy-quiz")
               ) {
                 return <>{children}</>;
               }
@@ -588,7 +610,7 @@ export function RichContent({
             );
           },
           code: ({ children, className, ...props }) => {
-            const match = /language-(\w+)/.exec(className || "");
+            const match = /language-([a-zA-Z0-9_-]+)/.exec(className || "");
             const lang = match ? match[1].toLowerCase() : "";
             if (lang === "chemical" || lang === "smiles") {
               const rawContent =
@@ -779,6 +801,57 @@ export function RichContent({
               );
             }
 
+            if (lang === "anatomy" || lang === "heart-anatomy") {
+              return (
+                <React.Suspense
+                  fallback={
+                    <div
+                      className="my-6 p-6 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] text-center text-xs text-[var(--color-text-muted)] animate-pulse"
+                      dir="rtl"
+                    >
+                      در حال بارگذاری تصویر آناتومی...
+                    </div>
+                  }
+                >
+                  <LazyHeartAnatomyDiagram />
+                </React.Suspense>
+              );
+            }
+
+            if (lang === "bloodflow" || lang === "blood-flow") {
+              return (
+                <React.Suspense
+                  fallback={
+                    <div
+                      className="my-6 p-6 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] text-center text-xs text-[var(--color-text-muted)] animate-pulse"
+                      dir="rtl"
+                    >
+                      در حال بارگذاری مسیر جریان خون...
+                    </div>
+                  }
+                >
+                  <LazyBloodFlowVisualizer />
+                </React.Suspense>
+              );
+            }
+
+            if (lang === "anatomy-quiz") {
+              return (
+                <React.Suspense
+                  fallback={
+                    <div
+                      className="my-6 p-6 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] text-center text-xs text-[var(--color-text-muted)] animate-pulse"
+                      dir="rtl"
+                    >
+                      در حال بارگذاری سؤال تصویری...
+                    </div>
+                  }
+                >
+                  <LazyAnatomyQuizCard />
+                </React.Suspense>
+              );
+            }
+
             return (
               <code
                 className={`bg-slate-100 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/60 px-1.5 py-0.5 rounded text-xs sm:text-sm font-mono text-teal-900 dark:text-teal-300 inline-block align-baseline [unicode-bidi:isolate] ${className || ""}`.trim()}
@@ -790,9 +863,12 @@ export function RichContent({
           },
           // GFM Table Components with High Contrast & RTL Persian Text Alignment
           table: ({ children, ...props }) => (
-            <div className="my-3.5 sm:my-4 w-full overflow-x-auto rounded-card border border-[var(--color-border)] shadow-xs bg-[var(--color-surface)]">
+            <div
+              className="table-scroll-container my-3.5 sm:my-4 w-full max-w-full overflow-x-auto rounded-card border border-[var(--color-border)] shadow-xs bg-[var(--color-surface)]"
+              dir={dir || "rtl"}
+            >
               <table
-                className={`w-full !m-0 !my-0 border-collapse ${dir === "ltr" ? "text-left" : "text-right"} text-sm leading-relaxed`}
+                className={`content-table w-full min-w-full !m-0 !my-0 border-collapse ${dir === "ltr" ? "text-left" : "text-right"} text-sm leading-relaxed`}
                 dir={dir || "rtl"}
                 {...props}
               >
@@ -824,24 +900,42 @@ export function RichContent({
               {children}
             </tr>
           ),
-          th: ({ children, ...props }) => (
-            <th
-              className={`px-4 py-3 ${dir === "ltr" ? "text-left" : "text-right"} font-extrabold text-[var(--color-text)] tracking-tight whitespace-nowrap bg-[var(--color-surface-warm)] [unicode-bidi:isolate]`}
-              dir={dir || "rtl"}
-              {...props}
-            >
-              {children}
-            </th>
-          ),
-          td: ({ children, ...props }) => (
-            <td
-              className={`px-4 py-3 ${dir === "ltr" ? "text-left" : "text-right"} text-[var(--color-text)] dark:text-slate-200 align-top break-words [unicode-bidi:isolate]`}
-              dir={dir || "rtl"}
-              {...props}
-            >
-              {children}
-            </td>
-          ),
+          th: ({ children, style, ...props }) => {
+            const cellStyle =
+              dir === "ltr"
+                ? style
+                : style?.textAlign === "left"
+                ? { ...style, textAlign: "right" as const }
+                : style;
+            return (
+              <th
+                className={`px-4 py-3 ${dir === "ltr" ? "text-left" : "text-right"} font-extrabold text-[var(--color-text)] tracking-tight align-top bg-[var(--color-surface-warm)] [unicode-bidi:isolate]`}
+                dir={dir || "rtl"}
+                style={cellStyle}
+                {...props}
+              >
+                {children}
+              </th>
+            );
+          },
+          td: ({ children, style, ...props }) => {
+            const cellStyle =
+              dir === "ltr"
+                ? style
+                : style?.textAlign === "left"
+                ? { ...style, textAlign: "right" as const }
+                : style;
+            return (
+              <td
+                className={`px-4 py-3 ${dir === "ltr" ? "text-left" : "text-right"} text-[var(--color-text)] dark:text-slate-200 align-top break-words [unicode-bidi:isolate]`}
+                dir={dir || "rtl"}
+                style={cellStyle}
+                {...props}
+              >
+                {children}
+              </td>
+            );
+          },
         }}
       >
         {normalized}
