@@ -92,3 +92,5 @@ scratch-*.ts
 .findings.json
 .*findings*.json
 
+# Generated load-test results
+/docs/load-tests/results/
