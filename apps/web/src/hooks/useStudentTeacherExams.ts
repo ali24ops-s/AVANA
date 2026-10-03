@@ -16,7 +16,7 @@ import {
   type StudentAttemptResultDTO,
   type StudentReviewDTO,
 } from "../lib/api/student-platform.js";
-import type { ClassroomMember } from "@avana/domain";
+import type { ClassroomMember, DescriptiveAnswerIntegrityData } from "@avana/domain";
 
 function getStudentPlatformApi() {
   const client = createApiClient({ baseUrl: getApiBaseUrl() });
@@ -116,7 +116,7 @@ export function useCurrentStudentExamAttempt(examId?: string) {
       return api.getCurrentAttempt(examId);
     },
     enabled: Boolean(examId && examId.trim().length > 0),
-    staleTime: 0, // Always fetch fresh attempt state
+    staleTime: 10_000,
   });
 }
 
@@ -153,6 +153,8 @@ export function useSaveStudentExamAnswer(examId: string) {
       finalized?: boolean;
       activeDurationMs?: number | null;
       tabSwitchesCount?: number | null;
+      integrityData?: DescriptiveAnswerIntegrityData | null;
+      booleanAnswers?: Record<string, boolean> | null;
     }
   >({
     mutationFn: ({
@@ -162,6 +164,8 @@ export function useSaveStudentExamAnswer(examId: string) {
       finalized,
       activeDurationMs,
       tabSwitchesCount,
+      integrityData,
+      booleanAnswers,
     }) =>
       api.saveAnswer(
         examId,
@@ -171,6 +175,8 @@ export function useSaveStudentExamAnswer(examId: string) {
         finalized,
         activeDurationMs,
         tabSwitchesCount,
+        integrityData,
+        booleanAnswers,
       ),
   });
 }

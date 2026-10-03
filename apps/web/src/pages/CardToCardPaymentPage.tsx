@@ -921,7 +921,6 @@ export function CardToCardPaymentPage() {
                       type="text"
                       value={payerName}
                       onChange={(e) => setPayerName(e.target.value)}
-                      placeholder="مثال: علی رضایی"
                       className="w-full px-4 py-3 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] text-xs sm:text-sm focus:outline-none focus:border-primary transition-colors"
                     />
                   </div>

@@ -361,3 +361,10 @@ export function useDeleteBlogTag() {
     },
   });
 }
+
+export function useUploadBlogImage() {
+  const api = getBlogApi();
+  return useMutation({
+    mutationFn: (file: File) => api.uploadImage(file),
+  });
+}

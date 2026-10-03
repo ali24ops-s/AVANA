@@ -87,6 +87,15 @@ export interface RichContentProps {
 
 export type MarkdownRendererProps = RichContentProps;
 
+function isSafeHref(href?: string): boolean {
+  if (!href) return false;
+  const trimmed = href.trim();
+  if (/^(?:javascript|vbscript|data):/i.test(trimmed)) {
+    return false;
+  }
+  return true;
+}
+
 /**
  * Helper to identify biomedical / scientific tokens that may have been incorrectly wrapped
  * in Markdown backticks by LLMs (e.g. `hsp70`, `Lisinopril`, `Atenolol`, `GFR`, `ACE inhibitors`, `10 mg/kg`, `Stage 3 CKD`).
@@ -273,10 +282,14 @@ export function normalizeRichContent(text: string): string {
 
       // 3. Restore tab-corrupted \text{ inside math delimiters ($...$ and $$...$$)
       processed = processed.replace(/(\$\$[\s\S]*?\$\$|\$[^$\n]+\$)/g, (mathBlock) => {
-        return mathBlock
+        let math = mathBlock
           .replace(/\\?text\{/g, "\\text{")
           .replace(/\text\{/g, "\\text{")
           .replace(/\t\s*ext\{/g, "\\text{");
+
+        // Fix \- (hyphenation hints) inside math mode which cause KaTeX parse errors
+        math = math.replace(/\\-\s*/g, " ");
+        return math;
       });
 
       // 5. Safely clean stray unmatched ')' immediately after self-contained inline math (e.g. $1,25(OH)_2D$))
@@ -301,22 +314,23 @@ export function normalizeRichContent(text: string): string {
       );
 
       // 6. Protect genuine standalone currency dollar amounts (e.g. $100, $100 USD, $50 هزار تومان)
-      // Must NEVER corrupt inline math equations like $0.77 \text{ g/cm}^3$, $0.62$, $T_4$, $10^{-3}$, $Ca^{2+}$.
-      // A dollar sign followed by digits is currency if it is NOT part of a closed math expression.
+      // Must NEVER corrupt inline math equations like $0.77 \text{ g/cm}^3$, $0.62$, $1.17$, $6.0 + 3.0 = 9.0$, $T_4$, $10^{-3}$, $Ca^{2+}$.
       processed = processed.replace(
-        /(?<!\\)\$(\d+(?:[.,]\d+)*(?:\s*(?:k|K|M|B|USD|EUR|تومان|ریال|هزار|میلیون))?)(?=[.,؛!؟\s]|$)/g,
+        /(?<!\\)\$(\d+(?:[.,]\d+)*(?:\s*(?:k|K|M|B|USD|EUR|تومان|ریال|هزار|میلیون))?)(?!\.?\d)(?=[.,؛!؟\s]|$)/g,
         (fullMatch, amount, offset, fullStr) => {
-          // Check if this `$` has a matching closing `$` on the same line (forming valid inline math $...$)
-          const restOfLine = fullStr.slice(offset + fullMatch.length);
+          const afterIdx = offset + fullMatch.length;
+          if (fullStr[afterIdx] === "$") {
+            return fullMatch; // Closed single-number math token like $1.17$ or $0.12$
+          }
+          const restOfLine = fullStr.slice(afterIdx);
           const nextNewline = restOfLine.indexOf("\n");
           const lineRest = nextNewline >= 0 ? restOfLine.slice(0, nextNewline) : restOfLine;
           const closingDollarIdx = lineRest.indexOf("$");
 
-          // If there is a closing dollar on the same line, check what is inside
           if (closingDollarIdx !== -1) {
             const between = lineRest.slice(0, closingDollarIdx);
-            // If the content between contains LaTeX backslashes, math operators, or letters, it is math!
-            if (/[\^_{}\\]|\\text|\\frac|g\/cm|mg|mol|[a-zA-Z]/.test(between)) {
+            // If between has math operators, variables, letters, or equations, this was the start of an arithmetic equation like $6.0 + 3.0 = 9.0$
+            if (/[-=+*\/\\^_{}<>~×≤≥±a-zA-Z]/.test(between)) {
               return fullMatch; // Valid math formula, do not escape
             }
           }
@@ -335,8 +349,6 @@ export function normalizeRichContent(text: string): string {
           let seg = segment;
 
           // Normalize escaped newlines in plain text (e.g. \\r\\n -> \n, \\n -> \n)
-          // Exclude LaTeX commands starting with \n like \nabla, \neq, \nu, \notin, \null, \natural, \nearrow, \nwarrow, \noindent
-          // Also convert literal \newline to \n
           seg = seg.replace(/\\newline\b/g, "\n");
           seg = seg.replace(/\\r\\n/g, "\n");
           seg = seg.replace(/\\n(?![a-zA-Z])/g, "\n");
@@ -346,7 +358,6 @@ export function normalizeRichContent(text: string): string {
           seg = seg.replace(/\\"/g, '"');
 
           // In plain text outside math: safely unwrap standalone legacy \text{...} or \t ext{...} to clean plain text
-          // Supports spaces, units, Persian labels, and medical phrases without corrupting math
           seg = seg
             .replace(/\\?text\{([^{}\n]+)\}/g, "$1")
             .replace(/(?:\b|\t)ext\{([^{}\n]+)\}/g, "$1");
@@ -445,10 +456,10 @@ export function RichContent({
             ),
             a: ({ children, href, ...props }) => (
               <a
-                href={href}
+                href={isSafeHref(href) ? href : "#"}
                 className="text-teal-400 hover:text-teal-300 underline underline-offset-2 font-medium break-words"
                 target="_blank"
-                rel="noreferrer"
+                rel="noreferrer noopener"
                 {...props}
               >
                 {children}
@@ -527,10 +538,10 @@ export function RichContent({
           ),
           a: ({ children, href, ...props }) => (
             <a
-              href={href}
+              href={isSafeHref(href) ? href : "#"}
               className="text-[#006666] dark:text-teal-300 hover:text-[#008080] dark:hover:text-teal-200 underline underline-offset-4 decoration-[#008080]/40 dark:decoration-teal-500/50 hover:decoration-[#006666] dark:hover:decoration-teal-400 transition-colors font-medium break-words"
               target="_blank"
-              rel="noreferrer"
+              rel="noreferrer noopener"
               {...props}
             >
               {children}

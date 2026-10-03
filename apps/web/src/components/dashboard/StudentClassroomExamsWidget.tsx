@@ -11,7 +11,9 @@ import { ExamStatusBadge } from "../teacher/exams/ExamStatusBadge.js";
 import { Card, Button, Badge } from "../ui/index.js";
 import { formatPersianExamTimeRange } from "../../utils/date.js";
 import { toPersianDigits } from "@avana/domain";
-import { GraduationCap, ArrowLeft, Play, RotateCw } from "lucide-react";
+import { GraduationCap, ArrowLeft, Play, RotateCw, Eye } from "lucide-react";
+
+const RETENTION_AFTER_END_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 export function StudentClassroomExamsWidget() {
   const { data, isError, isLoading } = useAllStudentExams();
@@ -21,13 +23,19 @@ export function StudentClassroomExamsWidget() {
     return null;
   }
 
-  // Filter for active or upcoming exams, or incomplete attempts
-  const relevantExams = data.exams.filter(
-    (e) =>
-      e.runtimeState === "active" ||
-      e.runtimeState === "upcoming" ||
-      e.attemptStatus === "in_progress",
-  );
+  const nowMs = Date.now();
+
+  // Filter: Active, Upcoming, or Closed within the last 24 hours
+  const relevantExams = data.exams.filter((e) => {
+    if (e.runtimeState === "active" || e.runtimeState === "upcoming") {
+      return true;
+    }
+    if (e.runtimeState === "closed") {
+      const endMs = new Date(e.endsAt).getTime();
+      return nowMs - endMs <= RETENTION_AFTER_END_MS;
+    }
+    return false;
+  });
 
   if (relevantExams.length === 0) {
     return null;
@@ -52,7 +60,11 @@ export function StudentClassroomExamsWidget() {
       <div className="space-y-3">
         {relevantExams.slice(0, 3).map((exam) => {
           const isActive = exam.runtimeState === "active";
-          const hasInProgress = exam.attemptStatus === "in_progress";
+          const isClosed = exam.runtimeState === "closed";
+          const hasAttempt = Boolean(exam.hasAttempt);
+          const hasInProgress = hasAttempt && exam.attemptStatus === "in_progress";
+          const isCompleted =
+            hasAttempt && (exam.attemptStatus === "submitted" || exam.attemptStatus === "timed_out");
 
           return (
             <div
@@ -70,9 +82,24 @@ export function StudentClassroomExamsWidget() {
                     }}
                     size="sm"
                   />
-                  {hasInProgress && (
+                  {isActive && hasInProgress && (
                     <Badge variant="warning" size="sm">
                       در حال انجام
+                    </Badge>
+                  )}
+                  {isActive && isCompleted && (
+                    <Badge variant="success" size="sm">
+                      ثبت شده
+                    </Badge>
+                  )}
+                  {isClosed && hasAttempt && (
+                    <Badge variant="success" size="sm">
+                      پایان یافته
+                    </Badge>
+                  )}
+                  {isClosed && !hasAttempt && (
+                    <Badge variant="neutral" size="sm">
+                      شرکت نکرده
                     </Badge>
                   )}
                 </div>
@@ -83,18 +110,38 @@ export function StudentClassroomExamsWidget() {
               </div>
 
               <div>
-                {hasInProgress ? (
+                {isActive && hasInProgress ? (
                   <Link to={`/classrooms/${exam.classroomId}/exams/${exam.id}/take`}>
                     <Button size="sm" variant="primary" className="bg-amber-600 hover:bg-amber-700">
                       ادامه
                       <RotateCw className="w-3.5 h-3.5 mr-1" />
                     </Button>
                   </Link>
-                ) : isActive ? (
+                ) : isActive && isCompleted ? (
+                  <Link to={`/classrooms/${exam.classroomId}/exams/${exam.id}/results`}>
+                    <Button size="sm" variant="outline">
+                      <Eye className="w-3.5 h-3.5 ml-1" />
+                      مشاهده نتیجه
+                    </Button>
+                  </Link>
+                ) : isActive && !hasAttempt ? (
                   <Link to={`/classrooms/${exam.classroomId}/exams/${exam.id}`}>
                     <Button size="sm" variant="primary">
                       شرکت
                       <Play className="w-3.5 h-3.5 mr-1" />
+                    </Button>
+                  </Link>
+                ) : isClosed && hasAttempt ? (
+                  <Link to={`/classrooms/${exam.classroomId}/exams/${exam.id}/results`}>
+                    <Button size="sm" variant="outline">
+                      <Eye className="w-3.5 h-3.5 ml-1" />
+                      مشاهده نتیجه
+                    </Button>
+                  </Link>
+                ) : isClosed && !hasAttempt ? (
+                  <Link to={`/classrooms/${exam.classroomId}/exams/${exam.id}/results`}>
+                    <Button size="sm" variant="outline">
+                      مشاهده
                     </Button>
                   </Link>
                 ) : (

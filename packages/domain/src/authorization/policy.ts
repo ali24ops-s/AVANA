@@ -96,7 +96,14 @@ export type AuthAction =
   | "assignment:archive"
   | "assignment:delete"
   | "assignment:submit"
-  | "assignment:view_submissions";
+  | "assignment:view_submissions"
+  | "classroom_content:create"
+  | "classroom_content:read"
+  | "classroom_content:update"
+  | "classroom_content:publish"
+  | "classroom_content:archive"
+  | "classroom_content:delete";
+
 
 
 // ---------------------------------------------------------------------------
@@ -326,6 +333,7 @@ export class RoleBasedPolicy implements AuthorizationPolicy {
         "teacher_exam:attempt",
         "assignment:read",
         "assignment:submit",
+        "classroom_content:read",
       ]),
     );
 
@@ -365,6 +373,12 @@ export class RoleBasedPolicy implements AuthorizationPolicy {
         "assignment:archive",
         "assignment:delete",
         "assignment:view_submissions",
+        "classroom_content:create",
+        "classroom_content:read",
+        "classroom_content:update",
+        "classroom_content:publish",
+        "classroom_content:archive",
+        "classroom_content:delete",
       ]),
     );
 
@@ -394,6 +408,7 @@ export class RoleBasedPolicy implements AuthorizationPolicy {
         "quiz:attempt",
         "study:read",
         "assignment:read",
+        "classroom_content:read",
       ]),
     );
 
@@ -425,6 +440,7 @@ export class RoleBasedPolicy implements AuthorizationPolicy {
         "study:read",
         "content:export",
         "assignment:read",
+        "classroom_content:read",
       ]),
     );
 
@@ -479,6 +495,12 @@ export class RoleBasedPolicy implements AuthorizationPolicy {
         "assignment:archive",
         "assignment:delete",
         "assignment:view_submissions",
+        "classroom_content:create",
+        "classroom_content:read",
+        "classroom_content:update",
+        "classroom_content:publish",
+        "classroom_content:archive",
+        "classroom_content:delete",
       ]),
     );
 
@@ -538,6 +560,12 @@ export class RoleBasedPolicy implements AuthorizationPolicy {
         "assignment:delete",
         "assignment:submit",
         "assignment:view_submissions",
+        "classroom_content:create",
+        "classroom_content:read",
+        "classroom_content:update",
+        "classroom_content:publish",
+        "classroom_content:archive",
+        "classroom_content:delete",
       ]),
     );
 
@@ -550,6 +578,7 @@ export class RoleBasedPolicy implements AuthorizationPolicy {
         "teacher_exam:view_results",
         "assignment:read",
         "assignment:view_submissions",
+        "classroom_content:read",
       ]),
     );
 

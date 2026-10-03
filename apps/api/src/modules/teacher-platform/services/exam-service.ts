@@ -3,6 +3,7 @@ import {
   asUserId,
   asOrganizationId,
   type Actor,
+  type UserId,
   type TeacherExam,
   type TeacherExamQuestion,
   type Classroom,
@@ -18,8 +19,10 @@ import type {
   TeacherExamStore,
   TeacherExamQuestionStore,
   ClassroomStore,
+  ClassroomMemberStore,
 } from "../stores.js";
 import type { OrganizationStore } from "../../organizations/organization-store.js";
+import type { NotificationService } from "../../notifications/notification-service.js";
 
 export interface TeacherExamWithDetails extends TeacherExam {
   runtimeState: RuntimeExamState;
@@ -32,6 +35,8 @@ export class TeacherExamService {
     private readonly questionStore: TeacherExamQuestionStore,
     private readonly classroomStore: ClassroomStore,
     private readonly organizationStore: OrganizationStore,
+    readonly memberStore?: ClassroomMemberStore,
+    readonly notificationService?: NotificationService,
   ) {}
 
   /**
@@ -246,9 +251,31 @@ export class TeacherExamService {
       if (q.points <= 0) {
         throw new DomainError("bad_request", `بارم سوال "${q.prompt.slice(0, 30)}" باید بیشتر از صفر باشد`);
       }
-      if (q.questionType !== "descriptive") {
-        if (!Array.isArray(q.options) || q.options.length < 2) {
-          throw new DomainError("bad_request", `سوال ${q.prompt.slice(0, 30)} باید حداقل دارای ۲ گزینه باشد`);
+      if (q.questionType === "true_false") {
+        if (
+          !Array.isArray(q.statements) ||
+          q.statements.length < 1 ||
+          q.statements.length > 8
+        ) {
+          throw new DomainError(
+            "bad_request",
+            `سوال صحیح/غلط "${q.prompt.slice(0, 30)}" باید بین ۱ تا ۸ گزاره داشته باشد`,
+          );
+        }
+        for (const stmt of q.statements) {
+          if (!stmt.id || !stmt.text || stmt.text.trim().length === 0 || typeof stmt.correctAnswer !== "boolean") {
+            throw new DomainError(
+              "bad_request",
+              `گزاره‌های سوال صحیح/غلط "${q.prompt.slice(0, 30)}" نامعتبر یا دارای متن خالی است`,
+            );
+          }
+        }
+      } else if (q.questionType !== "descriptive") {
+        if (!Array.isArray(q.options) || q.options.length < 2 || q.options.length > 6) {
+          throw new DomainError(
+            "bad_request",
+            `سوال تستی "${q.prompt.slice(0, 30)}" باید دارای ۲ تا ۶ گزینه باشد`,
+          );
         }
         const optionIds = new Set(q.options.map((o) => o.id));
         if (!q.correctOptionId || !optionIds.has(q.correctOptionId)) {
@@ -269,6 +296,15 @@ export class TeacherExamService {
     if (!published) {
       throw new DomainError("internal_error", "خطا در انتشار آزمون");
     }
+
+    await this.dispatchToActiveMembers(published.classroomId, async (studentIds, classroom) => {
+      await this.notificationService!.notifyClassroomExamPublished(studentIds, {
+        examId: published.id,
+        classroomId: published.classroomId,
+        examTitle: published.title,
+        classTitle: classroom.title,
+      });
+    });
 
     return {
       ...published,
@@ -314,16 +350,75 @@ export class TeacherExamService {
   }
 
   /**
+   * Deletes an exam.
+   * Only allowed if exam has no student attempts.
+   */
+  async deleteExam(actor: Actor, examId: string): Promise<void> {
+    await this.assertTeacherExamAccess(actor, examId);
+
+    const hasAttempts = await this.examStore.hasAttempts(examId);
+    if (hasAttempts) {
+      throw new DomainError(
+        "conflict",
+        "آزمون دارای شرکت‌کننده است و امکان حذف آن وجود ندارد. برای خارج کردن آزمون از دسترس، می‌توانید آن را بایگانی کنید.",
+      );
+    }
+
+    try {
+      const deleted = await this.examStore.delete(examId);
+      if (!deleted) {
+        const stillHasAttempts = await this.examStore.hasAttempts(examId);
+        if (stillHasAttempts) {
+          throw new DomainError(
+            "conflict",
+            "آزمون دارای شرکت‌کننده است و امکان حذف آن وجود ندارد. برای خارج کردن آزمون از دسترس، می‌توانید آن را بایگانی کنید.",
+          );
+        }
+        throw new DomainError("not_found", "آزمون یافت نشد");
+      }
+    } catch (err) {
+      if (err instanceof DomainError) {
+        throw err;
+      }
+      const errAny = err as { code?: string; message?: string };
+      if (
+        errAny?.code === "23503" ||
+        (typeof errAny?.message === "string" &&
+          (errAny.message.includes("foreign key") ||
+            errAny.message.includes("violates foreign key constraint") ||
+            errAny.message.includes("teacher_exam_attempts")))
+      ) {
+        throw new DomainError(
+          "conflict",
+          "آزمون دارای شرکت‌کننده است و امکان حذف آن وجود ندارد. برای خارج کردن آزمون از دسترس، می‌توانید آن را بایگانی کنید.",
+        );
+      }
+      throw err;
+    }
+  }
+
+  /**
    * Archives an exam.
    */
   async archiveExam(
     actor: Actor,
     examId: string,
   ): Promise<TeacherExamWithDetails> {
-    await this.assertTeacherExamAccess(actor, examId);
+    const { exam } = await this.assertTeacherExamAccess(actor, examId);
     const archived = await this.examStore.archive(examId);
     if (!archived) {
       throw new DomainError("not_found", "آزمون یافت نشد");
+    }
+
+    if (exam.status === "published") {
+      await this.dispatchToActiveMembers(archived.classroomId, async (studentIds, classroom) => {
+        await this.notificationService!.notifyClassroomExamArchived(studentIds, {
+          examId: archived.id,
+          classroomId: archived.classroomId,
+          examTitle: archived.title,
+          classTitle: classroom.title,
+        });
+      });
     }
 
     const questions = await this.questionStore.listByExam(examId);
@@ -346,6 +441,15 @@ export class TeacherExamService {
     if (!closed) {
       throw new DomainError("not_found", "آزمون یافت نشد");
     }
+
+    await this.dispatchToActiveMembers(closed.classroomId, async (studentIds, classroom) => {
+      await this.notificationService!.notifyClassroomExamClosed(studentIds, {
+        examId: closed.id,
+        classroomId: closed.classroomId,
+        examTitle: closed.title,
+        classTitle: classroom.title,
+      });
+    });
 
     const questions = await this.questionStore.listByExam(examId);
     return {
@@ -371,12 +475,38 @@ export class TeacherExamService {
       throw new DomainError("not_found", "آزمون یافت نشد");
     }
 
+    await this.dispatchToActiveMembers(released.classroomId, async (studentIds, classroom) => {
+      await this.notificationService!.notifyClassroomExamResultsReleased(studentIds, {
+        examId: released.id,
+        classroomId: released.classroomId,
+        examTitle: released.title,
+        classTitle: classroom.title,
+      });
+    });
+
     const questions = await this.questionStore.listByExam(examId);
     return {
       ...released,
       runtimeState: calculateRuntimeExamState(released),
       questionsCount: questions.length,
     };
+  }
+
+  private async dispatchToActiveMembers(
+    classroomId: string,
+    callback: (studentIds: UserId[], classroom: Classroom) => Promise<unknown>,
+  ): Promise<void> {
+    if (!this.memberStore || !this.notificationService) return;
+    try {
+      const classroom = await this.classroomStore.getById(classroomId);
+      if (!classroom) return;
+      const members = await this.memberStore.listMembers(classroomId, "active");
+      const studentIds = members.map((m) => asUserId(m.studentId));
+      if (studentIds.length === 0) return;
+      await callback(studentIds, classroom);
+    } catch {
+      // Graceful error handling: notification errors should not block exam workflow
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -403,8 +533,9 @@ export class TeacherExamService {
       examId,
       orderIndex,
       questionType: input.questionType ?? "single_choice",
-      prompt: input.prompt,
+      prompt: input.prompt ?? "",
       options: input.options,
+      statements: input.statements,
       correctOptionId: input.correctOptionId,
       points: input.points ?? 1,
       explanation: input.explanation ?? null,
@@ -433,6 +564,7 @@ export class TeacherExamService {
       questionType: input.questionType ?? existing.questionType,
       prompt: input.prompt,
       options: input.options,
+      statements: input.statements,
       correctOptionId: input.correctOptionId,
       points: input.points ?? existing.points,
       explanation: input.explanation,

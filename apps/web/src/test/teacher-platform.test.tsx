@@ -21,6 +21,7 @@ import { TeacherClassroomsPage } from "../pages/teacher/TeacherClassroomsPage.js
 import { TeacherExamCreatePage } from "../pages/teacher/TeacherExamCreatePage.js";
 import { TeacherExamEditorPage } from "../pages/teacher/TeacherExamEditorPage.js";
 import { TeacherExamDetailPage } from "../pages/teacher/TeacherExamDetailPage.js";
+import { TeacherStudentResultDetailPage } from "../pages/teacher/TeacherStudentResultDetailPage.js";
 import { ClassroomExamsTable } from "../components/teacher/exams/ClassroomExamsTable.js";
 import { ClassroomMembersTable } from "../components/teacher/classrooms/ClassroomMembersTable.js";
 import { StudentResultsTable } from "../components/teacher/results/StudentResultsTable.js";
@@ -1397,9 +1398,9 @@ describe("Teacher Platform - Precise Exam Scheduling & Time Management", () => {
     const middleOfExam = new Date("2026-10-07T10:45:00.000Z");
     expect(calculateRuntimeExamState(examBase, middleOfExam)).toBe("active");
 
-    // 4. Exactly at endsAt (11:30:00) -> active
+    // 4. Exactly at endsAt (11:30:00) -> closed (Case F: exactly at endAt is closed)
     const exactlyAtEnd = new Date("2026-10-07T11:30:00.000Z");
-    expect(calculateRuntimeExamState(examBase, exactlyAtEnd)).toBe("active");
+    expect(calculateRuntimeExamState(examBase, exactlyAtEnd)).toBe("closed");
 
     // 5. After endsAt (11:30:01) -> closed
     const afterEnd = new Date("2026-10-07T11:30:01.000Z");
@@ -1428,10 +1429,13 @@ describe("Teacher Platform - Precise Exam Scheduling & Time Management", () => {
       },
     ];
 
+    const queryClient = createTestQueryClient();
     render(
-      <MemoryRouter>
-        <ClassroomExamsTable exams={mockExams} isLoading={false} classroomId="cls_1" />
-      </MemoryRouter>
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <ClassroomExamsTable exams={mockExams} isLoading={false} classroomId="cls_1" />
+        </MemoryRouter>
+      </QueryClientProvider>,
     );
 
     expect(screen.getByText("آزمون حسابان ۱")).toBeInTheDocument();
@@ -2482,5 +2486,498 @@ describe("Teacher Platform - allowBackNavigation Toggle & Configuration Suite", 
 
       expect(capturedPatchPayload.durationMinutes).toBeNull();
       expect(capturedPatchPayload.passingScorePercentage).toBeNull();
+    });
+  });
+
+  // =========================================================================
+  // Teacher Platform - True/False Question Authoring UI Suite
+  // =========================================================================
+  describe("Teacher Platform - True/False Question Authoring UI Suite", () => {
+    beforeEach(() => {
+      mockCurrentUser = { id: "teacher_1", email: "teacher@test.com", role: "teacher" };
+      mockUserMemberships = [{ organization_id: "org_1", role: "teacher" }];
+    });
+
+    it("renders True/False question preview and allows inline authoring of True/False question", async () => {
+      let createdQuestionPayload: any = null;
+      vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
+        const urlStr = String(url);
+        if (urlStr.includes("/v1/teacher/exams/exam_tf_editor/questions") && init?.method === "POST") {
+          createdQuestionPayload = JSON.parse(String(init.body));
+          return {
+            ok: true,
+            status: 201,
+            text: () =>
+              Promise.resolve(
+                JSON.stringify({
+                  question: {
+                    id: "q_tf_new",
+                    examId: "exam_tf_editor",
+                    orderIndex: 1,
+                    questionType: "true_false",
+                    prompt: createdQuestionPayload.prompt,
+                    points: createdQuestionPayload.points,
+                    correctOptionId: createdQuestionPayload.correctOptionId,
+                    options: [
+                      { id: "true", text: "صحیح" },
+                      { id: "false", text: "غلط" },
+                    ],
+                  },
+                }),
+              ),
+          } as Response;
+        }
+
+        if (urlStr.includes("/v1/teacher/exams/exam_tf_editor/questions")) {
+          return {
+            ok: true,
+            status: 200,
+            text: () =>
+              Promise.resolve(
+                JSON.stringify({
+                  questions: [
+                    {
+                      id: "q_tf_1",
+                      examId: "exam_tf_editor",
+                      orderIndex: 0,
+                      questionType: "true_false",
+                      prompt: "در مورد گزاره‌های زیر، صحیح یا غلط بودن هر یک را مشخص کنید.",
+                      points: 10,
+                      statements: [
+                        {
+                          id: "stmt_1",
+                          text: "هالوتان هپاتوتوکسیک‌ترین گاز بیهوشی است.",
+                          correctAnswer: true,
+                        },
+                      ],
+                      explanation: "به دلیل متابولیسم اکسیداتیو در کبد.",
+                    },
+                  ],
+                }),
+              ),
+          } as Response;
+        }
+
+        if (urlStr.includes("/v1/teacher/exams/exam_tf_editor")) {
+          return {
+            ok: true,
+            status: 200,
+            text: () =>
+              Promise.resolve(
+                JSON.stringify({
+                  exam: {
+                    id: "exam_tf_editor",
+                    classroomId: "cls_1",
+                    title: "آزمون تخصصی هوشبری",
+                    durationMinutes: 30,
+                    startsAt: "2026-10-01T10:00:00.000Z",
+                    endsAt: "2026-10-01T12:00:00.000Z",
+                    status: "draft",
+                    runtimeState: "upcoming",
+                    questionsCount: 1,
+                  },
+                }),
+              ),
+          } as Response;
+        }
+        return { ok: true, status: 200, text: () => Promise.resolve("{}") } as Response;
+      });
+
+      const queryClient = createTestQueryClient();
+      render(
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter initialEntries={["/teacher/exams/exam_tf_editor/edit"]}>
+            <Routes>
+              <Route path="/teacher/exams/:examId/edit" element={<TeacherExamEditorPage />} />
+            </Routes>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+
+      // Verify existing True/False question renders correctly with badge and statement
+      await screen.findByText("هالوتان هپاتوتوکسیک‌ترین گاز بیهوشی است.");
+      expect(screen.getByText(/صحیح \/ غلط/)).toBeInTheDocument();
+      expect(screen.getByText(/پاسخ صحیح: صحیح/)).toBeInTheDocument();
+
+      // Open new question inline form
+      const addQuestionBtn = screen.getByRole("button", { name: /طرح سوال جدید/ });
+      fireEvent.click(addQuestionBtn);
+
+      // Select True/False question type
+      const tfTypeRadio = screen.getByLabelText(/صحیح \/ غلط/);
+      fireEvent.click(tfTypeRadio);
+
+      // Verify fixed prompt banner is displayed
+      expect(screen.getByText(/صورت سؤال ثابت:/)).toBeInTheDocument();
+
+      // Fill statement 1 text
+      const stmt1Input = screen.getByPlaceholderText(/متن گزاره ۱ را بنویسید/);
+      fireEvent.change(stmt1Input, {
+        target: { value: "کتامین ترشح بزاق را مهار می‌کند." },
+      });
+
+      // Fill statement 2 text
+      const stmt2Input = screen.getByPlaceholderText(/متن گزاره ۲ را بنویسید/);
+      fireEvent.change(stmt2Input, {
+        target: { value: "مورفین یک آنتاگونیست اپیوئیدی است." },
+      });
+
+      // Save question
+      const saveQuestionBtn = screen.getByRole("button", { name: "افزودن به آزمون" });
+      fireEvent.click(saveQuestionBtn);
+
+      await waitFor(() => {
+        expect(createdQuestionPayload).not.toBeNull();
+      });
+
+      expect(createdQuestionPayload.questionType).toBe("true_false");
+      expect(createdQuestionPayload.prompt).toBe("در مورد گزاره‌های زیر، صحیح یا غلط بودن هر یک را مشخص کنید.");
+      expect(createdQuestionPayload.statements).toHaveLength(2);
+      expect(createdQuestionPayload.statements[0].text).toBe("کتامین ترشح بزاق را مهار می‌کند.");
+      expect(createdQuestionPayload.statements[0].correctAnswer).toBe(true);
+      expect(createdQuestionPayload.statements[1].text).toBe("مورفین یک آنتاگونیست اپیوئیدی است.");
+      expect(createdQuestionPayload.statements[1].correctAnswer).toBe(false);
+    });
+  });
+
+  describe("ClassroomExamsTable — Delete Exam Feature & Modal Interaction", () => {
+    let fetchSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      mockCurrentUser = { id: "user_teacher", email: "teacher@avana.org", role: "teacher" };
+      mockUserMemberships = [{ organization_id: "org_1", role: "teacher" }];
+      vi.restoreAllMocks();
+    });
+
+    const mockExams = [
+      {
+        id: "exam_del_100",
+        classroomId: "cls_1",
+        title: "آزمون فارماکولوژی بالینی",
+        description: "مبحث داروهای قلبی عروقی",
+        durationMinutes: 45,
+        startsAt: "2026-10-10T10:00:00.000Z",
+        endsAt: "2026-10-10T11:00:00.000Z",
+        status: "draft" as const,
+        runtimeState: "upcoming" as const,
+        questionsCount: 10,
+        createdAt: "2026-10-01T00:00:00.000Z",
+        updatedAt: "2026-10-01T00:00:00.000Z",
+      },
+    ];
+
+    it("renders delete button, opens ConfirmModal, and deletes exam successfully", async () => {
+      let deleteCalledWithUrl: string | null = null;
+
+      fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+        const urlStr = String(input);
+        const method = init?.method || "GET";
+
+        if (method === "DELETE" && urlStr.includes("/v1/teacher/exams/exam_del_100")) {
+          deleteCalledWithUrl = urlStr;
+          return Promise.resolve({
+            ok: true,
+            status: 204,
+            headers: new Headers({ "x-request-id": "req-del-success" }),
+            text: () => Promise.resolve(""),
+            json: () => Promise.resolve({}),
+          } as Response);
+        }
+
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          headers: new Headers({ "x-request-id": "req-default" }),
+          text: () => Promise.resolve("{}"),
+          json: () => Promise.resolve({}),
+        } as Response);
+      });
+
+      const queryClient = createTestQueryClient();
+      render(
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter>
+            <ClassroomExamsTable exams={mockExams} isLoading={false} classroomId="cls_1" />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+
+      // Verify exam is in table
+      expect(screen.getByText("آزمون فارماکولوژی بالینی")).toBeInTheDocument();
+
+      // Click delete button
+      const deleteBtn = screen.getByRole("button", { name: "حذف آزمون" });
+      expect(deleteBtn).toBeInTheDocument();
+      fireEvent.click(deleteBtn);
+
+      // Verify ConfirmModal opens with proper title and warning text
+      expect(screen.getByText("حذف آزمون کلاسی")).toBeInTheDocument();
+      expect(
+        screen.getByText(/آیا از حذف آزمون «آزمون فارماکولوژی بالینی» اطمینان دارید؟/),
+      ).toBeInTheDocument();
+
+      // Click confirm button
+      const confirmBtn = screen.getByRole("button", { name: "حذف قطعی" });
+      fireEvent.click(confirmBtn);
+
+      await waitFor(() => {
+        expect(deleteCalledWithUrl).toContain("/v1/teacher/exams/exam_del_100");
+      });
+
+      // ConfirmModal should close on success
+      await waitFor(() => {
+        expect(screen.queryByText("حذف آزمون کلاسی")).not.toBeInTheDocument();
+      });
+    });
+
+    it("displays 409 conflict error when exam has attempts and does not close modal", async () => {
+      fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+        const method = init?.method || "GET";
+
+        if (method === "DELETE") {
+          return Promise.resolve({
+            ok: false,
+            status: 409,
+            headers: new Headers({ "x-request-id": "req-del-conflict" }),
+            text: () =>
+              Promise.resolve(
+                JSON.stringify({
+                  request_id: "req-del-conflict",
+                  error: {
+                    code: "conflict",
+                    message:
+                      "آزمون دارای شرکت‌کننده است و امکان حذف آن وجود ندارد. برای خارج کردن آزمون از دسترس، می‌توانید آن را بایگانی کنید.",
+                  },
+                }),
+              ),
+            json: () =>
+              Promise.resolve({
+                request_id: "req-del-conflict",
+                error: {
+                  code: "conflict",
+                  message:
+                    "آزمون دارای شرکت‌کننده است و امکان حذف آن وجود ندارد. برای خارج کردن آزمون از دسترس، می‌توانید آن را بایگانی کنید.",
+                },
+              }),
+          } as Response);
+        }
+
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          text: () => Promise.resolve("{}"),
+          json: () => Promise.resolve({}),
+        } as Response);
+      });
+
+      const queryClient = createTestQueryClient();
+      render(
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter>
+            <ClassroomExamsTable exams={mockExams} isLoading={false} classroomId="cls_1" />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+
+      // Click delete button
+      const deleteBtn = screen.getByRole("button", { name: "حذف آزمون" });
+      fireEvent.click(deleteBtn);
+
+      // Confirm delete
+      const confirmBtn = screen.getByRole("button", { name: "حذف قطعی" });
+      fireEvent.click(confirmBtn);
+
+      // Verify modal stays open and displays Persian error message
+      expect(
+        await screen.findByText(
+          "آزمون دارای شرکت‌کننده است و امکان حذف آن وجود ندارد. برای خارج کردن آزمون از دسترس، می‌توانید آن را بایگانی کنید.",
+        ),
+      ).toBeInTheDocument();
+      expect(screen.getByText("حذف آزمون کلاسی")).toBeInTheDocument();
+      expect(screen.getByText("آزمون فارماکولوژی بالینی")).toBeInTheDocument();
+    });
+  });
+
+  describe("Teacher Platform — Descriptive Grading & Decimal Precision UI (0.01 step)", () => {
+    it("renders descriptive grading input with step 0.01 and submits canonical attemptId and decimal score (0.37)", async () => {
+      mockCurrentUser = {
+        id: "usr_teacher_1",
+        email: "teacher@avana.io",
+        role: "teacher",
+      };
+      mockUserMemberships = [{ organization_id: "org_1", role: "teacher" }];
+
+      const mockExam = {
+        id: "exam_100",
+        classroomId: "cls_1",
+        title: "آزمون فارماکولوژی",
+        status: "published",
+        startsAt: "2026-03-30T10:00:00.000Z",
+        endsAt: "2026-03-30T12:00:00.000Z",
+        durationMinutes: 60,
+        passingScorePercentage: 50,
+      };
+
+      const mockStudentResult = {
+        attempt: {
+          id: "att_999",
+          attemptId: "att_999",
+          studentId: "student_10",
+          studentName: "سارا حسینی",
+          studentEmail: "sara@example.com",
+          status: "submitted",
+          gradingStatus: "needs_manual_review",
+          score: 0,
+          maxScore: 1,
+          percentage: 0,
+          passed: false,
+          startedAt: "2026-03-30T10:05:00.000Z",
+          submittedAt: "2026-03-30T10:50:00.000Z",
+          durationMinutes: 45,
+        },
+        questions: [
+          {
+            questionId: "q_desc_1",
+            orderIndex: 0,
+            questionType: "descriptive",
+            prompt: "مکانیسم مهار رقابتی آنزیم را شرح دهید.",
+            selectedOptionId: null,
+            textAnswer: "مهارکننده با اتصال به جایگاه فعال مانع سوبسترا می‌شود.",
+            teacherFeedback: null,
+            gradingStatus: "ungraded",
+            isCorrect: null,
+            pointsEarned: null,
+            maxPoints: 1,
+          },
+        ],
+      };
+
+      const putRequests: Array<{ url: string; body: unknown }> = [];
+
+      vi.spyOn(global, "fetch").mockImplementation((url, options) => {
+        const urlStr = url.toString();
+        const method = options?.method || "GET";
+
+        if (urlStr.includes("/v1/teacher/exams/exam_100/results/student_10")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            text: () => Promise.resolve(JSON.stringify({ result: mockStudentResult })),
+            json: () => Promise.resolve({ result: mockStudentResult }),
+          } as Response);
+        }
+
+        if (urlStr.includes("/v1/teacher/exams/exam_100") && method === "GET") {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            text: () => Promise.resolve(JSON.stringify({ exam: mockExam })),
+            json: () => Promise.resolve({ exam: mockExam }),
+          } as Response);
+        }
+
+        if (method === "PUT" && urlStr.includes("/answers/q_desc_1/grade")) {
+          const body = options?.body ? JSON.parse(options.body as string) : {};
+          putRequests.push({ url: urlStr, body });
+
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            text: () =>
+              Promise.resolve(
+                JSON.stringify({
+                  attempt: {
+                    ...mockStudentResult.attempt,
+                    score: body.pointsEarned,
+                    gradingStatus: "fully_graded",
+                  },
+                  answer: {
+                    id: "ans_1",
+                    attemptId: "att_999",
+                    questionId: "q_desc_1",
+                    pointsEarned: body.pointsEarned,
+                    gradingStatus: "graded",
+                  },
+                }),
+              ),
+            json: () =>
+              Promise.resolve({
+                attempt: {
+                  ...mockStudentResult.attempt,
+                  score: body.pointsEarned,
+                  gradingStatus: "fully_graded",
+                },
+                answer: {
+                  id: "ans_1",
+                  attemptId: "att_999",
+                  questionId: "q_desc_1",
+                  pointsEarned: body.pointsEarned,
+                  gradingStatus: "graded",
+                },
+              }),
+          } as Response);
+        }
+
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          text: () => Promise.resolve("{}"),
+          json: () => Promise.resolve({}),
+        } as Response);
+      });
+
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+
+      render(
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter initialEntries={["/teacher/exams/exam_100/results/students/student_10"]}>
+            <Routes>
+              <Route
+                path="/teacher/exams/:examId/results/students/:studentId"
+                element={<TeacherStudentResultDetailPage />}
+              />
+            </Routes>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+
+      // Wait for student prompt to render
+      expect(await screen.findByText("مکانیسم مهار رقابتی آنزیم را شرح دهید.")).toBeInTheDocument();
+      expect(screen.getAllByText(/سارا حسینی/).length).toBeGreaterThan(0);
+
+      // Find the points input and verify step="0.01" and min="0"
+      const pointsInput = screen.getByPlaceholderText("0 تا 1") as HTMLInputElement;
+      expect(pointsInput).toBeInTheDocument();
+      expect(pointsInput.getAttribute("step")).toBe("0.01");
+      expect(pointsInput.getAttribute("min")).toBe("0");
+      expect(pointsInput.getAttribute("max")).toBe("1");
+
+      // Enter decimal score (0.37)
+      fireEvent.change(pointsInput, { target: { value: "0.37" } });
+
+      // Enter feedback
+      const feedbackInput = screen.getByPlaceholderText(
+        "مثال: استدلال در بخش دوم کامل نبود...",
+      ) as HTMLInputElement;
+      fireEvent.change(feedbackInput, { target: { value: "استدلال بخش اول عالی بود." } });
+
+      // Click submit
+      const submitBtn = screen.getByRole("button", { name: "ثبت نمره" });
+      fireEvent.click(submitBtn);
+
+      // Verify success message appears
+      expect(await screen.findByText("نمره با موفقیت ثبت شد.")).toBeInTheDocument();
+
+      // Verify exact PUT request payload and URL containing canonical att_999 (NOT exam_100)
+      expect(putRequests).toHaveLength(1);
+      expect(putRequests[0].url).toContain(
+        "/v1/teacher/exams/exam_100/attempts/att_999/answers/q_desc_1/grade",
+      );
+      expect(putRequests[0].body).toEqual({
+        pointsEarned: 0.37,
+        teacherFeedback: "استدلال بخش اول عالی بود.",
+      });
     });
   });

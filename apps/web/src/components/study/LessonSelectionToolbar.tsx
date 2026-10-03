@@ -91,17 +91,9 @@ export function LessonSelectionToolbar({
 
   if (!selectionData) return null;
 
-  console.log("[toolbar]", {
-    selectedText: selectionData.selectedText,
-    isBottomBar: position.isBottomBar,
-  });
-
-  const handleAction = (e: React.MouseEvent, action: () => void, actionName?: string) => {
+  const handleAction = (e: React.MouseEvent, action: () => void, _actionName?: string) => {
     e.preventDefault();
     e.stopPropagation();
-    if (actionName === "highlight") {
-      console.log("[highlight-click]", { selectedText: selectionData.selectedText });
-    }
     action();
   };
 

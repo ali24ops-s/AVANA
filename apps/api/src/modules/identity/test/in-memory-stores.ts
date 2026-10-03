@@ -458,6 +458,9 @@ export class InMemoryUserStore implements UserStore {
     name?: string;
     phoneNumber?: string;
     major?: string | null;
+    university?: string | null;
+    faculty?: string | null;
+    department?: string | null;
     globalRole?: string | null;
   }): Promise<UserRecord> {
     const id = randomUUID() as UserId;
@@ -472,6 +475,9 @@ export class InMemoryUserStore implements UserStore {
       globalRole,
       phoneNumber: params.phoneNumber ?? null,
       major: params.major ?? null,
+      university: params.university ?? null,
+      faculty: params.faculty ?? null,
+      department: params.department ?? null,
       passwordHash: params.passwordHash,
       emailVerifiedAt: null,
       emailVerified: false,
@@ -487,6 +493,9 @@ export class InMemoryUserStore implements UserStore {
       globalRole,
       phoneNumber: params.phoneNumber ?? null,
       major: params.major ?? null,
+      university: params.university ?? null,
+      faculty: params.faculty ?? null,
+      department: params.department ?? null,
       emailVerifiedAt: null,
       emailVerified: false,
       phoneVerifiedAt: null,
@@ -530,6 +539,26 @@ export class InMemoryUserStore implements UserStore {
     const user = this.users.get(userId);
     if (user) {
       user.major = major ? major.trim() : null;
+    }
+  }
+
+  async updateProfileFields(
+    userId: UserId,
+    fields: {
+      name?: string;
+      major?: string | null;
+      university?: string | null;
+      faculty?: string | null;
+      department?: string | null;
+    },
+  ): Promise<void> {
+    const user = this.users.get(userId);
+    if (user) {
+      if (fields.name !== undefined) user.name = fields.name.trim();
+      if (fields.major !== undefined) user.major = fields.major ? fields.major.trim() : null;
+      if (fields.university !== undefined) user.university = fields.university ? fields.university.trim() : null;
+      if (fields.faculty !== undefined) user.faculty = fields.faculty ? fields.faculty.trim() : null;
+      if (fields.department !== undefined) user.department = fields.department ? fields.department.trim() : null;
     }
   }
 

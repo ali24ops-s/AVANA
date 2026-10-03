@@ -133,6 +133,9 @@ function toUserRecord(
     globalRole?: string | null;
     phoneNumber?: string | null;
     major?: string | null;
+    university?: string | null;
+    faculty?: string | null;
+    department?: string | null;
     emailVerifiedAt?: Date | string | null;
     phoneVerifiedAt?: Date | string | null;
   },
@@ -146,6 +149,9 @@ function toUserRecord(
     globalRole: row.globalRole ?? null,
     phoneNumber: row.phoneNumber ?? null,
     major: row.major ?? null,
+    university: row.university ?? null,
+    faculty: row.faculty ?? null,
+    department: row.department ?? null,
     emailVerifiedAt: toISOStringSafe(row.emailVerifiedAt),
     emailVerified: row.emailVerifiedAt != null,
     phoneVerifiedAt: toISOStringSafe(row.phoneVerifiedAt),
@@ -697,6 +703,9 @@ export class DrizzleUserStore implements UserStore {
     name?: string;
     phoneNumber?: string;
     major?: string | null;
+    university?: string | null;
+    faculty?: string | null;
+    department?: string | null;
     globalRole?: string | null;
   }): Promise<UserRecord> {
     const normalizedEmail = params.email.trim().toLowerCase();
@@ -709,6 +718,9 @@ export class DrizzleUserStore implements UserStore {
         name: params.name ?? normalizedEmail.split("@")[0],
         phoneNumber: params.phoneNumber ?? null,
         major: params.major ?? null,
+        university: params.university ?? null,
+        faculty: params.faculty ?? null,
+        department: params.department ?? null,
         globalRole: params.globalRole ?? null,
       })
       .returning({
@@ -718,6 +730,9 @@ export class DrizzleUserStore implements UserStore {
         globalRole: users.globalRole,
         phoneNumber: users.phoneNumber,
         major: users.major,
+        university: users.university,
+        faculty: users.faculty,
+        department: users.department,
         emailVerifiedAt: users.emailVerifiedAt,
         phoneVerifiedAt: users.phoneVerifiedAt,
       });
@@ -764,6 +779,41 @@ export class DrizzleUserStore implements UserStore {
         major: major ? major.trim() : null,
         updatedAt: new Date(),
       })
+      .where(eq(users.id, userId));
+  }
+
+  async updateProfileFields(
+    userId: UserId,
+    fields: {
+      name?: string;
+      major?: string | null;
+      university?: string | null;
+      faculty?: string | null;
+      department?: string | null;
+    },
+  ): Promise<void> {
+    const updateData: Record<string, unknown> = {
+      updatedAt: new Date(),
+    };
+    if (fields.name !== undefined) {
+      updateData.name = fields.name.trim();
+    }
+    if (fields.major !== undefined) {
+      updateData.major = fields.major ? fields.major.trim() : null;
+    }
+    if (fields.university !== undefined) {
+      updateData.university = fields.university ? fields.university.trim() : null;
+    }
+    if (fields.faculty !== undefined) {
+      updateData.faculty = fields.faculty ? fields.faculty.trim() : null;
+    }
+    if (fields.department !== undefined) {
+      updateData.department = fields.department ? fields.department.trim() : null;
+    }
+
+    await this.db
+      .update(users)
+      .set(updateData)
       .where(eq(users.id, userId));
   }
 

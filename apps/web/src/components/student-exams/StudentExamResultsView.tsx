@@ -71,18 +71,47 @@ export function StudentExamResultsView({
       {/* --------------------------------------------------------------------- */}
       {/* Scenario A: Results NOT Released Yet */}
       {/* --------------------------------------------------------------------- */}
+      {/* --------------------------------------------------------------------- */}
+      {/* Scenario A: Results NOT Released Yet */}
+      {/* --------------------------------------------------------------------- */}
       {!isReleased ? (
         <Card className="p-8 sm:p-12 text-center border border-[var(--color-border)] rounded-3xl bg-[var(--color-surface)] shadow-xs space-y-6">
-          <div className="w-16 h-16 rounded-3xl bg-emerald-500/10 text-emerald-600 flex items-center justify-center mx-auto">
-            <CheckCircle2 className="w-9 h-9" />
-          </div>
+          {review.state === "grading_in_progress" ? (
+            <div className="w-16 h-16 rounded-3xl bg-amber-500/10 text-amber-600 flex items-center justify-center mx-auto">
+              <Clock className="w-9 h-9" />
+            </div>
+          ) : (
+            <div className="w-16 h-16 rounded-3xl bg-emerald-500/10 text-emerald-600 flex items-center justify-center mx-auto">
+              <CheckCircle2 className="w-9 h-9" />
+            </div>
+          )}
 
           <div>
-            <Badge variant="success" size="md" className="mb-3">
-              {review.status === "submitted" ? "پاسخ‌ها با موفقیت ثبت شد" : "پایان مهلت آزمون"}
+            <Badge
+              variant={
+                review.state === "grading_in_progress"
+                  ? "warning"
+                  : review.state === "results_unpublished_closed"
+                  ? "neutral"
+                  : "success"
+              }
+              size="md"
+              className="mb-3"
+            >
+              {review.state === "grading_in_progress"
+                ? "در حال آماده‌سازی و تصحیح"
+                : review.state === "results_unpublished_closed"
+                ? "پایان مهلت آزمون"
+                : review.status === "submitted"
+                ? "پاسخ‌ها با موفقیت ثبت شد"
+                : "پایان مهلت آزمون"}
             </Badge>
             <h1 className="text-xl sm:text-2xl font-bold text-[var(--color-text)]">
-              نتیجه آزمون «{examTitle}»
+              {review.state === "grading_in_progress"
+                ? "نتیجه آزمون در حال آماده‌سازی است"
+                : review.state === "results_unpublished_closed"
+                ? "نتیجه آزمون هنوز منتشر نشده است"
+                : `نتیجه آزمون «${examTitle}»`}
             </h1>
             {review.submittedAt && (
               <p className="text-xs text-[var(--color-text-muted)] mt-2 flex items-center justify-center gap-1.5">
@@ -96,7 +125,13 @@ export function StudentExamResultsView({
             <ShieldCheck className="w-5 h-5 text-[#008080] mx-auto mb-2" />
             <p>
               {review.message ||
-                "نتایج این آزمون پس از پایان مهلت آزمون یا انتشار توسط استاد در دسترس خواهد بود."}
+                (review.state === "grading_in_progress"
+                  ? "نتیجه آزمون در حال آماده‌سازی است. لطفاً بعداً دوباره تلاش کنید."
+                  : review.state === "results_unpublished_closed"
+                  ? "آزمون به پایان رسیده است، اما نتیجه آن هنوز منتشر نشده است."
+                  : review.state === "results_pending_teacher"
+                  ? "نتیجه آزمون هنوز توسط استاد اعلام نشده است."
+                  : "نتایج این آزمون پس از پایان مهلت آزمون یا انتشار توسط استاد در دسترس خواهد بود.")}
             </p>
           </div>
 
@@ -187,7 +222,7 @@ export function StudentExamResultsView({
                   <div className="flex items-center justify-between gap-3 pb-3 border-b border-[var(--color-border)]">
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-bold text-[var(--color-text)] bg-neutral-100 px-2.5 py-1 rounded-lg">
-                        سؤال {toPersianDigits(idx + 1)}
+                        سؤال {toPersianDigits(idx + 1)} {q.questionType === "true_false" ? "(صحیح / غلط)" : isDescriptive ? "(تشریحی)" : "(تستی)"}
                       </span>
                       {isDescriptive ? (
                         q.gradingStatus === "ungraded" ? (
@@ -262,10 +297,66 @@ export function StudentExamResultsView({
                         </div>
                       )}
                     </div>
+                  ) : q.questionType === "true_false" ? (
+                    <div className="space-y-2.5 pt-1">
+                      {(q.statements ?? []).map((stmt, sIdx) => {
+                        const hasAnswer = typeof stmt.selectedAnswer === "boolean";
+                        const isStmtCorrect = stmt.isCorrect;
+                        return (
+                          <div
+                            key={stmt.id}
+                            className={`p-3.5 rounded-xl border space-y-2 ${
+                              isStmtCorrect
+                                ? "border-emerald-500/50 bg-emerald-50/40 text-emerald-950"
+                                : hasAnswer
+                                ? "border-rose-400/60 bg-rose-50/40 text-rose-950"
+                                : "border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)]"
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="flex items-start gap-2.5 flex-1">
+                                <span className="shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold bg-[var(--color-surface)] border border-[var(--color-border)]">
+                                  {toPersianDigits(sIdx + 1)}
+                                </span>
+                                <span className="text-xs sm:text-sm font-medium leading-relaxed">{stmt.text}</span>
+                              </div>
+                              <Badge
+                                variant={isStmtCorrect ? "success" : hasAnswer ? "error" : "neutral"}
+                                size="sm"
+                                icon={isStmtCorrect ? <Check className="w-3 h-3" /> : hasAnswer ? <X className="w-3 h-3" /> : undefined}
+                              >
+                                {isStmtCorrect ? "درست" : hasAnswer ? "نادرست" : "بدون پاسخ"}
+                              </Badge>
+                            </div>
+
+                            <div className="flex items-center gap-4 text-xs font-semibold pt-1 border-t border-[var(--color-border)]/50">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[var(--color-text-muted)] font-normal">پاسخ شما:</span>
+                                <span
+                                  className={
+                                    hasAnswer
+                                      ? stmt.selectedAnswer ? "text-emerald-700 font-bold" : "text-rose-700 font-bold"
+                                      : "text-[var(--color-text-muted)] italic font-normal"
+                                  }
+                                >
+                                  {hasAnswer ? (stmt.selectedAnswer ? "صحیح" : "غلط") : "بدون پاسخ"}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[var(--color-text-muted)] font-normal">کلید صحیح:</span>
+                                <span className={stmt.correctAnswer ? "text-emerald-700 font-bold" : "text-rose-700 font-bold"}>
+                                  {stmt.correctAnswer ? "صحیح" : "غلط"}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   ) : (
                     /* Options List */
                     <div className="space-y-2.5 pt-1">
-                      {q.options?.map((opt, optIdx) => {
+                      {(q.options ?? []).map((opt, optIdx) => {
                         const isSelected = opt.id === q.selectedOptionId;
                         const isCorrectOption = opt.id === q.correctOptionId;
                         const optionLetter = OPTION_LABELS[optIdx] ?? String(optIdx + 1);

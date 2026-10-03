@@ -4,6 +4,7 @@ import {
   asOrganizationId,
   gradeAttempt,
   validateGradeDescriptiveAnswerInput,
+  analyzeDescriptiveAnswerIntegrity,
   type Actor,
   type TeacherExam,
   type TeacherExamAttempt,
@@ -12,6 +13,10 @@ import {
   type QuestionType,
   type QuestionGradingStatus,
   type AttemptGradingStatus,
+  type TrueFalseStatementReview,
+  type DescriptiveAnswerIntegrityAnalysis,
+  type StudentExamResultState,
+  ATTEMPT_SUBMISSION_GRACE_MS,
 } from "@avana/domain";
 import type {
   TeacherExamStore,
@@ -29,6 +34,8 @@ export interface ScoreDistribution {
 }
 
 export interface StudentAttemptSummaryDTO {
+  id?: string;
+  attemptId?: string;
   studentId: string;
   studentName: string;
   studentEmail: string;
@@ -65,6 +72,7 @@ export interface StudentQuestionReviewDTO {
   questionType?: QuestionType;
   prompt: string;
   options?: Array<{ id: string; text: string }>;
+  statements?: TrueFalseStatementReview[];
   selectedOptionId: string | null;
   textAnswer?: string | null;
   teacherFeedback?: string | null;
@@ -74,6 +82,7 @@ export interface StudentQuestionReviewDTO {
   isCorrect?: boolean | null;
   pointsEarned?: number | null;
   maxPoints?: number;
+  integrityAnalysis?: DescriptiveAnswerIntegrityAnalysis | null;
 }
 
 export interface StudentReviewDTO {
@@ -83,6 +92,7 @@ export interface StudentReviewDTO {
   gradingStatus?: AttemptGradingStatus;
   submittedAt: string | null;
   resultsReleased: boolean;
+  state?: StudentExamResultState;
   score?: number | null;
   maxScore?: number | null;
   percentage?: number | null;
@@ -205,6 +215,8 @@ export class TeacherExamResultService {
       const studentEmail = user ? user.email : "";
 
       students.push({
+        id: att.id,
+        attemptId: att.id,
         studentId: att.studentId,
         studentName,
         studentEmail,
@@ -311,12 +323,40 @@ export class TeacherExamResultService {
     const questions: StudentQuestionReviewDTO[] = attempt.questionSnapshot.map((q) => {
       const ans = answerMap.get(q.id);
       const isDescriptive = q.questionType === "descriptive";
+      let statementsReview: TrueFalseStatementReview[] | undefined = undefined;
+      if (q.questionType === "true_false" && q.statements) {
+        let studentAnswers: Record<string, boolean> = {};
+        if (ans?.textAnswer) {
+          try {
+            const parsed = JSON.parse(ans.textAnswer);
+            if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+              studentAnswers = parsed;
+            }
+          } catch {
+            // ignore
+          }
+        }
+        statementsReview = q.statements.map((stmt) => {
+          const selectedAnswer =
+            typeof studentAnswers[stmt.id] === "boolean" ? studentAnswers[stmt.id] : null;
+          const isCorrect = selectedAnswer === stmt.correctAnswer;
+          return {
+            id: stmt.id,
+            text: stmt.text,
+            selectedAnswer,
+            correctAnswer: stmt.correctAnswer,
+            isCorrect,
+          };
+        });
+      }
+
       return {
         questionId: q.id,
         orderIndex: q.orderIndex,
         questionType: q.questionType ?? "single_choice",
         prompt: q.prompt,
         options: q.options ?? [],
+        statements: statementsReview,
         selectedOptionId: ans?.selectedOptionId ?? null,
         textAnswer: ans?.textAnswer ?? null,
         teacherFeedback: ans?.teacherFeedback ?? null,
@@ -326,11 +366,16 @@ export class TeacherExamResultService {
         isCorrect: ans?.isCorrect ?? (isDescriptive ? null : false),
         pointsEarned: ans?.pointsEarned ?? (isDescriptive ? null : 0),
         maxPoints: q.points,
+        integrityAnalysis: isDescriptive
+          ? analyzeDescriptiveAnswerIntegrity(ans?.textAnswer, ans?.integrityMetadata)
+          : null,
       };
     });
 
     return {
       attempt: {
+        id: attempt.id,
+        attemptId: attempt.id,
         studentId: attempt.studentId,
         studentName,
         studentEmail: user?.email ?? "",
@@ -432,39 +477,106 @@ export class TeacherExamResultService {
 
   /**
    * Student review endpoint. Strictly hides answers and keys until results are released.
-   * Release conditions: showResultsImmediately === true OR resultsReleasedAt !== null OR now > endsAt.
+   * Differentiates grading in progress, results pending teacher, closed unpublished, and ready states.
    */
   async getStudentReview(actor: Actor, examId: string): Promise<StudentReviewDTO> {
     const exam = await this.examStore.getById(examId);
-    if (!exam) {
-      throw new DomainError("not_found", "آزمون یافت نشد");
+    if (!exam || exam.status !== "published") {
+      throw new DomainError("not_found", "این آزمون دیگر در دسترس نیست.", {
+        reason: "EXAM_UNAVAILABLE",
+      });
     }
 
     const classroom = await this.classroomStore.getById(exam.classroomId);
-    if (!classroom) {
-      throw new DomainError("not_found", "کلاس یافت نشد");
+    if (!classroom || classroom.status === "archived") {
+      throw new DomainError("forbidden", "دسترسی شما به نتیجه این آزمون در حال حاضر امکان‌پذیر نیست.", {
+        reason: "ACCESS_DENIED",
+      });
     }
 
     const membership = await this.memberStore.getMembership(classroom.id, actor.userId);
     if (!membership || membership.status !== "active") {
-      throw new DomainError("forbidden", "شما عضو فعال این کلاس نیستید");
+      throw new DomainError("forbidden", "دسترسی شما به نتیجه این آزمون در حال حاضر امکان‌پذیر نیست.", {
+        reason: "ACCESS_DENIED",
+      });
     }
 
-    const attempt = await this.attemptStore.getByExamAndStudent(exam.id, actor.userId);
+    let attempt = await this.attemptStore.getByExamAndStudent(exam.id, actor.userId);
     if (!attempt) {
-      throw new DomainError("not_found", "شما در این آزمون شرکت نکرده‌اید");
+      throw new DomainError("not_found", "شما هنوز در این آزمون شرکت نکرده‌اید.", {
+        reason: "EXAM_NOT_ATTEMPTED",
+      });
     }
 
     if (attempt.status === "in_progress") {
-      throw new DomainError("bad_request", "آزمون شما هنوز پایان نیافته است");
+      const nowMs = Date.now();
+      const deadlineMs = new Date(attempt.deadlineAt).getTime();
+      if (nowMs > deadlineMs + ATTEMPT_SUBMISSION_GRACE_MS) {
+        try {
+          attempt = await this.attemptStore.finalizeAttempt(
+            attempt.id,
+            "timed_out",
+            exam.passingScorePercentage,
+          );
+        } catch {
+          const fresh = await this.attemptStore.getByExamAndStudent(exam.id, actor.userId);
+          if (fresh) attempt = fresh;
+        }
+      } else {
+        throw new DomainError("bad_request", "آزمون شما هنوز پایان نیافته است.", {
+          reason: "ATTEMPT_IN_PROGRESS",
+        });
+      }
     }
 
+    // Check if attempt data is valid / data-integrity issue
+    if (!attempt.questionSnapshot || !Array.isArray(attempt.questionSnapshot) || attempt.questionSnapshot.length === 0) {
+      throw new DomainError("not_found", "اطلاعات نتیجه این آزمون در حال حاضر در دسترس نیست.", {
+        reason: "RESULT_MISSING",
+      });
+    }
+
+    // Check if grading is in progress (e.g. descriptive answers ungraded)
+    if (
+      attempt.gradingStatus === "needs_manual_review" ||
+      (attempt.gradingStatus as string) === "ungraded" ||
+      (attempt.gradingStatus as string) === "partially_graded"
+    ) {
+      return {
+        id: attempt.id,
+        examId: attempt.examId,
+        status: attempt.status,
+        gradingStatus: attempt.gradingStatus,
+        submittedAt: attempt.submittedAt ?? null,
+        resultsReleased: false,
+        state: "grading_in_progress",
+        message: "نتیجه آزمون در حال آماده‌سازی است. لطفاً بعداً دوباره تلاش کنید.",
+      };
+    }
+
+    // Check release status
     const isReleased =
       exam.showResultsImmediately ||
-      Boolean(exam.resultsReleasedAt) ||
-      new Date().getTime() > new Date(exam.endsAt).getTime();
+      Boolean(exam.resultsReleasedAt);
 
     if (!isReleased) {
+      const nowMs = Date.now();
+      const endsAtMs = new Date(exam.endsAt).getTime();
+      const isEnded = nowMs >= endsAtMs;
+
+      if (isEnded) {
+        return {
+          id: attempt.id,
+          examId: attempt.examId,
+          status: attempt.status,
+          gradingStatus: attempt.gradingStatus ?? "fully_graded",
+          submittedAt: attempt.submittedAt ?? null,
+          resultsReleased: false,
+          state: "results_unpublished_closed",
+          message: "آزمون به پایان رسیده است، اما نتیجه آن هنوز منتشر نشده است.",
+        };
+      }
+
       return {
         id: attempt.id,
         examId: attempt.examId,
@@ -472,7 +584,8 @@ export class TeacherExamResultService {
         gradingStatus: attempt.gradingStatus ?? "fully_graded",
         submittedAt: attempt.submittedAt ?? null,
         resultsReleased: false,
-        message: "نتایج این آزمون پس از پایان مهلت آزمون یا انتشار توسط استاد در دسترس خواهد بود.",
+        state: "results_pending_teacher",
+        message: "نتیجه آزمون هنوز توسط استاد اعلام نشده است.",
       };
     }
 
@@ -483,12 +596,40 @@ export class TeacherExamResultService {
     const questions: StudentQuestionReviewDTO[] = attempt.questionSnapshot.map((q) => {
       const ans = answerMap.get(q.id);
       const isDescriptive = q.questionType === "descriptive";
+      let statementsReview: TrueFalseStatementReview[] | undefined = undefined;
+      if (q.questionType === "true_false" && q.statements) {
+        let studentAnswers: Record<string, boolean> = {};
+        if (ans?.textAnswer) {
+          try {
+            const parsed = JSON.parse(ans.textAnswer);
+            if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+              studentAnswers = parsed;
+            }
+          } catch {
+            // ignore
+          }
+        }
+        statementsReview = q.statements.map((stmt) => {
+          const selectedAnswer =
+            typeof studentAnswers[stmt.id] === "boolean" ? studentAnswers[stmt.id] : null;
+          const isCorrect = selectedAnswer === stmt.correctAnswer;
+          return {
+            id: stmt.id,
+            text: stmt.text,
+            selectedAnswer,
+            correctAnswer: stmt.correctAnswer,
+            isCorrect,
+          };
+        });
+      }
+
       return {
         questionId: q.id,
         orderIndex: q.orderIndex,
         questionType: q.questionType ?? "single_choice",
         prompt: q.prompt,
         options: q.options ?? [],
+        statements: statementsReview,
         selectedOptionId: ans?.selectedOptionId ?? null,
         textAnswer: ans?.textAnswer ?? null,
         teacherFeedback: ans?.teacherFeedback ?? null,
@@ -508,6 +649,7 @@ export class TeacherExamResultService {
       gradingStatus: attempt.gradingStatus ?? "fully_graded",
       submittedAt: attempt.submittedAt ?? null,
       resultsReleased: true,
+      state: "ready",
       score: attempt.score,
       maxScore: attempt.maxScore,
       percentage: attempt.percentage,

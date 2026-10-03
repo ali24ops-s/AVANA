@@ -14,3 +14,4 @@ export * from "./components/TogglePrimitives.js";
 export * from "./components/FeedbackPrimitives.js";
 export * from "./components/Alert.js";
 export * from "./components/TablePrimitives.js";
+export * from "./components/RichTextEditor.js";

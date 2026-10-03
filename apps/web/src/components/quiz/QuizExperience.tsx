@@ -461,7 +461,7 @@ export function QuizExperience({
           <div>
             <div className="flex items-center gap-2">
               <Badge variant="primary" size="sm">
-                {currentQuestion.question_type === "multiple_choice" ? "چهارگزینه‌ای" : "پرسش آزمون"}
+                {currentQuestion.question_type === "multiple_choice" ? "تستی" : "پرسش آزمون"}
               </Badge>
               {currentQuestion.lesson?.title ? (
                 <span className="text-[11px] px-2 py-0.5 rounded bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] border border-[var(--color-border)]">

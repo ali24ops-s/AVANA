@@ -3,6 +3,15 @@
  */
 
 import type { ApiClient } from "./client.js";
+import { generateUUID, getApiBaseUrl } from "./client.js";
+import { ApiError } from "./errors.js";
+import type { ErrorEnvelope } from "@avana/contracts";
+
+export interface UploadBlogImageResponse {
+  url: string;
+  image_url: string;
+  storage_key: string;
+}
 
 export type BlogPostStatus = "draft" | "published";
 
@@ -333,6 +342,56 @@ export function createBlogApi(client: ApiClient) {
      */
     async deleteTag(id: string): Promise<{ success: boolean }> {
       return client.delete<{ success: boolean }>(`/v1/admin/blog/tags/${id}`);
+    },
+
+    /**
+     * Admin upload blog image.
+     */
+    async uploadImage(file: File): Promise<UploadBlogImageResponse> {
+      const formData = new FormData();
+      formData.append("file", file, file.name);
+
+      const baseUrl = getApiBaseUrl();
+      const response = await fetch(`${baseUrl}/v1/admin/blog/images`, {
+        method: "POST",
+        headers: {
+          "x-request-id": generateUUID(),
+        },
+        credentials: "include",
+        body: formData,
+      });
+
+      let data: unknown;
+      try {
+        if (typeof response.text === "function") {
+          const text = await response.text();
+          data = text ? JSON.parse(text) : undefined;
+        } else if (typeof response.json === "function") {
+          data = await response.json();
+        }
+      } catch {
+        data = null;
+      }
+
+      if (!response.ok) {
+        if (
+          data &&
+          typeof data === "object" &&
+          "error" in data &&
+          data.error &&
+          typeof (data as { error: unknown }).error === "object"
+        ) {
+          throw new ApiError(data as ErrorEnvelope);
+        }
+        const message =
+          response.status === 413
+            ? "حجم تصویر بیش از حد مجاز است (حداکثر ۵ مگابایت)."
+            : (data as { message?: string })?.message ||
+              "خطا در بارگذاری تصویر مقاله.";
+        throw new Error(message);
+      }
+
+      return data as UploadBlogImageResponse;
     },
   };
 }

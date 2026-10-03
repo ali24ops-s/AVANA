@@ -14,7 +14,7 @@ import { StudentAssignmentStatusBadge } from "./StudentAssignmentStatusBadge.js"
 import { StudentAssignmentSubmissionModal } from "./StudentAssignmentSubmissionModal.js";
 import type { StudentAssignmentListItemDTO } from "../../../lib/api/student-platform.js";
 import { formatPersianExamDate, formatPersianTimeOnly } from "../../../utils/date.js";
-import { FileText, Send, Eye, Clock } from "lucide-react";
+import { FileText, Send, Eye } from "lucide-react";
 
 export interface StudentAssignmentsTableProps {
   assignments: StudentAssignmentListItemDTO[];

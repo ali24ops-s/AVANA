@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach } from "vitest";
+import { describe, it, test, expect, beforeEach } from "vitest";
 import { createApp } from "../server/createApp.js";
 import { loadApiConfig } from "../config.js";
 import { SessionService } from "../modules/identity/index.js";
@@ -426,6 +426,8 @@ describe("Teacher Platform — Backend Lifecycle Integration Test Suite", () => 
           options: [
             { id: "opt-a", text: "تقویت گیرنده GABA-A" },
             { id: "opt-b", text: "مهار گیرنده NMDA" },
+            { id: "opt-c", text: "مهار استیل‌کولین" },
+            { id: "opt-d", text: "تحریک گیرنده اوپیوئیدی" },
           ],
           correctOptionId: "opt-a",
         },
@@ -476,6 +478,8 @@ describe("Teacher Platform — Backend Lifecycle Integration Test Suite", () => 
           options: [
             { id: "x1", text: "الف" },
             { id: "x2", text: "ب" },
+            { id: "x3", text: "ج" },
+            { id: "x4", text: "د" },
           ],
           correctOptionId: "x1",
         },
@@ -574,6 +578,8 @@ describe("Teacher Platform — Backend Lifecycle Integration Test Suite", () => 
           options: [
             { id: "o1", text: "تiopental" },
             { id: "o2", text: "میدازولام" },
+            { id: "o3", text: "کتامین" },
+            { id: "o4", text: "پروپوفول" },
           ],
           correctOptionId: "o1",
           explanation: "تیوپنتال یک باربیتورات سریع‌الاثر است.",
@@ -590,6 +596,8 @@ describe("Teacher Platform — Backend Lifecycle Integration Test Suite", () => 
           options: [
             { id: "b1", text: "فلومازنیل" },
             { id: "b2", text: "نالوکسان" },
+            { id: "b3", text: "نالمفن" },
+            { id: "b4", text: "آتروپین" },
           ],
           correctOptionId: "b1",
           explanation: "فلومازنیل آنتاگونیست اختصاصی گیرنده بنزودیازپین است.",
@@ -743,6 +751,8 @@ describe("Teacher Platform — Backend Lifecycle Integration Test Suite", () => 
           options: [
             { id: "o1", text: "۱" },
             { id: "o2", text: "۲" },
+            { id: "o3", text: "۳" },
+            { id: "o4", text: "۴" },
           ],
           correctOptionId: "o1",
         },
@@ -817,6 +827,89 @@ describe("Teacher Platform — Backend Lifecycle Integration Test Suite", () => 
       expect(submitPastGrace.statusCode).toBe(200);
       expect(submitPastGrace.json().result.status).toBe("timed_out");
     });
+
+    test("Backend strictly enforces startsAt: rejects startAttempt before startsAt (upcoming) and allows it after", async () => {
+      const teacher = await createUserWithRole("teacher_upcoming_start@avana.org", Roles.teacher);
+      const student = await createUserWithRole("student_upcoming_start@avana.org", Roles.student);
+
+      const classResp = await app.inject({
+        method: "POST",
+        url: `/v1/organizations/${orgId}/teacher/classrooms`,
+        cookies: { avana_session: teacher.sessionToken },
+        payload: { title: "کلاس تست زمان شروع" },
+      });
+      const classroom = classResp.json().classroom;
+
+      await app.inject({
+        method: "POST",
+        url: "/v1/student/classrooms/join",
+        cookies: { avana_session: student.sessionToken },
+        payload: { inviteCode: classroom.inviteCode },
+      });
+
+      // 1. Create an upcoming exam starting in 1 hour
+      const futureStart = new Date(Date.now() + 3600000).toISOString();
+      const futureEnd = new Date(Date.now() + 7200000).toISOString();
+      const examResp = await app.inject({
+        method: "POST",
+        url: `/v1/teacher/classrooms/${classroom.id}/exams`,
+        cookies: { avana_session: teacher.sessionToken },
+        payload: {
+          title: "آزمون آینده با محدودیت شروع",
+          durationMinutes: 30,
+          startsAt: futureStart,
+          endsAt: futureEnd,
+          passingScorePercentage: 50,
+        },
+      });
+      const exam = examResp.json().exam;
+
+      await app.inject({
+        method: "POST",
+        url: `/v1/teacher/exams/${exam.id}/questions`,
+        cookies: { avana_session: teacher.sessionToken },
+        payload: {
+          prompt: "سوال نمونه ۱",
+          points: 10,
+          options: [
+            { id: "op1", text: "گزینه ۱" },
+            { id: "op2", text: "گزینه ۲" },
+            { id: "op3", text: "گزینه ۳" },
+            { id: "op4", text: "گزینه ۴" },
+          ],
+          correctOptionId: "op1",
+        },
+      });
+
+      const pubResp = await app.inject({
+        method: "POST",
+        url: `/v1/teacher/exams/${exam.id}/publish`,
+        cookies: { avana_session: teacher.sessionToken },
+      });
+      expect(pubResp.statusCode).toBe(200);
+
+      // 2. Student attempts to start BEFORE startsAt -> must be rejected with 400
+      const earlyStartResp = await app.inject({
+        method: "POST",
+        url: `/v1/student/exams/${exam.id}/start`,
+        cookies: { avana_session: student.sessionToken },
+      });
+      expect(earlyStartResp.statusCode).toBe(400);
+      expect(earlyStartResp.json().error.message).toBe("آزمون هنوز شروع نشده است");
+
+      // 3. Update exam startsAt to the past (active exam) -> startAttempt now succeeds with 201
+      await teacherExamStore.update(exam.id, {
+        startsAt: new Date(Date.now() - 60000).toISOString(),
+      });
+
+      const activeStartResp = await app.inject({
+        method: "POST",
+        url: `/v1/student/exams/${exam.id}/start`,
+        cookies: { avana_session: student.sessionToken },
+      });
+      expect(activeStartResp.statusCode).toBe(201);
+      expect(activeStartResp.json().attempt.status).toBe("in_progress");
+    });
   });
 
   // =========================================================================
@@ -878,6 +971,8 @@ describe("Teacher Platform — Backend Lifecycle Integration Test Suite", () => 
           options: [
             { id: "o1", text: "۵ تا ۱۵ میلی‌متر جیوه" },
             { id: "o2", text: "۲۰ تا ۳۰ میلی‌متر جیوه" },
+            { id: "o3", text: "۳۵ تا ۴۵ میلی‌متر جیوه" },
+            { id: "o4", text: "۵۰ تا ۶۰ میلی‌متر جیوه" },
           ],
           correctOptionId: "o1",
           explanation: "ICP نرمال در حالت استراحت ۵ تا ۱۵ میلی‌متر جیوه است.",
@@ -917,12 +1012,12 @@ describe("Teacher Platform — Backend Lifecycle Integration Test Suite", () => 
         url: `/v1/student/exams/${exam.id}/review`,
         cookies: { avana_session: student.sessionToken },
       });
-      expect(unreleasedReview.statusCode).toBe(200);
       const unreleasedData = unreleasedReview.json().review;
       expect(unreleasedData.resultsReleased).toBe(false);
       expect(unreleasedData.score).toBeUndefined();
       expect(unreleasedData.questions).toBeUndefined();
-      expect(unreleasedData.message).toContain("نتایج این آزمون پس از پایان مهلت آزمون یا انتشار توسط استاد");
+      expect(unreleasedData.state).toBe("results_pending_teacher");
+      expect(unreleasedData.message).toContain("نتیجه آزمون هنوز توسط استاد اعلام نشده است.");
 
       // 2. Teacher views aggregate results
       const aggregateResp = await app.inject({
@@ -1035,6 +1130,8 @@ describe("Teacher Platform — Backend Lifecycle Integration Test Suite", () => 
           options: [
             { id: "o1", text: "گزینه ۱" },
             { id: "o2", text: "گزینه ۲" },
+            { id: "o3", text: "گزینه ۳" },
+            { id: "o4", text: "گزینه ۴" },
           ],
           correctOptionId: "o1",
           points: 20,
@@ -1139,6 +1236,8 @@ describe("Teacher Platform — Backend Lifecycle Integration Test Suite", () => 
           options: [
             { id: "o1", text: "گزینه ۱" },
             { id: "o2", text: "گزینه ۲" },
+            { id: "o3", text: "گزینه ۳" },
+            { id: "o4", text: "گزینه ۴" },
           ],
           correctOptionId: "o1",
           points: 10,
@@ -1238,6 +1337,8 @@ describe("Teacher Platform — Backend Lifecycle Integration Test Suite", () => 
           options: [
             { id: "o1", text: "گزینه ۱" },
             { id: "o2", text: "گزینه ۲" },
+            { id: "o3", text: "گزینه ۳" },
+            { id: "o4", text: "گزینه ۴" },
           ],
           correctOptionId: "o1",
           points: 20,
@@ -1444,6 +1545,8 @@ describe("Teacher Platform — Backend Lifecycle Integration Test Suite", () => 
           options: [
             { id: "opt_1", text: "گزینه ۱" },
             { id: "opt_2", text: "گزینه ۲" },
+            { id: "opt_3", text: "گزینه ۳" },
+            { id: "opt_4", text: "گزینه ۴" },
           ],
           correctOptionId: "opt_1",
           points: 10,
@@ -1540,6 +1643,8 @@ describe("Teacher Platform — Backend Lifecycle Integration Test Suite", () => 
           options: [
             { id: "opt_1a", text: "گزینه ۱ الف" },
             { id: "opt_1b", text: "گزینه ۱ ب" },
+            { id: "opt_1c", text: "گزینه ۱ ج" },
+            { id: "opt_1d", text: "گزینه ۱ د" },
           ],
           correctOptionId: "opt_1a",
           points: 10,
@@ -1556,6 +1661,8 @@ describe("Teacher Platform — Backend Lifecycle Integration Test Suite", () => 
           options: [
             { id: "opt_2a", text: "گزینه ۲ الف" },
             { id: "opt_2b", text: "گزینه ۲ ب" },
+            { id: "opt_2c", text: "گزینه ۲ ج" },
+            { id: "opt_2d", text: "گزینه ۲ د" },
           ],
           correctOptionId: "opt_2a",
           points: 10,
@@ -1572,6 +1679,8 @@ describe("Teacher Platform — Backend Lifecycle Integration Test Suite", () => 
           options: [
             { id: "opt_3a", text: "گزینه ۳ الف" },
             { id: "opt_3b", text: "گزینه ۳ ب" },
+            { id: "opt_3c", text: "گزینه ۳ ج" },
+            { id: "opt_3d", text: "گزینه ۳ د" },
           ],
           correctOptionId: "opt_3a",
           points: 10,
@@ -1776,6 +1885,8 @@ describe("Teacher Platform — Backend Lifecycle Integration Test Suite", () => 
           options: [
             { id: "opt_1a", text: "الف" },
             { id: "opt_1b", text: "ب" },
+            { id: "opt_1c", text: "ج" },
+            { id: "opt_1d", text: "د" },
           ],
           correctOptionId: "opt_1a",
           points: 10,
@@ -1792,6 +1903,8 @@ describe("Teacher Platform — Backend Lifecycle Integration Test Suite", () => 
           options: [
             { id: "opt_2a", text: "الف" },
             { id: "opt_2b", text: "ب" },
+            { id: "opt_2c", text: "ج" },
+            { id: "opt_2d", text: "د" },
           ],
           correctOptionId: "opt_2b",
           points: 10,
@@ -1808,6 +1921,8 @@ describe("Teacher Platform — Backend Lifecycle Integration Test Suite", () => 
           options: [
             { id: "opt_3a", text: "الف" },
             { id: "opt_3b", text: "ب" },
+            { id: "opt_3c", text: "ج" },
+            { id: "opt_3d", text: "د" },
           ],
           correctOptionId: "opt_3a",
           points: 10,
@@ -1949,6 +2064,8 @@ describe("Teacher Platform — Backend Lifecycle Integration Test Suite", () => 
           options: [
             { id: "opt_1a", text: "الف" },
             { id: "opt_1b", text: "ب" },
+            { id: "opt_1c", text: "ج" },
+            { id: "opt_1d", text: "د" },
           ],
           correctOptionId: "opt_1a",
           points: 10,
@@ -1965,6 +2082,8 @@ describe("Teacher Platform — Backend Lifecycle Integration Test Suite", () => 
           options: [
             { id: "opt_2a", text: "الف" },
             { id: "opt_2b", text: "ب" },
+            { id: "opt_2c", text: "ج" },
+            { id: "opt_2d", text: "د" },
           ],
           correctOptionId: "opt_2b",
           points: 10,
@@ -2101,6 +2220,8 @@ describe("Teacher Platform — Backend Lifecycle Integration Test Suite", () => 
           options: [
             { id: "opt-1", text: "دابیگاتران" },
             { id: "opt-2", text: "وارفارین" },
+            { id: "opt-3", text: "آپیکسابان" },
+            { id: "opt-4", text: "ریواروکسابان" },
           ],
           correctOptionId: "opt-1",
           points: 4,
@@ -2279,6 +2400,1006 @@ describe("Teacher Platform — Backend Lifecycle Integration Test Suite", () => 
       expect(revQ2.pointsEarned).toBe(5.5);
       expect(revQ2.teacherFeedback).toBe("تحلیل عالی و دقیق تداخلات دارویی.");
       expect(revQ2.gradingStatus).toBe("graded");
+    });
+  });
+
+  // =========================================================================
+  // True/False Question Lifecycle & Integration Suite
+  // =========================================================================
+  describe("True/False Question Lifecycle & Integration", () => {
+    test("Authoring, snapshot isolation, unshuffled options, taking, grading, and reviewing True/False questions", async () => {
+      const teacher = await createUserWithRole("teacher_tf@avana.org", Roles.teacher);
+      const student1 = await createUserWithRole("student_tf1@avana.org", Roles.student);
+      const student2 = await createUserWithRole("student_tf2@avana.org", Roles.student);
+
+      // 1. Create classroom & join students
+      const classResp = await app.inject({
+        method: "POST",
+        url: `/v1/organizations/${orgId}/teacher/classrooms`,
+        cookies: { avana_session: teacher.sessionToken },
+        payload: { title: "کلاس مبانی هوشبری" },
+      });
+      const classroom = classResp.json().classroom;
+
+      await app.inject({
+        method: "POST",
+        url: "/v1/student/classrooms/join",
+        cookies: { avana_session: student1.sessionToken },
+        payload: { inviteCode: classroom.inviteCode },
+      });
+
+      await app.inject({
+        method: "POST",
+        url: "/v1/student/classrooms/join",
+        cookies: { avana_session: student2.sessionToken },
+        payload: { inviteCode: classroom.inviteCode },
+      });
+
+      // 2. Create draft exam with shuffleOptions=true & shuffleQuestions=true
+      const now = new Date();
+      const createExamResp = await app.inject({
+        method: "POST",
+        url: `/v1/teacher/classrooms/${classroom.id}/exams`,
+        cookies: { avana_session: teacher.sessionToken },
+        payload: {
+          title: "آزمون آزمایشی صحیح/غلط",
+          durationMinutes: 30,
+          startsAt: new Date(now.getTime() - 30000).toISOString(),
+          endsAt: new Date(now.getTime() + 7200000).toISOString(),
+          passingScorePercentage: 50,
+          shuffleQuestions: true,
+          shuffleOptions: true, // Should NOT shuffle True/False options!
+          showResultsImmediately: true,
+        },
+      });
+      expect(createExamResp.statusCode).toBe(201);
+      const exam = createExamResp.json().exam;
+
+      // 3. Validation: Reject invalid multi-statement True/False question authoring
+      // 3a. 0 statements rejected
+      const emptyStmtsResp = await app.inject({
+        method: "POST",
+        url: `/v1/teacher/exams/${exam.id}/questions`,
+        cookies: { avana_session: teacher.sessionToken },
+        payload: {
+          questionType: "true_false",
+          statements: [],
+          points: 5,
+        },
+      });
+      expect(emptyStmtsResp.statusCode).toBe(400);
+
+      // 3b. Empty statement text rejected
+      const emptyTextResp = await app.inject({
+        method: "POST",
+        url: `/v1/teacher/exams/${exam.id}/questions`,
+        cookies: { avana_session: teacher.sessionToken },
+        payload: {
+          questionType: "true_false",
+          statements: [{ id: "s1", text: "   ", correctAnswer: true }],
+          points: 5,
+        },
+      });
+      expect(emptyTextResp.statusCode).toBe(400);
+
+      // 4. Valid Authoring: Add Q1 (Multi-Statement True/False with 4 statements)
+      const addQ1Resp = await app.inject({
+        method: "POST",
+        url: `/v1/teacher/exams/${exam.id}/questions`,
+        cookies: { avana_session: teacher.sessionToken },
+        payload: {
+          questionType: "true_false",
+          statements: [
+            { id: "s1", text: "کتامین موجب افزایش فشار خون می‌شود.", correctAnswer: true },
+            { id: "s2", text: "پروپوفول ترشح بزاق را تحریک می‌کند.", correctAnswer: false },
+            { id: "s3", text: "آتروپین مهارکننده گیرنده موسکارینی است.", correctAnswer: true },
+            { id: "s4", text: "مورفین آنتاگونیست گیرنده اوپیوئیدی است.", correctAnswer: false },
+          ],
+          points: 8,
+          explanation: "کتامین و آتروپین صحیح، پروپوفول و مورفین غلط هستند.",
+        },
+      });
+      expect(addQ1Resp.statusCode).toBe(201);
+      const q1 = addQ1Resp.json().question;
+      expect(q1.questionType).toBe("true_false");
+      expect(q1.prompt).toBe("در مورد گزاره‌های زیر، صحیح یا غلط بودن هر یک را مشخص کنید.");
+      expect(q1.statements).toHaveLength(4);
+
+      // 5. Valid Authoring: Add Q2 (Single Choice for mixed exam verification)
+      const addQ2Resp = await app.inject({
+        method: "POST",
+        url: `/v1/teacher/exams/${exam.id}/questions`,
+        cookies: { avana_session: teacher.sessionToken },
+        payload: {
+          prompt: "کدام دارو شل‌کننده عضلانی دپولاریزان است؟",
+          questionType: "single_choice",
+          options: [
+            { id: "c1", text: "سوکسینیل‌کولین" },
+            { id: "c2", text: "آتراکوریوم" },
+            { id: "c3", text: "روکورونیوم" },
+            { id: "c4", text: "پانکوریوم" },
+          ],
+          correctOptionId: "c1",
+          points: 8,
+        },
+      });
+      expect(addQ2Resp.statusCode).toBe(201);
+      const q2 = addQ2Resp.json().question;
+
+      // 6. Update True/False Question in Draft
+      const updateQ1Resp = await app.inject({
+        method: "PUT",
+        url: `/v1/teacher/exams/${exam.id}/questions/${q1.id}`,
+        cookies: { avana_session: teacher.sessionToken },
+        payload: {
+          questionType: "true_false",
+          statements: [
+            { id: "s1", text: "کتامین موجب افزایش فشار خون و ضربان قلب می‌شود.", correctAnswer: true },
+            { id: "s2", text: "پروپوفول ترشح بزاق را تحریک می‌کند.", correctAnswer: false },
+            { id: "s3", text: "آتروپین مهارکننده گیرنده موسکارینی است.", correctAnswer: true },
+            { id: "s4", text: "مورفین آنتاگونیست گیرنده اوپیوئیدی است.", correctAnswer: false },
+          ],
+          points: 8,
+          explanation: "توضیح کامل‌تر.",
+        },
+      });
+      expect(updateQ1Resp.statusCode).toBe(200);
+
+      // 7. Publish Exam
+      const publishResp = await app.inject({
+        method: "POST",
+        url: `/v1/teacher/exams/${exam.id}/publish`,
+        cookies: { avana_session: teacher.sessionToken },
+      });
+      expect(publishResp.statusCode).toBe(200);
+      expect(publishResp.json().exam.status).toBe("published");
+
+      // 8. Student 1 Starts Attempt & Snapshot Verification:
+      const startResp1 = await app.inject({
+        method: "POST",
+        url: `/v1/student/exams/${exam.id}/start`,
+        cookies: { avana_session: student1.sessionToken },
+      });
+      expect(startResp1.statusCode).toBe(201);
+      const attempt1 = startResp1.json().attempt;
+      expect(attempt1.questions.length).toBe(2);
+
+      const snapQ1 = attempt1.questions.find((q: any) => q.id === q1.id);
+      const snapQ2 = attempt1.questions.find((q: any) => q.id === q2.id);
+
+      expect(snapQ1.questionType).toBe("true_false");
+      expect(snapQ1.prompt).toBe("در مورد گزاره‌های زیر، صحیح یا غلط بودن هر یک را مشخص کنید.");
+      expect(snapQ1.statements).toHaveLength(4);
+      // Sanitization: statements must NOT expose correctAnswer in student snapshot
+      for (const stmt of snapQ1.statements) {
+        expect(stmt.correctAnswer).toBeUndefined();
+        expect(stmt).toHaveProperty("id");
+        expect(stmt).toHaveProperty("text");
+      }
+
+      // 9. Student 1 Answers:
+      // Q1: 3 out of 4 statements correct (s1=true, s2=false, s3=true, s4=true -> s4 wrong)
+      // Points earned: (8 / 4) * 3 = 6 pts (75%)
+      const ansQ1 = await app.inject({
+        method: "PUT",
+        url: `/v1/student/exams/${exam.id}/answers/${q1.id}`,
+        cookies: { avana_session: student1.sessionToken },
+        payload: {
+          booleanAnswers: {
+            s1: true,
+            s2: false,
+            s3: true,
+            s4: true, // wrong, correct is false
+          },
+        },
+      });
+      expect(ansQ1.statusCode).toBe(200);
+
+      // Q2: selectedOptionId = "c1" (Correct -> 8 pts)
+      const ansQ2 = await app.inject({
+        method: "PUT",
+        url: `/v1/student/exams/${exam.id}/answers/${q2.id}`,
+        cookies: { avana_session: student1.sessionToken },
+        payload: { selectedOptionId: "c1" },
+      });
+      expect(ansQ2.statusCode).toBe(200);
+
+      // 10. Student 1 Submits
+      const submitResp1 = await app.inject({
+        method: "POST",
+        url: `/v1/student/exams/${exam.id}/submit`,
+        cookies: { avana_session: student1.sessionToken },
+      });
+      expect(submitResp1.statusCode).toBe(200);
+      const result1 = submitResp1.json().result;
+      expect(result1.status).toBe("submitted");
+      // Score: 6 (Q1: 3/4) + 8 (Q2) = 14 / 16 = 87.5% -> Passed (threshold 50%)
+      expect(result1.score).toBe(14);
+      expect(result1.maxScore).toBe(16);
+      expect(result1.percentage).toBe(87.5);
+      expect(result1.passed).toBe(true);
+
+      // 11. Student 1 Review Endpoint Verification
+      const reviewResp1 = await app.inject({
+        method: "GET",
+        url: `/v1/student/exams/${exam.id}/review`,
+        cookies: { avana_session: student1.sessionToken },
+      });
+      expect(reviewResp1.statusCode).toBe(200);
+      const review1 = reviewResp1.json().review;
+      expect(review1.score).toBe(14);
+      expect(review1.passed).toBe(true);
+
+      const rQ1 = review1.questions.find((q: any) => q.questionId === q1.id);
+      expect(rQ1.questionType).toBe("true_false");
+      expect(rQ1.pointsEarned).toBe(6);
+      expect(rQ1.statements).toHaveLength(4);
+      expect(rQ1.statements[0]).toEqual({
+        id: "s1",
+        text: "کتامین موجب افزایش فشار خون و ضربان قلب می‌شود.",
+        selectedAnswer: true,
+        correctAnswer: true,
+        isCorrect: true,
+      });
+      expect(rQ1.statements[3]).toEqual({
+        id: "s4",
+        text: "مورفین آنتاگونیست گیرنده اوپیوئیدی است.",
+        selectedAnswer: true,
+        correctAnswer: false,
+        isCorrect: false,
+      });
+
+      // 12. Teacher Reviews Student 1 Result
+      const teacherReviewResp = await app.inject({
+        method: "GET",
+        url: `/v1/teacher/exams/${exam.id}/results/${student1.user.id}`,
+        cookies: { avana_session: teacher.sessionToken },
+      });
+      expect(teacherReviewResp.statusCode).toBe(200);
+      const teacherDetail = teacherReviewResp.json().detail;
+      expect(teacherDetail.attempt.score).toBe(14);
+      expect(teacherDetail.attempt.gradingStatus).toBe("fully_graded");
+      const teacherQ1 = teacherDetail.questions.find((q: any) => q.questionId === q1.id);
+      expect(teacherQ1.statements).toHaveLength(4);
+      expect(teacherQ1.pointsEarned).toBe(6);
+
+      // 13. Student 2: Answers Q1 with 4/4 correct -> 8 pts, leaves Q2 unanswered -> 0 pts
+      const startResp2 = await app.inject({
+        method: "POST",
+        url: `/v1/student/exams/${exam.id}/start`,
+        cookies: { avana_session: student2.sessionToken },
+      });
+      const attempt2 = startResp2.json().attempt;
+
+      await app.inject({
+        method: "PUT",
+        url: `/v1/student/exams/${exam.id}/answers/${q1.id}`,
+        cookies: { avana_session: student2.sessionToken },
+        payload: {
+          booleanAnswers: {
+            s1: true,
+            s2: false,
+            s3: true,
+            s4: false,
+          },
+        },
+      });
+
+      const submitResp2 = await app.inject({
+        method: "POST",
+        url: `/v1/student/exams/${exam.id}/submit`,
+        cookies: { avana_session: student2.sessionToken },
+      });
+      expect(submitResp2.statusCode).toBe(200);
+      const result2 = submitResp2.json().result;
+      expect(result2.score).toBe(8); // 8 (Q1: 4/4) + 0 (Q2) = 8 / 16 = 50% -> Passed
+      expect(result2.percentage).toBe(50);
+      expect(result2.passed).toBe(true);
+    });
+  });
+
+  // =========================================================================
+  // 18. Teacher Exam Deletion (حذف آزمون کلاسی)
+  // =========================================================================
+  describe("18. Teacher Exam Deletion & Data Integrity", () => {
+    test("Authorized teacher can delete exam with no attempts (204 No Content) and cascade questions", async () => {
+      const teacher = await createUserWithRole("teacher_del_1@avana.org", Roles.teacher);
+
+      const classRes = await app.inject({
+        method: "POST",
+        url: `/v1/organizations/${orgId}/teacher/classrooms`,
+        cookies: { avana_session: teacher.sessionToken },
+        payload: { title: "کلاس ریاضیات مهندسی" },
+      });
+      expect(classRes.statusCode).toBe(201);
+      const classroomId = classRes.json().classroom.id;
+
+      const examRes = await app.inject({
+        method: "POST",
+        url: `/v1/teacher/classrooms/${classroomId}/exams`,
+        cookies: { avana_session: teacher.sessionToken },
+        payload: {
+          title: "آزمون میان‌ترم معادلات",
+          durationMinutes: 60,
+          startsAt: new Date(Date.now() + 86400000).toISOString(),
+          endsAt: new Date(Date.now() + 172800000).toISOString(),
+        },
+      });
+      expect(examRes.statusCode).toBe(201);
+      const examId = examRes.json().exam.id;
+
+      // Add questions
+      const qRes = await app.inject({
+        method: "POST",
+        url: `/v1/teacher/exams/${examId}/questions`,
+        cookies: { avana_session: teacher.sessionToken },
+        payload: {
+          prompt: "معادله برنولی چیست؟",
+          questionType: "single_choice",
+          options: [
+            { id: "opt_1", text: "معادله دیفرانسیل غیرخطی مرتبه اول" },
+            { id: "opt_2", text: "معادله خطی مرتبه دوم" },
+            { id: "opt_3", text: "معادله لاپلاس" },
+            { id: "opt_4", text: "معادله موج" },
+          ],
+          correctOptionId: "opt_1",
+          points: 5,
+        },
+      });
+      expect(qRes.statusCode).toBe(201);
+
+      // Delete exam
+      const delRes = await app.inject({
+        method: "DELETE",
+        url: `/v1/teacher/exams/${examId}`,
+        cookies: { avana_session: teacher.sessionToken },
+      });
+      expect(delRes.statusCode).toBe(204);
+
+      // Verify exam is gone (404)
+      const getRes = await app.inject({
+        method: "GET",
+        url: `/v1/teacher/exams/${examId}`,
+        cookies: { avana_session: teacher.sessionToken },
+      });
+      expect(getRes.statusCode).toBe(404);
+
+      // Verify questions endpoint also returns 404 (exam not found)
+      const listQRes = await app.inject({
+        method: "GET",
+        url: `/v1/teacher/exams/${examId}/questions`,
+        cookies: { avana_session: teacher.sessionToken },
+      });
+      expect(listQRes.statusCode).toBe(404);
+    });
+
+    test("IDOR Prevention: Teacher B cannot delete Teacher A's exam", async () => {
+      const teacherA = await createUserWithRole("teacher_del_a@avana.org", Roles.teacher);
+      const teacherB = await createUserWithRole("teacher_del_b@avana.org", Roles.teacher);
+
+      const classRes = await app.inject({
+        method: "POST",
+        url: `/v1/organizations/${orgId}/teacher/classrooms`,
+        cookies: { avana_session: teacherA.sessionToken },
+        payload: { title: "کلاس فیزیک پایه" },
+      });
+      const classroomId = classRes.json().classroom.id;
+
+      const examRes = await app.inject({
+        method: "POST",
+        url: `/v1/teacher/classrooms/${classroomId}/exams`,
+        cookies: { avana_session: teacherA.sessionToken },
+        payload: {
+          title: "آزمون فیزیک ۱",
+          startsAt: new Date(Date.now() + 86400000).toISOString(),
+          endsAt: new Date(Date.now() + 172800000).toISOString(),
+        },
+      });
+      const examId = examRes.json().exam.id;
+
+      // Teacher B tries to delete Teacher A's exam -> 404
+      const idorDel = await app.inject({
+        method: "DELETE",
+        url: `/v1/teacher/exams/${examId}`,
+        cookies: { avana_session: teacherB.sessionToken },
+      });
+      expect(idorDel.statusCode).toBe(404);
+
+      // Verify exam is still intact for Teacher A
+      const getRes = await app.inject({
+        method: "GET",
+        url: `/v1/teacher/exams/${examId}`,
+        cookies: { avana_session: teacherA.sessionToken },
+      });
+      expect(getRes.statusCode).toBe(200);
+      expect(getRes.json().exam.id).toBe(examId);
+    });
+
+    test("Deletion blocked with 409 Conflict when exam has student attempts", async () => {
+      const teacher = await createUserWithRole("teacher_del_att@avana.org", Roles.teacher);
+      const student = await createUserWithRole("student_del_att@avana.org", Roles.student);
+
+      const classRes = await app.inject({
+        method: "POST",
+        url: `/v1/organizations/${orgId}/teacher/classrooms`,
+        cookies: { avana_session: teacher.sessionToken },
+        payload: { title: "کلاس شیمی عمومی" },
+      });
+      const classroom = classRes.json().classroom;
+
+      // Student joins
+      await app.inject({
+        method: "POST",
+        url: `/v1/student/classrooms/join`,
+        cookies: { avana_session: student.sessionToken },
+        payload: { inviteCode: classroom.inviteCode },
+      });
+
+      // Create and publish exam
+      const examRes = await app.inject({
+        method: "POST",
+        url: `/v1/teacher/classrooms/${classroom.id}/exams`,
+        cookies: { avana_session: teacher.sessionToken },
+        payload: {
+          title: "آزمون استوکیومتری",
+          durationMinutes: 30,
+          startsAt: new Date(Date.now() - 60000).toISOString(),
+          endsAt: new Date(Date.now() + 86400000).toISOString(),
+        },
+      });
+      const examId = examRes.json().exam.id;
+
+      const qRes2 = await app.inject({
+        method: "POST",
+        url: `/v1/teacher/exams/${examId}/questions`,
+        cookies: { avana_session: teacher.sessionToken },
+        payload: {
+          prompt: "عدد آووگادرو چیست؟",
+          questionType: "single_choice",
+          options: [
+            { id: "opt_1", text: "۶.۰۲۲ ضرب در ۱۰ به توان ۲۳" },
+            { id: "opt_2", text: "۳ ضرب در ۱۰ به توان ۸" },
+            { id: "opt_3", text: "۹.۸" },
+            { id: "opt_4", text: "۱.۶ ضرب در ۱۰ به توان منفی ۱۹" },
+          ],
+          correctOptionId: "opt_1",
+          points: 10,
+        },
+      });
+      expect(qRes2.statusCode).toBe(201);
+
+      await app.inject({
+        method: "POST",
+        url: `/v1/teacher/exams/${examId}/publish`,
+        cookies: { avana_session: teacher.sessionToken },
+      });
+
+      // Student starts attempt
+      const startRes = await app.inject({
+        method: "POST",
+        url: `/v1/student/exams/${examId}/start`,
+        cookies: { avana_session: student.sessionToken },
+      });
+      expect(startRes.statusCode).toBe(201);
+
+      // Teacher attempts to delete exam -> must fail with 409 Conflict
+      const delRes = await app.inject({
+        method: "DELETE",
+        url: `/v1/teacher/exams/${examId}`,
+        cookies: { avana_session: teacher.sessionToken },
+      });
+      expect(delRes.statusCode).toBe(409);
+      expect(delRes.json().error.message).toContain("آزمون دارای شرکت‌کننده است و امکان حذف آن وجود ندارد");
+
+      // Verify exam and attempt are still healthy
+      const getRes = await app.inject({
+        method: "GET",
+        url: `/v1/teacher/exams/${examId}`,
+        cookies: { avana_session: teacher.sessionToken },
+      });
+      expect(getRes.statusCode).toBe(200);
+
+      const currentAttemptRes = await app.inject({
+        method: "GET",
+        url: `/v1/student/exams/${examId}/current`,
+        cookies: { avana_session: student.sessionToken },
+      });
+      expect(currentAttemptRes.statusCode).toBe(200);
+      expect(currentAttemptRes.json().attempt).toBeTruthy();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // 19. Comprehensive Student Review & Result Status Audit Suite
+  // ---------------------------------------------------------------------------
+  describe("19. Comprehensive Student Review & Result Status Audit Suite", () => {
+    it("19.1. Non-participating student receives HTTP 404 with reason EXAM_NOT_ATTEMPTED", async () => {
+      const teacher = await createUserWithRole("t_rev_1@avana.org", Roles.teacher);
+      const student = await createUserWithRole("s_rev_1@avana.org", Roles.student);
+
+      const createClassroomResp = await app.inject({
+        method: "POST",
+        url: `/v1/organizations/${teacher.orgId}/teacher/classrooms`,
+        cookies: { avana_session: teacher.sessionToken },
+        payload: { title: "کلاس بازبینی وضعیت" },
+      });
+      const classroom = createClassroomResp.json().classroom;
+      await app.inject({
+        method: "POST",
+        url: "/v1/student/classrooms/join",
+        cookies: { avana_session: student.sessionToken },
+        payload: { inviteCode: classroom.inviteCode },
+      });
+
+      const createExamResp = await app.inject({
+        method: "POST",
+        url: `/v1/teacher/classrooms/${classroom.id}/exams`,
+        cookies: { avana_session: teacher.sessionToken },
+        payload: {
+          title: "آزمون بدون شرکت",
+          durationMinutes: 30,
+          startsAt: new Date(Date.now() - 3600000).toISOString(),
+          endsAt: new Date(Date.now() + 3600000).toISOString(),
+        },
+      });
+      const exam = createExamResp.json().exam;
+
+      await app.inject({
+        method: "POST",
+        url: `/v1/teacher/exams/${exam.id}/questions`,
+        cookies: { avana_session: teacher.sessionToken },
+        payload: {
+          questionType: "single_choice",
+          prompt: "سوال تستی ۱",
+          points: 20,
+          options: [
+            { id: "o1", text: "گزینه ۱" },
+            { id: "o2", text: "گزینه ۲" },
+            { id: "o3", text: "گزینه ۳" },
+            { id: "o4", text: "گزینه ۴" },
+          ],
+          correctOptionId: "o1",
+        },
+      });
+
+      const pubRes = await app.inject({
+        method: "POST",
+        url: `/v1/teacher/exams/${exam.id}/publish`,
+        cookies: { avana_session: teacher.sessionToken },
+      });
+      expect(pubRes.statusCode).toBe(200);
+
+      const res = await app.inject({
+        method: "GET",
+        url: `/v1/student/exams/${exam.id}/review`,
+        cookies: { avana_session: student.sessionToken },
+      });
+      expect(res.statusCode).toBe(404);
+      const body = res.json();
+      expect(body.error.code).toBe("not_found");
+      expect(body.error.details?.reason).toBe("EXAM_NOT_ATTEMPTED");
+      expect(body.error.message).toContain("شما هنوز در این آزمون شرکت نکرده‌اید");
+    });
+
+    it("19.2. Attempt in progress before deadline returns HTTP 400 with reason ATTEMPT_IN_PROGRESS", async () => {
+      const teacher = await createUserWithRole("t_rev_2@avana.org", Roles.teacher);
+      const student = await createUserWithRole("s_rev_2@avana.org", Roles.student);
+
+      const createClassroomResp = await app.inject({
+        method: "POST",
+        url: `/v1/organizations/${teacher.orgId}/teacher/classrooms`,
+        cookies: { avana_session: teacher.sessionToken },
+        payload: { title: "کلاس آزمون در حال انجام" },
+      });
+      const classroom = createClassroomResp.json().classroom;
+      await app.inject({
+        method: "POST",
+        url: "/v1/student/classrooms/join",
+        cookies: { avana_session: student.sessionToken },
+        payload: { inviteCode: classroom.inviteCode },
+      });
+
+      const createExamResp = await app.inject({
+        method: "POST",
+        url: `/v1/teacher/classrooms/${classroom.id}/exams`,
+        cookies: { avana_session: teacher.sessionToken },
+        payload: {
+          title: "آزمون جاری",
+          durationMinutes: 30,
+          startsAt: new Date(Date.now() - 100000).toISOString(),
+          endsAt: new Date(Date.now() + 3600000).toISOString(),
+        },
+      });
+      const exam = createExamResp.json().exam;
+
+      await app.inject({
+        method: "POST",
+        url: `/v1/teacher/exams/${exam.id}/questions`,
+        cookies: { avana_session: teacher.sessionToken },
+        payload: {
+          questionType: "single_choice",
+          prompt: "سوال ۲",
+          points: 20,
+          options: [
+            { id: "o1", text: "A" },
+            { id: "o2", text: "B" },
+            { id: "o3", text: "C" },
+            { id: "o4", text: "D" },
+          ],
+          correctOptionId: "o1",
+        },
+      });
+
+      const pubRes = await app.inject({
+        method: "POST",
+        url: `/v1/teacher/exams/${exam.id}/publish`,
+        cookies: { avana_session: teacher.sessionToken },
+      });
+      expect(pubRes.statusCode).toBe(200);
+
+      // Start attempt
+      const startRes = await app.inject({
+        method: "POST",
+        url: `/v1/student/exams/${exam.id}/start`,
+        cookies: { avana_session: student.sessionToken },
+      });
+      expect(startRes.statusCode).toBe(201);
+
+      // Request review while in progress
+      const res = await app.inject({
+        method: "GET",
+        url: `/v1/student/exams/${exam.id}/review`,
+        cookies: { avana_session: student.sessionToken },
+      });
+      expect(res.statusCode).toBe(400);
+      const body = res.json();
+      expect(body.error.code).toBe("bad_request");
+      expect(body.error.details?.reason).toBe("ATTEMPT_IN_PROGRESS");
+      expect(body.error.message).toContain("آزمون شما هنوز پایان نیافته است");
+    });
+
+    it("19.3. Active exam + submitted attempt without release returns state results_pending_teacher", async () => {
+      const teacher = await createUserWithRole("t_rev_3@avana.org", Roles.teacher);
+      const student = await createUserWithRole("s_rev_3@avana.org", Roles.student);
+
+      const createClassroomResp = await app.inject({
+        method: "POST",
+        url: `/v1/organizations/${teacher.orgId}/teacher/classrooms`,
+        cookies: { avana_session: teacher.sessionToken },
+        payload: { title: "کلاس اعلام نتیجه" },
+      });
+      const classroom = createClassroomResp.json().classroom;
+      await app.inject({
+        method: "POST",
+        url: "/v1/student/classrooms/join",
+        cookies: { avana_session: student.sessionToken },
+        payload: { inviteCode: classroom.inviteCode },
+      });
+
+      const createExamResp = await app.inject({
+        method: "POST",
+        url: `/v1/teacher/classrooms/${classroom.id}/exams`,
+        cookies: { avana_session: teacher.sessionToken },
+        payload: {
+          title: "آزمون در انتظار استاد",
+          durationMinutes: 30,
+          showResultsImmediately: false,
+          startsAt: new Date(Date.now() - 100000).toISOString(),
+          endsAt: new Date(Date.now() + 7200000).toISOString(),
+        },
+      });
+      const exam = createExamResp.json().exam;
+
+      const qResp = await app.inject({
+        method: "POST",
+        url: `/v1/teacher/exams/${exam.id}/questions`,
+        cookies: { avana_session: teacher.sessionToken },
+        payload: {
+          questionType: "single_choice",
+          prompt: "سوال ۳",
+          points: 20,
+          options: [
+            { id: "o1", text: "A" },
+            { id: "o2", text: "B" },
+            { id: "o3", text: "C" },
+            { id: "o4", text: "D" },
+          ],
+          correctOptionId: "o1",
+        },
+      });
+      const q = qResp.json().question;
+
+      const pubRes = await app.inject({
+        method: "POST",
+        url: `/v1/teacher/exams/${exam.id}/publish`,
+        cookies: { avana_session: teacher.sessionToken },
+      });
+      expect(pubRes.statusCode).toBe(200);
+
+      await app.inject({
+        method: "POST",
+        url: `/v1/student/exams/${exam.id}/start`,
+        cookies: { avana_session: student.sessionToken },
+      });
+      await app.inject({
+        method: "PUT",
+        url: `/v1/student/exams/${exam.id}/answers/${q.id}`,
+        cookies: { avana_session: student.sessionToken },
+        payload: { selectedOptionId: "o1" },
+      });
+      await app.inject({
+        method: "POST",
+        url: `/v1/student/exams/${exam.id}/submit`,
+        cookies: { avana_session: student.sessionToken },
+      });
+
+      const res = await app.inject({
+        method: "GET",
+        url: `/v1/student/exams/${exam.id}/review`,
+        cookies: { avana_session: student.sessionToken },
+      });
+      expect(res.statusCode).toBe(200);
+      const review = res.json().review;
+      expect(review.resultsReleased).toBe(false);
+      expect(review.state).toBe("results_pending_teacher");
+      expect(review.message).toBe("نتیجه آزمون هنوز توسط استاد اعلام نشده است.");
+    });
+
+    it("19.4. Descriptive question with ungraded attempt returns state grading_in_progress", async () => {
+      const teacher = await createUserWithRole("t_rev_4@avana.org", Roles.teacher);
+      const student = await createUserWithRole("s_rev_4@avana.org", Roles.student);
+
+      const createClassroomResp = await app.inject({
+        method: "POST",
+        url: `/v1/organizations/${teacher.orgId}/teacher/classrooms`,
+        cookies: { avana_session: teacher.sessionToken },
+        payload: { title: "کلاس تشریحی" },
+      });
+      const classroom = createClassroomResp.json().classroom;
+      await app.inject({
+        method: "POST",
+        url: "/v1/student/classrooms/join",
+        cookies: { avana_session: student.sessionToken },
+        payload: { inviteCode: classroom.inviteCode },
+      });
+
+      const createExamResp = await app.inject({
+        method: "POST",
+        url: `/v1/teacher/classrooms/${classroom.id}/exams`,
+        cookies: { avana_session: teacher.sessionToken },
+        payload: {
+          title: "آزمون تشریحی در حال تصحیح",
+          durationMinutes: 30,
+          showResultsImmediately: true,
+          startsAt: new Date(Date.now() - 100000).toISOString(),
+          endsAt: new Date(Date.now() + 7200000).toISOString(),
+        },
+      });
+      const exam = createExamResp.json().exam;
+
+      const qResp = await app.inject({
+        method: "POST",
+        url: `/v1/teacher/exams/${exam.id}/questions`,
+        cookies: { avana_session: teacher.sessionToken },
+        payload: {
+          questionType: "descriptive",
+          prompt: "پاتوفیزیولوژی سندرم کوشینگ را شرح دهید.",
+          points: 20,
+        },
+      });
+      const q = qResp.json().question;
+
+      const pubRes = await app.inject({
+        method: "POST",
+        url: `/v1/teacher/exams/${exam.id}/publish`,
+        cookies: { avana_session: teacher.sessionToken },
+      });
+      expect(pubRes.statusCode).toBe(200);
+
+      await app.inject({
+        method: "POST",
+        url: `/v1/student/exams/${exam.id}/start`,
+        cookies: { avana_session: student.sessionToken },
+      });
+      await app.inject({
+        method: "PUT",
+        url: `/v1/student/exams/${exam.id}/answers/${q.id}`,
+        cookies: { avana_session: student.sessionToken },
+        payload: { textAnswer: "افزایش سطح کورتیزول پلاسما" },
+      });
+      await app.inject({
+        method: "POST",
+        url: `/v1/student/exams/${exam.id}/submit`,
+        cookies: { avana_session: student.sessionToken },
+      });
+
+      const res = await app.inject({
+        method: "GET",
+        url: `/v1/student/exams/${exam.id}/review`,
+        cookies: { avana_session: student.sessionToken },
+      });
+      expect(res.statusCode).toBe(200);
+      const review = res.json().review;
+      expect(review.resultsReleased).toBe(false);
+      expect(review.state).toBe("grading_in_progress");
+      expect(review.message).toBe("نتیجه آزمون در حال آماده‌سازی است. لطفاً بعداً دوباره تلاش کنید.");
+    });
+
+    it("19.5. Closed exam + unreleased results returns state results_unpublished_closed", async () => {
+      const teacher = await createUserWithRole("t_rev_5@avana.org", Roles.teacher);
+      const student = await createUserWithRole("s_rev_5@avana.org", Roles.student);
+
+      const createClassroomResp = await app.inject({
+        method: "POST",
+        url: `/v1/organizations/${teacher.orgId}/teacher/classrooms`,
+        cookies: { avana_session: teacher.sessionToken },
+        payload: { title: "کلاس منقضی" },
+      });
+      const classroom = createClassroomResp.json().classroom;
+      await app.inject({
+        method: "POST",
+        url: "/v1/student/classrooms/join",
+        cookies: { avana_session: student.sessionToken },
+        payload: { inviteCode: classroom.inviteCode },
+      });
+
+      const createExamResp = await app.inject({
+        method: "POST",
+        url: `/v1/teacher/classrooms/${classroom.id}/exams`,
+        cookies: { avana_session: teacher.sessionToken },
+        payload: {
+          title: "آزمون بسته شده",
+          durationMinutes: 30,
+          showResultsImmediately: false,
+          startsAt: new Date(Date.now() - 7200000).toISOString(),
+          endsAt: new Date(Date.now() - 3600000).toISOString(),
+        },
+      });
+      const exam = createExamResp.json().exam;
+
+      const qResp = await app.inject({
+        method: "POST",
+        url: `/v1/teacher/exams/${exam.id}/questions`,
+        cookies: { avana_session: teacher.sessionToken },
+        payload: {
+          questionType: "single_choice",
+          prompt: "سوال ۵",
+          points: 20,
+          options: [
+            { id: "o1", text: "A" },
+            { id: "o2", text: "B" },
+            { id: "o3", text: "C" },
+            { id: "o4", text: "D" },
+          ],
+          correctOptionId: "o1",
+        },
+      });
+      const q = qResp.json().question;
+
+      const pubRes = await app.inject({
+        method: "POST",
+        url: `/v1/teacher/exams/${exam.id}/publish`,
+        cookies: { avana_session: teacher.sessionToken },
+      });
+      expect(pubRes.statusCode).toBe(200);
+
+      // Mock attempt manually for closed exam
+      await teacherExamAttemptStore.create({
+        id: randomUUID(),
+        examId: exam.id,
+        studentId: student.user.id,
+        status: "submitted",
+        gradingStatus: "fully_graded",
+        startedAt: new Date(Date.now() - 7000000).toISOString(),
+        deadlineAt: new Date(Date.now() - 5000000).toISOString(),
+        submittedAt: new Date(Date.now() - 5000000).toISOString(),
+        score: 20,
+        maxScore: 20,
+        percentage: 100,
+        passed: true,
+        questionSnapshot: [{
+          id: q.id,
+          orderIndex: 0,
+          questionType: "single_choice",
+          prompt: q.prompt,
+          options: [
+            { id: "o1", text: "A" },
+            { id: "o2", text: "B" },
+            { id: "o3", text: "C" },
+            { id: "o4", text: "D" },
+          ],
+          points: 20,
+          correctOptionId: "o1",
+        }],
+      });
+
+      const res = await app.inject({
+        method: "GET",
+        url: `/v1/student/exams/${exam.id}/review`,
+        cookies: { avana_session: student.sessionToken },
+      });
+      expect(res.statusCode).toBe(200);
+      const review = res.json().review;
+      expect(review.resultsReleased).toBe(false);
+      expect(review.state).toBe("results_unpublished_closed");
+      expect(review.message).toBe("آزمون به پایان رسیده است، اما نتیجه آن هنوز منتشر نشده است.");
+    });
+
+    it("19.6. Non-member student receives HTTP 403 with reason ACCESS_DENIED", async () => {
+      const teacher = await createUserWithRole("t_rev_6@avana.org", Roles.teacher);
+      const outsider = await createUserWithRole("s_rev_6@avana.org", Roles.student);
+
+      const createClassroomResp = await app.inject({
+        method: "POST",
+        url: `/v1/organizations/${teacher.orgId}/teacher/classrooms`,
+        cookies: { avana_session: teacher.sessionToken },
+        payload: { title: "کلاس خصوصی" },
+      });
+      const classroom = createClassroomResp.json().classroom;
+
+      const createExamResp = await app.inject({
+        method: "POST",
+        url: `/v1/teacher/classrooms/${classroom.id}/exams`,
+        cookies: { avana_session: teacher.sessionToken },
+        payload: {
+          title: "آزمون ویژه اعضا",
+          durationMinutes: 30,
+          startsAt: new Date(Date.now() - 100000).toISOString(),
+          endsAt: new Date(Date.now() + 3600000).toISOString(),
+        },
+      });
+      const exam = createExamResp.json().exam;
+
+      await app.inject({
+        method: "POST",
+        url: `/v1/teacher/exams/${exam.id}/questions`,
+        cookies: { avana_session: teacher.sessionToken },
+        payload: {
+          questionType: "single_choice",
+          prompt: "سوال ۶",
+          points: 20,
+          options: [
+            { id: "o1", text: "A" },
+            { id: "o2", text: "B" },
+            { id: "o3", text: "C" },
+            { id: "o4", text: "D" },
+          ],
+          correctOptionId: "o1",
+        },
+      });
+
+      const pubRes = await app.inject({
+        method: "POST",
+        url: `/v1/teacher/exams/${exam.id}/publish`,
+        cookies: { avana_session: teacher.sessionToken },
+      });
+      expect(pubRes.statusCode).toBe(200);
+
+      const res = await app.inject({
+        method: "GET",
+        url: `/v1/student/exams/${exam.id}/review`,
+        cookies: { avana_session: outsider.sessionToken },
+      });
+      expect(res.statusCode).toBe(403);
+      const body = res.json();
+      expect(body.error.code).toBe("forbidden");
+      expect(body.error.details?.reason).toBe("ACCESS_DENIED");
+      expect(body.error.message).toContain("دسترسی شما به نتیجه این آزمون در حال حاضر امکان‌پذیر نیست");
+    });
+
+    it("19.7. Non-existent or unpublished exam returns HTTP 404 with reason EXAM_UNAVAILABLE", async () => {
+      const student = await createUserWithRole("s_rev_7@avana.org", Roles.student);
+
+      const res = await app.inject({
+        method: "GET",
+        url: `/v1/student/exams/non-existent-exam-id/review`,
+        cookies: { avana_session: student.sessionToken },
+      });
+      expect(res.statusCode).toBe(404);
+      const body = res.json();
+      expect(body.error.code).toBe("not_found");
+      expect(body.error.details?.reason).toBe("EXAM_UNAVAILABLE");
+      expect(body.error.message).toContain("این آزمون دیگر در دسترس نیست");
     });
   });
 });

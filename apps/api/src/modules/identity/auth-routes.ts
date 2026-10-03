@@ -5,6 +5,7 @@ import {
   resolveEffectiveRole,
   validateAndNormalizeIranPhone,
   isValidAcademicField,
+  validateTeacherAcademicProfile,
   type Role,
 } from "@avana/domain";
 import { type SessionService, generateSessionToken, hashToken } from "./session-service.js";
@@ -338,6 +339,9 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
         role: effectiveRole,
         phoneNumber: userRecord.phoneNumber ?? null,
         major: userRecord.major ?? null,
+        university: userRecord.university ?? null,
+        faculty: userRecord.faculty ?? null,
+        department: userRecord.department ?? null,
         emailVerified: verificationState.emailVerified,
         phoneVerified: verificationState.phoneVerified,
         isVerified: verificationState.isVerified,
@@ -386,9 +390,17 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
       lastName?: unknown;
       name?: unknown;
       major?: unknown;
+      university?: unknown;
+      faculty?: unknown;
+      department?: unknown;
     };
 
     let updatedAny = false;
+    let resolvedName: string | undefined = undefined;
+    let resolvedMajor: string | null | undefined = undefined;
+    let resolvedUniversity: string | null | undefined = undefined;
+    let resolvedFaculty: string | null | undefined = undefined;
+    let resolvedDepartment: string | null | undefined = undefined;
 
     // 1. Handle Name update if provided
     if (body.firstName !== undefined || body.lastName !== undefined) {
@@ -414,8 +426,7 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
         throw new DomainError("bad_request", "نام خانوادگی باید بین ۲ تا ۵۰ کاراکتر باشد.");
       }
 
-      const fullName = `${firstStr} ${lastStr}`;
-      await userStore.updateName(actorUserId, fullName);
+      resolvedName = `${firstStr} ${lastStr}`;
       updatedAny = true;
     } else if (typeof body.name === "string") {
       const normName = body.name.trim().replace(/\s+/g, " ");
@@ -432,34 +443,77 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
         throw new DomainError("bad_request", "نام خانوادگی باید بین ۲ تا ۵۰ کاراکتر باشد.");
       }
 
-      const fullName = `${firstStr} ${lastStr}`;
-      await userStore.updateName(actorUserId, fullName);
+      resolvedName = `${firstStr} ${lastStr}`;
       updatedAny = true;
     }
 
     // 2. Handle Major update if provided
     if (body.major !== undefined) {
       if (body.major === null || body.major === "") {
-        if (userStore.updateMajor) {
-          await userStore.updateMajor(actorUserId, null);
-          updatedAny = true;
-        }
+        resolvedMajor = null;
+        updatedAny = true;
       } else if (typeof body.major === "string") {
         const trimmedMajor = body.major.trim();
         if (!isValidAcademicField(trimmedMajor)) {
           throw new DomainError("bad_request", "رشته تحصیلی نامعتبر است.");
         }
-        if (userStore.updateMajor) {
-          await userStore.updateMajor(actorUserId, trimmedMajor);
-          updatedAny = true;
-        }
+        resolvedMajor = trimmedMajor;
+        updatedAny = true;
       } else {
         throw new DomainError("bad_request", "رشته تحصیلی نامعتبر است.");
       }
     }
 
+    // 3. Handle Teacher Academic Profile (university, faculty, department) if provided
+    if (
+      body.university !== undefined ||
+      body.faculty !== undefined ||
+      body.department !== undefined
+    ) {
+      const academicValidation = validateTeacherAcademicProfile({
+        university: body.university,
+        faculty: body.faculty,
+        department: body.department,
+      });
+      if (!academicValidation.valid) {
+        throw new DomainError(
+          "bad_request",
+          academicValidation.error || "اطلاعات آموزشی نامعتبر است.",
+        );
+      }
+      if (body.university !== undefined) {
+        resolvedUniversity = academicValidation.normalized?.university ?? null;
+        updatedAny = true;
+      }
+      if (body.faculty !== undefined) {
+        resolvedFaculty = academicValidation.normalized?.faculty ?? null;
+        updatedAny = true;
+      }
+      if (body.department !== undefined) {
+        resolvedDepartment = academicValidation.normalized?.department ?? null;
+        updatedAny = true;
+      }
+    }
+
     if (!updatedAny) {
       throw new DomainError("bad_request", "اطلاعاتی جهت ویرایش ارسال نشده است.");
+    }
+
+    if (userStore.updateProfileFields) {
+      await userStore.updateProfileFields(actorUserId, {
+        name: resolvedName,
+        major: resolvedMajor,
+        university: resolvedUniversity,
+        faculty: resolvedFaculty,
+        department: resolvedDepartment,
+      });
+    } else {
+      if (resolvedName) {
+        await userStore.updateName(actorUserId, resolvedName);
+      }
+      if (resolvedMajor !== undefined && userStore.updateMajor) {
+        await userStore.updateMajor(actorUserId, resolvedMajor);
+      }
     }
 
     const userRecord = await userStore.findById(actorUserId);
@@ -487,6 +541,9 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
         role: effectiveRole,
         phoneNumber: userRecord.phoneNumber ?? null,
         major: userRecord.major ?? null,
+        university: userRecord.university ?? null,
+        faculty: userRecord.faculty ?? null,
+        department: userRecord.department ?? null,
         emailVerified: verificationState.emailVerified,
         phoneVerified: verificationState.phoneVerified,
         isVerified: verificationState.isVerified,
@@ -601,6 +658,10 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
       lastName?: string;
       phoneNumber?: string;
       major?: string;
+      university?: string;
+      faculty?: string;
+      department?: string;
+      role?: string;
       referralCode?: string;
     };
 
@@ -608,6 +669,7 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
     const lastName = body?.lastName !== undefined ? String(body.lastName).trim() : undefined;
     const rawName = body?.name !== undefined ? String(body.name).trim() : undefined;
 
+    let fullName = "";
     let resolvedFirstName = "";
     let resolvedLastName = "";
 
@@ -615,17 +677,20 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
       if (!firstName) {
         throw new DomainError("bad_request", "نام الزامی است.");
       }
+      if (!lastName) {
+        throw new DomainError("bad_request", "نام خانوادگی الزامی است.");
+      }
       resolvedFirstName = firstName;
-      resolvedLastName = lastName || "";
+      resolvedLastName = lastName;
+      fullName = `${resolvedFirstName} ${resolvedLastName}`.trim();
     } else if (rawName) {
+      fullName = rawName;
       const parts = rawName.split(/\s+/);
       resolvedFirstName = parts[0] || "";
       resolvedLastName = parts.slice(1).join(" ");
     } else {
       throw new DomainError("bad_request", "نام الزامی است.");
     }
-
-    const fullName = resolvedLastName ? `${resolvedFirstName} ${resolvedLastName}` : resolvedFirstName;
 
     const rawEmail = body?.email !== undefined ? String(body.email).trim().toLowerCase() : "";
     if (!rawEmail || !rawEmail.includes("@") || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rawEmail)) {
@@ -639,19 +704,45 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
     }
 
     const rawPhoneNumber = body?.phoneNumber;
-    let normalizedPhoneNumber: string | undefined = undefined;
-    if (rawPhoneNumber && typeof rawPhoneNumber === "string" && rawPhoneNumber.trim()) {
-      const phoneValidation = validateAndNormalizeIranPhone(rawPhoneNumber);
-      if (!phoneValidation.valid || !phoneValidation.normalized) {
+    if (!rawPhoneNumber || typeof rawPhoneNumber !== "string" || !rawPhoneNumber.trim()) {
+      throw new DomainError("bad_request", "شماره موبایل الزامی است.");
+    }
+    const phoneValidation = validateAndNormalizeIranPhone(rawPhoneNumber);
+    if (!phoneValidation.valid || !phoneValidation.normalized) {
+      throw new DomainError(
+        "bad_request",
+        phoneValidation.error || "شماره موبایل معتبر نیست.",
+      );
+    }
+    const normalizedPhoneNumber = phoneValidation.normalized;
+
+    // Teacher Academic Profile validation (if university, faculty, department provided)
+    let resolvedUniversity: string | undefined = undefined;
+    let resolvedFaculty: string | undefined = undefined;
+    let resolvedDepartment: string | undefined = undefined;
+
+    if (
+      body?.university !== undefined ||
+      body?.faculty !== undefined ||
+      body?.department !== undefined
+    ) {
+      const academicValidation = validateTeacherAcademicProfile({
+        university: body.university,
+        faculty: body.faculty,
+        department: body.department,
+      });
+      if (!academicValidation.valid) {
         throw new DomainError(
           "bad_request",
-          phoneValidation.error || "شماره موبایل معتبر نیست.",
+          academicValidation.error || "اطلاعات آموزشی نامعتبر است.",
         );
       }
-      normalizedPhoneNumber = phoneValidation.normalized;
+      resolvedUniversity = academicValidation.normalized?.university || undefined;
+      resolvedFaculty = academicValidation.normalized?.faculty || undefined;
+      resolvedDepartment = academicValidation.normalized?.department || undefined;
     }
 
-    // Major validation (optional, validated if provided)
+    // Major validation (optional for student, validated if provided)
     const rawMajor = body?.major;
     let major: string | undefined = undefined;
     if (rawMajor && typeof rawMajor === "string" && rawMajor.trim()) {
@@ -692,6 +783,9 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
       name: fullName,
       phoneNumber: normalizedPhoneNumber,
       major,
+      university: resolvedUniversity,
+      faculty: resolvedFaculty,
+      department: resolvedDepartment,
     });
 
     if (organizationStore) {
@@ -786,6 +880,9 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
         role: effectiveRole,
         phoneNumber: userRecord.phoneNumber ?? null,
         major: userRecord.major ?? null,
+        university: userRecord.university ?? null,
+        faculty: userRecord.faculty ?? null,
+        department: userRecord.department ?? null,
         emailVerified: false,
         phoneVerified: false,
         isVerified: false,
@@ -1077,6 +1174,10 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
           name: userRecord.name,
           role: effectiveRole,
           phoneNumber: userRecord.phoneNumber ?? null,
+          major: userRecord.major ?? null,
+          university: userRecord.university ?? null,
+          faculty: userRecord.faculty ?? null,
+          department: userRecord.department ?? null,
           emailVerified: verificationState.emailVerified,
           phoneVerified: verificationState.phoneVerified,
           isVerified: verificationState.isVerified,
@@ -1218,6 +1319,10 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
         name: userRecord.name,
         role: effectiveRole,
         phoneNumber: userRecord.phoneNumber ?? null,
+        major: userRecord.major ?? null,
+        university: userRecord.university ?? null,
+        faculty: userRecord.faculty ?? null,
+        department: userRecord.department ?? null,
         emailVerified: verificationState.emailVerified,
         phoneVerified: verificationState.phoneVerified,
         isVerified: verificationState.isVerified,
@@ -1884,6 +1989,10 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
             name: userRecord.name,
             role: effectiveRole,
             phoneNumber: userRecord.phoneNumber ?? null,
+            major: userRecord.major ?? null,
+            university: userRecord.university ?? null,
+            faculty: userRecord.faculty ?? null,
+            department: userRecord.department ?? null,
             emailVerified: verificationState.emailVerified,
             phoneVerified: verificationState.phoneVerified,
             isVerified: verificationState.isVerified,
@@ -1910,6 +2019,10 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
         name: userRecord.name,
         role: effectiveRole,
         phoneNumber: userRecord.phoneNumber ?? null,
+        major: userRecord.major ?? null,
+        university: userRecord.university ?? null,
+        faculty: userRecord.faculty ?? null,
+        department: userRecord.department ?? null,
         emailVerified: verificationState.emailVerified,
         phoneVerified: verificationState.phoneVerified,
         isVerified: verificationState.isVerified,

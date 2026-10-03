@@ -296,10 +296,81 @@ describe("Persian Date Utilities (utils/date.ts)", () => {
       expect(getJalaliMonthDays(1405, 11)).toBe(30); // Bahman
     });
 
-    it("calculates correct first weekday of Jalali month", () => {
-      // 1 Farvardin 1404: 2025-03-21 (Friday -> index 6 in Persian week)
-      const firstWeekday = getJalaliFirstDayOfWeek(1404, 1);
-      expect(firstWeekday).toBe(6); // Friday
+    it("handles month boundary transitions accurately (e.g. 31 Farvardin -> 1 Ordibehesht, 31 Shahrivar -> 1 Mehr)", () => {
+      // 1405/01/31 (31 Farvardin 1405) -> 2026-04-20
+      const gDateFarvardinEnd = jalaliToGregorian(1405, 1, 31);
+      expect(gDateFarvardinEnd.getFullYear()).toBe(2026);
+      expect(gDateFarvardinEnd.getMonth()).toBe(3); // April
+      expect(gDateFarvardinEnd.getDate()).toBe(20);
+      expect(gregorianToJalali(gDateFarvardinEnd)).toEqual({ jy: 1405, jm: 1, jd: 31 });
+
+      // 1405/02/01 (1 Ordibehesht 1405) -> 2026-04-21
+      const gDateOrdibeheshtStart = jalaliToGregorian(1405, 2, 1);
+      expect(gDateOrdibeheshtStart.getFullYear()).toBe(2026);
+      expect(gDateOrdibeheshtStart.getMonth()).toBe(3); // April
+      expect(gDateOrdibeheshtStart.getDate()).toBe(21);
+      expect(gregorianToJalali(gDateOrdibeheshtStart)).toEqual({ jy: 1405, jm: 2, jd: 1 });
+
+      // 1405/06/31 (31 Shahrivar 1405) -> 2026-09-22
+      const gDateShahrivarEnd = jalaliToGregorian(1405, 6, 31);
+      expect(gDateShahrivarEnd.getFullYear()).toBe(2026);
+      expect(gDateShahrivarEnd.getMonth()).toBe(8); // September
+      expect(gDateShahrivarEnd.getDate()).toBe(22);
+      expect(gregorianToJalali(gDateShahrivarEnd)).toEqual({ jy: 1405, jm: 6, jd: 31 });
+
+      // 1405/07/01 (1 Mehr 1405) -> 2026-09-23
+      const gDateMehrStart = jalaliToGregorian(1405, 7, 1);
+      expect(gDateMehrStart.getFullYear()).toBe(2026);
+      expect(gDateMehrStart.getMonth()).toBe(8); // September
+      expect(gDateMehrStart.getDate()).toBe(23);
+      expect(gregorianToJalali(gDateMehrStart)).toEqual({ jy: 1405, jm: 7, jd: 1 });
+    });
+
+    it("handles year boundary transitions accurately (e.g. 29 Esfand 1404 -> 1 Farvardin 1405)", () => {
+      // 1404/12/29 (29 Esfand 1404) -> 2026-03-20
+      const gDateEsfandEnd = jalaliToGregorian(1404, 12, 29);
+      expect(gDateEsfandEnd.getFullYear()).toBe(2026);
+      expect(gDateEsfandEnd.getMonth()).toBe(2); // March
+      expect(gDateEsfandEnd.getDate()).toBe(20);
+      expect(gregorianToJalali(gDateEsfandEnd)).toEqual({ jy: 1404, jm: 12, jd: 29 });
+
+      // 1405/01/01 (1 Farvardin 1405) -> 2026-03-21
+      const gDateFarvardin1 = jalaliToGregorian(1405, 1, 1);
+      expect(gDateFarvardin1.getFullYear()).toBe(2026);
+      expect(gDateFarvardin1.getMonth()).toBe(2); // March
+      expect(gDateFarvardin1.getDate()).toBe(21);
+      expect(gregorianToJalali(gDateFarvardin1)).toEqual({ jy: 1405, jm: 1, jd: 1 });
+    });
+
+    it("extracts and combines local date/time near midnight without off-by-one day shifts", () => {
+      // 23:59:59 on 2026-10-02
+      const lateNight = new Date(2026, 9, 2, 23, 59, 59);
+      const extractedLate = extractLocalDateAndTimeString(lateNight);
+      expect(extractedLate.dateStr).toBe("2026-10-02");
+      expect(extractedLate.timeStr).toBe("23:59");
+
+      // Combine back with time
+      const combinedLateIso = combineLocalDateAndTimeToIso(extractedLate.dateStr, extractedLate.timeStr);
+      const combinedLate = new Date(combinedLateIso);
+      expect(combinedLate.getFullYear()).toBe(2026);
+      expect(combinedLate.getMonth()).toBe(9);
+      expect(combinedLate.getDate()).toBe(2);
+      expect(combinedLate.getHours()).toBe(23);
+      expect(combinedLate.getMinutes()).toBe(59);
+
+      // 00:00:01 on 2026-10-03
+      const earlyMorning = new Date(2026, 9, 3, 0, 0, 1);
+      const extractedEarly = extractLocalDateAndTimeString(earlyMorning);
+      expect(extractedEarly.dateStr).toBe("2026-10-03");
+      expect(extractedEarly.timeStr).toBe("00:00");
+
+      const combinedEarlyIso = combineLocalDateAndTimeToIso(extractedEarly.dateStr, extractedEarly.timeStr);
+      const combinedEarly = new Date(combinedEarlyIso);
+      expect(combinedEarly.getFullYear()).toBe(2026);
+      expect(combinedEarly.getMonth()).toBe(9);
+      expect(combinedEarly.getDate()).toBe(3);
+      expect(combinedEarly.getHours()).toBe(0);
+      expect(combinedEarly.getMinutes()).toBe(0);
     });
   });
 });

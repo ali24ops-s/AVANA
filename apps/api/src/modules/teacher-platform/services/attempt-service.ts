@@ -5,6 +5,8 @@ import {
   type TeacherExamAttempt,
   type ExamSnapshotQuestion,
   type StudentSanitizedQuestion,
+  type ExamOption,
+  type TrueFalseStatement,
   type AttemptStatus,
   type RuntimeExamState,
   ATTEMPT_SUBMISSION_GRACE_MS,
@@ -149,13 +151,25 @@ export class TeacherExamAttemptService {
         if (exam.status !== "published") continue;
 
         const runtimeState = calculateRuntimeExamState(exam);
-        const attempt = await this.attemptStore.getByExamAndStudent(exam.id, actor.userId);
+        let attempt = await this.attemptStore.getByExamAndStudent(exam.id, actor.userId);
+
+        if (attempt && attempt.status === "in_progress") {
+          const nowMs = Date.now();
+          const deadlineMs = new Date(attempt.deadlineAt).getTime();
+          if (nowMs > deadlineMs + ATTEMPT_SUBMISSION_GRACE_MS) {
+            try {
+              attempt = await this.finalizeAttempt(attempt, exam, "timed_out");
+            } catch {
+              // ignore conflict if finalized concurrently
+            }
+          }
+        }
 
         const canSeeScore =
           attempt?.status === "submitted" || attempt?.status === "timed_out"
             ? exam.showResultsImmediately ||
               Boolean(exam.resultsReleasedAt) ||
-              new Date().getTime() > new Date(exam.endsAt).getTime()
+              new Date().getTime() >= new Date(exam.endsAt).getTime()
             : false;
 
         results.push({
@@ -215,18 +229,28 @@ export class TeacherExamAttemptService {
     }
 
     // Freeze snapshot questions
-    let snapshot: ExamSnapshotQuestion[] = rawQuestions.map((q, idx) => ({
-      id: q.id,
-      orderIndex: idx,
-      questionType: q.questionType ?? "single_choice",
-      prompt: q.prompt,
-      options: q.options && q.options.length > 0
-        ? (exam.shuffleOptions ? [...q.options].sort(() => Math.random() - 0.5) : [...q.options])
-        : [],
-      correctOptionId: q.correctOptionId ?? null,
-      points: q.points,
-      explanation: q.explanation ?? null,
-    }));
+    let snapshot: ExamSnapshotQuestion[] = rawQuestions.map((q, idx) => {
+      const qType = q.questionType ?? "single_choice";
+      let options: ExamOption[] = [];
+      let statements: TrueFalseStatement[] | undefined = undefined;
+      if (qType === "true_false") {
+        statements = q.statements ? [...q.statements] : [];
+      } else if (qType === "single_choice" && q.options && q.options.length > 0) {
+        options = exam.shuffleOptions ? [...q.options].sort(() => Math.random() - 0.5) : [...q.options];
+      }
+
+      return {
+        id: q.id,
+        orderIndex: idx,
+        questionType: qType,
+        prompt: q.prompt,
+        options,
+        statements,
+        correctOptionId: q.correctOptionId ?? null,
+        points: q.points,
+        explanation: q.explanation ?? null,
+      };
+    });
 
     if (exam.shuffleQuestions) {
       snapshot = snapshot.sort(() => Math.random() - 0.5);
@@ -368,12 +392,8 @@ export class TeacherExamAttemptService {
     }
 
     const input = validateSaveAnswerInput({
+      ...(typeof raw === "object" && raw !== null ? raw : {}),
       questionId,
-      selectedOptionId: (raw as { selectedOptionId?: unknown })?.selectedOptionId,
-      textAnswer: (raw as { textAnswer?: unknown })?.textAnswer,
-      finalized: (raw as { finalized?: unknown })?.finalized,
-      activeDurationMs: (raw as { activeDurationMs?: unknown })?.activeDurationMs,
-      tabSwitchesCount: (raw as { tabSwitchesCount?: unknown })?.tabSwitchesCount,
     });
 
     // Validate question belongs to this student's frozen snapshot
@@ -442,8 +462,8 @@ export class TeacherExamAttemptService {
       }
     }
 
-    // Validate selected option exists in question options (if an option was selected)
-    if (input.selectedOptionId !== null) {
+    // Validate selected option exists in question options (if an option was selected for single_choice)
+    if (snapshotQuestion.questionType === "single_choice" && input.selectedOptionId !== null) {
       const options = snapshotQuestion.options ?? [];
       const optionExists = options.some(
         (o) => o.id === input.selectedOptionId,
@@ -465,6 +485,7 @@ export class TeacherExamAttemptService {
       pointsEarned: null,
       activeDurationMs: input.activeDurationMs ?? undefined,
       tabSwitchesCount: input.tabSwitchesCount ?? undefined,
+      integrityMetadata: input.integrityData ?? undefined,
     });
   }
 

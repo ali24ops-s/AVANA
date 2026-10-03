@@ -15,6 +15,9 @@ export interface UserRecord {
   globalRole?: string | null;
   phoneNumber?: string | null;
   major?: string | null;
+  university?: string | null;
+  faculty?: string | null;
+  department?: string | null;
   teacherStatus?: "pending" | "approved" | "rejected";
   emailVerifiedAt?: string | null;
   emailVerified?: boolean;
@@ -43,6 +46,9 @@ export interface UserStore {
     name?: string;
     phoneNumber?: string;
     major?: string | null;
+    university?: string | null;
+    faculty?: string | null;
+    department?: string | null;
     globalRole?: string | null;
   }): Promise<UserRecord>;
 
@@ -55,6 +61,17 @@ export interface UserStore {
   updateName(userId: UserId, name: string): Promise<void>;
 
   updateMajor?(userId: UserId, major: string | null): Promise<void>;
+
+  updateProfileFields?(
+    userId: UserId,
+    fields: {
+      name?: string;
+      major?: string | null;
+      university?: string | null;
+      faculty?: string | null;
+      department?: string | null;
+    },
+  ): Promise<void>;
 
   updatePhoneNumber?(userId: UserId, phoneNumber: string): Promise<void>;
 

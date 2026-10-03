@@ -30,15 +30,24 @@ export function StudentExamTakingPage() {
   const exam = examsQuery.data?.exams?.find((e) => e.id === examId);
   const attempt = currentAttemptQuery.data?.attempt;
 
-  // Auto-redirect if attempt is already finalized
+  // Auto-redirect if attempt is already finalized or exam is closed
   useEffect(() => {
-    if (attempt && (attempt.status === "submitted" || attempt.status === "timed_out")) {
-      navigate(`/classrooms/${classroomId}/exams/${examId}/results`, { replace: true });
-    }
-  }, [attempt, classroomId, examId, navigate]);
+    if (!exam && !attempt) return;
+    const isClosed =
+      exam?.runtimeState === "closed" ||
+      (exam?.endsAt ? Date.now() >= new Date(exam.endsAt).getTime() : false);
 
-  // Loading state
-  if (currentAttemptQuery.isLoading || examsQuery.isLoading) {
+    if (attempt && (attempt.status === "submitted" || attempt.status === "timed_out" || isClosed)) {
+      navigate(`/classrooms/${classroomId}/exams/${examId}/results`, { replace: true });
+    } else if (isClosed && !attempt) {
+      navigate(`/classrooms/${classroomId}/exams/${examId}`, { replace: true });
+    }
+  }, [attempt, exam, classroomId, examId, navigate]);
+
+  const hasAttempt = Boolean(attempt);
+
+  // Loading state: only when initial data is not yet available in cache or in-flight
+  if (!hasAttempt && !exam && (currentAttemptQuery.isLoading || examsQuery.isLoading)) {
     return (
       <div className="min-h-screen bg-[var(--color-bg-default)] flex items-center justify-center font-sans" dir="rtl">
         <LoadingState message="در حال بازیابی اطلاعات تلاش و سؤالات آزمون از سرور..." />
@@ -46,8 +55,8 @@ export function StudentExamTakingPage() {
     );
   }
 
-  // Error state
-  if (currentAttemptQuery.isError || examsQuery.isError || !exam) {
+  // Error state: only show full-page error if we have NO valid attempt in data/cache AND a query failed or no exam is available
+  if (!hasAttempt && (currentAttemptQuery.isError || (examsQuery.isError && !exam) || (!exam && !currentAttemptQuery.isLoading && !examsQuery.isLoading))) {
     return (
       <div className="min-h-screen bg-[var(--color-bg-default)] flex items-center justify-center p-4 font-sans" dir="rtl">
         <Card className="max-w-md w-full p-8 text-center border border-[var(--color-border)] rounded-3xl shadow-sm">
@@ -77,7 +86,7 @@ export function StudentExamTakingPage() {
         <Card className="max-w-md w-full p-8 text-center border border-[var(--color-border)] rounded-3xl shadow-sm">
           <HelpCircle className="w-12 h-12 text-[#008080] mx-auto mb-4" />
           <h3 className="text-lg font-bold text-[var(--color-text)] mb-2">
-            شروع آزمون «{exam.title}»
+            شروع آزمون «{exam?.title || "آزمون کلاسی"}»
           </h3>
           <p className="text-xs text-[var(--color-text-muted)] mb-6 leading-relaxed">
             شما هنوز در این آزمون شرکت نکرده‌اید. با کلیک بر روی دکمه زیر تلاش شما آغاز خواهد شد.
@@ -107,7 +116,7 @@ export function StudentExamTakingPage() {
     <StudentExamTakingView
       examId={examId!}
       classroomId={classroomId!}
-      examTitle={exam.title}
+      examTitle={exam?.title || "آزمون کلاسی"}
       attempt={attempt}
       onExit={() => navigate(`/classrooms/${classroomId}/exams/${examId}`)}
       onSubmitSuccess={() => {

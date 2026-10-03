@@ -17,7 +17,7 @@ export interface PersianDatePickerProps {
   id?: string;
   value?: string; // ISO date string e.g. "2026-09-15" or "2026-09-15T10:00:00.000Z"
   onChange: (isoString: string) => void;
-  minDate?: Date | string; // Defaults to current date (today)
+  minDate?: Date | string | null; // Defaults to current date (today), pass null to allow past dates
   label?: string;
   required?: boolean;
   disabled?: boolean;
@@ -46,7 +46,7 @@ export function PersianDatePicker({
   });
 
   // Parse minDate into Jalali parts
-  const minJalali = gregorianToJalali(minDate);
+  const minJalali = minDate ? gregorianToJalali(minDate) : null;
 
   // Today in Jalali
   const todayJalali = gregorianToJalali(new Date());
@@ -180,6 +180,7 @@ export function PersianDatePicker({
 
   // Check if a specific day is disabled (before minDate)
   const isDayDisabled = (d: number): boolean => {
+    if (!minJalali) return false;
     if (viewYear < minJalali.jy) return true;
     if (viewYear === minJalali.jy && viewMonth < minJalali.jm) return true;
     if (viewYear === minJalali.jy && viewMonth === minJalali.jm && d < minJalali.jd) return true;
@@ -227,8 +228,9 @@ export function PersianDatePicker({
   const daysInMonth = getJalaliMonthDays(viewYear, viewMonth);
   const firstDayOfWeek = getJalaliFirstDayOfWeek(viewYear, viewMonth);
 
-  // Generate array of selectable years (e.g. todayJalali.jy - 1 to todayJalali.jy + 5)
-  const availableYears = Array.from({ length: 8 }, (_, i) => todayJalali.jy - 1 + i);
+  // Generate array of selectable years (e.g. todayJalali.jy - 3 to todayJalali.jy + 8)
+  const startYear = Math.min(todayJalali.jy - 3, (selectedJalali?.jy ?? todayJalali.jy) - 2);
+  const availableYears = Array.from({ length: 12 }, (_, i) => startYear + i);
 
   // Formatted display text for trigger button
   const formattedDisplay = value ? formatPersianExamDate(value) : "";

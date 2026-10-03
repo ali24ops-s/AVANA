@@ -18,11 +18,15 @@ import type {
   TeacherExamAttempt,
   TeacherExamAttemptAnswer,
   ClassroomAssignment,
-  AssignmentSubmission,
+  ClassroomContent,
+  ClassroomContentType,
+  ClassroomContentStatus,
   CreateClassroomInput,
   CreateExamInput,
+  CreateClassroomContentInput,
   UpdateClassroomInput,
   UpdateExamInput,
+  UpdateClassroomContentInput,
   TeacherQuestionInput,
   GradeDescriptiveAnswerInput,
   RuntimeExamState,
@@ -30,8 +34,17 @@ import type {
   QuestionType,
   QuestionGradingStatus,
   AttemptGradingStatus,
+  TrueFalseStatementReview,
+  DescriptiveAnswerIntegrityAnalysis,
+  TeacherConversation,
+  TeacherConversationMessage,
+  TeacherConversationWithDetails,
+  TeacherMessageCategory,
+  TeacherMessageStatus,
 } from "@avana/domain";
-import type { ApiClient } from "./client.js";
+import type { ErrorEnvelope } from "@avana/contracts";
+import { type ApiClient, generateUUID } from "./client.js";
+import { ApiError } from "./errors.js";
 
 
 // ---------------------------------------------------------------------------
@@ -64,6 +77,8 @@ export interface ScoreDistribution {
 }
 
 export interface StudentAttemptSummaryDTO {
+  id?: string;
+  attemptId?: string;
   studentId: string;
   studentName: string;
   studentEmail: string;
@@ -100,6 +115,7 @@ export interface StudentQuestionReviewDTO {
   questionType?: QuestionType;
   prompt: string;
   options?: Array<{ id: string; text: string }>;
+  statements?: TrueFalseStatementReview[];
   selectedOptionId: string | null;
   textAnswer?: string | null;
   teacherFeedback?: string | null;
@@ -109,6 +125,7 @@ export interface StudentQuestionReviewDTO {
   isCorrect?: boolean | null;
   pointsEarned?: number | null;
   maxPoints?: number;
+  integrityAnalysis?: DescriptiveAnswerIntegrityAnalysis | null;
 }
 
 export interface StudentExamResultForTeacherDTO {
@@ -319,6 +336,13 @@ export function createTeacherApi(client: ApiClient) {
       return client.post<{ exam: TeacherExamWithDetails }>(
         `/v1/teacher/exams/${examId}/archive`,
       );
+    },
+
+    /**
+     * DELETE /v1/teacher/exams/:examId — Delete exam.
+     */
+    deleteExam(examId: string): Promise<void> {
+      return client.delete<void>(`/v1/teacher/exams/${examId}`);
     },
 
     // -----------------------------------------------------------------------
@@ -553,11 +577,237 @@ export function createTeacherApi(client: ApiClient) {
     /**
      * GET /v1/teacher/assignments/:assignmentId/submissions — List student submissions
      */
-    getAssignmentSubmissions(
+     getAssignmentSubmissions(
       assignmentId: string,
     ): Promise<TeacherAssignmentSubmissionsListDTO> {
       return client.get<TeacherAssignmentSubmissionsListDTO>(
         `/v1/teacher/assignments/${assignmentId}/submissions`,
+      );
+    },
+
+    // -----------------------------------------------------------------------
+    // Classroom Educational Contents
+    // -----------------------------------------------------------------------
+
+    /**
+     * POST /v1/teacher/classrooms/:classroomId/contents — Create content item.
+     */
+    createContent(
+      classroomId: string,
+      input: CreateClassroomContentInput,
+    ): Promise<{ content: ClassroomContent }> {
+      return client.post<{ content: ClassroomContent }>(
+        `/v1/teacher/classrooms/${classroomId}/contents`,
+        input,
+      );
+    },
+
+    /**
+     * GET /v1/teacher/classrooms/:classroomId/contents — List contents in classroom.
+     */
+    listContents(
+      classroomId: string,
+    ): Promise<{ contents: ClassroomContent[] }> {
+      return client.get<{ contents: ClassroomContent[] }>(
+        `/v1/teacher/classrooms/${classroomId}/contents`,
+      );
+    },
+
+    /**
+     * GET /v1/teacher/contents/:contentId — Get content item.
+     */
+    getContent(
+      contentId: string,
+    ): Promise<{ content: ClassroomContent }> {
+      return client.get<{ content: ClassroomContent }>(
+        `/v1/teacher/contents/${contentId}`,
+      );
+    },
+
+    /**
+     * PATCH /v1/teacher/contents/:contentId — Update content item.
+     */
+    updateContent(
+      contentId: string,
+      input: UpdateClassroomContentInput,
+    ): Promise<{ content: ClassroomContent }> {
+      return client.patch<{ content: ClassroomContent }>(
+        `/v1/teacher/contents/${contentId}`,
+        input,
+      );
+    },
+
+    /**
+     * POST /v1/teacher/contents/:contentId/publish — Publish content.
+     */
+    publishContent(
+      contentId: string,
+    ): Promise<{ content: ClassroomContent }> {
+      return client.post<{ content: ClassroomContent }>(
+        `/v1/teacher/contents/${contentId}/publish`,
+      );
+    },
+
+    /**
+     * POST /v1/teacher/contents/:contentId/unpublish — Unpublish content (revert to draft).
+     */
+    unpublishContent(
+      contentId: string,
+    ): Promise<{ content: ClassroomContent }> {
+      return client.post<{ content: ClassroomContent }>(
+        `/v1/teacher/contents/${contentId}/unpublish`,
+      );
+    },
+
+    /**
+     * POST /v1/teacher/contents/:contentId/archive — Archive content.
+     */
+    archiveContent(
+      contentId: string,
+    ): Promise<{ content: ClassroomContent }> {
+      return client.post<{ content: ClassroomContent }>(
+        `/v1/teacher/contents/${contentId}/archive`,
+      );
+    },
+
+    /**
+     * DELETE /v1/teacher/contents/:contentId — Delete content.
+     */
+    deleteContent(contentId: string): Promise<void> {
+      return client.delete<void>(`/v1/teacher/contents/${contentId}`);
+    },
+
+    /**
+     * POST /v1/teacher/contents/files — Upload a file (image, PDF, Word, PowerPoint).
+     */
+    async uploadContentFile(file: File): Promise<{
+      fileUrl: string;
+      fileName: string;
+      fileSizeBytes: number;
+      fileMimeType: string;
+      storageKey: string;
+    }> {
+      const formData = new FormData();
+      formData.append("file", file, file.name);
+
+      const response = await fetch("/v1/teacher/contents/files", {
+        method: "POST",
+        headers: {
+          "x-request-id": generateUUID(),
+        },
+        credentials: "include",
+        body: formData,
+      });
+
+      let data: unknown;
+      try {
+        if (typeof response.text === "function") {
+          const text = await response.text();
+          data = text ? JSON.parse(text) : undefined;
+        } else if (typeof response.json === "function") {
+          data = await response.json();
+        }
+      } catch {
+        data = null;
+      }
+
+      if (!response.ok) {
+        if (
+          data &&
+          typeof data === "object" &&
+          "error" in data &&
+          data.error &&
+          typeof (data as { error: unknown }).error === "object"
+        ) {
+          throw new ApiError(data as ErrorEnvelope);
+        }
+        throw new Error(
+          (data as { message?: string })?.message || "خطا در بارگذاری فایل محتوا.",
+        );
+      }
+
+      const resObj = data as {
+        file_url?: string;
+        fileUrl?: string;
+        file_name?: string;
+        fileName?: string;
+        file_size_bytes?: number;
+        fileSizeBytes?: number;
+        file_mime_type?: string;
+        fileMimeType?: string;
+        storage_key?: string;
+        storageKey?: string;
+      };
+
+      return {
+        fileUrl: resObj.fileUrl || resObj.file_url || "",
+        fileName: resObj.fileName || resObj.file_name || file.name,
+        fileSizeBytes: resObj.fileSizeBytes ?? resObj.file_size_bytes ?? file.size,
+        fileMimeType: resObj.fileMimeType || resObj.file_mime_type || file.type,
+        storageKey: resObj.storageKey || resObj.storage_key || "",
+      };
+    },
+
+    // -----------------------------------------------------------------------
+    // Student Messages & Conversations
+    // -----------------------------------------------------------------------
+
+    /**
+     * GET /v1/teacher/conversations — List student conversations for teacher.
+     */
+    listConversations(query?: {
+      classroomId?: string;
+      status?: TeacherMessageStatus;
+      category?: TeacherMessageCategory;
+      limit?: number;
+      offset?: number;
+    }): Promise<{ conversations: TeacherConversationWithDetails[]; total: number }> {
+      const params = new URLSearchParams();
+      if (query?.classroomId) params.set("classroomId", query.classroomId);
+      if (query?.status) params.set("status", query.status);
+      if (query?.category) params.set("category", query.category);
+      if (query?.limit !== undefined) params.set("limit", String(query.limit));
+      if (query?.offset !== undefined) params.set("offset", String(query.offset));
+      const qs = params.toString();
+      return client.get<{ conversations: TeacherConversationWithDetails[]; total: number }>(
+        `/v1/teacher/conversations${qs ? `?${qs}` : ""}`,
+      );
+    },
+
+    /**
+     * GET /v1/teacher/conversations/:conversationId — Get conversation thread details.
+     */
+    getConversation(
+      conversationId: string,
+    ): Promise<{ conversation: TeacherConversationWithDetails; messages: TeacherConversationMessage[] }> {
+      return client.get<{ conversation: TeacherConversationWithDetails; messages: TeacherConversationMessage[] }>(
+        `/v1/teacher/conversations/${conversationId}`,
+      );
+    },
+
+    /**
+     * POST /v1/teacher/conversations/:conversationId/reply — Reply to student conversation.
+     */
+    replyToConversation(
+      conversationId: string,
+      input: { body: string },
+    ): Promise<{ message: TeacherConversationMessage; conversation: TeacherConversation }> {
+      return client.post<{ message: TeacherConversationMessage; conversation: TeacherConversation }>(
+        `/v1/teacher/conversations/${conversationId}/reply`,
+        input,
+      );
+    },
+
+    /**
+     * PATCH /v1/teacher/conversations/:conversationId/status — Update conversation status.
+     */
+    updateConversationStatus(
+      conversationId: string,
+      input: { status: TeacherMessageStatus },
+    ): Promise<{ conversation: TeacherConversation }> {
+      return client.patch<{ conversation: TeacherConversation }>(
+        `/v1/teacher/conversations/${conversationId}/status`,
+        input,
       );
     },
   };
@@ -587,6 +837,9 @@ export interface StudentSubmissionDetailItem {
   submission: {
     id: string;
     answerText: string;
+    attachmentUrl?: string | null;
+    attachmentName?: string | null;
+    attachmentSizeBytes?: number | null;
     submittedAt: string;
   } | null;
 }

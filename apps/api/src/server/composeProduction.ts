@@ -47,6 +47,9 @@ import {
   DrizzleTeacherExamAttemptAnswerStore,
   DrizzleAssignmentStore,
   DrizzleAssignmentSubmissionStore,
+  DrizzleClassroomContentStore,
+  DrizzleTeacherConversationStore,
+  DrizzleTeacherConversationMessageStore,
 } from "../modules/teacher-platform/stores.js";
 
 import {
@@ -460,6 +463,9 @@ export async function composeProduction(
   const teacherExamAttemptAnswerStore = new DrizzleTeacherExamAttemptAnswerStore(db);
   const assignmentStore = new DrizzleAssignmentStore(db);
   const assignmentSubmissionStore = new DrizzleAssignmentSubmissionStore(db);
+  const contentStore = new DrizzleClassroomContentStore(db);
+  const teacherConversationStore = new DrizzleTeacherConversationStore(db);
+  const teacherConversationMessageStore = new DrizzleTeacherConversationMessageStore(db);
 
   const v1Options: V1RouteOptions = {
     config,
@@ -523,6 +529,9 @@ export async function composeProduction(
     teacherExamAttemptAnswerStore,
     assignmentStore,
     assignmentSubmissionStore,
+    contentStore,
+    teacherConversationStore,
+    teacherConversationMessageStore,
     db,
   };
 

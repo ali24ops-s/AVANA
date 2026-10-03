@@ -82,19 +82,31 @@ function getCharacterOffsetInContainer(
 export function useTextSelection(containerRef: React.RefObject<HTMLElement | null>) {
   const [selectionData, setSelectionData] = useState<TextSelectionData | null>(null);
   const isMouseDownRef = useRef(false);
+  const lastSelectionRef = useRef<{
+    selectedText: string;
+    startOffset: number;
+    endOffset: number;
+    rect: { top: number; left: number; width: number; height: number };
+  } | null>(null);
 
   const updateSelection = useCallback(() => {
     if (isMouseDownRef.current) return;
 
     const sel = window.getSelection();
     if (!sel || sel.isCollapsed || !sel.rangeCount) {
-      setSelectionData(null);
+      if (lastSelectionRef.current !== null) {
+        lastSelectionRef.current = null;
+        setSelectionData(null);
+      }
       return;
     }
 
     const container = containerRef.current;
     if (!container) {
-      setSelectionData(null);
+      if (lastSelectionRef.current !== null) {
+        lastSelectionRef.current = null;
+        setSelectionData(null);
+      }
       return;
     }
 
@@ -105,20 +117,29 @@ export function useTextSelection(containerRef: React.RefObject<HTMLElement | nul
       !container.contains(range.commonAncestorContainer) &&
       !range.intersectsNode(container)
     ) {
-      setSelectionData(null);
+      if (lastSelectionRef.current !== null) {
+        lastSelectionRef.current = null;
+        setSelectionData(null);
+      }
       return;
     }
 
     const text = (sel.toString() || range.toString()).trim();
     if (!text || text.length === 0) {
-      setSelectionData(null);
+      if (lastSelectionRef.current !== null) {
+        lastSelectionRef.current = null;
+        setSelectionData(null);
+      }
       return;
     }
 
     // Get Bounding Client Rect for positioning
     const rect = range.getBoundingClientRect();
     if (rect.width === 0 && rect.height === 0) {
-      setSelectionData(null);
+      if (lastSelectionRef.current !== null) {
+        lastSelectionRef.current = null;
+        setSelectionData(null);
+      }
       return;
     }
 
@@ -131,16 +152,31 @@ export function useTextSelection(containerRef: React.RefObject<HTMLElement | nul
     );
     const endOffset = startOffset + text.length;
 
-    const prefix = fullText.slice(Math.max(0, startOffset - 40), startOffset);
-    const suffix = fullText.slice(endOffset, Math.min(fullText.length, endOffset + 40));
+    // Check if selection is identical to previous selection
+    const prev = lastSelectionRef.current;
+    if (
+      prev &&
+      prev.selectedText === text &&
+      prev.startOffset === startOffset &&
+      prev.endOffset === endOffset &&
+      Math.abs(prev.rect.top - rect.top) < 1 &&
+      Math.abs(prev.rect.left - rect.left) < 1 &&
+      Math.abs(prev.rect.width - rect.width) < 1 &&
+      Math.abs(prev.rect.height - rect.height) < 1
+    ) {
+      // Unchanged selection: avoid redundant setState and re-renders
+      return;
+    }
 
-    console.log("[selection]", {
+    lastSelectionRef.current = {
       selectedText: text,
-      prefix,
-      suffix,
       startOffset,
       endOffset,
-    });
+      rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
+    };
+
+    const prefix = fullText.slice(Math.max(0, startOffset - 40), startOffset);
+    const suffix = fullText.slice(endOffset, Math.min(fullText.length, endOffset + 40));
 
     setSelectionData({
       selectedText: text,
@@ -153,6 +189,7 @@ export function useTextSelection(containerRef: React.RefObject<HTMLElement | nul
   }, [containerRef]);
 
   const clearSelection = useCallback(() => {
+    lastSelectionRef.current = null;
     setSelectionData(null);
     const sel = window.getSelection();
     if (sel && !sel.isCollapsed) {

@@ -101,6 +101,7 @@ import { TeacherExamDetailPage } from "../pages/teacher/TeacherExamDetailPage.js
 import { TeacherExamEditorPage } from "../pages/teacher/TeacherExamEditorPage.js";
 import { TeacherExamResultsPage } from "../pages/teacher/TeacherExamResultsPage.js";
 import { TeacherStudentResultDetailPage } from "../pages/teacher/TeacherStudentResultDetailPage.js";
+import { TeacherMessagesPage } from "../pages/teacher/TeacherMessagesPage.js";
 
 // Student Platform Imports
 import { StudentClassroomsPage } from "../pages/student/StudentClassroomsPage.js";
@@ -399,6 +400,14 @@ export const router = createBrowserRouter(
             {
               path: "exams/:examId/results/:studentId",
               element: <TeacherStudentResultDetailPage />,
+            },
+            {
+              path: "messages",
+              element: <TeacherMessagesPage />,
+            },
+            {
+              path: "messages/:conversationId",
+              element: <TeacherMessagesPage />,
             },
             {
               path: "*",

@@ -12,6 +12,9 @@ import {
   Loader2,
   ArrowLeft,
   Wallet,
+  HelpCircle,
+  FileText,
+  MessageSquare,
 } from "lucide-react";
 import { Badge, Button } from "@avana/ui";
 import { type NotificationItem, type NotificationType, toPersianDigits } from "@avana/domain";
@@ -46,6 +49,30 @@ function formatRelativeTime(dateString: string): string {
 
 function getNotificationIcon(type: NotificationType) {
   switch (type) {
+    case "classroom_exam_published":
+    case "classroom_exam_results_released":
+    case "classroom_exam_closed":
+    case "classroom_exam_archived":
+      return (
+        <div className="w-8 h-8 rounded-full bg-violet-50 dark:bg-violet-950/40 text-violet-600 dark:text-violet-400 flex items-center justify-center shrink-0">
+          <HelpCircle className="w-4 h-4" />
+        </div>
+      );
+    case "classroom_assignment_published":
+    case "classroom_assignment_due_changed":
+    case "classroom_assignment_archived":
+      return (
+        <div className="w-8 h-8 rounded-full bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
+          <FileText className="w-4 h-4" />
+        </div>
+      );
+    case "teacher_new_message":
+    case "teacher_reply_message":
+      return (
+        <div className="w-8 h-8 rounded-full bg-teal-50 dark:bg-teal-950/40 text-[#008080] dark:text-teal-400 flex items-center justify-center shrink-0">
+          <MessageSquare className="w-4 h-4" />
+        </div>
+      );
     case "purchase_completed":
       return (
         <div className="w-8 h-8 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">

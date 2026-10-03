@@ -99,7 +99,7 @@ export interface DialogProps {
   title?: React.ReactNode;
   description?: React.ReactNode;
   children: React.ReactNode;
-  maxWidth?: "sm" | "md" | "lg" | "xl" | "2xl" | "3xl" | "4xl" | "full";
+  maxWidth?: "sm" | "md" | "lg" | "xl" | "2xl" | "3xl" | "4xl" | "5xl" | "full";
   usePortal?: boolean;
   className?: string;
   containerClassName?: string;
@@ -130,6 +130,8 @@ export const Dialog: React.FC<DialogProps> = ({
 }) => {
   const dialogRef = useRef<HTMLDivElement>(null);
   const previousActiveElement = useRef<HTMLElement | null>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   // Global Reference-Counted Scroll Lock & Escape listener
   useEffect(() => {
@@ -144,7 +146,7 @@ export const Dialog: React.FC<DialogProps> = ({
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        onClose();
+        onCloseRef.current();
         return;
       }
 
@@ -180,9 +182,25 @@ export const Dialog: React.FC<DialogProps> = ({
       window.addEventListener("keydown", handleKeyDown);
     }
 
-    // Auto focus first focusable element or dialog container
+    // Auto focus: do not steal focus if an element inside the dialog already has focus (e.g. via autoFocus)
     const animationFrameId = requestAnimationFrame(() => {
       if (dialogRef.current) {
+        if (
+          typeof document !== "undefined" &&
+          document.activeElement &&
+          dialogRef.current.contains(document.activeElement)
+        ) {
+          return;
+        }
+
+        const autofocusElement = dialogRef.current.querySelector<HTMLElement>(
+          "[autofocus], [data-autofocus]",
+        );
+        if (autofocusElement) {
+          autofocusElement.focus();
+          return;
+        }
+
         const firstFocusable = dialogRef.current.querySelector<HTMLElement>(
           'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
         );
@@ -207,7 +225,7 @@ export const Dialog: React.FC<DialogProps> = ({
         previousActiveElement.current.focus();
       }
     };
-  }, [isOpen, onClose]);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -219,6 +237,7 @@ export const Dialog: React.FC<DialogProps> = ({
     "2xl": "max-w-2xl",
     "3xl": "max-w-3xl",
     "4xl": "max-w-4xl",
+    "5xl": "max-w-5xl",
     full: "max-w-full m-4",
   };
 

@@ -22,7 +22,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TeacherRouteGuard, isTeacherOrAdmin } from "../components/teacher/TeacherRouteGuard.js";
@@ -112,17 +112,17 @@ describe("Teacher Entry, Auth & Security Test Suite", () => {
 
     expect(screen.getByText("پنل استاد AVANA")).toBeInTheDocument();
     expect(
-      screen.getByText("آزمون، دوره و محتوای آموزشی خود را در یک محیط یکپارچه مدیریت کنید."),
+      screen.getByText("کلاس، محتوای آموزشی، تکلیف و آزمون‌هایتان را در یک محیط یکپارچه مدیریت کنید."),
     ).toBeInTheDocument();
-    expect(screen.getByText("ورود به پنل استاد")).toBeInTheDocument();
-    expect(screen.getByText("ثبت‌نام استاد")).toBeInTheDocument();
+    expect(screen.getAllByText("ورود به پنل استاد").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("ثبت‌نام استاد").length).toBeGreaterThanOrEqual(1);
   });
 
   // -------------------------------------------------------------------------
   // 2. Anonymous -> Teacher Signup Context
   // -------------------------------------------------------------------------
   it("Scenario 2: Teacher signup context renders teacher-specific onboarding heading", () => {
-    render(
+    const { container } = render(
       <QueryClientProvider client={createTestQueryClient()}>
         <MemoryRouter initialEntries={["/sign-up?redirect=/teacher&role=teacher"]}>
           <Routes>
@@ -136,6 +136,12 @@ describe("Teacher Entry, Auth & Security Test Suite", () => {
     expect(
       screen.getByText("برای ایجاد حساب کاربری اساتید، اطلاعات زیر را تکمیل نمایید."),
     ).toBeInTheDocument();
+    expect(screen.getByText("دانشگاه محل تدریس")).toBeInTheDocument();
+    expect(screen.getByText("دانشکده (اختیاری)")).toBeInTheDocument();
+    expect(screen.getByText("گروه آموزشی")).toBeInTheDocument();
+    expect(container.querySelector("#university")).toBeInTheDocument();
+    expect(container.querySelector("#faculty")).toBeInTheDocument();
+    expect(container.querySelector("#department")).toBeInTheDocument();
   });
 
   // -------------------------------------------------------------------------
@@ -386,7 +392,7 @@ describe("Teacher Entry, Auth & Security Test Suite", () => {
     );
 
     expect(screen.getByText("حساب کاربری فعال: دانشجو")).toBeInTheDocument();
-    expect(screen.getByText("ورود با حساب استاد")).toBeInTheDocument();
+    expect(screen.getAllByText("ورود با حساب استاد").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("بازگشت به پیشخوان دانشجو")).toBeInTheDocument();
   });
 

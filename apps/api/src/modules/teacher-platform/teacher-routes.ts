@@ -6,12 +6,18 @@ import type { ClassroomService } from "./services/classroom-service.js";
 import type { TeacherExamService } from "./services/exam-service.js";
 import type { TeacherExamResultService } from "./services/result-service.js";
 import type { AssignmentService } from "./services/assignment-service.js";
+import type { ClassroomContentService } from "./services/content-service.js";
+import type { TeacherMessageService } from "./services/message-service.js";
+import type { StorageProvider } from "../storage/index.js";
 
 export interface TeacherRouteOptions extends AuthMiddlewareDeps {
   classroomService: ClassroomService;
   examService: TeacherExamService;
   resultService: TeacherExamResultService;
   assignmentService?: AssignmentService;
+  contentService?: ClassroomContentService;
+  messageService?: TeacherMessageService;
+  storageProvider?: StorageProvider;
 }
 
 export const teacherRoutes: FastifyPluginAsync<TeacherRouteOptions> = async (
@@ -19,7 +25,15 @@ export const teacherRoutes: FastifyPluginAsync<TeacherRouteOptions> = async (
   opts,
 ) => {
   const { requireAuth } = makeAuthMiddleware(opts);
-  const { classroomService, examService, resultService, assignmentService } = opts;
+  const {
+    classroomService,
+    examService,
+    resultService,
+    assignmentService,
+    contentService,
+    messageService,
+    storageProvider,
+  } = opts;
 
 
   function getActor(request: unknown): Actor {
@@ -258,6 +272,18 @@ export const teacherRoutes: FastifyPluginAsync<TeacherRouteOptions> = async (
       const { examId } = request.params as { examId: string };
       const exam = await examService.archiveExam(actor, examId);
       return { exam };
+    },
+  );
+
+  app.delete(
+    "/v1/teacher/exams/:examId",
+    { preHandler: [requireAuth] },
+    async (request, reply) => {
+      const actor = getActor(request);
+      const { examId } = request.params as { examId: string };
+      await examService.deleteExam(actor, examId);
+      reply.code(204);
+      return;
     },
   );
 
@@ -623,6 +649,405 @@ export const teacherRoutes: FastifyPluginAsync<TeacherRouteOptions> = async (
         assignmentId,
       );
       return result;
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // Educational Content Endpoints (Teacher)
+  // -------------------------------------------------------------------------
+
+  app.post(
+    "/v1/teacher/classrooms/:classroomId/contents",
+    { preHandler: [requireAuth] },
+    async (request, reply) => {
+      if (!contentService) {
+        throw new DomainError("bad_request", "Content service not available");
+      }
+      const actor = getActor(request);
+      const { classroomId } = request.params as { classroomId: string };
+      const content = await contentService.createContent(
+        actor,
+        classroomId,
+        request.body,
+      );
+      reply.code(201);
+      return { content };
+    },
+  );
+
+  app.get(
+    "/v1/teacher/classrooms/:classroomId/contents",
+    { preHandler: [requireAuth] },
+    async (request) => {
+      if (!contentService) {
+        throw new DomainError("bad_request", "Content service not available");
+      }
+      const actor = getActor(request);
+      const { classroomId } = request.params as { classroomId: string };
+      const contents = await contentService.listTeacherClassroomContents(
+        actor,
+        classroomId,
+      );
+      return { contents };
+    },
+  );
+
+  app.get(
+    "/v1/teacher/contents/:contentId",
+    { preHandler: [requireAuth] },
+    async (request) => {
+      if (!contentService) {
+        throw new DomainError("bad_request", "Content service not available");
+      }
+      const actor = getActor(request);
+      const { contentId } = request.params as { contentId: string };
+      const content = await contentService.getTeacherContentDetails(
+        actor,
+        contentId,
+      );
+      return { content };
+    },
+  );
+
+  const handleUpdateContent = async (request: FastifyRequest) => {
+    if (!contentService) {
+      throw new DomainError("bad_request", "Content service not available");
+    }
+    const actor = getActor(request);
+    const { contentId } = request.params as { contentId: string };
+    const content = await contentService.updateContent(
+      actor,
+      contentId,
+      request.body,
+    );
+    return { content };
+  };
+
+  app.patch(
+    "/v1/teacher/contents/:contentId",
+    { preHandler: [requireAuth] },
+    handleUpdateContent,
+  );
+
+  app.put(
+    "/v1/teacher/contents/:contentId",
+    { preHandler: [requireAuth] },
+    handleUpdateContent,
+  );
+
+  app.post(
+    "/v1/teacher/contents/:contentId/publish",
+    { preHandler: [requireAuth] },
+    async (request) => {
+      if (!contentService) {
+        throw new DomainError("bad_request", "Content service not available");
+      }
+      const actor = getActor(request);
+      const { contentId } = request.params as { contentId: string };
+      const content = await contentService.publishContent(actor, contentId);
+      return { content };
+    },
+  );
+
+  app.post(
+    "/v1/teacher/contents/:contentId/unpublish",
+    { preHandler: [requireAuth] },
+    async (request) => {
+      if (!contentService) {
+        throw new DomainError("bad_request", "Content service not available");
+      }
+      const actor = getActor(request);
+      const { contentId } = request.params as { contentId: string };
+      const content = await contentService.unpublishContent(actor, contentId);
+      return { content };
+    },
+  );
+
+  app.post(
+    "/v1/teacher/contents/:contentId/archive",
+    { preHandler: [requireAuth] },
+    async (request) => {
+      if (!contentService) {
+        throw new DomainError("bad_request", "Content service not available");
+      }
+      const actor = getActor(request);
+      const { contentId } = request.params as { contentId: string };
+      const content = await contentService.archiveContent(actor, contentId);
+      return { content };
+    },
+  );
+
+  app.delete(
+    "/v1/teacher/contents/:contentId",
+    { preHandler: [requireAuth] },
+    async (request, reply) => {
+      if (!contentService) {
+        throw new DomainError("bad_request", "Content service not available");
+      }
+      const actor = getActor(request);
+      const { contentId } = request.params as { contentId: string };
+      await contentService.deleteContent(actor, contentId);
+      reply.code(204);
+      return;
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // Educational Content Files (Upload & Stream)
+  // -------------------------------------------------------------------------
+
+  app.post(
+    "/v1/teacher/contents/files",
+    { preHandler: [requireAuth] },
+    async (request, reply) => {
+      getActor(request);
+
+      if (!storageProvider) {
+        throw new DomainError(
+          "service_unavailable",
+          "سرویس ذخیره‌سازی فایل در دسترس نیست.",
+        );
+      }
+
+      const file = await request.file({
+        limits: {
+          fileSize: 30 * 1024 * 1024, // 30MB limit
+          files: 1,
+        },
+      });
+
+      if (!file) {
+        throw new DomainError("bad_request", "هیچ فایلی ارسال نشده است.");
+      }
+
+      const rawFilename = file.filename || "file";
+      const fileExtFromFilename =
+        rawFilename.split(".").pop()?.toLowerCase() || "";
+      const rawMime = (file.mimetype || "").toLowerCase();
+
+      const ALLOWED_MIME_MAP: Record<string, string> = {
+        "image/jpeg": "jpg",
+        "image/jpg": "jpg",
+        "image/png": "png",
+        "image/webp": "webp",
+        "application/pdf": "pdf",
+        "application/msword": "doc",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+          "docx",
+        "application/vnd.ms-powerpoint": "ppt",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation":
+          "pptx",
+      };
+
+      const ALLOWED_EXTS = new Set([
+        "jpg",
+        "jpeg",
+        "png",
+        "webp",
+        "pdf",
+        "doc",
+        "docx",
+        "ppt",
+        "pptx",
+      ]);
+
+      let ext = ALLOWED_MIME_MAP[rawMime];
+      if (!ext && ALLOWED_EXTS.has(fileExtFromFilename)) {
+        ext = fileExtFromFilename === "jpeg" ? "jpg" : fileExtFromFilename;
+      }
+
+      if (!ext) {
+        throw new DomainError(
+          "bad_request",
+          "فرمت فایل نامعتبر است. فرمت‌های مجاز: تصویر (JPG، PNG، WebP)، PDF، Word (DOC، DOCX) و PowerPoint (PPT، PPTX).",
+        );
+      }
+
+      const data = await file.toBuffer();
+      if (data.length > 30 * 1024 * 1024) {
+        throw new DomainError(
+          "bad_request",
+          "حجم فایل بیش از حد مجاز است (حداکثر ۳۰ مگابایت).",
+        );
+      }
+      if (data.length === 0) {
+        throw new DomainError("bad_request", "فایل ارسالی خالی است.");
+      }
+
+      const storageKey = `classroom-contents/${crypto.randomUUID()}.${ext}`;
+
+      let mimeToSave = rawMime;
+      if (!mimeToSave || mimeToSave === "application/octet-stream") {
+        if (ext === "pdf") mimeToSave = "application/pdf";
+        else if (ext === "png") mimeToSave = "image/png";
+        else if (ext === "jpg" || ext === "jpeg") mimeToSave = "image/jpeg";
+        else if (ext === "webp") mimeToSave = "image/webp";
+        else if (ext === "docx")
+          mimeToSave =
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+        else if (ext === "doc") mimeToSave = "application/msword";
+        else if (ext === "pptx")
+          mimeToSave =
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+        else if (ext === "ppt") mimeToSave = "application/vnd.ms-powerpoint";
+        else mimeToSave = "application/octet-stream";
+      }
+
+      await storageProvider.save({
+        storageKey,
+        data,
+        mimeType: mimeToSave,
+      });
+
+      const fileUrl = `/v1/teacher/contents/files/${encodeURIComponent(storageKey)}`;
+
+      reply.code(201);
+      return {
+        file_url: fileUrl,
+        fileUrl,
+        file_name: rawFilename,
+        fileName: rawFilename,
+        file_size_bytes: data.length,
+        fileSizeBytes: data.length,
+        mime_type: mimeToSave,
+        mimeType: mimeToSave,
+        file_mime_type: mimeToSave,
+        fileMimeType: mimeToSave,
+        storage_key: storageKey,
+        storageKey,
+      };
+    },
+  );
+
+  app.get(
+    "/v1/teacher/contents/files/*",
+    { preHandler: [requireAuth] },
+    async (request, reply) => {
+      const actor = getActor(request);
+
+      if (!storageProvider) {
+        throw new DomainError(
+          "service_unavailable",
+          "سرویس ذخیره‌سازی فایل در دسترس نیست.",
+        );
+      }
+
+      const rawKey = (request.params as { "*": string })["*"];
+      if (!rawKey) {
+        throw new DomainError("bad_request", "مسیر فایل الزامی است.");
+      }
+
+      const storageKey = decodeURIComponent(rawKey);
+
+      // Path traversal security check
+      if (
+        !storageKey.startsWith("classroom-contents/") ||
+        storageKey.includes("..")
+      ) {
+        throw new DomainError("bad_request", "مسیر فایل نامعتبر است.");
+      }
+
+      // Explicit IDOR Authorization check
+      if (contentService) {
+        await contentService.verifyContentFileAccess(actor, storageKey);
+      }
+
+      const exists = await storageProvider.exists(storageKey);
+      if (!exists) {
+        throw new DomainError("not_found", "فایل آموزشی یافت نشد.");
+      }
+
+      const ext = storageKey.split(".").pop()?.toLowerCase();
+      const mimeMap: Record<string, string> = {
+        png: "image/png",
+        webp: "image/webp",
+        jpg: "image/jpeg",
+        jpeg: "image/jpeg",
+        pdf: "application/pdf",
+        doc: "application/msword",
+        docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ppt: "application/vnd.ms-powerpoint",
+        pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      };
+      const mimeType = (ext && mimeMap[ext]) || "application/octet-stream";
+
+      const data = await storageProvider.read(storageKey);
+
+      reply
+        .header("Content-Type", mimeType)
+        .header(
+          "Content-Disposition",
+          `inline; filename="content-file.${ext}"`,
+        )
+        .header("Content-Length", data.length)
+        .header("Cache-Control", "private, max-age=3600");
+
+      return reply.send(data);
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // Student Messages / Conversations Endpoints (Teacher)
+  // -------------------------------------------------------------------------
+
+  app.get(
+    "/v1/teacher/conversations",
+    { preHandler: [requireAuth] },
+    async (request) => {
+      const actor = getActor(request);
+      if (!messageService) {
+        throw new DomainError("not_found", "سرویس پیام‌ها در دسترس نیست.");
+      }
+      return messageService.listTeacherConversations(actor, request.query);
+    },
+  );
+
+  app.get(
+    "/v1/teacher/conversations/:conversationId",
+    { preHandler: [requireAuth] },
+    async (request) => {
+      const actor = getActor(request);
+      const { conversationId } = request.params as { conversationId: string };
+      if (!messageService) {
+        throw new DomainError("not_found", "سرویس پیام‌ها در دسترس نیست.");
+      }
+      return messageService.getTeacherConversation(actor, conversationId);
+    },
+  );
+
+  app.post(
+    "/v1/teacher/conversations/:conversationId/reply",
+    { preHandler: [requireAuth] },
+    async (request, reply) => {
+      const actor = getActor(request);
+      const { conversationId } = request.params as { conversationId: string };
+      if (!messageService) {
+        throw new DomainError("not_found", "سرویس پیام‌ها در دسترس نیست.");
+      }
+      const result = await messageService.replyAsTeacher(
+        actor,
+        conversationId,
+        request.body,
+      );
+      reply.code(201);
+      return result;
+    },
+  );
+
+  app.patch(
+    "/v1/teacher/conversations/:conversationId/status",
+    { preHandler: [requireAuth] },
+    async (request) => {
+      const actor = getActor(request);
+      const { conversationId } = request.params as { conversationId: string };
+      if (!messageService) {
+        throw new DomainError("not_found", "سرویس پیام‌ها در دسترس نیست.");
+      }
+      return messageService.updateStatusAsTeacher(
+        actor,
+        conversationId,
+        request.body,
+      );
     },
   );
 };

@@ -4,7 +4,122 @@ import {
   calculateRuntimeExamState,
   assertQuestionMutationAllowed,
   type ExamSnapshotQuestion,
+  TRUE_FALSE_FIXED_PROMPT,
 } from "./types.js";
+import {
+  validateTeacherQuestionInput,
+  validateSaveAnswerInput,
+  validateGradeDescriptiveAnswerInput,
+} from "./schemas.js";
+
+describe("Teacher Platform — Multi-Statement True/False Question Authoring & Validation", () => {
+  it("validates multi-statement true_false question with 1 to 8 statements and enforces fixed prompt", () => {
+    const valid = validateTeacherQuestionInput({
+      prompt: "متن دلخواه استاد که باید نادیده گرفته شود",
+      questionType: "true_false",
+      points: 4,
+      statements: [
+        { id: "stmt-1", text: "آسپرین یک داروی ضدپلاکت است.", correctAnswer: true },
+        { id: "stmt-2", text: "مورفین یک آنتاگونیست اوپیوئیدی است.", correctAnswer: false },
+        { id: "stmt-3", text: "آتروپین مهارکننده گیرنده موسکارینی است.", correctAnswer: true },
+      ],
+      explanation: "آسپرین ضدپلاکت، مورفین آگونیست و آتروپین آنتاگونیست موسکارینی است.",
+    });
+
+    expect(valid.questionType).toBe("true_false");
+    expect(valid.prompt).toBe(TRUE_FALSE_FIXED_PROMPT);
+    expect(valid.points).toBe(4);
+    expect(valid.statements).toEqual([
+      { id: "stmt-1", text: "آسپرین یک داروی ضدپلاکت است.", correctAnswer: true },
+      { id: "stmt-2", text: "مورفین یک آنتاگونیست اوپیوئیدی است.", correctAnswer: false },
+      { id: "stmt-3", text: "آتروپین مهارکننده گیرنده موسکارینی است.", correctAnswer: true },
+    ]);
+    expect(valid.options).toEqual([]);
+    expect(valid.correctOptionId).toBeNull();
+  });
+
+  it("validates boundary limits (1 statement minimum, 8 statements maximum)", () => {
+    // 1 statement - valid
+    const validMin = validateTeacherQuestionInput({
+      questionType: "true_false",
+      statements: [{ id: "s1", text: "گزاره اول", correctAnswer: true }],
+    });
+    expect(validMin.statements).toHaveLength(1);
+
+    // 8 statements - valid
+    const validMax = validateTeacherQuestionInput({
+      questionType: "true_false",
+      statements: Array.from({ length: 8 }, (_, i) => ({
+        id: `s-${i + 1}`,
+        text: `گزاره شماره ${i + 1}`,
+        correctAnswer: i % 2 === 0,
+      })),
+    });
+    expect(validMax.statements).toHaveLength(8);
+  });
+
+  it("rejects 0 statements and more than 8 statements", () => {
+    // 0 statements
+    expect(() =>
+      validateTeacherQuestionInput({
+        questionType: "true_false",
+        statements: [],
+      }),
+    ).toThrowError(/حداقل ۱ و حداکثر ۸ گزاره/);
+
+    // 9 statements
+    expect(() =>
+      validateTeacherQuestionInput({
+        questionType: "true_false",
+        statements: Array.from({ length: 9 }, (_, i) => ({
+          id: `s-${i + 1}`,
+          text: `گزاره شماره ${i + 1}`,
+          correctAnswer: true,
+        })),
+      }),
+    ).toThrowError(/حداقل ۱ و حداکثر ۸ گزاره/);
+  });
+
+  it("rejects invalid statements (empty text, non-boolean answer, duplicate id)", () => {
+    // Empty text
+    expect(() =>
+      validateTeacherQuestionInput({
+        questionType: "true_false",
+        statements: [{ id: "s1", text: "   ", correctAnswer: true }],
+      }),
+    ).toThrowError(/متن گزاره نمی‌تواند خالی باشد/);
+
+    // Non-boolean answer
+    expect(() =>
+      validateTeacherQuestionInput({
+        questionType: "true_false",
+        statements: [{ id: "s1", text: "متن گزاره", correctAnswer: null as unknown as boolean }],
+      }),
+    ).toThrowError(/پاسخ صحیح هر گزاره باید مشخص باشد/);
+
+    // Duplicate IDs
+    expect(() =>
+      validateTeacherQuestionInput({
+        questionType: "true_false",
+        statements: [
+          { id: "duplicate-id", text: "گزاره یک", correctAnswer: true },
+          { id: "duplicate-id", text: "گزاره دو", correctAnswer: false },
+        ],
+      }),
+    ).toThrowError(/شناسه گزاره تکراری است: duplicate-id/);
+  });
+
+  it("validates save answer payload with booleanAnswers record", () => {
+    const saveInput = validateSaveAnswerInput({
+      questionId: "11111111-1111-1111-1111-111111111111",
+      booleanAnswers: {
+        "stmt-1": true,
+        "stmt-2": false,
+      },
+    });
+    expect(saveInput.textAnswer).toBe(JSON.stringify({ "stmt-1": true, "stmt-2": false }));
+  });
+});
 
 describe("Teacher Platform — Pure Grading Engine", () => {
   const sampleSnapshot: ExamSnapshotQuestion[] = [
@@ -248,18 +363,103 @@ describe("Teacher Platform — Pure Grading Engine", () => {
     expect(q2?.teacherFeedback).toBe("عالی، فقط یک نکته جا ماند.");
   });
 
-  it("sanitizes questions for students, stripping correctOptionId and explanation", () => {
-    const sanitized = sanitizeQuestionsForStudent(sampleSnapshot);
+  it("grades multi-statement true_false questions with partial scores proportional to correct statements", () => {
+    const tfSnapshot: ExamSnapshotQuestion[] = [
+      {
+        id: "q-tf-1",
+        orderIndex: 0,
+        prompt: TRUE_FALSE_FIXED_PROMPT,
+        questionType: "true_false",
+        points: 4,
+        statements: [
+          { id: "s1", text: "گزاره ۱", correctAnswer: true },
+          { id: "s2", text: "گزاره ۲", correctAnswer: false },
+          { id: "s3", text: "گزاره ۳", correctAnswer: true },
+          { id: "s4", text: "گزاره ۴", correctAnswer: false },
+        ],
+      },
+    ];
 
-    expect(sanitized).toHaveLength(2);
-    for (const q of sanitized) {
-      expect(q).not.toHaveProperty("correctOptionId");
-      expect(q).not.toHaveProperty("explanation");
-      expect(q).toHaveProperty("id");
-      expect(q).toHaveProperty("prompt");
-      expect(q).toHaveProperty("options");
-      expect(q).toHaveProperty("points");
-    }
+    // Case 1: 4/4 correct (100% -> 4 pts)
+    const resAllCorrect = gradeAttempt(tfSnapshot, [
+      {
+        questionId: "q-tf-1",
+        textAnswer: JSON.stringify({ s1: true, s2: false, s3: true, s4: false }),
+      },
+    ]);
+    expect(resAllCorrect.totalScore).toBe(4);
+    expect(resAllCorrect.maxScore).toBe(4);
+    expect(resAllCorrect.percentage).toBe(100);
+    expect(resAllCorrect.perQuestion[0].isCorrect).toBe(true);
+    expect(resAllCorrect.perQuestion[0].pointsEarned).toBe(4);
+
+    // Case 2: 3/4 correct (75% -> 3 pts)
+    const resThreeCorrect = gradeAttempt(tfSnapshot, [
+      {
+        questionId: "q-tf-1",
+        textAnswer: JSON.stringify({ s1: true, s2: false, s3: true, s4: true }), // s4 is wrong
+      },
+    ]);
+    expect(resThreeCorrect.totalScore).toBe(3);
+    expect(resThreeCorrect.percentage).toBe(75);
+    expect(resThreeCorrect.perQuestion[0].isCorrect).toBe(false);
+    expect(resThreeCorrect.perQuestion[0].pointsEarned).toBe(3);
+
+    // Case 3: 2/4 correct with 2 unanswered (50% -> 2 pts)
+    const resTwoCorrect = gradeAttempt(tfSnapshot, [
+      {
+        questionId: "q-tf-1",
+        textAnswer: JSON.stringify({ s1: true, s2: false }), // s3 and s4 omitted
+      },
+    ]);
+    expect(resTwoCorrect.totalScore).toBe(2);
+    expect(resTwoCorrect.percentage).toBe(50);
+    expect(resTwoCorrect.perQuestion[0].pointsEarned).toBe(2);
+
+    // Case 4: 0/4 correct (0% -> 0 pts)
+    const resZeroCorrect = gradeAttempt(tfSnapshot, [
+      {
+        questionId: "q-tf-1",
+        textAnswer: JSON.stringify({ s1: false, s2: true, s3: false, s4: true }),
+      },
+    ]);
+    expect(resZeroCorrect.totalScore).toBe(0);
+    expect(resZeroCorrect.percentage).toBe(0);
+    expect(resZeroCorrect.perQuestion[0].pointsEarned).toBe(0);
+
+    // Case 5: Unanswered question
+    const resUnanswered = gradeAttempt(tfSnapshot, []);
+    expect(resUnanswered.totalScore).toBe(0);
+    expect(resUnanswered.percentage).toBe(0);
+    expect(resUnanswered.perQuestion[0].pointsEarned).toBe(0);
+  });
+
+  it("sanitizes multi-statement questions for students, stripping correctAnswer from statements", () => {
+    const tfSnapshot: ExamSnapshotQuestion[] = [
+      {
+        id: "q-tf-1",
+        orderIndex: 0,
+        prompt: TRUE_FALSE_FIXED_PROMPT,
+        questionType: "true_false",
+        points: 4,
+        statements: [
+          { id: "s1", text: "گزاره ۱", correctAnswer: true },
+          { id: "s2", text: "گزاره ۲", correctAnswer: false },
+        ],
+      },
+    ];
+
+    const sanitized = sanitizeQuestionsForStudent(tfSnapshot);
+
+    expect(sanitized).toHaveLength(1);
+    const q = sanitized[0];
+    expect(q.prompt).toBe(TRUE_FALSE_FIXED_PROMPT);
+    expect(q.statements).toEqual([
+      { id: "s1", text: "گزاره ۱" },
+      { id: "s2", text: "گزاره ۲" },
+    ]);
+    expect(q.statements?.[0]).not.toHaveProperty("correctAnswer");
+    expect(q.statements?.[1]).not.toHaveProperty("correctAnswer");
   });
 });
 
@@ -309,5 +509,193 @@ describe("Teacher Platform — Runtime State & Mutation Invariants", () => {
     expect(() => assertQuestionMutationAllowed("archived")).toThrowError(
       /Questions cannot be modified on an exam with status 'archived'/,
     );
+  });
+});
+
+describe("Teacher Platform — Descriptive Grading & Decimal Precision Suite (0.01 step)", () => {
+  describe("validateGradeDescriptiveAnswerInput", () => {
+    it("accepts valid score of 0", () => {
+      const res = validateGradeDescriptiveAnswerInput({ pointsEarned: 0 }, 1);
+      expect(res.pointsEarned).toBe(0);
+    });
+
+    it("accepts all required two-decimal test values (0.01, 0.02, 0.13, 0.24, 0.25, 0.26, 0.33, 0.49, 0.51, 0.74, 0.76, 0.99, 1.00)", () => {
+      const validSamples = [0.01, 0.02, 0.13, 0.24, 0.25, 0.26, 0.33, 0.49, 0.51, 0.74, 0.76, 0.99, 1.00];
+      for (const val of validSamples) {
+        const res = validateGradeDescriptiveAnswerInput({ pointsEarned: val }, 1);
+        expect(res.pointsEarned).toBe(val);
+      }
+    });
+
+    it("accepts valid decimal scores up to higher maxPoints (e.g. 5.50)", () => {
+      const samples = [1.01, 1.27, 4.33, 5.50];
+      for (const val of samples) {
+        const res = validateGradeDescriptiveAnswerInput({ pointsEarned: val }, 5.5);
+        expect(res.pointsEarned).toBe(val);
+      }
+    });
+
+    it("rejects score greater than maxPoints", () => {
+      expect(() =>
+        validateGradeDescriptiveAnswerInput({ pointsEarned: 1.01 }, 1.0),
+      ).toThrowError(/نمره داده‌شده نمی‌تواند بیشتر از بارم سؤال/);
+
+      expect(() =>
+        validateGradeDescriptiveAnswerInput({ pointsEarned: 5.51 }, 5.5),
+      ).toThrowError(/نمره داده‌شده نمی‌تواند بیشتر از بارم سؤال/);
+    });
+
+    it("rejects negative scores", () => {
+      expect(() =>
+        validateGradeDescriptiveAnswerInput({ pointsEarned: -0.01 }, 1),
+      ).toThrowError(/نمره داده‌شده باید عددی مثبت یا صفر باشد/);
+
+      expect(() =>
+        validateGradeDescriptiveAnswerInput({ pointsEarned: -1 }, 1),
+      ).toThrowError(/نمره داده‌شده باید عددی مثبت یا صفر باشد/);
+    });
+
+    it("rejects non-numeric, NaN, Infinity, null, or undefined values", () => {
+      expect(() =>
+        validateGradeDescriptiveAnswerInput({ pointsEarned: NaN }, 1),
+      ).toThrowError(/نمره داده‌شده باید عددی مثبت یا صفر باشد/);
+
+      expect(() =>
+        validateGradeDescriptiveAnswerInput({ pointsEarned: Infinity }, 1),
+      ).toThrowError(/نمره داده‌شده باید عددی مثبت یا صفر باشد/);
+
+      expect(() =>
+        validateGradeDescriptiveAnswerInput({ pointsEarned: "0.25" as unknown as number }, 1),
+      ).toThrowError(/نمره داده‌شده باید عددی مثبت یا صفر باشد/);
+
+      expect(() =>
+        validateGradeDescriptiveAnswerInput(null, 1),
+      ).toThrowError(/داده‌های نمره‌دهی معتبر نیست/);
+    });
+
+    it("explicitly rejects precision beyond 2 decimal places (e.g. 0.001, 0.009, 0.333, 0.999, 1.001)", () => {
+      const invalidHighPrecision = [0.001, 0.009, 0.333, 0.999, 1.001, 0.1234];
+      for (const val of invalidHighPrecision) {
+        expect(() =>
+          validateGradeDescriptiveAnswerInput({ pointsEarned: val }, 2),
+        ).toThrowError(/نمره داده‌شده حداکثر می‌تواند ۲ رقم اعشار داشته باشد/);
+      }
+    });
+  });
+
+  describe("gradeAttempt with multiple descriptive questions and decimal scores", () => {
+    it("accurately sums decimal descriptive scores and avoids IEEE-754 precision anomalies", () => {
+      const snapshot: ExamSnapshotQuestion[] = [
+        {
+          id: "q-desc-1",
+          orderIndex: 0,
+          questionType: "descriptive",
+          prompt: "توضیح دهید...",
+          points: 1,
+        },
+        {
+          id: "q-desc-2",
+          orderIndex: 1,
+          questionType: "descriptive",
+          prompt: "تحلیل کنید...",
+          points: 1,
+        },
+        {
+          id: "q-desc-3",
+          orderIndex: 2,
+          questionType: "descriptive",
+          prompt: "مقایسه کنید...",
+          points: 2,
+        },
+      ];
+
+      const answers = [
+        {
+          questionId: "q-desc-1",
+          gradingStatus: "graded" as const,
+          pointsEarned: 0.33,
+        },
+        {
+          questionId: "q-desc-2",
+          gradingStatus: "graded" as const,
+          pointsEarned: 0.67,
+        },
+        {
+          questionId: "q-desc-3",
+          gradingStatus: "graded" as const,
+          pointsEarned: 1.25,
+        },
+      ];
+
+      const result = gradeAttempt(snapshot, answers, 50);
+
+      expect(result.gradingStatus).toBe("fully_graded");
+      expect(result.maxScore).toBe(4);
+      expect(result.manualScore).toBe(2.25);
+      expect(result.totalScore).toBe(2.25);
+      expect(result.percentage).toBe(56.25);
+      expect(result.passed).toBe(true);
+    });
+
+    it("maintains non-descriptive grading correctness alongside decimal descriptive questions", () => {
+      const snapshot: ExamSnapshotQuestion[] = [
+        {
+          id: "q-mc",
+          orderIndex: 0,
+          questionType: "single_choice",
+          prompt: "سوال تستی",
+          points: 1,
+          options: [
+            { id: "opt-1", text: "گزینه ۱" },
+            { id: "opt-2", text: "گزینه ۲" },
+          ],
+          correctOptionId: "opt-1",
+        },
+        {
+          id: "q-tf",
+          orderIndex: 1,
+          questionType: "true_false",
+          prompt: TRUE_FALSE_FIXED_PROMPT,
+          points: 2,
+          statements: [
+            { id: "s1", text: "گزاره ۱", correctAnswer: true },
+            { id: "s2", text: "گزاره ۲", correctAnswer: false },
+          ],
+        },
+        {
+          id: "q-desc",
+          orderIndex: 2,
+          questionType: "descriptive",
+          prompt: "سوال تشریحی",
+          points: 2,
+        },
+      ];
+
+      const answers = [
+        {
+          questionId: "q-mc",
+          selectedOptionId: "opt-1",
+        },
+        {
+          questionId: "q-tf",
+          textAnswer: JSON.stringify({ s1: true, s2: true }), // 1 of 2 correct -> 1 point
+        },
+        {
+          questionId: "q-desc",
+          gradingStatus: "graded" as const,
+          pointsEarned: 0.37,
+        },
+      ];
+
+      const result = gradeAttempt(snapshot, answers, 50);
+
+      expect(result.gradingStatus).toBe("fully_graded");
+      expect(result.maxScore).toBe(5);
+      expect(result.autoScore).toBe(2); // 1 + 1
+      expect(result.manualScore).toBe(0.37);
+      expect(result.totalScore).toBe(2.37); // exactly 2.37, not 2.3700000000000006
+      expect(result.percentage).toBe(47.4);
+      expect(result.passed).toBe(false);
+    });
   });
 });

@@ -421,4 +421,202 @@ describe("Educational Blog Frontend Pages & Components Suite", () => {
     expect(screen.queryByText("فلسفه ما")).toBeNull();
     expect(screen.queryByText("اکوسیستم آوانا")).toBeNull();
   });
+
+  test("11. AdminBlogEditor: file selection uploads image and updates featuredImage preview and payload", async () => {
+    const onSaveMock = vi.fn();
+    const mockUploadMutateAsync = vi.fn().mockResolvedValue({
+      url: "/v1/blog/images/blog/test-uuid.png",
+      image_url: "/v1/blog/images/blog/test-uuid.png",
+      storage_key: "blog/test-uuid.png",
+    });
+
+    vi.spyOn(useBlogModule, "useAdminBlogTags").mockReturnValue({
+      data: { tags: mockTags },
+    } as any);
+
+    vi.spyOn(useBlogModule, "useUploadBlogImage").mockReturnValue({
+      mutateAsync: mockUploadMutateAsync,
+      isPending: false,
+    } as any);
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <AdminBlogEditor
+            categories={mockCategories}
+            initialPost={{
+              ...mockPosts[0],
+              content: "متن محتوای مقاله آموزشی...",
+              featuredImage: "",
+            } as any}
+            isSaving={false}
+            onSave={onSaveMock}
+          />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    // Initial state: upload dropzone is visible
+    expect(screen.getByTestId("blog-upload-dropzone")).toBeDefined();
+
+    const fileInput = screen.getByTestId("blog-featured-image-input") as HTMLInputElement;
+    const fakeFile = new File(["dummy-png-bytes"], "cover.png", { type: "image/png" });
+
+    fireEvent.change(fileInput, { target: { files: [fakeFile] } });
+
+    await vi.waitFor(() => {
+      expect(mockUploadMutateAsync).toHaveBeenCalledWith(fakeFile);
+    });
+
+    // Preview should now be displayed
+    await vi.waitFor(() => {
+      expect(screen.getByTestId("blog-image-preview-container")).toBeDefined();
+    });
+
+    // Click Save
+    const saveButton = screen.getByText(/ذخیره پیش‌نویس/i);
+    fireEvent.click(saveButton);
+
+    expect(onSaveMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        featuredImage: "/v1/blog/images/blog/test-uuid.png",
+      }),
+    );
+  });
+
+  test("12. AdminBlogEditor: validates oversized files (>5MB) and invalid types in UI without calling API", async () => {
+    const mockUploadMutateAsync = vi.fn();
+
+    vi.spyOn(useBlogModule, "useAdminBlogTags").mockReturnValue({
+      data: { tags: mockTags },
+    } as any);
+
+    vi.spyOn(useBlogModule, "useUploadBlogImage").mockReturnValue({
+      mutateAsync: mockUploadMutateAsync,
+      isPending: false,
+    } as any);
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <AdminBlogEditor
+            categories={mockCategories}
+            initialPost={{
+              ...mockPosts[0],
+              content: "متن مقاله...",
+              featuredImage: "",
+            } as any}
+            isSaving={false}
+            onSave={vi.fn()}
+          />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    const fileInput = screen.getByTestId("blog-featured-image-input") as HTMLInputElement;
+
+    // Test 1: File > 5MB
+    const largeFile = new File([new Uint8Array(6 * 1024 * 1024)], "giant.png", { type: "image/png" });
+    Object.defineProperty(largeFile, "size", { value: 6 * 1024 * 1024 });
+
+    fireEvent.change(fileInput, { target: { files: [largeFile] } });
+
+    expect(mockUploadMutateAsync).not.toHaveBeenCalled();
+    expect(screen.getByTestId("blog-image-upload-error")).toBeDefined();
+    expect(screen.getByText(/حجم تصویر بیش از حد مجاز است/)).toBeDefined();
+
+    // Test 2: Invalid MIME type (e.g. application/pdf)
+    const pdfFile = new File(["pdf data"], "document.pdf", { type: "application/pdf" });
+    fireEvent.change(fileInput, { target: { files: [pdfFile] } });
+
+    expect(mockUploadMutateAsync).not.toHaveBeenCalled();
+    expect(screen.getByText(/فرمت فایل نامعتبر است/)).toBeDefined();
+  });
+
+  test("13. AdminBlogEditor: supports removing image and entering manual URL directly", async () => {
+    const onSaveMock = vi.fn();
+
+    vi.spyOn(useBlogModule, "useAdminBlogTags").mockReturnValue({
+      data: { tags: mockTags },
+    } as any);
+
+    vi.spyOn(useBlogModule, "useUploadBlogImage").mockReturnValue({
+      mutateAsync: vi.fn(),
+      isPending: false,
+    } as any);
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <AdminBlogEditor
+            categories={mockCategories}
+            initialPost={{
+              ...mockPosts[0],
+              content: "متن کامل مقاله...",
+              featuredImage: "https://example.com/initial-cover.jpg",
+            } as any}
+            isSaving={false}
+            onSave={onSaveMock}
+          />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    // Initial image is rendered
+    expect(screen.getByTestId("blog-image-preview-container")).toBeDefined();
+
+    // Click remove image button
+    const removeBtn = screen.getByTestId("blog-remove-image-btn");
+    fireEvent.click(removeBtn);
+
+    // Dropzone should reappear
+    expect(screen.getByTestId("blog-upload-dropzone")).toBeDefined();
+
+    // Type a manual URL
+    const manualInput = screen.getByTestId("blog-manual-image-url-input");
+    fireEvent.change(manualInput, { target: { value: "https://custom-cdn.com/new-img.jpg" } });
+
+    // Save
+    const saveButton = screen.getByText(/ذخیره پیش‌نویس/i);
+    fireEvent.click(saveButton);
+
+    expect(onSaveMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        featuredImage: "https://custom-cdn.com/new-img.jpg",
+      }),
+    );
+  });
+
+  test("14. AdminBlogEditor: disables save and publish buttons while image is uploading", () => {
+    vi.spyOn(useBlogModule, "useAdminBlogTags").mockReturnValue({
+      data: { tags: mockTags },
+    } as any);
+
+    vi.spyOn(useBlogModule, "useUploadBlogImage").mockReturnValue({
+      mutateAsync: vi.fn(),
+      isPending: true,
+    } as any);
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <AdminBlogEditor
+            categories={mockCategories}
+            initialPost={mockPosts[0] as any}
+            isSaving={false}
+            onSave={vi.fn()}
+          />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    // Uploading spinner indicator should be visible
+    expect(screen.getByTestId("blog-image-uploading-indicator")).toBeDefined();
+
+    const saveButton = screen.getByText(/ذخیره پیش‌نویس/i).closest("button");
+    const publishButton = screen.getByText(/بروزرسانی و انتشار/i).closest("button");
+
+    expect(saveButton?.disabled).toBe(true);
+    expect(publishButton?.disabled).toBe(true);
+  });
 });

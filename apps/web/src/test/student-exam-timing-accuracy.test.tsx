@@ -176,7 +176,7 @@ describe("Student Exam Timing Accuracy & Tab Visibility Suite", () => {
     expect(lastCall[0]).toBe("exam-timing-1");
     expect(lastCall[1]).toBe("q-101");
     expect(lastCall[2]).toBe("opt-1");
-    expect(lastCall[4]).toBeGreaterThanOrEqual(2000); // active duration ~2500ms
+    expect(lastCall[5]).toBeGreaterThanOrEqual(2000); // active duration ~2500ms (index 5 is activeDurationMs)
   });
 
   it("Test 2 — Transition: Time spent transitioning between questions is excluded", async () => {
@@ -212,9 +212,9 @@ describe("Student Exam Timing Accuracy & Tab Visibility Suite", () => {
     const q2SaveCall = mockSaveAnswer.mock.calls[1];
     expect(q2SaveCall[1]).toBe("q-102");
     expect(q2SaveCall[2]).toBe("opt-3");
-    // Q2 active duration should be ~3000ms, NOT 4000 + 3000 = 7000ms
-    expect(q2SaveCall[4]).toBeLessThanOrEqual(4000);
-    expect(q2SaveCall[4]).toBeGreaterThanOrEqual(2500);
+    // Q2 active duration should be ~3000ms, NOT 4000 + 3000 = 7000ms (index 5 is activeDurationMs)
+    expect(q2SaveCall[5]).toBeLessThanOrEqual(4000);
+    expect(q2SaveCall[5]).toBeGreaterThanOrEqual(2500);
   });
 
   it("Test 4 — Per-Question Limit: Finalizes and passes active duration on next question", async () => {
@@ -236,12 +236,12 @@ describe("Student Exam Timing Accuracy & Tab Visibility Suite", () => {
     fireEvent.click(nextBtn);
 
     await waitFor(() => {
-      // Find call with finalized === true
+      // Find call with finalized === true (index 4 is finalized)
       const finalizedCall = mockSaveAnswer.mock.calls.find(
-        (call) => call[1] === "q-101" && call[3] === true,
+        (call) => call[1] === "q-101" && call[4] === true,
       );
       expect(finalizedCall).toBeDefined();
-      expect(finalizedCall[4]).toBeGreaterThanOrEqual(4500);
+      expect(finalizedCall[5]).toBeGreaterThanOrEqual(4500);
     });
   });
 
@@ -284,8 +284,8 @@ describe("Student Exam Timing Accuracy & Tab Visibility Suite", () => {
     });
 
     const call = mockSaveAnswer.mock.calls[0];
-    const activeDuration = call[4];
-    const tabSwitches = call[5];
+    const activeDuration = call[5];
+    const tabSwitches = call[6];
 
     // Total wall time passed = 3s + 10s away + 2s = 15s
     // Active duration must be ~5s (3s + 2s), NOT 15s!
@@ -326,9 +326,12 @@ describe("Student Exam Timing Accuracy & Tab Visibility Suite", () => {
         "exam-timing-1",
         "q-101",
         "opt-2",
+        undefined, // textAnswer
         undefined, // finalized
         expect.any(Number), // activeDurationMs
         0, // tabSwitchesCount
+        undefined,
+        undefined,
       );
     });
   });
@@ -396,7 +399,7 @@ describe("Student Exam Timing Accuracy & Tab Visibility Suite", () => {
     });
 
     const call = mockSaveAnswer.mock.calls[0];
-    // Tab switches count should still be 0 because document was visible
-    expect(call[5]).toBe(0);
+    // Tab switches count should still be 0 because document was visible (index 6 is tabSwitchesCount)
+    expect(call[6]).toBe(0);
   });
 });

@@ -5,15 +5,22 @@
  * On successful registration, creates account & session, then redirects to /home.
  */
 
-import { useState, useEffect, type FormEvent } from "react";
+import { useState, useEffect, useMemo, type FormEvent } from "react";
 import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Mail, Phone, Lock, User, Eye, EyeOff, Gift, GraduationCap } from "lucide-react";
+import { Mail, Phone, Lock, User, Eye, EyeOff, Gift, GraduationCap, Building, Layers } from "lucide-react";
 import { BrandLogo } from "../brand/BrandLogo.js";
 import { useAuth } from "../../providers/AuthProvider.js";
 import { ApiError } from "../../lib/api/errors.js";
-import { validateAndNormalizeIranPhone, ACADEMIC_FIELDS, isValidAcademicField } from "@avana/domain";
-import { Button } from "@avana/ui";
+import {
+  validateAndNormalizeIranPhone,
+  ACADEMIC_FIELDS,
+  isValidAcademicField,
+  TEACHING_UNIVERSITIES,
+  ACADEMIC_DEPARTMENTS,
+  validateTeacherAcademicProfile,
+} from "@avana/domain";
+import { Button, AvanaSelect } from "@avana/ui";
 import { getSafeInternalRedirect } from "../../utils/urlSecurity.js";
 
 export function RegisterPage() {
@@ -28,6 +35,9 @@ export function RegisterPage() {
   const [email, setEmail] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
   const [major, setMajor] = useState<string>("");
+  const [university, setUniversity] = useState<string>("");
+  const [faculty, setFaculty] = useState<string>("");
+  const [department, setDepartment] = useState<string>("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [referralCode, setReferralCode] = useState(
@@ -38,6 +48,16 @@ export function RegisterPage() {
   const [error, setError] = useState<string | null>(null);
   const { signUp, isAuthenticated } = useAuth();
   const navigate = useNavigate();
+
+  const universityOptions = useMemo(
+    () => TEACHING_UNIVERSITIES.map((univ) => ({ value: univ, label: univ })),
+    [],
+  );
+
+  const departmentOptions = useMemo(
+    () => ACADEMIC_DEPARTMENTS.map((dept) => ({ value: dept, label: dept })),
+    [],
+  );
 
   useEffect(() => {
     const refFromUrl = searchParams.get("ref");
@@ -89,9 +109,30 @@ export function RegisterPage() {
       return;
     }
 
-    if (!major || !isValidAcademicField(major)) {
-      setError("لطفاً رشته تحصیلی خود را انتخاب نمایید.");
-      return;
+    let normalizedUniv: string | undefined = undefined;
+    let normalizedFac: string | undefined = undefined;
+    let normalizedDept: string | undefined = undefined;
+
+    if (isTeacherContext) {
+      const teacherValidation = validateTeacherAcademicProfile(
+        { university, faculty, department },
+        { isRequired: true },
+      );
+      if (!teacherValidation.valid) {
+        setError(
+          teacherValidation.error ||
+            "لطفاً دانشگاه و گروه آموزشی محل تدریس خود را مشخص نمایید.",
+        );
+        return;
+      }
+      normalizedUniv = teacherValidation.normalized?.university ?? undefined;
+      normalizedFac = teacherValidation.normalized?.faculty ?? undefined;
+      normalizedDept = teacherValidation.normalized?.department ?? undefined;
+    } else {
+      if (!major || !isValidAcademicField(major)) {
+        setError("لطفاً رشته تحصیلی خود را انتخاب نمایید.");
+        return;
+      }
     }
 
     if (password.length < 8) {
@@ -114,7 +155,10 @@ export function RegisterPage() {
         trimmedFirstName,
         trimmedLastName,
         referralCode.trim() || undefined,
-        major,
+        isTeacherContext ? undefined : (major || undefined),
+        normalizedUniv,
+        normalizedFac,
+        normalizedDept,
       );
       const verifyRedirect =
         safeRedirect !== "/home"
@@ -196,7 +240,6 @@ export function RegisterPage() {
                       type="text"
                       value={firstName}
                       onChange={(e) => setFirstName(e.target.value)}
-                      placeholder="مثلاً: علی"
                       required
                       disabled={isSubmitting}
                       className="w-full ps-10 pe-4 py-2 rounded-input border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary text-start text-xs sm:text-sm disabled:opacity-50 transition-all"
@@ -218,7 +261,6 @@ export function RegisterPage() {
                       type="text"
                       value={lastName}
                       onChange={(e) => setLastName(e.target.value)}
-                      placeholder="مثلاً: محمدلو"
                       required
                       disabled={isSubmitting}
                       className="w-full ps-10 pe-4 py-2 rounded-input border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:ring-primary focus:border-primary text-start text-xs sm:text-sm disabled:opacity-50 transition-all"
@@ -282,42 +324,126 @@ export function RegisterPage() {
                 </div>
               </div>
 
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label
-                    htmlFor="major"
-                    className="block text-xs font-semibold text-[var(--color-text)]"
-                  >
-                    رشته تحصیلی شما چیست؟
-                  </label>
-                  <span className="text-[11px] text-[var(--color-text-muted)]">
-                    جهت شخصی‌سازی محتوا
-                  </span>
-                </div>
-                <div className="relative">
-                  <GraduationCap className="absolute start-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-muted)] pointer-events-none" />
-                  <select
-                    id="major"
-                    value={major}
-                    onChange={(e) => setMajor(e.target.value)}
-                    required
-                    disabled={isSubmitting}
-                    className="w-full ps-10 pe-8 py-2 rounded-input border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary text-start text-xs sm:text-sm disabled:opacity-50 transition-all appearance-none cursor-pointer"
-                  >
-                    <option value="" disabled>
-                      رشته تحصیلی خود را انتخاب کنید...
-                    </option>
-                    {ACADEMIC_FIELDS.map((field) => (
-                      <option key={field.id} value={field.id}>
-                        {field.label}
-                      </option>
-                    ))}
-                  </select>
-                  <div className="absolute end-3 top-1/2 -translate-y-1/2 pointer-events-none text-[var(--color-text-muted)] text-[10px]">
-                    ▼
+              {isTeacherContext ? (
+                <div className="space-y-2.5 sm:space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3">
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label
+                          htmlFor="university"
+                          className="block text-xs font-semibold text-[var(--color-text)]"
+                        >
+                          دانشگاه محل تدریس
+                        </label>
+                        <span className="text-[11px] text-[var(--color-text-muted)]">
+                          دانشگاه علوم پزشکی یا موسسه
+                        </span>
+                      </div>
+                      <AvanaSelect
+                        id="university"
+                        dataTestId="university-select"
+                        options={universityOptions}
+                        value={university}
+                        onChange={(val) => setUniversity(typeof val === "string" ? val : "")}
+                        placeholder="انتخاب یا جستجوی دانشگاه..."
+                        searchPlaceholder="جستجو در دانشگاه‌ها..."
+                        isSearchable
+                        disabled={isSubmitting}
+                        icon={<Building className="w-4 h-4" />}
+                      />
+                    </div>
+
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label
+                          htmlFor="faculty"
+                          className="block text-xs font-semibold text-[var(--color-text)]"
+                        >
+                          دانشکده (اختیاری)
+                        </label>
+                        <span className="text-[11px] text-[var(--color-text-muted)]">
+                          مثال: دانشکده پزشکی
+                        </span>
+                      </div>
+                      <div className="relative">
+                        <Layers className="absolute start-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-muted)] pointer-events-none" />
+                        <input
+                          id="faculty"
+                          type="text"
+                          value={faculty}
+                          onChange={(e) => setFaculty(e.target.value)}
+                          placeholder="نام دانشکده (در صورت وجود)..."
+                          disabled={isSubmitting}
+                          className="w-full ps-10 pe-4 py-2 rounded-input border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary text-start text-xs sm:text-sm disabled:opacity-50 transition-all"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label
+                        htmlFor="department"
+                        className="block text-xs font-semibold text-[var(--color-text)]"
+                      >
+                        گروه آموزشی
+                      </label>
+                      <span className="text-[11px] text-[var(--color-text-muted)]">
+                        دپارتمان یا گروه تخصصی تدریس
+                      </span>
+                    </div>
+                    <AvanaSelect
+                      id="department"
+                      dataTestId="department-select"
+                      options={departmentOptions}
+                      value={department}
+                      onChange={(val) => setDepartment(typeof val === "string" ? val : "")}
+                      placeholder="انتخاب یا جستجوی گروه آموزشی..."
+                      searchPlaceholder="جستجو در گروه‌های آموزشی..."
+                      isSearchable
+                      disabled={isSubmitting}
+                      icon={<GraduationCap className="w-4 h-4" />}
+                    />
                   </div>
                 </div>
-              </div>
+              ) : (
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label
+                      htmlFor="major"
+                      className="block text-xs font-semibold text-[var(--color-text)]"
+                    >
+                      رشته تحصیلی شما چیست؟
+                    </label>
+                    <span className="text-[11px] text-[var(--color-text-muted)]">
+                      جهت شخصی‌سازی محتوا
+                    </span>
+                  </div>
+                  <div className="relative">
+                    <GraduationCap className="absolute start-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-muted)] pointer-events-none" />
+                    <select
+                      id="major"
+                      value={major}
+                      onChange={(e) => setMajor(e.target.value)}
+                      required
+                      disabled={isSubmitting}
+                      className="w-full ps-10 pe-8 py-2 rounded-input border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary text-start text-xs sm:text-sm disabled:opacity-50 transition-all appearance-none cursor-pointer"
+                    >
+                      <option value="" disabled>
+                        رشته تحصیلی خود را انتخاب کنید...
+                      </option>
+                      {ACADEMIC_FIELDS.map((field) => (
+                        <option key={field.id} value={field.id}>
+                          {field.label}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="absolute end-3 top-1/2 -translate-y-1/2 pointer-events-none text-[var(--color-text-muted)] text-[10px]">
+                      ▼
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3">
                 <div>
@@ -419,7 +545,9 @@ export function RegisterPage() {
                     !lastName.trim() ||
                     !email.trim() ||
                     !phoneNumber.trim() ||
-                    !major ||
+                    (isTeacherContext
+                      ? !university.trim() || !department.trim()
+                      : !major) ||
                     !password ||
                     !confirmPassword
                   }

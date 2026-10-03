@@ -66,6 +66,11 @@ import { up as up0062 } from "./migrations/0062_optional_exam_duration_and_passi
 import { up as up0063 } from "./migrations/0063_classroom_assignments.js";
 import { up as up0064 } from "./migrations/0064_teacher_approval_status.js";
 import { up as up0065 } from "./migrations/0065_user_major_and_course_academic_fields.js";
+import { up as up0066 } from "./migrations/0066_descriptive_answer_integrity.js";
+import { up as up0067 } from "./migrations/0067_assignment_submission_attachments.js";
+import { up as up0068 } from "./migrations/0068_teacher_academic_profile.js";
+import { up as up0069 } from "./migrations/0069_classroom_educational_contents.js";
+import { up as up0070 } from "./migrations/0070_teacher_student_messaging.js";
 
 
 
@@ -217,8 +222,16 @@ async function runMigrations() {
     await up0064(db);
     console.log("Applying 0065_user_major_and_course_academic_fields...");
     await up0065(db);
-
-
+    console.log("Applying 0066_descriptive_answer_integrity...");
+    await up0066(db);
+    console.log("Applying 0067_assignment_submission_attachments...");
+    await up0067(db);
+    console.log("Applying 0068_teacher_academic_profile...");
+    await up0068(db);
+    console.log("Applying 0069_classroom_educational_contents...");
+    await up0069(db);
+    console.log("Applying 0070_teacher_student_messaging...");
+    await up0070(db);
 
     console.log("All database migrations applied successfully.");
   } catch (error) {

@@ -37,8 +37,8 @@ import {
 import { QuestionEditorItem } from "../../components/teacher/exams/QuestionEditorItem.js";
 import { PublishConfirmModal } from "../../components/teacher/exams/PublishConfirmModal.js";
 import { ExamStatusBadge } from "../../components/teacher/exams/ExamStatusBadge.js";
-import type { ExamOption, TeacherQuestionInput } from "@avana/domain";
-import { toPersianDigits } from "@avana/domain";
+import type { ExamOption, TeacherQuestionInput, QuestionType, TrueFalseStatement } from "@avana/domain";
+import { toPersianDigits, TRUE_FALSE_FIXED_PROMPT } from "@avana/domain";
 import {
   combineLocalDateAndTimeToIso,
   extractLocalDateAndTimeString,
@@ -60,6 +60,7 @@ import {
   Calendar,
   AlertTriangle,
   ShieldCheck,
+  Trash2,
 } from "lucide-react";
 
 export function TeacherExamEditorPage() {
@@ -153,7 +154,7 @@ export function TeacherExamEditorPage() {
 
   // New Question Form State
   const [isAddingQuestion, setIsAddingQuestion] = useState(false);
-  const [newQuestionType, setNewQuestionType] = useState<"single_choice" | "descriptive">("single_choice");
+  const [newQuestionType, setNewQuestionType] = useState<QuestionType>("single_choice");
   const [newPrompt, setNewPrompt] = useState("");
   const [newPoints, setNewPoints] = useState(1);
   const [newExplanation, setNewExplanation] = useState("");
@@ -164,7 +165,42 @@ export function TeacherExamEditorPage() {
     { id: "opt_4", text: "" },
   ]);
   const [newCorrectOptionId, setNewCorrectOptionId] = useState("opt_1");
+  const [newStatements, setNewStatements] = useState<TrueFalseStatement[]>([
+    { id: "stmt_1", text: "", correctAnswer: true },
+    { id: "stmt_2", text: "", correctAnswer: false },
+  ]);
   const [newQuestionError, setNewQuestionError] = useState<string | null>(null);
+
+  const handleAddNewStatement = () => {
+    setNewQuestionError(null);
+    if (newStatements.length >= 8) {
+      setNewQuestionError("حداکثر ۸ گزاره برای هر سؤال صحیح/غلط مجاز است.");
+      return;
+    }
+    const newId = `stmt_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    setNewStatements((prev) => [...prev, { id: newId, text: "", correctAnswer: true }]);
+  };
+
+  const handleRemoveNewStatement = (stmtId: string) => {
+    setNewQuestionError(null);
+    if (newStatements.length <= 1) {
+      setNewQuestionError("حداقل ۱ گزاره برای هر سؤال صحیح/غلط الزامی است.");
+      return;
+    }
+    setNewStatements((prev) => prev.filter((s) => s.id !== stmtId));
+  };
+
+  const handleNewStatementTextChange = (stmtId: string, text: string) => {
+    setNewStatements((prev) =>
+      prev.map((s) => (s.id === stmtId ? { ...s, text } : s)),
+    );
+  };
+
+  const handleNewStatementAnswerChange = (stmtId: string, correctAnswer: boolean) => {
+    setNewStatements((prev) =>
+      prev.map((s) => (s.id === stmtId ? { ...s, correctAnswer } : s)),
+    );
+  };
 
   // Publish Modal State
   const [publishModalOpen, setPublishModalOpen] = useState(false);
@@ -288,11 +324,40 @@ export function TeacherExamEditorPage() {
     }
   };
 
+  const handleSetNewOptionCount = (targetCount: 4 | 5 | 6) => {
+    setNewQuestionError(null);
+    const currentCount = newOptions.length;
+    if (targetCount === currentCount) return;
+
+    if (targetCount > currentCount) {
+      const updated = [...newOptions];
+      for (let i = currentCount + 1; i <= targetCount; i++) {
+        updated.push({ id: `opt_${i}`, text: "" });
+      }
+      setNewOptions(updated);
+    } else {
+      const optionsToDrop = newOptions.slice(targetCount);
+      const isDroppingCorrect = optionsToDrop.some((o) => o.id === newCorrectOptionId);
+      if (isDroppingCorrect) {
+        setNewQuestionError("ابتدا پاسخ صحیح را از گزینه‌ای که قرار است حذف شود تغییر دهید.");
+        return;
+      }
+      const hasDataInDropped = optionsToDrop.some((o) => o.text.trim().length > 0);
+      if (hasDataInDropped) {
+        const confirmDiscard = window.confirm(
+          `با کاهش تعداد گزینه‌ها به ${toPersianDigits(targetCount)}، متن گزینه‌های اضافه حذف خواهد شد. آیا مطمئن هستید؟`,
+        );
+        if (!confirmDiscard) return;
+      }
+      setNewOptions(newOptions.slice(0, targetCount));
+    }
+  };
+
   // Add New Question
   const handleCreateQuestion = async () => {
     setNewQuestionError(null);
 
-    const trimmedPrompt = newPrompt.trim();
+    const trimmedPrompt = newQuestionType === "true_false" ? TRUE_FALSE_FIXED_PROMPT : newPrompt.trim();
     if (!trimmedPrompt) {
       setNewQuestionError("صورت سوال نمی‌تواند خالی باشد.");
       return;
@@ -304,8 +369,8 @@ export function TeacherExamEditorPage() {
     }
 
     if (newQuestionType === "single_choice") {
-      if (newOptions.length < 2) {
-        setNewQuestionError("حداقل دو گزینه برای سوال تستی الزامی است.");
+      if (newOptions.length < 4 || newOptions.length > 6) {
+        setNewQuestionError("سوال تستی باید دارای ۴، ۵ یا ۶ گزینه باشد.");
         return;
       }
 
@@ -320,13 +385,36 @@ export function TeacherExamEditorPage() {
         setNewQuestionError("لطفاً گزینه صحیح را مشخص کنید.");
         return;
       }
+    } else if (newQuestionType === "true_false") {
+      if (newStatements.length < 1 || newStatements.length > 8) {
+        setNewQuestionError("تعداد گزاره‌های سوال صحیح/غلط باید بین ۱ تا ۸ باشد.");
+        return;
+      }
+
+      for (const s of newStatements) {
+        if (!s.text.trim()) {
+          setNewQuestionError("متن تمام گزاره‌ها باید تکمیل شود.");
+          return;
+        }
+      }
     }
 
     try {
       await createQuestionMutation.mutateAsync({
         questionType: newQuestionType,
         prompt: trimmedPrompt,
-        options: newQuestionType === "single_choice" ? newOptions.map((o) => ({ id: o.id, text: o.text.trim() })) : [],
+        options:
+          newQuestionType === "single_choice"
+            ? newOptions.map((o) => ({ id: o.id, text: o.text.trim() }))
+            : [],
+        statements:
+          newQuestionType === "true_false"
+            ? newStatements.map((s) => ({
+                id: s.id,
+                text: s.text.trim(),
+                correctAnswer: s.correctAnswer,
+              }))
+            : undefined,
         correctOptionId: newQuestionType === "single_choice" ? newCorrectOptionId : null,
         points: newPoints,
         explanation: newExplanation.trim() || null,
@@ -345,6 +433,10 @@ export function TeacherExamEditorPage() {
         { id: "opt_4", text: "" },
       ]);
       setNewCorrectOptionId("opt_1");
+      setNewStatements([
+        { id: "stmt_1", text: "", correctAnswer: true },
+        { id: "stmt_2", text: "", correctAnswer: false },
+      ]);
       setIsAddingQuestion(false);
     } catch (err) {
       setNewQuestionError(err instanceof ApiError ? err.message : "خطا در ثبت سوال جدید.");
@@ -860,17 +952,48 @@ export function TeacherExamEditorPage() {
               <label className="text-xs font-semibold text-[var(--color-text)]">
                 نوع سوال *
               </label>
-              <div className="flex items-center gap-4 p-2.5 rounded-xl bg-[var(--color-surface-warm)]/40 border border-[var(--color-border)]">
+              <div className="flex items-center gap-4 p-2.5 rounded-xl bg-[var(--color-surface-warm)]/40 border border-[var(--color-border)] flex-wrap">
                 <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-[var(--color-text)]">
                   <input
                     type="radio"
                     name="new-qtype"
                     value="single_choice"
                     checked={newQuestionType === "single_choice"}
-                    onChange={() => setNewQuestionType("single_choice")}
+                    onChange={() => {
+                      setNewQuestionType("single_choice");
+                      if (newOptions.length === 0) {
+                        setNewOptions([
+                          { id: "opt_1", text: "" },
+                          { id: "opt_2", text: "" },
+                          { id: "opt_3", text: "" },
+                          { id: "opt_4", text: "" },
+                        ]);
+                        setNewCorrectOptionId("opt_1");
+                      }
+                    }}
                     className="w-4 h-4 text-[#008080] focus:ring-[#008080]"
                   />
-                  <span>تستی (چهارگزینه‌ای)</span>
+                  <span>تستی</span>
+                </label>
+
+                <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-[var(--color-text)]">
+                  <input
+                    type="radio"
+                    name="new-qtype"
+                    value="true_false"
+                    checked={newQuestionType === "true_false"}
+                    onChange={() => {
+                      setNewQuestionType("true_false");
+                      if (newStatements.length === 0) {
+                        setNewStatements([
+                          { id: "stmt_1", text: "", correctAnswer: true },
+                          { id: "stmt_2", text: "", correctAnswer: false },
+                        ]);
+                      }
+                    }}
+                    className="w-4 h-4 text-[#008080] focus:ring-[#008080]"
+                  />
+                  <span>صحیح / غلط (چند گزاره‌ای)</span>
                 </label>
 
                 <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-[var(--color-text)]">
@@ -887,22 +1010,129 @@ export function TeacherExamEditorPage() {
               </div>
             </div>
 
-            <Textarea
-              label="صورت سوال *"
-              value={newPrompt}
-              onChange={(e) => setNewPrompt(e.target.value)}
-              rows={2}
-              placeholder="صورت سوال را به دقت بنویسید..."
-              required
-              autoFocus
-            />
+            {newQuestionType === "true_false" ? (
+              <div className="p-3 rounded-xl bg-[var(--color-surface-warm)]/70 border border-[var(--color-border)] text-xs text-[var(--color-text)] space-y-1">
+                <span className="font-bold block text-[#008080]">صورت سؤال ثابت:</span>
+                <p className="font-medium text-xs sm:text-sm">{TRUE_FALSE_FIXED_PROMPT}</p>
+              </div>
+            ) : (
+              <Textarea
+                label="صورت سوال *"
+                value={newPrompt}
+                onChange={(e) => setNewPrompt(e.target.value)}
+                rows={2}
+                placeholder="صورت سوال را به دقت بنویسید..."
+                required
+                autoFocus
+              />
+            )}
 
-            {newQuestionType === "single_choice" ? (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
+            {newQuestionType === "true_false" ? (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <label className="text-xs font-semibold text-[var(--color-text)]">
+                    گزاره‌ها و تعیین وضعیت صحیح / غلط (۱ تا ۸ گزاره) *
+                  </label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    leftIcon={<Plus className="w-3.5 h-3.5" />}
+                    onClick={handleAddNewStatement}
+                    disabled={newStatements.length >= 8}
+                    className="text-xs h-7 px-2.5"
+                  >
+                    افزودن گزاره ({toPersianDigits(newStatements.length)}/۸)
+                  </Button>
+                </div>
+
+                <div className="space-y-2.5">
+                  {newStatements.map((stmt, sIdx) => (
+                    <div
+                      key={stmt.id}
+                      className="p-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-warm)]/30 space-y-2"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-bold text-[var(--color-text)]">
+                          گزاره {(sIdx + 1).toLocaleString("fa-IR")}
+                        </span>
+                        {newStatements.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveNewStatement(stmt.id)}
+                            className="text-red-500 hover:text-red-700 p-1 rounded-lg hover:bg-red-500/10 transition-colors"
+                            title="حذف گزاره"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+
+                      <Input
+                        value={stmt.text}
+                        onChange={(e) => handleNewStatementTextChange(stmt.id, e.target.value)}
+                        placeholder={`متن گزاره ${(sIdx + 1).toLocaleString("fa-IR")} را بنویسید...`}
+                        className="text-xs sm:text-sm"
+                      />
+
+                      <div className="flex items-center gap-4 pt-1">
+                        <span className="text-xs text-[var(--color-text-muted)] font-medium">
+                          پاسخ صحیح:
+                        </span>
+                        <label className="flex items-center gap-1.5 cursor-pointer text-xs font-bold text-[var(--color-text)]">
+                          <input
+                            type="radio"
+                            name={`new-stmt-answer-${stmt.id}`}
+                            checked={stmt.correctAnswer === true}
+                            onChange={() => handleNewStatementAnswerChange(stmt.id, true)}
+                            className="w-3.5 h-3.5 text-[#008080] focus:ring-[#008080]"
+                          />
+                          <span className="text-emerald-700 dark:text-emerald-400">صحیح</span>
+                        </label>
+                        <label className="flex items-center gap-1.5 cursor-pointer text-xs font-bold text-[var(--color-text)]">
+                          <input
+                            type="radio"
+                            name={`new-stmt-answer-${stmt.id}`}
+                            checked={stmt.correctAnswer === false}
+                            onChange={() => handleNewStatementAnswerChange(stmt.id, false)}
+                            className="w-3.5 h-3.5 text-[#008080] focus:ring-[#008080]"
+                          />
+                          <span className="text-rose-700 dark:text-rose-400">غلط</span>
+                        </label>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : newQuestionType === "single_choice" ? (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between flex-wrap gap-2">
                   <label className="text-xs font-semibold text-[var(--color-text)]">
                     گزینه‌ها (یکی را به عنوان پاسخ صحیح علامت بزنید) *
                   </label>
+
+                  <div className="flex items-center gap-1.5 bg-[var(--color-surface-warm)]/80 p-1 rounded-xl border border-[var(--color-border)]">
+                    <span className="text-[11px] font-medium text-[var(--color-text-muted)] px-1.5">
+                      تعداد گزینه‌ها:
+                    </span>
+                    {([4, 5, 6] as const).map((cnt) => {
+                      const isSelected = newOptions.length === cnt;
+                      return (
+                        <button
+                          key={cnt}
+                          type="button"
+                          onClick={() => handleSetNewOptionCount(cnt)}
+                          className={`px-2.5 py-0.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                            isSelected
+                              ? "bg-[#008080] text-white shadow-xs"
+                              : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)]"
+                          }`}
+                        >
+                          {toPersianDigits(cnt)} گزینه
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
 
                 <div className="space-y-2">
@@ -949,8 +1179,8 @@ export function TeacherExamEditorPage() {
               <Input
                 type="number"
                 label="بارم سوال (نمره) *"
-                min={0.25}
-                step={0.25}
+                min={0.01}
+                step="0.01"
                 value={newPoints}
                 onChange={(e) => setNewPoints(parseFloat(e.target.value) || 1)}
                 required
@@ -993,7 +1223,7 @@ export function TeacherExamEditorPage() {
           <EmptyState
             icon={<HelpCircle className="w-8 h-8" />}
             title="هیچ سوالی در این آزمون ثبت نشده است"
-            description="برای اینکه بتوانید آزمون را برای دانش‌آموزان منتشر کنید، باید حداقل یک سوال چهارگزینه‌ای طرح نمایید."
+            description="برای اینکه بتوانید آزمون را برای دانش‌آموزان منتشر کنید، باید حداقل یک سوال تستی طرح نمایید."
             action={
               isDraft && (
                 <Button

@@ -8,6 +8,8 @@ import type {
   TeacherExamAttemptAnswer,
   ClassroomAssignment,
   AssignmentSubmission,
+  ClassroomContent,
+  ClassroomContentStatus,
   ClassroomStatus,
   ClassroomMemberStatus,
   ExamPersistedStatus,
@@ -25,7 +27,15 @@ import type {
   TeacherExamAttemptAnswerStore,
   AssignmentStore,
   AssignmentSubmissionStore,
+  ClassroomContentStore,
+  TeacherConversationStore,
+  TeacherConversationMessageStore,
 } from "./stores.js";
+import type {
+  TeacherConversation,
+  TeacherConversationMessage,
+  TeacherMessageStatus,
+} from "@avana/domain";
 
 
 export class InMemoryClassroomStore implements ClassroomStore {
@@ -356,6 +366,7 @@ export class InMemoryTeacherExamQuestionStore implements TeacherExamQuestionStor
       ...data,
       questionType: data.questionType ?? "single_choice",
       options: data.options ?? [],
+      statements: data.statements ?? undefined,
       correctOptionId: data.correctOptionId ?? null,
       explanation: data.explanation ?? null,
       createdAt: now,
@@ -605,6 +616,7 @@ export class InMemoryTeacherExamAttemptAnswerStore implements TeacherExamAttempt
       finalizedAt: data.finalizedAt !== undefined ? data.finalizedAt : existing?.finalizedAt ?? null,
       activeDurationMs: data.activeDurationMs !== undefined ? data.activeDurationMs : existing?.activeDurationMs ?? null,
       tabSwitchesCount: data.tabSwitchesCount !== undefined ? data.tabSwitchesCount : existing?.tabSwitchesCount ?? null,
+      integrityMetadata: data.integrityMetadata !== undefined ? data.integrityMetadata : existing?.integrityMetadata ?? null,
     };
     this.answers.set(key, answer);
     return { ...answer };
@@ -680,9 +692,21 @@ export class InMemoryAssignmentStore implements AssignmentStore {
     const existing = this.assignments.get(id);
     if (!existing) return null;
 
+    const cleanPatch: Partial<
+      Omit<
+        ClassroomAssignment,
+        "id" | "classroomId" | "teacherId" | "createdAt" | "updatedAt"
+      >
+    > = {};
+    for (const [k, v] of Object.entries(patch)) {
+      if (v !== undefined) {
+        (cleanPatch as Record<string, unknown>)[k] = v;
+      }
+    }
+
     const updated: ClassroomAssignment = {
       ...existing,
-      ...patch,
+      ...cleanPatch,
       updatedAt: new Date().toISOString(),
     };
     this.assignments.set(id, updated);
@@ -755,6 +779,9 @@ export class InMemoryAssignmentSubmissionStore
       assignmentId: data.assignmentId,
       studentId: data.studentId,
       answerText: data.answerText,
+      attachmentUrl: data.attachmentUrl ?? null,
+      attachmentName: data.attachmentName ?? null,
+      attachmentSizeBytes: data.attachmentSizeBytes ?? null,
       status: data.status,
       submittedAt: now,
       createdAt: existing ? existing.createdAt : now,
@@ -789,6 +816,352 @@ export class InMemoryAssignmentSubmissionStore
   async countByAssignment(assignmentId: string): Promise<number> {
     return Array.from(this.submissions.values()).filter(
       (s) => s.assignmentId === assignmentId,
+    ).length;
+  }
+
+  async findByAttachmentUrl(
+    attachmentUrlOrKey: string,
+  ): Promise<AssignmentSubmission | null> {
+    if (!attachmentUrlOrKey) return null;
+    for (const sub of this.submissions.values()) {
+      if (
+        sub.attachmentUrl &&
+        (sub.attachmentUrl === attachmentUrlOrKey ||
+          sub.attachmentUrl.includes(attachmentUrlOrKey) ||
+          decodeURIComponent(sub.attachmentUrl).includes(attachmentUrlOrKey))
+      ) {
+        return { ...sub };
+      }
+    }
+    return null;
+  }
+}
+
+export class InMemoryClassroomContentStore implements ClassroomContentStore {
+  private readonly contents = new Map<string, ClassroomContent>();
+
+  async getById(id: string): Promise<ClassroomContent | null> {
+    const c = this.contents.get(id);
+    return c ? { ...c } : null;
+  }
+
+  async create(
+    data: Omit<ClassroomContent, "createdAt" | "updatedAt">,
+  ): Promise<ClassroomContent> {
+    const now = new Date().toISOString();
+    const content: ClassroomContent = {
+      ...data,
+      createdAt: now,
+      updatedAt: now,
+      publishedAt: data.publishedAt ?? (data.status === "published" ? now : null),
+      archivedAt: data.archivedAt ?? null,
+    };
+    this.contents.set(content.id, content);
+    return { ...content };
+  }
+
+  async update(
+    id: string,
+    patch: Partial<
+      Omit<
+        ClassroomContent,
+        "id" | "classroomId" | "teacherId" | "createdAt" | "updatedAt"
+      >
+    >,
+  ): Promise<ClassroomContent | null> {
+    const existing = this.contents.get(id);
+    if (!existing) return null;
+    const now = new Date().toISOString();
+    const updated: ClassroomContent = {
+      ...existing,
+      ...patch,
+      updatedAt: now,
+    };
+    this.contents.set(id, updated);
+    return { ...updated };
+  }
+
+  async delete(id: string): Promise<boolean> {
+    return this.contents.delete(id);
+  }
+
+  async archive(id: string): Promise<ClassroomContent | null> {
+    const existing = this.contents.get(id);
+    if (!existing) return null;
+    const now = new Date().toISOString();
+    const updated: ClassroomContent = {
+      ...existing,
+      status: "archived",
+      archivedAt: now,
+      updatedAt: now,
+    };
+    this.contents.set(id, updated);
+    return { ...updated };
+  }
+
+  async listByClassroom(
+    classroomId: string,
+    status?: ClassroomContentStatus,
+  ): Promise<ClassroomContent[]> {
+    return Array.from(this.contents.values())
+      .filter((c) => c.classroomId === classroomId && (!status || c.status === status))
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .map((c) => ({ ...c }));
+  }
+
+  async listByTeacher(teacherId: string): Promise<ClassroomContent[]> {
+    return Array.from(this.contents.values())
+      .filter((c) => c.teacherId === teacherId)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .map((c) => ({ ...c }));
+  }
+
+  async countByClassroom(classroomId: string): Promise<number> {
+    return Array.from(this.contents.values()).filter((c) => c.classroomId === classroomId).length;
+  }
+
+  async findByFileUrl(fileUrlOrKey: string): Promise<ClassroomContent | null> {
+    if (!fileUrlOrKey) return null;
+    for (const c of this.contents.values()) {
+      if (
+        c.fileUrl &&
+        (c.fileUrl === fileUrlOrKey ||
+          c.fileUrl.includes(fileUrlOrKey) ||
+          decodeURIComponent(c.fileUrl).includes(fileUrlOrKey))
+      ) {
+        return { ...c };
+      }
+    }
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// In-Memory Teacher Student Messaging Stores
+// ---------------------------------------------------------------------------
+
+export class InMemoryTeacherConversationStore
+  implements TeacherConversationStore
+{
+  private readonly conversations = new Map<string, TeacherConversation>();
+
+  async create(
+    data: Omit<TeacherConversation, "createdAt" | "updatedAt">,
+  ): Promise<TeacherConversation> {
+    const now = new Date().toISOString();
+    const conv: TeacherConversation = {
+      ...data,
+      lastActivityAt: data.lastActivityAt || now,
+      lastSenderRole: data.lastSenderRole || "student",
+      teacherReadAt: data.teacherReadAt || null,
+      studentReadAt: data.studentReadAt || null,
+      answeredAt: data.answeredAt || null,
+      closedAt: data.closedAt || null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.conversations.set(conv.id, conv);
+    return { ...conv };
+  }
+
+  async getById(id: string): Promise<TeacherConversation | null> {
+    const conv = this.conversations.get(id);
+    return conv ? { ...conv } : null;
+  }
+
+  async listByTeacher(
+    teacherId: string,
+    options: {
+      status?: string;
+      category?: string;
+      classroomId?: string;
+      page?: number;
+      limit?: number;
+    } = {},
+  ): Promise<{ conversations: TeacherConversation[]; total: number }> {
+    const filtered = Array.from(this.conversations.values())
+      .filter((c) => c.teacherId === teacherId)
+      .filter((c) => !options.status || options.status === "all" || c.status === options.status)
+      .filter(
+        (c) =>
+          !options.category ||
+          options.category === "all" ||
+          c.category === options.category,
+      )
+      .filter(
+        (c) => !options.classroomId || c.classroomId === options.classroomId,
+      )
+      .sort(
+        (a, b) =>
+          new Date(b.lastActivityAt).getTime() -
+          new Date(a.lastActivityAt).getTime(),
+      );
+
+    const total = filtered.length;
+    const page = options.page && options.page > 0 ? options.page : 1;
+    const limit =
+      options.limit && options.limit > 0 ? Math.min(options.limit, 100) : 20;
+    const offset = (page - 1) * limit;
+
+    return {
+      conversations: filtered.slice(offset, offset + limit).map((c) => ({ ...c })),
+      total,
+    };
+  }
+
+  async listByStudent(
+    studentId: string,
+    options: {
+      classroomId?: string;
+      page?: number;
+      limit?: number;
+    } = {},
+  ): Promise<{ conversations: TeacherConversation[]; total: number }> {
+    const filtered = Array.from(this.conversations.values())
+      .filter((c) => c.studentId === studentId)
+      .filter(
+        (c) => !options.classroomId || c.classroomId === options.classroomId,
+      )
+      .sort(
+        (a, b) =>
+          new Date(b.lastActivityAt).getTime() -
+          new Date(a.lastActivityAt).getTime(),
+      );
+
+    const total = filtered.length;
+    const page = options.page && options.page > 0 ? options.page : 1;
+    const limit =
+      options.limit && options.limit > 0 ? Math.min(options.limit, 100) : 20;
+    const offset = (page - 1) * limit;
+
+    return {
+      conversations: filtered.slice(offset, offset + limit).map((c) => ({ ...c })),
+      total,
+    };
+  }
+
+  async update(
+    id: string,
+    patch: Partial<TeacherConversation>,
+  ): Promise<TeacherConversation | null> {
+    const existing = this.conversations.get(id);
+    if (!existing) return null;
+    const now = new Date().toISOString();
+    const updated: TeacherConversation = {
+      ...existing,
+      ...patch,
+      updatedAt: now,
+    };
+    this.conversations.set(id, updated);
+    return { ...updated };
+  }
+
+  async updateStatus(
+    id: string,
+    status: TeacherMessageStatus,
+    extra: { closedAt?: string | null; answeredAt?: string | null } = {},
+  ): Promise<TeacherConversation | null> {
+    const existing = this.conversations.get(id);
+    if (!existing) return null;
+    const now = new Date().toISOString();
+    const updated: TeacherConversation = {
+      ...existing,
+      status,
+      closedAt:
+        status === "closed"
+          ? extra.closedAt || now
+          : extra.closedAt !== undefined
+            ? extra.closedAt
+            : existing.closedAt,
+      answeredAt:
+        status === "answered"
+          ? extra.answeredAt || now
+          : extra.answeredAt !== undefined
+            ? extra.answeredAt
+            : existing.answeredAt,
+      updatedAt: now,
+    };
+    this.conversations.set(id, updated);
+    return { ...updated };
+  }
+
+  async markTeacherRead(
+    id: string,
+    readAt?: string,
+  ): Promise<TeacherConversation | null> {
+    const existing = this.conversations.get(id);
+    if (!existing) return null;
+    const now = readAt || new Date().toISOString();
+    const updated: TeacherConversation = {
+      ...existing,
+      teacherReadAt: now,
+      updatedAt: now,
+    };
+    this.conversations.set(id, updated);
+    return { ...updated };
+  }
+
+  async markStudentRead(
+    id: string,
+    readAt?: string,
+  ): Promise<TeacherConversation | null> {
+    const existing = this.conversations.get(id);
+    if (!existing) return null;
+    const now = readAt || new Date().toISOString();
+    const updated: TeacherConversation = {
+      ...existing,
+      studentReadAt: now,
+      updatedAt: now,
+    };
+    this.conversations.set(id, updated);
+    return { ...updated };
+  }
+
+  async countUnreadForTeacher(teacherId: string): Promise<number> {
+    return Array.from(this.conversations.values()).filter(
+      (c) => c.teacherId === teacherId && c.lastSenderRole === "student",
+    ).length;
+  }
+
+  async countUnreadForStudent(studentId: string): Promise<number> {
+    return Array.from(this.conversations.values()).filter(
+      (c) => c.studentId === studentId && c.lastSenderRole === "teacher",
+    ).length;
+  }
+}
+
+export class InMemoryTeacherConversationMessageStore
+  implements TeacherConversationMessageStore
+{
+  private readonly messages = new Map<string, TeacherConversationMessage>();
+
+  async create(
+    data: Omit<TeacherConversationMessage, "createdAt">,
+  ): Promise<TeacherConversationMessage> {
+    const now = new Date().toISOString();
+    const msg: TeacherConversationMessage = {
+      ...data,
+      createdAt: now,
+    };
+    this.messages.set(msg.id, msg);
+    return { ...msg };
+  }
+
+  async listByConversation(
+    conversationId: string,
+  ): Promise<TeacherConversationMessage[]> {
+    return Array.from(this.messages.values())
+      .filter((m) => m.conversationId === conversationId)
+      .sort(
+        (a, b) =>
+          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+      )
+      .map((m) => ({ ...m }));
+  }
+
+  async countByConversation(conversationId: string): Promise<number> {
+    return Array.from(this.messages.values()).filter(
+      (m) => m.conversationId === conversationId,
     ).length;
   }
 }

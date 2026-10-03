@@ -1,20 +1,23 @@
+import { randomUUID } from "node:crypto";
 import type { FastifyPluginAsync } from "fastify";
-import { Roles } from "@avana/domain";
+import { DomainError, Roles } from "@avana/domain";
 import type { AuthMiddlewareDeps } from "../../http/authMiddleware.js";
 import { makeAuthMiddleware } from "../../http/authMiddleware.js";
 import { BlogService } from "./blog-service.js";
 import type { BlogStore } from "./blog-store.js";
 import type { CreateBlogPostInput, UpdateBlogPostInput } from "./blog-types.js";
+import type { StorageProvider } from "../storage/index.js";
 
 export interface AdminBlogRouteOptions extends AuthMiddlewareDeps {
   blogStore: BlogStore;
+  storageProvider?: StorageProvider;
 }
 
 export const adminBlogRoutes: FastifyPluginAsync<AdminBlogRouteOptions> = async (
   app,
   opts,
 ) => {
-  const { sessionService, userStore, blogStore } = opts;
+  const { sessionService, userStore, blogStore, storageProvider } = opts;
   const blogService = new BlogService(blogStore);
   const { requireAuth, requireRole } = makeAuthMiddleware({
     sessionService,
@@ -24,6 +27,73 @@ export const adminBlogRoutes: FastifyPluginAsync<AdminBlogRouteOptions> = async 
   // Protect all admin blog routes with platform_admin role
   app.addHook("preHandler", requireAuth);
   app.addHook("preHandler", requireRole(Roles.platform_admin));
+
+  /**
+   * POST /v1/admin/blog/images
+   * Upload an image for blog post cover/content.
+   */
+  app.post("/v1/admin/blog/images", async (request, reply) => {
+    if (!storageProvider) {
+      throw new DomainError(
+        "service_unavailable",
+        "سرویس ذخیره‌سازی فایل در دسترس نیست.",
+      );
+    }
+
+    const file = await request.file({
+      limits: {
+        fileSize: 5 * 1024 * 1024, // 5MB limit
+        files: 1,
+      },
+    });
+
+    if (!file) {
+      throw new DomainError("bad_request", "هیچ فایلی برای بارگذاری ارسال نشده است.");
+    }
+
+    const rawMime = (file.mimetype || "").toLowerCase();
+    const ALLOWED_MIME_MAP: Record<string, string> = {
+      "image/jpeg": "jpg",
+      "image/jpg": "jpg",
+      "image/png": "png",
+      "image/webp": "webp",
+    };
+
+    const ext = ALLOWED_MIME_MAP[rawMime];
+    if (!ext) {
+      throw new DomainError(
+        "bad_request",
+        "فرمت فایل نامعتبر است. فقط فرمت‌های تصویری JPG، PNG و WebP مجاز هستند.",
+      );
+    }
+
+    const data = await file.toBuffer();
+    if (data.length > 5 * 1024 * 1024) {
+      throw new DomainError(
+        "bad_request",
+        "حجم فایل بیش از حد مجاز است (حداکثر ۵ مگابایت).",
+      );
+    }
+    if (data.length === 0) {
+      throw new DomainError("bad_request", "فایل ارسالی خالی است.");
+    }
+
+    const storageKey = `blog/${randomUUID()}.${ext}`;
+
+    await storageProvider.save({
+      storageKey,
+      data,
+      mimeType: rawMime === "image/jpg" ? "image/jpeg" : rawMime,
+    });
+
+    const url = `/v1/blog/images/${encodeURIComponent(storageKey)}`;
+
+    return reply.status(201).send({
+      url,
+      image_url: url,
+      storage_key: storageKey,
+    });
+  });
 
   /**
    * GET /v1/admin/blog/stats

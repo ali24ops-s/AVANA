@@ -21,6 +21,15 @@ export const NotificationTypes = {
   SUPPORT_TICKET_REPLIED: "support_ticket_replied",
   SUPPORT_TICKET_STATUS_CHANGED: "support_ticket_status_changed",
   FEEDBACK_ANSWERED: "feedback_answered",
+  CLASSROOM_EXAM_PUBLISHED: "classroom_exam_published",
+  CLASSROOM_EXAM_RESULTS_RELEASED: "classroom_exam_results_released",
+  CLASSROOM_EXAM_CLOSED: "classroom_exam_closed",
+  CLASSROOM_EXAM_ARCHIVED: "classroom_exam_archived",
+  CLASSROOM_ASSIGNMENT_PUBLISHED: "classroom_assignment_published",
+  CLASSROOM_ASSIGNMENT_DUE_CHANGED: "classroom_assignment_due_changed",
+  CLASSROOM_ASSIGNMENT_ARCHIVED: "classroom_assignment_archived",
+  TEACHER_NEW_MESSAGE: "teacher_new_message",
+  TEACHER_REPLY_MESSAGE: "teacher_reply_message",
   SYSTEM: "system",
 } as const;
 

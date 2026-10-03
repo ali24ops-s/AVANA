@@ -1,4 +1,4 @@
-import { and, eq, desc, asc, count } from "drizzle-orm";
+import { and, eq, desc, asc, count, or, like } from "drizzle-orm";
 import type { DbClient } from "@avana/database/client";
 import {
   classrooms,
@@ -9,6 +9,9 @@ import {
   teacherExamAttemptAnswers,
   classroomAssignments,
   classroomAssignmentSubmissions,
+  classroomContents,
+  teacherStudentConversations,
+  teacherConversationMessages,
   type ClassroomRecord,
   type ClassroomMemberRecord,
   type TeacherExamRecord,
@@ -17,6 +20,9 @@ import {
   type TeacherExamAttemptAnswerRecord,
   type ClassroomAssignmentRecord,
   type ClassroomAssignmentSubmissionRecord,
+  type ClassroomContentRecord,
+  type TeacherStudentConversationRecord,
+  type TeacherConversationMessageRecord,
 } from "@avana/database/schema";
 import {
   DomainError,
@@ -30,16 +36,26 @@ import {
   type TeacherExamAttemptAnswer,
   type ClassroomAssignment,
   type AssignmentSubmission,
+  type ClassroomContent,
+  type ClassroomContentType,
+  type ClassroomContentStatus,
+  type ExternalVideoProvider,
   type ClassroomStatus,
   type ClassroomMemberStatus,
   type ExamPersistedStatus,
   type AttemptStatus,
   type QuestionType,
+  type ExamOption,
+  type TrueFalseStatement,
   type QuestionGradingStatus,
   type AttemptGradingStatus,
   type ExamSnapshotQuestion,
   type AssignmentPersistedStatus,
   type AssignmentSubmissionStatus,
+  type TeacherConversation,
+  type TeacherConversationMessage,
+  type TeacherMessageCategory,
+  type TeacherMessageStatus,
 } from "@avana/domain";
 
 
@@ -149,7 +165,24 @@ export interface AssignmentSubmissionStore {
   listByAssignment(assignmentId: string): Promise<AssignmentSubmission[]>;
   listByStudent(studentId: string): Promise<AssignmentSubmission[]>;
   countByAssignment(assignmentId: string): Promise<number>;
+  findByAttachmentUrl(attachmentUrlOrKey: string): Promise<AssignmentSubmission | null>;
 }
+
+export interface ClassroomContentStore {
+  getById(id: string): Promise<ClassroomContent | null>;
+  create(data: Omit<ClassroomContent, "createdAt" | "updatedAt">): Promise<ClassroomContent>;
+  update(
+    id: string,
+    patch: Partial<Omit<ClassroomContent, "id" | "classroomId" | "teacherId" | "createdAt" | "updatedAt">>,
+  ): Promise<ClassroomContent | null>;
+  delete(id: string): Promise<boolean>;
+  archive(id: string): Promise<ClassroomContent | null>;
+  listByClassroom(classroomId: string, status?: ClassroomContentStatus): Promise<ClassroomContent[]>;
+  listByTeacher(teacherId: string): Promise<ClassroomContent[]>;
+  countByClassroom(classroomId: string): Promise<number>;
+  findByFileUrl(fileUrlOrKey: string): Promise<ClassroomContent | null>;
+}
+
 
 
 // ---------------------------------------------------------------------------
@@ -246,15 +279,30 @@ function toTeacherExam(row: TeacherExamRecord): TeacherExam {
 }
 
 function toTeacherExamQuestion(row: TeacherExamQuestionRecord): TeacherExamQuestion {
+  const isTrueFalse = row.questionType === "true_false";
+  const parsedData = row.options
+    ? safeParseJson<unknown>(row.options, null)
+    : null;
+
+  let options: ExamOption[] = [];
+  let statements: TrueFalseStatement[] | undefined = undefined;
+
+  if (isTrueFalse) {
+    if (Array.isArray(parsedData)) {
+      statements = parsedData as TrueFalseStatement[];
+    }
+  } else if (Array.isArray(parsedData)) {
+    options = parsedData as ExamOption[];
+  }
+
   return {
     id: row.id,
     examId: row.examId,
     orderIndex: row.orderIndex,
     questionType: (row.questionType as QuestionType) || "single_choice",
     prompt: row.prompt,
-    options: row.options
-      ? safeParseJson<Array<{ id: string; text: string }>>(row.options, [])
-      : [],
+    options,
+    statements,
     correctOptionId: row.correctOptionId ?? null,
     points: Number(row.points),
     explanation: row.explanation,
@@ -299,6 +347,7 @@ function toTeacherExamAttemptAnswer(row: TeacherExamAttemptAnswerRecord): Teache
     finalizedAt: toIsoString(row.finalizedAt),
     isCorrect: row.isCorrect,
     pointsEarned: row.pointsEarned !== null ? Number(row.pointsEarned) : null,
+    integrityMetadata: row.integrityMetadata ?? null,
   };
 }
 
@@ -324,12 +373,40 @@ function toAssignmentSubmission(row: ClassroomAssignmentSubmissionRecord): Assig
     assignmentId: row.assignmentId,
     studentId: row.studentId,
     answerText: row.answerText,
+    attachmentUrl: row.attachmentUrl ?? null,
+    attachmentName: row.attachmentName ?? null,
+    attachmentSizeBytes: row.attachmentSizeBytes ?? null,
     status: row.status as AssignmentSubmissionStatus,
     submittedAt: requireIsoString(row.submittedAt),
     createdAt: requireIsoString(row.createdAt),
     updatedAt: requireIsoString(row.updatedAt),
   };
 }
+
+function toClassroomContent(row: ClassroomContentRecord): ClassroomContent {
+  return {
+    id: row.id,
+    classroomId: row.classroomId,
+    teacherId: row.teacherId,
+    title: row.title,
+    description: row.description ?? null,
+    contentType: row.contentType as ClassroomContentType,
+    textContent: row.textContent ?? null,
+    fileUrl: row.fileUrl ?? null,
+    fileName: row.fileName ?? null,
+    fileSizeBytes: row.fileSizeBytes ?? null,
+    mimeType: row.mimeType ?? null,
+    externalUrl: row.externalUrl ?? null,
+    videoProvider: (row.videoProvider as ExternalVideoProvider) ?? null,
+    videoEmbedUrl: row.videoEmbedUrl ?? null,
+    status: row.status as ClassroomContentStatus,
+    publishedAt: toIsoString(row.publishedAt),
+    createdAt: requireIsoString(row.createdAt),
+    updatedAt: requireIsoString(row.updatedAt),
+    archivedAt: toIsoString(row.archivedAt),
+  };
+}
+
 
 
 // ---------------------------------------------------------------------------
@@ -773,6 +850,7 @@ export class DrizzleTeacherExamQuestionStore implements TeacherExamQuestionStore
   }
 
   async create(data: Omit<TeacherExamQuestion, "createdAt" | "updatedAt">): Promise<TeacherExamQuestion> {
+    const rawOptions = data.questionType === "true_false" ? data.statements : data.options;
     const [row] = await this.db
       .insert(teacherExamQuestions)
       .values({
@@ -781,7 +859,7 @@ export class DrizzleTeacherExamQuestionStore implements TeacherExamQuestionStore
         orderIndex: data.orderIndex,
         questionType: data.questionType ?? "single_choice",
         prompt: data.prompt,
-        options: data.options ?? null,
+        options: rawOptions ?? null,
         correctOptionId: data.correctOptionId ?? null,
         points: data.points.toFixed(2),
         explanation: data.explanation ?? null,
@@ -804,7 +882,7 @@ export class DrizzleTeacherExamQuestionStore implements TeacherExamQuestionStore
           orderIndex: q.orderIndex,
           questionType: q.questionType ?? "single_choice",
           prompt: q.prompt,
-          options: q.options ?? null,
+          options: (q.questionType === "true_false" ? q.statements : q.options) ?? null,
           correctOptionId: q.correctOptionId ?? null,
           points: q.points.toFixed(2),
           explanation: q.explanation ?? null,
@@ -822,7 +900,8 @@ export class DrizzleTeacherExamQuestionStore implements TeacherExamQuestionStore
     if (patch.orderIndex !== undefined) values.orderIndex = patch.orderIndex;
     if (patch.questionType !== undefined) values.questionType = patch.questionType;
     if (patch.prompt !== undefined) values.prompt = patch.prompt;
-    if (patch.options !== undefined) values.options = patch.options;
+    if (patch.statements !== undefined) values.options = patch.statements;
+    else if (patch.options !== undefined) values.options = patch.options;
     if (patch.correctOptionId !== undefined) values.correctOptionId = patch.correctOptionId;
     if (patch.points !== undefined) values.points = patch.points.toFixed(2);
     if (patch.explanation !== undefined) values.explanation = patch.explanation;
@@ -1142,6 +1221,9 @@ export class DrizzleTeacherExamAttemptAnswerStore implements TeacherExamAttemptA
     if (data.finalizedAt !== undefined) {
       setValues.finalizedAt = data.finalizedAt ? new Date(data.finalizedAt) : null;
     }
+    if (data.integrityMetadata !== undefined) {
+      setValues.integrityMetadata = data.integrityMetadata ?? null;
+    }
 
     const [row] = await this.db
       .insert(teacherExamAttemptAnswers)
@@ -1157,6 +1239,7 @@ export class DrizzleTeacherExamAttemptAnswerStore implements TeacherExamAttemptA
         pointsEarned: data.pointsEarned !== undefined && data.pointsEarned !== null ? data.pointsEarned.toFixed(2) : null,
         answeredAt: now,
         finalizedAt: data.finalizedAt ? new Date(data.finalizedAt) : null,
+        integrityMetadata: data.integrityMetadata ?? null,
       })
       .onConflictDoUpdate({
         target: [teacherExamAttemptAnswers.attemptId, teacherExamAttemptAnswers.questionId],
@@ -1381,6 +1464,9 @@ export class DrizzleAssignmentSubmissionStore
         assignmentId: data.assignmentId,
         studentId: data.studentId,
         answerText: data.answerText,
+        attachmentUrl: data.attachmentUrl ?? null,
+        attachmentName: data.attachmentName ?? null,
+        attachmentSizeBytes: data.attachmentSizeBytes ?? null,
         status: data.status,
         submittedAt: now,
         createdAt: now,
@@ -1393,6 +1479,9 @@ export class DrizzleAssignmentSubmissionStore
         ],
         set: {
           answerText: data.answerText,
+          attachmentUrl: data.attachmentUrl ?? null,
+          attachmentName: data.attachmentName ?? null,
+          attachmentSizeBytes: data.attachmentSizeBytes ?? null,
           status: data.status,
           submittedAt: now,
           updatedAt: now,
@@ -1430,6 +1519,603 @@ export class DrizzleAssignmentSubmissionStore
       .select({ val: count() })
       .from(classroomAssignmentSubmissions)
       .where(eq(classroomAssignmentSubmissions.assignmentId, assignmentId));
+    return Number(result?.val ?? 0);
+  }
+
+  async findByAttachmentUrl(
+    attachmentUrlOrKey: string,
+  ): Promise<AssignmentSubmission | null> {
+    if (!attachmentUrlOrKey) return null;
+    const [row] = await this.db
+      .select()
+      .from(classroomAssignmentSubmissions)
+      .where(
+        or(
+          eq(classroomAssignmentSubmissions.attachmentUrl, attachmentUrlOrKey),
+          like(classroomAssignmentSubmissions.attachmentUrl, `%${attachmentUrlOrKey}%`),
+        ),
+      )
+      .limit(1);
+    return row ? toAssignmentSubmission(row) : null;
+  }
+}
+
+export class DrizzleClassroomContentStore implements ClassroomContentStore {
+  constructor(private readonly db: DbClient) {}
+
+  async getById(id: string): Promise<ClassroomContent | null> {
+    if (!isUUID(id)) return null;
+    const [row] = await this.db
+      .select()
+      .from(classroomContents)
+      .where(eq(classroomContents.id, id))
+      .limit(1);
+    return row ? toClassroomContent(row) : null;
+  }
+
+  async create(
+    data: Omit<ClassroomContent, "createdAt" | "updatedAt">,
+  ): Promise<ClassroomContent> {
+    const [row] = await this.db
+      .insert(classroomContents)
+      .values({
+        id: data.id,
+        classroomId: data.classroomId,
+        teacherId: data.teacherId,
+        title: data.title,
+        description: data.description ?? null,
+        contentType: data.contentType,
+        textContent: data.textContent ?? null,
+        fileUrl: data.fileUrl ?? null,
+        fileName: data.fileName ?? null,
+        fileSizeBytes: data.fileSizeBytes ?? null,
+        mimeType: data.mimeType ?? null,
+        externalUrl: data.externalUrl ?? null,
+        videoProvider: data.videoProvider ?? null,
+        videoEmbedUrl: data.videoEmbedUrl ?? null,
+        status: data.status,
+        publishedAt: data.publishedAt ? new Date(data.publishedAt) : null,
+        archivedAt: data.archivedAt ? new Date(data.archivedAt) : null,
+      })
+      .returning();
+    return toClassroomContent(row);
+  }
+
+  async update(
+    id: string,
+    patch: Partial<
+      Omit<
+        ClassroomContent,
+        "id" | "classroomId" | "teacherId" | "createdAt" | "updatedAt"
+      >
+    >,
+  ): Promise<ClassroomContent | null> {
+    if (!isUUID(id)) return null;
+    const updateValues: Record<string, unknown> = {
+      updatedAt: new Date(),
+    };
+
+    if (patch.title !== undefined) updateValues.title = patch.title;
+    if (patch.description !== undefined) updateValues.description = patch.description;
+    if (patch.contentType !== undefined) updateValues.contentType = patch.contentType;
+    if (patch.textContent !== undefined) updateValues.textContent = patch.textContent;
+    if (patch.fileUrl !== undefined) updateValues.fileUrl = patch.fileUrl;
+    if (patch.fileName !== undefined) updateValues.fileName = patch.fileName;
+    if (patch.fileSizeBytes !== undefined) updateValues.fileSizeBytes = patch.fileSizeBytes;
+    if (patch.mimeType !== undefined) updateValues.mimeType = patch.mimeType;
+    if (patch.externalUrl !== undefined) updateValues.externalUrl = patch.externalUrl;
+    if (patch.videoProvider !== undefined) updateValues.videoProvider = patch.videoProvider;
+    if (patch.videoEmbedUrl !== undefined) updateValues.videoEmbedUrl = patch.videoEmbedUrl;
+    if (patch.status !== undefined) updateValues.status = patch.status;
+    if (patch.publishedAt !== undefined) {
+      updateValues.publishedAt = patch.publishedAt ? new Date(patch.publishedAt) : null;
+    }
+    if (patch.archivedAt !== undefined) {
+      updateValues.archivedAt = patch.archivedAt ? new Date(patch.archivedAt) : null;
+    }
+
+    const [row] = await this.db
+      .update(classroomContents)
+      .set(updateValues)
+      .where(eq(classroomContents.id, id))
+      .returning();
+    return row ? toClassroomContent(row) : null;
+  }
+
+  async delete(id: string): Promise<boolean> {
+    if (!isUUID(id)) return false;
+    const result = await this.db
+      .delete(classroomContents)
+      .where(eq(classroomContents.id, id))
+      .returning({ id: classroomContents.id });
+    return result.length > 0;
+  }
+
+  async archive(id: string): Promise<ClassroomContent | null> {
+    if (!isUUID(id)) return null;
+    const now = new Date();
+    const [row] = await this.db
+      .update(classroomContents)
+      .set({
+        status: "archived",
+        archivedAt: now,
+        updatedAt: now,
+      })
+      .where(eq(classroomContents.id, id))
+      .returning();
+    return row ? toClassroomContent(row) : null;
+  }
+
+  async listByClassroom(
+    classroomId: string,
+    status?: ClassroomContentStatus,
+  ): Promise<ClassroomContent[]> {
+    if (!isUUID(classroomId)) return [];
+    const conditions = [eq(classroomContents.classroomId, classroomId)];
+    if (status) {
+      conditions.push(eq(classroomContents.status, status));
+    }
+    const rows = await this.db
+      .select()
+      .from(classroomContents)
+      .where(and(...conditions))
+      .orderBy(desc(classroomContents.createdAt));
+    return rows.map(toClassroomContent);
+  }
+
+  async listByTeacher(teacherId: string): Promise<ClassroomContent[]> {
+    if (!isUUID(teacherId)) return [];
+    const rows = await this.db
+      .select()
+      .from(classroomContents)
+      .where(eq(classroomContents.teacherId, teacherId))
+      .orderBy(desc(classroomContents.createdAt));
+    return rows.map(toClassroomContent);
+  }
+
+  async countByClassroom(classroomId: string): Promise<number> {
+    if (!isUUID(classroomId)) return 0;
+    const [result] = await this.db
+      .select({ val: count() })
+      .from(classroomContents)
+      .where(eq(classroomContents.classroomId, classroomId));
+    return Number(result?.val ?? 0);
+  }
+
+  async findByFileUrl(fileUrlOrKey: string): Promise<ClassroomContent | null> {
+    if (!fileUrlOrKey) return null;
+    const [row] = await this.db
+      .select()
+      .from(classroomContents)
+      .where(
+        or(
+          eq(classroomContents.fileUrl, fileUrlOrKey),
+          like(classroomContents.fileUrl, `%${fileUrlOrKey}%`),
+        ),
+      )
+      .limit(1);
+    return row ? toClassroomContent(row) : null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Teacher Student Messaging Stores
+// ---------------------------------------------------------------------------
+
+export interface TeacherConversationStore {
+  create(
+    conv: Omit<TeacherConversation, "createdAt" | "updatedAt">,
+  ): Promise<TeacherConversation>;
+  getById(id: string): Promise<TeacherConversation | null>;
+  listByTeacher(
+    teacherId: string,
+    options?: {
+      status?: string;
+      category?: string;
+      classroomId?: string;
+      page?: number;
+      limit?: number;
+    },
+  ): Promise<{ conversations: TeacherConversation[]; total: number }>;
+  listByStudent(
+    studentId: string,
+    options?: {
+      classroomId?: string;
+      page?: number;
+      limit?: number;
+    },
+  ): Promise<{ conversations: TeacherConversation[]; total: number }>;
+  update(
+    id: string,
+    patch: Partial<TeacherConversation>,
+  ): Promise<TeacherConversation | null>;
+  updateStatus(
+    id: string,
+    status: TeacherMessageStatus,
+    extra?: { closedAt?: string | null; answeredAt?: string | null },
+  ): Promise<TeacherConversation | null>;
+  markTeacherRead(
+    id: string,
+    readAt?: string,
+  ): Promise<TeacherConversation | null>;
+  markStudentRead(
+    id: string,
+    readAt?: string,
+  ): Promise<TeacherConversation | null>;
+  countUnreadForTeacher(teacherId: string): Promise<number>;
+  countUnreadForStudent(studentId: string): Promise<number>;
+}
+
+export interface TeacherConversationMessageStore {
+  create(
+    message: Omit<TeacherConversationMessage, "createdAt">,
+  ): Promise<TeacherConversationMessage>;
+  listByConversation(
+    conversationId: string,
+  ): Promise<TeacherConversationMessage[]>;
+  countByConversation(conversationId: string): Promise<number>;
+}
+
+function toTeacherConversation(
+  row: TeacherStudentConversationRecord,
+): TeacherConversation {
+  return {
+    id: row.id,
+    studentId: row.studentId,
+    teacherId: row.teacherId,
+    classroomId: row.classroomId,
+    category: row.category as TeacherMessageCategory,
+    subject: row.subject,
+    status: row.status as TeacherMessageStatus,
+    lastActivityAt: requireIsoString(row.lastActivityAt),
+    lastSenderRole: row.lastSenderRole as "student" | "teacher",
+    teacherReadAt: toIsoString(row.teacherReadAt),
+    studentReadAt: toIsoString(row.studentReadAt),
+    answeredAt: toIsoString(row.answeredAt),
+    closedAt: toIsoString(row.closedAt),
+    createdAt: requireIsoString(row.createdAt),
+    updatedAt: requireIsoString(row.updatedAt),
+  };
+}
+
+function toTeacherConversationMessage(
+  row: TeacherConversationMessageRecord,
+): TeacherConversationMessage {
+  return {
+    id: row.id,
+    conversationId: row.conversationId,
+    senderId: row.senderId,
+    senderRole: row.senderRole as "student" | "teacher",
+    body: row.body,
+    createdAt: requireIsoString(row.createdAt),
+  };
+}
+
+export class DrizzleTeacherConversationStore
+  implements TeacherConversationStore
+{
+  constructor(private readonly db: DbClient) {}
+
+  async create(
+    conv: Omit<TeacherConversation, "createdAt" | "updatedAt">,
+  ): Promise<TeacherConversation> {
+    const [row] = await this.db
+      .insert(teacherStudentConversations)
+      .values({
+        id: conv.id,
+        studentId: conv.studentId,
+        teacherId: conv.teacherId,
+        classroomId: conv.classroomId,
+        category: conv.category,
+        subject: conv.subject,
+        status: conv.status,
+        lastActivityAt: conv.lastActivityAt
+          ? new Date(conv.lastActivityAt)
+          : new Date(),
+        lastSenderRole: conv.lastSenderRole,
+        teacherReadAt: conv.teacherReadAt
+          ? new Date(conv.teacherReadAt)
+          : null,
+        studentReadAt: conv.studentReadAt
+          ? new Date(conv.studentReadAt)
+          : null,
+        answeredAt: conv.answeredAt ? new Date(conv.answeredAt) : null,
+        closedAt: conv.closedAt ? new Date(conv.closedAt) : null,
+      })
+      .returning();
+    return toTeacherConversation(row);
+  }
+
+  async getById(id: string): Promise<TeacherConversation | null> {
+    if (!isUUID(id)) return null;
+    const [row] = await this.db
+      .select()
+      .from(teacherStudentConversations)
+      .where(eq(teacherStudentConversations.id, id))
+      .limit(1);
+    return row ? toTeacherConversation(row) : null;
+  }
+
+  async listByTeacher(
+    teacherId: string,
+    options: {
+      status?: string;
+      category?: string;
+      classroomId?: string;
+      page?: number;
+      limit?: number;
+    } = {},
+  ): Promise<{ conversations: TeacherConversation[]; total: number }> {
+    if (!isUUID(teacherId)) return { conversations: [], total: 0 };
+    const conditions = [eq(teacherStudentConversations.teacherId, teacherId)];
+
+    if (options.status && options.status !== "all") {
+      conditions.push(eq(teacherStudentConversations.status, options.status));
+    }
+    if (options.category && options.category !== "all") {
+      conditions.push(
+        eq(teacherStudentConversations.category, options.category),
+      );
+    }
+    if (options.classroomId && isUUID(options.classroomId)) {
+      conditions.push(
+        eq(teacherStudentConversations.classroomId, options.classroomId),
+      );
+    }
+
+    const whereClause = and(...conditions);
+
+    const [totalResult] = await this.db
+      .select({ val: count() })
+      .from(teacherStudentConversations)
+      .where(whereClause);
+
+    const total = Number(totalResult?.val ?? 0);
+
+    const page = options.page && options.page > 0 ? options.page : 1;
+    const limit =
+      options.limit && options.limit > 0 ? Math.min(options.limit, 100) : 20;
+    const offset = (page - 1) * limit;
+
+    const rows = await this.db
+      .select()
+      .from(teacherStudentConversations)
+      .where(whereClause)
+      .orderBy(desc(teacherStudentConversations.lastActivityAt))
+      .limit(limit)
+      .offset(offset);
+
+    return {
+      conversations: rows.map(toTeacherConversation),
+      total,
+    };
+  }
+
+  async listByStudent(
+    studentId: string,
+    options: {
+      classroomId?: string;
+      page?: number;
+      limit?: number;
+    } = {},
+  ): Promise<{ conversations: TeacherConversation[]; total: number }> {
+    if (!isUUID(studentId)) return { conversations: [], total: 0 };
+    const conditions = [eq(teacherStudentConversations.studentId, studentId)];
+
+    if (options.classroomId && isUUID(options.classroomId)) {
+      conditions.push(
+        eq(teacherStudentConversations.classroomId, options.classroomId),
+      );
+    }
+
+    const whereClause = and(...conditions);
+
+    const [totalResult] = await this.db
+      .select({ val: count() })
+      .from(teacherStudentConversations)
+      .where(whereClause);
+
+    const total = Number(totalResult?.val ?? 0);
+
+    const page = options.page && options.page > 0 ? options.page : 1;
+    const limit =
+      options.limit && options.limit > 0 ? Math.min(options.limit, 100) : 20;
+    const offset = (page - 1) * limit;
+
+    const rows = await this.db
+      .select()
+      .from(teacherStudentConversations)
+      .where(whereClause)
+      .orderBy(desc(teacherStudentConversations.lastActivityAt))
+      .limit(limit)
+      .offset(offset);
+
+    return {
+      conversations: rows.map(toTeacherConversation),
+      total,
+    };
+  }
+
+  async update(
+    id: string,
+    patch: Partial<TeacherConversation>,
+  ): Promise<TeacherConversation | null> {
+    if (!isUUID(id)) return null;
+    const updateValues: Record<string, unknown> = {
+      updatedAt: new Date(),
+    };
+
+    if (patch.subject !== undefined) updateValues.subject = patch.subject;
+    if (patch.category !== undefined) updateValues.category = patch.category;
+    if (patch.status !== undefined) updateValues.status = patch.status;
+    if (patch.lastSenderRole !== undefined)
+      updateValues.lastSenderRole = patch.lastSenderRole;
+    if (patch.lastActivityAt !== undefined) {
+      updateValues.lastActivityAt = new Date(patch.lastActivityAt);
+    }
+    if (patch.teacherReadAt !== undefined) {
+      updateValues.teacherReadAt = patch.teacherReadAt
+        ? new Date(patch.teacherReadAt)
+        : null;
+    }
+    if (patch.studentReadAt !== undefined) {
+      updateValues.studentReadAt = patch.studentReadAt
+        ? new Date(patch.studentReadAt)
+        : null;
+    }
+    if (patch.answeredAt !== undefined) {
+      updateValues.answeredAt = patch.answeredAt
+        ? new Date(patch.answeredAt)
+        : null;
+    }
+    if (patch.closedAt !== undefined) {
+      updateValues.closedAt = patch.closedAt ? new Date(patch.closedAt) : null;
+    }
+
+    const [row] = await this.db
+      .update(teacherStudentConversations)
+      .set(updateValues)
+      .where(eq(teacherStudentConversations.id, id))
+      .returning();
+    return row ? toTeacherConversation(row) : null;
+  }
+
+  async updateStatus(
+    id: string,
+    status: TeacherMessageStatus,
+    extra: { closedAt?: string | null; answeredAt?: string | null } = {},
+  ): Promise<TeacherConversation | null> {
+    if (!isUUID(id)) return null;
+    const now = new Date();
+    const updateValues: Record<string, unknown> = {
+      status,
+      updatedAt: now,
+    };
+
+    if (status === "closed") {
+      updateValues.closedAt = extra.closedAt ? new Date(extra.closedAt) : now;
+    } else if (extra.closedAt !== undefined) {
+      updateValues.closedAt = extra.closedAt ? new Date(extra.closedAt) : null;
+    }
+
+    if (status === "answered") {
+      updateValues.answeredAt = extra.answeredAt
+        ? new Date(extra.answeredAt)
+        : now;
+    } else if (extra.answeredAt !== undefined) {
+      updateValues.answeredAt = extra.answeredAt
+        ? new Date(extra.answeredAt)
+        : null;
+    }
+
+    const [row] = await this.db
+      .update(teacherStudentConversations)
+      .set(updateValues)
+      .where(eq(teacherStudentConversations.id, id))
+      .returning();
+    return row ? toTeacherConversation(row) : null;
+  }
+
+  async markTeacherRead(
+    id: string,
+    readAt?: string,
+  ): Promise<TeacherConversation | null> {
+    if (!isUUID(id)) return null;
+    const [row] = await this.db
+      .update(teacherStudentConversations)
+      .set({
+        teacherReadAt: readAt ? new Date(readAt) : new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(teacherStudentConversations.id, id))
+      .returning();
+    return row ? toTeacherConversation(row) : null;
+  }
+
+  async markStudentRead(
+    id: string,
+    readAt?: string,
+  ): Promise<TeacherConversation | null> {
+    if (!isUUID(id)) return null;
+    const [row] = await this.db
+      .update(teacherStudentConversations)
+      .set({
+        studentReadAt: readAt ? new Date(readAt) : new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(teacherStudentConversations.id, id))
+      .returning();
+    return row ? toTeacherConversation(row) : null;
+  }
+
+  async countUnreadForTeacher(teacherId: string): Promise<number> {
+    if (!isUUID(teacherId)) return 0;
+    const [result] = await this.db
+      .select({ val: count() })
+      .from(teacherStudentConversations)
+      .where(
+        and(
+          eq(teacherStudentConversations.teacherId, teacherId),
+          eq(teacherStudentConversations.lastSenderRole, "student"),
+        ),
+      );
+    return Number(result?.val ?? 0);
+  }
+
+  async countUnreadForStudent(studentId: string): Promise<number> {
+    if (!isUUID(studentId)) return 0;
+    const [result] = await this.db
+      .select({ val: count() })
+      .from(teacherStudentConversations)
+      .where(
+        and(
+          eq(teacherStudentConversations.studentId, studentId),
+          eq(teacherStudentConversations.lastSenderRole, "teacher"),
+        ),
+      );
+    return Number(result?.val ?? 0);
+  }
+}
+
+export class DrizzleTeacherConversationMessageStore
+  implements TeacherConversationMessageStore
+{
+  constructor(private readonly db: DbClient) {}
+
+  async create(
+    message: Omit<TeacherConversationMessage, "createdAt">,
+  ): Promise<TeacherConversationMessage> {
+    const [row] = await this.db
+      .insert(teacherConversationMessages)
+      .values({
+        id: message.id,
+        conversationId: message.conversationId,
+        senderId: message.senderId,
+        senderRole: message.senderRole,
+        body: message.body,
+      })
+      .returning();
+    return toTeacherConversationMessage(row);
+  }
+
+  async listByConversation(
+    conversationId: string,
+  ): Promise<TeacherConversationMessage[]> {
+    if (!isUUID(conversationId)) return [];
+    const rows = await this.db
+      .select()
+      .from(teacherConversationMessages)
+      .where(eq(teacherConversationMessages.conversationId, conversationId))
+      .orderBy(asc(teacherConversationMessages.createdAt));
+    return rows.map(toTeacherConversationMessage);
+  }
+
+  async countByConversation(conversationId: string): Promise<number> {
+    if (!isUUID(conversationId)) return 0;
+    const [result] = await this.db
+      .select({ val: count() })
+      .from(teacherConversationMessages)
+      .where(eq(teacherConversationMessages.conversationId, conversationId));
     return Number(result?.val ?? 0);
   }
 }

@@ -21,11 +21,22 @@ import type {
   QuestionType,
   QuestionGradingStatus,
   AttemptGradingStatus,
+  TrueFalseStatementReview,
   ClassroomAssignment,
   AssignmentSubmission,
+  ClassroomContent,
   RuntimeAssignmentState,
+  DescriptiveAnswerIntegrityData,
+  StudentExamResultState,
+  TeacherConversation,
+  TeacherConversationMessage,
+  TeacherConversationWithDetails,
+  TeacherMessageCategory,
+  TeacherMessageStatus,
 } from "@avana/domain";
-import type { ApiClient } from "./client.js";
+import type { ErrorEnvelope } from "@avana/contracts";
+import { type ApiClient, generateUUID } from "./client.js";
+import { ApiError } from "./errors.js";
 
 
 // ---------------------------------------------------------------------------
@@ -109,6 +120,7 @@ export interface StudentQuestionReviewDTO {
   questionType?: QuestionType;
   prompt: string;
   options?: Array<{ id: string; text: string }>;
+  statements?: TrueFalseStatementReview[];
   selectedOptionId: string | null;
   textAnswer?: string | null;
   teacherFeedback?: string | null;
@@ -127,6 +139,7 @@ export interface StudentReviewDTO {
   gradingStatus?: AttemptGradingStatus;
   submittedAt: string | null;
   resultsReleased: boolean;
+  state?: StudentExamResultState;
   score?: number | null;
   maxScore?: number | null;
   percentage?: number | null;
@@ -223,6 +236,8 @@ export function createStudentPlatformApi(client: ApiClient) {
       finalized?: boolean,
       activeDurationMs?: number | null,
       tabSwitchesCount?: number | null,
+      integrityData?: DescriptiveAnswerIntegrityData | null,
+      booleanAnswers?: Record<string, boolean> | null,
     ): Promise<{ success: boolean }> {
       return client.put<{ success: boolean }>(
         `/v1/student/exams/${examId}/answers/${questionId}`,
@@ -232,6 +247,8 @@ export function createStudentPlatformApi(client: ApiClient) {
           finalized,
           activeDurationMs: activeDurationMs ?? undefined,
           tabSwitchesCount: tabSwitchesCount ?? undefined,
+          integrityData: integrityData ?? undefined,
+          booleanAnswers: booleanAnswers ?? undefined,
         },
       );
     },
@@ -285,15 +302,178 @@ export function createStudentPlatformApi(client: ApiClient) {
     },
 
     /**
+     * POST /v1/student/assignments/attachments — Upload assignment attachment file
+     */
+    async uploadAssignmentAttachment(file: File): Promise<{
+      attachmentUrl: string;
+      attachmentName: string;
+      attachmentSizeBytes: number;
+      storageKey: string;
+    }> {
+      const formData = new FormData();
+      formData.append("file", file, file.name);
+
+      const response = await fetch("/v1/student/assignments/attachments", {
+        method: "POST",
+        headers: {
+          "x-request-id": generateUUID(),
+        },
+        credentials: "include",
+        body: formData,
+      });
+
+      let data: unknown;
+      try {
+        if (typeof response.text === "function") {
+          const text = await response.text();
+          data = text ? JSON.parse(text) : undefined;
+        } else if (typeof response.json === "function") {
+          data = await response.json();
+        }
+      } catch {
+        data = null;
+      }
+
+      if (!response.ok) {
+        if (
+          data &&
+          typeof data === "object" &&
+          "error" in data &&
+          data.error &&
+          typeof (data as { error: unknown }).error === "object"
+        ) {
+          throw new ApiError(data as ErrorEnvelope);
+        }
+        throw new Error(
+          (data as { message?: string })?.message || "خطا در بارگذاری فایل پیوست.",
+        );
+      }
+
+      const resObj = data as {
+        attachment_url?: string;
+        attachmentUrl?: string;
+        attachment_name?: string;
+        attachmentName?: string;
+        attachment_size_bytes?: number;
+        attachmentSizeBytes?: number;
+        storage_key?: string;
+        storageKey?: string;
+      };
+
+      return {
+        attachmentUrl: resObj.attachmentUrl || resObj.attachment_url || "",
+        attachmentName: resObj.attachmentName || resObj.attachment_name || file.name,
+        attachmentSizeBytes: resObj.attachmentSizeBytes ?? resObj.attachment_size_bytes ?? file.size,
+        storageKey: resObj.storageKey || resObj.storage_key || "",
+      };
+    },
+
+    /**
      * POST /v1/student/assignments/:assignmentId/submit — Submit or resubmit assignment answer
      */
     submitAssignment(
       assignmentId: string,
-      data: { answerText: string },
+      data: {
+        answerText?: string;
+        attachmentUrl?: string | null;
+        attachmentName?: string | null;
+        attachmentSizeBytes?: number | null;
+      },
     ): Promise<{ submission: AssignmentSubmission }> {
       return client.post<{ submission: AssignmentSubmission }>(
         `/v1/student/assignments/${assignmentId}/submit`,
         data,
+      );
+    },
+
+    // -----------------------------------------------------------------------
+    // Classroom Educational Contents
+    // -----------------------------------------------------------------------
+
+    /**
+     * GET /v1/student/classrooms/:classroomId/contents — List published contents for enrolled student
+     */
+    listClassroomContents(
+      classroomId: string,
+    ): Promise<{ contents: ClassroomContent[] }> {
+      return client.get<{ contents: ClassroomContent[] }>(
+        `/v1/student/classrooms/${classroomId}/contents`,
+      );
+    },
+
+    /**
+     * GET /v1/student/contents/:contentId — Get published content details
+     */
+    getContentDetails(
+      contentId: string,
+    ): Promise<{ content: ClassroomContent }> {
+      return client.get<{ content: ClassroomContent }>(
+        `/v1/student/contents/${contentId}`,
+      );
+    },
+
+    // -----------------------------------------------------------------------
+    // Teacher Messages & Conversations
+    // -----------------------------------------------------------------------
+
+    /**
+     * GET /v1/student/conversations — List student conversations.
+     */
+    listConversations(query?: {
+      classroomId?: string;
+      status?: TeacherMessageStatus;
+      category?: TeacherMessageCategory;
+      limit?: number;
+      offset?: number;
+    }): Promise<{ conversations: TeacherConversationWithDetails[]; total: number }> {
+      const params = new URLSearchParams();
+      if (query?.classroomId) params.set("classroomId", query.classroomId);
+      if (query?.status) params.set("status", query.status);
+      if (query?.category) params.set("category", query.category);
+      if (query?.limit !== undefined) params.set("limit", String(query.limit));
+      if (query?.offset !== undefined) params.set("offset", String(query.offset));
+      const qs = params.toString();
+      return client.get<{ conversations: TeacherConversationWithDetails[]; total: number }>(
+        `/v1/student/conversations${qs ? `?${qs}` : ""}`,
+      );
+    },
+
+    /**
+     * GET /v1/student/conversations/:conversationId — Get conversation thread details.
+     */
+    getConversation(
+      conversationId: string,
+    ): Promise<{ conversation: TeacherConversationWithDetails; messages: TeacherConversationMessage[] }> {
+      return client.get<{ conversation: TeacherConversationWithDetails; messages: TeacherConversationMessage[] }>(
+        `/v1/student/conversations/${conversationId}`,
+      );
+    },
+
+    /**
+     * POST /v1/student/conversations — Start a new conversation with classroom teacher.
+     */
+    createConversation(input: {
+      classroomId: string;
+      category: TeacherMessageCategory;
+      subject: string;
+      body: string;
+    }): Promise<{ conversation: TeacherConversation; message: TeacherConversationMessage }> {
+      return client.post<{ conversation: TeacherConversation; message: TeacherConversationMessage }>(
+        "/v1/student/conversations",
+        input,
+      );
+    },
+
+    /**
+     * POST /v1/student/conversations/:conversationId/reply — Reply to ongoing conversation.
+     */
+    replyToConversation(
+      conversationId: string,
+      input: { body: string },
+    ): Promise<{ message: TeacherConversationMessage; conversation: TeacherConversation }> {
+      return client.post<{ message: TeacherConversationMessage; conversation: TeacherConversation }>(
+        `/v1/student/conversations/${conversationId}/reply`,
+        input,
       );
     },
   };

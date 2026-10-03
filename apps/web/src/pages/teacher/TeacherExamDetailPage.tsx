@@ -508,7 +508,7 @@ export function TeacherExamDetailPage() {
                       {idx + 1}
                     </span>
                     <span className="text-xs font-medium text-[var(--color-text-muted)]">
-                      سوال شماره {idx + 1}
+                      سوال شماره {idx + 1} {question.questionType === "descriptive" ? "(تشریحی)" : question.questionType === "true_false" ? "(صحیح / غلط)" : "(تستی)"}
                     </span>
                   </div>
                   <Badge variant="neutral" outlined className="font-semibold text-xs">
@@ -521,41 +521,76 @@ export function TeacherExamDetailPage() {
                   {question.prompt}
                 </p>
 
-                {/* Options List */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                  {(question.options ?? []).map((opt) => {
-                    const isCorrect = opt.id === question.correctOptionId;
-                    return (
+                {/* Options List / Statements List */}
+                {question.questionType === "descriptive" ? (
+                  <div className="p-3 rounded-xl bg-blue-500/5 border border-blue-500/20 text-xs text-blue-700 dark:text-blue-300">
+                    پاسخ این سوال تشریحی است و نیازمند تصحیح دستی توسط استاد است.
+                  </div>
+                ) : question.questionType === "true_false" ? (
+                  <div className="space-y-2">
+                    {(question.statements ?? []).map((stmt, sIdx) => (
                       <div
-                        key={opt.id}
-                        className={`p-3 rounded-xl border text-xs sm:text-sm flex items-center justify-between gap-2 transition-colors ${
-                          isCorrect
-                            ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-900 font-medium"
-                            : "bg-[var(--color-surface-warm)]/40 border-[var(--color-border)] text-[var(--color-text)]"
-                        }`}
+                        key={stmt.id}
+                        className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-warm)]/40 text-xs sm:text-sm"
                       >
-                        <div className="flex items-center gap-2 truncate">
+                        <div className="flex items-start gap-2.5 flex-1">
+                          <span className="shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold bg-[var(--color-surface)] border border-[var(--color-border)]">
+                            {sIdx + 1}
+                          </span>
+                          <span className="leading-snug text-[var(--color-text)]">{stmt.text}</span>
+                        </div>
+                        <div className="shrink-0 flex items-center gap-1.5 self-end sm:self-auto">
                           <span
-                            className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 ${
-                              isCorrect
-                                ? "bg-emerald-600 text-white"
-                                : "bg-[var(--color-border)] text-[var(--color-text-muted)]"
+                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold ${
+                              stmt.correctAnswer
+                                ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30"
+                                : "bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30"
                             }`}
                           >
-                            {opt.id.replace("opt_", "")}
-                          </span>
-                          <span className="truncate">{opt.text}</span>
-                        </div>
-                        {isCorrect && (
-                          <div className="flex items-center gap-1 text-[11px] font-bold text-emerald-700 shrink-0">
                             <Check className="w-3.5 h-3.5" />
-                            <span>پاسخ صحیح</span>
-                          </div>
-                        )}
+                            <span>پاسخ صحیح: {stmt.correctAnswer ? "صحیح" : "غلط"}</span>
+                          </span>
+                        </div>
                       </div>
-                    );
-                  })}
-                </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {(question.options ?? []).map((opt) => {
+                      const isCorrect = opt.id === question.correctOptionId;
+                      const optLabel = opt.id.replace("opt_", "");
+                      return (
+                        <div
+                          key={opt.id}
+                          className={`p-3 rounded-xl border text-xs sm:text-sm flex items-center justify-between gap-2 transition-colors ${
+                            isCorrect
+                              ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-900 font-medium"
+                              : "bg-[var(--color-surface-warm)]/40 border-[var(--color-border)] text-[var(--color-text)]"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 truncate">
+                            <span
+                              className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 ${
+                                isCorrect
+                                  ? "bg-emerald-600 text-white"
+                                  : "bg-[var(--color-border)] text-[var(--color-text-muted)]"
+                              }`}
+                            >
+                              {optLabel}
+                            </span>
+                            <span className="truncate">{opt.text}</span>
+                          </div>
+                          {isCorrect && (
+                            <div className="flex items-center gap-1 text-[11px] font-bold text-emerald-700 shrink-0">
+                              <Check className="w-3.5 h-3.5" />
+                              <span>پاسخ صحیح</span>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
 
                 {/* Explanation */}
                 {question.explanation && (

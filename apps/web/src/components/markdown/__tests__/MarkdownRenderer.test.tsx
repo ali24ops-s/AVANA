@@ -1869,6 +1869,54 @@ $$`;
       expect(container.textContent).toContain("https://avana.ir/api/v1/courses/$id");
       expect(container.textContent).toContain("doc-9b1deb4d");
     });
+
+    it("6. correctly renders numeric math expressions like $1.17$ and $0.12$ without currency corruption", () => {
+      const text = "چگالی محلول $1.17$ و ضریب معادل سدیم کلرید $0.12$ تعیین شده است.";
+      const { container } = render(<RichContent content={text} />);
+
+      const katexElements = container.querySelectorAll(".katex");
+      expect(katexElements.length).toBe(2);
+      expect(container.textContent).not.toContain("\\$1.17");
+      expect(container.textContent).not.toContain("\\$0.12");
+      expect(container.textContent).toContain("چگالی محلول");
+      expect(container.textContent).toContain("تعیین شده است.");
+    });
+
+    it("7. correctly renders arithmetic equations ($6.0 + 3.0 = 9.0$ and $39 + 35.5 = 74.5$)", () => {
+      const text = "مجموع اعداد HLB حاصل برابر است با $6.0 + 3.0 = 9.0$ و وزن مولکولی $39 + 35.5 = 74.5$ است.";
+      const { container } = render(<RichContent content={text} />);
+
+      const katexElements = container.querySelectorAll(".katex");
+      expect(katexElements.length).toBe(2);
+      expect(container.textContent).not.toContain("\\$6.0");
+      expect(container.textContent).not.toContain("\\$39");
+    });
+
+    it("8. safely fixes hyphenation hints in math mode ($0.2\\-\\mu m$)", () => {
+      const text = "فیلتراسیون از طریق فیلتر $0.2\\-\\mu m$ انجام می‌شود.";
+      const { container } = render(<RichContent content={text} />);
+
+      const katexElements = container.querySelectorAll(".katex");
+      expect(katexElements.length).toBe(1);
+      expect(container.textContent).toContain("فیلتراسیون از طریق فیلتر");
+    });
+
+    it("9. renders block math ($$...$$) alongside multiple inline formulas and Persian text", () => {
+      const text = `فشار اسمزی با رابطه زیر محاسبه می‌شود:
+
+$$
+\\pi V = i n_2 RT
+$$
+
+که در آن $\\pi$ فشار اسمزی و $i$ ضریب وان‌ت‌هوف است. اگر دوز دارو $0.5$ گرم و حجم $30$ میلی‌لیتر باشد، مقدار معادل سدیم کلرید $0.12$ است.`;
+      const { container } = render(<RichContent content={text} />);
+
+      expect(container.querySelector(".katex-display")).toBeInTheDocument();
+      const katexElements = container.querySelectorAll(".katex");
+      expect(katexElements.length).toBeGreaterThanOrEqual(5);
+      expect(container.textContent).toContain("فشار اسمزی با رابطه زیر");
+      expect(container.textContent).toContain("ضریب وان‌ت‌هوف است");
+    });
   });
 });
 

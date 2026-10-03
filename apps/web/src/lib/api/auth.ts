@@ -47,6 +47,9 @@ export function createAuthApi(client: ApiClient) {
       lastName?: string;
       name?: string;
       major?: string | null;
+      university?: string | null;
+      faculty?: string | null;
+      department?: string | null;
     }): Promise<MeResponse> {
       return client.patch<MeResponse>("/v1/auth/profile", params);
     },
@@ -90,6 +93,9 @@ export function createAuthApi(client: ApiClient) {
       lastName?: string,
       referralCode?: string,
       major?: string,
+      university?: string,
+      faculty?: string,
+      department?: string,
     ): Promise<RegisterResponse> {
       const body: RegisterRequest = {
         email,
@@ -100,6 +106,9 @@ export function createAuthApi(client: ApiClient) {
         lastName,
         referralCode,
         major,
+        university,
+        faculty,
+        department,
       };
       return client.post<RegisterResponse>("/v1/auth/register", body);
     },

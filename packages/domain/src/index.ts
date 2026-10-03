@@ -40,4 +40,6 @@ export * from "./content-repair/index.js";
 export * from "./course-draft.js";
 export * from "./teacher-platform/index.js";
 export * from "./academic-fields.js";
+export * from "./teacher-academic-profile.js";
+export * from "./seo.js";
 

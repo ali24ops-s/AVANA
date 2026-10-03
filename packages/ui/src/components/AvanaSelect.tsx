@@ -13,12 +13,19 @@ export interface AvanaSelectProps {
   value?: string | string[];
   onChange?: (value: string | string[]) => void;
   placeholder?: string;
+  searchPlaceholder?: string;
   label?: string;
   error?: string;
   disabled?: boolean;
   isLoading?: boolean;
   isSearchable?: boolean;
   isMulti?: boolean;
+  allowCustom?: boolean;
+  customOptionLabel?: (query: string) => string;
+  icon?: React.ReactNode;
+  id?: string;
+  name?: string;
+  dataTestId?: string;
   className?: string;
   containerClassName?: string;
 }
@@ -28,12 +35,19 @@ export const AvanaSelect: React.FC<AvanaSelectProps> = ({
   value,
   onChange,
   placeholder = "انتخاب کنید...",
+  searchPlaceholder = "جستجو در گزینه‌ها...",
   label,
   error,
   disabled = false,
   isLoading = false,
   isSearchable = false,
   isMulti = false,
+  allowCustom = false,
+  customOptionLabel,
+  icon,
+  id,
+  name,
+  dataTestId,
   className = "",
   containerClassName = "",
 }) => {
@@ -57,10 +71,25 @@ export const AvanaSelect: React.FC<AvanaSelectProps> = ({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  const safeOptions = options || [];
+
   // Filter options based on search query
-  const filteredOptions = options.filter((opt) =>
-    opt.label.toLowerCase().includes(searchQuery.toLowerCase())
+  const filteredOptions = safeOptions.filter((opt) =>
+    opt.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    opt.value.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  const trimmedQuery = searchQuery.trim();
+  const hasExactMatch = trimmedQuery
+    ? safeOptions.some(
+        (opt) =>
+          opt.label.trim().toLowerCase() === trimmedQuery.toLowerCase() ||
+          opt.value.trim().toLowerCase() === trimmedQuery.toLowerCase()
+      )
+    : true;
+
+  const showCustomOption = Boolean(allowCustom && trimmedQuery && !hasExactMatch);
+  const totalItemCount = filteredOptions.length + (showCustomOption ? 1 : 0);
 
   // Group options if group field present
   const groupedOptions = filteredOptions.reduce((acc, opt) => {
@@ -70,7 +99,7 @@ export const AvanaSelect: React.FC<AvanaSelectProps> = ({
     return acc;
   }, {} as Record<string, SelectOption[]>);
 
-  const hasGroups = Object.keys(groupedOptions).length > 1 || options.some((o) => o.group);
+  const hasGroups = Object.keys(groupedOptions).length > 1 || safeOptions.some((o) => o.group);
 
   // Auto focus search input when opened
   useEffect(() => {
@@ -121,11 +150,11 @@ export const AvanaSelect: React.FC<AvanaSelectProps> = ({
         break;
       case "ArrowDown":
         e.preventDefault();
-        setHighlightedIndex((prev) => (prev < filteredOptions.length - 1 ? prev + 1 : 0));
+        setHighlightedIndex((prev) => (prev < totalItemCount - 1 ? prev + 1 : 0));
         break;
       case "ArrowUp":
         e.preventDefault();
-        setHighlightedIndex((prev) => (prev > 0 ? prev - 1 : filteredOptions.length - 1));
+        setHighlightedIndex((prev) => (prev > 0 ? prev - 1 : totalItemCount - 1));
         break;
       case "Enter":
       case " ":
@@ -136,6 +165,8 @@ export const AvanaSelect: React.FC<AvanaSelectProps> = ({
           if (opt && !opt.disabled) {
             handleSelect(opt.value);
           }
+        } else if (highlightedIndex === filteredOptions.length && showCustomOption) {
+          handleSelect(trimmedQuery);
         }
         break;
       case "Tab":
@@ -206,7 +237,7 @@ export const AvanaSelect: React.FC<AvanaSelectProps> = ({
       className={`flex flex-col gap-1.5 w-full relative ${containerClassName}`}
     >
       {label && (
-        <label id={labelId} className="text-xs font-semibold text-[var(--color-text)]">
+        <label id={labelId} htmlFor={id} className="text-xs font-semibold text-[var(--color-text)]">
           {label}
         </label>
       )}
@@ -214,6 +245,9 @@ export const AvanaSelect: React.FC<AvanaSelectProps> = ({
       {/* Select Trigger */}
       <button
         ref={triggerRef}
+        id={id}
+        name={name}
+        data-testid={dataTestId}
         type="button"
         role="combobox"
         aria-expanded={isOpen}
@@ -230,7 +264,10 @@ export const AvanaSelect: React.FC<AvanaSelectProps> = ({
             : "border-[var(--color-border)] hover:border-[#008080]/40"
         } rounded-[10px] text-xs sm:text-sm flex items-center justify-between gap-2 transition-all focus:outline-none focus-visible:ring-3 focus-visible:ring-[#008080]/20 disabled:opacity-50 disabled:cursor-not-allowed ${className}`}
       >
-        <div className="flex items-center gap-2 min-w-0 flex-1 text-start">{renderTriggerContent()}</div>
+        <div className="flex items-center gap-2 min-w-0 flex-1 text-start">
+          {icon && <span className="shrink-0 text-[var(--color-text-muted)] flex items-center">{icon}</span>}
+          {renderTriggerContent()}
+        </div>
         <svg
           className={`w-4 h-4 text-[var(--color-text-muted)] transition-transform duration-200 shrink-0 ${
             isOpen ? "rotate-180 text-[#008080]" : ""
@@ -274,7 +311,7 @@ export const AvanaSelect: React.FC<AvanaSelectProps> = ({
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="جستجو در گزینه‌ها..."
+                  placeholder={searchPlaceholder || "جستجو در گزینه‌ها..."}
                   className="w-full ps-8 pe-3 py-1.5 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg text-xs text-[var(--color-text)] focus:outline-none focus:border-[#008080]"
                 />
               </div>
@@ -282,7 +319,7 @@ export const AvanaSelect: React.FC<AvanaSelectProps> = ({
           )}
 
           <div className="max-h-60 overflow-y-auto p-1.5 space-y-1">
-            {filteredOptions.length === 0 ? (
+            {filteredOptions.length === 0 && !showCustomOption ? (
               <div className="p-3 text-center text-xs text-[var(--color-text-muted)]">
                 گزینه‌ای یافت نشد
               </div>
@@ -318,6 +355,28 @@ export const AvanaSelect: React.FC<AvanaSelectProps> = ({
                   onHover={() => setHighlightedIndex(idx)}
                 />
               ))
+            )}
+
+            {showCustomOption && (
+              <div className="pt-1 mt-1 border-t border-[var(--color-border)]">
+                <OptionItem
+                  option={{
+                    value: trimmedQuery,
+                    label: customOptionLabel
+                      ? customOptionLabel(trimmedQuery)
+                      : `ثبت «${trimmedQuery}» به عنوان مقدار دلخواه`,
+                    icon: (
+                      <svg className="w-3.5 h-3.5 text-[#008080] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
+                      </svg>
+                    ),
+                  }}
+                  isSelected={selectedValues.includes(trimmedQuery)}
+                  isHighlighted={highlightedIndex === filteredOptions.length}
+                  onSelect={() => handleSelect(trimmedQuery)}
+                  onHover={() => setHighlightedIndex(filteredOptions.length)}
+                />
+              </div>
             )}
           </div>
         </div>

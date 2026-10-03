@@ -22,6 +22,7 @@ import {
   useDeleteClassroom,
 } from "../../hooks/useTeacher.js";
 import { useTeacherClassroomAssignments } from "../../hooks/useTeacherAssignments.js";
+import { useTeacherClassroomContents } from "../../hooks/useTeacherContents.js";
 import {
   PageHeader,
   Tabs,
@@ -34,6 +35,8 @@ import { ClassroomExamsTable } from "../../components/teacher/exams/ClassroomExa
 import { ClassroomMembersTable } from "../../components/teacher/classrooms/ClassroomMembersTable.js";
 import { ClassroomAssignmentsTable } from "../../components/teacher/assignments/ClassroomAssignmentsTable.js";
 import { CreateEditAssignmentModal } from "../../components/teacher/assignments/CreateEditAssignmentModal.js";
+import { ClassroomContentsTable } from "../../components/teacher/contents/ClassroomContentsTable.js";
+import { CreateEditContentModal } from "../../components/teacher/contents/CreateEditContentModal.js";
 import { EditClassroomModal } from "../../components/teacher/classrooms/EditClassroomModal.js";
 import { ConfirmModal } from "../../components/teacher/common/ConfirmModal.js";
 import { ApiError } from "../../lib/api/errors.js";
@@ -49,15 +52,17 @@ import {
   Trash2,
   ArrowRight,
   FileText,
+  BookOpen,
 } from "lucide-react";
 
 export function TeacherClassroomDetailPage() {
   const { classroomId } = useParams<{ classroomId: string }>();
   const navigate = useNavigate();
 
-  const [activeTabId, setActiveTabId] = useState("assignments");
+  const [activeTabId, setActiveTabId] = useState("contents");
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [createAssignmentModalOpen, setCreateAssignmentModalOpen] = useState(false);
+  const [createContentModalOpen, setCreateContentModalOpen] = useState(false);
   const [regenConfirmOpen, setRegenConfirmOpen] = useState(false);
   const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -74,6 +79,7 @@ export function TeacherClassroomDetailPage() {
   const examsQuery = useClassroomExams(classroomId);
   const membersQuery = useClassroomMembers(classroomId);
   const assignmentsQuery = useTeacherClassroomAssignments(classroomId);
+  const contentsQuery = useTeacherClassroomContents(classroomId);
 
   const regenMutation = useRegenerateInviteCode(classroomId ?? "", authoritativeOrgId);
   const archiveMutation = useArchiveClassroom(classroomId ?? "", authoritativeOrgId);
@@ -81,6 +87,7 @@ export function TeacherClassroomDetailPage() {
   const exams = examsQuery.data?.exams ?? [];
   const members = membersQuery.data?.members ?? [];
   const assignments = assignmentsQuery.data?.assignments ?? [];
+  const contents = contentsQuery.data?.contents ?? [];
 
   const handleCopyInvite = () => {
     if (!classroom) return;
@@ -156,6 +163,42 @@ export function TeacherClassroomDetailPage() {
   const isActive = classroom.status === "active";
 
   const tabItems = [
+    {
+      id: "contents",
+      label: "محتوای آموزشی",
+      badge: contents.length,
+      icon: <BookOpen className="w-4 h-4" />,
+      content: (
+        <div className="space-y-4 pt-2">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm sm:text-base font-bold text-[var(--color-text)]">
+                فهرست محتوای آموزشی کلاس
+              </h3>
+              <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
+                محتوای درسی، جزوات، تصاویر، اسلایدها و ویدئوهای آموزشی منتشر شده برای دانش‌آموزان.
+              </p>
+            </div>
+            {isActive && (
+              <Button
+                size="sm"
+                variant="primary"
+                leftIcon={<Plus className="w-4 h-4" />}
+                onClick={() => setCreateContentModalOpen(true)}
+              >
+                ایجاد محتوای آموزشی جدید
+              </Button>
+            )}
+          </div>
+          <ClassroomContentsTable
+            contents={contents}
+            isLoading={contentsQuery.isLoading}
+            classroomId={classroom.id}
+            onOpenCreateModal={() => setCreateContentModalOpen(true)}
+          />
+        </div>
+      ),
+    },
     {
       id: "assignments",
       label: "تکالیف",
@@ -334,6 +377,15 @@ export function TeacherClassroomDetailPage() {
         onChange={setActiveTabId}
         variant="underline"
       />
+
+      {/* Modal: Create Content */}
+      {createContentModalOpen && (
+        <CreateEditContentModal
+          isOpen={createContentModalOpen}
+          onClose={() => setCreateContentModalOpen(false)}
+          classroomId={classroom.id}
+        />
+      )}
 
       {/* Modal: Create Assignment */}
       {createAssignmentModalOpen && (

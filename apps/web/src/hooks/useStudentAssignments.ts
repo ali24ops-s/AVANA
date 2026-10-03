@@ -57,7 +57,12 @@ export function useSubmitAssignment(assignmentId: string, classroomId?: string) 
   return useMutation<
     { submission: AssignmentSubmission },
     Error,
-    { answerText: string }
+    {
+      answerText?: string;
+      attachmentUrl?: string | null;
+      attachmentName?: string | null;
+      attachmentSizeBytes?: number | null;
+    }
   >({
     mutationFn: (input) => api.submitAssignment(assignmentId, input),
     onSuccess: () => {

@@ -50,7 +50,7 @@ export type AuthState = {
   sendPhoneLoginOtp: (phoneNumber: string) => Promise<void>;
   /** Verify login OTP and create session. */
   verifyPhoneLoginOtp: (phoneNumber: string, code: string) => Promise<void>;
-  /** Register a new user account with email, password, name, phone, firstName, lastName, major. */
+  /** Register a new user account with email, password, name, phone, firstName, lastName, major, university, faculty, department. */
   signUp: (
     email: string,
     password: string,
@@ -60,6 +60,9 @@ export type AuthState = {
     lastName?: string,
     referralCode?: string,
     major?: string,
+    university?: string,
+    faculty?: string,
+    department?: string,
   ) => Promise<void>;
   /** Send a verification code to chosen channel (email or phone). */
   sendVerification: (channel: VerificationChannel) => Promise<void>;
@@ -73,12 +76,15 @@ export type AuthState = {
   forgotPassword: (email: string) => Promise<{ message: string; cooldown_seconds?: number }>;
   /** Reset password using token. */
   resetPassword: (token: string, password: string) => Promise<{ message: string }>;
-  /** Update profile name and/or academic major. */
+  /** Update profile name, academic major, or teacher affiliations. */
   updateProfile: (
     firstName?: string,
     lastName?: string,
     name?: string,
     major?: string | null,
+    university?: string | null,
+    faculty?: string | null,
+    department?: string | null,
   ) => Promise<void>;
   /** Sign out (revoke session). */
   signOut: () => Promise<void>;
@@ -262,6 +268,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       lastName?: string,
       referralCode?: string,
       major?: string,
+      university?: string,
+      faculty?: string,
+      department?: string,
     ) => {
       setIsLoading(true);
       setError(null);
@@ -275,6 +284,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           lastName,
           referralCode,
           major,
+          university,
+          faculty,
+          department,
         );
         setUser(response.user);
         setMemberships(response.memberships ?? []);
@@ -398,6 +410,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       lastName?: string,
       name?: string,
       major?: string | null,
+      university?: string | null,
+      faculty?: string | null,
+      department?: string | null,
     ) => {
       setIsLoading(true);
       setError(null);
@@ -407,6 +422,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           lastName,
           name,
           major,
+          university,
+          faculty,
+          department,
         });
         setUser(response.user);
         if (response.memberships) {

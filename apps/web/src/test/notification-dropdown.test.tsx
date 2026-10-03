@@ -4,31 +4,56 @@ import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { NotificationDropdown } from "../components/notifications/NotificationDropdown.js";
 import type { NotificationItem } from "@avana/domain";
+import { asNotificationId, asUserId } from "@avana/domain";
 
 const mockNotifications: NotificationItem[] = [
   {
-    id: "notif-1" as any,
-    userId: "user-1" as any,
+    id: asNotificationId("notif-1"),
+    userId: asUserId("user-1"),
     type: "purchase_completed",
     title: "خرید اشتراک با موفقیت انجام شد",
     message: "اشتراک ویژه شما فعال گردید.",
     isRead: false,
     readAt: null,
     metadata: { orderId: "order-1" },
-    actionUrl: "/courses",
+    action: { type: "navigate", url: "/courses" },
     createdAt: new Date().toISOString(),
   },
   {
-    id: "notif-2" as any,
-    userId: "user-1" as any,
+    id: asNotificationId("notif-2"),
+    userId: asUserId("user-1"),
     type: "login_success",
     title: "ورود موفق به حساب کاربری",
     message: "ورود با آی‌پی 127.0.0.1",
     isRead: true,
     readAt: new Date(Date.now() - 3600000).toISOString(),
     metadata: null,
-    actionUrl: null,
+    action: null,
     createdAt: new Date(Date.now() - 3600000).toISOString(),
+  },
+  {
+    id: asNotificationId("notif-3"),
+    userId: asUserId("user-1"),
+    type: "classroom_exam_published",
+    title: "آزمون جدید",
+    message: "آزمون «میان‌ترم فارماکولوژی» در کلاس «فارماکولوژی پزشکی» اضافه شد.",
+    isRead: false,
+    readAt: null,
+    metadata: { examId: "exam-1", classroomId: "class-1" },
+    action: { type: "navigate", url: "/classrooms/class-1/exams/exam-1" },
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: asNotificationId("notif-4"),
+    userId: asUserId("user-1"),
+    type: "classroom_assignment_published",
+    title: "تکلیف جدید",
+    message: "تکلیف «گزارش آزمایشگاه» در کلاس «فیزیولوژی» اضافه شد.",
+    isRead: false,
+    readAt: null,
+    metadata: { assignmentId: "assign-1", classroomId: "class-2" },
+    action: { type: "navigate", url: "/classrooms/class-2" },
+    createdAt: new Date().toISOString(),
   },
 ];
 
@@ -142,6 +167,42 @@ describe("NotificationDropdown Component", () => {
 
     await waitFor(() => {
       expect(mockMarkAllAsRead).toHaveBeenCalled();
+    });
+  });
+
+  it("renders classroom exam and assignment notifications with titles and messages", async () => {
+    renderComponent();
+
+    const bellBtn = screen.getByRole("button", { name: /اعلان/i });
+    fireEvent.click(bellBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText("آزمون جدید")).toBeDefined();
+      expect(
+        screen.getByText(
+          "آزمون «میان‌ترم فارماکولوژی» در کلاس «فارماکولوژی پزشکی» اضافه شد.",
+        ),
+      ).toBeDefined();
+      expect(screen.getByText("تکلیف جدید")).toBeDefined();
+      expect(
+        screen.getByText(
+          "تکلیف «گزارش آزمایشگاه» در کلاس «فیزیولوژی» اضافه شد.",
+        ),
+      ).toBeDefined();
+    });
+  });
+
+  it("calls markAsRead when clicking an unread classroom notification item", async () => {
+    renderComponent();
+
+    const bellBtn = screen.getByRole("button", { name: /اعلان/i });
+    fireEvent.click(bellBtn);
+
+    const examNotifTitle = await screen.findByText("آزمون جدید");
+    fireEvent.click(examNotifTitle);
+
+    await waitFor(() => {
+      expect(mockMarkAsRead).toHaveBeenCalledWith("notif-3");
     });
   });
 });

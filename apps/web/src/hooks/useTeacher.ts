@@ -348,6 +348,34 @@ export function useArchiveExam(examId: string, classroomId?: string) {
   });
 }
 
+export function useDeleteExam(classroomId?: string) {
+  const queryClient = useQueryClient();
+  const api = getTeacherApi();
+
+  return useMutation<void, Error, string>({
+    mutationFn: (examId: string) => api.deleteExam(examId),
+    onSuccess: (_data, examId) => {
+      if (classroomId) {
+        void queryClient.invalidateQueries({
+          queryKey: teacherQueryKeys.classroomExams(classroomId),
+        });
+        void queryClient.invalidateQueries({
+          queryKey: teacherQueryKeys.classroom(classroomId),
+        });
+      }
+      queryClient.removeQueries({
+        queryKey: teacherQueryKeys.exam(examId),
+      });
+      queryClient.removeQueries({
+        queryKey: teacherQueryKeys.examQuestions(examId),
+      });
+      queryClient.removeQueries({
+        queryKey: teacherQueryKeys.examResults(examId),
+      });
+    },
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Questions Hooks
 // ---------------------------------------------------------------------------

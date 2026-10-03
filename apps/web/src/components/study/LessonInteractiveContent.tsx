@@ -79,12 +79,7 @@ export function LessonInteractiveContent({
 
   const handleHighlight = async (sel: TextSelectionData) => {
     try {
-      console.log("[annotation-create-request]", {
-        selectedText: sel.selectedText,
-        startOffset: sel.startOffset,
-        endOffset: sel.endOffset,
-      });
-      const res = await createAnnotationAsync({
+      await createAnnotationAsync({
         type: "highlight",
         selectedText: sel.selectedText,
         prefix: sel.prefix,
@@ -93,7 +88,6 @@ export function LessonInteractiveContent({
         endOffset: sel.endOffset,
         color: "default",
       });
-      console.log("[annotation-create-response]", res);
       clearSelection();
     } catch (err) {
       console.error("[annotation-create-error]", err);
@@ -121,7 +115,6 @@ export function LessonInteractiveContent({
     existingMarks.forEach((mark) => {
       const parent = mark.parentNode;
       if (parent) {
-        console.log("[mark-removed]", { id: mark.getAttribute("data-avana-annotation") });
         while (mark.firstChild) {
           parent.insertBefore(mark.firstChild, mark);
         }
@@ -130,7 +123,6 @@ export function LessonInteractiveContent({
       }
     });
 
-    console.log("[apply-annotations]", { count: annotations.length, annotations });
     if (!annotations || annotations.length === 0) return;
 
     // Helper: collect content text nodes and build character index map
@@ -293,7 +285,6 @@ export function LessonInteractiveContent({
 
           parent.insertBefore(mark, targetNode);
           mark.appendChild(targetNode);
-          console.log("[mark-created]", { id: ann.id, type: ann.type, text: ann.selectedText });
         } catch {
           // Gracefully continue on any single node error
         }
@@ -303,7 +294,7 @@ export function LessonInteractiveContent({
 
   useLayoutEffect(() => {
     applyAnnotationsToDOM();
-  });
+  }, [applyAnnotationsToDOM, content]);
 
   const memoizedRenderer = React.useMemo(
     () => <MarkdownRenderer content={content} enableLessonCallouts />,

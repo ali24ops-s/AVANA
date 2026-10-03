@@ -5,13 +5,19 @@ import {
   DialogContent,
   DialogFooter,
   Input,
-  Textarea,
+  RichTextEditor,
   Button,
   Alert,
+  PersianDatePicker,
 } from "../../ui/index.js";
+import { MarkdownRenderer } from "../../markdown/MarkdownRenderer.js";
 import { useCreateAssignment, useUpdateAssignment } from "../../../hooks/useTeacherAssignments.js";
 import type { TeacherAssignmentListItemDTO } from "../../../lib/api/teacher.js";
 import { ApiError } from "../../../lib/api/errors.js";
+import {
+  extractLocalDateAndTimeString,
+  combineLocalDateAndTimeToIso,
+} from "../../../utils/date.js";
 import { FileText, Calendar, Clock } from "lucide-react";
 
 export interface CreateEditAssignmentModalProps {
@@ -19,19 +25,6 @@ export interface CreateEditAssignmentModalProps {
   onClose: () => void;
   classroomId: string;
   assignmentToEdit?: TeacherAssignmentListItemDTO | null;
-}
-
-function toLocalDatetimeInputString(isoDate?: string | null): string {
-  if (!isoDate) return "";
-  const d = new Date(isoDate);
-  if (isNaN(d.getTime())) return "";
-  const pad = (n: number) => n.toString().padStart(2, "0");
-  const year = d.getFullYear();
-  const month = pad(d.getMonth() + 1);
-  const day = pad(d.getDate());
-  const hours = pad(d.getHours());
-  const minutes = pad(d.getMinutes());
-  return `${year}-${month}-${day}T${hours}:${minutes}`;
 }
 
 export function CreateEditAssignmentModal({
@@ -44,8 +37,10 @@ export function CreateEditAssignmentModal({
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [startsAt, setStartsAt] = useState("");
-  const [dueAt, setDueAt] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [startTime, setStartTime] = useState("08:00");
+  const [dueDate, setDueDate] = useState("");
+  const [dueTime, setDueTime] = useState("23:59");
   const [error, setError] = useState<string | null>(null);
 
   const createMutation = useCreateAssignment(classroomId);
@@ -53,17 +48,25 @@ export function CreateEditAssignmentModal({
 
   useEffect(() => {
     if (assignmentToEdit) {
+      const startExtracted = extractLocalDateAndTimeString(assignmentToEdit.startsAt);
+      const dueExtracted = extractLocalDateAndTimeString(assignmentToEdit.dueAt);
       setTitle(assignmentToEdit.title);
       setDescription(assignmentToEdit.description || "");
-      setStartsAt(toLocalDatetimeInputString(assignmentToEdit.startsAt));
-      setDueAt(toLocalDatetimeInputString(assignmentToEdit.dueAt));
+      setStartDate(startExtracted.dateStr);
+      setStartTime(startExtracted.timeStr || "08:00");
+      setDueDate(dueExtracted.dateStr);
+      setDueTime(dueExtracted.timeStr || "23:59");
     } else {
       const now = new Date();
       const inSevenDays = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+      const startExtracted = extractLocalDateAndTimeString(now);
+      const dueExtracted = extractLocalDateAndTimeString(inSevenDays);
       setTitle("");
       setDescription("");
-      setStartsAt(toLocalDatetimeInputString(now.toISOString()));
-      setDueAt(toLocalDatetimeInputString(inSevenDays.toISOString()));
+      setStartDate(startExtracted.dateStr);
+      setStartTime(startExtracted.timeStr || "08:00");
+      setDueDate(dueExtracted.dateStr);
+      setDueTime("23:59");
     }
     setError(null);
   }, [assignmentToEdit, isOpen]);
@@ -83,18 +86,31 @@ export function CreateEditAssignmentModal({
       return;
     }
 
-    if (!startsAt || isNaN(Date.parse(startsAt))) {
+    if (!startDate || !startTime) {
       setError("زمان شروع تکلیف نامعتبر است");
       return;
     }
 
-    if (!dueAt || isNaN(Date.parse(dueAt))) {
+    if (!dueDate || !dueTime) {
       setError("مهلت ارسال تکلیف نامعتبر است");
       return;
     }
 
-    const startMs = new Date(startsAt).getTime();
-    const dueMs = new Date(dueAt).getTime();
+    const startsAtIso = combineLocalDateAndTimeToIso(startDate, startTime);
+    const dueAtIso = combineLocalDateAndTimeToIso(dueDate, dueTime);
+
+    if (!startsAtIso || isNaN(Date.parse(startsAtIso))) {
+      setError("زمان شروع تکلیف نامعتبر است");
+      return;
+    }
+
+    if (!dueAtIso || isNaN(Date.parse(dueAtIso))) {
+      setError("مهلت ارسال تکلیف نامعتبر است");
+      return;
+    }
+
+    const startMs = new Date(startsAtIso).getTime();
+    const dueMs = new Date(dueAtIso).getTime();
 
     if (dueMs <= startMs) {
       setError("مهلت ارسال باید بعد از زمان شروع باشد");
@@ -106,16 +122,16 @@ export function CreateEditAssignmentModal({
         await updateMutation.mutateAsync({
           title: trimmedTitle,
           description: description.trim() || null,
-          startsAt: new Date(startsAt).toISOString(),
-          dueAt: new Date(dueAt).toISOString(),
+          startsAt: startsAtIso,
+          dueAt: dueAtIso,
           status: targetStatus,
         });
       } else {
         await createMutation.mutateAsync({
           title: trimmedTitle,
           description: description.trim() || null,
-          startsAt: new Date(startsAt).toISOString(),
-          dueAt: new Date(dueAt).toISOString(),
+          startsAt: startsAtIso,
+          dueAt: dueAtIso,
           status: targetStatus,
         });
       }
@@ -176,43 +192,75 @@ export function CreateEditAssignmentModal({
           />
 
           {/* Description */}
-          <Textarea
+          <RichTextEditor
             label="توضیحات و دستورالعمل تکلیف (اختیاری)"
             placeholder="دستورالعمل، سوالات، مباحث مرتبط و جزئیات مورد انتظار پاسخ را بنویسید..."
             value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            rows={4}
+            onChange={setDescription}
             disabled={isPending}
+            minHeight={140}
+            rows={5}
+            renderPreview={(cnt) => <MarkdownRenderer content={cnt} />}
           />
 
           {/* Schedule */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs sm:text-sm font-semibold text-[var(--color-text)] mb-1.5 flex items-center gap-1.5">
-                <Calendar className="w-3.5 h-3.5 text-[#008080]" />
-                زمان شروع دریافت پاسخ <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="datetime-local"
-                value={startsAt}
-                onChange={(e) => setStartsAt(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-xl bg-[var(--color-surface)] border border-[var(--color-border)] text-sm text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-[#008080]"
-                disabled={isPending}
-              />
+          <div className="space-y-4 pt-1">
+            <div className="p-3.5 rounded-xl bg-[var(--color-surface-warm)]/40 border border-[var(--color-border)] space-y-3">
+              <div className="flex items-center gap-2 text-xs sm:text-sm font-semibold text-[var(--color-text)]">
+                <Calendar className="w-4 h-4 text-[#008080]" />
+                <span>زمان شروع دریافت پاسخ</span>
+                <span className="text-red-500">*</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <PersianDatePicker
+                  id="assignment-start-date"
+                  label="تاریخ شروع *"
+                  value={startDate}
+                  onChange={setStartDate}
+                  minDate={null}
+                  disabled={isPending}
+                  required
+                />
+                <Input
+                  id="assignment-start-time"
+                  type="time"
+                  label="ساعت شروع *"
+                  value={startTime}
+                  onChange={(e) => setStartTime(e.target.value)}
+                  disabled={isPending}
+                  dir="ltr"
+                  required
+                />
+              </div>
             </div>
 
-            <div>
-              <label className="block text-xs sm:text-sm font-semibold text-[var(--color-text)] mb-1.5 flex items-center gap-1.5">
-                <Clock className="w-3.5 h-3.5 text-amber-600" />
-                مهلت نهایی ارسال پاسخ (Deadline) <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="datetime-local"
-                value={dueAt}
-                onChange={(e) => setDueAt(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-xl bg-[var(--color-surface)] border border-[var(--color-border)] text-sm text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-[#008080]"
-                disabled={isPending}
-              />
+            <div className="p-3.5 rounded-xl bg-[var(--color-surface-warm)]/40 border border-[var(--color-border)] space-y-3">
+              <div className="flex items-center gap-2 text-xs sm:text-sm font-semibold text-[var(--color-text)]">
+                <Clock className="w-4 h-4 text-amber-600" />
+                <span>مهلت نهایی ارسال پاسخ (Deadline)</span>
+                <span className="text-red-500">*</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <PersianDatePicker
+                  id="assignment-due-date"
+                  label="تاریخ مهلت تحویل *"
+                  value={dueDate}
+                  onChange={setDueDate}
+                  minDate={null}
+                  disabled={isPending}
+                  required
+                />
+                <Input
+                  id="assignment-due-time"
+                  type="time"
+                  label="ساعت مهلت تحویل *"
+                  value={dueTime}
+                  onChange={(e) => setDueTime(e.target.value)}
+                  disabled={isPending}
+                  dir="ltr"
+                  required
+                />
+              </div>
             </div>
           </div>
         </div>

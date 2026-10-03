@@ -74,6 +74,7 @@ describe("Academic Field Personalization Integration Tests", () => {
         email: "pharmacy.student@example.com",
         password: "Password123!",
         name: "سارا داروساز",
+        phoneNumber: "09121111111",
         major: "pharmacy",
       },
     });
@@ -96,6 +97,7 @@ describe("Academic Field Personalization Integration Tests", () => {
         email: "invalid.major@example.com",
         password: "Password123!",
         name: "کاربر تستی",
+        phoneNumber: "09122222222",
         major: "astrophysics_invalid",
       },
     });
@@ -112,6 +114,7 @@ describe("Academic Field Personalization Integration Tests", () => {
         email: "medicine.student@example.com",
         password: "Password123!",
         name: "امیر پزشکی",
+        phoneNumber: "09123333333",
         major: "medicine",
       },
     });
@@ -139,6 +142,7 @@ describe("Academic Field Personalization Integration Tests", () => {
         email: "dentistry.student@example.com",
         password: "Password123!",
         name: "دندانپزشک",
+        phoneNumber: "09124444444",
         major: "dentistry",
       },
     });
@@ -181,6 +185,7 @@ describe("Academic Field Personalization Integration Tests", () => {
         email: "fresh.user@example.com",
         password: "Password123!",
         name: "کاربر تستی",
+        phoneNumber: "09125555555",
         major: "other",
       },
     });
@@ -207,6 +212,7 @@ describe("Academic Field Personalization Integration Tests", () => {
         email: "author@example.com",
         password: "Password123!",
         name: "نویسنده دوره",
+        phoneNumber: "09126666666",
         major: "pharmacy",
       },
     });
@@ -266,6 +272,7 @@ describe("Academic Field Personalization Integration Tests", () => {
         email: "pharm.student@example.com",
         password: "Password123!",
         name: "دانشجوی داروسازی",
+        phoneNumber: "09127777777",
         major: "pharmacy",
       },
     });
@@ -350,5 +357,89 @@ describe("Academic Field Personalization Integration Tests", () => {
     expect(titlesForMed[0]).toBe("داخلی جراحی");
     expect(titlesForMed[1]).toBe("بافت شناسی");
     expect(titlesForMed[2]).toBe("شیمی دارویی ۱");
+  });
+
+  it("8. registers teacher with university, faculty, department, persists them, and updates via PATCH /v1/auth/profile", async () => {
+    const app = await buildApp();
+
+    const regRes = await app.inject({
+      method: "POST",
+      url: "/v1/auth/register",
+      payload: {
+        email: "prof.reza@tums.ac.ir",
+        password: "Password123!",
+        name: "دکتر رضا اکبری",
+        phoneNumber: "09128888888",
+        university: "دانشگاه علوم پزشکی تهران",
+        faculty: "دانشکده داروسازی",
+        department: "فارماکولوژی و سم‌شناسی",
+      },
+    });
+
+    expect(regRes.statusCode).toBe(200);
+    const regBody = JSON.parse(regRes.body);
+    expect(regBody.user.university).toBe("دانشگاه علوم پزشکی تهران");
+    expect(regBody.user.faculty).toBe("دانشکده داروسازی");
+    expect(regBody.user.department).toBe("فارماکولوژی و سم‌شناسی");
+
+    const sessionCookie = regRes.cookies.find((c) => c.name === "avana_session")?.value;
+    expect(sessionCookie).toBeDefined();
+
+    // Verify GET /v1/me
+    const meRes = await app.inject({
+      method: "GET",
+      url: "/v1/me",
+      cookies: { avana_session: sessionCookie! },
+    });
+    expect(meRes.statusCode).toBe(200);
+    const meBody = JSON.parse(meRes.body);
+    expect(meBody.user.university).toBe("دانشگاه علوم پزشکی تهران");
+    expect(meBody.user.faculty).toBe("دانشکده داروسازی");
+    expect(meBody.user.department).toBe("فارماکولوژی و سم‌شناسی");
+
+    // Update via PATCH /v1/auth/profile
+    const patchRes = await app.inject({
+      method: "PATCH",
+      url: "/v1/auth/profile",
+      cookies: { avana_session: sessionCookie! },
+      payload: {
+        university: "دانشگاه علوم پزشکی شهید بهشتی",
+        faculty: "دانشکده پزشکی",
+        department: "فارماکولوژی",
+      },
+    });
+    expect(patchRes.statusCode).toBe(200);
+    const patchBody = JSON.parse(patchRes.body);
+    expect(patchBody.user.university).toBe("دانشگاه علوم پزشکی شهید بهشتی");
+    expect(patchBody.user.faculty).toBe("دانشکده پزشکی");
+    expect(patchBody.user.department).toBe("فارماکولوژی");
+  });
+
+  it("9. rejects teacher profile update when university or department exceeds max length", async () => {
+    const app = await buildApp();
+
+    const regRes = await app.inject({
+      method: "POST",
+      url: "/v1/auth/register",
+      payload: {
+        email: "prof.test@example.com",
+        password: "Password123!",
+        name: "استاد تستی",
+        phoneNumber: "09129999999",
+        university: "دانشگاه علوم پزشکی شیراز",
+        department: "ایمونولوژی",
+      },
+    });
+    const sessionCookie = regRes.cookies.find((c) => c.name === "avana_session")?.value;
+
+    const badPatchRes = await app.inject({
+      method: "PATCH",
+      url: "/v1/auth/profile",
+      cookies: { avana_session: sessionCookie! },
+      payload: {
+        university: "x".repeat(300),
+      },
+    });
+    expect(badPatchRes.statusCode).toBe(400);
   });
 });

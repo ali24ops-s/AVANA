@@ -1,4 +1,7 @@
 import { describe, test, expect } from "vitest";
+import os from "node:os";
+import path from "node:path";
+import fs from "node:fs/promises";
 import { createApp } from "../server/createApp.js";
 import { loadApiConfig } from "../config.js";
 import { SessionService } from "../modules/identity/index.js";
@@ -9,9 +12,31 @@ import {
 import { InMemoryOrganizationStore } from "../modules/organizations/test/in-memory-stores.js";
 import { InMemoryAdminStore } from "../modules/admin/index.js";
 import { InMemoryBlogStore } from "../modules/blog/blog-store.js";
+import { LocalStorageProvider } from "../modules/storage/index.js";
 import { v1Routes } from "../routes/v1.js";
 import { Roles, type Role, type UserId, type OrganizationId } from "@avana/domain";
 import { randomUUID } from "node:crypto";
+
+function buildMultipartBody(opts: {
+  filename: string;
+  contentType: string;
+  data: Buffer;
+}): { body: Buffer; contentType: string } {
+  const boundary = `----WebKitFormBoundary${Math.random().toString(36).slice(2)}`;
+  const header = `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${opts.filename}"\r\nContent-Type: ${opts.contentType}\r\n\r\n`;
+  const footer = `\r\n--${boundary}--\r\n`;
+
+  const body = Buffer.concat([
+    Buffer.from(header, "utf-8"),
+    opts.data,
+    Buffer.from(footer, "utf-8"),
+  ]);
+
+  return {
+    body,
+    contentType: `multipart/form-data; boundary=${boundary}`,
+  };
+}
 
 describe("Blog Routes & Authorization E2E", () => {
   async function setupTestApp() {
@@ -24,6 +49,8 @@ describe("Blog Routes & Authorization E2E", () => {
     const userStore = new InMemoryUserStore(orgStore);
     const adminStore = new InMemoryAdminStore(userStore, orgStore);
     const blogStore = new InMemoryBlogStore();
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "avana-blog-test-"));
+    const storageProvider = new LocalStorageProvider(tmpDir);
 
     const sessionService = new SessionService(sessionStore, config.session);
 
@@ -58,11 +85,13 @@ describe("Blog Routes & Authorization E2E", () => {
       adminStore,
       blogStore,
       organizationStore: orgStore,
+      storageProvider,
     });
 
     return {
       app,
       blogStore,
+      storageProvider,
       student,
       platformAdmin,
     };
@@ -319,6 +348,185 @@ describe("Blog Routes & Authorization E2E", () => {
       expect(data.tag.slug).toBe("pharmacology");
       expect(data.posts).toHaveLength(1);
       expect(data.posts[0].slug).toBe("post-with-tag");
+    });
+  });
+
+  describe("Blog Image Upload & Public Serving", () => {
+    test("POST /v1/admin/blog/images rejects unauthenticated requests with 401", async () => {
+      const { app } = await setupTestApp();
+      const fakeImage = Buffer.from("fake-jpg-content");
+      const { body, contentType } = buildMultipartBody({
+        filename: "test.jpg",
+        contentType: "image/jpeg",
+        data: fakeImage,
+      });
+
+      const res = await app.inject({
+        method: "POST",
+        url: "/v1/admin/blog/images",
+        headers: { "content-type": contentType },
+        payload: body,
+      });
+
+      expect(res.statusCode).toBe(401);
+    });
+
+    test("POST /v1/admin/blog/images rejects non-admin users with 403", async () => {
+      const { app, student } = await setupTestApp();
+      const fakeImage = Buffer.from("fake-jpg-content");
+      const { body, contentType } = buildMultipartBody({
+        filename: "test.jpg",
+        contentType: "image/jpeg",
+        data: fakeImage,
+      });
+
+      const res = await app.inject({
+        method: "POST",
+        url: "/v1/admin/blog/images",
+        cookies: { avana_session: student.sessionToken },
+        headers: { "content-type": contentType },
+        payload: body,
+      });
+
+      expect(res.statusCode).toBe(403);
+    });
+
+    test("POST /v1/admin/blog/images uploads valid image for platform_admin and returns 201", async () => {
+      const { app, platformAdmin } = await setupTestApp();
+      const imageBytes = Buffer.from("valid-png-binary-data");
+      const { body, contentType } = buildMultipartBody({
+        filename: "my-photo.png",
+        contentType: "image/png",
+        data: imageBytes,
+      });
+
+      const res = await app.inject({
+        method: "POST",
+        url: "/v1/admin/blog/images",
+        cookies: { avana_session: platformAdmin.sessionToken },
+        headers: { "content-type": contentType },
+        payload: body,
+      });
+
+      expect(res.statusCode).toBe(201);
+      const json = res.json();
+      expect(json.url).toBeDefined();
+      expect(json.storage_key).toBeDefined();
+      expect(json.storage_key).toMatch(/^blog\/[0-9a-f-]+\.png$/);
+      expect(json.url).toBe(`/v1/blog/images/${encodeURIComponent(json.storage_key)}`);
+    });
+
+    test("POST /v1/admin/blog/images rejects unsupported MIME types", async () => {
+      const { app, platformAdmin } = await setupTestApp();
+      const textFile = Buffer.from("not an image");
+      const { body, contentType } = buildMultipartBody({
+        filename: "notes.txt",
+        contentType: "text/plain",
+        data: textFile,
+      });
+
+      const res = await app.inject({
+        method: "POST",
+        url: "/v1/admin/blog/images",
+        cookies: { avana_session: platformAdmin.sessionToken },
+        headers: { "content-type": contentType },
+        payload: body,
+      });
+
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error.message).toContain("فرمت فایل نامعتبر است");
+    });
+
+    test("POST /v1/admin/blog/images rejects files exceeding 5MB limit", async () => {
+      const { app, platformAdmin } = await setupTestApp();
+      // 5.5MB dummy buffer
+      const largeImage = Buffer.alloc(5.5 * 1024 * 1024);
+      const { body, contentType } = buildMultipartBody({
+        filename: "giant.jpg",
+        contentType: "image/jpeg",
+        data: largeImage,
+      });
+
+      const res = await app.inject({
+        method: "POST",
+        url: "/v1/admin/blog/images",
+        cookies: { avana_session: platformAdmin.sessionToken },
+        headers: { "content-type": contentType },
+        payload: body,
+      });
+
+      expect([400, 413]).toContain(res.statusCode);
+    });
+
+    test("GET /v1/blog/images/* publicly serves uploaded blog image with correct headers", async () => {
+      const { app, platformAdmin } = await setupTestApp();
+      const imageBytes = Buffer.from("persisted-image-binary");
+      const { body, contentType } = buildMultipartBody({
+        filename: "banner.webp",
+        contentType: "image/webp",
+        data: imageBytes,
+      });
+
+      const uploadRes = await app.inject({
+        method: "POST",
+        url: "/v1/admin/blog/images",
+        cookies: { avana_session: platformAdmin.sessionToken },
+        headers: { "content-type": contentType },
+        payload: body,
+      });
+      expect(uploadRes.statusCode).toBe(201);
+      const { url } = uploadRes.json();
+
+      // Fetch anonymously without cookies
+      const serveRes = await app.inject({
+        method: "GET",
+        url,
+      });
+
+      expect(serveRes.statusCode).toBe(200);
+      expect(serveRes.headers["content-type"]).toBe("image/webp");
+      expect(serveRes.headers["cache-control"]).toContain("public");
+      expect(serveRes.rawPayload).toEqual(imageBytes);
+    });
+
+    test("GET /v1/blog/images/* returns 404 for nonexistent image", async () => {
+      const { app } = await setupTestApp();
+
+      const res = await app.inject({
+        method: "GET",
+        url: "/v1/blog/images/blog/00000000-0000-0000-0000-000000000000.jpg",
+      });
+
+      expect(res.statusCode).toBe(404);
+    });
+
+    test("GET /v1/blog/images/* prevents path traversal attempts", async () => {
+      const { app } = await setupTestApp();
+
+      const res = await app.inject({
+        method: "GET",
+        url: `/v1/blog/images/${encodeURIComponent("blog/../../etc/passwd")}`,
+      });
+
+      expect(res.statusCode).toBe(400);
+    });
+
+    test("GET /v1/blog/images/* prevents access to keys outside the blog namespace", async () => {
+      const { app, storageProvider } = await setupTestApp();
+
+      // Seed a file outside blog/
+      await storageProvider.save({
+        storageKey: "receipts/private-receipt.jpg",
+        data: Buffer.from("secret-receipt"),
+        mimeType: "image/jpeg",
+      });
+
+      const res = await app.inject({
+        method: "GET",
+        url: "/v1/blog/images/receipts/private-receipt.jpg",
+      });
+
+      expect(res.statusCode).toBe(400);
     });
   });
 });

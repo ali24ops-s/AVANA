@@ -105,7 +105,7 @@ describe("EditProfileModal & Profile Update", () => {
       expect(screen.getByDisplayValue("علی")).toBeInTheDocument();
     });
 
-    const lastNameInput = screen.getByPlaceholderText("مثلاً: محمدلو");
+    const lastNameInput = screen.getByLabelText(/نام خانوادگی/i);
     fireEvent.change(lastNameInput, { target: { value: "محمدلو" } });
 
     const submitBtn = screen.getByRole("button", { name: "ذخیره تغییرات" });
@@ -219,6 +219,73 @@ describe("EditProfileModal & Profile Update", () => {
     await waitFor(() => {
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["my-courses"] });
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["courses"] });
+    });
+  });
+
+  it("renders teacher affiliation fields for teacher role and submits university/department", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            user: {
+              id: "u-teacher-1",
+              email: "dr.ahmadi@tums.ac.ir",
+              name: "دکتر رضا احمدی",
+              role: "teacher",
+              university: "دانشگاه علوم پزشکی تهران",
+              faculty: "دانشکده داروسازی",
+              department: "فارماکولوژی و سم‌شناسی",
+              isVerified: true,
+            },
+            memberships: [],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            user: {
+              id: "u-teacher-1",
+              email: "dr.ahmadi@tums.ac.ir",
+              name: "دکتر رضا احمدی",
+              role: "teacher",
+              university: "دانشگاه علوم پزشکی شهید بهشتی",
+              faculty: "دانشکده پزشکی",
+              department: "فارماکولوژی",
+              isVerified: true,
+            },
+            memberships: [],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
+    renderWithProviders(
+      <AuthProvider>
+        <TestProfileWrapper />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("دانشگاه علوم پزشکی تهران")).toBeInTheDocument();
+      expect(screen.getByDisplayValue("دانشکده داروسازی")).toBeInTheDocument();
+      expect(screen.getByText("فارماکولوژی و سم‌شناسی")).toBeInTheDocument();
+    });
+
+    const univCombobox = screen.getByTestId("edit-university-select");
+    fireEvent.click(univCombobox);
+
+    const univSearch = screen.getByPlaceholderText("جستجو در دانشگاه‌ها...");
+    fireEvent.change(univSearch, { target: { value: "شهید بهشتی" } });
+    const sbmOption = screen.getByText("دانشگاه علوم پزشکی شهید بهشتی");
+    fireEvent.click(sbmOption);
+
+    const submitBtn = screen.getByRole("button", { name: "ذخیره تغییرات" });
+    fireEvent.click(submitBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText("اطلاعات پروفایل شما با موفقیت به‌روزرسانی شد.")).toBeInTheDocument();
     });
   });
 });

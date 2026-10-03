@@ -1,9 +1,12 @@
 import type { FastifyPluginAsync } from "fastify";
+import { DomainError } from "@avana/domain";
 import { BlogService } from "./blog-service.js";
 import type { BlogStore } from "./blog-store.js";
+import type { StorageProvider } from "../storage/index.js";
 
 export interface BlogRouteOptions {
   blogStore: BlogStore;
+  storageProvider?: StorageProvider;
 }
 
 export const blogRoutes: FastifyPluginAsync<BlogRouteOptions> = async (
@@ -11,6 +14,54 @@ export const blogRoutes: FastifyPluginAsync<BlogRouteOptions> = async (
   opts,
 ) => {
   const blogService = new BlogService(opts.blogStore);
+
+  /**
+   * GET /v1/blog/images/*
+   * Publicly serves blog images securely within the "blog/" namespace.
+   */
+  app.get("/v1/blog/images/*", async (request, reply) => {
+    if (!opts.storageProvider) {
+      throw new DomainError(
+        "service_unavailable",
+        "سرویس ذخیره‌سازی فایل در دسترس نیست.",
+      );
+    }
+
+    const rawKey = (request.params as { "*": string })["*"];
+    if (!rawKey) {
+      throw new DomainError("bad_request", "مسیر تصویر الزامی است.");
+    }
+
+    const storageKey = decodeURIComponent(rawKey);
+
+    // Path traversal & namespace security check
+    if (!storageKey.startsWith("blog/") || storageKey.includes("..")) {
+      throw new DomainError("bad_request", "مسیر فایل نامعتبر است.");
+    }
+
+    const exists = await opts.storageProvider.exists(storageKey);
+    if (!exists) {
+      throw new DomainError("not_found", "تصویر مورد نظر یافت نشد.");
+    }
+
+    const ext = storageKey.split(".").pop()?.toLowerCase();
+    const mimeType =
+      ext === "png"
+        ? "image/png"
+        : ext === "webp"
+        ? "image/webp"
+        : "image/jpeg";
+
+    const data = await opts.storageProvider.read(storageKey);
+
+    reply
+      .header("Content-Type", mimeType)
+      .header("Content-Disposition", `inline; filename="blog-image.${ext}"`)
+      .header("Content-Length", data.length)
+      .header("Cache-Control", "public, max-age=86400, immutable");
+
+    return reply.send(data);
+  });
 
   /**
    * GET /v1/blog/posts

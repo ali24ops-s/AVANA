@@ -56,6 +56,9 @@ export type UserResource = {
   role: Role;
   phoneNumber?: string | null;
   major?: string | null;
+  university?: string | null;
+  faculty?: string | null;
+  department?: string | null;
   emailVerified?: boolean;
   phoneVerified?: boolean;
   isVerified?: boolean;
@@ -220,6 +223,9 @@ export type RegisterRequest = {
   lastName?: string;
   phoneNumber?: string;
   major?: string | null;
+  university?: string | null;
+  faculty?: string | null;
+  department?: string | null;
   referralCode?: string;
 };
 

@@ -427,6 +427,36 @@ export function formatPersianExamTimeRange(
 }
 
 /**
+ * Formats remaining seconds into a clean, concise Persian countdown string:
+ * - If >= 24 hours: "X روز و Y ساعت"
+ * - If >= 1 hour: "HH:MM:SS" (Persian digits)
+ * - If < 1 hour: "MM:SS" (Persian digits)
+ */
+export function formatRemainingCountdown(seconds: number): string {
+  const totalSec = Math.max(0, Math.floor(seconds));
+  const days = Math.floor(totalSec / 86400);
+  const hours = Math.floor((totalSec % 86400) / 3600);
+  const minutes = Math.floor((totalSec % 3600) / 60);
+  const secs = totalSec % 60;
+
+  if (days > 0) {
+    if (hours > 0) {
+      return `${toPersianDigits(days)} روز و ${toPersianDigits(hours)} ساعت`;
+    }
+    return `${toPersianDigits(days)} روز`;
+  }
+  if (hours > 0) {
+    const hStr = String(hours).padStart(2, "0");
+    const mStr = String(minutes).padStart(2, "0");
+    const sStr = String(secs).padStart(2, "0");
+    return toPersianDigits(`${hStr}:${mStr}:${sStr}`);
+  }
+  const mStr = String(minutes).padStart(2, "0");
+  const sStr = String(secs).padStart(2, "0");
+  return toPersianDigits(`${mStr}:${sStr}`);
+}
+
+/**
  * Formats the student-facing schedule notice string:
  * e.g. "آزمون در تاریخ ۱۵ مهر ۱۴۰۵ از ساعت ۱۰:۰۰ تا ۱۱:۳۰ برگزار می‌شود."
  */

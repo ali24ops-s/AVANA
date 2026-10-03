@@ -3,6 +3,7 @@ import {
   asUserId,
   asOrganizationId,
   type Actor,
+  type UserId,
   type AuthorizationPolicy,
   type Classroom,
   type ClassroomAssignment,
@@ -23,6 +24,8 @@ import type {
 } from "../stores.js";
 import type { OrganizationStore } from "../../organizations/organization-store.js";
 import type { UserStore } from "../../identity/user-store.js";
+import type { NotificationService } from "../../notifications/notification-service.js";
+import type { StorageProvider } from "../../storage/storage-provider.js";
 
 export interface TeacherAssignmentListItemDTO {
   id: string;
@@ -63,6 +66,9 @@ export interface StudentSubmissionDetailItem {
   submission: {
     id: string;
     answerText: string;
+    attachmentUrl?: string | null;
+    attachmentName?: string | null;
+    attachmentSizeBytes?: number | null;
     submittedAt: string;
   } | null;
 }
@@ -85,7 +91,77 @@ export class AssignmentService {
     private readonly organizationStore: OrganizationStore,
     private readonly userStore: UserStore,
     public readonly policy: AuthorizationPolicy = defaultPolicy,
+    private readonly notificationService?: NotificationService,
+    private readonly storageProvider?: StorageProvider,
   ) {}
+
+  /**
+   * Extracts storage key from an attachment URL.
+   */
+  private extractStorageKey(url?: string | null): string | null {
+    if (!url) return null;
+    if (url.startsWith("assignments/")) return url;
+    const match = url.match(/\/attachments\/(.+)$/);
+    if (match && match[1]) {
+      return decodeURIComponent(match[1]);
+    }
+    return null;
+  }
+
+  /**
+   * Verifies if an actor is authorized to access a given assignment attachment.
+   * Access is allowed if:
+   * 1. Actor is a platform admin.
+   * 2. Actor is the student owner who uploaded the attachment namespace (assignments/<studentId>/...).
+   * 3. Actor is the student owner of the submission referencing this attachment.
+   * 4. Actor is the classroom teacher (or organization admin) for the assignment.
+   */
+  async verifyAttachmentAccess(
+    actor: Actor,
+    storageKey: string,
+  ): Promise<void> {
+    if (
+      actor.globalRole === "platform_admin" ||
+      actor.role === "platform_admin"
+    ) {
+      return;
+    }
+
+    // Direct namespace check if student ID is in storageKey (assignments/<studentId>/...)
+    if (storageKey.startsWith(`assignments/${actor.userId}/`)) {
+      return;
+    }
+
+    // Check submission ownership and classroom teacher access
+    const submission = await this.submissionStore.findByAttachmentUrl(storageKey);
+    if (!submission) {
+      throw new DomainError(
+        "forbidden",
+        "شما اجازه دسترسی به این فایل پیوست را ندارید.",
+      );
+    }
+
+    // Student owner
+    if (submission.studentId === actor.userId) {
+      return;
+    }
+
+    // Classroom teacher or org admin
+    const assignment = await this.assignmentStore.getById(submission.assignmentId);
+    if (assignment) {
+      try {
+        await this.assertTeacherClassroomAccess(actor, assignment.classroomId);
+        return;
+      } catch {
+        // Fall through to forbidden error
+      }
+    }
+
+    throw new DomainError(
+      "forbidden",
+      "شما اجازه دسترسی به این فایل پیوست را ندارید.",
+    );
+  }
 
 
   /**
@@ -157,6 +233,17 @@ export class AssignmentService {
       archivedAt: null,
     });
 
+    if (assignment.status === "published") {
+      await this.dispatchToActiveMembers(assignment.classroomId, async (studentIds, cl) => {
+        await this.notificationService!.notifyClassroomAssignmentPublished(studentIds, {
+          assignmentId: assignment.id,
+          classroomId: assignment.classroomId,
+          assignmentTitle: assignment.title,
+          classTitle: cl.title,
+        });
+      });
+    }
+
     return assignment;
   }
 
@@ -180,17 +267,48 @@ export class AssignmentService {
     }
 
     const input = validateUpdateAssignmentInput(raw);
+    const wasPublished = assignment.status === "published";
+    const willBePublished = (input.status ?? assignment.status) === "published";
+    const dueAtChanged = input.dueAt !== undefined && input.dueAt !== assignment.dueAt;
+    const becamePublished = !wasPublished && willBePublished;
 
-    const updated = await this.assignmentStore.update(assignmentId, {
-      title: input.title,
-      description: input.description,
-      startsAt: input.startsAt,
-      dueAt: input.dueAt,
-      status: input.status,
-    });
+    const patch: Partial<
+      Omit<
+        ClassroomAssignment,
+        "id" | "classroomId" | "teacherId" | "createdAt" | "updatedAt"
+      >
+    > = {};
+    if (input.title !== undefined) patch.title = input.title;
+    if (input.description !== undefined) patch.description = input.description;
+    if (input.startsAt !== undefined) patch.startsAt = input.startsAt;
+    if (input.dueAt !== undefined) patch.dueAt = input.dueAt;
+    if (input.status !== undefined) patch.status = input.status;
+
+    const updated = await this.assignmentStore.update(assignmentId, patch);
 
     if (!updated) {
       throw new DomainError("not_found", "تکلیف یافت نشد");
+    }
+
+    if (becamePublished) {
+      await this.dispatchToActiveMembers(updated.classroomId, async (studentIds, cl) => {
+        await this.notificationService!.notifyClassroomAssignmentPublished(studentIds, {
+          assignmentId: updated.id,
+          classroomId: updated.classroomId,
+          assignmentTitle: updated.title,
+          classTitle: cl.title,
+        });
+      });
+    } else if (willBePublished && dueAtChanged) {
+      await this.dispatchToActiveMembers(updated.classroomId, async (studentIds, cl) => {
+        await this.notificationService!.notifyClassroomAssignmentDueChanged(studentIds, {
+          assignmentId: updated.id,
+          classroomId: updated.classroomId,
+          assignmentTitle: updated.title,
+          classTitle: cl.title,
+          dueAt: updated.dueAt,
+        });
+      });
     }
 
     return updated;
@@ -216,6 +334,15 @@ export class AssignmentService {
 
     const updated = await this.assignmentStore.update(assignmentId, {
       status: "published",
+    });
+
+    await this.dispatchToActiveMembers(updated!.classroomId, async (studentIds, cl) => {
+      await this.notificationService!.notifyClassroomAssignmentPublished(studentIds, {
+        assignmentId: updated!.id,
+        classroomId: updated!.classroomId,
+        assignmentTitle: updated!.title,
+        classTitle: cl.title,
+      });
     });
 
     return updated!;
@@ -261,7 +388,36 @@ export class AssignmentService {
       archivedAt: new Date().toISOString(),
     });
 
+    if (assignment.status === "published") {
+      await this.dispatchToActiveMembers(updated!.classroomId, async (studentIds, cl) => {
+        await this.notificationService!.notifyClassroomAssignmentArchived(studentIds, {
+          assignmentId: updated!.id,
+          classroomId: updated!.classroomId,
+          assignmentTitle: updated!.title,
+          classTitle: cl.title,
+        });
+      });
+    }
+
     return updated!;
+  }
+
+  private async dispatchToActiveMembers(
+    classroomId: string,
+    callback: (studentIds: UserId[], classroom: Classroom) => Promise<unknown>,
+  ): Promise<void> {
+    if (!this.memberStore || !this.notificationService) return;
+    try {
+      const classroom = await this.classroomStore.getById(classroomId);
+      if (!classroom) return;
+      const members = await this.memberStore.listMembers(classroomId, "active");
+      const studentIds = members.map((m) => asUserId(m.studentId));
+      if (studentIds.length === 0) return;
+      await callback(studentIds, classroom);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("[AssignmentService] Graceful notification dispatch error:", err);
+    }
   }
 
   /**
@@ -398,6 +554,9 @@ export class AssignmentService {
           ? {
               id: sub.id,
               answerText: sub.answerText,
+              attachmentUrl: sub.attachmentUrl ?? null,
+              attachmentName: sub.attachmentName ?? null,
+              attachmentSizeBytes: sub.attachmentSizeBytes ?? null,
               submittedAt: sub.submittedAt,
             }
           : null,
@@ -560,11 +719,31 @@ export class AssignmentService {
 
     const input = validateSubmitAssignmentInput(raw);
 
+    // Lifecycle cleanup: delete old attachment file if it was replaced or removed
+    const existingSubmission = await this.submissionStore.get(assignmentId, actor.userId);
+    if (
+      existingSubmission?.attachmentUrl &&
+      existingSubmission.attachmentUrl !== input.attachmentUrl &&
+      this.storageProvider
+    ) {
+      const oldStorageKey = this.extractStorageKey(existingSubmission.attachmentUrl);
+      if (oldStorageKey) {
+        try {
+          await this.storageProvider.delete(oldStorageKey);
+        } catch {
+          // Gracefully continue even if storage delete fails
+        }
+      }
+    }
+
     const submission = await this.submissionStore.upsert({
       id: crypto.randomUUID(),
       assignmentId,
       studentId: actor.userId,
-      answerText: input.answerText,
+      answerText: input.answerText ?? "",
+      attachmentUrl: input.attachmentUrl ?? null,
+      attachmentName: input.attachmentName ?? null,
+      attachmentSizeBytes: input.attachmentSizeBytes ?? null,
       status: "submitted",
     });
 

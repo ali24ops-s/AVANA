@@ -18,6 +18,7 @@ import {
   X,
   ChevronLeft,
   ShieldCheck,
+  MessageSquare,
 } from "lucide-react";
 import { BrandLogo } from "../brand/BrandLogo.js";
 import { useAuth } from "../../providers/AuthProvider.js";
@@ -65,6 +66,7 @@ export function TeacherShell() {
   const isDashboardActive =
     location.pathname === "/teacher" || location.pathname === "/teacher/";
   const isClassroomsActive = location.pathname.startsWith("/teacher/classrooms");
+  const isMessagesActive = location.pathname.startsWith("/teacher/messages");
 
   return (
     <TeacherOrganizationProvider>
@@ -94,6 +96,11 @@ export function TeacherShell() {
                 <TeacherNavLink to="/teacher/classrooms" active={isClassroomsActive}>
                   <Users className="w-4 h-4" />
                   <span>کلاس‌های من</span>
+                </TeacherNavLink>
+
+                <TeacherNavLink to="/teacher/messages" active={isMessagesActive}>
+                  <MessageSquare className="w-4 h-4" />
+                  <span>پیام‌های دانشجویان</span>
                 </TeacherNavLink>
               </nav>
             </div>
@@ -261,6 +268,15 @@ export function TeacherShell() {
                 <span>کلاس‌های من</span>
               </MobileTeacherLink>
 
+              <MobileTeacherLink
+                to="/teacher/messages"
+                active={isMessagesActive}
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                <MessageSquare className="w-5 h-5" />
+                <span>پیام‌های دانشجویان</span>
+              </MobileTeacherLink>
+
               <div className="my-2 border-t border-[var(--color-border)]" />
 
               <MobileTeacherLink
@@ -324,6 +340,16 @@ export function TeacherShell() {
         >
           <Users className="w-5 h-5 mb-0.5" />
           <span className="text-[10px]">کلاس‌ها</span>
+        </Link>
+
+        <Link
+          to="/teacher/messages"
+          className={`flex flex-col items-center justify-center w-full h-full text-xs font-medium ${
+            isMessagesActive ? "text-[#008080] font-bold" : "text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+          }`}
+        >
+          <MessageSquare className="w-5 h-5 mb-0.5" />
+          <span className="text-[10px]">پیام‌ها</span>
         </Link>
 
         <Link

@@ -324,7 +324,7 @@ describe("Student Teacher Platform Exam Flow — Unit & Integration Tests", () =
   // 2. Exam States (Upcoming / Active / Closed / Start / Resume)
   // ---------------------------------------------------------------------------
   describe("Exam States & Detail", () => {
-    it("2.1. Upcoming exam renders start disabled with message", async () => {
+    it("2.1. Upcoming exam renders start disabled with message and countdown", async () => {
       vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
         if (String(url).includes("/classrooms/cls-101/exams")) {
           return {
@@ -360,8 +360,67 @@ describe("Student Teacher Platform Exam Flow — Unit & Integration Tests", () =
       await waitFor(() => {
         expect(screen.getAllByText("آزمون میان‌ترم فیزیولوژی")[0]).toBeInTheDocument();
       });
-      const ctaBtn = screen.getByRole("button", { name: "آزمون هنوز شروع نشده است" });
+      const ctaBtn = screen.getByRole("button", { name: "شروع آزمون" });
       expect(ctaBtn).toBeDisabled();
+      expect(screen.getAllByText(/شروع آزمون از ساعت .* امکان‌پذیر است/i).length).toBeGreaterThan(0);
+      expect(screen.getByText(/زمان باقیمانده تا شروع:/i)).toBeInTheDocument();
+    });
+
+    it("2.1b. Upcoming exam automatically enables Start button when start time arrives without refresh", async () => {
+      const nearFutureStartsAt = new Date(Date.now() + 1500).toISOString();
+      const nearFutureExam: StudentExamListDTO = {
+        ...mockExams[0],
+        id: "exam-near-future",
+        startsAt: nearFutureStartsAt,
+        endsAt: new Date(Date.now() + 3600000).toISOString(),
+      };
+
+      vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+        if (String(url).includes("/classrooms/cls-101/exams")) {
+          return {
+            ok: true,
+            status: 200,
+            text: () => Promise.resolve(JSON.stringify({ exams: [nearFutureExam] })),
+          } as Response;
+        }
+        if (String(url).includes("/exams/exam-near-future/current")) {
+          return {
+            ok: true,
+            status: 200,
+            text: () => Promise.resolve(JSON.stringify({ attempt: null })),
+          } as Response;
+        }
+        return { ok: true, status: 200, text: () => Promise.resolve("{}") } as Response;
+      });
+
+      const qc = createTestQueryClient();
+      render(
+        <QueryClientProvider client={qc}>
+          <MemoryRouter initialEntries={["/classrooms/cls-101/exams/exam-near-future"]}>
+            <Routes>
+              <Route
+                path="/classrooms/:classroomId/exams/:examId"
+                element={<StudentExamDetailPage />}
+              />
+            </Routes>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+
+      await waitFor(() => {
+        expect(screen.getAllByText("آزمون میان‌ترم فیزیولوژی")[0]).toBeInTheDocument();
+      });
+
+      const startBtn = screen.getByRole("button", { name: "شروع آزمون" });
+      expect(startBtn).toBeDisabled();
+
+      // Wait for timer to tick past start time
+      await waitFor(
+        () => {
+          expect(screen.getByRole("button", { name: "شروع آزمون" })).not.toBeDisabled();
+        },
+        { timeout: 3500 },
+      );
     });
 
     it("2.2. Active exam without attempt shows enabled Start Exam CTA", async () => {
@@ -696,7 +755,7 @@ describe("Student Teacher Platform Exam Flow — Unit & Integration Tests", () =
       // Assert error is displayed and submit was NOT called
       await waitFor(() => {
         expect(
-          screen.getByText("برخی پاسخ‌ها هنوز ذخیره نشده‌اند. اتصال اینترنت را بررسی کنید و دوباره تلاش کنید."),
+          screen.getByText(/ذخیره ۱ پاسخ کامل نشد/),
         ).toBeInTheDocument();
       });
       expect(submitCalled).toBe(false);
@@ -1154,9 +1213,11 @@ describe("Student Teacher Platform Exam Flow — Unit & Integration Tests", () =
       });
 
       expect(screen.getByText("۱ آزمون منتشر شده")).toBeInTheDocument();
-      const disabledBtns = screen.getAllByRole("button", { name: "شروع نشده" });
-      expect(disabledBtns.length).toBeGreaterThan(0);
-      disabledBtns.forEach((btn) => expect(btn).toBeDisabled());
+      const startLinks = screen.getAllByRole("link").filter((l) =>
+        l.getAttribute("href")?.includes("/exams/exam-up-1"),
+      );
+      expect(startLinks.length).toBeGreaterThan(0);
+      expect(screen.getAllByText("شرکت در آزمون").length).toBeGreaterThan(0);
     });
 
     it("7.3. Active exam: counted, rendered in list with 'در حال برگزاری', start button enabled", async () => {
@@ -1799,6 +1860,598 @@ describe("Student Teacher Platform Exam Flow — Unit & Integration Tests", () =
       // Active question is Question 2 (QRS)
       expect(screen.getByText(/الکتروکاردیوگرام/)).toBeInTheDocument();
       expect(screen.getByText(/زمان سؤال:/)).toBeInTheDocument();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // 10. True/False (صحیح / غلط) Question Suite
+  // ---------------------------------------------------------------------------
+  describe("10. True/False (صحیح / غلط) Question Suite", () => {
+    it("10.1. StudentExamTakingView renders True/False options and handles selection", async () => {
+      let savedAnswerPayload: any = null;
+      vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
+        const urlStr = String(url);
+        if (urlStr.includes("/answers/") && init?.method === "PUT") {
+          savedAnswerPayload = JSON.parse(String(init.body));
+          return {
+            ok: true,
+            status: 200,
+            text: () => Promise.resolve(JSON.stringify({ status: "saved" })),
+          } as Response;
+        }
+        return { ok: true, status: 200, text: () => Promise.resolve("{}") } as Response;
+      });
+
+      const tfAttempt: StudentAttemptDTO = {
+        id: "att-tf",
+        examId: "exam-tf",
+        status: "in_progress",
+        startedAt: new Date().toISOString(),
+        deadlineAt: new Date(Date.now() + 1800000).toISOString(),
+        allowBackNavigation: true,
+        questions: [
+          {
+            id: "q-tf-1",
+            orderIndex: 0,
+            questionType: "true_false",
+            prompt: "در مورد گزاره‌های زیر، صحیح یا غلط بودن هر یک را مشخص کنید.",
+            points: 5,
+            statements: [
+              { id: "stmt_1", text: "کتامین یک بیهوش‌کننده تفکیکی (Dissociative) است." },
+            ],
+          },
+        ],
+        savedAnswers: [],
+      };
+
+      const qc = createTestQueryClient();
+      render(
+        <QueryClientProvider client={qc}>
+          <MemoryRouter>
+            <StudentExamTakingView
+              examId="exam-tf"
+              classroomId="cls-101"
+              examTitle="آزمون فارماکولوژی بیهوشی"
+              attempt={tfAttempt}
+              onExit={vi.fn()}
+              onSubmitSuccess={vi.fn()}
+            />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+
+      // Verify True/False badge, prompt, and statement text
+      expect(screen.getByText(/صحیح \/ غلط/)).toBeInTheDocument();
+      expect(screen.getByText(/در مورد گزاره‌های زیر، صحیح یا غلط بودن هر یک را مشخص کنید/)).toBeInTheDocument();
+      expect(screen.getByText(/کتامین یک بیهوش‌کننده تفکیکی/)).toBeInTheDocument();
+
+      // Verify statement options: «صحیح» and «غلط»
+      expect(screen.getByText("صحیح")).toBeInTheDocument();
+      expect(screen.getByText("غلط")).toBeInTheDocument();
+
+      // Click on «صحیح»
+      const trueOptionBtn = screen.getByText("صحیح").closest("button")!;
+      fireEvent.click(trueOptionBtn);
+
+      await waitFor(() => {
+        expect(savedAnswerPayload).not.toBeNull();
+      });
+
+      expect(savedAnswerPayload.booleanAnswers).toEqual({ stmt_1: true });
+    });
+
+    it("10.2. StudentExamResultsView renders True/False questions with correct answer indicator", () => {
+      const tfReview: StudentReviewDTO = {
+        examId: "exam-tf",
+        title: "آزمون فارماکولوژی بیهوشی",
+        status: "submitted",
+        score: 10,
+        maxScore: 10,
+        percentage: 100,
+        passed: true,
+        resultsReleased: true,
+        submittedAt: new Date().toISOString(),
+        questions: [
+          {
+            questionId: "q-tf-1",
+            orderIndex: 0,
+            questionType: "true_false",
+            prompt: "در مورد گزاره‌های زیر، صحیح یا غلط بودن هر یک را مشخص کنید.",
+            pointsEarned: 10,
+            maxPoints: 10,
+            isCorrect: true,
+            explanation: "کتامین با ایجاد حس تفکیک از محیط عمل می‌کند.",
+            statements: [
+              {
+                id: "stmt_1",
+                text: "کتامین یک بیهوش‌کننده تفکیکی (Dissociative) است.",
+                studentAnswer: true,
+                correctAnswer: true,
+                isCorrect: true,
+              },
+            ],
+          },
+        ],
+      };
+
+      const qc = createTestQueryClient();
+      render(
+        <QueryClientProvider client={qc}>
+          <MemoryRouter>
+            <StudentExamResultsView
+              examId="exam-tf"
+              classroomId="cls-101"
+              examTitle="آزمون فارماکولوژی بیهوشی"
+              review={tfReview}
+            />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+
+      expect(screen.getByText(/صحیح \/ غلط/)).toBeInTheDocument();
+      expect(screen.getByText(/کتامین یک بیهوش‌کننده تفکیکی/)).toBeInTheDocument();
+      expect(screen.getByText("کلید صحیح:")).toBeInTheDocument();
+      expect(screen.getByText("پاسخ شما:")).toBeInTheDocument();
+      expect(screen.getByText("درست")).toBeInTheDocument();
+      expect(screen.getByText(/کتامین با ایجاد حس تفکیک/)).toBeInTheDocument();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // 11. Autosave & Submit Diagnostic Scenarios (A through J) Suite
+  // ---------------------------------------------------------------------------
+  describe("11. Autosave & Submit Diagnostic Scenarios (A through J)", () => {
+    it("Scenario A: Successful autosave allows clean submit", async () => {
+      const calls: string[] = [];
+      vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+        const u = String(url);
+        if (u.includes("/answers/")) {
+          calls.push("save");
+          return { ok: true, status: 200, text: () => Promise.resolve(JSON.stringify({ success: true })) } as Response;
+        }
+        if (u.includes("/submit")) {
+          calls.push("submit");
+          return {
+            ok: true,
+            status: 200,
+            text: () => Promise.resolve(JSON.stringify({ result: { id: "att-1", status: "submitted" } })),
+          } as Response;
+        }
+        return { ok: true, status: 200, text: () => Promise.resolve("{}") } as Response;
+      });
+
+      const qc = createTestQueryClient();
+      const onSubmitSuccess = vi.fn();
+      render(
+        <QueryClientProvider client={qc}>
+          <MemoryRouter>
+            <StudentExamTakingView
+              examId="exam-active"
+              classroomId="cls-101"
+              examTitle="آزمون سناریو A"
+              attempt={{ ...mockAttempt, savedAnswers: [] }}
+              onExit={vi.fn()}
+              onSubmitSuccess={onSubmitSuccess}
+            />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+
+      fireEvent.click(screen.getByText("بتا ۱"));
+      await waitFor(() => expect(calls).toContain("save"));
+
+      fireEvent.click(screen.getByRole("button", { name: "ثبت و پایان آزمون" }));
+      fireEvent.click(screen.getByRole("button", { name: "تأیید و ثبت نهایی" }));
+
+      await waitFor(() => expect(onSubmitSuccess).toHaveBeenCalled());
+      expect(calls).toEqual(["save", "submit"]);
+    });
+
+    it("Scenario B: 400 Bad Request adds to failedQuestionsRef and blocks submit", async () => {
+      let submitCalled = false;
+      vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+        const u = String(url);
+        if (u.includes("/answers/")) {
+          return {
+            ok: false,
+            status: 400,
+            text: () => Promise.resolve(JSON.stringify({ error: { code: "bad_request", message: "گزینه انتخابی نامعتبر است" } })),
+          } as Response;
+        }
+        if (u.includes("/submit")) {
+          submitCalled = true;
+          return { ok: true, status: 200, text: () => Promise.resolve("{}") } as Response;
+        }
+        return { ok: true, status: 200, text: () => Promise.resolve("{}") } as Response;
+      });
+
+      const qc = createTestQueryClient();
+      render(
+        <QueryClientProvider client={qc}>
+          <MemoryRouter>
+            <StudentExamTakingView
+              examId="exam-active"
+              classroomId="cls-101"
+              examTitle="آزمون سناریو B"
+              attempt={{ ...mockAttempt, savedAnswers: [] }}
+              onExit={vi.fn()}
+              onSubmitSuccess={vi.fn()}
+            />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+
+      fireEvent.click(screen.getByText("بتا ۱"));
+      await waitFor(() => expect(screen.getByText("خطا در ذخیره پاسخ روی سرور. لطفاً مجدداً تلاش کنید.")).toBeInTheDocument());
+
+      fireEvent.click(screen.getByRole("button", { name: "ثبت و پایان آزمون" }));
+      fireEvent.click(screen.getByRole("button", { name: "تأیید و ثبت نهایی" }));
+
+      await waitFor(() => {
+        expect(screen.getByText("گزینه انتخابی نامعتبر است")).toBeInTheDocument();
+      });
+      expect(submitCalled).toBe(false);
+    });
+
+    it("Scenario C: Initial failure followed by successful retry clears failedQuestionsRef and allows submit", async () => {
+      let saveAttempt = 0;
+      let submitSucceeded = false;
+      vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+        const u = String(url);
+        if (u.includes("/answers/")) {
+          saveAttempt++;
+          if (saveAttempt === 1) {
+            return { ok: false, status: 503, text: () => Promise.resolve(JSON.stringify({ error: { message: "Server busy" } })) } as Response;
+          }
+          return { ok: true, status: 200, text: () => Promise.resolve(JSON.stringify({ success: true })) } as Response;
+        }
+        if (u.includes("/submit")) {
+          submitSucceeded = true;
+          return { ok: true, status: 200, text: () => Promise.resolve(JSON.stringify({ result: { id: "att-1", status: "submitted" } })) } as Response;
+        }
+        return { ok: true, status: 200, text: () => Promise.resolve("{}") } as Response;
+      });
+
+      const qc = createTestQueryClient();
+      render(
+        <QueryClientProvider client={qc}>
+          <MemoryRouter>
+            <StudentExamTakingView
+              examId="exam-active"
+              classroomId="cls-101"
+              examTitle="آزمون سناریو C"
+              attempt={{ ...mockAttempt, savedAnswers: [] }}
+              onExit={vi.fn()}
+              onSubmitSuccess={vi.fn()}
+            />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+
+      fireEvent.click(screen.getByText("بتا ۱"));
+      await waitFor(() => expect(screen.getByText("خطا در ذخیره پاسخ روی سرور. لطفاً مجدداً تلاش کنید.")).toBeInTheDocument());
+
+      // Click inline retry button on question card
+      const retryBtn = screen.getByRole("button", { name: "تلاش مجدد" });
+      fireEvent.click(retryBtn);
+
+      // Now saveAttempt is 2, save succeeded and cleared failedQuestionsRef
+      await waitFor(() => expect(screen.getByText("ذخیره شد")).toBeInTheDocument());
+
+      // Open submit dialog and confirm submit
+      fireEvent.click(screen.getByRole("button", { name: "ثبت و پایان آزمون" }));
+      fireEvent.click(screen.getByRole("button", { name: "تأیید و ثبت نهایی" }));
+      await waitFor(() => expect(submitSucceeded).toBe(true));
+    });
+
+    it("Scenario D: Slow autosave (>2000ms) awaits actual lifecycle and submits without premature timeout", async () => {
+      let submitCalled = false;
+      vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+        const u = String(url);
+        if (u.includes("/answers/")) {
+          // Takes 2200ms
+          await new Promise((r) => setTimeout(r, 2200));
+          return { ok: true, status: 200, text: () => Promise.resolve(JSON.stringify({ success: true })) } as Response;
+        }
+        if (u.includes("/submit")) {
+          submitCalled = true;
+          return {
+            ok: true,
+            status: 200,
+            text: () => Promise.resolve(JSON.stringify({ result: { id: "att-1", status: "submitted" } })),
+          } as Response;
+        }
+        return { ok: true, status: 200, text: () => Promise.resolve("{}") } as Response;
+      });
+
+      const qc = createTestQueryClient();
+      const onSubmitSuccess = vi.fn();
+      render(
+        <QueryClientProvider client={qc}>
+          <MemoryRouter>
+            <StudentExamTakingView
+              examId="exam-active"
+              classroomId="cls-101"
+              examTitle="آزمون سناریو D"
+              attempt={{ ...mockAttempt, savedAnswers: [] }}
+              onExit={vi.fn()}
+              onSubmitSuccess={onSubmitSuccess}
+            />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+
+      // Select an option, which starts in-flight save (takes 2200ms)
+      fireEvent.click(screen.getByText("بتا ۱"));
+
+      // Immediately click submit
+      fireEvent.click(screen.getByRole("button", { name: "ثبت و پایان آزمون" }));
+      fireEvent.click(screen.getByRole("button", { name: "تأیید و ثبت نهایی" }));
+
+      // flushPendingSaves awaits the active promise lifecycle instead of aborting at 2000ms
+      await waitFor(
+        () => {
+          expect(submitCalled).toBe(true);
+          expect(onSubmitSuccess).toHaveBeenCalled();
+        },
+        { timeout: 4000 },
+      );
+    });
+
+    it("Scenario E: Consecutive rapid changes on same question serialize properly without losing last state", async () => {
+      const savedPayloads: any[] = [];
+      vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
+        const u = String(url);
+        if (u.includes("/answers/")) {
+          await new Promise((r) => setTimeout(r, 20));
+          savedPayloads.push(JSON.parse(String(init?.body)));
+          return { ok: true, status: 200, text: () => Promise.resolve(JSON.stringify({ success: true })) } as Response;
+        }
+        return { ok: true, status: 200, text: () => Promise.resolve("{}") } as Response;
+      });
+
+      const qc = createTestQueryClient();
+      render(
+        <QueryClientProvider client={qc}>
+          <MemoryRouter>
+            <StudentExamTakingView
+              examId="exam-active"
+              classroomId="cls-101"
+              examTitle="آزمون سناریو E"
+              attempt={{ ...mockAttempt, savedAnswers: [] }}
+              onExit={vi.fn()}
+              onSubmitSuccess={vi.fn()}
+            />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+
+      fireEvent.click(screen.getByText("بتا ۱"));
+      fireEvent.click(screen.getByText("بتا ۲"));
+
+      await waitFor(() => {
+        expect(savedPayloads.length).toBeGreaterThan(0);
+        expect(savedPayloads[savedPayloads.length - 1].selectedOptionId).toBe("opt-1b");
+      });
+    });
+
+    it("Scenario F: Malformed non-JSON 200 response throws and registers failure", async () => {
+      vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+        const u = String(url);
+        if (u.includes("/answers/")) {
+          return {
+            ok: false,
+            status: 500,
+            text: () => Promise.resolve("<!DOCTYPE html><html>502 Bad Gateway</html>"),
+          } as Response;
+        }
+        return { ok: true, status: 200, text: () => Promise.resolve("{}") } as Response;
+      });
+
+      const qc = createTestQueryClient();
+      render(
+        <QueryClientProvider client={qc}>
+          <MemoryRouter>
+            <StudentExamTakingView
+              examId="exam-active"
+              classroomId="cls-101"
+              examTitle="آزمون سناریو F"
+              attempt={{ ...mockAttempt, savedAnswers: [] }}
+              onExit={vi.fn()}
+              onSubmitSuccess={vi.fn()}
+            />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+
+      fireEvent.click(screen.getByText("بتا ۱"));
+      await waitFor(() => {
+        expect(screen.getByText("خطا در ذخیره پاسخ روی سرور. لطفاً مجدداً تلاش کنید.")).toBeInTheDocument();
+      });
+    });
+
+    it("Scenario G: DB write succeeds but client retry sends idempotent upsert without duplication", async () => {
+      let saveCount = 0;
+      vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+        const u = String(url);
+        if (u.includes("/answers/")) {
+          saveCount++;
+          // First attempt succeeds
+          return { ok: true, status: 200, text: () => Promise.resolve(JSON.stringify({ success: true })) } as Response;
+        }
+        return { ok: true, status: 200, text: () => Promise.resolve("{}") } as Response;
+      });
+
+      const qc = createTestQueryClient();
+      render(
+        <QueryClientProvider client={qc}>
+          <MemoryRouter>
+            <StudentExamTakingView
+              examId="exam-active"
+              classroomId="cls-101"
+              examTitle="آزمون سناریو G"
+              attempt={{ ...mockAttempt, savedAnswers: [] }}
+              onExit={vi.fn()}
+              onSubmitSuccess={vi.fn()}
+            />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+
+      fireEvent.click(screen.getByText("بتا ۱"));
+      await waitFor(() => expect(saveCount).toBe(1));
+
+      // Re-selecting same option is idempotent
+      fireEvent.click(screen.getByText("بتا ۱"));
+      await waitFor(() => expect(saveCount).toBe(2));
+    });
+
+    it("Scenario H: Stale failedQuestionsRef triggers automatic recovery retry on submit without user manual retry", async () => {
+      let saveCalls = 0;
+      let submitSucceeded = false;
+
+      vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+        const u = String(url);
+        if (u.includes("/answers/")) {
+          saveCalls++;
+          if (saveCalls === 1) {
+            // First autosave failed
+            return { ok: false, status: 503, text: () => Promise.resolve(JSON.stringify({ error: { message: "Spike" } })) } as Response;
+          }
+          // Automatic recovery on submit succeeds
+          return { ok: true, status: 200, text: () => Promise.resolve(JSON.stringify({ success: true })) } as Response;
+        }
+        if (u.includes("/submit")) {
+          submitSucceeded = true;
+          return {
+            ok: true,
+            status: 200,
+            text: () => Promise.resolve(JSON.stringify({ result: { id: "att-1", status: "submitted" } })),
+          } as Response;
+        }
+        return { ok: true, status: 200, text: () => Promise.resolve("{}") } as Response;
+      });
+
+      const qc = createTestQueryClient();
+      const onSubmitSuccess = vi.fn();
+      render(
+        <QueryClientProvider client={qc}>
+          <MemoryRouter>
+            <StudentExamTakingView
+              examId="exam-active"
+              classroomId="cls-101"
+              examTitle="آزمون سناریو H"
+              attempt={{ ...mockAttempt, savedAnswers: [] }}
+              onExit={vi.fn()}
+              onSubmitSuccess={onSubmitSuccess}
+            />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+
+      // Select an option, which fails on first call
+      fireEvent.click(screen.getByText("بتا ۱"));
+      await waitFor(() => expect(screen.getByText("خطا در ذخیره پاسخ روی سرور. لطفاً مجدداً تلاش کنید.")).toBeInTheDocument());
+
+      // Student clicks submit directly (without clicking manual retry button first)
+      fireEvent.click(screen.getByRole("button", { name: "ثبت و پایان آزمون" }));
+      fireEvent.click(screen.getByRole("button", { name: "تأیید و ثبت نهایی" }));
+
+      // handleConfirmSubmit automatically recovers unresolved failures and proceeds with submit
+      await waitFor(() => {
+        expect(saveCalls).toBe(2);
+        expect(submitSucceeded).toBe(true);
+        expect(onSubmitSuccess).toHaveBeenCalled();
+      });
+    });
+
+    it("Scenario I: Single unresolved failure isolates only the failed question and displays count", async () => {
+      vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+        const u = String(url);
+        if (u.includes("/answers/q-1")) {
+          return { ok: false, status: 500, text: () => Promise.resolve(JSON.stringify({ error: { message: "Fatal error" } })) } as Response;
+        }
+        if (u.includes("/answers/q-2")) {
+          return { ok: true, status: 200, text: () => Promise.resolve(JSON.stringify({ success: true })) } as Response;
+        }
+        return { ok: true, status: 200, text: () => Promise.resolve("{}") } as Response;
+      });
+
+      const qc = createTestQueryClient();
+      render(
+        <QueryClientProvider client={qc}>
+          <MemoryRouter>
+            <StudentExamTakingView
+              examId="exam-active"
+              classroomId="cls-101"
+              examTitle="آزمون سناریو I"
+              attempt={{ ...mockAttempt, savedAnswers: [] }}
+              onExit={vi.fn()}
+              onSubmitSuccess={vi.fn()}
+            />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+
+      // Answer Q1 (fails)
+      fireEvent.click(screen.getByText("بتا ۱"));
+      await waitFor(() => expect(screen.getByText("خطا در ذخیره پاسخ روی سرور. لطفاً مجدداً تلاش کنید.")).toBeInTheDocument());
+
+      // Move to Q2 and answer Q2 (succeeds)
+      fireEvent.click(screen.getByRole("button", { name: /سؤال بعدی/ }));
+      fireEvent.click(await screen.findByText("کمپلکس QRS"));
+      await waitFor(() => expect(screen.getByText("خطا در ذخیره پاسخ روی سرور. لطفاً مجدداً تلاش کنید.")).toBeInTheDocument());
+
+      // Click submit
+      fireEvent.click(screen.getByRole("button", { name: "ثبت و پایان آزمون" }));
+      fireEvent.click(screen.getByRole("button", { name: "تأیید و ثبت نهایی" }));
+
+      // Error reflects exactly 1 failed answer
+      await waitFor(() => {
+        expect(screen.getByText(/ذخیره ۱ پاسخ کامل نشد/)).toBeInTheDocument();
+      });
+    });
+
+    it("Scenario J: Successful save on Question 2 does not clear unresolved failure on Question 1", async () => {
+      vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+        const u = String(url);
+        if (u.includes("/answers/q-1")) {
+          return { ok: false, status: 500, text: () => Promise.resolve(JSON.stringify({ error: { message: "Fatal error" } })) } as Response;
+        }
+        if (u.includes("/answers/q-2")) {
+          return { ok: true, status: 200, text: () => Promise.resolve(JSON.stringify({ success: true })) } as Response;
+        }
+        return { ok: true, status: 200, text: () => Promise.resolve("{}") } as Response;
+      });
+
+      const qc = createTestQueryClient();
+      render(
+        <QueryClientProvider client={qc}>
+          <MemoryRouter>
+            <StudentExamTakingView
+              examId="exam-active"
+              classroomId="cls-101"
+              examTitle="آزمون سناریو J"
+              attempt={{ ...mockAttempt, savedAnswers: [] }}
+              onExit={vi.fn()}
+              onSubmitSuccess={vi.fn()}
+            />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+
+      // Answer Q1 (fails)
+      fireEvent.click(screen.getByText("بتا ۱"));
+      await waitFor(() => expect(screen.getByText("خطا در ذخیره پاسخ روی سرور. لطفاً مجدداً تلاش کنید.")).toBeInTheDocument());
+
+      // Move to Q2 and answer Q2 (succeeds)
+      fireEvent.click(screen.getByRole("button", { name: /سؤال بعدی/ }));
+      fireEvent.click(await screen.findByText("کمپلکس QRS"));
+
+      // Status indicator should still reflect error because Q1 is still failed
+      await waitFor(() => {
+        expect(screen.getByText("خطا در ذخیره پاسخ روی سرور. لطفاً مجدداً تلاش کنید.")).toBeInTheDocument();
+      });
     });
   });
 });

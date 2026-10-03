@@ -166,6 +166,21 @@ export class InMemoryFlashcardStore implements FlashcardStore {
     return undefined;
   }
 
+  async update(record: FlashcardRecord): Promise<FlashcardRecord> {
+    this.flashcards.set(record.id, { ...record });
+    return { ...record };
+  }
+
+  async delete(id: FlashcardId): Promise<void> {
+    const existing = this.flashcards.get(id);
+    if (existing) {
+      this.flashcards.set(id, {
+        ...existing,
+        deletedAt: new Date().toISOString(),
+      });
+    }
+  }
+
   async deleteByDocument(
     documentId: DocumentId,
     organizationId: OrganizationId,

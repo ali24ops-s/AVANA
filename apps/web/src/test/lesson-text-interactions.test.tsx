@@ -120,7 +120,7 @@ describe("Lesson Text Interaction & Selection Feature Suite", () => {
 
       const toolbar = screen.getByRole("toolbar");
       expect(toolbar).toHaveClass("fixed");
-      expect(toolbar).toHaveClass("bottom-4");
+      expect(toolbar).toHaveClass("bottom-20");
     });
   });
 
@@ -792,6 +792,133 @@ describe("Lesson Text Interaction & Selection Feature Suite", () => {
         expect(noteMark).toHaveClass("avana-note");
         expect(noteMark?.getAttribute("data-annotation-type")).toBe("note");
       });
+    });
+
+    it("does not re-apply annotations or mutate DOM on repetitive selectionchange without annotation change", async () => {
+      const mockAnnotations = {
+        items: [
+          {
+            id: "ann-static-1",
+            userId: "user-1",
+            lessonId: "lesson-1",
+            type: "highlight",
+            selectedText: "سفالوسپورین‌ها",
+            startOffset: 0,
+            endOffset: 14,
+            color: "default",
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+        ],
+      };
+
+      vi.spyOn(globalThis, "fetch").mockImplementation((url) => {
+        const urlStr = String(url);
+        if (urlStr.includes("/annotations")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            text: () => Promise.resolve(JSON.stringify(mockAnnotations)),
+          } as unknown as Response);
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          text: () => Promise.resolve(JSON.stringify({})),
+        } as unknown as Response);
+      });
+
+      const lessonMarkdown = "سفالوسپورین‌ها دسته‌ای از آنتی‌بیوتیک‌های بتالاکتام هستند.";
+
+      const { container } = render(
+        <QueryClientProvider client={queryClient}>
+          <LessonInteractiveContent
+            lessonId="lesson-1"
+            courseId="course-1"
+            content={lessonMarkdown}
+          />
+        </QueryClientProvider>,
+      );
+
+      // Wait for initial annotation to render
+      await waitFor(() => {
+        expect(container.querySelector("mark[data-avana-annotation='ann-static-1']")).toBeInTheDocument();
+      });
+
+      const markBefore = container.querySelector("mark[data-avana-annotation='ann-static-1']");
+
+      // Dispatch multiple selectionchange events
+      for (let i = 0; i < 5; i++) {
+        document.dispatchEvent(new Event("selectionchange"));
+      }
+
+      // The mark element reference in DOM should remain stable and NOT be destroyed/rebuilt
+      const markAfter = container.querySelector("mark[data-avana-annotation='ann-static-1']");
+      expect(markAfter).toBe(markBefore);
+    });
+
+    it("handles complex content copy & selection (Persian RTL, KaTeX math, Markdown tables) smoothly without DOM thrashing", async () => {
+      const complexDoc = `# عنوان فارسی درس\n\nاین یک متن فارسی RTL برای بررسی عملکرد **کپی و هایلایت** است.\n\nفرمول واکنش: $Ca^{2+} + 2Cl^- \\rightarrow CaCl_2$\n\n| داروی انتخابی | دوز مصرفی | اثربخشی |\n| :--- | :--- | :--- |\n| آموکسی‌سیلین | ۵۰۰ میلی‌گرم | بالا |\n| سفکسیم | ۴۰۰ میلی‌گرم | متوسط |`;
+
+      const { container } = render(
+        <QueryClientProvider client={queryClient}>
+          <LessonInteractiveContent
+            lessonId="lesson-complex"
+            courseId="course-1"
+            content={complexDoc}
+          />
+        </QueryClientProvider>,
+      );
+
+      // Verify KaTeX and Table are rendered
+      expect(container.querySelector(".rich-content-full")).toBeInTheDocument();
+      expect(container.querySelector("table")).toBeInTheDocument();
+      expect(container.querySelector(".katex")).toBeInTheDocument();
+
+      // Simulate selecting table cell text
+      const td = container.querySelector("td");
+      expect(td).toBeInTheDocument();
+
+      if (td && td.firstChild) {
+        const range = document.createRange();
+        range.setStart(td.firstChild, 0);
+        range.setEnd(td.firstChild, 12);
+        range.getBoundingClientRect = () =>
+          ({
+            width: 80,
+            height: 18,
+            top: 150,
+            bottom: 168,
+            left: 200,
+            right: 280,
+            x: 200,
+            y: 150,
+            toJSON: () => {},
+          }) as DOMRect;
+
+        const mockSel = {
+          isCollapsed: false,
+          rangeCount: 1,
+          getRangeAt: () => range,
+          toString: () => "آموکسی‌سیلین",
+          removeAllRanges: vi.fn(),
+          addRange: vi.fn(),
+        };
+        vi.spyOn(window, "getSelection").mockReturnValue(mockSel as unknown as Selection);
+        document.dispatchEvent(new Event("selectionchange"));
+      }
+
+      // Selection toolbar should appear
+      const toolbar = await screen.findByRole("toolbar");
+      expect(toolbar).toBeInTheDocument();
+
+      // Simulate repetitive Copy keystrokes (Cmd+C / Ctrl+C)
+      fireEvent.keyDown(document, { key: "c", metaKey: true });
+      fireEvent.keyDown(document, { key: "c", ctrlKey: true });
+      document.dispatchEvent(new Event("selectionchange"));
+
+      // Toolbar is still present and stable
+      expect(screen.getByRole("toolbar")).toBeInTheDocument();
     });
   });
 });

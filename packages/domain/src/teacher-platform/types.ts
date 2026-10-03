@@ -14,19 +14,36 @@ export type RuntimeExamState = "upcoming" | "active" | "closed";
 
 export type AttemptStatus = "in_progress" | "submitted" | "timed_out";
 
-export type QuestionType = "single_choice" | "descriptive";
+export type QuestionType = "single_choice" | "descriptive" | "true_false";
 
 export type QuestionGradingStatus = "auto_graded" | "ungraded" | "graded";
 
 export type AttemptGradingStatus = "fully_graded" | "needs_manual_review";
 
-// ---------------------------------------------------------------------------
-// Option & Question Models
-// ---------------------------------------------------------------------------
-
 export interface ExamOption {
-  id: string; // e.g. "opt_1a2b3c" (stable nanoid/uuid, not numeric index)
+  id: string;
   text: string;
+}
+
+export const TRUE_FALSE_FIXED_PROMPT = "در مورد گزاره‌های زیر، صحیح یا غلط بودن هر یک را مشخص کنید.";
+
+export interface TrueFalseStatement {
+  id: string;
+  text: string;
+  correctAnswer: boolean;
+}
+
+export interface StudentTrueFalseStatement {
+  id: string;
+  text: string;
+}
+
+export interface TrueFalseStatementReview {
+  id: string;
+  text: string;
+  selectedAnswer: boolean | null;
+  correctAnswer: boolean;
+  isCorrect: boolean;
 }
 
 export interface ExamSnapshotQuestion {
@@ -35,15 +52,27 @@ export interface ExamSnapshotQuestion {
   questionType?: QuestionType;
   prompt: string;
   options?: ExamOption[];
+  statements?: TrueFalseStatement[];
   correctOptionId?: string | null;
   points: number;
   explanation?: string | null;
 }
 
-export type StudentSanitizedQuestion = Omit<
-  ExamSnapshotQuestion,
-  "correctOptionId" | "explanation"
->;
+export type StudentExamResultState =
+  | "ready"
+  | "grading_in_progress"
+  | "results_pending_teacher"
+  | "results_unpublished_closed";
+
+export interface StudentSanitizedQuestion {
+  id: string;
+  orderIndex: number;
+  questionType?: QuestionType;
+  prompt: string;
+  options?: ExamOption[];
+  statements?: StudentTrueFalseStatement[];
+  points: number;
+}
 
 // ---------------------------------------------------------------------------
 // Core Entities
@@ -104,6 +133,7 @@ export interface TeacherExamQuestion {
   questionType: QuestionType;
   prompt: string;
   options?: ExamOption[];
+  statements?: TrueFalseStatement[];
   correctOptionId?: string | null;
   points: number;
   explanation?: string | null;
@@ -132,6 +162,24 @@ export interface TeacherExamAttempt {
   updatedAt: string;
 }
 
+import type {
+  DescriptiveAnswerIntegrityData,
+  DescriptiveAnswerIntegrityAnalysis,
+  DescriptivePasteEvent,
+  DescriptiveRapidInputEvent,
+  DescriptiveTimelineEvent,
+  DescriptiveTimelineEventType,
+} from "./integrity.js";
+
+export type {
+  DescriptiveAnswerIntegrityData,
+  DescriptiveAnswerIntegrityAnalysis,
+  DescriptivePasteEvent,
+  DescriptiveRapidInputEvent,
+  DescriptiveTimelineEvent,
+  DescriptiveTimelineEventType,
+};
+
 export interface TeacherExamAttemptAnswer {
   id: string;
   attemptId: string;
@@ -146,6 +194,7 @@ export interface TeacherExamAttemptAnswer {
   pointsEarned?: number | null;
   activeDurationMs?: number | null;
   tabSwitchesCount?: number | null;
+  integrityMetadata?: DescriptiveAnswerIntegrityData | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -278,7 +327,7 @@ export function calculateRuntimeExamState(
   if (exam.closedAt !== null && exam.closedAt !== undefined) {
     return "closed";
   }
-  if (currentTime > endTime) {
+  if (currentTime >= endTime) {
     return "closed";
   }
 
@@ -315,6 +364,7 @@ export const ATTEMPT_SUBMISSION_GRACE_MS = 60_000;
  * Excludes ambiguous characters (0, O, 1, I).
  */
 export function generateInviteCode(length: number = 8): string {
+  // eslint-disable-next-line no-secrets/no-secrets
   const charset = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
   let code = "";
   if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
@@ -360,6 +410,9 @@ export interface AssignmentSubmission {
   assignmentId: string;
   studentId: string;
   answerText: string;
+  attachmentUrl?: string | null;
+  attachmentName?: string | null;
+  attachmentSizeBytes?: number | null;
   status: AssignmentSubmissionStatus;
   submittedAt: string;
   createdAt: string;
@@ -388,4 +441,250 @@ export function calculateRuntimeAssignmentState(
     return "closed";
   }
   return "active";
+}
+
+// ---------------------------------------------------------------------------
+// Educational Content Enums & Types
+
+// ---------------------------------------------------------------------------
+
+export type ClassroomContentType =
+  | "text"
+  | "image"
+  | "pdf"
+  | "word"
+  | "powerpoint"
+  | "video_external";
+
+export type ClassroomContentStatus = "draft" | "published" | "archived";
+
+export type ExternalVideoProvider = "google_drive" | "generic";
+
+export interface ExternalVideoInfo {
+  provider: ExternalVideoProvider;
+  originalUrl: string;
+  embedUrl: string | null;
+  canEmbed: boolean;
+}
+
+export interface ClassroomContent {
+  id: string;
+  classroomId: string;
+  teacherId: string;
+  title: string;
+  description?: string | null;
+  contentType: ClassroomContentType;
+  textContent?: string | null;
+  fileUrl?: string | null;
+  fileName?: string | null;
+  fileSizeBytes?: number | null;
+  mimeType?: string | null;
+  externalUrl?: string | null;
+  videoProvider?: ExternalVideoProvider | null;
+  videoEmbedUrl?: string | null;
+  status: ClassroomContentStatus;
+  publishedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt?: string | null;
+}
+
+/**
+ * Validates and detects video provider from an external URL.
+ * Strictly permits safe schemes (https, http) and guards against unsafe schemes (javascript:, data:, etc.).
+ * Converts embeddable Google Drive URLs into their /preview embed equivalent.
+ */
+export function detectExternalVideoProvider(rawUrl: string): ExternalVideoInfo {
+  const trimmed = rawUrl.trim();
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new DomainError("bad_request", "آدرس اینترنتی ویدئو معتبر نیست.");
+  }
+
+  // Enforce safe scheme
+  const protocol = parsed.protocol.toLowerCase();
+  if (protocol !== "https:" && protocol !== "http:") {
+    throw new DomainError(
+      "bad_request",
+      "پروتکل آدرس اینترنتی باید HTTPS یا HTTP باشد.",
+    );
+  }
+
+  const hostname = parsed.hostname.toLowerCase();
+
+  // 1. Google Drive Detection
+  if (
+    hostname === "drive.google.com" ||
+    hostname === "docs.google.com" ||
+    hostname.endsWith(".drive.google.com") ||
+    hostname.endsWith(".docs.google.com")
+  ) {
+    // Pattern 1: /file/d/{FILE_ID}/...
+    const fileDMatch = parsed.pathname.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+    if (fileDMatch && fileDMatch[1]) {
+      const fileId = fileDMatch[1];
+      return {
+        provider: "google_drive",
+        originalUrl: trimmed,
+        embedUrl: `https://drive.google.com/file/d/${fileId}/preview`,
+        canEmbed: true,
+      };
+    }
+
+    // Pattern 2: /open?id={FILE_ID} or /uc?id={FILE_ID}
+    const idParam = parsed.searchParams.get("id");
+    if (idParam && /^[a-zA-Z0-9_-]+$/.test(idParam)) {
+      return {
+        provider: "google_drive",
+        originalUrl: trimmed,
+        embedUrl: `https://drive.google.com/file/d/${idParam}/preview`,
+        canEmbed: true,
+      };
+    }
+
+    // Google Drive URL without detectable file ID (e.g. folder or drive home) -> cannot embed directly
+    return {
+      provider: "google_drive",
+      originalUrl: trimmed,
+      embedUrl: null,
+      canEmbed: false,
+    };
+  }
+
+  // 2. Generic external URL
+  return {
+    provider: "generic",
+    originalUrl: trimmed,
+    embedUrl: null,
+    canEmbed: false,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Teacher Student Messaging System
+// ---------------------------------------------------------------------------
+
+export const TeacherMessageCategories = {
+  STUDY_QUESTION: "study_question",
+  ASSIGNMENT: "assignment",
+  EXAM: "exam",
+  EDUCATIONAL_CONTENT: "educational_content",
+  CLASS_ISSUE: "class_issue",
+  GUIDANCE: "guidance",
+  OTHER: "other",
+} as const;
+
+export type TeacherMessageCategory =
+  (typeof TeacherMessageCategories)[keyof typeof TeacherMessageCategories];
+
+export function isTeacherMessageCategory(val: string): val is TeacherMessageCategory {
+  return Object.values(TeacherMessageCategories).includes(
+    val as TeacherMessageCategory,
+  );
+}
+
+export const TEACHER_MESSAGE_CATEGORY_LABELS: Record<TeacherMessageCategory, string> = {
+  [TeacherMessageCategories.STUDY_QUESTION]: "سؤال درسی",
+  [TeacherMessageCategories.ASSIGNMENT]: "تکلیف / تمرین",
+  [TeacherMessageCategories.EXAM]: "آزمون",
+  [TeacherMessageCategories.EDUCATIONAL_CONTENT]: "محتوای آموزشی",
+  [TeacherMessageCategories.CLASS_ISSUE]: "مشکل کلاس",
+  [TeacherMessageCategories.GUIDANCE]: "درخواست راهنمایی",
+  [TeacherMessageCategories.OTHER]: "سایر",
+};
+
+export const TeacherMessageStatuses = {
+  NEW: "new",
+  IN_PROGRESS: "in_progress",
+  ANSWERED: "answered",
+  CLOSED: "closed",
+} as const;
+
+export type TeacherMessageStatus =
+  (typeof TeacherMessageStatuses)[keyof typeof TeacherMessageStatuses];
+
+export function isTeacherMessageStatus(val: string): val is TeacherMessageStatus {
+  return Object.values(TeacherMessageStatuses).includes(
+    val as TeacherMessageStatus,
+  );
+}
+
+export const TEACHER_MESSAGE_STATUS_LABELS: Record<TeacherMessageStatus, string> = {
+  [TeacherMessageStatuses.NEW]: "جدید",
+  [TeacherMessageStatuses.IN_PROGRESS]: "در حال پیگیری",
+  [TeacherMessageStatuses.ANSWERED]: "پاسخ داده‌شده",
+  [TeacherMessageStatuses.CLOSED]: "بسته‌شده",
+};
+
+export interface TeacherConversation {
+  id: string;
+  studentId: string;
+  teacherId: string;
+  classroomId: string;
+  category: TeacherMessageCategory;
+  subject: string;
+  status: TeacherMessageStatus;
+  lastActivityAt: string;
+  lastSenderRole: "student" | "teacher";
+  teacherReadAt: string | null;
+  studentReadAt: string | null;
+  answeredAt: string | null;
+  closedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TeacherConversationMessage {
+  id: string;
+  conversationId: string;
+  senderId: string;
+  senderRole: "student" | "teacher";
+  body: string;
+  createdAt: string;
+}
+
+export interface TeacherConversationWithDetails extends TeacherConversation {
+  studentName?: string | null;
+  studentEmail?: string | null;
+  teacherName?: string | null;
+  classroomTitle?: string | null;
+  messageCount?: number;
+  messages?: TeacherConversationMessage[];
+}
+
+export const ALLOWED_TEACHER_MESSAGE_STATUS_TRANSITIONS: Record<
+  TeacherMessageStatus,
+  readonly TeacherMessageStatus[]
+> = {
+  [TeacherMessageStatuses.NEW]: [
+    TeacherMessageStatuses.IN_PROGRESS,
+    TeacherMessageStatuses.ANSWERED,
+    TeacherMessageStatuses.CLOSED,
+  ],
+  [TeacherMessageStatuses.IN_PROGRESS]: [
+    TeacherMessageStatuses.ANSWERED,
+    TeacherMessageStatuses.CLOSED,
+    TeacherMessageStatuses.NEW,
+  ],
+  [TeacherMessageStatuses.ANSWERED]: [
+    TeacherMessageStatuses.IN_PROGRESS,
+    TeacherMessageStatuses.CLOSED,
+    TeacherMessageStatuses.NEW,
+  ],
+  [TeacherMessageStatuses.CLOSED]: [
+    TeacherMessageStatuses.NEW,
+    TeacherMessageStatuses.IN_PROGRESS,
+    TeacherMessageStatuses.ANSWERED,
+  ],
+};
+
+export function canTransitionTeacherMessageStatus(
+  current: TeacherMessageStatus,
+  target: TeacherMessageStatus,
+): boolean {
+  if (current === target) return true;
+  const allowed = ALLOWED_TEACHER_MESSAGE_STATUS_TRANSITIONS[current];
+  return allowed ? allowed.includes(target) : false;
 }

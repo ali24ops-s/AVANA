@@ -126,15 +126,15 @@ export function ExamsPage() {
 
   // If URL has attemptId, handle attempt loading/taking/result states
   if (attemptId) {
-    if (attemptQuery.isLoading) {
-      return (
-        <div className="w-full py-20 flex items-center justify-center font-sans" dir="rtl">
-          <LoadingState message="در حال بازیابی اطلاعات و سؤالات آزمون..." />
-        </div>
-      );
-    }
+    if (!attemptQuery.data) {
+      if (attemptQuery.isLoading) {
+        return (
+          <div className="w-full py-20 flex items-center justify-center font-sans" dir="rtl">
+            <LoadingState message="در حال بازیابی اطلاعات و سؤالات آزمون..." />
+          </div>
+        );
+      }
 
-    if (attemptQuery.isError || !attemptQuery.data) {
       return (
         <div className="w-full py-16 px-4 flex items-center justify-center font-sans" dir="rtl">
           <Card className="max-w-md w-full text-center p-8 shadow-xs border border-[var(--color-border)]">

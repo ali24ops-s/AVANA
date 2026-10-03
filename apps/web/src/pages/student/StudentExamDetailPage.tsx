@@ -8,7 +8,7 @@
  *  - Strictly obeys one-attempt rule and backend runtime states
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import {
   useStudentClassroomExams,
@@ -29,8 +29,10 @@ import {
   formatPersianExamDate,
   formatPersianExamTimeRange,
   formatStudentExamScheduleNotice,
+  formatPersianTimeOnly,
+  formatRemainingCountdown,
 } from "../../utils/date.js";
-import { toPersianDigits } from "@avana/domain";
+import { toPersianDigits, calculateRuntimeExamState, type RuntimeExamState } from "@avana/domain";
 import { ApiError } from "../../lib/api/errors.js";
 import {
   Clock,
@@ -50,6 +52,7 @@ export function StudentExamDetailPage() {
   const navigate = useNavigate();
 
   const [startError, setStartError] = useState<string | null>(null);
+  const [now, setNow] = useState<Date>(() => new Date());
 
   const examsQuery = useStudentClassroomExams(classroomId);
   const currentAttemptQuery = useCurrentStudentExamAttempt(examId);
@@ -57,6 +60,43 @@ export function StudentExamDetailPage() {
 
   const exam = examsQuery.data?.exams?.find((e) => e.id === examId);
   const attempt = currentAttemptQuery.data?.attempt;
+
+  useEffect(() => {
+    if (!exam) return;
+    const isCompleted =
+      attempt?.status === "submitted" ||
+      attempt?.status === "timed_out" ||
+      exam.attemptStatus === "submitted" ||
+      exam.attemptStatus === "timed_out";
+    if (isCompleted) return;
+
+    const intervalId = setInterval(() => {
+      setNow(new Date());
+    }, 1000);
+
+    const handleVisibilityOrFocus = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "visible") {
+        setNow(new Date());
+      }
+    };
+
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", handleVisibilityOrFocus);
+    }
+    if (typeof window !== "undefined") {
+      window.addEventListener("focus", handleVisibilityOrFocus);
+    }
+
+    return () => {
+      clearInterval(intervalId);
+      if (typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", handleVisibilityOrFocus);
+      }
+      if (typeof window !== "undefined") {
+        window.removeEventListener("focus", handleVisibilityOrFocus);
+      }
+    };
+  }, [exam?.id, exam?.startsAt, exam?.endsAt, attempt?.status, exam?.attemptStatus]);
 
   const handleStartExam = async () => {
     if (!examId || !classroomId) return;
@@ -101,15 +141,33 @@ export function StudentExamDetailPage() {
     );
   }
 
-  const isUpcoming = exam.runtimeState === "upcoming";
-  const isActive = exam.runtimeState === "active";
-  const isClosed = exam.runtimeState === "closed";
+  const dynamicRuntimeState: RuntimeExamState = !exam
+    ? "closed"
+    : exam.runtimeState === "closed"
+      ? "closed"
+      : calculateRuntimeExamState(
+          {
+            status: "published",
+            startsAt: exam.startsAt,
+            endsAt: exam.endsAt,
+            closedAt: null,
+          },
+          now,
+        );
+
+  const isUpcoming = dynamicRuntimeState === "upcoming";
+  const isActive = dynamicRuntimeState === "active";
+  const isClosed = dynamicRuntimeState === "closed";
   const hasInProgressAttempt = attempt?.status === "in_progress";
   const isCompletedAttempt =
     attempt?.status === "submitted" ||
     attempt?.status === "timed_out" ||
     exam.attemptStatus === "submitted" ||
     exam.attemptStatus === "timed_out";
+
+  const startsAtMs = exam ? new Date(exam.startsAt).getTime() : 0;
+  const msUntilStart = Math.max(0, startsAtMs - now.getTime());
+  const secondsUntilStart = Math.ceil(msUntilStart / 1000);
 
   return (
     <div className="w-full max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 font-sans" dir="rtl">
@@ -139,7 +197,7 @@ export function StudentExamDetailPage() {
               status: "published",
               startsAt: exam.startsAt,
               endsAt: exam.endsAt,
-              closedAt: null,
+              closedAt: dynamicRuntimeState === "closed" ? "closed" : null,
             }}
           />
         }
@@ -153,11 +211,26 @@ export function StudentExamDetailPage() {
         </div>
       )}
 
-      {/* Schedule Notice Banner */}
-      <div className="mt-4 p-4 rounded-2xl bg-[#008080]/10 border border-[#008080]/20 flex items-center gap-3 text-xs sm:text-sm font-semibold text-[#008080]">
-        <Calendar className="w-5 h-5 shrink-0 text-[#008080]" />
-        <span>{formatStudentExamScheduleNotice(exam.startsAt, exam.endsAt)}</span>
-      </div>
+      {/* Schedule Notice / Upcoming Countdown Banner */}
+      {isUpcoming && !hasInProgressAttempt && !isCompletedAttempt ? (
+        <div className="mt-4 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs sm:text-sm text-amber-900">
+          <div className="flex items-center gap-3 font-semibold">
+            <Clock className="w-5 h-5 shrink-0 text-amber-600 animate-pulse" />
+            <span>
+              شروع آزمون از ساعت {formatPersianTimeOnly(exam.startsAt)} امکان‌پذیر است.
+            </span>
+          </div>
+          <div className="flex items-center gap-2 self-start sm:self-auto bg-amber-500/15 px-3 py-1.5 rounded-xl border border-amber-500/30 text-amber-950 font-bold font-mono text-xs sm:text-sm">
+            <span>زمان باقیمانده تا شروع:</span>
+            <span dir="ltr">{formatRemainingCountdown(secondsUntilStart)}</span>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-4 p-4 rounded-2xl bg-[#008080]/10 border border-[#008080]/20 flex items-center gap-3 text-xs sm:text-sm font-semibold text-[#008080]">
+          <Calendar className="w-5 h-5 shrink-0 text-[#008080]" />
+          <span>{formatStudentExamScheduleNotice(exam.startsAt, exam.endsAt)}</span>
+        </div>
+      )}
 
       {/* Key Metrics Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
@@ -223,7 +296,7 @@ export function StudentExamDetailPage() {
         </ul>
 
         {/* Existing Attempt Notice if applicable */}
-        {hasInProgressAttempt && (
+        {isActive && hasInProgressAttempt && (
           <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-800 text-xs sm:text-sm flex items-center gap-2">
             <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600" />
             <span>
@@ -232,11 +305,11 @@ export function StudentExamDetailPage() {
           </div>
         )}
 
-        {isCompletedAttempt && (
+        {(isCompletedAttempt || (isClosed && (hasInProgressAttempt || Boolean(attempt) || Boolean(exam.hasAttempt)))) && (
           <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-800 text-xs sm:text-sm flex items-center gap-2">
             <CheckCircle className="w-4 h-4 shrink-0 text-emerald-600" />
             <span>
-              شما قبلاً در این آزمون شرکت کرده‌اید و پاسخ‌های شما نهایی شده است.
+              شما قبلاً در این آزمون شرکت کرده‌اید و پاسخ‌های شما ثبت شده است.
             </span>
           </div>
         )}
@@ -251,10 +324,35 @@ export function StudentExamDetailPage() {
         </Link>
 
         <div>
-          {isUpcoming ? (
-            <Button variant="outline" size="md" disabled>
-              آزمون هنوز شروع نشده است
-            </Button>
+          {isUpcoming && !hasInProgressAttempt && !isCompletedAttempt ? (
+            <div className="flex flex-col sm:flex-row items-end sm:items-center gap-3">
+              <span className="text-xs text-[var(--color-text-muted)] font-medium">
+                شروع آزمون از ساعت {formatPersianTimeOnly(exam.startsAt)} امکان‌پذیر است.
+              </span>
+              <Button
+                variant="primary"
+                size="md"
+                disabled
+                title={`شروع آزمون از ساعت ${formatPersianTimeOnly(exam.startsAt)} امکان‌پذیر است.`}
+                aria-label="شروع آزمون"
+              >
+                <Play className="w-4 h-4 ml-1" />
+                شروع آزمون
+              </Button>
+            </div>
+          ) : isClosed ? (
+            isCompletedAttempt || hasInProgressAttempt || Boolean(attempt) || Boolean(exam.hasAttempt) ? (
+              <Link to={`/classrooms/${classroomId}/exams/${exam.id}/results`}>
+                <Button variant="primary" size="md">
+                  <Eye className="w-4 h-4 ml-1" />
+                  مشاهده کارنامه / نتیجه
+                </Button>
+              </Link>
+            ) : (
+              <Button variant="outline" size="md" disabled>
+                مهلت آزمون به پایان رسیده است
+              </Button>
+            )
           ) : isCompletedAttempt ? (
             <Link to={`/classrooms/${classroomId}/exams/${exam.id}/results`}>
               <Button variant="primary" size="md">
@@ -283,10 +381,6 @@ export function StudentExamDetailPage() {
             >
               <Play className="w-4 h-4 ml-1" />
               شروع آزمون
-            </Button>
-          ) : isClosed ? (
-            <Button variant="outline" size="md" disabled>
-              مهلت آزمون به پایان رسیده است
             </Button>
           ) : null}
         </div>

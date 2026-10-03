@@ -3,6 +3,7 @@ import type { OrganizationId } from "@avana/domain";
 import { defaultPolicy } from "@avana/domain";
 import { healthRoutes } from "./health.js";
 import { readinessRoutes } from "./readiness.js";
+import { seoRoutes } from "./seo.js";
 import { organizationRoutes } from "../modules/organizations/index.js";
 import { courseRoutes } from "../modules/courses/index.js";
 import { learningRoutes } from "../modules/learning/index.js";
@@ -136,10 +137,18 @@ import {
   TeacherExamAttemptService,
   TeacherExamResultService,
   AssignmentService,
+  ClassroomContentService,
+  TeacherMessageService,
   DrizzleAssignmentStore,
   DrizzleAssignmentSubmissionStore,
+  DrizzleClassroomContentStore,
+  DrizzleTeacherConversationStore,
+  DrizzleTeacherConversationMessageStore,
   InMemoryAssignmentStore,
   InMemoryAssignmentSubmissionStore,
+  InMemoryClassroomContentStore,
+  InMemoryTeacherConversationStore,
+  InMemoryTeacherConversationMessageStore,
   teacherRoutes,
   studentTeacherPlatformRoutes,
 } from "../modules/teacher-platform/index.js";
@@ -217,6 +226,11 @@ export interface V1RouteOptions {
   assignmentStore?: import("../modules/teacher-platform/stores.js").AssignmentStore;
   assignmentSubmissionStore?: import("../modules/teacher-platform/stores.js").AssignmentSubmissionStore;
   assignmentService?: AssignmentService;
+  contentStore?: import("../modules/teacher-platform/stores.js").ClassroomContentStore;
+  contentService?: ClassroomContentService;
+  teacherConversationStore?: import("../modules/teacher-platform/stores.js").TeacherConversationStore;
+  teacherConversationMessageStore?: import("../modules/teacher-platform/stores.js").TeacherConversationMessageStore;
+  teacherMessageService?: TeacherMessageService;
   db?: import("@avana/database/client").DbClient;
 }
 
@@ -227,6 +241,7 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
 ) => {
   void app.register(healthRoutes);
   void app.register(readinessRoutes);
+  void app.register(seoRoutes, { blogStore: opts.blogStore });
 
   const notificationService =
     opts.notificationService ??
@@ -969,6 +984,7 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
   if (opts.blogStore) {
     await app.register(blogRoutes, {
       blogStore: opts.blogStore,
+      storageProvider: opts.storageProvider,
     });
   }
 
@@ -986,6 +1002,7 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       ),
       userStore: opts.userStore,
       blogStore: opts.blogStore,
+      storageProvider: opts.storageProvider,
     });
   }
 
@@ -1050,6 +1067,8 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       opts.teacherExamQuestionStore,
       opts.classroomStore,
       opts.organizationStore,
+      opts.classroomMemberStore,
+      notificationService,
     );
 
     const attemptService = new TeacherExamAttemptService(
@@ -1092,6 +1111,50 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
         opts.classroomMemberStore,
         opts.organizationStore,
         opts.userStore,
+        defaultPolicy,
+        notificationService,
+        opts.storageProvider,
+      );
+
+    const contentStore =
+      opts.contentStore ??
+      (opts.db
+        ? new DrizzleClassroomContentStore(opts.db)
+        : new InMemoryClassroomContentStore());
+
+    const contentService =
+      opts.contentService ??
+      new ClassroomContentService(
+        contentStore,
+        opts.classroomStore,
+        opts.classroomMemberStore,
+        opts.organizationStore,
+        opts.userStore,
+        defaultPolicy,
+        opts.storageProvider,
+      );
+
+    const teacherConversationStore =
+      opts.teacherConversationStore ??
+      (opts.db
+        ? new DrizzleTeacherConversationStore(opts.db)
+        : new InMemoryTeacherConversationStore());
+
+    const teacherConversationMessageStore =
+      opts.teacherConversationMessageStore ??
+      (opts.db
+        ? new DrizzleTeacherConversationMessageStore(opts.db)
+        : new InMemoryTeacherConversationMessageStore());
+
+    const teacherMessageService =
+      opts.teacherMessageService ??
+      new TeacherMessageService(
+        teacherConversationStore,
+        teacherConversationMessageStore,
+        opts.classroomStore,
+        opts.classroomMemberStore,
+        opts.userStore,
+        notificationService,
       );
 
     await app.register(teacherRoutes, {
@@ -1104,6 +1167,9 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       examService,
       resultService,
       assignmentService,
+      contentService,
+      messageService: teacherMessageService,
+      storageProvider: opts.storageProvider,
     });
 
     await app.register(studentTeacherPlatformRoutes, {
@@ -1116,6 +1182,9 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       attemptService,
       resultService,
       assignmentService,
+      contentService,
+      messageService: teacherMessageService,
+      storageProvider: opts.storageProvider,
     });
   }
 };

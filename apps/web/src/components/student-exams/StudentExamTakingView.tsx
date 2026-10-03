@@ -32,7 +32,16 @@ import {
   useSubmitStudentExamAttempt,
   studentExamKeys,
 } from "../../hooks/useStudentTeacherExams.js";
-import { toPersianDigits, computePerQuestionTiming } from "@avana/domain";
+import {
+  toPersianDigits,
+  computePerQuestionTiming,
+  countWords,
+  RAPID_INPUT_CONFIG,
+  type DescriptiveAnswerIntegrityData,
+  type DescriptivePasteEvent,
+  type DescriptiveRapidInputEvent,
+  type DescriptiveTimelineEvent,
+} from "@avana/domain";
 import { RichContent } from "../markdown/MarkdownRenderer.js";
 import { ApiError } from "../../lib/api/errors.js";
 import {
@@ -127,6 +136,26 @@ export function StudentExamTakingView({
       for (const sa of attempt.savedAnswers) {
         if (sa.textAnswer) {
           map[sa.questionId] = sa.textAnswer;
+        }
+      }
+    }
+    return map;
+  });
+
+  // Initialize statement answers for multi-statement true_false questions
+  const [statementAnswers, setStatementAnswers] = useState<Record<string, Record<string, boolean>>>(() => {
+    const map: Record<string, Record<string, boolean>> = {};
+    if (attempt.savedAnswers) {
+      for (const sa of attempt.savedAnswers) {
+        if (sa.textAnswer) {
+          try {
+            const parsed = JSON.parse(sa.textAnswer);
+            if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+              map[sa.questionId] = parsed;
+            }
+          } catch {
+            // not json
+          }
         }
       }
     }
@@ -368,16 +397,136 @@ export function StudentExamTakingView({
   ]);
 
   // ---------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
   // Autosave Queue Management (Race-Safe)
   // ---------------------------------------------------------------------------
   const queryClient = useQueryClient();
   // pendingQueue stores desired selectedOptionId for questionId
   const pendingQueueRef = useRef<Map<string, string | null>>(new Map());
   const pendingTextQueueRef = useRef<Map<string, string>>(new Map());
+  const pendingBooleanQueueRef = useRef<Map<string, Record<string, boolean>>>(new Map());
   const activeSavingRef = useRef<Set<string>>(new Set());
+  const activeSavingPromisesRef = useRef<Map<string, Promise<boolean>>>(new Map());
+  const saveSequenceRef = useRef<Map<string, number>>(new Map());
+  const lastSaveErrorRef = useRef<Error | null>(null);
   const failedQuestionsRef = useRef<Set<string>>(new Set());
   const [savingStatus, setSavingStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
+
+  // ---------------------------------------------------------------------------
+  // Descriptive Answer Integrity & Telemetry Tracker
+  // ---------------------------------------------------------------------------
+  const integrityTrackersRef = useRef<
+    Map<
+      string,
+      {
+        startedAt: string | null;
+        lastEditedAt: string | null;
+        editCount: number;
+        pasteCount: number;
+        pastedCharactersTotal: number;
+        pastedWordsTotal: number;
+        rapidInputCount: number;
+        rapidInputCharactersTotal: number;
+        rapidInputWordsTotal: number;
+        pasteEvents: DescriptivePasteEvent[];
+        rapidInputEvents: DescriptiveRapidInputEvent[];
+        timeline: DescriptiveTimelineEvent[];
+        lastTextSnapshot: string;
+        lastTextSnapshotTime: number;
+        typingBatchActive: boolean;
+        typingBatchTimer: NodeJS.Timeout | null;
+        justPastedAt: number;
+      }
+    >
+  >(new Map());
+
+  const getOrCreateIntegrityTracker = useCallback((qId: string, initialText: string = "") => {
+    let tracker = integrityTrackersRef.current.get(qId);
+    if (!tracker) {
+      tracker = {
+        startedAt: initialText ? attempt.startedAt : null,
+        lastEditedAt: null,
+        editCount: initialText ? 1 : 0,
+        pasteCount: 0,
+        pastedCharactersTotal: 0,
+        pastedWordsTotal: 0,
+        rapidInputCount: 0,
+        rapidInputCharactersTotal: 0,
+        rapidInputWordsTotal: 0,
+        pasteEvents: [],
+        rapidInputEvents: [],
+        timeline: initialText ? [{ type: "start", timestamp: attempt.startedAt }] : [],
+        lastTextSnapshot: initialText,
+        lastTextSnapshotTime: Date.now(),
+        typingBatchActive: false,
+        typingBatchTimer: null,
+        justPastedAt: 0,
+      };
+      integrityTrackersRef.current.set(qId, tracker);
+    }
+    return tracker;
+  }, [attempt.startedAt]);
+
+  const recordPaste = useCallback((questionId: string, charCount: number, wordCount: number, cursorPos?: number | null) => {
+    if (Date.now() > deadlineMs || isSubmitting) return;
+    const tracker = getOrCreateIntegrityTracker(questionId, textAnswers[questionId] || "");
+    const nowIso = new Date().toISOString();
+
+    if (!tracker.startedAt) {
+      tracker.startedAt = nowIso;
+      tracker.timeline.push({ type: "start", timestamp: nowIso });
+    }
+    tracker.lastEditedAt = nowIso;
+    tracker.pasteCount += 1;
+    tracker.pastedCharactersTotal += charCount;
+    tracker.pastedWordsTotal += wordCount;
+    tracker.justPastedAt = Date.now();
+
+    if (tracker.pasteEvents.length < 100) {
+      tracker.pasteEvents.push({
+        timestamp: nowIso,
+        characterCount: charCount,
+        wordCount,
+        cursorPosition: cursorPos ?? null,
+      });
+    }
+
+    if (tracker.timeline.length < 150) {
+      tracker.timeline.push({
+        type: "paste",
+        timestamp: nowIso,
+        characterDelta: charCount,
+        wordDelta: wordCount,
+        metadata: { chars: charCount, words: wordCount },
+      });
+    }
+  }, [deadlineMs, getOrCreateIntegrityTracker, isSubmitting, textAnswers]);
+
+  const handlePaste = useCallback((questionId: string, e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    try {
+      const text = e.clipboardData?.getData("text/plain") || "";
+      const charCount = text.length;
+      if (charCount > 0) {
+        const wordCount = countWords(text);
+        const target = e.target as HTMLTextAreaElement;
+        const cursorPos = typeof target?.selectionStart === "number" ? target.selectionStart : null;
+        recordPaste(questionId, charCount, wordCount, cursorPos);
+      }
+    } catch {
+      // Graceful fallback if clipboard API is restricted
+    }
+  }, [recordPaste]);
+
+  useEffect(() => {
+    return () => {
+      for (const tracker of integrityTrackersRef.current.values()) {
+        if (tracker.typingBatchTimer) {
+          clearTimeout(tracker.typingBatchTimer);
+        }
+      }
+    };
+  }, []);
 
   const saveMutation = useSaveStudentExamAnswer(examId);
   const submitMutation = useSubmitStudentExamAttempt(examId, classroomId);
@@ -406,75 +555,136 @@ export function StudentExamTakingView({
   // ---------------------------------------------------------------------------
   const processQueueForQuestion = useCallback(
     async (qId: string): Promise<boolean> => {
-      if (activeSavingRef.current.has(qId)) {
-        // Already an in-flight request for this question, worker will pick up next value upon completion
-        return false;
+      const existingPromise = activeSavingPromisesRef.current.get(qId);
+      if (existingPromise) {
+        // In-flight request for this question already running, wait for it
+        return existingPromise;
       }
 
       if (Date.now() > deadlineMs) {
         // Strictly forbid sending save requests once deadline passes
         pendingQueueRef.current.delete(qId);
         pendingTextQueueRef.current.delete(qId);
+        pendingBooleanQueueRef.current.delete(qId);
         failedQuestionsRef.current.delete(qId);
         return false;
       }
 
       const desiredOptionId = pendingQueueRef.current.get(qId);
       const desiredText = pendingTextQueueRef.current.get(qId);
-      if (desiredOptionId === undefined && desiredText === undefined) return true;
+      const desiredBoolean = pendingBooleanQueueRef.current.get(qId);
+      if (desiredOptionId === undefined && desiredText === undefined && desiredBoolean === undefined) return true;
+
+      const seq = (saveSequenceRef.current.get(qId) || 0) + 1;
+      saveSequenceRef.current.set(qId, seq);
 
       activeSavingRef.current.add(qId);
       setSavingStatus("saving");
       setSaveErrorMessage(null);
 
-      try {
+      const runSave = async (): Promise<boolean> => {
         const currentActiveMs = getQuestionActiveDurationMs(qId);
         const currentTabSwitches = questionTabSwitchesRef.current.get(qId) || 0;
+        const tracker = integrityTrackersRef.current.get(qId);
+        const integrityData: DescriptiveAnswerIntegrityData | undefined = tracker
+          ? {
+              startedAt: tracker.startedAt,
+              lastEditedAt: tracker.lastEditedAt,
+              durationMs: currentActiveMs,
+              editCount: tracker.editCount,
+              pasteCount: tracker.pasteCount,
+              pastedCharactersTotal: tracker.pastedCharactersTotal,
+              pastedWordsTotal: tracker.pastedWordsTotal,
+              rapidInputCount: tracker.rapidInputCount,
+              rapidInputCharactersTotal: tracker.rapidInputCharactersTotal,
+              rapidInputWordsTotal: tracker.rapidInputWordsTotal,
+              pasteEvents: tracker.pasteEvents.length > 0 ? tracker.pasteEvents : undefined,
+              rapidInputEvents: tracker.rapidInputEvents.length > 0 ? tracker.rapidInputEvents : undefined,
+              timeline: tracker.timeline.length > 0 ? tracker.timeline : undefined,
+            }
+          : undefined;
 
-        await saveMutation.mutateAsync({
+        const payloadToSave = {
           questionId: qId,
           selectedOptionId: desiredOptionId !== undefined ? desiredOptionId : null,
-          textAnswer: desiredText !== undefined ? desiredText : undefined,
+          textAnswer: desiredText !== undefined ? desiredText : desiredBoolean !== undefined ? JSON.stringify(desiredBoolean) : undefined,
+          booleanAnswers: desiredBoolean !== undefined ? desiredBoolean : undefined,
           activeDurationMs: currentActiveMs,
           tabSwitchesCount: currentTabSwitches,
-        });
+          integrityData,
+        };
 
-        // Check if user updated option or text while request was in-flight
-        if (pendingQueueRef.current.get(qId) === desiredOptionId) {
-          pendingQueueRef.current.delete(qId);
-        }
-        if (pendingTextQueueRef.current.get(qId) === desiredText) {
-          pendingTextQueueRef.current.delete(qId);
-        }
-        failedQuestionsRef.current.delete(qId);
+        try {
+          await saveMutation.mutateAsync(payloadToSave);
 
-        if (
-          failedQuestionsRef.current.size === 0 &&
-          pendingQueueRef.current.size === 0 &&
-          pendingTextQueueRef.current.size === 0
-        ) {
-          setSavingStatus("saved");
-        } else if (failedQuestionsRef.current.size > 0) {
-          setSavingStatus("error");
+          // Check if user updated option or text while request was in-flight
+          if (pendingQueueRef.current.get(qId) === desiredOptionId) {
+            pendingQueueRef.current.delete(qId);
+          }
+          if (pendingTextQueueRef.current.get(qId) === desiredText) {
+            pendingTextQueueRef.current.delete(qId);
+          }
+          if (pendingBooleanQueueRef.current.get(qId) === desiredBoolean) {
+            pendingBooleanQueueRef.current.delete(qId);
+          }
+
+          // Race-safe: only clear failure if this was the latest sequence
+          if (saveSequenceRef.current.get(qId) === seq) {
+            failedQuestionsRef.current.delete(qId);
+            lastSaveErrorRef.current = null;
+          }
+
+          if (
+            failedQuestionsRef.current.size === 0 &&
+            pendingQueueRef.current.size === 0 &&
+            pendingTextQueueRef.current.size === 0 &&
+            pendingBooleanQueueRef.current.size === 0
+          ) {
+            setSavingStatus("saved");
+          } else if (failedQuestionsRef.current.size > 0) {
+            setSavingStatus("error");
+            setSaveErrorMessage("خطا در ذخیره پاسخ روی سرور. لطفاً مجدداً تلاش کنید.");
+          }
+          return true;
+        } catch (err) {
+          // If request fails, clear pending queue entries for this attempted value so flush won't stall
+          if (pendingQueueRef.current.get(qId) === desiredOptionId) {
+            pendingQueueRef.current.delete(qId);
+          }
+          if (pendingTextQueueRef.current.get(qId) === desiredText) {
+            pendingTextQueueRef.current.delete(qId);
+          }
+          if (pendingBooleanQueueRef.current.get(qId) === desiredBoolean) {
+            pendingBooleanQueueRef.current.delete(qId);
+          }
+
+          // Race-safe: only mark as failed if no newer save sequence was started
+          if (saveSequenceRef.current.get(qId) === seq) {
+            failedQuestionsRef.current.add(qId);
+            lastSaveErrorRef.current = err instanceof Error ? err : new Error(String(err));
+            setSavingStatus("error");
+            setSaveErrorMessage("خطا در ذخیره پاسخ روی سرور. لطفاً مجدداً تلاش کنید.");
+          }
+          return false;
+        } finally {
+          activeSavingRef.current.delete(qId);
+          activeSavingPromisesRef.current.delete(qId);
+          const nextOption = pendingQueueRef.current.get(qId);
+          const nextText = pendingTextQueueRef.current.get(qId);
+          const nextBoolean = pendingBooleanQueueRef.current.get(qId);
+          const hasNewWork =
+            (nextOption !== undefined && nextOption !== desiredOptionId) ||
+            (nextText !== undefined && nextText !== desiredText) ||
+            (nextBoolean !== undefined && nextBoolean !== desiredBoolean);
+          if (hasNewWork && Date.now() <= deadlineMs) {
+            void processQueueForQuestion(qId);
+          }
         }
-        return true;
-      } catch (err) {
-        console.error("Autosave failed for question:", qId, err);
-        failedQuestionsRef.current.add(qId);
-        setSavingStatus("error");
-        setSaveErrorMessage("خطا در ذخیره پاسخ روی سرور. لطفاً مجدداً تلاش کنید.");
-        return false;
-      } finally {
-        activeSavingRef.current.delete(qId);
-        const nextOption = pendingQueueRef.current.get(qId);
-        const nextText = pendingTextQueueRef.current.get(qId);
-        const hasNewWork =
-          (nextOption !== undefined && nextOption !== desiredOptionId) ||
-          (nextText !== undefined && nextText !== desiredText);
-        if (hasNewWork && Date.now() <= deadlineMs) {
-          void processQueueForQuestion(qId);
-        }
-      }
+      };
+
+      const savePromise = runSave();
+      activeSavingPromisesRef.current.set(qId, savePromise);
+      return savePromise;
     },
     [deadlineMs, getQuestionActiveDurationMs, saveMutation],
   );
@@ -488,17 +698,51 @@ export function StudentExamTakingView({
     setSubmitError(null);
     const failedIds = Array.from(failedQuestionsRef.current);
     for (const qId of failedIds) {
-      if (!activeSavingRef.current.has(qId)) {
-        if (!pendingQueueRef.current.has(qId) && selectedAnswers[qId] !== undefined) {
-          pendingQueueRef.current.set(qId, selectedAnswers[qId]);
-        }
-        if (!pendingTextQueueRef.current.has(qId) && textAnswers[qId] !== undefined) {
-          pendingTextQueueRef.current.set(qId, textAnswers[qId]);
-        }
-        void processQueueForQuestion(qId);
+      if (!pendingQueueRef.current.has(qId) && selectedAnswers[qId] !== undefined) {
+        pendingQueueRef.current.set(qId, selectedAnswers[qId]);
       }
+      if (!pendingTextQueueRef.current.has(qId) && textAnswers[qId] !== undefined) {
+        pendingTextQueueRef.current.set(qId, textAnswers[qId]);
+      }
+      if (!pendingBooleanQueueRef.current.has(qId) && statementAnswers[qId] !== undefined) {
+        pendingBooleanQueueRef.current.set(qId, statementAnswers[qId]);
+      }
+      void processQueueForQuestion(qId);
     }
-  }, [deadlineMs, isSubmitting, processQueueForQuestion, selectedAnswers, textAnswers]);
+  }, [deadlineMs, isSubmitting, processQueueForQuestion, selectedAnswers, textAnswers, statementAnswers]);
+
+  // ---------------------------------------------------------------------------
+  // Multi-Statement Answer Selection Handler
+  // ---------------------------------------------------------------------------
+  const handleSelectStatementAnswer = (questionId: string, statementId: string, answer: boolean) => {
+    if (isPastDeadline || isSubmitting) return;
+    if (isPerQuestionTiming && timingInfo?.isCurrentQuestionExpired) return;
+
+    const nowIso = new Date().toISOString();
+
+    const currentMap = statementAnswers[questionId] || {};
+    const updatedMap = {
+      ...currentMap,
+      [statementId]: answer,
+    };
+
+    setStatementAnswers((prev) => ({
+      ...prev,
+      [questionId]: updatedMap,
+    }));
+
+    setFinalizedMap((prev) => ({
+      ...prev,
+      [questionId]: {
+        ...prev[questionId],
+        answeredAt: prev[questionId]?.answeredAt ?? nowIso,
+      },
+    }));
+
+    failedQuestionsRef.current.delete(questionId);
+    pendingBooleanQueueRef.current.set(questionId, updatedMap);
+    void processQueueForQuestion(questionId);
+  };
 
   // ---------------------------------------------------------------------------
   // Option Selection Handler
@@ -538,7 +782,80 @@ export function StudentExamTakingView({
     if (isPastDeadline || isSubmitting) return;
     if (isPerQuestionTiming && timingInfo?.isCurrentQuestionExpired) return;
 
-    const nowIso = new Date().toISOString();
+    const now = Date.now();
+    const nowIso = new Date(now).toISOString();
+
+    const tracker = getOrCreateIntegrityTracker(questionId, textAnswers[questionId] || "");
+    if (!tracker.startedAt) {
+      tracker.startedAt = nowIso;
+      tracker.timeline.push({ type: "start", timestamp: nowIso });
+    }
+    tracker.lastEditedAt = nowIso;
+
+    const charDelta = text.length - tracker.lastTextSnapshot.length;
+    const wordDelta = countWords(text) - countWords(tracker.lastTextSnapshot);
+    const elapsedMs = Math.max(1, now - tracker.lastTextSnapshotTime);
+    const isPasteTick = now - tracker.justPastedAt < 150;
+
+    // Detect rapid input on non-paste insertions
+    if (
+      !isPasteTick &&
+      charDelta >= RAPID_INPUT_CONFIG.minimumCharacters &&
+      wordDelta >= RAPID_INPUT_CONFIG.minimumWords &&
+      elapsedMs <= RAPID_INPUT_CONFIG.maximumDurationMs
+    ) {
+      const cps = charDelta / (elapsedMs / 1000);
+      const wps = wordDelta / (elapsedMs / 1000);
+      if (
+        cps >= RAPID_INPUT_CONFIG.minimumCharactersPerSecond ||
+        wps >= RAPID_INPUT_CONFIG.minimumWordsPerSecond
+      ) {
+        tracker.rapidInputCount += 1;
+        tracker.rapidInputCharactersTotal += charDelta;
+        tracker.rapidInputWordsTotal += wordDelta;
+        if (tracker.rapidInputEvents.length < 100) {
+          tracker.rapidInputEvents.push({
+            timestamp: nowIso,
+            characterCount: charDelta,
+            wordCount: wordDelta,
+            durationMs: elapsedMs,
+            charactersPerSecond: Math.round(cps * 100) / 100,
+            wordsPerSecond: Math.round(wps * 100) / 100,
+          });
+        }
+        if (tracker.timeline.length < 150) {
+          tracker.timeline.push({
+            type: "rapid_input",
+            timestamp: nowIso,
+            characterDelta: charDelta,
+            wordDelta: wordDelta,
+            metadata: { chars: charDelta, words: wordDelta, durationMs: elapsedMs },
+          });
+        }
+      }
+    }
+
+    // Debounced editing streaks
+    if (!tracker.typingBatchActive) {
+      tracker.typingBatchActive = true;
+      tracker.editCount += 1;
+      if (tracker.timeline.length < 150 && !isPasteTick) {
+        tracker.timeline.push({
+          type: "typing",
+          timestamp: nowIso,
+          characterDelta: charDelta > 0 ? charDelta : undefined,
+        });
+      }
+    }
+    if (tracker.typingBatchTimer) {
+      clearTimeout(tracker.typingBatchTimer);
+    }
+    tracker.typingBatchTimer = setTimeout(() => {
+      tracker.typingBatchActive = false;
+    }, 2000);
+
+    tracker.lastTextSnapshot = text;
+    tracker.lastTextSnapshotTime = now;
 
     setTextAnswers((prev) => ({
       ...prev,
@@ -563,30 +880,52 @@ export function StudentExamTakingView({
   const flushPendingSaves = useCallback(async (): Promise<{ success: boolean; failedCount: number }> => {
     // 1. Launch any pending questions that are not currently in flight
     const pendingQuestions = Array.from(
-      new Set([...pendingQueueRef.current.keys(), ...pendingTextQueueRef.current.keys()]),
+      new Set([
+        ...pendingQueueRef.current.keys(),
+        ...pendingTextQueueRef.current.keys(),
+        ...pendingBooleanQueueRef.current.keys(),
+      ]),
     );
     for (const qId of pendingQuestions) {
-      if (!activeSavingRef.current.has(qId)) {
+      if (!activeSavingPromisesRef.current.has(qId)) {
         void processQueueForQuestion(qId);
       }
     }
 
-    // 2. Wait until all active in-flight requests finish
-    let attempts = 0;
-    while (activeSavingRef.current.size > 0 && attempts < 40) {
-      await new Promise((r) => setTimeout(r, 50));
-      attempts++;
+    // 2. Wait until all active in-flight requests finish (lifecycle-aware with 15s safeguard ceiling)
+    const flushStart = Date.now();
+    while (
+      (activeSavingPromisesRef.current.size > 0 ||
+        pendingQueueRef.current.size > 0 ||
+        pendingTextQueueRef.current.size > 0 ||
+        pendingBooleanQueueRef.current.size > 0) &&
+      Date.now() - flushStart < 15000
+    ) {
+      const activePromises = Array.from(activeSavingPromisesRef.current.values());
+      if (activePromises.length > 0) {
+        await Promise.allSettled(activePromises);
+      } else {
+        await new Promise((r) => setTimeout(r, 20));
+      }
     }
 
     // 3. Determine if everything was saved successfully
-    const hasActive = activeSavingRef.current.size > 0;
-    const hasPending = pendingQueueRef.current.size > 0 || pendingTextQueueRef.current.size > 0;
+    const hasActive = activeSavingPromisesRef.current.size > 0;
+    const hasPending =
+      pendingQueueRef.current.size > 0 ||
+      pendingTextQueueRef.current.size > 0 ||
+      pendingBooleanQueueRef.current.size > 0;
     const hasFailed = failedQuestionsRef.current.size > 0;
 
     if (hasActive || hasPending || hasFailed) {
       return {
         success: false,
-        failedCount: failedQuestionsRef.current.size || pendingQueueRef.current.size || pendingTextQueueRef.current.size || activeSavingRef.current.size,
+        failedCount:
+          failedQuestionsRef.current.size ||
+          pendingQueueRef.current.size ||
+          pendingTextQueueRef.current.size ||
+          pendingBooleanQueueRef.current.size ||
+          activeSavingPromisesRef.current.size,
       };
     }
 
@@ -598,14 +937,6 @@ export function StudentExamTakingView({
   // ---------------------------------------------------------------------------
   const handleConfirmSubmit = async () => {
     if (isSubmitting) return;
-
-    // Fast check: if any known failed saves exist in non-timed mode, reject submit immediately
-    if (!isPerQuestionTiming && failedQuestionsRef.current.size > 0) {
-      setSubmitError(
-        "برخی پاسخ‌ها هنوز ذخیره نشده‌اند. اتصال اینترنت را بررسی کنید و دوباره تلاش کنید.",
-      );
-      return;
-    }
 
     setIsSubmitting(true);
     setSubmitError(null);
@@ -645,11 +976,39 @@ export function StudentExamTakingView({
           }
         }
       } else if (!isPastDeadline) {
+        // Automatic Recovery Attempt: if any failed questions exist, re-queue them before flushing
+        if (failedQuestionsRef.current.size > 0) {
+          const failedIds = Array.from(failedQuestionsRef.current);
+          for (const qId of failedIds) {
+            if (selectedAnswers[qId] !== undefined && !pendingQueueRef.current.has(qId)) {
+              pendingQueueRef.current.set(qId, selectedAnswers[qId]);
+            }
+            if (textAnswers[qId] !== undefined && !pendingTextQueueRef.current.has(qId)) {
+              pendingTextQueueRef.current.set(qId, textAnswers[qId]);
+            }
+            if (statementAnswers[qId] !== undefined && !pendingBooleanQueueRef.current.has(qId)) {
+              pendingBooleanQueueRef.current.set(qId, statementAnswers[qId]);
+            }
+          }
+        }
+
         const flushResult = await flushPendingSaves();
         if (!flushResult.success) {
-          setSubmitError(
-            "برخی پاسخ‌ها هنوز ذخیره نشده‌اند. اتصال اینترنت را بررسی کنید و دوباره تلاش کنید.",
-          );
+          const count = failedQuestionsRef.current.size;
+          const lastErr = lastSaveErrorRef.current;
+          let userMsg: string;
+
+          if (lastErr instanceof ApiError && lastErr.code === "bad_request") {
+            userMsg = lastErr.message || "اطلاعات یکی از پاسخ‌ها نامعتبر است. لطفاً پاسخ‌های خود را بررسی کنید.";
+          } else if (typeof navigator !== "undefined" && !navigator.onLine) {
+            userMsg = "ارتباط با سرور برقرار نشد. اتصال اینترنت را بررسی کنید و دوباره تلاش کنید.";
+          } else if (count > 0) {
+            userMsg = `ذخیره ${toPersianDigits(count)} پاسخ کامل نشد. لطفاً اتصال اینترنت را بررسی کرده و مجدداً تلاش کنید.`;
+          } else {
+            userMsg = "برخی پاسخ‌ها هنوز ذخیره نشده‌اند. لطفاً چند لحظه دیگر دوباره تلاش کنید.";
+          }
+
+          setSubmitError(userMsg);
           setIsSubmitting(false);
           return;
         }
@@ -818,6 +1177,11 @@ export function StudentExamTakingView({
     if (q.questionType === "descriptive") {
       return Boolean(textAnswers[q.id] && textAnswers[q.id].trim().length > 0);
     }
+    if (q.questionType === "true_false") {
+      const stmts = q.statements || [];
+      const ans = statementAnswers[q.id];
+      return stmts.length > 0 && stmts.every((s) => ans && typeof ans[s.id] === "boolean");
+    }
     return Boolean(selectedAnswers[q.id] && selectedAnswers[q.id].trim().length > 0);
   }).length;
   const unansweredCount = Math.max(0, totalQuestions - answeredCount);
@@ -954,6 +1318,8 @@ export function StudentExamTakingView({
             {questions.map((q, idx) => {
               const isAnswered = q.questionType === "descriptive"
                 ? Boolean(textAnswers[q.id] && textAnswers[q.id].trim().length > 0)
+                : q.questionType === "true_false"
+                ? Boolean((q.statements || []).length > 0 && (q.statements || []).every((s) => statementAnswers[q.id] && typeof statementAnswers[q.id][s.id] === "boolean"))
                 : Boolean(selectedAnswers[q.id]);
               const isCurrent = idx === currentIndex;
               const isPrevious = idx < currentIndex;
@@ -991,7 +1357,11 @@ export function StudentExamTakingView({
                 سؤال {toPersianDigits(currentIndex + 1)}
               </span>
               <span className="text-xs font-semibold px-2.5 py-0.5 rounded-lg bg-neutral-100 dark:bg-neutral-800 text-[var(--color-text-muted)]">
-                {isCurrentDescriptive ? "تشریحی" : "تستی"}
+                {isCurrentDescriptive
+                  ? "تشریحی"
+                  : currentQuestion.questionType === "true_false"
+                  ? "صحیح / غلط"
+                  : "تستی"}
               </span>
             </div>
             {currentQuestion.points !== undefined && (
@@ -1006,7 +1376,7 @@ export function StudentExamTakingView({
             <RichContent content={currentQuestion.prompt} />
           </div>
 
-          {/* Options List or Descriptive Textarea */}
+          {/* Options List or Statements List or Descriptive Textarea */}
           {isCurrentDescriptive ? (
             <div className="space-y-3 pt-2">
               <label className="block text-xs font-semibold text-[var(--color-text)]">
@@ -1015,6 +1385,7 @@ export function StudentExamTakingView({
               <textarea
                 value={textAnswers[currentQuestion.id] || ""}
                 onChange={(e) => handleTextAnswerChange(currentQuestion.id, e.target.value)}
+                onPaste={(e) => handlePaste(currentQuestion.id, e)}
                 disabled={
                   isPastDeadline ||
                   isSubmitting ||
@@ -1031,6 +1402,76 @@ export function StudentExamTakingView({
                   {toPersianDigits((textAnswers[currentQuestion.id] || "").length)} / {toPersianDigits(10000)} کاراکتر
                 </span>
               </div>
+            </div>
+          ) : currentQuestion.questionType === "true_false" ? (
+            <div className="space-y-3 pt-2">
+              {(currentQuestion.statements || []).map((stmt, stmtIdx) => {
+                const currentAns = statementAnswers[currentQuestion.id]?.[stmt.id];
+                const isStatementDisabled =
+                  isPastDeadline ||
+                  isSubmitting ||
+                  (isPerQuestionTiming && Boolean(timingInfo?.isCurrentQuestionExpired));
+
+                return (
+                  <div
+                    key={stmt.id}
+                    className="p-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] space-y-3 shadow-2xs"
+                  >
+                    <div className="flex items-start gap-2.5">
+                      <span className="shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold bg-[var(--color-surface-warm)] border border-[var(--color-border)]">
+                        {toPersianDigits(stmtIdx + 1)}
+                      </span>
+                      <p className="text-sm sm:text-base font-medium text-[var(--color-text)] leading-relaxed">
+                        {stmt.text}
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2.5 pt-1">
+                      {/* Option True */}
+                      <button
+                        type="button"
+                        disabled={isStatementDisabled}
+                        onClick={() => handleSelectStatementAnswer(currentQuestion.id, stmt.id, true)}
+                        className={`p-3 rounded-xl border text-xs sm:text-sm font-bold flex items-center justify-between transition-all cursor-pointer ${
+                          currentAns === true
+                            ? "bg-emerald-500/15 border-emerald-500 text-emerald-800 dark:text-emerald-300 ring-1 ring-emerald-500 shadow-2xs"
+                            : "border-[var(--color-border)] bg-[var(--color-surface-warm)]/40 hover:border-neutral-300 text-[var(--color-text)]"
+                        } ${isStatementDisabled ? "opacity-60 cursor-not-allowed" : ""}`}
+                      >
+                        <span>صحیح</span>
+                        <div
+                          className={`w-4 h-4 rounded-full border flex items-center justify-center ${
+                            currentAns === true ? "border-emerald-600 bg-emerald-600 text-white" : "border-neutral-300"
+                          }`}
+                        >
+                          {currentAns === true && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                        </div>
+                      </button>
+
+                      {/* Option False */}
+                      <button
+                        type="button"
+                        disabled={isStatementDisabled}
+                        onClick={() => handleSelectStatementAnswer(currentQuestion.id, stmt.id, false)}
+                        className={`p-3 rounded-xl border text-xs sm:text-sm font-bold flex items-center justify-between transition-all cursor-pointer ${
+                          currentAns === false
+                            ? "bg-rose-500/15 border-rose-500 text-rose-800 dark:text-rose-300 ring-1 ring-rose-500 shadow-2xs"
+                            : "border-[var(--color-border)] bg-[var(--color-surface-warm)]/40 hover:border-neutral-300 text-[var(--color-text)]"
+                        } ${isStatementDisabled ? "opacity-60 cursor-not-allowed" : ""}`}
+                      >
+                        <span>غلط</span>
+                        <div
+                          className={`w-4 h-4 rounded-full border flex items-center justify-center ${
+                            currentAns === false ? "border-rose-600 bg-rose-600 text-white" : "border-neutral-300"
+                          }`}
+                        >
+                          {currentAns === false && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                        </div>
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           ) : (
             <div className="space-y-3 pt-2">
@@ -1115,7 +1556,7 @@ export function StudentExamTakingView({
               </>
             ) : savingStatus === "error" ? (
               <div className="flex items-center gap-1.5 text-xs text-red-500 font-semibold">
-                <span>{saveErrorMessage}</span>
+                <span>{saveErrorMessage || "خطا در ذخیره پاسخ روی سرور. لطفاً مجدداً تلاش کنید."}</span>
                 <button
                   type="button"
                   onClick={retryFailedSaves}

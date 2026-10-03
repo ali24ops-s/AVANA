@@ -58,20 +58,20 @@ export function resolveCorrectChoiceText(
     }
   }
 
-  // 2. Numeric index (0, 1, 2, 3 or "0", "1", "2", "3")
+  // 2. Numeric index (0..5 or "0".."5")
   if (typeof rawAnswer === "number" && Number.isInteger(rawAnswer)) {
     if (rawAnswer >= 0 && rawAnswer < choices.length) {
       return choices[rawAnswer];
     }
   }
-  if (typeof rawAnswer === "string" && /^[0-3]$/.test(rawAnswer.trim())) {
+  if (typeof rawAnswer === "string" && /^[0-5]$/.test(rawAnswer.trim())) {
     const idx = parseInt(rawAnswer.trim(), 10);
     if (idx >= 0 && idx < choices.length) {
       return choices[idx];
     }
   }
 
-  // 3. Letter matching (A/B/C/D, a/b/c/d, الف/ب/ج/د, گزینه ۱..۴)
+  // 3. Letter matching (A/B/C/D/E/F, a..f, الف/ب/ج/د/هـ/و, گزینه ۱..۶)
   if (typeof rawAnswer === "string") {
     const normalized = rawAnswer.trim().toLowerCase();
 
@@ -88,6 +88,12 @@ export function resolveCorrectChoiceText(
     if (normalized === "d" || normalized === "option d" || normalized === "option 4") {
       if (choices.length > 3) return choices[3];
     }
+    if (normalized === "e" || normalized === "option e" || normalized === "option 5") {
+      if (choices.length > 4) return choices[4];
+    }
+    if (normalized === "f" || normalized === "option f" || normalized === "option 6") {
+      if (choices.length > 5) return choices[5];
+    }
 
     // Persian letters / labels
     if (normalized === "الف" || normalized === "گزینه ۱" || normalized === "گزینه 1" || normalized === "گزینه اول") {
@@ -102,9 +108,15 @@ export function resolveCorrectChoiceText(
     if (normalized === "د" || normalized === "گزینه ۴" || normalized === "گزینه 4" || normalized === "گزینه چهارم") {
       if (choices.length > 3) return choices[3];
     }
+    if (normalized === "ه" || normalized === "هـ" || normalized === "گزینه ۵" || normalized === "گزینه 5" || normalized === "گزینه پنجم") {
+      if (choices.length > 4) return choices[4];
+    }
+    if (normalized === "و" || normalized === "گزینه ۶" || normalized === "گزینه 6" || normalized === "گزینه ششم") {
+      if (choices.length > 5) return choices[5];
+    }
 
-    // Prefix patterns like "A) Metoprolol", "1. Metoprolol", "الف) متوپرولول"
-    const strippedPrefix = normalized.replace(/^(?:[a-d1-4]|الف|ب|ج|د)[\s).:\-–—]+\s*/iu, "").trim();
+    // Prefix patterns like "A) Metoprolol", "1. Metoprolol", "الف) متوپرولول", "هـ) گزینه ۵"
+    const strippedPrefix = normalized.replace(/^(?:[a-f1-6]|الف|ب|ج|د|هـ?|و)[\s).:\-–—]+\s*/iu, "").trim();
     if (strippedPrefix) {
       const matchIdx = cleanedChoices.findIndex(
         (c) => c.toLowerCase() === strippedPrefix || c.toLowerCase().includes(strippedPrefix) || strippedPrefix.includes(c.toLowerCase()),
@@ -336,9 +348,9 @@ export type QuestionRepairResult = {
 
 // Regex patterns for placeholder choices
 const PLACEHOLDER_CHOICE_REGEX =
-  /^(?:گزینه\s*انحرافی|گزینه\s*(?:[1-4]|[\u06F1-\u06F4]|الف|ب|ج|د)|گزینه\s*تستی|پاسخ\s*نمونه|distractor|option\s*[a-d1-4]|placeholder|dummy|sample\s*choice)\b/iu;
+  /^(?:گزینه\s*انحرافی|گزینه\s*(?:[1-6]|[\u06F1-\u06F6]|الف|ب|ج|د|هـ?|و)|گزینه\s*تستی|پاسخ\s*نمونه|distractor|option\s*[a-f1-6]|placeholder|dummy|sample\s*choice)\b/iu;
 const PLACEHOLDER_INNER_REGEX =
-  /(?:گزینه\s*انحرافی(?:\s*(?:[1-4]|[\u06F1-\u06F4]|الف|ب|ج|د))?|انحرافی\s*(?:[1-4]|[\u06F1-\u06F4]|الف|ب|ج|د)|distractor\s*[1-4a-d])/iu;
+  /(?:گزینه\s*انحرافی(?:\s*(?:[1-6]|[\u06F1-\u06F6]|الف|ب|ج|د|هـ?|و))?|انحرافی\s*(?:[1-6]|[\u06F1-\u06F6]|الف|ب|ج|د|هـ?|و)|distractor\s*[1-6a-f])/iu;
 
 // Regex patterns for forbidden lazy / omnibus choices
 const FORBIDDEN_CHOICE_REGEX =
@@ -1086,14 +1098,27 @@ const LETTER_INDEX_MAP: Record<string, number> = {
   "ب": 1,
   "ج": 2,
   "د": 3,
+  "ه": 4,
+  "هـ": 4,
+  "و": 5,
   "گزینه ۱": 0,
   "گزینه 1": 0,
+  "گزینه اول": 0,
   "گزینه ۲": 1,
   "گزینه 2": 1,
+  "گزینه دوم": 1,
   "گزینه ۳": 2,
   "گزینه 3": 2,
+  "گزینه سوم": 2,
   "گزینه ۴": 3,
   "گزینه 4": 3,
+  "گزینه چهارم": 3,
+  "گزینه ۵": 4,
+  "گزینه 5": 4,
+  "گزینه پنجم": 4,
+  "گزینه ۶": 5,
+  "گزینه 6": 5,
+  "گزینه ششم": 5,
 };
 
 function parseBooleanValue(val: unknown): boolean | null {

@@ -43,6 +43,9 @@ export const users = pgTable(
     passwordHash: varchar("password_hash", { length: 255 }),
     phoneNumber: varchar("phone_number", { length: 20 }),
     major: varchar("major", { length: 50 }),
+    university: varchar("university", { length: 255 }),
+    faculty: varchar("faculty", { length: 255 }),
+    department: varchar("department", { length: 255 }),
     teacherStatus: varchar("teacher_status", { length: 20 })
       .notNull()
       .default("approved"),
@@ -60,6 +63,8 @@ export const users = pgTable(
     emailIdx: uniqueIndex("idx_users_email").on(table.email),
     phoneIdx: uniqueIndex("idx_users_phone_number").on(table.phoneNumber),
     majorIdx: index("idx_users_major").on(table.major),
+    universityIdx: index("idx_users_university").on(table.university),
+    departmentIdx: index("idx_users_department").on(table.department),
     globalRoleIdx: index("idx_users_global_role").on(table.globalRole),
     teacherStatusIdx: index("idx_users_teacher_status").on(table.teacherStatus),
   }),
@@ -3116,6 +3121,39 @@ export const teacherExamAttemptAnswers = pgTable(
       .defaultNow()
       .notNull(),
     finalizedAt: timestamp("finalized_at", { withTimezone: true }),
+    integrityMetadata: jsonb("integrity_metadata").$type<{
+      startedAt?: string | null;
+      lastEditedAt?: string | null;
+      durationMs?: number | null;
+      editCount: number;
+      pasteCount: number;
+      pastedCharactersTotal: number;
+      pastedWordsTotal: number;
+      rapidInputCount: number;
+      rapidInputCharactersTotal: number;
+      rapidInputWordsTotal: number;
+      pasteEvents?: Array<{
+        timestamp: string;
+        characterCount: number;
+        wordCount: number;
+        cursorPosition?: number | null;
+      }>;
+      rapidInputEvents?: Array<{
+        timestamp: string;
+        characterCount: number;
+        wordCount: number;
+        durationMs: number;
+        charactersPerSecond: number;
+        wordsPerSecond: number;
+      }>;
+      timeline?: Array<{
+        type: "start" | "typing" | "paste" | "rapid_input" | "edit" | "submit";
+        timestamp: string;
+        characterDelta?: number | null;
+        wordDelta?: number | null;
+        metadata?: Record<string, string | number | boolean | null>;
+      }>;
+    }>(),
   },
   (table) => ({
     attemptQuestionUniqueIdx: uniqueIndex("idx_attempt_answers_unique").on(
@@ -3191,6 +3229,9 @@ export const classroomAssignmentSubmissions = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     answerText: text("answer_text").notNull().default(""),
+    attachmentUrl: varchar("attachment_url", { length: 512 }),
+    attachmentName: varchar("attachment_name", { length: 255 }),
+    attachmentSizeBytes: integer("attachment_size_bytes"),
     status: varchar("status", { length: 20 }).notNull().default("submitted"),
     submittedAt: timestamp("submitted_at", { withTimezone: true })
       .defaultNow()
@@ -3221,3 +3262,146 @@ export type ClassroomAssignmentSubmissionRecord =
   typeof classroomAssignmentSubmissions.$inferSelect;
 export type NewClassroomAssignmentSubmissionRecord =
   typeof classroomAssignmentSubmissions.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Classroom Educational Contents
+// ---------------------------------------------------------------------------
+
+export const classroomContents = pgTable(
+  "classroom_contents",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    classroomId: uuid("classroom_id")
+      .notNull()
+      .references(() => classrooms.id, { onDelete: "cascade" }),
+    teacherId: uuid("teacher_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    title: varchar("title", { length: 255 }).notNull(),
+    description: text("description"),
+    contentType: varchar("content_type", { length: 30 }).notNull(),
+    textContent: text("text_content"),
+    fileUrl: varchar("file_url", { length: 512 }),
+    fileName: varchar("file_name", { length: 255 }),
+    fileSizeBytes: integer("file_size_bytes"),
+    mimeType: varchar("mime_type", { length: 128 }),
+    externalUrl: varchar("external_url", { length: 2048 }),
+    videoProvider: varchar("video_provider", { length: 50 }),
+    videoEmbedUrl: varchar("video_embed_url", { length: 2048 }),
+    status: varchar("status", { length: 20 }).notNull().default("draft"),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+  },
+  (table) => ({
+    classroomIdx: index("idx_classroom_contents_classroom_id").on(
+      table.classroomId,
+    ),
+    teacherIdx: index("idx_classroom_contents_teacher_id").on(table.teacherId),
+    statusCreatedAtIdx: index("idx_classroom_contents_status_created_at").on(
+      table.status,
+      table.createdAt,
+    ),
+  }),
+);
+
+export type ClassroomContentRecord = typeof classroomContents.$inferSelect;
+export type NewClassroomContentRecord = typeof classroomContents.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Teacher Student Messaging (Migration 0070)
+// ---------------------------------------------------------------------------
+
+export const teacherStudentConversations = pgTable(
+  "teacher_student_conversations",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    studentId: uuid("student_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    teacherId: uuid("teacher_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    classroomId: uuid("classroom_id")
+      .notNull()
+      .references(() => classrooms.id, { onDelete: "cascade" }),
+    category: varchar("category", { length: 50 }).notNull(),
+    subject: varchar("subject", { length: 255 }).notNull(),
+    status: varchar("status", { length: 30 }).notNull().default("new"),
+    lastActivityAt: timestamp("last_activity_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    lastSenderRole: varchar("last_sender_role", { length: 20 })
+      .notNull()
+      .default("student"),
+    teacherReadAt: timestamp("teacher_read_at", { withTimezone: true }),
+    studentReadAt: timestamp("student_read_at", { withTimezone: true }),
+    answeredAt: timestamp("answered_at", { withTimezone: true }),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    teacherStatusIdx: index("idx_teacher_conversations_teacher_status").on(
+      table.teacherId,
+      table.status,
+    ),
+    teacherCategoryIdx: index("idx_teacher_conversations_teacher_category").on(
+      table.teacherId,
+      table.category,
+    ),
+    studentIdx: index("idx_teacher_conversations_student_id").on(table.studentId),
+    classroomIdx: index("idx_teacher_conversations_classroom_id").on(
+      table.classroomId,
+    ),
+    lastActivityIdx: index("idx_teacher_conversations_last_activity").on(
+      table.lastActivityAt,
+    ),
+  }),
+);
+
+export const teacherConversationMessages = pgTable(
+  "teacher_conversation_messages",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    conversationId: uuid("conversation_id")
+      .notNull()
+      .references(() => teacherStudentConversations.id, { onDelete: "cascade" }),
+    senderId: uuid("sender_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    senderRole: varchar("sender_role", { length: 20 })
+      .notNull()
+      .default("student"),
+    body: text("body").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    conversationIdx: index("idx_teacher_conv_messages_conv_id").on(
+      table.conversationId,
+    ),
+    createdAtIdx: index("idx_teacher_conv_messages_created_at").on(
+      table.createdAt,
+    ),
+  }),
+);
+
+export type TeacherStudentConversationRecord =
+  typeof teacherStudentConversations.$inferSelect;
+export type NewTeacherStudentConversationRecord =
+  typeof teacherStudentConversations.$inferInsert;
+export type TeacherConversationMessageRecord =
+  typeof teacherConversationMessages.$inferSelect;
+export type NewTeacherConversationMessageRecord =
+  typeof teacherConversationMessages.$inferInsert;

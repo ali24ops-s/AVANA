@@ -9,13 +9,15 @@
  */
 
 import { useState } from "react";
-import { useParams, Link, useNavigate } from "react-router-dom";
+import { useParams, Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   useStudentClassrooms,
   useStudentClassroomExams,
   useLeaveClassroom,
 } from "../../hooks/useStudentTeacherExams.js";
 import { useStudentClassroomAssignments } from "../../hooks/useStudentAssignments.js";
+import { useStudentClassroomContents } from "../../hooks/useStudentContents.js";
+import { useStudentConversations } from "../../hooks/useStudentMessages.js";
 import {
   PageHeader,
   Card,
@@ -37,6 +39,8 @@ import {
 import { ConfirmModal } from "../../components/teacher/common/ConfirmModal.js";
 import { ExamStatusBadge } from "../../components/teacher/exams/ExamStatusBadge.js";
 import { StudentAssignmentsTable } from "../../components/student/assignments/StudentAssignmentsTable.js";
+import { StudentClassroomContents } from "../../components/student/contents/StudentClassroomContents.js";
+import { StudentClassroomMessages } from "../../components/student/messages/StudentClassroomMessages.js";
 import { formatPersianExamDate, formatPersianTimeOnly, formatPersianExamTimeRange } from "../../utils/date.js";
 import { toPersianDigits } from "@avana/domain";
 import {
@@ -50,24 +54,33 @@ import {
   RotateCw,
   Eye,
   FileText,
+  BookOpen,
+  MessageSquare,
 } from "lucide-react";
 
 export function StudentClassroomDetailPage() {
   const { classroomId } = useParams<{ classroomId: string }>();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
-  const [activeTabId, setActiveTabId] = useState("exams");
+  const [activeTabId, setActiveTabId] = useState(
+    searchParams.get("tab") || "exams",
+  );
   const [leaveModalOpen, setLeaveModalOpen] = useState(false);
   const [leaveError, setLeaveError] = useState<string | null>(null);
 
   const classroomsQuery = useStudentClassrooms();
   const examsQuery = useStudentClassroomExams(classroomId);
   const assignmentsQuery = useStudentClassroomAssignments(classroomId);
+  const contentsQuery = useStudentClassroomContents(classroomId);
+  const conversationsQuery = useStudentConversations({ classroomId });
   const leaveMutation = useLeaveClassroom();
 
   const classroom = classroomsQuery.data?.classrooms?.find((c) => c.id === classroomId);
   const exams = examsQuery.data?.exams ?? [];
   const assignments = assignmentsQuery.data?.assignments ?? [];
+  const contents = contentsQuery.data?.contents ?? [];
+  const conversations = conversationsQuery.data?.conversations ?? [];
 
   const handleConfirmLeave = async () => {
     if (!classroomId) return;
@@ -110,6 +123,25 @@ export function StudentClassroomDetailPage() {
   }
 
   const tabItems = [
+    {
+      id: "contents",
+      label: "محتوای آموزشی",
+      badge: contents.length,
+      icon: <BookOpen className="w-4 h-4" />,
+      content: (
+        <div className="space-y-4 pt-2">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm sm:text-base font-bold text-[var(--color-text)]">
+              محتوای آموزشی و دروس کلاس
+            </h3>
+            <span className="text-xs text-[var(--color-text-muted)]">
+              {toPersianDigits(contents.length)} محتوای منتشر شده
+            </span>
+          </div>
+          <StudentClassroomContents classroomId={classroom?.id ?? ""} />
+        </div>
+      ),
+    },
     {
       id: "assignments",
       label: "تکالیف",
@@ -183,6 +215,7 @@ export function StudentClassroomDetailPage() {
                       const isUpcoming = exam.runtimeState === "upcoming";
                       const isActive = exam.runtimeState === "active";
                       const isClosed = exam.runtimeState === "closed";
+                      const hasAttempt = Boolean(exam.hasAttempt);
                       const hasInProgressAttempt = exam.attemptStatus === "in_progress";
                       const isCompletedAttempt =
                         exam.attemptStatus === "submitted" || exam.attemptStatus === "timed_out";
@@ -229,11 +262,11 @@ export function StudentClassroomDetailPage() {
                           </TableCell>
 
                           <TableCell>
-                            {hasInProgressAttempt ? (
+                            {isActive && hasInProgressAttempt ? (
                               <Badge variant="warning" size="sm">
                                 در حال انجام
                               </Badge>
-                            ) : isCompletedAttempt ? (
+                            ) : hasAttempt ? (
                               <div className="flex flex-col gap-1 items-start">
                                 <Badge variant="success" size="sm">
                                   {exam.attemptStatus === "submitted" ? "پایان یافته" : "پایان زمان"}
@@ -252,18 +285,20 @@ export function StudentClassroomDetailPage() {
                           </TableCell>
 
                           <TableCell className="text-center">
-                            {isUpcoming ? (
-                              <Button size="sm" variant="outline" disabled>
-                                شروع نشده
-                              </Button>
-                            ) : isActive && !exam.hasAttempt ? (
-                              <Link to={`/classrooms/${classroomId}/exams/${exam.id}`}>
-                                <Button size="sm" variant="primary">
-                                  <Play className="w-3.5 h-3.5 ml-1" />
-                                  شرکت در آزمون
+                            {isClosed ? (
+                              hasAttempt ? (
+                                <Link to={`/classrooms/${classroomId}/exams/${exam.id}/results`}>
+                                  <Button size="sm" variant="outline">
+                                    <Eye className="w-3.5 h-3.5 ml-1" />
+                                    مشاهده نتیجه
+                                  </Button>
+                                </Link>
+                              ) : (
+                                <Button size="sm" variant="outline" disabled>
+                                  پایان یافته
                                 </Button>
-                              </Link>
-                            ) : isActive && hasInProgressAttempt ? (
+                              )
+                            ) : hasInProgressAttempt ? (
                               <Link to={`/classrooms/${classroomId}/exams/${exam.id}/take`}>
                                 <Button
                                   size="sm"
@@ -282,9 +317,12 @@ export function StudentClassroomDetailPage() {
                                 </Button>
                               </Link>
                             ) : (
-                              <Button size="sm" variant="outline" disabled>
-                                پایان یافته
-                              </Button>
+                              <Link to={`/classrooms/${classroomId}/exams/${exam.id}`}>
+                                <Button size="sm" variant="primary">
+                                  <Play className="w-3.5 h-3.5 ml-1" />
+                                  شرکت در آزمون
+                                </Button>
+                              </Link>
                             )}
                           </TableCell>
                         </TableRow>
@@ -300,6 +338,7 @@ export function StudentClassroomDetailPage() {
                   const isUpcoming = exam.runtimeState === "upcoming";
                   const isActive = exam.runtimeState === "active";
                   const isClosed = exam.runtimeState === "closed";
+                  const hasAttempt = Boolean(exam.hasAttempt);
                   const hasInProgressAttempt = exam.attemptStatus === "in_progress";
                   const isCompletedAttempt =
                     exam.attemptStatus === "submitted" || exam.attemptStatus === "timed_out";
@@ -343,14 +382,14 @@ export function StudentClassroomDetailPage() {
 
                       <div className="pt-2 flex items-center justify-between gap-2">
                         <div>
-                          {hasInProgressAttempt ? (
+                          {isActive && hasInProgressAttempt ? (
                             <Badge variant="warning" size="sm">
                               در حال انجام
                             </Badge>
-                          ) : isCompletedAttempt ? (
+                          ) : hasAttempt ? (
                             <div className="flex items-center gap-1.5">
                               <Badge variant="success" size="sm">
-                                ثبت شده
+                                {exam.attemptStatus === "submitted" ? "ثبت شده" : "پایان زمان"}
                               </Badge>
                               {exam.score !== null && exam.score !== undefined && (
                                 <span className="text-[11px] font-bold text-[#008080]">
@@ -366,17 +405,19 @@ export function StudentClassroomDetailPage() {
                         </div>
 
                         <div>
-                          {isUpcoming ? (
-                            <Button size="sm" variant="outline" disabled>
-                              شروع نشده
-                            </Button>
-                          ) : isActive && !exam.hasAttempt ? (
-                            <Link to={`/classrooms/${classroomId}/exams/${exam.id}`}>
-                              <Button size="sm" variant="primary">
-                                شرکت در آزمون
+                          {isClosed ? (
+                            hasAttempt ? (
+                              <Link to={`/classrooms/${classroomId}/exams/${exam.id}/results`}>
+                                <Button size="sm" variant="outline">
+                                  مشاهده نتیجه
+                                </Button>
+                              </Link>
+                            ) : (
+                              <Button size="sm" variant="outline" disabled>
+                                پایان یافته
                               </Button>
-                            </Link>
-                          ) : isActive && hasInProgressAttempt ? (
+                            )
+                          ) : hasInProgressAttempt ? (
                             <Link to={`/classrooms/${classroomId}/exams/${exam.id}/take`}>
                               <Button size="sm" variant="primary" className="bg-amber-600 hover:bg-amber-700">
                                 ادامه آزمون
@@ -389,9 +430,11 @@ export function StudentClassroomDetailPage() {
                               </Button>
                             </Link>
                           ) : (
-                            <Button size="sm" variant="outline" disabled>
-                              پایان یافته
-                            </Button>
+                            <Link to={`/classrooms/${classroomId}/exams/${exam.id}`}>
+                              <Button size="sm" variant="primary">
+                                شرکت در آزمون
+                              </Button>
+                            </Link>
                           )}
                         </div>
                       </div>
@@ -402,6 +445,18 @@ export function StudentClassroomDetailPage() {
             </div>
           )}
         </div>
+      ),
+    },
+    {
+      id: "messages",
+      label: "پیام‌ها",
+      badge: conversations.length,
+      icon: <MessageSquare className="w-4 h-4" />,
+      content: (
+        <StudentClassroomMessages
+          classroomId={classroom?.id ?? ""}
+          classroomTitle={classroom?.title}
+        />
       ),
     },
   ];

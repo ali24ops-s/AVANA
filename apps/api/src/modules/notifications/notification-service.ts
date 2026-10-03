@@ -494,4 +494,339 @@ export class NotificationService {
       idempotencyKey: `referral_reward:${details.referralId}:notification`,
     });
   }
+
+  // -------------------------------------------------------------------------
+  // Classroom Exam & Assignment Domain Notifications (Student-Facing)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Notify enrolled students when an exam is published in their classroom.
+   * Strictly idempotent via exam ID and student ID.
+   */
+  async notifyClassroomExamPublished(
+    studentIds: UserId[],
+    details: {
+      examId: string;
+      classroomId: string;
+      examTitle: string;
+      classTitle: string;
+    },
+  ): Promise<NotificationItem[]> {
+    if (studentIds.length === 0) return [];
+
+    const results: NotificationItem[] = [];
+    for (const studentId of studentIds) {
+      try {
+        const item = await this.createForUser(studentId, {
+          type: "classroom_exam_published",
+          title: "آزمون جدید",
+          message: `آزمون «${details.examTitle}» در کلاس «${details.classTitle}» اضافه شد.`,
+          actionUrl: `/classrooms/${details.classroomId}/exams/${details.examId}`,
+          metadata: {
+            examId: details.examId,
+            classroomId: details.classroomId,
+            examTitle: details.examTitle,
+            classTitle: details.classTitle,
+          },
+          idempotencyKey: `exam:${details.examId}:published:${studentId}`,
+        });
+        if (item) results.push(item);
+      } catch {
+        // Graceful error handling for individual recipient failure
+      }
+    }
+    return results;
+  }
+
+  /**
+   * Notify enrolled students when exam results are released by the teacher.
+   * Strictly idempotent via exam ID and student ID.
+   */
+  async notifyClassroomExamResultsReleased(
+    studentIds: UserId[],
+    details: {
+      examId: string;
+      classroomId: string;
+      examTitle: string;
+      classTitle: string;
+    },
+  ): Promise<NotificationItem[]> {
+    if (studentIds.length === 0) return [];
+
+    const results: NotificationItem[] = [];
+    for (const studentId of studentIds) {
+      try {
+        const item = await this.createForUser(studentId, {
+          type: "classroom_exam_results_released",
+          title: "اعلام نتایج آزمون",
+          message: `نتایج آزمون «${details.examTitle}» در کلاس «${details.classTitle}» منتشر شد.`,
+          actionUrl: `/classrooms/${details.classroomId}/exams/${details.examId}/results`,
+          metadata: {
+            examId: details.examId,
+            classroomId: details.classroomId,
+            examTitle: details.examTitle,
+            classTitle: details.classTitle,
+          },
+          idempotencyKey: `exam:${details.examId}:results_released:${studentId}`,
+        });
+        if (item) results.push(item);
+      } catch {
+        // Graceful error handling for individual recipient failure
+      }
+    }
+    return results;
+  }
+
+  /**
+   * Notify enrolled students when an exam is manually closed by the teacher.
+   * Strictly idempotent via exam ID and student ID.
+   */
+  async notifyClassroomExamClosed(
+    studentIds: UserId[],
+    details: {
+      examId: string;
+      classroomId: string;
+      examTitle: string;
+      classTitle: string;
+    },
+  ): Promise<NotificationItem[]> {
+    if (studentIds.length === 0) return [];
+
+    const results: NotificationItem[] = [];
+    for (const studentId of studentIds) {
+      try {
+        const item = await this.createForUser(studentId, {
+          type: "classroom_exam_closed",
+          title: "پایان آزمون",
+          message: `آزمون «${details.examTitle}» در کلاس «${details.classTitle}» بسته شد.`,
+          actionUrl: `/classrooms/${details.classroomId}/exams/${details.examId}`,
+          metadata: {
+            examId: details.examId,
+            classroomId: details.classroomId,
+            examTitle: details.examTitle,
+            classTitle: details.classTitle,
+          },
+          idempotencyKey: `exam:${details.examId}:closed:${studentId}`,
+        });
+        if (item) results.push(item);
+      } catch {
+        // Graceful error handling for individual recipient failure
+      }
+    }
+    return results;
+  }
+
+  /**
+   * Notify enrolled students when an exam is cancelled/archived by the teacher.
+   * Strictly idempotent via exam ID and student ID.
+   */
+  async notifyClassroomExamArchived(
+    studentIds: UserId[],
+    details: {
+      examId: string;
+      classroomId: string;
+      examTitle: string;
+      classTitle: string;
+    },
+  ): Promise<NotificationItem[]> {
+    if (studentIds.length === 0) return [];
+
+    const results: NotificationItem[] = [];
+    for (const studentId of studentIds) {
+      try {
+        const item = await this.createForUser(studentId, {
+          type: "classroom_exam_archived",
+          title: "لغو آزمون",
+          message: `آزمون «${details.examTitle}» در کلاس «${details.classTitle}» لغو شد.`,
+          actionUrl: `/classrooms/${details.classroomId}`,
+          metadata: {
+            examId: details.examId,
+            classroomId: details.classroomId,
+            examTitle: details.examTitle,
+            classTitle: details.classTitle,
+          },
+          idempotencyKey: `exam:${details.examId}:archived:${studentId}`,
+        });
+        if (item) results.push(item);
+      } catch {
+        // Graceful error handling for individual recipient failure
+      }
+    }
+    return results;
+  }
+
+  /**
+   * Notify enrolled students when an assignment is published in their classroom.
+   * Strictly idempotent via assignment ID and student ID.
+   */
+  async notifyClassroomAssignmentPublished(
+    studentIds: UserId[],
+    details: {
+      assignmentId: string;
+      classroomId: string;
+      assignmentTitle: string;
+      classTitle: string;
+    },
+  ): Promise<NotificationItem[]> {
+    if (studentIds.length === 0) return [];
+
+    const results: NotificationItem[] = [];
+    for (const studentId of studentIds) {
+      try {
+        const item = await this.createForUser(studentId, {
+          type: "classroom_assignment_published",
+          title: "تکلیف جدید",
+          message: `تکلیف «${details.assignmentTitle}» در کلاس «${details.classTitle}» اضافه شد.`,
+          actionUrl: `/classrooms/${details.classroomId}`,
+          metadata: {
+            assignmentId: details.assignmentId,
+            classroomId: details.classroomId,
+            assignmentTitle: details.assignmentTitle,
+            classTitle: details.classTitle,
+          },
+          idempotencyKey: `assignment:${details.assignmentId}:published:${studentId}`,
+        });
+        if (item) results.push(item);
+      } catch {
+        // Graceful error handling for individual recipient failure
+      }
+    }
+    return results;
+  }
+
+  /**
+   * Notify enrolled students when an assignment due date is changed.
+   * Strictly idempotent via assignment ID, new due date string, and student ID.
+   */
+  async notifyClassroomAssignmentDueChanged(
+    studentIds: UserId[],
+    details: {
+      assignmentId: string;
+      classroomId: string;
+      assignmentTitle: string;
+      classTitle: string;
+      dueAt: string;
+    },
+  ): Promise<NotificationItem[]> {
+    if (studentIds.length === 0) return [];
+
+    const results: NotificationItem[] = [];
+    for (const studentId of studentIds) {
+      try {
+        const item = await this.createForUser(studentId, {
+          type: "classroom_assignment_due_changed",
+          title: "تغییر مهلت تکلیف",
+          message: `مهلت تکلیف «${details.assignmentTitle}» در کلاس «${details.classTitle}» تغییر کرد.`,
+          actionUrl: `/classrooms/${details.classroomId}`,
+          metadata: {
+            assignmentId: details.assignmentId,
+            classroomId: details.classroomId,
+            assignmentTitle: details.assignmentTitle,
+            classTitle: details.classTitle,
+            dueAt: details.dueAt,
+          },
+          idempotencyKey: `assignment:${details.assignmentId}:due:${details.dueAt}:${studentId}`,
+        });
+        if (item) results.push(item);
+      } catch {
+        // Graceful error handling for individual recipient failure
+      }
+    }
+    return results;
+  }
+
+  /**
+   * Notify enrolled students when an assignment is archived/cancelled.
+   * Strictly idempotent via assignment ID and student ID.
+   */
+  async notifyClassroomAssignmentArchived(
+    studentIds: UserId[],
+    details: {
+      assignmentId: string;
+      classroomId: string;
+      assignmentTitle: string;
+      classTitle: string;
+    },
+  ): Promise<NotificationItem[]> {
+    if (studentIds.length === 0) return [];
+
+    const results: NotificationItem[] = [];
+    for (const studentId of studentIds) {
+      try {
+        const item = await this.createForUser(studentId, {
+          type: "classroom_assignment_archived",
+          title: "تغییر وضعیت تکلیف",
+          message: `تکلیف «${details.assignmentTitle}» در کلاس «${details.classTitle}» بسته شد.`,
+          actionUrl: `/classrooms/${details.classroomId}`,
+          metadata: {
+            assignmentId: details.assignmentId,
+            classroomId: details.classroomId,
+            assignmentTitle: details.assignmentTitle,
+            classTitle: details.classTitle,
+          },
+          idempotencyKey: `assignment:${details.assignmentId}:archived:${studentId}`,
+        });
+        if (item) results.push(item);
+      } catch {
+        // Graceful error handling for individual recipient failure
+      }
+    }
+    return results;
+  }
+
+  /**
+   * Notify teacher when a student submits a new conversation/question.
+   * Strictly idempotent via conversation ID.
+   */
+  async notifyTeacherNewMessage(
+    teacherId: UserId,
+    details: {
+      conversationId: string;
+      classroomId: string;
+      studentId: string;
+      subject: string;
+      classTitle: string;
+    },
+  ): Promise<NotificationItem | null> {
+    return await this.createForUser(teacherId, {
+      type: "teacher_new_message",
+      title: "پیام جدید از دانشجو",
+      message: `پیام جدیدی با عنوان «${details.subject}» در کلاس «${details.classTitle}» دریافت کردید.`,
+      actionUrl: `/teacher/messages/${details.conversationId}`,
+      metadata: {
+        conversationId: details.conversationId,
+        classroomId: details.classroomId,
+        studentId: details.studentId,
+      },
+      idempotencyKey: `msg:create:${details.conversationId}`,
+    });
+  }
+
+  /**
+   * Notify student when their teacher replies to a conversation.
+   * Strictly idempotent via reply message ID.
+   */
+  async notifyTeacherReplyMessage(
+    studentId: UserId,
+    details: {
+      messageId: string;
+      conversationId: string;
+      classroomId: string;
+      teacherId: string;
+      subject: string;
+    },
+  ): Promise<NotificationItem | null> {
+    return await this.createForUser(studentId, {
+      type: "teacher_reply_message",
+      title: "پاسخ جدید از استاد",
+      message: `استاد به پیام شما با عنوان «${details.subject}» پاسخ داد.`,
+      actionUrl: `/classrooms/${details.classroomId}?tab=messages&id=${details.conversationId}`,
+      metadata: {
+        conversationId: details.conversationId,
+        classroomId: details.classroomId,
+        teacherId: details.teacherId,
+      },
+      idempotencyKey: `msg:reply:${details.messageId}`,
+    });
+  }
 }

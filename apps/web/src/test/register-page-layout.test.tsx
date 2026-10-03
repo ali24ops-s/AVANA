@@ -161,4 +161,110 @@ describe("RegisterPage Desktop Layout & Viewport Tests", () => {
     fireEvent.change(majorInput, { target: { value: "pharmacy" } });
     expect(submitBtn).not.toBeDisabled();
   });
+
+  it("renders teacher-specific academic profile fields and allows searching and selecting university like Ardabil", async () => {
+    const { container } = renderWithProviders(
+      <AuthProvider>
+        <RegisterPage />
+      </AuthProvider>,
+      ["/sign-up?role=teacher"],
+    );
+
+    expect(screen.getByText("ثبت‌نام به‌ عنوان استاد")).toBeInTheDocument();
+    expect(screen.getByText("دانشگاه محل تدریس")).toBeInTheDocument();
+    expect(screen.getByText("دانشکده (اختیاری)")).toBeInTheDocument();
+    expect(screen.getByText("گروه آموزشی")).toBeInTheDocument();
+
+    const univCombobox = screen.getByTestId("university-select");
+    expect(univCombobox).toBeInTheDocument();
+
+    // Click to open university combobox
+    fireEvent.click(univCombobox);
+
+    // Search input should appear
+    const searchInput = screen.getByPlaceholderText("جستجو در دانشگاه‌ها...");
+    expect(searchInput).toBeInTheDocument();
+
+    // Type "اردبیل"
+    fireEvent.change(searchInput, { target: { value: "اردبیل" } });
+
+    // "دانشگاه علوم پزشکی اردبیل" option should be visible
+    const ardabilOption = screen.getByText("دانشگاه علوم پزشکی اردبیل");
+    expect(ardabilOption).toBeInTheDocument();
+
+    // Click option
+    fireEvent.click(ardabilOption);
+
+    // Dropdown closes and trigger reflects selection
+    expect(screen.getByText("دانشگاه علوم پزشکی اردبیل")).toBeInTheDocument();
+  });
+
+  it("allows searching and selecting academic department in teacher form", async () => {
+    renderWithProviders(
+      <AuthProvider>
+        <RegisterPage />
+      </AuthProvider>,
+      ["/sign-up?role=teacher"],
+    );
+
+    const deptCombobox = screen.getByTestId("department-select");
+    expect(deptCombobox).toBeInTheDocument();
+
+    // Open department combobox
+    fireEvent.click(deptCombobox);
+
+    const deptSearchInput = screen.getByPlaceholderText("جستجو در گروه‌های آموزشی...");
+    expect(deptSearchInput).toBeInTheDocument();
+
+    // Type "فارماکولوژی"
+    fireEvent.change(deptSearchInput, { target: { value: "فارماکولوژی" } });
+    const pharmacologyOption = screen.getByText("فارماکولوژی");
+    expect(pharmacologyOption).toBeInTheDocument();
+
+    fireEvent.click(pharmacologyOption);
+    expect(screen.getByText("فارماکولوژی")).toBeInTheDocument();
+  });
+
+  it("rejects non-taxonomy custom inputs and prevents selection with 'گزینه‌ای یافت نشد'", async () => {
+    renderWithProviders(
+      <AuthProvider>
+        <RegisterPage />
+      </AuthProvider>,
+      ["/sign-up?role=teacher"],
+    );
+
+    const univCombobox = screen.getByTestId("university-select");
+    fireEvent.click(univCombobox);
+
+    const searchInput = screen.getByPlaceholderText("جستجو در دانشگاه‌ها...");
+    fireEvent.change(searchInput, { target: { value: "دانشگاه ناموجود تستی ۹۹" } });
+
+    expect(screen.getByText("گزینه‌ای یافت نشد")).toBeInTheDocument();
+    expect(screen.queryByText(/افزودن/i)).not.toBeInTheDocument();
+
+    // Pressing Enter on search input should not select or add invalid option
+    fireEvent.keyDown(searchInput, { key: "Enter", code: "Enter" });
+    expect(screen.queryByText("دانشگاه ناموجود تستی ۹۹")).not.toBeInTheDocument();
+  });
+
+  it("supports keyboard navigation (ArrowDown and Enter) to select university", async () => {
+    renderWithProviders(
+      <AuthProvider>
+        <RegisterPage />
+      </AuthProvider>,
+      ["/sign-up?role=teacher"],
+    );
+
+    const univCombobox = screen.getByTestId("university-select");
+    fireEvent.click(univCombobox);
+
+    const searchInput = screen.getByPlaceholderText("جستجو در دانشگاه‌ها...");
+    fireEvent.change(searchInput, { target: { value: "اردبیل" } });
+
+    // Arrow down to highlight first filtered item and Enter to select
+    fireEvent.keyDown(searchInput, { key: "ArrowDown", code: "ArrowDown" });
+    fireEvent.keyDown(searchInput, { key: "Enter", code: "Enter" });
+
+    expect(screen.getByText("دانشگاه علوم پزشکی اردبیل")).toBeInTheDocument();
+  });
 });
