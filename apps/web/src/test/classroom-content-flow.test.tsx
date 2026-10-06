@@ -125,6 +125,68 @@ describe("Classroom Educational Content — Frontend Flow Tests", () => {
       expect(screen.getByText("متن")).toBeInTheDocument();
       expect(screen.getByText("ویدئو (لینک خارجی)")).toBeInTheDocument();
       expect(screen.getByText("تصویر")).toBeInTheDocument();
+
+      // Ensure video URL is not rendered as text in the title column
+      expect(
+        screen.queryByText("https://drive.google.com/file/d/test-video-id/view"),
+      ).not.toBeInTheDocument();
+
+      // Ensure action link for video still exists
+      const videoActionLink = screen.getByTitle("مشاهده لینک ویدئو");
+      expect(videoActionLink).toHaveAttribute(
+        "href",
+        "https://drive.google.com/file/d/test-video-id/view",
+      );
+    });
+
+    it("never renders video URLs in content title column and gracefully falls back when title is empty or a URL", () => {
+      const contentsWithUrlAndEmptyTitles: ClassroomContent[] = [
+        {
+          id: "cnt-url-title",
+          classroomId: "class-1",
+          teacherId: "teacher-1",
+          title: "https://drive.google.com/file/d/test-video-id/view",
+          contentType: "video_external",
+          externalUrl: "https://drive.google.com/file/d/test-video-id/view",
+          status: "published",
+          createdAt: "2026-09-02T10:00:00Z",
+          updatedAt: "2026-09-02T10:00:00Z",
+        },
+        {
+          id: "cnt-empty-title",
+          classroomId: "class-1",
+          teacherId: "teacher-1",
+          title: "",
+          contentType: "video_external",
+          externalUrl: "https://drive.google.com/file/d/another-video/view",
+          status: "published",
+          createdAt: "2026-09-02T10:00:00Z",
+          updatedAt: "2026-09-02T10:00:00Z",
+        },
+      ];
+
+      render(
+        <QueryClientProvider client={queryClient}>
+          <ClassroomContentsTable
+            contents={contentsWithUrlAndEmptyTitles}
+            isLoading={false}
+            classroomId="class-1"
+            onOpenCreateModal={vi.fn()}
+          />
+        </QueryClientProvider>,
+      );
+
+      // Neither URL should appear as text in the table
+      expect(
+        screen.queryByText("https://drive.google.com/file/d/test-video-id/view"),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByText("https://drive.google.com/file/d/another-video/view"),
+      ).not.toBeInTheDocument();
+
+      // Fallback is rendered instead
+      const fallbacks = screen.getAllByText("محتوای بدون عنوان");
+      expect(fallbacks).toHaveLength(2);
     });
 
     it("renders empty state when there are no contents", () => {

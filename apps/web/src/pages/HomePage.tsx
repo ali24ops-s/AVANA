@@ -152,10 +152,13 @@ export function HomePage() {
         ? courses[0]
         : null;
 
-  // Extract display name (prefer name if available, otherwise email prefix)
-  const userDisplayName =
-    user?.name && user.name.trim().length > 0
-      ? user.name.trim()
+  // Extract user first name for greeting (omit last name, fallback to email prefix or 'کاربر')
+  const rawFirstName =
+    (user as { firstName?: string | null } | null)?.firstName?.trim() ||
+    (user?.name ? user.name.trim().split(/\s+/)[0] : "");
+  const userFirstName =
+    rawFirstName && rawFirstName.length > 0
+      ? rawFirstName
       : user?.email
         ? user.email.split("@")[0]
         : "کاربر";
@@ -169,7 +172,7 @@ export function HomePage() {
       <div className="flex flex-col gap-1.5 sm:gap-2">
         <div className="flex items-center justify-center sm:justify-between gap-3 flex-wrap sm:flex-nowrap">
           <h2 className="text-xl sm:text-2xl md:text-3xl font-extrabold text-[var(--color-text)] tracking-tight text-center sm:text-right">
-            سلام {userDisplayName} 👋
+            سلام {userFirstName} 👋
           </h2>
           <div className="bg-[var(--color-surface)] px-3 py-1 sm:px-4 sm:py-1.5 rounded-full border border-[var(--color-border)] shadow-xs text-xs md:text-sm text-[var(--color-text)] flex items-center gap-1.5 shrink-0">
             <Calendar className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-primary" />

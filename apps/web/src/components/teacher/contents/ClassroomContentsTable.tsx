@@ -40,6 +40,19 @@ export interface ClassroomContentsTableProps {
   onOpenCreateModal: () => void;
 }
 
+function getContentDisplayTitle(content: ClassroomContent): string {
+  const trimmed = content.title?.trim();
+  const isVideoUrl =
+    Boolean(content.externalUrl && trimmed === content.externalUrl.trim()) ||
+    Boolean(content.videoEmbedUrl && trimmed === content.videoEmbedUrl.trim()) ||
+    (content.contentType === "video_external" && Boolean(trimmed && /^https?:\/\//i.test(trimmed)));
+
+  if (!trimmed || isVideoUrl) {
+    return "محتوای بدون عنوان";
+  }
+  return trimmed;
+}
+
 export function ClassroomContentsTable({
   contents,
   isLoading,
@@ -138,18 +151,15 @@ export function ClassroomContentsTable({
                     <TableCell>
                       <div className="flex flex-col gap-0.5">
                         <span className="font-bold text-xs sm:text-sm text-[var(--color-text)] line-clamp-1">
-                          {c.title}
+                          {getContentDisplayTitle(c)}
                         </span>
-                        {c.description && (
-                          <span className="text-[11px] text-[var(--color-text-muted)] line-clamp-1">
-                            {c.description}
-                          </span>
-                        )}
-                        {c.contentType === "video_external" && c.externalUrl && (
-                          <span className="text-[10px] text-blue-600 line-clamp-1 font-mono" dir="ltr">
-                            {c.externalUrl}
-                          </span>
-                        )}
+                        {c.description &&
+                          c.description.trim() !== c.externalUrl?.trim() &&
+                          c.description.trim() !== c.videoEmbedUrl?.trim() && (
+                            <span className="text-[11px] text-[var(--color-text-muted)] line-clamp-1">
+                              {c.description}
+                            </span>
+                          )}
                         {c.fileName && (
                           <span className="text-[10px] text-[var(--color-text-muted)] line-clamp-1">
                             فایل: {c.fileName}
@@ -281,7 +291,7 @@ export function ClassroomContentsTable({
           onCancel={() => setContentToArchive(null)}
           onConfirm={handleConfirmArchive}
           title="بایگانی محتوای آموزشی"
-          description={`آیا از بایگانی کردن محتوای «${contentToArchive.title}» اطمینان دارید؟`}
+          description={`آیا از بایگانی کردن محتوای «${getContentDisplayTitle(contentToArchive)}» اطمینان دارید؟`}
           confirmText="بایگانی محتوا"
           variant="warning"
         />
@@ -294,7 +304,7 @@ export function ClassroomContentsTable({
           onCancel={() => setContentToDelete(null)}
           onConfirm={handleConfirmDelete}
           title="حذف محتوای آموزشی"
-          description={`آیا از حذف دائمی محتوای «${contentToDelete.title}» اطمینان دارید؟ این عملیات غیرقابل بازگشت است.`}
+          description={`آیا از حذف دائمی محتوای «${getContentDisplayTitle(contentToDelete)}» اطمینان دارید؟ این عملیات غیرقابل بازگشت است.`}
           confirmText="حذف دائمی"
           variant="danger"
         />

@@ -24,8 +24,6 @@ import {
   isNavItemActive,
   getAdminPageInfo,
   getVisibleNavItems,
-  PLATFORM_ADMIN_NAV_ITEMS,
-  CONTENT_WORKER_NAV_ITEMS,
 } from "../components/admin/adminNavigation.js";
 import type { ReactNode } from "react";
 
@@ -203,6 +201,139 @@ describe("Admin Shell & Navigation Architecture", () => {
     expect(desktopNav.querySelectorAll('a[href="/admin/blog"]')).toHaveLength(1);
     expect(desktopNav.querySelectorAll('a[href="/admin/dashboard"]')).toHaveLength(0);
     expect(desktopNav.querySelectorAll('a[href="/admin/users"]')).toHaveLength(0);
+  });
+
+  it("Case 2b — Course Editor can access /admin/courses and sees only course workspaces", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      createMockFetch({
+        id: "editor-1",
+        email: "editor@avana.test",
+        name: "Course Editor User",
+        role: "course_editor",
+      }),
+    );
+
+    renderWithProviders(
+      <Routes>
+        <Route path="/admin" element={<AdminLayout />}>
+          <Route
+            path="courses"
+            element={<div data-testid="courses-content">لیست دوره‌های مدیریت</div>}
+          />
+        </Route>
+      </Routes>,
+      { initialEntries: ["/admin/courses"] },
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("courses-content")).toBeInTheDocument();
+    });
+
+    const editorItems = getVisibleNavItems("course_editor");
+    expect(editorItems).toHaveLength(2);
+    expect(editorItems.map((i) => i.name)).toEqual([
+      "آموزش و دوره‌ها",
+      "استودیوی محتوا",
+    ]);
+
+    const desktopNav = screen.getByRole("complementary", { name: "ناوبری مدیریت" });
+    expect(desktopNav.querySelectorAll('a[href="/admin/courses"]')).toHaveLength(1);
+    expect(desktopNav.querySelectorAll('a[href="/admin/content-studio"]')).toHaveLength(1);
+    expect(desktopNav.querySelectorAll('a[href="/admin/dashboard"]')).toHaveLength(0);
+    expect(desktopNav.querySelectorAll('a[href="/admin/users"]')).toHaveLength(0);
+    expect(desktopNav.querySelectorAll('a[href="/admin/commerce"]')).toHaveLength(0);
+    expect(desktopNav.querySelectorAll('a[href="/admin/system/health"]')).toHaveLength(0);
+  });
+
+  it("Case 2c — Course Editor accessing /admin/dashboard is redirected to /admin/courses", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      createMockFetch({
+        id: "editor-1",
+        email: "editor@avana.test",
+        name: "Course Editor User",
+        role: "course_editor",
+      }),
+    );
+
+    renderWithProviders(
+      <Routes>
+        <Route path="/admin" element={<AdminLayout />}>
+          <Route
+            path="dashboard"
+            element={<div data-testid="dashboard-content">داشبورد پلتفرم</div>}
+          />
+          <Route
+            path="courses"
+            element={<div data-testid="courses-content">فضای کاری دوره‌ها</div>}
+          />
+        </Route>
+      </Routes>,
+      { initialEntries: ["/admin/dashboard"] },
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("courses-content")).toBeInTheDocument();
+      expect(screen.queryByTestId("dashboard-content")).not.toBeInTheDocument();
+    });
+  });
+
+  it("Case 2d — Course Editor accessing unauthorized /admin/users is redirected to /admin/courses", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      createMockFetch({
+        id: "editor-1",
+        email: "editor@avana.test",
+        name: "Course Editor User",
+        role: "course_editor",
+      }),
+    );
+
+    renderWithProviders(
+      <Routes>
+        <Route path="/admin" element={<AdminLayout />}>
+          <Route
+            path="users"
+            element={<div data-testid="users-content">مدیریت کاربران پلتفرم</div>}
+          />
+          <Route
+            path="courses"
+            element={<div data-testid="courses-content">فضای کاری دوره‌ها</div>}
+          />
+        </Route>
+      </Routes>,
+      { initialEntries: ["/admin/users"] },
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("courses-content")).toBeInTheDocument();
+      expect(screen.queryByTestId("users-content")).not.toBeInTheDocument();
+    });
+  });
+
+  it("Case 2e — Course Editor can open /admin/courses/:courseId", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      createMockFetch({
+        id: "editor-1",
+        email: "editor@avana.test",
+        name: "Course Editor User",
+        role: "course_editor",
+      }),
+    );
+
+    renderWithProviders(
+      <Routes>
+        <Route path="/admin" element={<AdminLayout />}>
+          <Route
+            path="courses/:courseId"
+            element={<div data-testid="course-hub-content">فضای مدیریت دوره c-123</div>}
+          />
+        </Route>
+      </Routes>,
+      { initialEntries: ["/admin/courses/c-123"] },
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("course-hub-content")).toBeInTheDocument();
+    });
   });
 
   it("Case 3 — deep admin route renders inside Admin Shell with proper breadcrumb", async () => {

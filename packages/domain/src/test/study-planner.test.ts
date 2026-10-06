@@ -11,7 +11,12 @@ import {
   resolveExamUrgencyBudget,
   getExamUrgencyPriorityBoost,
   calculateExamDaysRemaining,
+  detectActiveLearningStreams,
+  pickBalancedLessonsFromStreams,
   type PlannerCandidate,
+  type StreamModuleInput,
+  type StreamLessonInput,
+  type StreamProgressInput,
 } from "../study-planner.js";
 
 describe("Study Planner Domain Primitives", () => {
@@ -424,4 +429,387 @@ describe("Category-Aware Capacity Packing", () => {
   });
 });
 
+describe("Active Learning Streams Domain Engine", () => {
+  const courseId = "course-math-101";
 
+  // Helper to generate 15 mock modules for course
+  const createCourseModules = (count = 15): StreamModuleInput[] =>
+    Array.from({ length: count }, (_, idx) => ({
+      id: `mod-${idx + 1}`,
+      courseId,
+      title: `فصل ${idx + 1}`,
+      sortOrder: (idx + 1) * 10,
+    }));
+
+  // Helper to generate 2 lessons per module
+  const createLessonsForModules = (
+    modules: StreamModuleInput[],
+    lessonsPerModule = 2,
+  ): StreamLessonInput[] =>
+    modules.flatMap((m) =>
+      Array.from({ length: lessonsPerModule }, (_, lIdx) => ({
+        id: `lesson-${m.id}-${lIdx + 1}`,
+        moduleId: m.id,
+        title: `درس ${lIdx + 1} از ${m.title}`,
+        sortOrder: lIdx + 1,
+        publicationStatus: "published",
+        estimatedMinutes: 20,
+      })),
+    );
+
+  it("Scenario 1: No learning starts -> returns empty streams array", () => {
+    const modules = createCourseModules(10);
+    const lessons = createLessonsForModules(modules);
+    const progress: StreamProgressInput[] = [];
+
+    const streams = detectActiveLearningStreams({
+      courseId,
+      modules,
+      lessons,
+      progressRecords: progress,
+    });
+
+    expect(streams).toEqual([]);
+  });
+
+  it("Scenario 2: Chapter 6 Started -> single stream [mod-6], frontier = mod-6, next lesson = lesson 2", () => {
+    const modules = createCourseModules(12);
+    const lessons = createLessonsForModules(modules);
+
+    // Only lesson 1 of module 6 is completed
+    const progress: StreamProgressInput[] = [
+      {
+        lessonId: "lesson-mod-6-1",
+        completed: true,
+        completedAt: "2026-10-01T10:00:00.000Z",
+      },
+    ];
+
+    const streams = detectActiveLearningStreams({
+      courseId,
+      modules,
+      lessons,
+      progressRecords: progress,
+    });
+
+    expect(streams).toHaveLength(1);
+    const stream = streams[0];
+    expect(stream.moduleIds).toEqual(["mod-6"]);
+    expect(stream.headModuleId).toBe("mod-6");
+    expect(stream.frontierModuleId).toBe("mod-6");
+    expect(stream.learningStartAt).toBe("2026-10-01T10:00:00.000Z");
+    expect(stream.lastActivityAt).toBe("2026-10-01T10:00:00.000Z");
+    expect(stream.isCompleted).toBe(false);
+
+    // Next lesson should be lesson 2 of module 6
+    expect(stream.nextLessons).toHaveLength(1);
+    expect(stream.nextLessons[0].id).toBe("lesson-mod-6-2");
+  });
+
+  it("Scenario 3: Contiguous chapters 6, 7, 8 started -> single stream [mod-6, mod-7, mod-8]", () => {
+    const modules = createCourseModules(12);
+    const lessons = createLessonsForModules(modules);
+
+    const progress: StreamProgressInput[] = [
+      { lessonId: "lesson-mod-6-1", completed: true, completedAt: "2026-10-01T10:00:00.000Z" },
+      { lessonId: "lesson-mod-6-2", completed: true, completedAt: "2026-10-02T10:00:00.000Z" },
+      { lessonId: "lesson-mod-7-1", completed: true, completedAt: "2026-10-03T10:00:00.000Z" },
+      { lessonId: "lesson-mod-8-1", completed: true, completedAt: "2026-10-04T10:00:00.000Z" },
+    ];
+
+    const streams = detectActiveLearningStreams({
+      courseId,
+      modules,
+      lessons,
+      progressRecords: progress,
+    });
+
+    expect(streams).toHaveLength(1);
+    const stream = streams[0];
+    expect(stream.moduleIds).toEqual(["mod-6", "mod-7", "mod-8"]);
+    expect(stream.headModuleId).toBe("mod-8");
+    expect(stream.frontierModuleId).toBe("mod-8");
+    expect(stream.learningStartAt).toBe("2026-10-01T10:00:00.000Z");
+    expect(stream.lastActivityAt).toBe("2026-10-04T10:00:00.000Z");
+    expect(stream.nextLessons.map((l) => l.id)).toEqual(["lesson-mod-8-2"]);
+  });
+
+  it("Scenario 4: Disjoint chapters 6 and 12 started -> two separate streams [mod-6] and [mod-12]", () => {
+    const modules = createCourseModules(15);
+    const lessons = createLessonsForModules(modules);
+
+    const progress: StreamProgressInput[] = [
+      { lessonId: "lesson-mod-6-1", completed: true, completedAt: "2026-10-01T10:00:00.000Z" },
+      { lessonId: "lesson-mod-12-1", completed: true, completedAt: "2026-10-05T12:00:00.000Z" },
+    ];
+
+    const streams = detectActiveLearningStreams({
+      courseId,
+      modules,
+      lessons,
+      progressRecords: progress,
+    });
+
+    expect(streams).toHaveLength(2);
+
+    // Stream 12 has fresher activity (Oct 5 > Oct 1) -> ranked first
+    expect(streams[0].moduleIds).toEqual(["mod-12"]);
+    expect(streams[0].frontierModuleId).toBe("mod-12");
+    expect(streams[0].lastActivityAt).toBe("2026-10-05T12:00:00.000Z");
+
+    // Stream 6 ranked second
+    expect(streams[1].moduleIds).toEqual(["mod-6"]);
+    expect(streams[1].frontierModuleId).toBe("mod-6");
+    expect(streams[1].lastActivityAt).toBe("2026-10-01T10:00:00.000Z");
+  });
+
+  it("Scenario 5: Temporal order 6 -> 12 -> 7 -> clusters deterministically to [mod-6, mod-7] and [mod-12]", () => {
+    const modules = createCourseModules(15);
+    const lessons = createLessonsForModules(modules);
+
+    // User started mod-6 on Oct 1, mod-12 on Oct 2, mod-7 on Oct 3
+    const progress: StreamProgressInput[] = [
+      { lessonId: "lesson-mod-6-1", completed: true, completedAt: "2026-10-01T10:00:00.000Z" },
+      { lessonId: "lesson-mod-12-1", completed: true, completedAt: "2026-10-02T10:00:00.000Z" },
+      { lessonId: "lesson-mod-7-1", completed: true, completedAt: "2026-10-03T10:00:00.000Z" },
+    ];
+
+    const streams = detectActiveLearningStreams({
+      courseId,
+      modules,
+      lessons,
+      progressRecords: progress,
+    });
+
+    expect(streams).toHaveLength(2);
+
+    // Stream [6, 7] has latest activity Oct 3 -> ranked first
+    expect(streams[0].moduleIds).toEqual(["mod-6", "mod-7"]);
+    expect(streams[0].headModuleId).toBe("mod-7");
+    expect(streams[0].lastActivityAt).toBe("2026-10-03T10:00:00.000Z");
+
+    // Stream [12] has latest activity Oct 2 -> ranked second
+    expect(streams[1].moduleIds).toEqual(["mod-12"]);
+    expect(streams[1].headModuleId).toBe("mod-12");
+    expect(streams[1].lastActivityAt).toBe("2026-10-02T10:00:00.000Z");
+  });
+
+  it("Scenario 6: Complete chapter 6 while 7 is unstarted -> frontier advances to 7, but 7 is NOT in startedModules", () => {
+    const modules = createCourseModules(10);
+    const lessons = createLessonsForModules(modules);
+
+    // All lessons of module 6 completed; module 7 has NO completion
+    const progress: StreamProgressInput[] = [
+      { lessonId: "lesson-mod-6-1", completed: true, completedAt: "2026-10-01T10:00:00.000Z" },
+      { lessonId: "lesson-mod-6-2", completed: true, completedAt: "2026-10-02T10:00:00.000Z" },
+    ];
+
+    const streams = detectActiveLearningStreams({
+      courseId,
+      modules,
+      lessons,
+      progressRecords: progress,
+    });
+
+    expect(streams).toHaveLength(1);
+    const stream = streams[0];
+
+    // Explicit Rule 3 check: Started modules contains ONLY 6
+    expect(stream.moduleIds).toEqual(["mod-6"]);
+    expect(stream.headModuleId).toBe("mod-6");
+    expect(stream.moduleIds).not.toContain("mod-7");
+
+    // Frontier has advanced to mod-7
+    expect(stream.frontierModuleId).toBe("mod-7");
+
+    // Candidates come from mod-7's uncompleted lessons
+    expect(stream.nextLessons.map((l) => l.id)).toEqual([
+      "lesson-mod-7-1",
+      "lesson-mod-7-2",
+    ]);
+
+    // Frontier module 7 does NOT contaminate learningStartAt
+    expect(stream.learningStartAt).toBe("2026-10-01T10:00:00.000Z");
+    expect(stream.lastActivityAt).toBe("2026-10-02T10:00:00.000Z");
+  });
+
+  it("Scenario 7: Complete 6 and then actually complete lesson 1 of 7 -> 7 officially becomes started", () => {
+    const modules = createCourseModules(10);
+    const lessons = createLessonsForModules(modules);
+
+    // All lessons of 6 + lesson 1 of 7
+    const progress: StreamProgressInput[] = [
+      { lessonId: "lesson-mod-6-1", completed: true, completedAt: "2026-10-01T10:00:00.000Z" },
+      { lessonId: "lesson-mod-6-2", completed: true, completedAt: "2026-10-02T10:00:00.000Z" },
+      { lessonId: "lesson-mod-7-1", completed: true, completedAt: "2026-10-03T10:00:00.000Z" },
+    ];
+
+    const streams = detectActiveLearningStreams({
+      courseId,
+      modules,
+      lessons,
+      progressRecords: progress,
+    });
+
+    expect(streams).toHaveLength(1);
+    const stream = streams[0];
+
+    // Now moduleIds officially contains both 6 and 7
+    expect(stream.moduleIds).toEqual(["mod-6", "mod-7"]);
+    expect(stream.headModuleId).toBe("mod-7");
+    expect(stream.frontierModuleId).toBe("mod-7");
+    expect(stream.nextLessons.map((l) => l.id)).toEqual(["lesson-mod-7-2"]);
+    expect(stream.lastActivityAt).toBe("2026-10-03T10:00:00.000Z");
+  });
+
+  it("Scenario 8: Round-Robin balanced selection between two active streams", () => {
+    const modules = createCourseModules(15);
+    const lessons = createLessonsForModules(modules, 3); // 3 lessons per module
+
+    // Stream A starts on mod-6 (fresher: Oct 5), Stream B starts on mod-12 (Oct 1)
+    const progress: StreamProgressInput[] = [
+      { lessonId: "lesson-mod-6-1", completed: true, completedAt: "2026-10-05T10:00:00.000Z" },
+      { lessonId: "lesson-mod-12-1", completed: true, completedAt: "2026-10-01T10:00:00.000Z" },
+    ];
+
+    const streams = detectActiveLearningStreams({
+      courseId,
+      modules,
+      lessons,
+      progressRecords: progress,
+    });
+
+    expect(streams).toHaveLength(2);
+    expect(streams[0].headModuleId).toBe("mod-6"); // Fresher
+    expect(streams[1].headModuleId).toBe("mod-12");
+
+    // Balanced pick with capacity = 4
+    const picked = pickBalancedLessonsFromStreams(streams, { maxLessons: 4 });
+
+    // Stream A has [lesson-mod-6-2, lesson-mod-6-3]
+    // Stream B has [lesson-mod-12-2, lesson-mod-12-3]
+    // Round-robin result: A1 -> B1 -> A2 -> B2
+    expect(picked.map((l) => l.id)).toEqual([
+      "lesson-mod-6-2",
+      "lesson-mod-12-2",
+      "lesson-mod-6-3",
+      "lesson-mod-12-3",
+    ]);
+  });
+
+  it("Scenario 9 & 10: Idempotency & Repeated completion does not corrupt learningStartAt", () => {
+    const modules = createCourseModules(5);
+    const lessons = createLessonsForModules(modules);
+
+    // Repeated/duplicate completion entries for the same lesson
+    const progress: StreamProgressInput[] = [
+      { lessonId: "lesson-mod-2-1", completed: true, completedAt: "2026-10-01T10:00:00.000Z" },
+      { lessonId: "lesson-mod-2-1", completed: true, completedAt: "2026-10-03T15:00:00.000Z" }, // repeated later
+    ];
+
+    const streams = detectActiveLearningStreams({
+      courseId,
+      modules,
+      lessons,
+      progressRecords: progress,
+    });
+
+    expect(streams).toHaveLength(1);
+    // Preserves earliest timestamp
+    expect(streams[0].learningStartAt).toBe("2026-10-01T10:00:00.000Z");
+  });
+
+  it("Scenario 11 & 12: Drawer open / study session without completion has zero effect", () => {
+    const modules = createCourseModules(5);
+    const lessons = createLessonsForModules(modules);
+
+    // Uncompleted record (e.g. passive view or uncompleted progress)
+    const progress: StreamProgressInput[] = [
+      { lessonId: "lesson-mod-2-1", completed: false, completedAt: null },
+    ];
+
+    const streams = detectActiveLearningStreams({
+      courseId,
+      modules,
+      lessons,
+      progressRecords: progress,
+    });
+
+    expect(streams).toEqual([]);
+  });
+
+  it("Scenario 15: Course completion -> stream marked completed and produces no next lessons", () => {
+    const modules = createCourseModules(2); // Only 2 modules in entire course
+    const lessons = createLessonsForModules(modules, 1); // 1 lesson each
+
+    const progress: StreamProgressInput[] = [
+      { lessonId: "lesson-mod-1-1", completed: true, completedAt: "2026-10-01T10:00:00.000Z" },
+      { lessonId: "lesson-mod-2-1", completed: true, completedAt: "2026-10-02T10:00:00.000Z" },
+    ];
+
+    const streams = detectActiveLearningStreams({
+      courseId,
+      modules,
+      lessons,
+      progressRecords: progress,
+    });
+
+    expect(streams).toHaveLength(1);
+    expect(streams[0].isCompleted).toBe(true);
+    expect(streams[0].nextLessons).toEqual([]);
+  });
+
+  it("Scenario 16: Module Edge Cases (unpublished lesson, deleted module, invalid completedAt)", () => {
+    const modules: StreamModuleInput[] = [
+      { id: "mod-empty", courseId, sortOrder: 10 },
+      { id: "mod-deleted", courseId, sortOrder: 20, deletedAt: "2026-09-01T00:00:00.000Z" },
+      { id: "mod-valid", courseId, sortOrder: 30 },
+    ];
+
+    const lessons: StreamLessonInput[] = [
+      // Draft/unpublished lesson in mod-empty with completion
+      {
+        id: "lesson-draft",
+        moduleId: "mod-empty",
+        title: "درس پیش‌نویس",
+        sortOrder: 1,
+        publicationStatus: "draft",
+      },
+      // Valid published lesson in mod-valid
+      {
+        id: "lesson-valid-1",
+        moduleId: "mod-valid",
+        title: "درس معتبر ۱",
+        sortOrder: 1,
+        publicationStatus: "published",
+      },
+      {
+        id: "lesson-valid-2",
+        moduleId: "mod-valid",
+        title: "درس معتبر ۲",
+        sortOrder: 2,
+        publicationStatus: "published",
+      },
+    ];
+
+    const progress: StreamProgressInput[] = [
+      // Completion for draft lesson must be ignored
+      { lessonId: "lesson-draft", completed: true, completedAt: "2026-10-01T10:00:00.000Z" },
+      // Completion with invalid timestamp string
+      { lessonId: "lesson-valid-1", completed: true, completedAt: "invalid-date-string" },
+    ];
+
+    const streams = detectActiveLearningStreams({
+      courseId,
+      modules,
+      lessons,
+      progressRecords: progress,
+    });
+
+    // mod-empty is NOT started because it has no completed published lessons
+    expect(streams).toHaveLength(1);
+    expect(streams[0].moduleIds).toEqual(["mod-valid"]);
+    expect(streams[0].frontierModuleId).toBe("mod-valid");
+    expect(streams[0].nextLessons.map((l) => l.id)).toEqual(["lesson-valid-2"]);
+  });
+});

@@ -3,13 +3,22 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ReviewSummaryViewer } from "../components/documents/ReviewSummaryViewer.js";
 import type { ReviewSummaryPayload } from "@avana/domain";
+import type { UserMembership, UserResource } from "@avana/contracts";
+
+let mockAuth: {
+  user: Partial<UserResource> | null;
+  memberships: Partial<UserMembership>[];
+  isAuthenticated: boolean;
+} = {
+  user: { id: "user-1", email: "user@avana.ir", role: "organization_admin" },
+  memberships: [
+    { organization_id: "b4a0b464-16db-4087-92b7-163a1e6f6776", role: "organization_admin" },
+  ],
+  isAuthenticated: true,
+};
 
 vi.mock("../providers/AuthProvider.js", () => ({
-  useAuth: () => ({
-    user: { id: "user-1", email: "user@avana.ir", role: "organization_admin" },
-    memberships: [{ organization_id: "b4a0b464-16db-4087-92b7-163a1e6f6776", role: "organization_admin" }],
-    isAuthenticated: true,
-  }),
+  useAuth: () => mockAuth,
 }));
 
 const createTestQueryClient = () =>
@@ -60,6 +69,13 @@ describe("ReviewSummaryViewer Component", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockAuth = {
+      user: { id: "user-1", email: "user@avana.ir", role: "organization_admin" },
+      memberships: [
+        { organization_id: "b4a0b464-16db-4087-92b7-163a1e6f6776", role: "organization_admin" },
+      ],
+      isAuthenticated: true,
+    };
   });
 
   it("renders review summary with document-level categories and estimated reading time", async () => {
@@ -332,5 +348,387 @@ describe("ReviewSummaryViewer Component", () => {
     expect(screen.queryByText(/دسته‌بندی و طبقه‌بندی ساختاری/)).toBeNull();
     expect(screen.queryByText(/مقایسه‌ها و تفاوت‌های کلیدی \(Key Distinctions\)/)).toBeNull();
     expect(screen.queryByText(/نکات حفظی و اعداد مهم/)).toBeNull();
+  });
+
+  describe("Role-based Generation Visibility & Access Control", () => {
+    it("admin/editor sees regenerate button and clicking it sends POST with { force: true }", async () => {
+      mockAuth = {
+        user: { id: "admin-1", email: "admin@avana.ir", role: "course_editor" },
+        memberships: [{ organization_id: mockOrgId, role: "course_editor" }],
+        isAuthenticated: true,
+      };
+
+      const fetchCalls: { url: string; options?: RequestInit }[] = [];
+      global.fetch = vi.fn().mockImplementation(async (url: string, options?: RequestInit) => {
+        fetchCalls.push({ url: String(url), options });
+        if (String(url).includes("/review-summary")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              request_id: "req-1",
+              content: {
+                id: "content-1",
+                type: "review_summary",
+                payload: mockPayload,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              },
+            }),
+          };
+        }
+        return { ok: true, status: 200, json: async () => ({}) };
+      });
+
+      render(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <ReviewSummaryViewer
+            organizationId={mockOrgId}
+            documentId={mockDocId}
+            courseId={mockCourseId}
+          />
+        </QueryClientProvider>,
+      );
+
+      const regenerateBtn = await screen.findByRole("button", { name: /به‌روزرسانی خلاصه/i });
+      expect(regenerateBtn).toBeInTheDocument();
+
+      fireEvent.click(regenerateBtn);
+
+      await waitFor(() => {
+        const postCall = fetchCalls.find(
+          (c) =>
+            c.url.includes(`/courses/${mockCourseId}/documents/${mockDocId}/review-summary`) &&
+            c.options?.method === "POST",
+        );
+        expect(postCall).toBeDefined();
+        expect(JSON.parse(postCall?.options?.body as string)).toEqual({ force: true });
+      });
+    });
+
+    it("student/user: regenerate button is NOT rendered, existing summary renders unchanged, and no POST mutation is possible", async () => {
+      mockAuth = {
+        user: { id: "student-1", email: "student@avana.ir", role: "student" },
+        memberships: [{ organization_id: mockOrgId, role: "student" }],
+        isAuthenticated: true,
+      };
+
+      const fetchCalls: { url: string; options?: RequestInit }[] = [];
+      global.fetch = vi.fn().mockImplementation(async (url: string, options?: RequestInit) => {
+        fetchCalls.push({ url: String(url), options });
+        if (String(url).includes("/review-summary")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              request_id: "req-1",
+              content: {
+                id: "content-1",
+                type: "review_summary",
+                payload: mockPayload,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              },
+            }),
+          };
+        }
+        return { ok: true, status: 200, json: async () => ({}) };
+      });
+
+      render(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <ReviewSummaryViewer
+            organizationId={mockOrgId}
+            documentId={mockDocId}
+            courseId={mockCourseId}
+          />
+        </QueryClientProvider>,
+      );
+
+      // 1. Summary content renders completely
+      await waitFor(() => {
+        expect(screen.getByText(/خلاصه مروری فارماکولوژی قلب و عروق/)).toBeInTheDocument();
+      });
+      expect(screen.getByText(/زمان مطالعه تقریبی: ۱۲ دقیقه/)).toBeInTheDocument();
+      expect(screen.getByText(/خلاصه یک‌دقیقه‌ای/)).toBeInTheDocument();
+      expect(screen.getByText(/کاپتوپریل و انالاپریل/)).toBeInTheDocument();
+
+      // 2. Regenerate button is NOT rendered
+      expect(screen.queryByRole("button", { name: /به‌روزرسانی خلاصه/i })).toBeNull();
+      expect(screen.queryByText(/به‌روزرسانی خلاصه/)).toBeNull();
+
+      // 3. No POST request was made
+      const postCalls = fetchCalls.filter((c) => c.options?.method === "POST");
+      expect(postCalls.length).toBe(0);
+    });
+
+    it("student/user: empty state does NOT render any generation button/action", async () => {
+      mockAuth = {
+        user: { id: "student-1", email: "student@avana.ir", role: "student" },
+        memberships: [],
+        isAuthenticated: true,
+      };
+
+      global.fetch = vi.fn().mockImplementation(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          request_id: "req-1",
+          content: null,
+        }),
+      }));
+
+      render(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <ReviewSummaryViewer
+            organizationId={mockOrgId}
+            documentId={mockDocId}
+            courseId={mockCourseId}
+          />
+        </QueryClientProvider>,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText(/خلاصه مروری هنوز برای این فایل تولید نشده است/)).toBeInTheDocument();
+      });
+
+      // No generation action button in empty state for student
+      expect(screen.queryByRole("button", { name: /تولید خلاصه مروری/i })).toBeNull();
+      expect(screen.queryByText(/تولید خلاصه مروری/)).toBeNull();
+      expect(screen.queryByRole("button", { name: /به‌روزرسانی خلاصه/i })).toBeNull();
+    });
+
+    it("admin/editor: empty state allows generation with { force: true }", async () => {
+      mockAuth = {
+        user: { id: "admin-1", email: "admin@avana.ir", role: "course_editor" },
+        memberships: [{ organization_id: mockOrgId, role: "course_editor" }],
+        isAuthenticated: true,
+      };
+
+      const fetchCalls: { url: string; options?: RequestInit }[] = [];
+      global.fetch = vi.fn().mockImplementation(async (url: string, options?: RequestInit) => {
+        fetchCalls.push({ url: String(url), options });
+        if (String(url).includes("/review-summary")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              request_id: "req-1",
+              content: null,
+            }),
+          };
+        }
+        return { ok: true, status: 200, json: async () => ({}) };
+      });
+
+      render(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <ReviewSummaryViewer
+            organizationId={mockOrgId}
+            documentId={mockDocId}
+            courseId={mockCourseId}
+          />
+        </QueryClientProvider>,
+      );
+
+      const generateBtn = await screen.findByRole("button", {
+        name: /تولید خلاصه مروری با هوش مصنوعی/i,
+      });
+      expect(generateBtn).toBeInTheDocument();
+
+      fireEvent.click(generateBtn);
+
+      await waitFor(() => {
+        const postCall = fetchCalls.find(
+          (c) =>
+            c.url.includes(`/courses/${mockCourseId}/documents/${mockDocId}/review-summary`) &&
+            c.options?.method === "POST",
+        );
+        expect(postCall).toBeDefined();
+        expect(JSON.parse(postCall?.options?.body as string)).toEqual({ force: true });
+      });
+    });
+
+    it("student/user: error retry button only triggers GET /refetch and never calls POST mutation", async () => {
+      mockAuth = {
+        user: { id: "student-1", email: "student@avana.ir", role: "student" },
+        memberships: [],
+        isAuthenticated: true,
+      };
+
+      let queryAttempts = 0;
+      const fetchCalls: { url: string; options?: RequestInit }[] = [];
+      global.fetch = vi.fn().mockImplementation(async (url: string, options?: RequestInit) => {
+        fetchCalls.push({ url: String(url), options });
+        if (String(url).includes("/review-summary")) {
+          queryAttempts++;
+          if (queryAttempts === 1) {
+            return {
+              ok: false,
+              status: 500,
+              json: async () => ({ message: "خطای سرور آزمایشی" }),
+            };
+          }
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              request_id: "req-2",
+              content: {
+                id: "content-1",
+                type: "review_summary",
+                payload: mockPayload,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              },
+            }),
+          };
+        }
+        return { ok: true, status: 200, json: async () => ({}) };
+      });
+
+      render(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <ReviewSummaryViewer
+            organizationId={mockOrgId}
+            documentId={mockDocId}
+            courseId={mockCourseId}
+          />
+        </QueryClientProvider>,
+      );
+
+      const retryBtn = await screen.findByRole("button", { name: /تلاش مجدد/i });
+      expect(retryBtn).toBeInTheDocument();
+
+      fireEvent.click(retryBtn);
+
+      await waitFor(() => {
+        expect(queryAttempts).toBeGreaterThanOrEqual(2);
+      });
+
+      // Crucial: absolutely no POST call was made
+      const postCalls = fetchCalls.filter((c) => c.options?.method === "POST");
+      expect(postCalls.length).toBe(0);
+    });
+
+    it("admin/editor: error retry button executes generation mutation with POST { force: true }", async () => {
+      mockAuth = {
+        user: { id: "admin-1", email: "admin@avana.ir", role: "organization_admin" },
+        memberships: [{ organization_id: mockOrgId, role: "organization_admin" }],
+        isAuthenticated: true,
+      };
+
+      const fetchCalls: { url: string; options?: RequestInit }[] = [];
+      global.fetch = vi.fn().mockImplementation(async (url: string, options?: RequestInit) => {
+        fetchCalls.push({ url: String(url), options });
+        if (String(url).includes("/review-summary")) {
+          if (options?.method === "POST") {
+            return {
+              ok: true,
+              status: 200,
+              json: async () => ({
+                request_id: "req-post",
+                content: {
+                  id: "content-post",
+                  type: "review_summary",
+                  payload: mockPayload,
+                  created_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString(),
+                },
+              }),
+            };
+          }
+          return {
+            ok: false,
+            status: 500,
+            json: async () => ({ message: "خطای سرور" }),
+          };
+        }
+        return { ok: true, status: 200, json: async () => ({}) };
+      });
+
+      render(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <ReviewSummaryViewer
+            organizationId={mockOrgId}
+            documentId={mockDocId}
+            courseId={mockCourseId}
+          />
+        </QueryClientProvider>,
+      );
+
+      const retryBtn = await screen.findByRole("button", { name: /تلاش مجدد/i });
+      expect(retryBtn).toBeInTheDocument();
+
+      fireEvent.click(retryBtn);
+
+      await waitFor(() => {
+        const postCall = fetchCalls.find(
+          (c) =>
+            c.url.includes(`/courses/${mockCourseId}/documents/${mockDocId}/review-summary`) &&
+            c.options?.method === "POST",
+        );
+        expect(postCall).toBeDefined();
+        expect(JSON.parse(postCall?.options?.body as string)).toEqual({ force: true });
+      });
+    });
+
+    it("renders locked paywall state when 403 Forbidden is returned without generation options", async () => {
+      mockAuth = {
+        user: { id: "student-1", email: "student@avana.ir", role: "student" },
+        memberships: [],
+        isAuthenticated: true,
+      };
+
+      global.fetch = vi.fn().mockImplementation(async () => ({
+        ok: false,
+        status: 403,
+        json: async () => ({
+          error: "forbidden",
+          message: "خلاصه مروری این فصل مخصوص نسخه کامل دوره است (403)",
+        }),
+      }));
+
+      const onUnlock = vi.fn();
+      render(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <ReviewSummaryViewer
+            organizationId={mockOrgId}
+            documentId={mockDocId}
+            courseId={mockCourseId}
+            onUnlock={onUnlock}
+          />
+        </QueryClientProvider>,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText(/خلاصه مروری این فصل قفل است/)).toBeInTheDocument();
+      });
+
+      const unlockBtn = screen.getByRole("button", { name: /مشاهده تعرفه‌ها و خرید دوره/i });
+      expect(unlockBtn).toBeInTheDocument();
+      fireEvent.click(unlockBtn);
+      expect(onUnlock).toHaveBeenCalled();
+
+      // No generation buttons rendered
+      expect(screen.queryByText(/به‌روزرسانی خلاصه/)).toBeNull();
+      expect(screen.queryByText(/تولید خلاصه مروری/)).toBeNull();
+    });
+
+    it("renders loading state gracefully", () => {
+      global.fetch = vi.fn().mockImplementation(() => new Promise(() => {}));
+
+      render(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <ReviewSummaryViewer
+            organizationId={mockOrgId}
+            documentId={mockDocId}
+            courseId={mockCourseId}
+          />
+        </QueryClientProvider>,
+      );
+
+      expect(screen.getByText(/در حال بارگذاری خلاصه مروری\.\.\./)).toBeInTheDocument();
+    });
   });
 });

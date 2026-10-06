@@ -18,7 +18,6 @@ import {
   ArrowLeft,
   ShoppingBag,
   Loader2,
-  ExternalLink,
   Wallet,
 } from "lucide-react";
 import {
@@ -70,7 +69,7 @@ export function UserPurchasesPage() {
       {/* 1. Header Banner */}
       <PageHeader
         title="خریدهای من و تاریخچه سفارش‌ها"
-        description="مشاهده دوره‌ها و بسته‌های خریداری‌شده دائمی و صورت‌حساب تراکنش‌ها"
+        description="مشاهده دوره‌ها و خریدهای دائمی و صورت‌حساب تراکنش‌ها"
         actions={
           <>
             <Link
@@ -143,10 +142,10 @@ export function UserPurchasesPage() {
                 <BookOpen className="w-8 h-8" />
               </div>
               <h3 className="text-lg font-bold text-[var(--color-text)]">
-                هنوز دوره یا بسته آموزشی مستقلی خریداری نکرده‌اید
+                هنوز دوره آموزشی مستقلی خریداری نکرده‌اید
               </h3>
               <p className="text-xs sm:text-sm text-[var(--color-text-muted)] max-w-md mx-auto leading-relaxed">
-                با خرید دائمی هر دوره یا بسته آموزشی، دسترسی مادام‌العمر به آن حتی پس از پایان اشتراک برای شما محفوظ خواهد بود.
+                با خرید دائمی هر دوره، دسترسی مادام‌العمر به آن حتی پس از پایان اشتراک برای شما محفوظ خواهد بود.
               </p>
               <div className="pt-2 flex items-center justify-center gap-3">
                 <Link
@@ -159,7 +158,7 @@ export function UserPurchasesPage() {
                   to="/library"
                   className="px-6 py-2.5 rounded-xl bg-[var(--color-surface-warm)] hover:bg-slate-200/60 dark:hover:bg-slate-800 text-[var(--color-text)] text-xs font-bold transition-all border border-[var(--color-border)]"
                 >
-                  کتابخانه بسته‌ها
+                  کتابخانه دوره‌ها
                 </Link>
               </div>
             </div>
@@ -244,11 +243,11 @@ export function UserPurchasesPage() {
                       </div>
 
                       <Link
-                        to={`/library?packId=${item.resource_id}`}
+                        to="/courses"
                         className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition-all shadow-xs"
                       >
-                        <span>مشاهده بسته</span>
-                        <ExternalLink className="w-3.5 h-3.5" />
+                        <span>مشاهده دوره‌ها</span>
+                        <ArrowLeft className="w-3.5 h-3.5" />
                       </Link>
                     </div>
                   </div>

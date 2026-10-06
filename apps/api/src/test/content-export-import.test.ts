@@ -101,6 +101,56 @@ class InMemoryMockDb {
             if (hasDeletedCondition(condition)) {
               rows = rows.filter((r) => !r.deletedAt);
             }
+            if (tableName === "documents" && condition) {
+              const extractCourseAndDocIds = (cond: any): { courseIds: string[] | null; docIds: string[] | null } => {
+                let courseIds: any[] | null = null;
+                let docIds: any[] | null = null;
+                const traverse = (chunks: any[]) => {
+                  if (!Array.isArray(chunks)) return;
+                  for (let i = 0; i < chunks.length; i++) {
+                    const c = chunks[i];
+                    if (c && (c.name === "course_id" || c.name === "courseId") && chunks[i + 1]?.value?.[0]?.includes("in")) {
+                      courseIds = chunks[i + 2];
+                    }
+                    if (c && c.name === "id" && chunks[i + 1]?.value?.[0]?.includes("in")) {
+                      docIds = chunks[i + 2];
+                    }
+                    if (c && c.queryChunks) {
+                      traverse(c.queryChunks);
+                    }
+                  }
+                };
+                traverse(cond.queryChunks);
+                const unwrap = (arr: any[] | null) => (arr ? arr.map((p: any) => p?.value ?? p) : null);
+                return { courseIds: unwrap(courseIds), docIds: unwrap(docIds) };
+              };
+
+              const { courseIds, docIds } = extractCourseAndDocIds(condition);
+              if (courseIds && docIds) {
+                rows = rows.filter((r) => courseIds.includes(r.courseId) || docIds.includes(r.id));
+              } else if (courseIds) {
+                rows = rows.filter((r) => courseIds.includes(r.courseId));
+              } else if (docIds) {
+                rows = rows.filter((r) => docIds.includes(r.id));
+              }
+            }
+            if (tableName === "courses" && condition) {
+              let courseIdFilter: string | null = null;
+              const traverse = (chunks: any[]) => {
+                if (!Array.isArray(chunks)) return;
+                for (let i = 0; i < chunks.length; i++) {
+                  const c = chunks[i];
+                  if (c && c.name === "id" && chunks[i + 1]?.value?.[0]?.includes("=")) {
+                    courseIdFilter = chunks[i + 2]?.value ?? chunks[i + 2];
+                  }
+                  if (c && c.queryChunks) traverse(c.queryChunks);
+                }
+              };
+              traverse(condition.queryChunks);
+              if (courseIdFilter) {
+                rows = rows.filter((r) => r.id === courseIdFilter);
+              }
+            }
             return {
               orderBy(..._args: any[]) {
                 return Promise.resolve(rows);
@@ -1130,5 +1180,195 @@ describe("Content Export & Import Production-Ready System", () => {
     expect(matchingDocs[0].deletedAt).toBeFalsy();
     expect(matchingDocs[0].courseId).toBeTruthy();
     expect(matchingDocs[0].status).toBe("ready");
+  });
+
+  it("14. Cross-Course Document Reference: Includes referenced document even if documents.courseId mismatches, flashcard keeps valid documentExportId", async () => {
+    const courseId1 = "course-pharm-1";
+    const courseId2 = "course-pharm-3";
+    const docIdMismatched = "doc-aulton-ch-2";
+    const docIdUnrelated = "doc-unrelated-in-course-3";
+    const modId = "module-dissolution";
+    const lessonId = "lesson-solubility";
+    const cardId = "card-solubility-1";
+
+    // Course 1 (Target of export: فارماسیوتیکس ۱)
+    sourceDb.tables.courses.push({
+      id: courseId1,
+      organizationId: orgA,
+      name: "فارماسیوتیکس ۱",
+      status: "published",
+    });
+
+    // Course 2 (فارماسیوتیکس ۳)
+    sourceDb.tables.courses.push({
+      id: courseId2,
+      organizationId: orgA,
+      name: "فارماسیوتیکس ۳",
+      status: "published",
+    });
+
+    // Document Aulton ch 2 has courseId pointing to Course 2 (mismatch!)
+    const fileContent = Buffer.from("PDF Content for Aulton ch 2");
+    const fileSha = crypto.createHash("sha256").update(fileContent).digest("hex");
+    const storageKey = `uploads/${docIdMismatched}.pdf`;
+    sourceDb.tables.documents.push({
+      id: docIdMismatched,
+      organizationId: orgA,
+      courseId: courseId2, // Cross-course mismatch
+      originalName: "Aulton ch 2.PDF",
+      mimeType: "application/pdf",
+      sizeBytes: fileContent.length,
+      sha256: fileSha,
+      storageKey,
+      pageCount: 19,
+      qualityScore: 95,
+      qualityLevel: "good",
+      qualityReport: { level: "good", score: 95 },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      deletedAt: null,
+    });
+    await sourceStorage.save({ storageKey, data: fileContent, mimeType: "application/pdf" });
+
+    // Another unrelated document in Course 2 (should NOT be exported)
+    const unrelatedContent = Buffer.from("PDF Content for Unrelated Doc");
+    const unrelatedSha = crypto.createHash("sha256").update(unrelatedContent).digest("hex");
+    sourceDb.tables.documents.push({
+      id: docIdUnrelated,
+      organizationId: orgA,
+      courseId: courseId2,
+      originalName: "Unrelated.PDF",
+      mimeType: "application/pdf",
+      sizeBytes: unrelatedContent.length,
+      sha256: unrelatedSha,
+      storageKey: `uploads/${docIdUnrelated}.pdf`,
+      pageCount: 5,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      deletedAt: null,
+    });
+
+    // Module in Course 1 references the cross-course document
+    sourceDb.tables.modules.push({
+      id: modId,
+      courseId: courseId1,
+      documentId: docIdMismatched,
+      title: "محلول‌ها و انحلال‌پذیری",
+      sortOrder: 0,
+      deletedAt: null,
+    });
+
+    // Lesson in Module
+    sourceDb.tables.lessons.push({
+      id: lessonId,
+      moduleId: modId,
+      title: "عوامل موثر بر انحلال",
+      contentType: "markdown",
+      contentMarkdown: "# عوامل موثر بر انحلال",
+      sortOrder: 0,
+      publicationStatus: "published",
+      deletedAt: null,
+    });
+
+    // Flashcard in Course 1 references the cross-course document
+    sourceDb.tables.flashcards.push({
+      id: cardId,
+      organizationId: orgA,
+      courseId: courseId1,
+      documentId: docIdMismatched,
+      lessonId,
+      question: "عوامل موثر بر سرعت انحلال داروها چیست؟",
+      answer: "معادله نویز-ویتنی",
+      difficulty: "medium",
+      cardType: "standard",
+      intervalDays: 1,
+      easeFactor: 2.5,
+      deletedAt: null,
+    });
+
+    // 1. Export Course 1
+    const zipBuffer = await exportService.exportContent(orgA, { courseId: courseId1 });
+    const zip = await JSZip.loadAsync(zipBuffer);
+
+    // 2. Validate exported documents
+    const docsJsonStr = await zip.file("documents.json")?.async("string");
+    expect(docsJsonStr).toBeDefined();
+    const exportedDocs = JSON.parse(docsJsonStr!);
+    expect(exportedDocs).toHaveLength(1);
+    expect(exportedDocs[0].exportId).toBe(`doc_${docIdMismatched}`);
+    expect(exportedDocs[0].originalName).toBe("Aulton ch 2.PDF");
+    expect(exportedDocs[0].courseExportId).toBe(`course_${courseId1}`); // Mapped to referencing course
+
+    // 3. Validate exported modules
+    const modsJsonStr = await zip.file("modules.json")?.async("string");
+    const exportedMods = JSON.parse(modsJsonStr!);
+    expect(exportedMods[0].documentExportId).toBe(`doc_${docIdMismatched}`);
+
+    // 4. Validate exported flashcards
+    const cardsJsonStr = await zip.file("flashcards.json")?.async("string");
+    const exportedCards = JSON.parse(cardsJsonStr!);
+    expect(exportedCards[0].documentExportId).toBe(`doc_${docIdMismatched}`);
+    expect(exportedCards[0].documentExportId).not.toBeNull();
+
+    // 5. End-to-end import into target orgB
+    const plan = await importService.validatePackage(zipBuffer, actorId, orgB);
+    expect(plan.summary.documents.new).toBe(1);
+    expect(plan.summary.flashcards.new).toBe(1);
+
+    const execResult = await importService.executeImport(plan.planId, actorId, orgB);
+    expect(execResult.success).toBe(true);
+
+    const importedDoc = targetDb.tables.documents.find((d) => d.sha256 === fileSha)!;
+    expect(importedDoc).toBeDefined();
+
+    const importedMod = targetDb.tables.modules.find((m) => m.title === "محلول‌ها و انحلال‌پذیری")!;
+    expect(importedMod.documentId).toBe(importedDoc.id);
+
+    const importedCard = targetDb.tables.flashcards.find(
+      (fc) => fc.question === "عوامل موثر بر سرعت انحلال داروها چیست؟",
+    )!;
+    expect(importedCard.documentId).toBe(importedDoc.id);
+  });
+
+  it("15. Fail-Fast Dangling Document Reference: Throws clear error when an entity references non-existent or deleted document", async () => {
+    const courseId = "course-fail-fast";
+    const modId = "module-broken-doc";
+    const cardId = "card-broken-doc";
+    const missingDocId = "deadbeef-0000-0000-0000-000000000000";
+
+    sourceDb.tables.courses.push({
+      id: courseId,
+      organizationId: orgA,
+      name: "دوره‌ای با رفرنس مرده به سند",
+      status: "published",
+    });
+
+    sourceDb.tables.modules.push({
+      id: modId,
+      courseId,
+      documentId: missingDocId, // Dangling reference!
+      title: "ماژول با سند مفقود",
+      sortOrder: 0,
+      deletedAt: null,
+    });
+
+    sourceDb.tables.flashcards.push({
+      id: cardId,
+      organizationId: orgA,
+      courseId,
+      documentId: missingDocId,
+      question: "سوال بدون سند؟",
+      answer: "پاسخ",
+      difficulty: "medium",
+      cardType: "standard",
+      intervalDays: 1,
+      easeFactor: 2.5,
+      deletedAt: null,
+    });
+
+    // Exporter MUST throw descriptive error and reject export package creation
+    await expect(
+      exportService.exportContent(orgA, { courseId }),
+    ).rejects.toThrow(/references document 'deadbeef-0000-0000-0000-000000000000'/);
   });
 });

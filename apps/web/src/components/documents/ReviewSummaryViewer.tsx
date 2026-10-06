@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Clock,
@@ -21,8 +21,7 @@ import { Card, Button, Badge } from "@avana/ui";
 import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
 import { createGenerationApi } from "../../lib/api/generation.js";
 import { useAuth } from "../../providers/AuthProvider.js";
-import { canUserGenerateContent } from "../../utils/generationPermissions.js";
-import { ComingSoonGenerationModal } from "../generation/ComingSoonGenerationModal.js";
+import { canManageCourseContent } from "../../utils/coursePermissions.js";
 import {
   type ReviewSummaryPayload,
   flattenReviewSummarySections,
@@ -54,8 +53,7 @@ export function ReviewSummaryViewer({
   const apiClient = createApiClient({ baseUrl: getApiBaseUrl() });
   const genApi = createGenerationApi(apiClient);
   const { user, memberships } = useAuth();
-  const isGenerationPermitted = canUserGenerateContent(user, memberships);
-  const [isComingSoonOpen, setIsComingSoonOpen] = useState(false);
+  const canRegenerate = canManageCourseContent(memberships, user);
 
   // Fetch Review Summary
   const reviewSummaryQuery = useQuery({
@@ -184,9 +182,15 @@ export function ReviewSummaryViewer({
           <p className="text-xs text-[var(--color-error)]">{errorMessage}</p>
         </div>
         <Button
-          variant="danger"
+          variant={canRegenerate ? "danger" : "outline"}
           size="sm"
-          onClick={() => generateMutation.mutate({ force: true })}
+          onClick={() => {
+            if (canRegenerate) {
+              generateMutation.mutate({ force: true });
+            } else {
+              void reviewSummaryQuery.refetch();
+            }
+          }}
           leftIcon={<RefreshCw className="w-4 h-4" />}
         >
           <span>تلاش مجدد</span>
@@ -216,28 +220,18 @@ export function ReviewSummaryViewer({
           </p>
         </div>
 
-        <Button
-          variant="primary"
-          size="md"
-          onClick={() => {
-            if (!isGenerationPermitted) {
-              setIsComingSoonOpen(true);
-              return;
-            }
-            generateMutation.mutate({ force: true });
-          }}
-          leftIcon={<Sparkles className="w-4 h-4" />}
-        >
-          <span>
-            {isGenerationPermitted
-              ? "تولید خلاصه مروری با هوش مصنوعی"
-              : "تولید خلاصه مروری (به‌زودی)"}
-          </span>
-        </Button>
-        <ComingSoonGenerationModal
-          isOpen={isComingSoonOpen}
-          onClose={() => setIsComingSoonOpen(false)}
-        />
+        {canRegenerate && (
+          <Button
+            variant="primary"
+            size="md"
+            onClick={() => {
+              generateMutation.mutate({ force: true });
+            }}
+            leftIcon={<Sparkles className="w-4 h-4" />}
+          >
+            <span>تولید خلاصه مروری با هوش مصنوعی</span>
+          </Button>
+        )}
       </Card>
     );
   }
@@ -270,22 +264,20 @@ export function ReviewSummaryViewer({
               </Badge>
             </div>
 
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                if (!isGenerationPermitted) {
-                  setIsComingSoonOpen(true);
-                  return;
-                }
-                generateMutation.mutate({ force: true });
-              }}
-              disabled={isGenerating}
-              title="تولید مجدد خلاصه مروری"
-              leftIcon={<RefreshCw className={`w-3.5 h-3.5 ${isGenerating ? "animate-spin" : ""}`} />}
-            >
-              <span>{isGenerationPermitted ? "به‌روزرسانی خلاصه" : "به‌روزرسانی خلاصه (به‌زودی)"}</span>
-            </Button>
+            {canRegenerate && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  generateMutation.mutate({ force: true });
+                }}
+                disabled={isGenerating}
+                title="تولید مجدد خلاصه مروری"
+                leftIcon={<RefreshCw className={`w-3.5 h-3.5 ${isGenerating ? "animate-spin" : ""}`} />}
+              >
+                <span>به‌روزرسانی خلاصه</span>
+              </Button>
+            )}
           </div>
 
           <div>
@@ -573,11 +565,6 @@ export function ReviewSummaryViewer({
           )}
         </div>
       </Card>
-
-      <ComingSoonGenerationModal
-        isOpen={isComingSoonOpen}
-        onClose={() => setIsComingSoonOpen(false)}
-      />
     </div>
   );
 }

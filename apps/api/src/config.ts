@@ -1,4 +1,5 @@
 import path from "node:path";
+import { isIP } from "node:net";
 import { loadMonorepoEnv } from "@avana/config";
 
 function resolveStorageDirectory(dir: string): string {
@@ -191,6 +192,54 @@ function parsePort(raw: string): number {
   return n;
 }
 
+function validateAppUrl(rawUrl: string, isProd: boolean): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    throw new Error(`Invalid application URL format: ${rawUrl}`);
+  }
+
+  const protocol = parsed.protocol.toLowerCase();
+  const rawHostname = parsed.hostname.toLowerCase();
+  const cleanHostname = rawHostname.replace(/^\[|\]$/g, "");
+
+  if (protocol !== "http:" && protocol !== "https:") {
+    throw new Error(
+      `Application URL must use http or https protocol: ${rawUrl}`,
+    );
+  }
+
+  if (isProd) {
+    if (protocol !== "https:") {
+      throw new Error(
+        `Production application URL must use HTTPS protocol: ${rawUrl}`,
+      );
+    }
+    if (
+      cleanHostname === "localhost" ||
+      cleanHostname.endsWith(".localhost") ||
+      cleanHostname === "0.0.0.0"
+    ) {
+      throw new Error(
+        `Production application URL cannot be localhost or 0.0.0.0: ${rawUrl}`,
+      );
+    }
+    if (
+      isIP(cleanHostname) !== 0 ||
+      (rawHostname.startsWith("[") && rawHostname.endsWith("]"))
+    ) {
+      throw new Error(
+        `Production application URL cannot be an IP address: ${rawUrl}`,
+      );
+    }
+  }
+
+  const pathname =
+    parsed.pathname === "/" ? "" : parsed.pathname.replace(/\/+$/, "");
+  return `${parsed.protocol}//${parsed.host}${pathname}`;
+}
+
 export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   loadMonorepoEnv();
 
@@ -240,14 +289,15 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     env,
     "AVANA_CORS_ORIGIN",
     isProd
-      ? "https://app.avana.ai"
+      ? "https://aavana.ir"
       : "http://localhost:5173,http://localhost:5174,http://127.0.0.1:5173,http://127.0.0.1:5174",
   )
     .split(",")
     .map((origin) => origin.trim());
 
-  const defaultAppUrl = corsOrigins[0] || (isProd ? "https://app.avana.ai" : "http://localhost:5173");
-  const appUrl = getOptionalString(
+  // Canonical Public Frontend Application URL (strictly decoupled from CORS)
+  const defaultAppUrl = isProd ? "https://aavana.ir" : "http://localhost:5173";
+  const rawAppUrl = getOptionalString(
     env,
     "AVANA_APP_URL",
     getOptionalString(
@@ -256,6 +306,7 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
       getOptionalString(env, "FRONTEND_URL", defaultAppUrl),
     ),
   );
+  const appUrl = validateAppUrl(rawAppUrl, isProd);
 
   function localDatabaseUrl(): string {
     const user = "avana";

@@ -67,10 +67,10 @@ const VIEWPORTS = [
   { width: 320, name: "320px (Mobile XS)", expectedClass: "h-9", heightPx: 36, widthPx: 53.27 },
   { width: 375, name: "375px (Mobile S)", expectedClass: "h-9", heightPx: 36, widthPx: 53.27 },
   { width: 414, name: "414px (Mobile M)", expectedClass: "h-9", heightPx: 36, widthPx: 53.27 },
-  { width: 768, name: "768px (Tablet)", expectedClass: "md:h-24", heightPx: 96, widthPx: 142.06 },
-  { width: 1024, name: "1024px (Desktop S)", expectedClass: "md:h-24", heightPx: 96, widthPx: 142.06 },
-  { width: 1280, name: "1280px (Desktop M)", expectedClass: "md:h-24", heightPx: 96, widthPx: 142.06 },
-  { width: 1440, name: "1440px (Desktop L)", expectedClass: "md:h-24", heightPx: 96, widthPx: 142.06 },
+  { width: 768, name: "768px (Tablet)", expectedClass: "md:h-12", heightPx: 48, widthPx: 71.03 },
+  { width: 1024, name: "1024px (Desktop S)", expectedClass: "md:h-12", heightPx: 48, widthPx: 71.03 },
+  { width: 1280, name: "1280px (Desktop M)", expectedClass: "md:h-12", heightPx: 48, widthPx: 71.03 },
+  { width: 1440, name: "1440px (Desktop L)", expectedClass: "md:h-12", heightPx: 48, widthPx: 71.03 },
 ];
 
 describe("Header Logo Viewport & Proportionality Verification", () => {
@@ -79,13 +79,13 @@ describe("Header Logo Viewport & Proportionality Verification", () => {
   });
 
   describe("1. BrandLogo Class & Sizing Specification", () => {
-    it("renders BrandLogo with responsive classes h-9 sm:h-[88px] md:h-24 w-auto for size='md'", () => {
+    it("renders BrandLogo with responsive classes h-9 sm:h-11 md:h-12 w-auto for size='md'", () => {
       renderWithProviders(<BrandLogo variant="logo-only" size="md" />);
       const logoImg = screen.getByAltText("لوگوی آوانا");
       expect(logoImg).toBeInTheDocument();
       expect(logoImg.className).toContain("h-9");
-      expect(logoImg.className).toContain("sm:h-[88px]");
-      expect(logoImg.className).toContain("md:h-24");
+      expect(logoImg.className).toContain("sm:h-11");
+      expect(logoImg.className).toContain("md:h-12");
       expect(logoImg.className).toContain("w-auto");
       expect(logoImg.className).toContain("shrink-0");
     });
@@ -111,8 +111,8 @@ describe("Header Logo Viewport & Proportionality Verification", () => {
         expect(logo).toBeInTheDocument();
         expect(logo).toHaveAttribute("src", BRAND_LOGO_SRC);
         expect(logo.className).toContain("h-9");
-        expect(logo.className).toContain("sm:h-[88px]");
-        expect(logo.className).toContain("md:h-24");
+        expect(logo.className).toContain("sm:h-11");
+        expect(logo.className).toContain("md:h-12");
 
         // Verify NO wordmark in top header
         const wordmark = within(header!).queryByAltText("AVANA");

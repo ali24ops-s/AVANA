@@ -12,7 +12,14 @@
  */
 
 import type { FastifyPluginAsync } from "fastify";
-import { DomainError, type Actor, type OrganizationId } from "@avana/domain";
+import {
+  DomainError,
+  Roles,
+  isRole,
+  type Role,
+  type Actor,
+  type OrganizationId,
+} from "@avana/domain";
 import { OrganizationService } from "./organization-service.js";
 import type { AuthMiddlewareDeps } from "../../http/authMiddleware.js";
 import { makeAuthMiddleware } from "../../http/authMiddleware.js";
@@ -44,7 +51,7 @@ export const organizationRoutes: FastifyPluginAsync<
    */
   function getActor(request: unknown): Actor {
     const reqAny = request as {
-      user?: { userId: string; email: string; role: string };
+      user?: { userId: string; email: string; role: string; globalRole?: string | null };
     };
     if (!reqAny.user) {
       throw new DomainError("unauthorized", "Not signed in");
@@ -52,21 +59,28 @@ export const organizationRoutes: FastifyPluginAsync<
     return {
       userId: reqAny.user.userId as Actor["userId"],
       role: reqAny.user.role as Actor["role"],
+      globalRole: (reqAny.user.globalRole ?? null) as Actor["globalRole"],
     };
   }
 
   /**
    * POST /v1/organizations — Create a new organization.
-   * The first user becomes organization_admin.
+   *
+   * Hardened semantic:
+   * - Platform admins creating managed organizations receive organization_admin.
+   * - Standard users / students receive student role to prevent privilege escalation.
+   * - Callers requesting organization_admin role explicitly must be platform admins;
+   *   otherwise a 403 Forbidden is returned.
    */
   app.post(
     "/v1/organizations",
     { preHandler: [requireAuth] },
     async (request, reply) => {
       const actor = getActor(request);
-      const body = request.body as { name?: string };
+      const body = request.body as { name?: string; role?: string };
 
       if (
+        !body ||
         !body.name ||
         typeof body.name !== "string" ||
         body.name.trim().length === 0
@@ -81,7 +95,33 @@ export const organizationRoutes: FastifyPluginAsync<
         );
       }
 
-      const org = await orgService.createOrganization(actor, body.name.trim());
+      const isPlatformAdmin =
+        actor.role === Roles.platform_admin ||
+        actor.globalRole === Roles.platform_admin;
+
+      let initialRole: Role = isPlatformAdmin
+        ? Roles.organization_admin
+        : Roles.student;
+
+      if (body.role) {
+        if (!isRole(body.role)) {
+          throw new DomainError("bad_request", "Invalid role specified");
+        }
+        if (body.role === Roles.organization_admin && !isPlatformAdmin) {
+          throw new DomainError(
+            "forbidden",
+            "Only platform administrators can create organizations with organization_admin role",
+          );
+        }
+        initialRole = body.role;
+      }
+
+      const org = await orgService.createOrganization(
+        actor,
+        body.name.trim(),
+        undefined,
+        initialRole,
+      );
       reply.code(201);
 
       return {

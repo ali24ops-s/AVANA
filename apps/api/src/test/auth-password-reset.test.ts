@@ -487,4 +487,170 @@ describe("Password Reset System - Security, Transactional & API Tests", () => {
       ).rejects.toThrow("Resend API email delivery failed (403): Forbidden: Domain not verified");
     });
   });
+
+  describe("4. Production Application URL & Password Reset Link Security Regression Tests", () => {
+    it("Test 1: defaults to https://aavana.ir in production when AVANA_APP_URL is not set", () => {
+      const cfg = loadApiConfig({
+        ...process.env,
+        NODE_ENV: "production",
+        AVANA_APP_URL: undefined,
+        APP_URL: undefined,
+        FRONTEND_URL: undefined,
+        RESEND_API_KEY: "re_dummy_key_for_test",
+      });
+      expect(cfg.appUrl).toBe("https://aavana.ir");
+    });
+
+    it("Test 2: strictly isolates appUrl from AVANA_CORS_ORIGIN even if CORS contains an IP address", () => {
+      const cfg = loadApiConfig({
+        ...process.env,
+        NODE_ENV: "production",
+        AVANA_CORS_ORIGIN: "http://194.163.150.22:5173",
+        AVANA_APP_URL: undefined,
+        APP_URL: undefined,
+        FRONTEND_URL: undefined,
+        RESEND_API_KEY: "re_dummy_key_for_test",
+      });
+      expect(cfg.appUrl).toBe("https://aavana.ir");
+      expect(cfg.security.cors.origin).toContain("http://194.163.150.22:5173");
+    });
+
+    it("Test 3: generates reset email with canonical https://aavana.ir domain in production", async () => {
+      const prodConfig = loadApiConfig({
+        ...process.env,
+        NODE_ENV: "production",
+        AVANA_APP_URL: "https://aavana.ir",
+        RESEND_API_KEY: "re_dummy_key_for_test",
+        AVANA_API_PORT: "0",
+      });
+      const prodUserStore = new InMemoryUserStore();
+      const prodSessionStore = new InMemorySessionStore();
+      const prodResetStore = new InMemoryPasswordResetStore(prodUserStore, prodSessionStore);
+      const prodEmailService = new MockEmailService();
+      const prodVerificationStore = new InMemoryEmailVerificationStore();
+
+      const prodApp = createApp({ config: prodConfig });
+      await prodApp.register(v1Routes);
+      await prodApp.register(registerIdentityModule, {
+        config: prodConfig,
+        sessionStore: prodSessionStore,
+        userStore: prodUserStore,
+        emailVerificationStore: prodVerificationStore,
+        passwordResetStore: prodResetStore,
+        emailService: prodEmailService,
+      });
+
+      const hashedPw = await hashPassword("mySecretPassword123");
+      await prodUserStore.createUserWithPassword({
+        email: "prod-user@example.com",
+        passwordHash: hashedPw,
+        name: "Prod User",
+      });
+
+      const res = await prodApp.inject({
+        method: "POST",
+        url: "/v1/auth/forgot-password",
+        payload: { email: "prod-user@example.com" },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const sent = prodEmailService.sentPasswordResetEmails[0];
+      expect(sent).toBeDefined();
+      expect(sent.resetUrl).toMatch(/^https:\/\/aavana\.ir\/reset-password\?token=[a-f0-9]{64}$/);
+    });
+
+    it("Test 4: rejects plain HTTP in production", () => {
+      expect(() =>
+        loadApiConfig({
+          ...process.env,
+          NODE_ENV: "production",
+          AVANA_APP_URL: "http://aavana.ir",
+          RESEND_API_KEY: "re_dummy_key_for_test",
+        }),
+      ).toThrow(/Production application URL must use HTTPS protocol/);
+    });
+
+    it("Test 5: rejects IPv4 address in production", () => {
+      expect(() =>
+        loadApiConfig({
+          ...process.env,
+          NODE_ENV: "production",
+          AVANA_APP_URL: "http://194.163.150.22:5173",
+          RESEND_API_KEY: "re_dummy_key_for_test",
+        }),
+      ).toThrow(/Production application URL/);
+    });
+
+    it("Test 6: rejects IPv6 address in production", () => {
+      expect(() =>
+        loadApiConfig({
+          ...process.env,
+          NODE_ENV: "production",
+          AVANA_APP_URL: "http://[::1]:5173",
+          RESEND_API_KEY: "re_dummy_key_for_test",
+        }),
+      ).toThrow(/Production application URL/);
+    });
+
+    it("Test 7: rejects localhost in production", () => {
+      expect(() =>
+        loadApiConfig({
+          ...process.env,
+          NODE_ENV: "production",
+          AVANA_APP_URL: "http://localhost:5173",
+          RESEND_API_KEY: "re_dummy_key_for_test",
+        }),
+      ).toThrow(/Production application URL/);
+
+      expect(() =>
+        loadApiConfig({
+          ...process.env,
+          NODE_ENV: "production",
+          AVANA_APP_URL: "https://localhost:5173",
+          RESEND_API_KEY: "re_dummy_key_for_test",
+        }),
+      ).toThrow(/Production application URL cannot be localhost/);
+    });
+
+    it("Test 8: allows http://localhost:5173 in local development without error", () => {
+      const devConfig = loadApiConfig({
+        ...process.env,
+        NODE_ENV: "development",
+        AVANA_APP_URL: "http://localhost:5173",
+      });
+      expect(devConfig.appUrl).toBe("http://localhost:5173");
+    });
+
+    it("Test 9: strips trailing slash so reset URL does not contain double slashes", () => {
+      const cfg = loadApiConfig({
+        ...process.env,
+        NODE_ENV: "production",
+        AVANA_APP_URL: "https://aavana.ir/",
+        RESEND_API_KEY: "re_dummy_key_for_test",
+      });
+      expect(cfg.appUrl).toBe("https://aavana.ir");
+    });
+
+    it("Test 10: respects APP_URL and FRONTEND_URL legacy fallbacks when valid, applying production validation", () => {
+      const cfgFromLegacy = loadApiConfig({
+        ...process.env,
+        NODE_ENV: "production",
+        AVANA_APP_URL: undefined,
+        APP_URL: undefined,
+        FRONTEND_URL: "https://aavana.ir",
+        RESEND_API_KEY: "re_dummy_key_for_test",
+      });
+      expect(cfgFromLegacy.appUrl).toBe("https://aavana.ir");
+
+      expect(() =>
+        loadApiConfig({
+          ...process.env,
+          NODE_ENV: "production",
+          AVANA_APP_URL: undefined,
+          APP_URL: "http://194.163.150.22",
+          RESEND_API_KEY: "re_dummy_key_for_test",
+        }),
+      ).toThrow(/Production application URL/);
+    });
+  });
 });

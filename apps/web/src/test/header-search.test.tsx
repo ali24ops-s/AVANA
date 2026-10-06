@@ -14,7 +14,7 @@ vi.mock("react-router-dom", async () => {
   };
 });
 
-describe("HeaderSearch Frontend Component Test Suite", () => {
+describe("HeaderSearch Floating Dropdown Test Suite", () => {
   let queryClient: QueryClient;
 
   beforeEach(() => {
@@ -44,13 +44,105 @@ describe("HeaderSearch Frontend Component Test Suite", () => {
     );
   }
 
-  it("1. Renders the search input with placeholder and search icon", () => {
+  function openDropdown() {
+    const trigger = screen.getByRole("button", { name: "جستجو در سامانه" });
+    fireEvent.click(trigger);
+    return screen.getByPlaceholderText("جستجو در دوره‌ها و محتوا...") as HTMLInputElement;
+  }
+
+  it("1. Initial state renders only the small compact trigger button", () => {
     renderComponent();
-    const input = screen.getByPlaceholderText("جستجو در دوره‌ها و محتوا...");
-    expect(input).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("جستجو در دوره‌ها و محتوا...")).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "پنل جستجو" })).not.toBeInTheDocument();
+
+    const trigger = screen.getByRole("button", { name: "جستجو در سامانه" });
+    expect(trigger).toBeInTheDocument();
+    expect(trigger).toHaveClass("w-9", "h-9", "shrink-0");
   });
 
-  it("2. Debounces typing before triggering backend search request", async () => {
+  it("2. Click on trigger opens the floating dropdown", () => {
+    renderComponent();
+    const trigger = screen.getByRole("button", { name: "جستجو در سامانه" });
+    fireEvent.click(trigger);
+
+    expect(screen.getByRole("dialog", { name: "پنل جستجو" })).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("جستجو در دوره‌ها و محتوا...")).toBeInTheDocument();
+  });
+
+  it("3. Opening dropdown does not alter header layout flow (trigger dimensions unchanged, dropdown is floating/absolute)", () => {
+    const { container } = renderComponent();
+    const wrapper = container.firstElementChild as HTMLElement;
+    const trigger = screen.getByRole("button", { name: "جستجو در سامانه" });
+
+    // Initial classes
+    expect(wrapper).toHaveClass("relative", "shrink-0");
+    expect(trigger).toHaveClass("w-9", "h-9", "shrink-0");
+
+    // Open dropdown
+    fireEvent.click(trigger);
+
+    // Wrapper and trigger still retain their fixed shrink-0 layout footprint
+    expect(wrapper).toHaveClass("relative", "shrink-0");
+    expect(trigger).toHaveClass("w-9", "h-9", "shrink-0");
+
+    // Dropdown is floating with absolute/fixed out-of-flow positioning
+    const dropdown = screen.getByRole("dialog", { name: "پنل جستجو" });
+    expect(dropdown).toHaveClass("sm:absolute", "shadow-xl", "z-50");
+  });
+
+  it("4. Input is autofocused when dropdown opens", () => {
+    renderComponent();
+    const input = openDropdown();
+    expect(input).toHaveFocus();
+  });
+
+  it("5. Click outside closes the dropdown", async () => {
+    renderComponent();
+    openDropdown();
+    expect(screen.getByRole("dialog", { name: "پنل جستجو" })).toBeInTheDocument();
+
+    fireEvent.mouseDown(document.body);
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "پنل جستجو" })).not.toBeInTheDocument();
+    });
+  });
+
+  it("6. Escape key closes the dropdown", async () => {
+    renderComponent();
+    const input = openDropdown();
+    expect(screen.getByRole("dialog", { name: "پنل جستجو" })).toBeInTheDocument();
+
+    fireEvent.keyDown(input, { key: "Escape", code: "Escape" });
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "پنل جستجو" })).not.toBeInTheDocument();
+    });
+  });
+
+  it("7 & 8. Query is preserved when closed, and reopening displays previous query", async () => {
+    renderComponent();
+    const input = openDropdown();
+
+    fireEvent.change(input, { target: { value: "فارماکولوژی" } });
+    expect(input.value).toBe("فارماکولوژی");
+
+    // Close via outside click
+    fireEvent.mouseDown(document.body);
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "پنل جستجو" })).not.toBeInTheDocument();
+    });
+
+    // Reopen dropdown
+    const trigger = screen.getByRole("button", { name: "جستجو در سامانه" });
+    fireEvent.click(trigger);
+
+    // Verify query is retained
+    const reopenedInput = screen.getByPlaceholderText("جستجو در دوره‌ها و محتوا...") as HTMLInputElement;
+    expect(reopenedInput.value).toBe("فارماکولوژی");
+  });
+
+  it("9. Debounces typing before triggering backend search request", async () => {
     const searchMock = vi.fn().mockResolvedValue({
       request_id: "req-1",
       query: "فارما",
@@ -83,7 +175,7 @@ describe("HeaderSearch Frontend Component Test Suite", () => {
     });
 
     renderComponent();
-    const input = screen.getByPlaceholderText("جستجو در دوره‌ها و محتوا...");
+    const input = openDropdown();
 
     // Type fast
     fireEvent.change(input, { target: { value: "فارما" } });
@@ -97,7 +189,7 @@ describe("HeaderSearch Frontend Component Test Suite", () => {
     });
   });
 
-  it("3. Displays categorized Course results under 'دوره‌ها' and navigates on click", async () => {
+  it("10. Displays categorized Course results under 'دوره‌ها' and navigates on click", async () => {
     const searchMock = vi.fn().mockResolvedValue({
       request_id: "req-1",
       query: "شیمی",
@@ -130,7 +222,7 @@ describe("HeaderSearch Frontend Component Test Suite", () => {
     });
 
     renderComponent();
-    const input = screen.getByPlaceholderText("جستجو در دوره‌ها و محتوا...");
+    const input = openDropdown();
 
     fireEvent.change(input, { target: { value: "شیمی" } });
 
@@ -145,11 +237,11 @@ describe("HeaderSearch Frontend Component Test Suite", () => {
     fireEvent.click(courseBtn!);
 
     expect(mockNavigate).toHaveBeenCalledWith("/courses/course-123");
-    // Input is reset after selection
-    expect(input.value).toBe("");
+    // Dropdown closes after selection
+    expect(screen.queryByRole("dialog", { name: "پنل جستجو" })).not.toBeInTheDocument();
   });
 
-  it("4. Displays categorized Educational Pack results and navigates to Library with packId", async () => {
+  it("11. Filters out Educational Pack results from general search and does not navigate to packId", async () => {
     const searchMock = vi.fn().mockResolvedValue({
       request_id: "req-2",
       query: "آنتی",
@@ -183,24 +275,19 @@ describe("HeaderSearch Frontend Component Test Suite", () => {
     });
 
     renderComponent();
-    const input = screen.getByPlaceholderText("جستجو در دوره‌ها و محتوا...");
+    const input = openDropdown();
 
     fireEvent.change(input, { target: { value: "آنتی" } });
 
     await waitFor(() => {
-      expect(screen.getByText("بسته‌های آموزشی")).toBeInTheDocument();
-      expect(screen.getByText("خلاصه آنتی‌بیوتیک‌ها")).toBeInTheDocument();
+      // Educational packs are suppressed from user search
+      expect(screen.queryByText("بسته‌های آموزشی")).not.toBeInTheDocument();
+      expect(screen.queryByText("خلاصه آنتی‌بیوتیک‌ها")).not.toBeInTheDocument();
+      expect(screen.getByText(/نتیجه‌ای برای «آنتی» پیدا نشد/)).toBeInTheDocument();
     });
-
-    // Click on educational pack result
-    const packBtn = screen.getByText("خلاصه آنتی‌بیوتیک‌ها").closest("button");
-    expect(packBtn).toBeInTheDocument();
-    fireEvent.click(packBtn!);
-
-    expect(mockNavigate).toHaveBeenCalledWith("/library?packId=pack-456");
   });
 
-  it("5. Shows empty state when no results match", async () => {
+  it("12. Shows empty state when no results match", async () => {
     const searchMock = vi.fn().mockResolvedValue({
       request_id: "req-3",
       query: "مبحث_ناموجود",
@@ -217,7 +304,7 @@ describe("HeaderSearch Frontend Component Test Suite", () => {
     });
 
     renderComponent();
-    const input = screen.getByPlaceholderText("جستجو در دوره‌ها و محتوا...");
+    const input = openDropdown();
 
     fireEvent.change(input, { target: { value: "مبحث_ناموجود" } });
 
@@ -228,7 +315,7 @@ describe("HeaderSearch Frontend Component Test Suite", () => {
     });
   });
 
-  it("6. Shows error state when backend API fails without crashing the header", async () => {
+  it("13. Shows error state when backend API fails without crashing the header", async () => {
     const searchMock = vi.fn().mockRejectedValue(new Error("Network failure"));
 
     vi.spyOn(searchApiModule, "createSearchApi").mockReturnValue({
@@ -236,7 +323,7 @@ describe("HeaderSearch Frontend Component Test Suite", () => {
     });
 
     renderComponent();
-    const input = screen.getByPlaceholderText("جستجو در دوره‌ها و محتوا...");
+    const input = openDropdown();
 
     fireEvent.change(input, { target: { value: "تست_خطا" } });
 
@@ -247,7 +334,7 @@ describe("HeaderSearch Frontend Component Test Suite", () => {
     });
   });
 
-  it("7. Clear button resets input and closes dropdown", async () => {
+  it("14. Clear button resets input in dropdown", async () => {
     const searchMock = vi.fn().mockResolvedValue({
       request_id: "req-4",
       query: "دارو",
@@ -278,7 +365,7 @@ describe("HeaderSearch Frontend Component Test Suite", () => {
     });
 
     renderComponent();
-    const input = screen.getByPlaceholderText("جستجو در دوره‌ها و محتوا...");
+    const input = openDropdown();
 
     fireEvent.change(input, { target: { value: "دارو" } });
 
@@ -295,53 +382,7 @@ describe("HeaderSearch Frontend Component Test Suite", () => {
     expect(screen.queryByText("شیمی دارویی")).not.toBeInTheDocument();
   });
 
-  it("8. Escape key closes results dropdown", async () => {
-    const searchMock = vi.fn().mockResolvedValue({
-      request_id: "req-5",
-      query: "بافت",
-      total: 1,
-      results: [
-        {
-          id: "c-2",
-          type: "course",
-          title: "بافت‌شناسی",
-          target_url: "/courses/c-2",
-        },
-      ],
-      grouped: {
-        courses: [
-          {
-            id: "c-2",
-            type: "course",
-            title: "بافت‌شناسی",
-            target_url: "/courses/c-2",
-          },
-        ],
-        shared_content: [],
-      },
-    });
-
-    vi.spyOn(searchApiModule, "createSearchApi").mockReturnValue({
-      search: searchMock,
-    });
-
-    renderComponent();
-    const input = screen.getByPlaceholderText("جستجو در دوره‌ها و محتوا...");
-
-    fireEvent.change(input, { target: { value: "بافت" } });
-
-    await waitFor(() => {
-      expect(screen.getByText("بافت‌شناسی")).toBeInTheDocument();
-    });
-
-    fireEvent.keyDown(input, { key: "Escape", code: "Escape" });
-
-    await waitFor(() => {
-      expect(screen.queryByText("بافت‌شناسی")).not.toBeInTheDocument();
-    });
-  });
-
-  it("9. Supports keyboard navigation (ArrowDown, ArrowUp, Enter) to select search results", async () => {
+  it("15. Supports keyboard navigation (ArrowDown, ArrowUp, Enter) to select search results", async () => {
     const searchMock = vi.fn().mockResolvedValue({
       request_id: "req-6",
       query: "قلب",
@@ -384,7 +425,7 @@ describe("HeaderSearch Frontend Component Test Suite", () => {
     });
 
     renderComponent();
-    const input = screen.getByPlaceholderText("جستجو در دوره‌ها و محتوا...");
+    const input = openDropdown();
 
     fireEvent.change(input, { target: { value: "قلب" } });
 
@@ -409,7 +450,7 @@ describe("HeaderSearch Frontend Component Test Suite", () => {
     expect(mockNavigate).toHaveBeenCalledWith("/courses/cardio-2");
   });
 
-  it("10. Simultaneously displays both Courses and Educational Packs in grouped sections", async () => {
+  it("16. Only displays Courses section and suppresses Educational Packs section when both exist in API response", async () => {
     const searchMock = vi.fn().mockResolvedValue({
       request_id: "req-7",
       query: "ژنتیک",
@@ -457,27 +498,27 @@ describe("HeaderSearch Frontend Component Test Suite", () => {
     });
 
     renderComponent();
-    const input = screen.getByPlaceholderText("جستجو در دوره‌ها و محتوا...");
+    const input = openDropdown();
 
     fireEvent.change(input, { target: { value: "ژنتیک" } });
 
     await waitFor(() => {
-      // Both headers exist
+      // Courses category exists, but Educational Packs category does not
       expect(screen.getByText("دوره‌ها")).toBeInTheDocument();
-      expect(screen.getByText("بسته‌های آموزشی")).toBeInTheDocument();
+      expect(screen.queryByText("بسته‌های آموزشی")).not.toBeInTheDocument();
 
-      // Both items exist
+      // Course exists, Educational Pack does not
       expect(screen.getByText("ژنتیک پایه")).toBeInTheDocument();
-      expect(screen.getByText("بسته آموزشی ژنتیک مولکولی")).toBeInTheDocument();
+      expect(screen.queryByText("بسته آموزشی ژنتیک مولکولی")).not.toBeInTheDocument();
     });
 
-    // Selecting educational pack navigates to library pack ID
-    const packBtn = screen.getByText("بسته آموزشی ژنتیک مولکولی").closest("button");
-    fireEvent.click(packBtn!);
-    expect(mockNavigate).toHaveBeenCalledWith("/library?packId=pack-genetics");
+    // Selecting course navigates to course page
+    const courseBtn = screen.getByText("ژنتیک پایه").closest("button");
+    fireEvent.click(courseBtn!);
+    expect(mockNavigate).toHaveBeenCalledWith("/courses/course-genetics");
   });
 
-  it("11. Handles fallback navigation for Educational Pack when target_url is not set", async () => {
+  it("17. Does not display Educational Pack when only Educational Packs are returned from API", async () => {
     const searchMock = vi.fn().mockResolvedValue({
       request_id: "req-8",
       query: "نورولوژی",
@@ -508,17 +549,13 @@ describe("HeaderSearch Frontend Component Test Suite", () => {
     });
 
     renderComponent();
-    const input = screen.getByPlaceholderText("جستجو در دوره‌ها و محتوا...");
+    const input = openDropdown();
 
     fireEvent.change(input, { target: { value: "نورولوژی" } });
 
     await waitFor(() => {
-      expect(screen.getByText("بسته آموزشی اعصاب")).toBeInTheDocument();
+      expect(screen.queryByText("بسته آموزشی اعصاب")).not.toBeInTheDocument();
+      expect(screen.getByText(/نتیجه‌ای برای «نورولوژی» پیدا نشد/)).toBeInTheDocument();
     });
-
-    const packBtn = screen.getByText("بسته آموزشی اعصاب").closest("button");
-    fireEvent.click(packBtn!);
-    expect(mockNavigate).toHaveBeenCalledWith("/library?packId=pack-neuro-99");
   });
 });
-

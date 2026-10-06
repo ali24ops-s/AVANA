@@ -1387,38 +1387,19 @@ function LessonViewer({
         </div>
       )}
 
-      {/* Lesson content rendered with interactive text selection & annotations */}
-      <div className="p-6 sm:p-8 lg:p-10">
-        <div className="max-w-4xl mx-auto prose prose-sm sm:prose-base">
-          <LessonInteractiveContent
-            lessonId={lesson.id}
-            courseId={courseId}
-            lessonTitle={lesson.title}
-            moduleTitle={moduleTitle}
-            courseTitle={courseTitle}
-            content={lesson.content_markdown}
-          />
-        </div>
-      </div>
-
-      {/* Completion button or Paywall CTA */}
-      <div className="px-6 pb-6 pt-2 max-w-4xl mx-auto w-full space-y-3">
-        {isError && (
-          <div className="p-3.5 bg-red-950/40 rounded-button border border-red-500/30 text-xs text-red-300 flex items-center gap-2 justify-center">
-            <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
-            <span>خطا در ثبت وضعیت تکمیل: {errorMessage || "لطفاً دوباره تلاش کنید."}</span>
-          </div>
-        )}
-        {isLocked ? (
-          <div className="p-5 sm:p-6 rounded-card bg-gradient-to-r from-amber-500/10 via-indigo-500/10 to-purple-500/10 border border-amber-400/30 text-center space-y-3.5">
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-400/20 text-amber-300 text-xs font-bold">
-              <Lock className="w-3.5 h-3.5" />
-              <span>محتوای ویژه آوانا پلاس</span>
+      {/* Lesson content or Locked Paywall message */}
+      {isLocked ? (
+        <div className="p-6 sm:p-8 lg:p-10 flex flex-col items-center justify-center">
+          <div className="w-full max-w-2xl mx-auto p-6 sm:p-8 rounded-card bg-gradient-to-r from-amber-500/10 via-indigo-500/10 to-purple-500/10 border border-amber-400/30 text-center space-y-4">
+            <div>
+              <span className="inline-flex items-center px-3 py-1 rounded-full bg-amber-500/15 dark:bg-amber-950/60 text-amber-900 dark:text-amber-200 border border-amber-500/30 dark:border-amber-700/50 text-xs font-semibold">
+                محتوای ویژه آوانا پلاس
+              </span>
             </div>
-            <h4 className="font-bold text-sm sm:text-base text-[var(--color-text)]">
-              برای دسترسی به متن کامل این درسنامه، اشتراک تهیه کرده یا این محتوا را مستقلاً خریداری کنید
-            </h4>
-            <div className="flex items-center justify-center gap-2.5 flex-wrap pt-1">
+            <p className="text-base sm:text-lg font-medium text-[var(--color-text)] leading-relaxed max-w-md sm:max-w-lg mx-auto">
+              این بخش از محتوای ویژه آوانا پلاس است.
+            </p>
+            <div className="flex items-center justify-center gap-2.5 flex-wrap pt-2">
               <Button
                 variant="primary"
                 size="md"
@@ -1439,50 +1420,76 @@ function LessonViewer({
               )}
             </div>
           </div>
-        ) : lesson.completed ? (
-          <div className="flex items-center justify-center gap-2.5 w-full py-3.5 rounded-button bg-primary/10 border border-primary/25 text-primary dark:text-teal-300 text-sm font-bold shadow-xs">
-            <CheckCircle2 className="w-5 h-5 text-primary" />
-            <span>تکمیل شده</span>
-          </div>
-        ) : (
-          <Button
-            variant="primary"
-            size="lg"
-            fullWidth
-            onClick={onComplete}
-            disabled={isCompleting}
-            isLoading={isCompleting}
-            leftIcon={<CheckCircle2 className="w-5 h-5" />}
-          >
-            ثبت به عنوان خوانده‌شده
-          </Button>
-        )}
-
-        {(lesson as any).is_preview && (
-          <div className="p-6 sm:p-7 rounded-2xl bg-gradient-to-br from-teal-500/15 via-indigo-500/10 to-purple-500/15 border border-teal-500/30 text-center space-y-4 shadow-sm mt-4">
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-teal-400/20 text-teal-600 dark:text-teal-300 text-xs font-bold">
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>پایان جلسه نمونه رایگان</span>
+        </div>
+      ) : (
+        <>
+          <div className="p-6 sm:p-8 lg:p-10">
+            <div className="max-w-4xl mx-auto prose prose-sm sm:prose-base">
+              <LessonInteractiveContent
+                lessonId={lesson.id}
+                courseId={courseId}
+                lessonTitle={lesson.title}
+                moduleTitle={moduleTitle}
+                courseTitle={courseTitle}
+                content={lesson.content_markdown}
+              />
             </div>
-            <h4 className="text-base sm:text-lg font-bold text-[var(--color-text)]">
-              از این مبحث لذت بردید؟ کل این دوره آموزشی را آزاد کنید!
-            </h4>
-            <p className="text-xs sm:text-sm text-[var(--color-text-secondary)] max-w-xl mx-auto leading-relaxed">
-              با تهیه این دوره به تمام درسنامه‌های تخصصی، فلش‌کارت‌های هوشمند لایتنر، آزمون‌های آزمایشی استاندارد و دستیار هوش مصنوعی آوانا دسترسی نامحدود پیدا می‌کنید.
-            </p>
-            <div className="pt-2 flex items-center justify-center gap-3 flex-wrap">
+          </div>
+
+          {/* Completion button */}
+          <div className="px-6 pb-6 pt-2 max-w-4xl mx-auto w-full space-y-3">
+            {isError && (
+              <div className="p-3.5 bg-red-950/40 rounded-button border border-red-500/30 text-xs text-red-300 flex items-center gap-2 justify-center">
+                <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                <span>خطا در ثبت وضعیت تکمیل: {errorMessage || "لطفاً دوباره تلاش کنید."}</span>
+              </div>
+            )}
+            {lesson.completed ? (
+              <div className="flex items-center justify-center gap-2.5 w-full py-3.5 rounded-button bg-primary/10 border border-primary/25 text-primary dark:text-teal-300 text-sm font-bold shadow-xs">
+                <CheckCircle2 className="w-5 h-5 text-primary" />
+                <span>تکمیل شده</span>
+              </div>
+            ) : (
               <Button
                 variant="primary"
-                size="md"
-                onClick={() => setIsPaywallOpen(true)}
-                leftIcon={<Zap className="w-4 h-4 fill-current text-amber-300" />}
+                size="lg"
+                fullWidth
+                onClick={onComplete}
+                disabled={isCompleting}
+                isLoading={isCompleting}
+                leftIcon={<CheckCircle2 className="w-5 h-5" />}
               >
-                مشاهده گزینه‌های خرید و ثبت‌نام
+                ثبت به عنوان خوانده‌شده
               </Button>
-            </div>
+            )}
+
+            {(lesson as any).is_preview && (
+              <div className="p-6 sm:p-7 rounded-2xl bg-gradient-to-br from-teal-500/15 via-indigo-500/10 to-purple-500/15 border border-teal-500/30 text-center space-y-4 shadow-sm mt-4">
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-teal-400/20 text-teal-600 dark:text-teal-300 text-xs font-bold">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>پایان جلسه نمونه رایگان</span>
+                </div>
+                <h4 className="text-base sm:text-lg font-bold text-[var(--color-text)]">
+                  از این مبحث لذت بردید؟ کل این دوره آموزشی را آزاد کنید!
+                </h4>
+                <p className="text-xs sm:text-sm text-[var(--color-text-secondary)] max-w-xl mx-auto leading-relaxed">
+                  با تهیه این دوره به تمام درسنامه‌های تخصصی، فلش‌کارت‌های هوشمند لایتنر، آزمون‌های آزمایشی استاندارد و دستیار هوش مصنوعی آوانا دسترسی نامحدود پیدا می‌کنید.
+                </p>
+                <div className="pt-2 flex items-center justify-center gap-3 flex-wrap">
+                  <Button
+                    variant="primary"
+                    size="md"
+                    onClick={() => setIsPaywallOpen(true)}
+                    leftIcon={<Zap className="w-4 h-4 fill-current text-amber-300" />}
+                  >
+                    مشاهده گزینه‌های خرید و ثبت‌نام
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        </>
+      )}
 
       {/* Navigation footer */}
       <div className="px-6 py-4 bg-[var(--color-surface-warm)] border-t border-[var(--color-border)] flex items-center justify-between gap-4">

@@ -202,7 +202,8 @@ describe("LearningPage Pricing and Paywall UI Wiring", () => {
     });
 
     // 2. Verify Locked Lesson Banner with purchase button
-    expect(screen.getByText(/محتوای ویژه آوانا پلاس/)).toBeInTheDocument();
+    expect(screen.getAllByText(/محتوای ویژه آوانا پلاس/)[0]).toBeInTheDocument();
+    expect(screen.getByText("این بخش از محتوای ویژه آوانا پلاس است.")).toBeInTheDocument();
     expect(screen.getByText(/خرید تکی درسنامه \(۴۵٬۰۰۰ تومان\)/)).toBeInTheDocument();
 
     // 3. Click Paywall button to open modal

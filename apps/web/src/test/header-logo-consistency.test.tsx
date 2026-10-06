@@ -305,11 +305,11 @@ describe("Header Logo Consistency Suite (لوگو فقط نشان/آیکون د�
 
       renderWithProviders(
         <ExamTakingView
+          organizationId="org-1"
+          attemptId="att-1"
           questions={mockQuestions}
-          examTitle="آزمون آزمایشی"
-          durationMinutes={10}
-          onFinish={vi.fn()}
           onExit={vi.fn()}
+          onSubmitSuccess={vi.fn()}
         />,
       );
 

@@ -522,3 +522,382 @@ export function selectCandidatesForDailyPlan(
     skippedCandidates: skipped,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Active Learning Streams (Pure Domain Models & Algorithms)
+// ---------------------------------------------------------------------------
+
+export interface StreamModuleInput {
+  id: string;
+  courseId: string;
+  title?: string;
+  sortOrder: number;
+  deletedAt?: string | null;
+}
+
+export interface StreamLessonInput {
+  id: string;
+  moduleId: string;
+  title: string;
+  sortOrder: number;
+  estimatedMinutes?: number | null;
+  publicationStatus?: string;
+  deletedAt?: string | null;
+}
+
+export interface StreamProgressInput {
+  lessonId: string;
+  completed: boolean;
+  completedAt?: string | null;
+}
+
+export interface StreamModuleState {
+  moduleId: string;
+  title: string;
+  sortOrder: number;
+  isStarted: boolean;
+  learningStartAt: string | null;
+  lastLearningActivityAt: string | null;
+  isCompleted: boolean;
+  totalPublishedLessons: number;
+  completedPublishedLessons: number;
+}
+
+export interface ActiveLearningStream {
+  id: string;
+  courseId: string;
+  moduleIds: string[]; // List of started module IDs belonging to this stream (ordered by course module order)
+  headModuleId: string; // The most advanced started module in this stream
+  frontierModuleId: string; // The module where next uncompleted lesson should come from
+  learningStartAt: string; // Earliest valid completedAt among started modules in this stream
+  lastActivityAt: string; // Latest valid completedAt among started modules in this stream
+  isCompleted: boolean; // True if all lessons in all modules up to the end of the course for this stream are completed
+  nextLessons: StreamLessonInput[]; // Uncompleted published lessons ready to study in this stream (from frontierModule)
+}
+
+export interface DetectActiveStreamsParams {
+  courseId: string;
+  modules: readonly StreamModuleInput[];
+  lessons: readonly StreamLessonInput[];
+  progressRecords: readonly StreamProgressInput[];
+}
+
+export interface BalancedLessonsOptions {
+  maxLessons?: number;
+}
+
+/**
+ * Validates whether a timestamp string is parseable and valid.
+ */
+function isValidTimestamp(isoStr: string | null | undefined): boolean {
+  if (!isoStr || typeof isoStr !== "string") return false;
+  const time = Date.parse(isoStr);
+  return !isNaN(time);
+}
+
+/**
+ * Pure function: Detects all Active Learning Streams for a user within a course.
+ *
+ * Domain Rules:
+ * 1. Explicit Completion is the ONLY start signal.
+ * 2. learningStartAt = minimum valid completedAt among completed lessons in that module.
+ * 3. Module Started is NOT the same as Frontier. Frontier advancement never makes next module started.
+ * 4. Contiguous clustering of started modules based on official course module order.
+ * 5. Returns ALL detected streams sorted by lastActivityAt DESC (NO cap in domain).
+ */
+export function detectActiveLearningStreams(
+  params: DetectActiveStreamsParams,
+): ActiveLearningStream[] {
+  const { courseId, modules, lessons, progressRecords } = params;
+
+  // 1. Filter active (non-deleted) modules ordered strictly by sortOrder
+  const activeModules = modules
+    .filter((m) => !m.deletedAt)
+    .slice()
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+
+  if (activeModules.length === 0) {
+    return [];
+  }
+
+  // 2. Filter active published lessons (non-deleted, published)
+  const publishedLessons = lessons.filter(
+    (l) => !l.deletedAt && l.publicationStatus === "published",
+  );
+
+  // Group published lessons by module
+  const publishedLessonsByModule = new Map<string, StreamLessonInput[]>();
+  for (const m of activeModules) {
+    publishedLessonsByModule.set(m.id, []);
+  }
+  for (const l of publishedLessons) {
+    const list = publishedLessonsByModule.get(l.moduleId);
+    if (list) {
+      list.push(l);
+    }
+  }
+  // Sort lessons within each module by sortOrder
+  for (const list of publishedLessonsByModule.values()) {
+    list.sort((a, b) => a.sortOrder - b.sortOrder);
+  }
+
+  // 3. Map user's completed published lessons
+  // Keep earliest completedAt per lesson in case of duplicates
+  const publishedLessonIdSet = new Set(publishedLessons.map((l) => l.id));
+  const completedLessonProgressMap = new Map<string, string>(); // lessonId -> valid completedAt
+
+  for (const p of progressRecords) {
+    if (!p.completed || !publishedLessonIdSet.has(p.lessonId)) continue;
+    const completedAtStr = isValidTimestamp(p.completedAt)
+      ? p.completedAt!
+      : new Date(0).toISOString(); // deterministic fallback for valid completion without date
+    const existing = completedLessonProgressMap.get(p.lessonId);
+    if (!existing) {
+      completedLessonProgressMap.set(p.lessonId, completedAtStr);
+    } else {
+      // Pick earliest completedAt to preserve learning start
+      if (Date.parse(completedAtStr) < Date.parse(existing)) {
+        completedLessonProgressMap.set(p.lessonId, completedAtStr);
+      }
+    }
+  }
+
+  const completedLessonIds = new Set(completedLessonProgressMap.keys());
+
+  // 4. Compute Module State for each active module
+  const moduleStateMap = new Map<string, StreamModuleState>();
+  const startedModuleStates: StreamModuleState[] = [];
+
+  for (const m of activeModules) {
+    const modLessons = publishedLessonsByModule.get(m.id) ?? [];
+    const totalPublished = modLessons.length;
+    const completedLessons = modLessons.filter((l) => completedLessonIds.has(l.id));
+    const completedCount = completedLessons.length;
+
+    const isStarted = completedCount > 0;
+    let learningStartAt: string | null = null;
+    let lastLearningActivityAt: string | null = null;
+
+    if (isStarted) {
+      let minTime = Infinity;
+      let minStr = "";
+      let maxTime = -Infinity;
+      let maxStr = "";
+
+      for (const cl of completedLessons) {
+        const timeStr = completedLessonProgressMap.get(cl.id)!;
+        const t = Date.parse(timeStr);
+        if (t < minTime) {
+          minTime = t;
+          minStr = timeStr;
+        }
+        if (t > maxTime) {
+          maxTime = t;
+          maxStr = timeStr;
+        }
+      }
+
+      learningStartAt = minStr;
+      lastLearningActivityAt = maxStr;
+    }
+
+    const isCompleted = totalPublished > 0 && completedCount === totalPublished;
+
+    const state: StreamModuleState = {
+      moduleId: m.id,
+      title: m.title ?? "",
+      sortOrder: m.sortOrder,
+      isStarted,
+      learningStartAt,
+      lastLearningActivityAt,
+      isCompleted,
+      totalPublishedLessons: totalPublished,
+      completedPublishedLessons: completedCount,
+    };
+
+    moduleStateMap.set(m.id, state);
+    if (isStarted) {
+      startedModuleStates.push(state);
+    }
+  }
+
+  // If no module has any completed lessons, no active stream exists
+  if (startedModuleStates.length === 0) {
+    return [];
+  }
+
+  // Index map of active modules in course order
+  const moduleIndexMap = new Map<string, number>();
+  activeModules.forEach((m, idx) => {
+    moduleIndexMap.set(m.id, idx);
+  });
+
+  // 5. Contiguous Clustering of Started Modules
+  // Note: startedModuleStates is already in course module order because activeModules was sorted
+  const clusters: StreamModuleState[][] = [];
+  let currentCluster: StreamModuleState[] = [startedModuleStates[0]];
+
+  for (let i = 1; i < startedModuleStates.length; i++) {
+    const prev = startedModuleStates[i - 1];
+    const curr = startedModuleStates[i];
+    const prevIdx = moduleIndexMap.get(prev.moduleId)!;
+    const currIdx = moduleIndexMap.get(curr.moduleId)!;
+
+    if (currIdx === prevIdx + 1) {
+      // Contiguous in course structure -> belongs to same stream
+      currentCluster.push(curr);
+    } else {
+      // Gap in course structure -> new stream
+      clusters.push(currentCluster);
+      currentCluster = [curr];
+    }
+  }
+  clusters.push(currentCluster);
+
+  // 6. Build ActiveLearningStream for each cluster
+  const streams: ActiveLearningStream[] = [];
+
+  for (const cluster of clusters) {
+    const moduleIds = cluster.map((c) => c.moduleId);
+    const headModule = cluster[cluster.length - 1];
+    const headModuleId = headModule.moduleId;
+
+    // Earliest start and latest activity across this stream's started modules
+    let streamMinTime = Infinity;
+    let streamMinStr = cluster[0].learningStartAt!;
+    let streamMaxTime = -Infinity;
+    let streamMaxStr = cluster[0].lastLearningActivityAt!;
+
+    for (const mod of cluster) {
+      if (mod.learningStartAt) {
+        const tStart = Date.parse(mod.learningStartAt);
+        if (tStart < streamMinTime) {
+          streamMinTime = tStart;
+          streamMinStr = mod.learningStartAt;
+        }
+      }
+      if (mod.lastLearningActivityAt) {
+        const tAct = Date.parse(mod.lastLearningActivityAt);
+        if (tAct > streamMaxTime) {
+          streamMaxTime = tAct;
+          streamMaxStr = mod.lastLearningActivityAt;
+        }
+      }
+    }
+
+    let frontierModuleId: string;
+    let isStreamCompleted = false;
+    let nextLessons: StreamLessonInput[] = [];
+
+    if (!headModule.isCompleted) {
+      // Head module is still incomplete -> frontier is the head module itself
+      frontierModuleId = headModuleId;
+      const modLessons = publishedLessonsByModule.get(headModuleId) ?? [];
+      nextLessons = modLessons.filter((l) => !completedLessonIds.has(l.id));
+    } else {
+      // Head module is fully completed -> frontier advances to next module in course structure
+      const headIdx = moduleIndexMap.get(headModuleId)!;
+      const nextActiveModule = activeModules[headIdx + 1];
+
+      if (nextActiveModule) {
+        frontierModuleId = nextActiveModule.id;
+        const modLessons = publishedLessonsByModule.get(frontierModuleId) ?? [];
+        nextLessons = modLessons.filter((l) => !completedLessonIds.has(l.id));
+      } else {
+        // Entire course finished from this stream onward
+        frontierModuleId = headModuleId;
+        isStreamCompleted = true;
+        nextLessons = [];
+      }
+    }
+
+    const firstModuleId = cluster[0].moduleId;
+    const streamId = `stream:${courseId}:${firstModuleId}`;
+
+    streams.push({
+      id: streamId,
+      courseId,
+      moduleIds,
+      headModuleId,
+      frontierModuleId,
+      learningStartAt: streamMinStr,
+      lastActivityAt: streamMaxStr,
+      isCompleted: isStreamCompleted,
+      nextLessons,
+    });
+  }
+
+  // 7. Sort streams by lastActivityAt DESC (freshest activity first), then learningStartAt DESC, then id
+  streams.sort((a, b) => {
+    const timeB = Date.parse(b.lastActivityAt);
+    const timeA = Date.parse(a.lastActivityAt);
+    if (timeB !== timeA) {
+      return timeB - timeA;
+    }
+    const startB = Date.parse(b.learningStartAt);
+    const startA = Date.parse(a.learningStartAt);
+    if (startB !== startA) {
+      return startB - startA;
+    }
+    return a.id.localeCompare(b.id);
+  });
+
+  return streams;
+}
+
+/**
+ * Pure function: Selects balanced lessons across active streams using round-robin.
+ *
+ * Stream ranking is preserved: freshest stream provides its first lesson first,
+ * then subsequent streams provide their first lesson, then round 2, until maxLessons.
+ */
+export function pickBalancedLessonsFromStreams(
+  streams: readonly ActiveLearningStream[],
+  options?: BalancedLessonsOptions,
+): StreamLessonInput[] {
+  const maxLessons = options?.maxLessons && options.maxLessons > 0 ? options.maxLessons : 6;
+  if (!streams || streams.length === 0 || maxLessons <= 0) {
+    return [];
+  }
+
+  const activeStreamsWithLessons = streams.filter(
+    (s) => s.nextLessons && s.nextLessons.length > 0,
+  );
+  if (activeStreamsWithLessons.length === 0) {
+    return [];
+  }
+
+  const selected: StreamLessonInput[] = [];
+  const selectedLessonIds = new Set<string>();
+  const lessonPointers = new Array<number>(activeStreamsWithLessons.length).fill(0);
+
+  let hasMore = true;
+  while (selected.length < maxLessons && hasMore) {
+    hasMore = false;
+    for (let sIdx = 0; sIdx < activeStreamsWithLessons.length; sIdx++) {
+      if (selected.length >= maxLessons) break;
+
+      const stream = activeStreamsWithLessons[sIdx];
+      let ptr = lessonPointers[sIdx];
+
+      // Find next unselected lesson in this stream
+      while (ptr < stream.nextLessons.length) {
+        const candidateLesson = stream.nextLessons[ptr];
+        ptr++;
+        if (!selectedLessonIds.has(candidateLesson.id)) {
+          selectedLessonIds.add(candidateLesson.id);
+          selected.push(candidateLesson);
+          hasMore = true;
+          break;
+        }
+      }
+
+      lessonPointers[sIdx] = ptr;
+      if (ptr < stream.nextLessons.length) {
+        hasMore = true;
+      }
+    }
+  }
+
+  return selected;
+}

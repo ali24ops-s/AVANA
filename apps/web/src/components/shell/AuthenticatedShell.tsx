@@ -13,7 +13,6 @@ import {
   Library as LibraryIcon,
   Crown,
   Receipt,
-  ShieldCheck,
   Wallet,
   Gift,
   LifeBuoy,
@@ -29,7 +28,7 @@ import {
   getUserChipSubscriptionInfo,
 } from "../commerce/userCommerceUtils.js";
 import { isUserAdmin } from "../../utils/adminPermissions.js";
-import { isTeacherOrAdmin } from "../teacher/TeacherRouteGuard.js";
+import { getHeaderManagementActions } from "../../utils/headerNavigation.js";
 import { GlobalGenerationIndicator } from "../generation/GlobalGenerationIndicator.js";
 import { Button, Badge, LoadingState, Alert, Skeleton } from "../ui/index.js";
 import { FILES_ENABLED } from "../../config/features.js";
@@ -39,7 +38,7 @@ import { EditProfileModal } from "./EditProfileModal.js";
 export function AuthenticatedShell() {
   const { user, memberships, isLoading, error, signOut } = useAuth();
   const isAdmin = isUserAdmin(user, memberships);
-  const isTeacher = isTeacherOrAdmin(user?.role, memberships);
+  const headerManagementActions = getHeaderManagementActions(user, memberships);
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -175,29 +174,33 @@ export function AuthenticatedShell() {
             {/* Notifications Dropdown */}
             <NotificationDropdown />
 
-            {/* Admin Badge link if admin */}
-            {isAdmin && (
-              <Link
-                to="/admin"
-                className="hidden sm:inline-flex shrink-0"
-                title="پنل مدیریت"
-                aria-label="پنل مدیریت"
-              >
-                <Badge variant="primary" icon={<ShieldCheck className="w-3.5 h-3.5" />} className="px-2" />
-              </Link>
-            )}
-
-            {/* Teacher Platform Badge link if teacher/admin */}
-            {isTeacher && (
-              <Link
-                to="/teacher"
-                className="hidden sm:inline-flex shrink-0"
-                title="پنل اساتید"
-                aria-label="پنل اساتید"
-              >
-                <Badge variant="neutral" icon={<GraduationCap className="w-3.5 h-3.5 text-[#008080]" />} className="px-2" />
-              </Link>
-            )}
+            {/* Management Badges for Admin, Course Editor, Teacher */}
+            {headerManagementActions.map((action) => {
+              const ActionIcon = action.icon;
+              return (
+                <Link
+                  key={action.id}
+                  to={action.to}
+                  className="hidden sm:inline-flex shrink-0"
+                  title={action.shortLabel}
+                  aria-label={action.ariaLabel}
+                >
+                  <Badge
+                    variant={action.badgeVariant}
+                    icon={
+                      <ActionIcon
+                        className={
+                          action.id === "teacher"
+                            ? "w-3.5 h-3.5 text-[#008080]"
+                            : "w-3.5 h-3.5"
+                        }
+                      />
+                    }
+                    className="px-2"
+                  />
+                </Link>
+              );
+            })}
 
             {/* User Profile / Account Menu Dropdown */}
             <div className="relative shrink-0" ref={userMenuRef}>
@@ -313,16 +316,30 @@ export function AuthenticatedShell() {
                     <span>پشتیبانی و بازخورد</span>
                   </Link>
 
-                  {isTeacher && (
-                    <Link
-                      to="/teacher"
-                      onClick={() => setUserMenuOpen(false)}
-                      className="flex items-center gap-2.5 px-3.5 py-2 text-xs font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] hover:text-[#008080] transition-colors"
-                    >
-                      <GraduationCap className="w-4 h-4 text-[#008080] shrink-0" />
-                      <span>پنل اساتید</span>
-                    </Link>
-                  )}
+                  {headerManagementActions.map((action) => {
+                    const ActionIcon = action.icon;
+                    return (
+                      <Link
+                        key={action.id}
+                        to={action.to}
+                        onClick={() => setUserMenuOpen(false)}
+                        className={`flex items-center gap-2.5 px-3.5 py-2 text-xs font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] ${
+                          action.id === "teacher"
+                            ? "hover:text-[#008080]"
+                            : "hover:text-primary"
+                        } transition-colors`}
+                      >
+                        <ActionIcon
+                          className={`w-4 h-4 ${
+                            action.id === "teacher"
+                              ? "text-[#008080]"
+                              : "text-primary"
+                          } shrink-0`}
+                        />
+                        <span>{action.label}</span>
+                      </Link>
+                    );
+                  })}
 
 
                   <div className="my-1 border-t border-[var(--color-border)]" />
@@ -501,16 +518,28 @@ export function AuthenticatedShell() {
               <span>ویرایش مشخصات</span>
             </button>
 
-            {isTeacher && (
-              <MobileDrawerLink
-                to="/teacher"
-                active={location.pathname.startsWith("/teacher")}
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                <GraduationCap className="w-5 h-5 text-[#008080]" />
-                <span>پنل اساتید</span>
-              </MobileDrawerLink>
-            )}
+            {headerManagementActions.map((action) => {
+              const ActionIcon = action.icon;
+              return (
+                <MobileDrawerLink
+                  key={action.id}
+                  to={action.to}
+                  active={
+                    action.id === "teacher"
+                      ? location.pathname.startsWith("/teacher")
+                      : location.pathname.startsWith("/admin")
+                  }
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  <ActionIcon
+                    className={`w-5 h-5 ${
+                      action.id === "teacher" ? "text-[#008080]" : "text-primary"
+                    }`}
+                  />
+                  <span>{action.label}</span>
+                </MobileDrawerLink>
+              );
+            })}
           </nav>
         </div>
         </>

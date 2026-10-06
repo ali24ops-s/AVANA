@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { canManageCourseContent } from "./coursePermissions.js";
+import { canManageCourseContent, resolveDefaultLandingRoute } from "./coursePermissions.js";
 import type { UserMembership } from "@avana/contracts";
 
 function membershipsOf(role: string): UserMembership[] {
@@ -27,6 +27,10 @@ describe("canManageCourseContent", () => {
 
   it("returns true when a membership is course_editor", () => {
     expect(canManageCourseContent(membershipsOf("course_editor"))).toBe(true);
+  });
+
+  it("returns true when user.role is course_editor even with empty memberships", () => {
+    expect(canManageCourseContent([], { role: "course_editor" })).toBe(true);
   });
 
   it("returns false when the only membership is student", () => {
@@ -59,5 +63,37 @@ describe("canManageCourseContent", () => {
 
   it("returns false when memberships is empty", () => {
     expect(canManageCourseContent([])).toBe(false);
+  });
+});
+
+describe("resolveDefaultLandingRoute", () => {
+  it("redirects course_editor to /admin/courses", () => {
+    expect(resolveDefaultLandingRoute({ role: "course_editor" })).toBe("/admin/courses");
+    expect(
+      resolveDefaultLandingRoute(
+        { role: "student" },
+        membershipsOf("course_editor"),
+      ),
+    ).toBe("/admin/courses");
+  });
+
+  it("redirects student to /home", () => {
+    expect(resolveDefaultLandingRoute({ role: "student" })).toBe("/home");
+  });
+
+  it("redirects teacher to /home", () => {
+    expect(resolveDefaultLandingRoute({ role: "teacher" })).toBe("/home");
+  });
+
+  it("redirects platform_admin to /home by default", () => {
+    expect(resolveDefaultLandingRoute({ role: "platform_admin" })).toBe("/home");
+  });
+
+  it("redirects content_worker to /home by default", () => {
+    expect(resolveDefaultLandingRoute({ role: "content_worker" })).toBe("/home");
+  });
+
+  it("redirects unauthenticated to /home", () => {
+    expect(resolveDefaultLandingRoute(null)).toBe("/home");
   });
 });

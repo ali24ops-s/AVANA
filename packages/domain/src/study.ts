@@ -388,6 +388,7 @@ export type StudyRecommendation = {
     dueCount?: number;
     lastScore?: number;
     remainingLessonsCount?: number;
+    isStreamDerived?: boolean;
   };
   summary: string;
   topics: string[];

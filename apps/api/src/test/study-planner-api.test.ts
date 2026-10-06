@@ -600,4 +600,209 @@ describe("Daily Study Planner API (Phase 3)", () => {
       expect(examTask.metadata?.category).toBe("mandatory");
     });
   });
+
+  describe("Active Learning Streams API Integration", () => {
+    const courseId = "c1111111-1111-1111-1111-111111111111" as CourseId;
+
+    it("17. starting chapter 6 explicitly prioritizes chapter 6 over chapter 1 in daily plan", async () => {
+      // 1. Seed chapter 6 with two lessons
+      const mod6Id = "06000000-0000-0000-0000-000000000000" as ModuleId;
+      const l6_1 = "06000000-0000-0000-0000-000000000001" as LessonId;
+      const l6_2 = "06000000-0000-0000-0000-000000000002" as LessonId;
+
+      await moduleStore.create({
+        id: mod6Id,
+        courseId,
+        title: "فصل ۶: بیوشیمی داروها",
+        sortOrder: 6,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+
+      await lessonStore.create({
+        id: l6_1,
+        moduleId: mod6Id,
+        title: "درس ۶.۱: بیوانرژتیک",
+        contentMarkdown: "# بیوانرژتیک",
+        sortOrder: 1,
+        publicationStatus: "published",
+        estimatedMinutes: 20,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+
+      await lessonStore.create({
+        id: l6_2,
+        moduleId: mod6Id,
+        title: "درس ۶.۲: گلیکولیز",
+        contentMarkdown: "# گلیکولیز",
+        sortOrder: 2,
+        publicationStatus: "published",
+        estimatedMinutes: 20,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+
+      // 2. Student explicitly completes lesson 6.1
+      const compRes = await app.inject({
+        method: "POST",
+        url: `/v1/courses/${courseId}/lessons/${l6_1}/progress`,
+        headers: {
+          cookie: sessionCookie,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ completed: true }),
+      });
+      expect(compRes.statusCode).toBe(200);
+
+      // 3. Request daily study plan
+      const planRes = await app.inject({
+        method: "GET",
+        url: "/v1/study/daily-plan",
+        headers: { cookie: sessionCookie },
+      });
+      expect(planRes.statusCode).toBe(200);
+      const planJson: DailyStudyPlanResponse = JSON.parse(planRes.payload);
+
+      // 4. Verify that lesson 6.2 is suggested as the primary lesson task, NOT chapter 1!
+      const lessonTasks = planJson.plan.tasks.filter((t) => t.taskType === "read_lesson");
+      expect(lessonTasks.length).toBeGreaterThan(0);
+      const primaryLessonTask = lessonTasks[0];
+
+      expect(primaryLessonTask.lessonId).toBe(l6_2);
+      expect(primaryLessonTask.moduleId).toBe(mod6Id);
+      expect(primaryLessonTask.metadata?.isStreamDerived).toBe(true);
+      expect(primaryLessonTask.metadata?.learningStage).toBe("ACTIVE_STREAM");
+    });
+
+    it("18. parallel start of chapters 6 and 12 yields balanced multi-stream recommendations", async () => {
+      // 1. Seed chapter 6 with two lessons
+      const mod6Id = "06000000-0000-0000-0000-000000000000" as ModuleId;
+      const l6_1 = "06000000-0000-0000-0000-000000000001" as LessonId;
+      const l6_2 = "06000000-0000-0000-0000-000000000002" as LessonId;
+
+      await moduleStore.create({
+        id: mod6Id,
+        courseId,
+        title: "فصل ۶: بیوشیمی داروها",
+        sortOrder: 6,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+
+      await lessonStore.create({
+        id: l6_1,
+        moduleId: mod6Id,
+        title: "درس ۶.۱: بیوانرژتیک",
+        contentMarkdown: "# بیوانرژتیک",
+        sortOrder: 1,
+        publicationStatus: "published",
+        estimatedMinutes: 20,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+
+      await lessonStore.create({
+        id: l6_2,
+        moduleId: mod6Id,
+        title: "درس ۶.۲: گلیکولیز",
+        contentMarkdown: "# گلیکولیز",
+        sortOrder: 2,
+        publicationStatus: "published",
+        estimatedMinutes: 20,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+
+      // 2. Seed chapter 12 with two lessons
+      const mod12Id = "0c000000-0000-0000-0000-000000000000" as ModuleId;
+      const l12_1 = "0c000000-0000-0000-0000-000000000001" as LessonId;
+      const l12_2 = "0c000000-0000-0000-0000-000000000002" as LessonId;
+
+      await moduleStore.create({
+        id: mod12Id,
+        courseId,
+        title: "فصل ۱۲: فارماکوکینتیک بالینی",
+        sortOrder: 12,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+
+      await lessonStore.create({
+        id: l12_1,
+        moduleId: mod12Id,
+        title: "درس ۱۲.۱: کلیرانس کلیوی",
+        contentMarkdown: "# کلیرانس کلیوی",
+        sortOrder: 1,
+        publicationStatus: "published",
+        estimatedMinutes: 20,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+
+      await lessonStore.create({
+        id: l12_2,
+        moduleId: mod12Id,
+        title: "درس ۱۲.۲: حجم توزیع",
+        contentMarkdown: "# حجم توزیع",
+        sortOrder: 2,
+        publicationStatus: "published",
+        estimatedMinutes: 20,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+
+      // 3. Student explicitly completes lesson 6.1 AND lesson 12.1
+      await app.inject({
+        method: "POST",
+        url: `/v1/courses/${courseId}/lessons/${l6_1}/progress`,
+        headers: {
+          cookie: sessionCookie,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ completed: true }),
+      });
+
+      const compRes12 = await app.inject({
+        method: "POST",
+        url: `/v1/courses/${courseId}/lessons/${l12_1}/progress`,
+        headers: {
+          cookie: sessionCookie,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ completed: true }),
+      });
+      expect(compRes12.statusCode).toBe(200);
+
+      // 4. Request / regenerate daily plan
+      const regenRes = await app.inject({
+        method: "POST",
+        url: "/v1/study/daily-plan/regenerate",
+        headers: {
+          cookie: sessionCookie,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ targetMinutes: 120 }),
+      });
+      expect(regenRes.statusCode).toBe(200);
+      const regenJson: DailyStudyPlanResponse = JSON.parse(regenRes.payload);
+
+      // 5. Tasks must contain active stream lessons from both stream 12 and stream 6
+      const lessonTasks = regenJson.plan.tasks.filter((t) => t.taskType === "read_lesson");
+      const suggestedLessonIds = lessonTasks.map((t) => t.lessonId);
+
+      // Both lesson 12.2 and lesson 6.2 should be present
+      expect(suggestedLessonIds).toContain(l12_2);
+      expect(suggestedLessonIds).toContain(l6_2);
+    });
+  });
 });

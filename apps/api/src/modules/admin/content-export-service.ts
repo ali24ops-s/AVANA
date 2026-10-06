@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import path from "node:path";
 import JSZip from "jszip";
-import { eq, and, inArray, isNull } from "drizzle-orm";
+import { eq, and, or, inArray, isNull } from "drizzle-orm";
 import type { DbClient } from "@avana/database/client";
 import {
   courses,
@@ -34,6 +34,22 @@ import type {
 
 function sha256Hex(data: string | Buffer): string {
   return crypto.createHash("sha256").update(data).digest("hex");
+}
+
+function resolveDocExportId(
+  docId: string | null,
+  docExportMap: Map<string, string>,
+  entityType: string,
+  entityId: string,
+): string | null {
+  if (!docId) return null;
+  const exportId = docExportMap.get(docId);
+  if (!exportId) {
+    throw new Error(
+      `Export failed: ${entityType} '${entityId}' references document '${docId}' which was not found in exported documents or is deleted.`,
+    );
+  }
+  return exportId;
 }
 
 export class ContentExportService {
@@ -107,17 +123,181 @@ export class ContentExportService {
       }
     }
 
-    // 2. Query Documents and Chunks
+    // 2. Query Modules
+    const moduleConditions = [
+      inArray(modules.courseId, selectedCourseIds),
+      isNull(modules.deletedAt),
+    ];
+    if (options.moduleIds && options.moduleIds.length > 0) {
+      moduleConditions.push(inArray(modules.id, options.moduleIds));
+    }
+    const dbModules = await this.db
+      .select()
+      .from(modules)
+      .where(and(...moduleConditions))
+      .orderBy(modules.sortOrder);
+
+    const selectedModuleIds = dbModules.map((m) => m.id);
+    const moduleExportMap = new Map<string, string>();
+    for (const m of dbModules) {
+      moduleExportMap.set(m.id, `module_${m.id}`);
+    }
+
+    // 3. Query Lessons
+    let dbLessons: (typeof lessons.$inferSelect)[] = [];
+    if (selectedModuleIds.length > 0) {
+      const lessonConditions = [
+        inArray(lessons.moduleId, selectedModuleIds),
+        isNull(lessons.deletedAt),
+      ];
+      if (options.lessonIds && options.lessonIds.length > 0) {
+        lessonConditions.push(inArray(lessons.id, options.lessonIds));
+      }
+      dbLessons = await this.db
+        .select()
+        .from(lessons)
+        .where(and(...lessonConditions))
+        .orderBy(lessons.sortOrder);
+    }
+    const selectedLessonIds = dbLessons.map((l) => l.id);
+    const lessonExportMap = new Map<string, string>();
+    for (const l of dbLessons) {
+      lessonExportMap.set(l.id, `lesson_${l.id}`);
+    }
+
+    // 4. Query Generated Contents & Citations
+    let dbGenContents: (typeof generatedContents.$inferSelect)[] = [];
+    let dbCitations: (typeof generatedContentCitations.$inferSelect)[] = [];
+    if (scope.generatedContent) {
+      dbGenContents = await this.db
+        .select()
+        .from(generatedContents)
+        .where(
+          and(
+            eq(generatedContents.organizationId, organizationId),
+            inArray(generatedContents.courseId, selectedCourseIds),
+            isNull(generatedContents.deletedAt),
+          ),
+        );
+
+      const genIds = dbGenContents.map((g) => g.id);
+      if (genIds.length > 0) {
+        dbCitations = await this.db
+          .select()
+          .from(generatedContentCitations)
+          .where(inArray(generatedContentCitations.generatedContentId, genIds));
+      }
+    }
+
+    // 5. Query Flashcards
+    const dbFlashcards: (typeof flashcards.$inferSelect)[] = [];
+    if (scope.flashcards) {
+      const flashcardConditions = [
+        eq(flashcards.organizationId, organizationId),
+        inArray(flashcards.courseId, selectedCourseIds),
+        isNull(flashcards.deletedAt),
+      ];
+      const allCards = await this.db
+        .select()
+        .from(flashcards)
+        .where(and(...flashcardConditions));
+
+      for (const fc of allCards) {
+        if (
+          options.lessonIds &&
+          options.lessonIds.length > 0 &&
+          fc.lessonId &&
+          !selectedLessonIds.includes(fc.lessonId)
+        ) {
+          continue;
+        }
+        dbFlashcards.push(fc);
+      }
+    }
+
+    // 6. Query Quizzes & Quiz Questions
+    let dbQuizzes: (typeof quizzes.$inferSelect)[] = [];
+    let dbQuestions: (typeof quizQuestions.$inferSelect)[] = [];
+    if (scope.quizzes) {
+      dbQuizzes = await this.db
+        .select()
+        .from(quizzes)
+        .where(
+          and(
+            eq(quizzes.organizationId, organizationId),
+            inArray(quizzes.courseId, selectedCourseIds),
+            isNull(quizzes.deletedAt),
+          ),
+        );
+
+      const quizIds = dbQuizzes.map((q) => q.id);
+      if (scope.questions && quizIds.length > 0) {
+        dbQuestions = await this.db
+          .select()
+          .from(quizQuestions)
+          .where(inArray(quizQuestions.quizId, quizIds))
+          .orderBy(quizQuestions.sortOrder);
+      }
+    }
+
+    // 7. Collect All Referenced Document IDs across all exported entities
+    const referencedDocIds = new Set<string>();
+    const docToReferencingCourseMap = new Map<string, string>();
+
+    for (const m of dbModules) {
+      if (m.documentId) {
+        referencedDocIds.add(m.documentId);
+        if (!docToReferencingCourseMap.has(m.documentId)) {
+          docToReferencingCourseMap.set(m.documentId, m.courseId);
+        }
+      }
+    }
+    for (const g of dbGenContents) {
+      if (g.documentId) {
+        referencedDocIds.add(g.documentId);
+        if (!docToReferencingCourseMap.has(g.documentId)) {
+          docToReferencingCourseMap.set(g.documentId, g.courseId);
+        }
+      }
+    }
+    for (const fc of dbFlashcards) {
+      if (fc.documentId) {
+        referencedDocIds.add(fc.documentId);
+        if (!docToReferencingCourseMap.has(fc.documentId)) {
+          docToReferencingCourseMap.set(fc.documentId, fc.courseId);
+        }
+      }
+    }
+    for (const q of dbQuizzes) {
+      if (q.documentId) {
+        referencedDocIds.add(q.documentId);
+        if (!docToReferencingCourseMap.has(q.documentId)) {
+          docToReferencingCourseMap.set(q.documentId, q.courseId);
+        }
+      }
+    }
+
+    // 8. Query Documents and Chunks (including cross-course referenced documents)
+    const docFilterConditions = [
+      eq(documents.organizationId, organizationId),
+      isNull(documents.deletedAt),
+    ];
+    const referencedDocIdList = Array.from(referencedDocIds);
+    if (referencedDocIdList.length > 0) {
+      docFilterConditions.push(
+        or(
+          inArray(documents.courseId, selectedCourseIds),
+          inArray(documents.id, referencedDocIdList),
+        )!,
+      );
+    } else {
+      docFilterConditions.push(inArray(documents.courseId, selectedCourseIds));
+    }
+
     const dbDocuments = await this.db
       .select()
       .from(documents)
-      .where(
-        and(
-          eq(documents.organizationId, organizationId),
-          inArray(documents.courseId, selectedCourseIds),
-          isNull(documents.deletedAt),
-        ),
-      );
+      .where(and(...docFilterConditions));
 
     const docExportMap = new Map<string, string>();
     const exportDocuments: ExportDocumentItem[] = [];
@@ -147,9 +327,17 @@ export class ContentExportService {
       }
 
       if (scope.documents) {
+        let docCourseExportId: string | null = null;
+        if (d.courseId && courseExportMap.has(d.courseId)) {
+          docCourseExportId = courseExportMap.get(d.courseId) || null;
+        } else if (docToReferencingCourseMap.has(d.id)) {
+          const refCourseId = docToReferencingCourseMap.get(d.id)!;
+          docCourseExportId = courseExportMap.get(refCourseId) || null;
+        }
+
         exportDocuments.push({
           exportId,
-          courseExportId: d.courseId ? courseExportMap.get(d.courseId) || null : null,
+          courseExportId: docCourseExportId,
           originalName: d.originalName,
           mimeType: d.mimeType,
           sizeBytes: d.sizeBytes,
@@ -189,32 +377,14 @@ export class ContentExportService {
       }
     }
 
-    // 3. Query Modules
-    const moduleConditions = [
-      inArray(modules.courseId, selectedCourseIds),
-      isNull(modules.deletedAt),
-    ];
-    if (options.moduleIds && options.moduleIds.length > 0) {
-      moduleConditions.push(inArray(modules.id, options.moduleIds));
-    }
-    const dbModules = await this.db
-      .select()
-      .from(modules)
-      .where(and(...moduleConditions))
-      .orderBy(modules.sortOrder);
-
-    const selectedModuleIds = dbModules.map((m) => m.id);
-    const moduleExportMap = new Map<string, string>();
+    // 9. Build Export Modules
     const exportModules: ExportModuleItem[] = [];
-
     for (const m of dbModules) {
-      const exportId = `module_${m.id}`;
-      moduleExportMap.set(m.id, exportId);
       if (scope.modules) {
         exportModules.push({
-          exportId,
+          exportId: `module_${m.id}`,
           courseExportId: courseExportMap.get(m.courseId) || `course_${m.courseId}`,
-          documentExportId: m.documentId ? docExportMap.get(m.documentId) || null : null,
+          documentExportId: resolveDocExportId(m.documentId, docExportMap, "Module", m.id),
           title: m.title,
           description: m.description,
           sortOrder: m.sortOrder,
@@ -228,33 +398,12 @@ export class ContentExportService {
       }
     }
 
-    // 4. Query Lessons
-    let dbLessons: (typeof lessons.$inferSelect)[] = [];
-    if (selectedModuleIds.length > 0) {
-      const lessonConditions = [
-        inArray(lessons.moduleId, selectedModuleIds),
-        isNull(lessons.deletedAt),
-      ];
-      if (options.lessonIds && options.lessonIds.length > 0) {
-        lessonConditions.push(inArray(lessons.id, options.lessonIds));
-      }
-      dbLessons = await this.db
-        .select()
-        .from(lessons)
-        .where(and(...lessonConditions))
-        .orderBy(lessons.sortOrder);
-    }
-
-    const selectedLessonIds = dbLessons.map((l) => l.id);
-    const lessonExportMap = new Map<string, string>();
+    // 10. Build Export Lessons
     const exportLessons: ExportLessonItem[] = [];
-
     for (const l of dbLessons) {
-      const exportId = `lesson_${l.id}`;
-      lessonExportMap.set(l.id, exportId);
       if (scope.lessons) {
         exportLessons.push({
-          exportId,
+          exportId: `lesson_${l.id}`,
           moduleExportId: moduleExportMap.get(l.moduleId) || `module_${l.moduleId}`,
           title: l.title,
           contentType: l.contentType,
@@ -272,30 +421,16 @@ export class ContentExportService {
       }
     }
 
-    // 5. Query Generated Contents & Citations
+    // 11. Build Export Generated Contents & Citations
     const exportGeneratedContents: ExportGeneratedContentItem[] = [];
     const exportCitations: ExportGeneratedContentCitationItem[] = [];
 
     if (scope.generatedContent) {
-      const dbGenContents = await this.db
-        .select()
-        .from(generatedContents)
-        .where(
-          and(
-            eq(generatedContents.organizationId, organizationId),
-            inArray(generatedContents.courseId, selectedCourseIds),
-            isNull(generatedContents.deletedAt),
-          ),
-        );
-
-      const genIds = dbGenContents.map((g) => g.id);
-
       for (const g of dbGenContents) {
-        const exportId = `gen_${g.id}`;
         exportGeneratedContents.push({
-          exportId,
+          exportId: `gen_${g.id}`,
           courseExportId: courseExportMap.get(g.courseId) || `course_${g.courseId}`,
-          documentExportId: g.documentId ? docExportMap.get(g.documentId) || null : null,
+          documentExportId: resolveDocExportId(g.documentId, docExportMap, "GeneratedContent", g.id),
           materializedLessonExportId: g.materializedLessonId
             ? lessonExportMap.get(g.materializedLessonId) || null
             : null,
@@ -315,55 +450,22 @@ export class ContentExportService {
         });
       }
 
-      if (genIds.length > 0) {
-        const dbCitations = await this.db
-          .select()
-          .from(generatedContentCitations)
-          .where(inArray(generatedContentCitations.generatedContentId, genIds));
-
-        for (const c of dbCitations) {
-          exportCitations.push({
-            generatedContentExportId: `gen_${c.generatedContentId}`,
-            documentChunkExportId: `chunk_${c.documentChunkId}`,
-          });
-        }
+      for (const c of dbCitations) {
+        exportCitations.push({
+          generatedContentExportId: `gen_${c.generatedContentId}`,
+          documentChunkExportId: `chunk_${c.documentChunkId}`,
+        });
       }
     }
 
-    // 6. Query Flashcards
+    // 12. Build Export Flashcards
     const exportFlashcards: ExportFlashcardItem[] = [];
     if (scope.flashcards) {
-      const flashcardConditions = [
-        eq(flashcards.organizationId, organizationId),
-        inArray(flashcards.courseId, selectedCourseIds),
-        isNull(flashcards.deletedAt),
-      ];
-      if (selectedLessonIds.length > 0) {
-        // If lesson filter was applied, limit flashcards linked to those lessons
-        // (and flashcards with null lessonId in the course)
-        // flashcardConditions can include cards for selected lessons
-      }
-
-      const dbFlashcards = await this.db
-        .select()
-        .from(flashcards)
-        .where(and(...flashcardConditions));
-
       for (const fc of dbFlashcards) {
-        // Filter if specific lessons were chosen and flashcard has a lesson not in selection
-        if (
-          options.lessonIds &&
-          options.lessonIds.length > 0 &&
-          fc.lessonId &&
-          !selectedLessonIds.includes(fc.lessonId)
-        ) {
-          continue;
-        }
-
         exportFlashcards.push({
           exportId: `card_${fc.id}`,
           courseExportId: courseExportMap.get(fc.courseId) || `course_${fc.courseId}`,
-          documentExportId: fc.documentId ? docExportMap.get(fc.documentId) || null : null,
+          documentExportId: resolveDocExportId(fc.documentId, docExportMap, "Flashcard", fc.id),
           lessonExportId: fc.lessonId ? lessonExportMap.get(fc.lessonId) || null : null,
           generatedContentExportId: fc.generatedContentId ? `gen_${fc.generatedContentId}` : null,
           question: fc.question,
@@ -383,30 +485,16 @@ export class ContentExportService {
       }
     }
 
-    // 7. Query Quizzes & Quiz Questions
+    // 13. Build Export Quizzes & Quiz Questions
     const exportQuizzes: ExportQuizItem[] = [];
     const exportQuizQuestions: ExportQuizQuestionItem[] = [];
 
     if (scope.quizzes) {
-      const dbQuizzes = await this.db
-        .select()
-        .from(quizzes)
-        .where(
-          and(
-            eq(quizzes.organizationId, organizationId),
-            inArray(quizzes.courseId, selectedCourseIds),
-            isNull(quizzes.deletedAt),
-          ),
-        );
-
-      const quizIds = dbQuizzes.map((q) => q.id);
-
       for (const q of dbQuizzes) {
-        const exportId = `quiz_${q.id}`;
         exportQuizzes.push({
-          exportId,
+          exportId: `quiz_${q.id}`,
           courseExportId: courseExportMap.get(q.courseId) || `course_${q.courseId}`,
-          documentExportId: q.documentId ? docExportMap.get(q.documentId) || null : null,
+          documentExportId: resolveDocExportId(q.documentId, docExportMap, "Quiz", q.id),
           title: q.title,
           topic: q.topic,
           difficulty: q.difficulty,
@@ -420,13 +508,7 @@ export class ContentExportService {
         });
       }
 
-      if (scope.questions && quizIds.length > 0) {
-        const dbQuestions = await this.db
-          .select()
-          .from(quizQuestions)
-          .where(inArray(quizQuestions.quizId, quizIds))
-          .orderBy(quizQuestions.sortOrder);
-
+      if (scope.questions) {
         for (const qq of dbQuestions) {
           if (
             options.lessonIds &&

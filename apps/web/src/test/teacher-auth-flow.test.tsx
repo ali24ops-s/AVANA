@@ -397,6 +397,7 @@ describe("Teacher Entry, Auth & Security Test Suite", () => {
   });
 
   // -------------------------------------------------------------------------
+  // -------------------------------------------------------------------------
   // 14. Email Verification Safe Redirect to /teacher
   // -------------------------------------------------------------------------
   it("Scenario 11: EmailVerificationPage redirects safely to /teacher upon verification", async () => {
@@ -417,4 +418,74 @@ describe("Teacher Entry, Auth & Security Test Suite", () => {
       expect(screen.getByText("Teacher Platform")).toBeInTheDocument();
     });
   });
+
+  // -------------------------------------------------------------------------
+  // 15. SignInPage Landing Route for course_editor vs student
+  // -------------------------------------------------------------------------
+  it("Scenario 15a: Authenticated course_editor visiting /sign-in is redirected to /admin/courses", async () => {
+    mockCurrentUser = { id: "editor-1", email: "editor@test.com", role: "course_editor" };
+    mockUserMemberships = [{ organization_id: "org-1", role: "course_editor" }];
+    mockIsAuthenticated = true;
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={["/sign-in"]}>
+          <Routes>
+            <Route path="/sign-in" element={<SignInPage />} />
+            <Route path="/admin/courses" element={<div>Course Workspace</div>} />
+            <Route path="/home" element={<div>Student Home</div>} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Course Workspace")).toBeInTheDocument();
+    });
+  });
+
+  it("Scenario 15b: Authenticated student visiting /sign-in is redirected to /home", async () => {
+    mockCurrentUser = { id: "student-1", email: "student@test.com", role: "student" };
+    mockUserMemberships = [{ organization_id: "org-1", role: "student" }];
+    mockIsAuthenticated = true;
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={["/sign-in"]}>
+          <Routes>
+            <Route path="/sign-in" element={<SignInPage />} />
+            <Route path="/admin/courses" element={<div>Course Workspace</div>} />
+            <Route path="/home" element={<div>Student Home</div>} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Student Home")).toBeInTheDocument();
+    });
+  });
+
+  it("Scenario 15c: Authenticated course_editor with explicit ?redirect param is redirected to requested URL", async () => {
+    mockCurrentUser = { id: "editor-1", email: "editor@test.com", role: "course_editor" };
+    mockUserMemberships = [{ organization_id: "org-1", role: "course_editor" }];
+    mockIsAuthenticated = true;
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={["/sign-in?redirect=/teacher"]}>
+          <Routes>
+            <Route path="/sign-in" element={<SignInPage />} />
+            <Route path="/teacher" element={<div>Teacher Dashboard</div>} />
+            <Route path="/admin/courses" element={<div>Course Workspace</div>} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Teacher Dashboard")).toBeInTheDocument();
+    });
+  });
 });
+

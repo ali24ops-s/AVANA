@@ -44,6 +44,8 @@ function sha256Hex(data: string | Buffer): string {
   return crypto.createHash("sha256").update(data).digest("hex");
 }
 
+type DbExecutor = DbClient | Parameters<Parameters<DbClient["transaction"]>[0]>[0];
+
 interface CachedImportPlan {
   plan: ImportPlan;
   parsedData: ParsedExportPackageData;
@@ -71,6 +73,41 @@ export class ContentImportService {
         this.plans.delete(id);
       }
     }
+  }
+
+  /**
+   * Checks whether a document has active educational structures (modules, flashcards,
+   * quizzes, or generated contents) associated with it.
+   */
+  private async hasDocumentEducationalStructure(
+    executor: DbExecutor,
+    documentId: string,
+  ): Promise<boolean> {
+    const existingMods = await executor
+      .select({ id: modules.id })
+      .from(modules)
+      .where(and(eq(modules.documentId, documentId), isNull(modules.deletedAt)));
+    if (existingMods && existingMods.length > 0) return true;
+
+    const existingCards = await executor
+      .select({ id: flashcards.id })
+      .from(flashcards)
+      .where(and(eq(flashcards.documentId, documentId), isNull(flashcards.deletedAt)));
+    if (existingCards && existingCards.length > 0) return true;
+
+    const existingQuizzes = await executor
+      .select({ id: quizzes.id })
+      .from(quizzes)
+      .where(and(eq(quizzes.documentId, documentId), isNull(quizzes.deletedAt)));
+    if (existingQuizzes && existingQuizzes.length > 0) return true;
+
+    const existingGc = await executor
+      .select({ id: generatedContents.id })
+      .from(generatedContents)
+      .where(and(eq(generatedContents.documentId, documentId), isNull(generatedContents.deletedAt)));
+    if (existingGc && existingGc.length > 0) return true;
+
+    return false;
   }
 
   /**
@@ -400,35 +437,58 @@ export class ContentImportService {
 
     for (const d of documentsList) {
       const imp = importedByExportId.get(`document:${d.exportId}`);
+      let targetDoc: typeof documents.$inferSelect | undefined;
       if (imp && docsById.has(imp.targetEntityId)) {
-        const targetDoc = docsById.get(imp.targetEntityId)!;
-        docResolutions.set(d.exportId, targetDoc.id);
-        resolutions.push({
-          entityType: "document",
-          exportId: d.exportId,
-          status: "EXISTING",
-          targetEntityId: targetDoc.id,
-          titleOrName: d.originalName,
-        });
+        targetDoc = docsById.get(imp.targetEntityId);
       } else {
-        const naturalMatch = docsBySha.get(d.sha256);
-        if (naturalMatch) {
-          docResolutions.set(d.exportId, naturalMatch.id);
+        targetDoc = docsBySha.get(d.sha256);
+      }
+
+      if (targetDoc) {
+        docResolutions.set(d.exportId, targetDoc.id);
+
+        let isConflict = false;
+        if (d.courseExportId) {
+          const targetCourseId = courseResolutions.get(d.courseExportId);
+          const isSameCourse = targetCourseId && targetDoc.courseId === targetCourseId;
+          if (targetDoc.courseId && !isSameCourse) {
+            const hasEduStructure = await this.hasDocumentEducationalStructure(this.db, targetDoc.id);
+            if (hasEduStructure) {
+              isConflict = true;
+              resolutions.push({
+                entityType: "document",
+                exportId: d.exportId,
+                status: "CONFLICT",
+                targetEntityId: targetDoc.id,
+                conflictReason: `Document belongs to another course ('${targetDoc.courseId}') with existing educational structure. Cannot hijack document ownership.`,
+                titleOrName: d.originalName,
+              });
+              conflicts.push({
+                entityType: "document",
+                exportId: d.exportId,
+                titleOrName: d.originalName,
+                reason: `سند متعلق به دوره دیگری (${targetDoc.courseId}) بوده و دارای ساختار آموزشی معتبر است؛ ایمپورت نمی‌تواند مالکیت آن را بازنویسی کند`,
+              });
+            }
+          }
+        }
+
+        if (!isConflict) {
           resolutions.push({
             entityType: "document",
             exportId: d.exportId,
             status: "EXISTING",
-            targetEntityId: naturalMatch.id,
-            titleOrName: d.originalName,
-          });
-        } else {
-          resolutions.push({
-            entityType: "document",
-            exportId: d.exportId,
-            status: "NEW",
+            targetEntityId: targetDoc.id,
             titleOrName: d.originalName,
           });
         }
+      } else {
+        resolutions.push({
+          entityType: "document",
+          exportId: d.exportId,
+          status: "NEW",
+          titleOrName: d.originalName,
+        });
       }
     }
 
@@ -1200,6 +1260,16 @@ export class ContentImportService {
             const targetCourseId = targetIdMap.get(doc.courseExportId);
             const targetDocId = targetIdMap.get(doc.exportId);
             if (targetCourseId && targetDocId) {
+              const currentDoc = liveDocsById.get(targetDocId);
+              if (currentDoc && currentDoc.courseId && currentDoc.courseId !== targetCourseId) {
+                const hasEduStructure = await this.hasDocumentEducationalStructure(tx, targetDocId);
+                if (hasEduStructure) {
+                  throw new Error(
+                    `Conflict: Document '${currentDoc.originalName || targetDocId}' is already attached to Course '${currentDoc.courseId}' with existing educational structure (modules/lessons/flashcards/quizzes). Cannot hijack document ownership during import into Course '${targetCourseId}'.`,
+                  );
+                }
+              }
+
               await tx
                 .update(documents)
                 .set({ courseId: targetCourseId })

@@ -30,6 +30,8 @@ import {
   getLocalDateParts,
   formatLocalDateString,
   calculateExamDaysRemaining,
+  detectActiveLearningStreams,
+  pickBalancedLessonsFromStreams,
   toPersianDigits,
   DomainError,
 } from "@avana/domain";
@@ -1159,35 +1161,99 @@ export class StudyPlannerService {
       }
 
       // ---------------------------------------------------------------------
-      // 7. Sequential Lesson Progression (UNSEEN Stage)
+      // 7. Active Learning Streams & Sequential Progression
       // ---------------------------------------------------------------------
+      const activeStreams = detectActiveLearningStreams({
+        courseId,
+        modules,
+        lessons: publishedLessons,
+        progressRecords,
+      });
+
+      // Filter uncompleted lessons for this course
       const uncompletedLessons = publishedLessons.filter(
         (l) => !completedLessonIds.has(l.id),
       );
 
-      // Entitlement check if configured
-      const eligibleUncompletedLessons: LessonRecord[] = [];
-      for (const lesson of uncompletedLessons) {
-        let isEntitled = true;
-        if (this.deps.entitlementService) {
-          const access = await this.deps.entitlementService.checkAccess(actor, {
-            userId: actor.userId,
-            resourceType: "lesson",
-            resourceId: lesson.id,
-            courseId,
+      // Entitlement helper
+      const checkLessonEntitled = async (
+        lesson: LessonRecord,
+      ): Promise<boolean> => {
+        if (!this.deps.entitlementService) return true;
+        const access = await this.deps.entitlementService.checkAccess(actor, {
+          userId: actor.userId,
+          resourceType: "lesson",
+          resourceId: lesson.id,
+          courseId,
+        });
+        return access.granted;
+      };
+
+      const selectedLessonCandidates: Array<{
+        lesson: LessonRecord;
+        isStreamDerived: boolean;
+        streamId?: string;
+        streamIndex?: number;
+        lessonRankInStream?: number;
+      }> = [];
+
+      const pickedLessonIdSet = new Set<string>();
+
+      if (activeStreams.length > 0) {
+        // Pick balanced lessons across active streams (round-robin)
+        const streamLessonInputs = pickBalancedLessonsFromStreams(activeStreams, {
+          maxLessons: 6,
+        });
+
+        for (const input of streamLessonInputs) {
+          const lesson = lessonMap.get(input.id);
+          if (!lesson) continue;
+
+          const isEntitled = await checkLessonEntitled(lesson);
+          if (!isEntitled) continue;
+
+          const sIdx = activeStreams.findIndex((s) =>
+            s.nextLessons.some((nl) => nl.id === lesson.id),
+          );
+          const stream = sIdx >= 0 ? activeStreams[sIdx] : undefined;
+          const lessonRank = stream
+            ? stream.nextLessons.findIndex((nl) => nl.id === lesson.id)
+            : 0;
+
+          selectedLessonCandidates.push({
+            lesson,
+            isStreamDerived: true,
+            streamId: stream?.id,
+            streamIndex: sIdx,
+            lessonRankInStream: lessonRank,
           });
-          isEntitled = access.granted;
-        }
-        if (isEntitled) {
-          eligibleUncompletedLessons.push(lesson);
+          pickedLessonIdSet.add(lesson.id);
         }
       }
 
-      // Generate consecutive uncompleted lessons (up to 6 to pack clean daily capacity)
-      const lessonsToGenerate = eligibleUncompletedLessons.slice(0, 6);
-      lessonsToGenerate.forEach((lesson, index) => {
-        const isPartiallyStudied =
-          index === 0 && activeLessonSessionIds.has(lesson.id);
+      // Fallback: If capacity remains (< 6 lessons), backfill with uncompleted lessons in course order
+      if (selectedLessonCandidates.length < 6) {
+        for (const lesson of uncompletedLessons) {
+          if (selectedLessonCandidates.length >= 6) break;
+          if (pickedLessonIdSet.has(lesson.id)) continue;
+
+          const isEntitled = await checkLessonEntitled(lesson);
+          if (!isEntitled) continue;
+
+          selectedLessonCandidates.push({
+            lesson,
+            isStreamDerived: false,
+          });
+          pickedLessonIdSet.add(lesson.id);
+        }
+      }
+
+      // Convert selected lessons into PlannerCandidates with harmonized priorities
+      let fallbackIndex = 0;
+      selectedLessonCandidates.forEach((item, index) => {
+        const { lesson, isStreamDerived, streamIndex, lessonRankInStream } = item;
+        const isPartiallyStudied = activeLessonSessionIds.has(lesson.id);
+
         const estimatedMinutes =
           lesson.estimatedMinutes && lesson.estimatedMinutes > 0
             ? lesson.estimatedMinutes
@@ -1204,9 +1270,44 @@ export class StudyPlannerService {
           ? getExamUrgencyPriorityBoost(examInfo!.daysRemaining)
           : 0;
 
-        const baseLessonPriority = isPartiallyStudied
-          ? 600
-          : Math.max(400, 500 - index * 10);
+        let baseLessonPriority: number;
+        if (isStreamDerived) {
+          if (streamIndex === 0) {
+            // Freshest active stream
+            if (lessonRankInStream === 0) {
+              baseLessonPriority = isPartiallyStudied ? 680 : 650;
+            } else {
+              baseLessonPriority = Math.max(
+                500,
+                560 - (lessonRankInStream ?? 1) * 10,
+              );
+            }
+          } else if (streamIndex === 1) {
+            // Secondary parallel active stream
+            if (lessonRankInStream === 0) {
+              baseLessonPriority = isPartiallyStudied ? 650 : 620;
+            } else {
+              baseLessonPriority = Math.max(
+                480,
+                540 - (lessonRankInStream ?? 1) * 10,
+              );
+            }
+          } else {
+            // Other parallel streams
+            baseLessonPriority = Math.max(460, 580 - (streamIndex ?? 2) * 20);
+          }
+        } else {
+          // Fallback sequential progression (or when no active streams exist)
+          if (activeStreams.length === 0 && index === 0 && isPartiallyStudied) {
+            baseLessonPriority = 600;
+          } else if (activeStreams.length === 0) {
+            baseLessonPriority = Math.max(400, 500 - fallbackIndex * 10);
+          } else {
+            baseLessonPriority = Math.max(350, 460 - fallbackIndex * 10);
+          }
+          fallbackIndex++;
+        }
+
         const priority = baseLessonPriority + examUrgencyBoost;
 
         candidates.push({
@@ -1217,7 +1318,9 @@ export class StudyPlannerService {
             : `مطالعه درس: ${lesson.title}`,
           description: inExamScope
             ? `درس در محدوده امتحان دوره «${course.name}».`
-            : `درس در دوره «${course.name}».`,
+            : isStreamDerived
+              ? `درس در مسیر یادگیری فعال دوره «${course.name}».`
+              : `درس در دوره «${course.name}».`,
           priority,
           estimatedMinutes,
           courseId,
@@ -1226,7 +1329,9 @@ export class StudyPlannerService {
           metadata: {
             isPartiallyStudied,
             courseName: course.name,
-            learningStage: "UNSEEN",
+            learningStage: isStreamDerived ? "ACTIVE_STREAM" : "UNSEEN",
+            isStreamDerived: Boolean(isStreamDerived),
+            ...(item.streamId ? { streamId: item.streamId } : {}),
             isExamRelated: Boolean(inExamScope && examInfo),
             ...(inExamScope && examInfo
               ? {
@@ -1237,6 +1342,7 @@ export class StudyPlannerService {
           },
         });
       });
+
 
       // ---------------------------------------------------------------------
       // 8. Staged Quiz Unlocking (Short Topic Quizzes & Comprehensive Quizzes)

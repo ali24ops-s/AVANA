@@ -23,8 +23,9 @@ import {
   Eye,
   Trash2,
   HelpCircle,
+  Clock,
 } from "lucide-react";
-import { Card, Badge, Progress, Button } from "@avana/ui";
+import { Card, Badge, Button } from "@avana/ui";
 import {
   toPersianDigits,
   cleanEducationalTitle,
@@ -135,6 +136,8 @@ function CourseHeaderRow({
   subject,
   access,
   isCompleted,
+  learningStatus,
+  variant,
   archived,
   onDelete,
 }: {
@@ -142,6 +145,8 @@ function CourseHeaderRow({
   subject?: string | null;
   access?: CourseCardAccessData;
   isCompleted?: boolean;
+  learningStatus?: "not_started" | "in_progress" | "completed";
+  variant?: "library" | "my-courses" | "compact";
   archived?: boolean;
   onDelete?: () => void;
 }) {
@@ -169,11 +174,19 @@ function CourseHeaderRow({
 
       {/* Badges & Optional Delete Action */}
       <div className="flex flex-wrap items-center gap-1.5 justify-end">
-        {isCompleted && (
+        {learningStatus === "completed" || isCompleted ? (
           <Badge variant="success" size="sm" icon={<CheckCircle2 className="h-3 w-3" />}>
             تکمیل شده
           </Badge>
-        )}
+        ) : learningStatus === "in_progress" ? (
+          <Badge variant="primary" size="sm" icon={<Clock className="h-3 w-3" />}>
+            در حال یادگیری
+          </Badge>
+        ) : learningStatus === "not_started" && variant === "library" ? (
+          <Badge variant="neutral" size="sm">
+            شروع نشده
+          </Badge>
+        ) : null}
 
         {isPurchased ? (
           <Badge variant="success" size="sm" icon={<CheckCircle2 className="h-3 w-3" />}>
@@ -252,8 +265,19 @@ export function CourseCard({
   const percentage = progress?.percentage ?? 0;
   const isProgressLoading = progress?.isLoading ?? false;
   const totalLessons = progress?.totalLessons ?? stats?.lessonCount ?? 0;
+  const completedLessons = progress?.completedLessons ?? 0;
   const hasProgress = progress !== undefined && (totalLessons > 0 || percentage > 0);
   const isCompleted = hasProgress && percentage >= 100;
+  const isInProgress = hasProgress && percentage > 0 && percentage < 100;
+  const isNotStarted = variant === "library" && (!hasProgress || (percentage === 0 && completedLessons === 0));
+
+  const learningStatus = isCompleted
+    ? "completed"
+    : isInProgress
+    ? "in_progress"
+    : isNotStarted
+    ? "not_started"
+    : undefined;
 
   const hasAccess = access?.hasAccess ?? true;
   const isPurchased = access?.isPurchased === true;
@@ -298,6 +322,8 @@ export function CourseCard({
           subject={subject}
           access={access}
           isCompleted={isCompleted}
+          learningStatus={learningStatus}
+          variant={variant}
           archived={archived}
           onDelete={onDelete}
         />
@@ -393,15 +419,31 @@ export function CourseCard({
               />
             </div>
           </div>
-        ) : variant === "library" && hasProgress ? (
-          <div className="mt-3 space-y-1.5">
-            <Progress
-              value={percentage}
-              showLabel
-              label="پیشرفت مطالعه"
-              size="sm"
-              variant="primary"
-            />
+        ) : variant === "library" && hasProgress && percentage > 0 ? (
+          <div className="mt-3.5 space-y-1.5" data-testid={`library-course-progress-${id}`}>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-[var(--color-text-muted)] text-[11px]">
+                {completedLessons > 0 && totalLessons > 0
+                  ? `${toPersianDigits(completedLessons)} از ${toPersianDigits(totalLessons)} درسنامه تکمیل شده`
+                  : "پیشرفت یادگیری"}
+              </span>
+              <span className="font-bold text-primary text-[11px]">
+                {`${toPersianDigits(percentage)}٪`}
+              </span>
+            </div>
+            <div
+              className="w-full h-2 bg-[var(--color-surface-warm)] rounded-full overflow-hidden border border-[var(--color-border)]"
+              role="progressbar"
+              aria-label="پیشرفت دوره"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={percentage}
+            >
+              <div
+                className="h-full bg-primary rounded-full transition-all duration-500"
+                style={{ width: `${percentage}%` }}
+              />
+            </div>
           </div>
         ) : null}
       </div>
@@ -411,22 +453,15 @@ export function CourseCard({
         {variant === "library" ? (
           !hasAccess ? (
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-              {onView && (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onView();
-                  }}
-                  data-testid={`view-course-btn-${id}`}
-                  leftIcon={<Eye className="h-3.5 w-3.5" />}
-                  className="flex-1 text-xs rounded-[10px] whitespace-nowrap"
-                >
-                  مشاهده بسته
-                </Button>
-              )}
+              <Link
+                to={targetHref}
+                onClick={onView}
+                data-testid={`view-course-btn-${id}`}
+                className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-[10px] px-3 py-2 text-xs font-bold transition-all border border-[var(--color-border)] hover:bg-[var(--color-surface-warm)] text-[var(--color-text)]"
+              >
+                <Eye className="h-3.5 w-3.5" />
+                <span>مشاهده دوره</span>
+              </Link>
               {onBuy && (
                 <Button
                   type="button"
@@ -445,18 +480,6 @@ export function CourseCard({
                   </span>
                 </Button>
               )}
-              {!onView && !onBuy && (
-                <Link
-                  to={targetHref}
-                  className="flex w-full items-center justify-between rounded-[10px] px-3.5 py-2 text-xs font-bold transition-all bg-amber-500/10 text-amber-600 dark:text-amber-300 hover:bg-amber-500 hover:text-white border border-amber-500/20"
-                >
-                  <div className="flex items-center gap-1.5">
-                    <Lock className="h-3.5 w-3.5" />
-                    <span>مشاهده و خرید دوره</span>
-                  </div>
-                  <ChevronLeft className="h-4 w-4 transition-transform group-hover:-translate-x-1" />
-                </Link>
-              )}
             </div>
           ) : (
             <Link
@@ -464,9 +487,11 @@ export function CourseCard({
               className="flex w-full items-center justify-between rounded-[10px] px-3.5 py-2 text-xs font-bold transition-all group-hover:shadow-xs bg-primary/10 text-primary hover:bg-primary hover:text-white"
             >
               <div className="flex items-center gap-1.5">
-                <span>ورود به دوره</span>
+                <span>
+                  {isInProgress ? "ادامه یادگیری" : isCompleted ? "ورود به دوره" : "شروع دوره"}
+                </span>
               </div>
-              <ChevronLeft className="h-4 w-4 transition-transform group-hover:-translate-x-1" />
+              <ChevronLeft className="h-4 w-4 transition-transform group-hover:-translate-x-1 rtl:group-hover:-translate-x-1" />
             </Link>
           )
         ) : variant === "my-courses" ? (

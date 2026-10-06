@@ -296,11 +296,15 @@ export async function composeProduction(
     emailService = new ResendEmailService(
       config.email.resendApiKey,
       config.email.from,
+      globalThis.fetch,
+      config.appUrl,
     );
   } else if (config.email.provider === "resend" && config.email.resendApiKey) {
     emailService = new ResendEmailService(
       config.email.resendApiKey,
       config.email.from,
+      globalThis.fetch,
+      config.appUrl,
     );
   } else {
     emailService = new MockEmailService();

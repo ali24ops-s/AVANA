@@ -9,6 +9,7 @@ import {
   ShieldCheck,
   LifeBuoy,
   GraduationCap,
+  Sparkles,
 } from "lucide-react";
 
 export interface AdminNavItem {
@@ -139,9 +140,40 @@ export const CONTENT_WORKER_NAV_ITEMS: AdminNavItem[] = [
 ];
 
 /**
+ * 2 Dedicated Workspaces for course_editor
+ */
+export const COURSE_EDITOR_NAV_ITEMS: AdminNavItem[] = [
+  {
+    id: "courses",
+    name: "آموزش و دوره‌ها",
+    href: "/admin/courses",
+    icon: BookOpen,
+    description: "مدیریت دوره‌ها، استودیو محتوا و اسناد",
+    matchPrefixes: [
+      "/admin/courses",
+      "/admin/content-studio",
+      "/admin/content",
+      "/admin/documents",
+      "/admin/community-content",
+    ],
+  },
+  {
+    id: "content-studio",
+    name: "استودیوی محتوا",
+    href: "/admin/content-studio",
+    icon: Sparkles,
+    description: "تولید، بررسی و انتشار محتوای دوره",
+    matchPrefixes: ["/admin/content-studio"],
+  },
+];
+
+/**
  * Helper to resolve visible navigation items based on user role.
  */
 export function getVisibleNavItems(role?: string): AdminNavItem[] {
+  if (role === "course_editor") {
+    return COURSE_EDITOR_NAV_ITEMS;
+  }
   if (role === "content_worker") {
     return CONTENT_WORKER_NAV_ITEMS;
   }

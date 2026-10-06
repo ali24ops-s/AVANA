@@ -71,9 +71,7 @@ import { up as up0067 } from "./migrations/0067_assignment_submission_attachment
 import { up as up0068 } from "./migrations/0068_teacher_academic_profile.js";
 import { up as up0069 } from "./migrations/0069_classroom_educational_contents.js";
 import { up as up0070 } from "./migrations/0070_teacher_student_messaging.js";
-
-
-
+import { up as up0071 } from "./migrations/0071_repair_legacy_registration_org_admins.js";
 
 function localConnectionString(): string {
   const user = "avana";
@@ -232,6 +230,8 @@ async function runMigrations() {
     await up0069(db);
     console.log("Applying 0070_teacher_student_messaging...");
     await up0070(db);
+    console.log("Applying 0071_repair_legacy_registration_org_admins...");
+    await up0071(db);
 
     console.log("All database migrations applied successfully.");
   } catch (error) {

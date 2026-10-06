@@ -24,6 +24,7 @@ import { validateAndNormalizeIranPhone } from "@avana/domain";
 import { Button } from "@avana/ui";
 import { WORKER_MODE_ENABLED } from "../../config/features.js";
 import { getSafeInternalRedirect } from "../../utils/urlSecurity.js";
+import { resolveDefaultLandingRoute } from "../../utils/coursePermissions.js";
 
 type LoginMethod = "email" | "phone";
 
@@ -38,8 +39,10 @@ function maskPhone(phone?: string | null): string {
 
 export function SignInPage() {
   const [searchParams] = useSearchParams();
+  const { user, memberships, signIn, sendPhoneLoginOtp, verifyPhoneLoginOtp, workerAutoLogin, isAuthenticated } = useAuth();
   const redirectParam = searchParams.get("redirect") || searchParams.get("from");
-  const safeRedirect = getSafeInternalRedirect(redirectParam, "/home");
+  const defaultLanding = resolveDefaultLandingRoute(user, memberships);
+  const safeRedirect = redirectParam ? getSafeInternalRedirect(redirectParam, defaultLanding) : defaultLanding;
   const isTeacherContext = safeRedirect.startsWith("/teacher") || searchParams.get("role") === "teacher";
 
   const [method, setMethod] = useState<LoginMethod>("email");
@@ -58,15 +61,18 @@ export function SignInPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const { signIn, sendPhoneLoginOtp, verifyPhoneLoginOtp, workerAutoLogin, isAuthenticated } = useAuth();
   const navigate = useNavigate();
 
   async function handleWorkerAutoLogin() {
     setError(null);
     setIsSubmitting(true);
     try {
-      await workerAutoLogin();
-      navigate(safeRedirect, { replace: true });
+      const res = await workerAutoLogin();
+      const targetUser = res?.user ?? user;
+      const targetMemberships = res?.memberships ?? memberships;
+      const targetDefault = resolveDefaultLandingRoute(targetUser, targetMemberships);
+      const target = redirectParam ? getSafeInternalRedirect(redirectParam, targetDefault) : targetDefault;
+      navigate(target, { replace: true });
     } catch (err) {
       if (err instanceof ApiError) {
         setError(err.message);
@@ -112,8 +118,12 @@ export function SignInPage() {
 
     setIsSubmitting(true);
     try {
-      await signIn(trimmedEmail, password);
-      navigate(safeRedirect, { replace: true });
+      const res = await signIn(trimmedEmail, password);
+      const targetUser = res?.user ?? user;
+      const targetMemberships = res?.memberships ?? memberships;
+      const targetDefault = resolveDefaultLandingRoute(targetUser, targetMemberships);
+      const target = redirectParam ? getSafeInternalRedirect(redirectParam, targetDefault) : targetDefault;
+      navigate(target, { replace: true });
     } catch (err) {
       if (err instanceof ApiError) {
         const errorMsg =
@@ -182,8 +192,12 @@ export function SignInPage() {
 
     setIsSubmitting(true);
     try {
-      await verifyPhoneLoginOtp(validation.normalized, cleanCode);
-      navigate(safeRedirect, { replace: true });
+      const res = await verifyPhoneLoginOtp(validation.normalized, cleanCode);
+      const targetUser = res?.user ?? user;
+      const targetMemberships = res?.memberships ?? memberships;
+      const targetDefault = resolveDefaultLandingRoute(targetUser, targetMemberships);
+      const target = redirectParam ? getSafeInternalRedirect(redirectParam, targetDefault) : targetDefault;
+      navigate(target, { replace: true });
     } catch (err) {
       if (err instanceof ApiError) {
         setError(err.message);

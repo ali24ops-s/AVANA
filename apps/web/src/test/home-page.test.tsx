@@ -2510,5 +2510,139 @@ describe("HomePage Component", () => {
       expect(screen.queryByText(/بدون streak/)).not.toBeInTheDocument();
     });
   });
+
+  describe("Dashboard Welcome Greeting (متن خوشآمدگویی داشبورد)", () => {
+    function setupGreetingMock(userData: Record<string, unknown>) {
+      vi.spyOn(globalThis, "fetch").mockImplementation((url) => {
+        const urlStr = String(url);
+        if (urlStr.includes("/v1/me")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: () =>
+              Promise.resolve({
+                request_id: "req-greeting",
+                user: userData,
+                memberships: [],
+              }),
+          } as Response);
+        }
+        if (urlStr.includes("/organizations")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve({ items: [] }),
+          } as Response);
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({}),
+        } as Response);
+      });
+    }
+
+    it("displays only firstName and excludes lastName when full name is present in user.name", async () => {
+      setupGreetingMock({
+        id: "u-1",
+        name: "سارا احمدی",
+        email: "sara@avana.ir",
+        role: "student",
+      });
+
+      const queryClient = createTestQueryClient();
+      render(
+        <QueryClientProvider client={queryClient}>
+          <AuthProvider>
+            <MemoryRouter initialEntries={["/home"]}>
+              <HomePage />
+            </MemoryRouter>
+          </AuthProvider>
+        </QueryClientProvider>,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("سلام سارا 👋")).toBeInTheDocument();
+      });
+      expect(screen.queryByText(/احمدی/)).not.toBeInTheDocument();
+    });
+
+    it("displays only firstName when firstName and lastName are explicitly provided", async () => {
+      setupGreetingMock({
+        id: "u-2",
+        firstName: "علی",
+        lastName: "محمدلو",
+        name: "علی محمدلو",
+        email: "ali@avana.ir",
+        role: "student",
+      });
+
+      const queryClient = createTestQueryClient();
+      render(
+        <QueryClientProvider client={queryClient}>
+          <AuthProvider>
+            <MemoryRouter initialEntries={["/home"]}>
+              <HomePage />
+            </MemoryRouter>
+          </AuthProvider>
+        </QueryClientProvider>,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("سلام علی 👋")).toBeInTheDocument();
+      });
+      expect(screen.queryByText(/محمدلو/)).not.toBeInTheDocument();
+    });
+
+    it("falls back gracefully to email prefix when firstName and name are undefined", async () => {
+      setupGreetingMock({
+        id: "u-3",
+        email: "student@avana.ir",
+        role: "student",
+      });
+
+      const queryClient = createTestQueryClient();
+      render(
+        <QueryClientProvider client={queryClient}>
+          <AuthProvider>
+            <MemoryRouter initialEntries={["/home"]}>
+              <HomePage />
+            </MemoryRouter>
+          </AuthProvider>
+        </QueryClientProvider>,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("سلام student 👋")).toBeInTheDocument();
+      });
+      expect(screen.queryByText(/undefined/)).not.toBeInTheDocument();
+    });
+
+    it("falls back to 'کاربر' without extra space or undefined when name and email are missing", async () => {
+      setupGreetingMock({
+        id: "u-4",
+        firstName: "",
+        name: "   ",
+        email: "",
+        role: "student",
+      });
+
+      const queryClient = createTestQueryClient();
+      render(
+        <QueryClientProvider client={queryClient}>
+          <AuthProvider>
+            <MemoryRouter initialEntries={["/home"]}>
+              <HomePage />
+            </MemoryRouter>
+          </AuthProvider>
+        </QueryClientProvider>,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("سلام کاربر 👋")).toBeInTheDocument();
+      });
+      expect(screen.queryByText(/undefined/)).not.toBeInTheDocument();
+    });
+  });
 });
 

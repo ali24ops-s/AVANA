@@ -1,12 +1,23 @@
 import { useState, useCallback } from "react";
-import { Outlet, Navigate } from "react-router-dom";
+import { Outlet, Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../providers/AuthProvider.js";
 import { AdminSidebar } from "../admin/AdminSidebar.js";
 import { AdminHeader } from "../admin/AdminHeader.js";
 import { LoadingState } from "../ui/index.js";
+import { isContentManagerOrAdmin } from "../../utils/generationPermissions.js";
+
+const COURSE_WORKSPACES_PREFIXES = [
+  "/admin/courses",
+  "/admin/content-studio",
+  "/admin/documents",
+  "/admin/content",
+  "/admin/generation",
+  "/admin/community-content",
+];
 
 export function AdminLayout() {
-  const { user, isLoading } = useAuth();
+  const { user, memberships, isLoading } = useAuth();
+  const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
 
@@ -33,9 +44,33 @@ export function AdminLayout() {
     );
   }
 
-  // Authorization Check (platform_admin or content_worker)
-  if (!user || (user.role !== "platform_admin" && user.role !== "content_worker")) {
+  // 1. Overall Admin/Workspace Access Check (platform_admin, content_worker, organization_admin, course_editor)
+  if (!user || !isContentManagerOrAdmin(user, memberships)) {
     return <Navigate to="/home" replace />;
+  }
+
+  const isPlatformAdmin = user.role === "platform_admin";
+  const isContentWorker = user.role === "content_worker";
+  const pathname = location.pathname;
+
+  // 2. Sub-route authorization for course editors & non-platform admins
+  if (!isPlatformAdmin) {
+    // If accessing root admin or platform-admin-only dashboard, redirect to primary workspace
+    if (pathname === "/admin" || pathname === "/admin/" || pathname === "/admin/dashboard") {
+      return <Navigate to="/admin/courses" replace />;
+    }
+
+    const isAllowedCourseArea = COURSE_WORKSPACES_PREFIXES.some(
+      (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+    );
+    const isAllowedBlogArea =
+      isContentWorker &&
+      (pathname === "/admin/blog" || pathname.startsWith("/admin/blog/"));
+
+    if (!isAllowedCourseArea && !isAllowedBlogArea) {
+      // Forbidden platform-admin-only areas (users, commerce, system, teachers, settings)
+      return <Navigate to="/admin/courses" replace />;
+    }
   }
 
   return (

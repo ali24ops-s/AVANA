@@ -50,13 +50,14 @@ export class OrganizationService {
 
   /**
    * Create a new organization.
-   * The creating user becomes the organization_admin.
+   * The creating user receives the specified initialRole (e.g. "student" or "organization_admin").
+   * Required initialRole eliminates dangerous privilege-escalation default.
    */
   async createOrganization(
     actor: Actor,
     name: string,
-    customSlug?: string,
-    initialRole: Role = "organization_admin",
+    customSlug: string | undefined,
+    initialRole: Role,
   ): Promise<OrganizationRecord> {
     const slug = customSlug
       ? generateSlug(customSlug) || customSlug.slice(0, 100)

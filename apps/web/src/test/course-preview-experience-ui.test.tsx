@@ -214,7 +214,7 @@ describe("Pre-Purchase Course Preview & Free Access UI QA Verification", () => {
 
     await waitFor(() => {
       expect(screen.getAllByText("محتوای ویژه آوانا پلاس")[0]).toBeDefined();
-      expect(screen.getAllByText("برای دسترسی به متن کامل این درسنامه، اشتراک تهیه کرده یا این محتوا را مستقلاً خریداری کنید")[0]).toBeDefined();
+      expect(screen.getAllByText("این بخش از محتوای ویژه آوانا پلاس است.")[0]).toBeDefined();
     });
     expect(screen.queryByText("متن محرمانه و کامل درس دوم")).toBeNull();
   });

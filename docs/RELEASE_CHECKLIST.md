@@ -7,9 +7,13 @@ This document details the release and operational checklist for deploying the AV
 ## 1. Environment & Configuration Audit
 
 - [ ] **NODE_ENV**: Set to `production`.
+- [ ] **AVANA_APP_URL**: Set to `https://aavana.ir`. Canonical public web application URL used for outbound email links, password reset links, and referral URLs.
+  - Must use HTTPS protocol (plain HTTP is strictly rejected by config validation).
+  - Server IP addresses (e.g. `http://194.163.150.22`), localhost, or API ports (e.g. `:3000`) are strictly forbidden.
+- [ ] **AVANA_CORS_ORIGIN**: Restrict to authorized production domain(s) only (`https://aavana.ir`). Note that CORS origins are strictly decoupled from application URLs.
+- [ ] **AVANA_COOKIE_SECURE**: Set to `true` (enforces HTTPS-only cookies).
 - [ ] **DATABASE_URL**: Set to a production-grade PostgreSQL instance (with SSL enabled, e.g., `sslmode=require`).
 - [ ] **REDIS_URL**: Set to a production Redis instance (TLS enabled, password protected).
-- [ ] **AVANA_CORS_ORIGIN**: Restrict to authorized production domain(s) only (e.g. `https://app.avana.ai`).
 - [ ] **AVANA_API_HOST**: Set to `0.0.0.0` or container network interface.
 - [ ] **AVANA_API_PORT**: Set to the appropriate application port (default `3000`).
 - [ ] **AI_PROVIDER**: Set to desired production model provider (or `mock` for staging).

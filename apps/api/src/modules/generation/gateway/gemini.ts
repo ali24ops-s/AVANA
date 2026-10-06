@@ -308,13 +308,72 @@ export function adaptToGeminiJsonSchema(jsonSchema: unknown): Record<string, unk
       properties: {
         kind: { type: "string" },
         title: { type: "string" },
-        summaryMarkdown: { type: "string" },
-        keyTakeaways: { type: "array", items: { type: "string" } },
-        clinicalPearls: { type: "array", items: { type: "string" } },
-        examTips: { type: "array", items: { type: "string" } },
-        citationChunkIds: { type: "array", items: { type: "string" } },
+        estimatedReadingMinutes: { type: "integer" },
+        overview: { type: "string" },
+        sections: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              title: { type: "string" },
+              keyPoints: {
+                type: "array",
+                items: { type: "string" },
+              },
+              mechanisms: {
+                type: "array",
+                items: { type: "string" },
+              },
+              classifications: {
+                type: "array",
+                items: { type: "string" },
+              },
+              comparisons: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    conceptA: { type: "string" },
+                    conceptB: { type: "string" },
+                    keyDifferences: { type: "string" },
+                  },
+                  required: ["conceptA", "conceptB", "keyDifferences"],
+                },
+              },
+              memorizationPoints: {
+                type: "array",
+                items: { type: "string" },
+              },
+              examPoints: {
+                type: "array",
+                items: { type: "string" },
+              },
+              citationChunkIds: {
+                type: "array",
+                items: { type: "string" },
+              },
+              relatedSessionIds: {
+                type: "array",
+                items: { type: "string" },
+              },
+              relatedConceptIds: {
+                type: "array",
+                items: { type: "string" },
+              },
+            },
+            required: ["title", "keyPoints", "citationChunkIds"],
+          },
+        },
+        finalTakeaways: {
+          type: "array",
+          items: { type: "string" },
+        },
+        citationChunkIds: {
+          type: "array",
+          items: { type: "string" },
+        },
       },
-      required: ["kind", "title", "summaryMarkdown", "keyTakeaways"],
+      required: ["kind", "title", "overview", "sections"],
     };
   }
 

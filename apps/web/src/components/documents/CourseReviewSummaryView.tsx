@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Zap, FileText, Loader2, AlertCircle, Lock } from "lucide-react";
-import { Card, Button } from "@avana/ui";
+import { Zap, FileText, Loader2, AlertCircle, Lock, ListOrdered, X } from "lucide-react";
+import { Card, Button, Badge } from "@avana/ui";
 import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
 import { createDocumentsApi } from "../../lib/api/documents.js";
 import { ReviewSummaryViewer } from "./ReviewSummaryViewer.js";
@@ -40,8 +41,32 @@ export function CourseReviewSummaryView({
   onUnlock,
 }: CourseReviewSummaryViewProps) {
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
+  const [isCurriculumDrawerOpen, setIsCurriculumDrawerOpen] = useState(false);
   const apiClient = createApiClient({ baseUrl: getApiBaseUrl() });
   const docsApi = createDocumentsApi(apiClient);
+
+  // Close curriculum drawer on Escape key (matching lessons behavior in LearningPage)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && isCurriculumDrawerOpen) {
+        setIsCurriculumDrawerOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isCurriculumDrawerOpen]);
+
+  // Lock body scroll when curriculum drawer is open (matching lessons behavior in LearningPage)
+  useEffect(() => {
+    if (!isCurriculumDrawerOpen || typeof document === "undefined") return;
+
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = originalOverflow;
+    };
+  }, [isCurriculumDrawerOpen]);
 
   // Extract unique documents from modules in canonical module sort order
   const modulesWithDocs = (modules || []).filter(
@@ -134,116 +159,188 @@ export function CourseReviewSummaryView({
     isPreview && activeDocument && activeDocument.id !== canonicalPreviewDocId,
   );
 
+  const renderChapterNavList = () => {
+    return documents.map((doc, index) => {
+      const isSelected = activeDocument?.id === doc.id;
+      const isDocPreview = Boolean(doc.id === canonicalPreviewDocId);
+      const isDocLocked = Boolean(isPreview && !isDocPreview);
+      const displayTitle = stripChapterPrefix(doc.title);
+
+      return (
+        <button
+          key={doc.id}
+          type="button"
+          onClick={() => {
+            setSelectedDocId(doc.id);
+            setIsCurriculumDrawerOpen(false);
+          }}
+          aria-current={isSelected ? "true" : undefined}
+          title={doc.title}
+          className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-right rounded-xl text-xs transition-all cursor-pointer select-none ${
+            isSelected
+              ? "bg-primary/10 text-primary font-bold border-r-3 border-primary shadow-xs"
+              : "text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-warm)]"
+          }`}
+        >
+          <span
+            className={`inline-flex items-center justify-center min-w-[22px] h-5.5 px-1.5 rounded-md text-xs font-bold shrink-0 leading-none ${
+              isSelected
+                ? "bg-primary text-white shadow-xs"
+                : "bg-[var(--color-surface-warm)] border border-[var(--color-border)] text-[var(--color-text-muted)]"
+            }`}
+          >
+            {toPersianDigits(index + 1)}
+          </span>
+
+          <span className="flex-1 min-w-0 text-xs sm:text-[13px] font-medium leading-snug break-words line-clamp-2 text-right">
+            {displayTitle}
+          </span>
+
+          {isPreview && isDocPreview && (
+            <Badge variant="info" size="sm">
+              رایگان
+            </Badge>
+          )}
+
+          {isDocLocked && (
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 font-medium flex items-center gap-1 leading-tight shrink-0">
+              <Lock className="w-3 h-3 text-amber-600 dark:text-amber-400 shrink-0" />
+              <span>قفل</span>
+            </span>
+          )}
+        </button>
+      );
+    });
+  };
+
   return (
-    <div className="space-y-6 font-sans" dir="rtl">
-      {/* Document Selector Header (if more than 1 document) */}
+    <div className="space-y-4 font-sans" dir="rtl">
+      {/* Top Header Bar with Curriculum Drawer Trigger (Unified for all viewports) */}
       {documents.length > 1 && (
-        <Card className="p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 shadow-xs">
-          <div className="flex items-center gap-2 text-xs text-[var(--color-text-muted)] shrink-0">
-            <FileText className="w-4 h-4 text-[var(--color-primary)] shrink-0" />
-            <span className="font-bold text-[var(--color-text)]">انتخاب مبحث آموزشی:</span>
+        <div className="flex items-center justify-between p-3.5 bg-[var(--color-surface)] rounded-card border border-[var(--color-border)] shadow-xs">
+          <div className="flex items-center gap-2 text-xs min-w-0 flex-1">
+            <FileText className="w-4 h-4 text-primary shrink-0" />
+            <span className="text-[11px] font-bold text-primary dark:text-teal-300 bg-primary/10 border border-primary/20 px-2.5 py-0.5 rounded-button truncate">
+              {activeDocument ? `فصل فعال: ${stripChapterPrefix(activeDocument.title)}` : "انتخاب سرفصل"}
+            </span>
           </div>
-
-          <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2 w-full sm:w-auto">
-            {documents.map((doc: { id: string; title: string }, index: number) => {
-              const isSelected = activeDocument?.id === doc.id;
-              const isDocPreview = Boolean(doc.id === canonicalPreviewDocId);
-              const isDocLocked = Boolean(isPreview && !isDocPreview);
-              const displayTitle = stripChapterPrefix(doc.title);
-
-              return (
-                <Button
-                  key={doc.id}
-                  variant={isSelected ? "primary" : "outline"}
-                  size="md"
-                  onClick={() => setSelectedDocId(doc.id)}
-                  className="font-bold gap-2.5 h-auto min-h-[44px] sm:min-h-[40px] px-3.5 sm:px-4 py-2.5 sm:py-2 text-xs sm:text-sm leading-relaxed sm:leading-normal items-center justify-start sm:justify-center whitespace-normal w-full sm:w-auto text-right"
-                >
-                  <span
-                    className={`inline-flex items-center justify-center min-w-[22px] h-5.5 px-1.5 rounded-md text-xs font-bold shrink-0 leading-none ${
-                      isSelected
-                        ? "bg-white/25 text-white"
-                        : "bg-[var(--color-primary-soft)] text-[var(--color-primary)] dark:bg-teal-950/60 dark:text-teal-300"
-                    }`}
-                  >
-                    {toPersianDigits(index + 1)}
-                  </span>
-                  <span className="flex-1 sm:flex-initial whitespace-normal sm:max-w-[260px] sm:truncate break-words leading-relaxed sm:leading-normal py-0.5 inline-block text-right">
-                    {displayTitle}
-                  </span>
-                  {isPreview && isDocPreview && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-teal-100 dark:bg-teal-950 text-teal-800 dark:text-teal-300 font-medium leading-tight shrink-0">
-                      رایگان
-                    </span>
-                  )}
-                  {isDocLocked && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 font-medium flex items-center gap-1 leading-tight shrink-0">
-                      <Lock className="w-3 h-3 text-amber-600 dark:text-amber-400 shrink-0" />
-                      <span>قفل</span>
-                    </span>
-                  )}
-                </Button>
-              );
-            })}
-          </div>
-        </Card>
+          <Button
+            variant="tertiary"
+            size="sm"
+            onClick={() => setIsCurriculumDrawerOpen(true)}
+            title="نمایش سرفصل‌های دوره"
+            aria-label="نمایش سرفصل‌های دوره"
+            leftIcon={<ListOrdered className="w-3.5 h-3.5 text-primary" />}
+            className="shrink-0"
+          >
+            سرفصل‌ها ({toPersianDigits(documents.length)})
+          </Button>
+        </div>
       )}
 
-      {/* Review Summary Content or Locked State */}
-      {isActiveLocked && activeDocument ? (
-        <Card className="p-8 sm:p-12 text-center space-y-5 font-sans shadow-xs" dir="rtl">
-          <div className="w-16 h-16 rounded-button bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center mx-auto shadow-xs">
-            <Lock className="w-8 h-8" />
-          </div>
-          <div className="space-y-2 max-w-lg mx-auto">
-            <div className="flex items-center justify-center gap-2">
-              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
-                <Lock className="w-3 h-3" />
-                <span>مخصوص نسخه کامل دوره</span>
-              </span>
+      {/* Unified Responsive Syllabus Drawer (Mobile, Tablet & Desktop) */}
+      {documents.length > 1 &&
+        isCurriculumDrawerOpen &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div className="relative z-[60]" dir="rtl">
+            <div
+              data-testid="curriculum-backdrop"
+              className="fixed inset-0 z-[60] bg-[#0d1719]/50 backdrop-blur-xs transition-opacity duration-200 animate-in fade-in"
+              onClick={() => setIsCurriculumDrawerOpen(false)}
+              aria-hidden="true"
+            />
+            <aside
+              data-testid="curriculum-drawer"
+              className="fixed inset-y-0 start-0 z-[70] w-[88vw] sm:w-[480px] md:w-[576px] max-w-[576px] bg-[var(--color-surface)] border-inline-end border-[var(--color-border)] shadow-[0_8px_32px_rgba(0,0,0,0.12)] p-4 sm:p-5 flex flex-col animate-in rtl:slide-in-from-right ltr:slide-in-from-left duration-200"
+              aria-label="سرفصل‌های دوره"
+              role="dialog"
+              aria-modal="true"
+            >
+              <div className="flex items-center justify-between pb-3.5 border-b border-[var(--color-border)]">
+                <div className="flex items-center gap-2">
+                  <h2 className="font-bold text-sm sm:text-base text-[var(--color-text)]">
+                    سرفصل‌های دوره
+                  </h2>
+                  <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-primary/10 text-primary border border-primary/20">
+                    {toPersianDigits(documents.length)} فصل
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsCurriculumDrawerOpen(false)}
+                  className="p-1.5 rounded-xl text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-warm)] transition-colors cursor-pointer"
+                  aria-label="بستن منوی سرفصل‌ها"
+                  title="بستن منوی سرفصل‌ها"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <nav className="py-3 space-y-1.5 overflow-y-auto flex-1 custom-scrollbar">
+                {renderChapterNavList()}
+              </nav>
+            </aside>
+          </div>,
+          document.body,
+        )}
+
+      {/* Main Content Area (Review Summary Viewer or Locked State) */}
+      <main className="w-full space-y-6">
+        {isActiveLocked && activeDocument ? (
+          <Card className="p-8 sm:p-12 text-center space-y-5 font-sans shadow-xs" dir="rtl">
+            <div className="w-16 h-16 rounded-button bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center mx-auto shadow-xs">
+              <Lock className="w-8 h-8" />
             </div>
-            <h3 className="text-lg sm:text-xl font-black text-[var(--color-text)]">
-              خلاصه مروری فصل «{activeDocument.title}» قفل است
-            </h3>
-            <p className="text-xs sm:text-sm text-[var(--color-text-muted)] leading-relaxed">
-              این فصل شامل خلاصه جامع نکات کلیدی، مقایسه‌ها و جمع‌بندی نکات پرتکرار آزمونی است که در نسخه کامل دوره یا با داشتن اشتراک آوانا پلاس در دسترس خواهد بود.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
-            {onUnlock && (
-              <Button
-                variant="primary"
-                size="md"
-                onClick={onUnlock}
-                leftIcon={<Lock className="w-4 h-4" />}
-              >
-                <span>مشاهده تعرفه‌ها و خرید دوره</span>
-              </Button>
-            )}
-            {canonicalPreviewDocId && (
-              <Button
-                variant="outline"
-                size="md"
-                onClick={() => setSelectedDocId(canonicalPreviewDocId)}
-                leftIcon={<Zap className="w-4 h-4 text-[var(--color-primary)]" />}
-              >
-                <span>مشاهده فصل اول (پیش‌نمایش رایگان)</span>
-              </Button>
-            )}
-          </div>
-        </Card>
-      ) : activeDocument ? (
-        <ReviewSummaryViewer
-          key={activeDocument.id}
-          organizationId={organizationId}
-          documentId={activeDocument.id}
-          courseId={courseId}
-          documentTitle={activeDocument.title}
-          onNavigateToFlashcards={onNavigateToFlashcards}
-          onNavigateToQuiz={onNavigateToQuiz}
-          onUnlock={onUnlock}
-        />
-      ) : null}
+            <div className="space-y-2 max-w-lg mx-auto">
+              <div className="flex items-center justify-center gap-2">
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                  <Lock className="w-3 h-3" />
+                  <span>مخصوص نسخه کامل دوره</span>
+                </span>
+              </div>
+              <h3 className="text-lg sm:text-xl font-black text-[var(--color-text)]">
+                خلاصه مروری فصل «{activeDocument.title}» قفل است
+              </h3>
+              <p className="text-xs sm:text-sm text-[var(--color-text-muted)] leading-relaxed">
+                این فصل شامل خلاصه جامع نکات کلیدی، مقایسه‌ها و جمع‌بندی نکات پرتکرار آزمونی است که در نسخه کامل دوره یا با داشتن اشتراک آوانا پلاس در دسترس خواهد بود.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+              {onUnlock && (
+                <Button
+                  variant="primary"
+                  size="md"
+                  onClick={onUnlock}
+                  leftIcon={<Lock className="w-4 h-4" />}
+                >
+                  <span>مشاهده تعرفه‌ها و خرید دوره</span>
+                </Button>
+              )}
+              {canonicalPreviewDocId && (
+                <Button
+                  variant="outline"
+                  size="md"
+                  onClick={() => setSelectedDocId(canonicalPreviewDocId)}
+                  leftIcon={<Zap className="w-4 h-4 text-[var(--color-primary)]" />}
+                >
+                  <span>مشاهده فصل اول (پیش‌نمایش رایگان)</span>
+                </Button>
+              )}
+            </div>
+          </Card>
+        ) : activeDocument ? (
+          <ReviewSummaryViewer
+            key={activeDocument.id}
+            organizationId={organizationId}
+            documentId={activeDocument.id}
+            courseId={courseId}
+            documentTitle={activeDocument.title}
+            onNavigateToFlashcards={onNavigateToFlashcards}
+            onNavigateToQuiz={onNavigateToQuiz}
+            onUnlock={onUnlock}
+          />
+        ) : null}
+      </main>
     </div>
   );
 }

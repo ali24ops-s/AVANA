@@ -20,6 +20,9 @@ import { createApiClient, getApiBaseUrl } from "../lib/api/client.js";
 import { createAuthApi } from "../lib/api/auth.js";
 import { ApiError } from "../lib/api/errors.js";
 import type {
+  MeResponse,
+  PhoneVerifyOtpResponse,
+  SignInResponse,
   UserMembership,
   UserResource,
   VerificationChannel,
@@ -43,13 +46,13 @@ export type AuthState = {
   /** True if the authenticated user has at least one verified channel. */
   isVerified: boolean;
   /** Sign in with email and password. */
-  signIn: (email: string, password: string) => Promise<void>;
+  signIn: (email: string, password: string) => Promise<SignInResponse | void>;
   /** Auto-login for isolated Local Worker 2. */
-  workerAutoLogin: () => Promise<void>;
+  workerAutoLogin: () => Promise<MeResponse | void>;
   /** Request login OTP for phone number. */
   sendPhoneLoginOtp: (phoneNumber: string) => Promise<void>;
   /** Verify login OTP and create session. */
-  verifyPhoneLoginOtp: (phoneNumber: string, code: string) => Promise<void>;
+  verifyPhoneLoginOtp: (phoneNumber: string, code: string) => Promise<PhoneVerifyOtpResponse | void>;
   /** Register a new user account with email, password, name, phone, firstName, lastName, major, university, faculty, department. */
   signUp: (
     email: string,
@@ -182,6 +185,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const response = await authApi.workerAutoLogin();
       setUser(response.user);
       setMemberships(response.memberships ?? []);
+      return response;
     } catch (err) {
       const message =
         err instanceof ApiError ? err.message : "ورود خودکار ورکر با خطا مواجه شد.";
@@ -203,6 +207,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const response = await authApi.signIn(email, password);
         setUser(response.user);
         setMemberships(response.memberships ?? []);
+        return response;
       } catch (err) {
         const rawMessage =
           err instanceof ApiError ? err.message : "ورود به حساب کاربری با خطا مواجه شد.";
@@ -244,6 +249,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const response = await authApi.verifyPhoneLoginOtp(phoneNumber, code);
         setUser(response.user);
         setMemberships(response.memberships ?? []);
+        return response;
       } catch (err) {
         const message =
           err instanceof ApiError

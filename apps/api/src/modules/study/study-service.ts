@@ -48,6 +48,7 @@ import {
   QUIZ_STRENGTH_THRESHOLD_PERCENT,
   MAX_RECOMMENDATIONS_COUNT,
   toPersianDigits,
+  detectActiveLearningStreams,
 } from "@avana/domain";
 import type {
   FlashcardRating,
@@ -83,7 +84,7 @@ import type {
   QuizQuestionRecord,
 } from "./study-store.js";
 import type { CourseStore, CourseRecord } from "../courses/course-store.js";
-import type { ModuleStore, LessonStore, ProgressStore, LessonRecord, ModuleRecord } from "../learning/learning-store.js";
+import type { ModuleStore, LessonStore, ProgressStore, LessonRecord, ModuleRecord, LessonProgressRecord } from "../learning/learning-store.js";
 import type { OrganizationStore } from "../organizations/organization-store.js";
 import type { AuditService } from "../../observability/audit-service.js";
 import type { EntitlementService } from "../commerce/entitlement-service.js";
@@ -4171,6 +4172,8 @@ export class StudyService {
     courseId: CourseId,
     analytics: StudyAnalytics,
     context: {
+      modules?: ModuleRecord[];
+      progressRecords?: LessonProgressRecord[];
       publishedLessons: LessonRecord[];
       completedLessonIds: Set<string>;
       quizzes: QuizRecord[];
@@ -4242,18 +4245,42 @@ export class StudyService {
       }
     }
 
-    // 3. Unfinished Lesson Candidate (Next Lesson)
+    // 3. Unfinished Lesson Candidate (Next Lesson - Active Stream aware)
     if (analytics.completed_lessons < analytics.total_lessons) {
-      const nextLesson = context.publishedLessons.find(
-        (l) => !context.completedLessonIds.has(l.id),
-      );
+      let nextLesson: LessonRecord | undefined;
+      let isStreamDerived = false;
+
+      if (context.modules && context.progressRecords) {
+        const activeStreams = detectActiveLearningStreams({
+          courseId,
+          modules: context.modules,
+          lessons: context.publishedLessons,
+          progressRecords: context.progressRecords,
+        });
+        if (activeStreams.length > 0 && activeStreams[0].nextLessons.length > 0) {
+          const streamNext = activeStreams[0].nextLessons[0];
+          nextLesson = context.publishedLessons.find(
+            (l) => l.id === streamNext.id,
+          );
+          isStreamDerived = Boolean(nextLesson);
+        }
+      }
+
+      if (!nextLesson) {
+        nextLesson = context.publishedLessons.find(
+          (l) => !context.completedLessonIds.has(l.id),
+        );
+      }
+
       if (nextLesson) {
         candidates.push({
           id: `rec:course:${courseId}:lesson:${nextLesson.id}`,
           type: "lesson_continue",
-          priority: "medium",
+          priority: isStreamDerived ? "high" : "medium",
           title: `مطالعه درس: ${nextLesson.title}`,
-          reason: "درس بعدی در مسیر یادگیری این دوره.",
+          reason: isStreamDerived
+            ? "درس بعدی در مسیر یادگیری فعال شما در این دوره."
+            : "درس بعدی در مسیر یادگیری این دوره.",
           target: {
             tab: "lessons",
             courseId,
@@ -4263,11 +4290,14 @@ export class StudyService {
           metadata: {
             remainingLessonsCount:
               analytics.total_lessons - analytics.completed_lessons,
+            isStreamDerived,
           },
           summary: `مطالعه درس «${nextLesson.title}» را ادامه دهید.`,
           topics: ["مطالعه درس"],
           source: "accepted_lesson",
-          severity: 200 + (analytics.total_lessons - analytics.completed_lessons),
+          severity:
+            (isStreamDerived ? 400 : 200) +
+            (analytics.total_lessons - analytics.completed_lessons),
         });
       }
     }
@@ -4471,6 +4501,8 @@ export class StudyService {
     };
 
     const recommendations = this.generateRecommendations(courseId, baseAnalytics, {
+      modules,
+      progressRecords,
       publishedLessons,
       completedLessonIds,
       quizzes: publishedQuizzes,

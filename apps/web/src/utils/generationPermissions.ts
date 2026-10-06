@@ -23,7 +23,7 @@ export function isContentManagerOrAdmin(
   user?: Pick<UserResource, "role"> | { role?: Role | string } | null,
   memberships?: Pick<UserMembership, "role">[] | { role?: Role | string }[] | null,
 ): boolean {
-  return isUserAdmin(user, memberships) || canManageCourseContent(memberships as UserMembership[]);
+  return isUserAdmin(user, memberships) || canManageCourseContent(memberships as UserMembership[], user);
 }
 
 /**

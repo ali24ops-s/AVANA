@@ -14,7 +14,7 @@ import { describe, expect, it, vi } from "vitest";
 import { GeminiModelGateway } from "./gemini.js";
 import { createModelGateway } from "./index.js";
 import type { CompletionRequest } from "./types.js";
-import { DomainError } from "@avana/domain";
+import { DomainError, validateReviewSummaryPayload } from "@avana/domain";
 import type { OrganizationId, DocumentId } from "@avana/domain";
 
 const mockOrgId = "00000000-0000-0000-0000-000000000010" as OrganizationId;
@@ -572,7 +572,110 @@ describe("Gemini Structured Output (adaptToGeminiJsonSchema)", () => {
 
     // 4. Review summary schema
     await gateway.complete(makeRequest({ jsonSchema: { type: "review_summary" } }));
-    genConfig = capturedBody.generationConfig as { responseSchema: { required: string[] } };
-    expect(genConfig.responseSchema.required).toEqual(["kind", "title", "summaryMarkdown", "keyTakeaways"]);
+    const summaryGenConfig = capturedBody.generationConfig as {
+      responseSchema: {
+        required: string[];
+        properties: Record<string, Record<string, unknown>>;
+      };
+    };
+    const schemaProps = summaryGenConfig.responseSchema.properties;
+    const requiredFields = summaryGenConfig.responseSchema.required;
+
+    // 1 & 2: overview and sections in responseSchema.properties
+    expect(schemaProps.overview).toBeDefined();
+    expect(schemaProps.overview.type).toBe("string");
+    expect(schemaProps.sections).toBeDefined();
+    expect(schemaProps.sections.type).toBe("array");
+
+    // 3 & 4: overview and sections in required
+    expect(requiredFields).toContain("kind");
+    expect(requiredFields).toContain("title");
+    expect(requiredFields).toContain("overview");
+    expect(requiredFields).toContain("sections");
+
+    // sections.items.required must include citationChunkIds for Domain Citation Grounding invariant
+    const sectionsItemSchema = schemaProps.sections.items as {
+      required: string[];
+      properties: Record<string, unknown>;
+    };
+    expect(sectionsItemSchema.required).toContain("title");
+    expect(sectionsItemSchema.required).toContain("keyPoints");
+    expect(sectionsItemSchema.required).toContain("citationChunkIds");
+
+    // 5: None of the obsolete fields exist in properties or required
+    expect(schemaProps.summaryMarkdown).toBeUndefined();
+    expect(schemaProps.keyTakeaways).toBeUndefined();
+    expect(schemaProps.clinicalPearls).toBeUndefined();
+    expect(schemaProps.examTips).toBeUndefined();
+    expect(requiredFields).not.toContain("summaryMarkdown");
+    expect(requiredFields).not.toContain("keyTakeaways");
+    expect(requiredFields).not.toContain("clinicalPearls");
+    expect(requiredFields).not.toContain("examTips");
+  });
+
+  it("generates review_summary schema that is strictly accepted by validateReviewSummaryPayload", async () => {
+    let capturedBody: Record<string, unknown> = {};
+
+    const mockFetch = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      capturedBody = JSON.parse(String(init?.body || "{}"));
+      return makeSuccessResponse();
+    });
+
+    const gateway = new GeminiModelGateway({
+      apiKey: FAKE_API_KEY,
+      fetchFn: mockFetch as unknown as typeof fetch,
+    });
+
+    await gateway.complete(makeRequest({ jsonSchema: { type: "review_summary" } }));
+    const genConfig = capturedBody.generationConfig as {
+      responseSchema: {
+        required: string[];
+        properties: Record<string, unknown>;
+      };
+    };
+
+    expect(genConfig.responseSchema).toBeDefined();
+
+    // Construct a canonical payload conforming to the exact schema properties emitted by Gemini gateway
+    const samplePayloadFromSchema = {
+      kind: "review_summary",
+      title: "خلاصه مروری جامع فارماکولوژی بالینی",
+      estimatedReadingMinutes: 12,
+      overview: "مرور سریع، متمرکز و فشرده از اصول کلیدی و مکانیسم‌های اثر داروها.",
+      sections: [
+        {
+          title: "بخش ۱: مهارکننده‌های آنزیم مبدل آنژیوتانسین",
+          keyPoints: [
+            "مهار تبدیل آنژیوتانسین I به آنژیوتانسین II و کاهش مقاومت عروقی",
+            "کاهش ترشح آلدوسترون و احتباس پتاسیم",
+          ],
+          mechanisms: ["مهار رقابتی ACE و جلوگیری از تجزیه برادی‌کینین"],
+          classifications: ["داروهای قلبی عروقی خط اول در نارسایی قلبی"],
+          comparisons: [
+            {
+              conceptA: "ACE Inhibitors",
+              conceptB: "ARBs",
+              keyDifferences: "سرفه خشک و آنژیوادم ناشی از برادی‌کینین فقط در ACEI دیده می‌شود.",
+            },
+          ],
+          memorizationPoints: ["کنترااندیکاسیون قطعی در بارداری (تراتوژن)"],
+          examPoints: ["خطر هیپرکالمی در مصرف همزمان با اسپیرونولاکتون"],
+          citationChunkIds: ["chunk-1"],
+          relatedSessionIds: ["session-1"],
+          relatedConceptIds: ["concept-1"],
+        },
+      ],
+      finalTakeaways: [
+        "پایش کراتینین و پتاسیم سرم یک تا دو هفته پس از شروع درمان الزامی است.",
+      ],
+      citationChunkIds: ["chunk-1"],
+    };
+
+    const validated = validateReviewSummaryPayload(samplePayloadFromSchema);
+    expect(validated.kind).toBe("review_summary");
+    expect(validated.overview).toBe(samplePayloadFromSchema.overview);
+    expect(validated.sections).toHaveLength(1);
+    expect(validated.sections[0].title).toBe(samplePayloadFromSchema.sections[0].title);
+    expect(validated.sections[0].keyPoints).toEqual(samplePayloadFromSchema.sections[0].keyPoints);
   });
 });

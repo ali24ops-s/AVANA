@@ -62,8 +62,21 @@ describe("PR-8: Authorization and tenancy policy", () => {
     });
   }
 
-  async function signIn(app: ReturnType<typeof createApp>, email: string) {
+  async function signIn(
+    app: ReturnType<typeof createApp>,
+    email: string,
+    globalRole?: "platform_admin" | "content_worker",
+  ) {
     await registerModules(app);
+
+    if (globalRole) {
+      await userStore.createUserWithPassword({
+        email,
+        passwordHash: "",
+        name: email.split("@")[0],
+        globalRole,
+      });
+    }
 
     const res = await app.inject({
       method: "POST",
@@ -262,7 +275,11 @@ describe("PR-8: Authorization and tenancy policy", () => {
   describe("4. Membership read operations", () => {
     it("allows org admin to list members", async () => {
       const app = createApp({ config });
-      const { token } = await signIn(app, "admin-list@example.com");
+      const { token } = await signIn(
+        app,
+        "admin-list@example.com",
+        "platform_admin",
+      );
 
       const createRes = await app.inject({
         method: "POST",
@@ -293,6 +310,7 @@ describe("PR-8: Authorization and tenancy policy", () => {
       const { token: adminToken } = await signIn(
         app,
         "admin-nonadmin@example.com",
+        "platform_admin",
       );
 
       const createRes = await app.inject({
