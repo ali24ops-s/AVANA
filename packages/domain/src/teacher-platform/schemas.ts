@@ -1564,3 +1564,53 @@ export function validateListTeacherConversationsQuery(
     limit,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Exam Security Event Validation
+// ---------------------------------------------------------------------------
+
+export interface ExamSecurityEventInput {
+  id: string;
+  type: "tab_hidden" | "tab_visible" | "reconnect";
+  clientSessionId: string;
+  clientTimestamp?: string | null;
+}
+
+export function validateExamSecurityEventInput(raw: unknown): ExamSecurityEventInput {
+  if (typeof raw !== "object" || raw === null) {
+    throw new DomainError("bad_request", "داده‌های رویداد امنیتی نامعتبر است");
+  }
+  const input = raw as Record<string, unknown>;
+
+  const id = typeof input.id === "string" ? input.id.trim() : "";
+  if (!id || id.length > 64) {
+    throw new DomainError("bad_request", "شناسه یکتای رویداد الزامی است");
+  }
+
+  const validTypes = ["tab_hidden", "tab_visible", "reconnect"];
+  const type = typeof input.type === "string" ? input.type.trim() : "";
+  if (!validTypes.includes(type)) {
+    throw new DomainError("bad_request", "نوع رویداد امنیتی نامعتبر است");
+  }
+
+  const clientSessionId =
+    typeof input.clientSessionId === "string" ? input.clientSessionId.trim() : "";
+  if (!clientSessionId || clientSessionId.length > 64) {
+    throw new DomainError("bad_request", "شناسه نشست کلاینت نامعتبر است");
+  }
+
+  let clientTimestamp: string | null = null;
+  if (typeof input.clientTimestamp === "string" && input.clientTimestamp.trim().length > 0) {
+    const parsed = new Date(input.clientTimestamp);
+    if (!isNaN(parsed.getTime())) {
+      clientTimestamp = parsed.toISOString();
+    }
+  }
+
+  return {
+    id,
+    type: type as "tab_hidden" | "tab_visible" | "reconnect",
+    clientSessionId,
+    clientTimestamp,
+  };
+}

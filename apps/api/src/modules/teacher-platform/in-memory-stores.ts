@@ -1,4 +1,9 @@
-import { DomainError, gradeAttempt } from "@avana/domain";
+import {
+  DomainError,
+  gradeAttempt,
+  applySecurityEventToAttemptIntegrity,
+  type TeacherExamAttemptSecurityEventInput,
+} from "@avana/domain";
 import type {
   Classroom,
   ClassroomMember,
@@ -551,6 +556,47 @@ export class InMemoryTeacherExamAttemptStore implements TeacherExamAttemptStore 
         percentage: gradeResult.percentage,
         passed: gradeResult.passed,
         updatedAt: now,
+      };
+      this.attempts.set(attemptId, updated);
+      return { ...updated };
+    });
+  }
+
+  async recordSecurityEvent(
+    attemptId: string,
+    event: TeacherExamAttemptSecurityEventInput,
+    serverNow: Date = new Date(),
+  ): Promise<TeacherExamAttempt> {
+    return await this.withLock(`attempt:${attemptId}`, async () => {
+      const attempt = this.attempts.get(attemptId);
+      if (!attempt) {
+        throw new DomainError("not_found", "تلاش یافت نشد");
+      }
+
+      if (attempt.status !== "in_progress") {
+        throw new DomainError("bad_request", "آزمون پایان یافته و امکان ثبت رویداد نیست");
+      }
+
+      // Rate limiting: prevent spamming the endpoint (max 30 events in recent window)
+      const nowMs = serverNow.getTime();
+      const existingEvents = attempt.integrityMetadata?.events || [];
+      const recentEvents = existingEvents.filter(
+        (e) => nowMs - new Date(e.serverReceivedAt).getTime() < 10000,
+      );
+      if (recentEvents.length >= 30) {
+        throw new DomainError("too_many_requests", "تعداد درخواست‌های ارسالی بیش از حد مجاز است");
+      }
+
+      const updatedMetadata = applySecurityEventToAttemptIntegrity(
+        attempt.integrityMetadata,
+        event,
+        serverNow,
+      );
+
+      const updated: TeacherExamAttempt = {
+        ...attempt,
+        integrityMetadata: updatedMetadata,
+        updatedAt: serverNow.toISOString(),
       };
       this.attempts.set(attemptId, updated);
       return { ...updated };

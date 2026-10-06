@@ -348,5 +348,82 @@ describe("Descriptive Answer Integrity UI — Student Taking & Teacher Review", 
       expect(screen.queryByText("اطلاعات ثبت و رفتار ورود پاسخ:")).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: "ثبت نمره" })).toBeInTheDocument();
     });
+
+    it("2.3. Renders ExamSignalsOverviewCard with non-accusatory signals, tab exits, and paste breakdown", async () => {
+      const responseWithAttemptSignals = {
+        result: {
+          ...mockStudentResultResponse.result,
+          attemptSignals: {
+            tabSwitchCount: 3,
+            incompleteExitCount: 1,
+            totalTimeAwayMs: 45000,
+            reconnectCount: 2,
+            concurrentSessionDetected: true,
+            totalPasteCount: 2,
+            pastedQuestionsCount: 1,
+            descriptivePasteBreakdown: [
+              {
+                questionId: "q-desc-1",
+                orderIndex: 0,
+                pasteCount: 2,
+                pastedCharactersTotal: 450,
+                pastedWordsTotal: 85,
+                lastPastedAt: new Date().toISOString(),
+              },
+            ],
+            signals: [
+              "۳ بار خروج از پنجره آزمون با مجموع مدت زمان ۴۵ ثانیه ثبت شده است.",
+              "نشست همزمان فعال در حین آزمون شناسایی شد.",
+            ],
+            reviewRecommended: true,
+            hasAnomalies: true,
+          },
+        },
+      };
+
+      vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+        if (String(url).endsWith("/v1/teacher/exams/exam-teacher-1")) {
+          return {
+            ok: true,
+            status: 200,
+            text: () => Promise.resolve(JSON.stringify(mockTeacherExamResponse)),
+          } as Response;
+        }
+        if (String(url).includes("/results/student-100")) {
+          return {
+            ok: true,
+            status: 200,
+            text: () => Promise.resolve(JSON.stringify(responseWithAttemptSignals)),
+          } as Response;
+        }
+        return { ok: true, status: 200, text: () => Promise.resolve("{}") } as Response;
+      });
+
+      const qc = createTestQueryClient();
+      render(
+        <QueryClientProvider client={qc}>
+          <MemoryRouter initialEntries={["/teacher/exams/exam-teacher-1/results/student-100"]}>
+            <Routes>
+              <Route
+                path="/teacher/exams/:examId/results/:studentId"
+                element={<TeacherStudentResultDetailPage />}
+              />
+            </Routes>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("نشانه‌های آزمون (گزارش سیگنال‌های رفتاری)")).toBeInTheDocument();
+      });
+
+      // Verify non-accusatory overview details
+      expect(screen.getByText("نشست همزمان شناسایی شد")).toBeInTheDocument();
+      expect(screen.getByText("نیازمند توجه استاد")).toBeInTheDocument();
+      expect(screen.getByText(/خروج از آزمون:/)).toBeInTheDocument();
+      expect(screen.getByText(/Paste در تشریحی:/)).toBeInTheDocument();
+      expect(screen.getByText(/تفکیک رویدادهای Paste در سؤالات تشریحی/)).toBeInTheDocument();
+      expect(screen.getByText(/توجه استاد گرامی:/)).toBeInTheDocument();
+    });
   });
 });

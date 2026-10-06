@@ -363,4 +363,347 @@ describe("Descriptive Answer Integrity & Behavioral Telemetry Suite", () => {
     expect(analysis.pasteCount).toBe(0);
     expect(analysis.editCount).toBe(0);
   });
+
+  test("Security Events API: Records tab exits, reconnects, concurrent sessions and verifies teacher attemptSignals", async () => {
+    const teacher = await createUserWithRole("prof.sec@example.com", Roles.teacher);
+    const student = await createUserWithRole("student.sec@example.com", Roles.student);
+    const unauthorizedStudent = await createUserWithRole("intruder@example.com", Roles.student);
+
+    // 1. Create Classroom & Enroll Student
+    const classResp = await app.inject({
+      method: "POST",
+      url: `/v1/organizations/${orgId}/teacher/classrooms`,
+      cookies: { avana_session: teacher.sessionToken },
+      payload: { title: "کلاس امنیت آزمون" },
+    });
+    expect(classResp.statusCode).toBe(201);
+    const classroom = classResp.json().classroom;
+
+    const joinResp = await app.inject({
+      method: "POST",
+      url: "/v1/student/classrooms/join",
+      cookies: { avana_session: student.sessionToken },
+      payload: { inviteCode: classroom.inviteCode },
+    });
+    expect(joinResp.statusCode).toBe(200);
+
+    // 2. Create Exam with a Descriptive Question
+    const now = Date.now();
+    const examResp = await app.inject({
+      method: "POST",
+      url: `/v1/teacher/classrooms/${classroom.id}/exams`,
+      cookies: { avana_session: teacher.sessionToken },
+      payload: {
+        title: "آزمون آزمایشی سیگنال‌های امنیتی",
+        durationMinutes: 60,
+        startsAt: new Date(now - 10000).toISOString(),
+        endsAt: new Date(now + 3600000).toISOString(),
+        passingScorePercentage: 50,
+      },
+    });
+    expect(examResp.statusCode).toBe(201);
+    const exam = examResp.json().exam;
+
+    const qResp = await app.inject({
+      method: "POST",
+      url: `/v1/teacher/exams/${exam.id}/questions`,
+      cookies: { avana_session: teacher.sessionToken },
+      payload: {
+        questionType: "descriptive",
+        prompt: "شرح معماری سرویس امنیتی",
+        points: 10,
+        explanation: "توضیح مدل امنیتی",
+      },
+    });
+    expect(qResp.statusCode).toBe(201);
+    const question = qResp.json().question;
+
+    // 3. Publish Exam
+    const pubResp = await app.inject({
+      method: "POST",
+      url: `/v1/teacher/exams/${exam.id}/publish`,
+      cookies: { avana_session: teacher.sessionToken },
+    });
+    expect(pubResp.statusCode).toBe(200);
+
+    // Student starts exam attempt
+    const startResp = await app.inject({
+      method: "POST",
+      url: `/v1/student/exams/${exam.id}/start`,
+      cookies: { avana_session: student.sessionToken },
+    });
+    expect(startResp.statusCode).toBe(201);
+
+    const clientSessionA = "tab-session-alpha-1234";
+
+    // 1. Initial reconnect event
+    const ev1Resp = await app.inject({
+      method: "POST",
+      url: `/v1/student/exams/${exam.id}/events`,
+      cookies: { avana_session: student.sessionToken },
+      payload: {
+        id: randomUUID(),
+        type: "reconnect",
+        clientSessionId: clientSessionA,
+        clientTimestamp: new Date().toISOString(),
+      },
+    });
+    expect(ev1Resp.statusCode).toBe(200);
+
+    // 2. Tab switch out (tab_hidden)
+    const ev2Resp = await app.inject({
+      method: "POST",
+      url: `/v1/student/exams/${exam.id}/events`,
+      cookies: { avana_session: student.sessionToken },
+      payload: {
+        id: randomUUID(),
+        type: "tab_hidden",
+        clientSessionId: clientSessionA,
+        clientTimestamp: new Date().toISOString(),
+      },
+    });
+    expect(ev2Resp.statusCode).toBe(200);
+
+    // 3. Tab return (tab_visible)
+    const ev3Resp = await app.inject({
+      method: "POST",
+      url: `/v1/student/exams/${exam.id}/events`,
+      cookies: { avana_session: student.sessionToken },
+      payload: {
+        id: randomUUID(),
+        type: "tab_visible",
+        clientSessionId: clientSessionA,
+        clientTimestamp: new Date().toISOString(),
+      },
+    });
+    expect(ev3Resp.statusCode).toBe(200);
+
+    // 4. Concurrent session from different clientSessionId
+    const clientSessionB = "phone-session-beta-5678";
+    const ev4Resp = await app.inject({
+      method: "POST",
+      url: `/v1/student/exams/${exam.id}/events`,
+      cookies: { avana_session: student.sessionToken },
+      payload: {
+        id: randomUUID(),
+        type: "reconnect",
+        clientSessionId: clientSessionB,
+        clientTimestamp: new Date().toISOString(),
+      },
+    });
+    expect(ev4Resp.statusCode).toBe(200);
+
+    // 5. Unauthorized user cannot send security events
+    const unauthorizedResp = await app.inject({
+      method: "POST",
+      url: `/v1/student/exams/${exam.id}/events`,
+      cookies: { avana_session: unauthorizedStudent.sessionToken },
+      payload: {
+        id: randomUUID(),
+        type: "tab_hidden",
+        clientSessionId: "rogue-session",
+        clientTimestamp: new Date().toISOString(),
+      },
+    });
+    expect(unauthorizedResp.statusCode).toBe(403);
+
+    // 6. Save descriptive answer with a paste event
+    await app.inject({
+      method: "PUT",
+      url: `/v1/student/exams/${exam.id}/answers/${question.id}`,
+      cookies: { avana_session: student.sessionToken },
+      payload: {
+        textAnswer: "پاسخ تشریحی همراه با پیست تکمیلی",
+        integrityData: {
+          pasteCount: 1,
+          pastedCharactersTotal: 25,
+          pastedWordsTotal: 5,
+          pasteEvents: [
+            {
+              timestamp: new Date().toISOString(),
+              characterCount: 25,
+              wordCount: 5,
+              classification: "small",
+            },
+          ],
+        },
+      },
+    });
+
+    // 7. Student submits exam
+    const submitResp = await app.inject({
+      method: "POST",
+      url: `/v1/student/exams/${exam.id}/submit`,
+      cookies: { avana_session: student.sessionToken },
+    });
+    expect(submitResp.statusCode).toBe(200);
+
+    // 8. Event rejected after exam submission
+    const postSubmitEv = await app.inject({
+      method: "POST",
+      url: `/v1/student/exams/${exam.id}/events`,
+      cookies: { avana_session: student.sessionToken },
+      payload: {
+        id: randomUUID(),
+        type: "tab_hidden",
+        clientSessionId: clientSessionA,
+        clientTimestamp: new Date().toISOString(),
+      },
+    });
+    expect(postSubmitEv.statusCode).toBe(400);
+
+    // 9. Student view review: MUST NOT contain attemptSignals or integrity analysis (stealth)
+    const studentReviewResp = await app.inject({
+      method: "GET",
+      url: `/v1/student/exams/${exam.id}/review`,
+      cookies: { avana_session: student.sessionToken },
+    });
+    expect(studentReviewResp.statusCode).toBe(200);
+    const studentBody = studentReviewResp.json();
+    expect(studentBody.attemptSignals).toBeUndefined();
+    expect(studentBody.result?.attemptSignals).toBeUndefined();
+    if (studentBody.questions?.[0]) {
+      expect(studentBody.questions[0].integrityAnalysis).toBeUndefined();
+    }
+
+    // 10. Teacher result view: MUST contain attemptSignals with accurate telemetry
+    const teacherResultResp = await app.inject({
+      method: "GET",
+      url: `/v1/teacher/exams/${exam.id}/results/${student.user.id}`,
+      cookies: { avana_session: teacher.sessionToken },
+    });
+    expect(teacherResultResp.statusCode).toBe(200);
+    const teacherBody = teacherResultResp.json();
+    const attemptSignals = teacherBody.result?.attemptSignals ?? teacherBody.attemptSignals;
+    expect(attemptSignals).toBeDefined();
+    expect(attemptSignals.tabSwitchCount).toBe(1);
+    expect(attemptSignals.reconnectCount).toBe(2);
+    expect(attemptSignals.concurrentSessionDetected).toBe(true);
+    expect(attemptSignals.totalPasteCount).toBe(1);
+    expect(attemptSignals.pastedQuestionsCount).toBe(1);
+    expect(attemptSignals.descriptivePasteBreakdown).toHaveLength(1);
+    expect(attemptSignals.descriptivePasteBreakdown[0].pasteCount).toBe(1);
+    expect(attemptSignals.hasAnomalies).toBe(true);
+  });
+
+  test("Security Event Concurrency: Simultaneous events on same attempt do not lose updates", async () => {
+    const teacher = await createUserWithRole("prof.conc@example.com", Roles.teacher);
+    const student = await createUserWithRole("student.conc@example.com", Roles.student);
+
+    const classResp = await app.inject({
+      method: "POST",
+      url: `/v1/organizations/${orgId}/teacher/classrooms`,
+      cookies: { avana_session: teacher.sessionToken },
+      payload: { title: "کلاس آزمون همزمانی" },
+    });
+    expect(classResp.statusCode).toBe(201);
+    const classroom = classResp.json().classroom;
+
+    const joinResp = await app.inject({
+      method: "POST",
+      url: "/v1/student/classrooms/join",
+      cookies: { avana_session: student.sessionToken },
+      payload: { inviteCode: classroom.inviteCode },
+    });
+    expect(joinResp.statusCode).toBe(200);
+
+    const now = Date.now();
+    const examResp = await app.inject({
+      method: "POST",
+      url: `/v1/teacher/classrooms/${classroom.id}/exams`,
+      cookies: { avana_session: teacher.sessionToken },
+      payload: {
+        title: "آزمون آزمایشی تست همزمانی",
+        durationMinutes: 60,
+        startsAt: new Date(now - 10000).toISOString(),
+        endsAt: new Date(now + 3600000).toISOString(),
+        passingScorePercentage: 50,
+      },
+    });
+    expect(examResp.statusCode).toBe(201);
+    const exam = examResp.json().exam;
+
+    const qResp = await app.inject({
+      method: "POST",
+      url: `/v1/teacher/exams/${exam.id}/questions`,
+      cookies: { avana_session: teacher.sessionToken },
+      payload: {
+        questionType: "descriptive",
+        prompt: "شرح سوال همزمانی",
+        points: 10,
+        explanation: "توضیح مدل",
+      },
+    });
+    expect(qResp.statusCode).toBe(201);
+
+    const pubResp = await app.inject({
+      method: "POST",
+      url: `/v1/teacher/exams/${exam.id}/publish`,
+      cookies: { avana_session: teacher.sessionToken },
+    });
+    expect(pubResp.statusCode).toBe(200);
+
+    const startResp = await app.inject({
+      method: "POST",
+      url: `/v1/student/exams/${exam.id}/start`,
+      cookies: { avana_session: student.sessionToken },
+    });
+    expect(startResp.statusCode).toBe(201);
+
+    const eventPayloads = [
+      {
+        id: randomUUID(),
+        type: "reconnect",
+        clientSessionId: "tab-conc-1",
+        clientTimestamp: new Date().toISOString(),
+      },
+      {
+        id: randomUUID(),
+        type: "tab_hidden",
+        clientSessionId: "tab-conc-1",
+        clientTimestamp: new Date().toISOString(),
+      },
+      {
+        id: randomUUID(),
+        type: "tab_visible",
+        clientSessionId: "tab-conc-1",
+        clientTimestamp: new Date().toISOString(),
+      },
+      {
+        id: randomUUID(),
+        type: "reconnect",
+        clientSessionId: "tab-conc-2",
+        clientTimestamp: new Date().toISOString(),
+      },
+    ];
+
+    // Fire all events concurrently
+    const responses = await Promise.all(
+      eventPayloads.map((p) =>
+        app.inject({
+          method: "POST",
+          url: `/v1/student/exams/${exam.id}/events`,
+          cookies: { avana_session: student.sessionToken },
+          payload: p,
+        }),
+      ),
+    );
+
+    for (const r of responses) {
+      expect(r.statusCode).toBe(200);
+    }
+
+    // Verify stored attempt metadata retains all distinct event IDs
+    const storedAttempt = await teacherExamAttemptStore.getByExamAndStudent(
+      exam.id,
+      student.user.id,
+    );
+    expect(storedAttempt).not.toBeNull();
+    const storedEvents = storedAttempt?.integrityMetadata?.events || [];
+    expect(storedEvents.length).toBe(4);
+    const storedEventIds = storedEvents.map((e) => e.id);
+    for (const p of eventPayloads) {
+      expect(storedEventIds).toContain(p.id);
+    }
+  });
 });

@@ -158,6 +158,7 @@ export interface TeacherExamAttempt {
   allowBackNavigation?: boolean;
   perQuestionTimeSeconds?: number | null;
   questionSnapshot: ExamSnapshotQuestion[];
+  integrityMetadata?: TeacherExamAttemptIntegrityData | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -169,6 +170,12 @@ import type {
   DescriptiveRapidInputEvent,
   DescriptiveTimelineEvent,
   DescriptiveTimelineEventType,
+  TeacherExamSecurityEventType,
+  TeacherExamAttemptSecurityEvent,
+  TeacherExamAttemptSecurityEventInput,
+  TeacherExamAttemptIntegrityData,
+  DescriptivePasteQuestionSummary,
+  TeacherExamAttemptIntegrityAnalysis,
 } from "./integrity.js";
 
 export type {
@@ -178,6 +185,12 @@ export type {
   DescriptiveRapidInputEvent,
   DescriptiveTimelineEvent,
   DescriptiveTimelineEventType,
+  TeacherExamSecurityEventType,
+  TeacherExamAttemptSecurityEvent,
+  TeacherExamAttemptSecurityEventInput,
+  TeacherExamAttemptIntegrityData,
+  DescriptivePasteQuestionSummary,
+  TeacherExamAttemptIntegrityAnalysis,
 };
 
 export interface TeacherExamAttemptAnswer {

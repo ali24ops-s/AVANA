@@ -254,6 +254,24 @@ export function createStudentPlatformApi(client: ApiClient) {
     },
 
     /**
+     * POST /v1/student/exams/:examId/events — Record client security telemetry event.
+     */
+    recordSecurityEvent(
+      examId: string,
+      payload: {
+        id: string;
+        type: "tab_hidden" | "tab_visible" | "reconnect";
+        clientSessionId: string;
+        clientTimestamp?: string | null;
+      },
+    ): Promise<{ success: boolean }> {
+      return client.post<{ success: boolean }>(
+        `/v1/student/exams/${examId}/events`,
+        payload,
+      );
+    },
+
+    /**
      * POST /v1/student/exams/:examId/submit — Submit attempt for final grading.
      */
     submitExam(examId: string): Promise<{ result: StudentAttemptResultDTO }> {

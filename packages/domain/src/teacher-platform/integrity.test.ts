@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   analyzeDescriptiveAnswerIntegrity,
+  analyzeAttemptIntegrity,
+  applySecurityEventToAttemptIntegrity,
   countWords,
   type DescriptiveAnswerIntegrityData,
 } from "./integrity.js";
@@ -274,6 +276,241 @@ describe("Descriptive Answer Integrity Domain Logic", () => {
       expect(result.rapidInputDetected).toBe(false);
       expect(result.editCount).toBe(0);
       expect(result.durationMs).toBe(0);
+    });
+  });
+
+  describe("Attempt-Level Integrity Logic (Security Events & Non-Accusatory Analysis)", () => {
+    describe("applySecurityEventToAttemptIntegrity", () => {
+      it("handles normal tab_hidden and tab_visible cycle with server duration calculation", () => {
+        const t1 = new Date("2026-10-06T10:00:00.000Z");
+        const s1 = applySecurityEventToAttemptIntegrity(
+          null,
+          { id: "ev-1", type: "tab_hidden", clientSessionId: "tab-A" },
+          t1,
+        );
+        expect(s1.tabSwitchCount).toBe(1);
+        expect(s1.lastExitTimestamp).toBe("2026-10-06T10:00:00.000Z");
+        expect(s1.totalTimeAwayMs).toBe(0);
+
+        // 15 seconds later, tab returns
+        const t2 = new Date("2026-10-06T10:00:15.000Z");
+        const s2 = applySecurityEventToAttemptIntegrity(
+          s1,
+          { id: "ev-2", type: "tab_visible", clientSessionId: "tab-A" },
+          t2,
+        );
+        expect(s2.tabSwitchCount).toBe(1);
+        expect(s2.totalTimeAwayMs).toBe(15000);
+        expect(s2.lastExitTimestamp).toBeNull();
+      });
+
+      it("suppresses duplicate tab_hidden events (blur + visibilitychange idempotency)", () => {
+        const t1 = new Date("2026-10-06T10:00:00.000Z");
+        const s1 = applySecurityEventToAttemptIntegrity(
+          null,
+          { id: "ev-1", type: "tab_hidden", clientSessionId: "tab-A" },
+          t1,
+        );
+        // Duplicate hidden event right after
+        const s2 = applySecurityEventToAttemptIntegrity(
+          s1,
+          { id: "ev-2", type: "tab_hidden", clientSessionId: "tab-A" },
+          new Date("2026-10-06T10:00:00.100Z"),
+        );
+        // Count remains 1, not 2
+        expect(s2.tabSwitchCount).toBe(1);
+      });
+
+      it("ignores out-of-order or duplicate tab_visible without pending exit", () => {
+        const s = applySecurityEventToAttemptIntegrity(
+          null,
+          { id: "ev-orphan-vis", type: "tab_visible", clientSessionId: "tab-A" },
+          new Date(),
+        );
+        expect(s.totalTimeAwayMs).toBe(0);
+        expect(s.tabSwitchCount).toBe(0);
+      });
+
+      it("deduplicates identical event IDs on network retry", () => {
+        const t1 = new Date("2026-10-06T10:00:00.000Z");
+        const s1 = applySecurityEventToAttemptIntegrity(
+          null,
+          { id: "ev-retry-1", type: "tab_hidden", clientSessionId: "tab-A" },
+          t1,
+        );
+        const s2 = applySecurityEventToAttemptIntegrity(
+          s1,
+          { id: "ev-retry-1", type: "tab_hidden", clientSessionId: "tab-A" },
+          new Date("2026-10-06T10:00:01.000Z"),
+        );
+        expect(s2.events.length).toBe(1);
+      });
+
+      it("detects concurrent active sessions when two tabs produce overlapping events", () => {
+        const t1 = new Date("2026-10-06T10:00:00.000Z");
+        const s1 = applySecurityEventToAttemptIntegrity(
+          null,
+          { id: "ev-tab1", type: "reconnect", clientSessionId: "session-TAB-1" },
+          t1,
+        );
+        expect(s1.concurrentSessionDetected).toBe(false);
+
+        // 10s later, another tab produces an event
+        const t2 = new Date("2026-10-06T10:00:10.000Z");
+        const s2 = applySecurityEventToAttemptIntegrity(
+          s1,
+          { id: "ev-tab2", type: "reconnect", clientSessionId: "session-TAB-2" },
+          t2,
+        );
+        expect(s2.concurrentSessionDetected).toBe(true);
+      });
+
+      it("does not flag normal single-tab refresh as concurrent session", () => {
+        const t1 = new Date("2026-10-06T10:00:00.000Z");
+        const s1 = applySecurityEventToAttemptIntegrity(
+          null,
+          { id: "ev-ref-1", type: "reconnect", clientSessionId: "session-SAME-TAB" },
+          t1,
+        );
+        // Refresh page in same tab retains sessionStorage clientSessionId
+        const t2 = new Date("2026-10-06T10:00:20.000Z");
+        const s2 = applySecurityEventToAttemptIntegrity(
+          s1,
+          { id: "ev-ref-2", type: "reconnect", clientSessionId: "session-SAME-TAB" },
+          t2,
+        );
+        expect(s2.concurrentSessionDetected).toBe(false);
+      });
+
+      it("throttles rapid reconnects within RECONNECT_THROTTLE_WINDOW_MS for the same session", () => {
+        const t1 = new Date("2026-10-06T10:00:00.000Z");
+        const s1 = applySecurityEventToAttemptIntegrity(
+          null,
+          { id: "ev-rec-1", type: "reconnect", clientSessionId: "session-RAPID" },
+          t1,
+        );
+        expect(s1.reconnectCount).toBe(1);
+
+        // Rapid reload 5 seconds later (within 15s window) -> reconnectCount should NOT increment
+        const t2 = new Date("2026-10-06T10:00:05.000Z");
+        const s2 = applySecurityEventToAttemptIntegrity(
+          s1,
+          { id: "ev-rec-2", type: "reconnect", clientSessionId: "session-RAPID" },
+          t2,
+        );
+        expect(s2.reconnectCount).toBe(1);
+
+        // Reload 20 seconds later (past 15s window) -> reconnectCount SHOULD increment
+        const t3 = new Date("2026-10-06T10:00:25.000Z");
+        const s3 = applySecurityEventToAttemptIntegrity(
+          s2,
+          { id: "ev-rec-3", type: "reconnect", clientSessionId: "session-RAPID" },
+          t3,
+        );
+        expect(s3.reconnectCount).toBe(2);
+      });
+    });
+
+    describe("analyzeDescriptiveAnswerIntegrity Inconsistency Checks", () => {
+      it("detects technical inconsistency when large answer is submitted with zero paste/rapid input and minimal edits", () => {
+        const longAnswer =
+          "این یک پاسخ تشریحی مفصل و بسیار طولانی در رابطه با عملکرد سیستم‌های عصبی و انتقال پیام‌های سیناپسی است که شامل واژگان تخصصی متعدد و جملات کامل علمی می‌باشد.";
+        const fakeTelemetry: DescriptiveAnswerIntegrityData = {
+          startedAt: "2026-10-06T10:00:00.000Z",
+          lastEditedAt: "2026-10-06T10:00:01.000Z",
+          durationMs: 1000,
+          editCount: 1,
+          pasteCount: 0,
+          pastedCharactersTotal: 0,
+          pastedWordsTotal: 0,
+          rapidInputCount: 0,
+          rapidInputCharactersTotal: 0,
+          rapidInputWordsTotal: 0,
+        };
+
+        const result = analyzeDescriptiveAnswerIntegrity(longAnswer, fakeTelemetry);
+        expect(result.telemetryInconsistencyDetected).toBe(true);
+        expect(result.reviewRecommended).toBe(true);
+        expect(result.signals).toContain(
+          "عدم تطابق فنی در داده‌های ثبت‌شده ورود پاسخ (نیازمند بازبینی استاد).",
+        );
+        // Ensure non-accusatory phrasing
+        expect(result.signals.join(" ")).not.toContain("تقلب قطعی");
+      });
+
+      it("does not flag legitimate typing with adequate edits as inconsistency", () => {
+        const legitAnswer =
+          "این یک پاسخ تشریحی مفصل و بسیار طولانی در رابطه با عملکرد سیستم‌های عصبی و انتقال پیام‌های سیناپسی است که شامل واژگان تخصصی متعدد و جملات کامل علمی می‌باشد.";
+        const legitTelemetry: DescriptiveAnswerIntegrityData = {
+          startedAt: "2026-10-06T10:00:00.000Z",
+          lastEditedAt: "2026-10-06T10:05:00.000Z",
+          durationMs: 300000,
+          editCount: 85,
+          pasteCount: 0,
+          pastedCharactersTotal: 0,
+          pastedWordsTotal: 0,
+          rapidInputCount: 0,
+          rapidInputCharactersTotal: 0,
+          rapidInputWordsTotal: 0,
+        };
+
+        const result = analyzeDescriptiveAnswerIntegrity(legitAnswer, legitTelemetry);
+        expect(result.telemetryInconsistencyDetected).toBe(false);
+      });
+    });
+
+    describe("analyzeAttemptIntegrity", () => {
+      it("gracefully falls back on null or empty integrity data", () => {
+        const analysis = analyzeAttemptIntegrity(null, null);
+        expect(analysis.tabSwitchCount).toBe(0);
+        expect(analysis.incompleteExitCount).toBe(0);
+        expect(analysis.totalTimeAwayMs).toBe(0);
+        expect(analysis.reconnectCount).toBe(0);
+        expect(analysis.concurrentSessionDetected).toBe(false);
+        expect(analysis.totalPasteCount).toBe(0);
+        expect(analysis.signals).toHaveLength(0);
+        expect(analysis.reviewRecommended).toBe(false);
+        expect(analysis.hasAnomalies).toBe(false);
+      });
+
+      it("generates objective, non-accusatory signals for exits and paste breakdown", () => {
+        const analysis = analyzeAttemptIntegrity(
+          {
+            tabSwitchCount: 2,
+            incompleteExitCount: 1,
+            totalTimeAwayMs: 45000,
+            reconnectCount: 3,
+            concurrentSessionDetected: true,
+            events: [],
+          },
+          [
+            {
+              questionId: "q-1",
+              orderIndex: 1,
+              pasteCount: 2,
+              pastedCharactersTotal: 120,
+              pastedWordsTotal: 25,
+              lastPastedAt: "2026-10-06T10:15:00.000Z",
+            },
+          ],
+        );
+
+        expect(analysis.tabSwitchCount).toBe(2);
+        expect(analysis.incompleteExitCount).toBe(1);
+        expect(analysis.reconnectCount).toBe(3);
+        expect(analysis.concurrentSessionDetected).toBe(true);
+        expect(analysis.totalPasteCount).toBe(2);
+        expect(analysis.reviewRecommended).toBe(true);
+        expect(analysis.signals.length).toBeGreaterThanOrEqual(4);
+
+        // Check non-accusatory phrasing
+        const joined = analysis.signals.join(" ");
+        expect(joined).toContain("خروج از تب یا محیط آزمون");
+        expect(joined).toContain("خروج بدون ثبت زمان بازگشت قطعی");
+        expect(joined).toContain("شواهد فعالیت همزمان");
+        expect(joined).not.toContain("تقلب قطعی");
+        expect(joined).not.toContain("دانشجو تقلب کرده");
+      });
     });
   });
 });

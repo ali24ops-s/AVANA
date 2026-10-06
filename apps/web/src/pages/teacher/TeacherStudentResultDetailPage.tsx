@@ -43,9 +43,13 @@ import {
   AlertTriangle,
   ChevronDown,
   ChevronUp,
+  ShieldAlert,
+  ExternalLink,
+  RefreshCw,
+  Smartphone,
 } from "lucide-react";
 import { toPersianDigits } from "@avana/domain";
-import type { DescriptiveTimelineEvent } from "@avana/domain";
+import type { DescriptiveTimelineEvent, TeacherExamAttemptIntegrityAnalysis } from "@avana/domain";
 
 export function TeacherStudentResultDetailPage() {
   const { examId, studentId } = useParams<{ examId: string; studentId: string }>();
@@ -91,6 +95,7 @@ export function TeacherStudentResultDetailPage() {
   }
 
   const { attempt, questions } = resultData;
+  const attemptSignals = resultData.attemptSignals;
 
   const formatDateTime = (isoString?: string | null) => {
     if (!isoString) return "—";
@@ -251,6 +256,11 @@ export function TeacherStudentResultDetailPage() {
             هیچ پاسخ‌نامه‌ای برای این دانش‌آموز ثبت نشده و وضعیت آزمون غیبت محسوب می‌شود.
           </p>
         </Card>
+      )}
+
+      {/* Exam Signals (Integrity Analysis) Overview Card */}
+      {attempt.status !== "absent" && attemptSignals && (
+        <ExamSignalsOverviewCard signals={attemptSignals} />
       )}
 
       {/* Question by Question Review */}
@@ -550,6 +560,209 @@ function getTimelineEventDetails(event: DescriptiveTimelineEvent) {
   }
 }
 
+function ExamSignalsOverviewCard({
+  signals,
+}: {
+  signals?: TeacherExamAttemptIntegrityAnalysis | null;
+}) {
+  if (!signals) {
+    return null;
+  }
+
+  const hasAwayTime = (signals.totalTimeAwayMs ?? 0) > 0;
+  const hasIncompleteExits = (signals.incompleteExitCount ?? 0) > 0;
+  const hasPastes = (signals.totalPasteCount ?? 0) > 0;
+  const hasBreakdown =
+    Array.isArray(signals.descriptivePasteBreakdown) &&
+    signals.descriptivePasteBreakdown.length > 0;
+
+  return (
+    <Card className="p-5 border border-slate-200 bg-slate-50/60 shadow-xs space-y-4">
+      {/* Header */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
+        <div className="flex items-center gap-2">
+          <ShieldAlert className="w-5 h-5 text-[#008080]" />
+          <div>
+            <h4 className="text-sm sm:text-base font-bold text-[var(--color-text)]">
+              نشانه‌های آزمون (گزارش سیگنال‌های رفتاری)
+            </h4>
+            <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
+              ثبت رویدادهای سیستمی، خروج از آزمون و نگارش پاسخ‌ها
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-1.5">
+          {signals.concurrentSessionDetected && (
+            <Badge variant="error" size="sm" className="gap-1 font-bold">
+              <Smartphone className="w-3.5 h-3.5" />
+              نشست همزمان شناسایی شد
+            </Badge>
+          )}
+
+          {signals.reviewRecommended && (
+            <Badge
+              variant="warning"
+              size="sm"
+              className="gap-1 bg-amber-100 text-amber-900 border-amber-300 font-bold"
+            >
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+              نیازمند توجه استاد
+            </Badge>
+          )}
+
+          {!signals.hasAnomalies && (
+            <Badge variant="success" size="sm" className="gap-1">
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              بدون نشانه غیرعادی
+            </Badge>
+          )}
+        </div>
+      </div>
+
+      {/* Metrics Grid */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+        {/* Tab / Window Exits */}
+        <div className="p-3 rounded-xl bg-white border border-slate-200/80">
+          <div className="flex items-center gap-1.5 text-[var(--color-text-muted)] mb-1">
+            <ExternalLink className="w-3.5 h-3.5 text-slate-500" />
+            <span className="text-[11px] font-medium">خروج از آزمون:</span>
+          </div>
+          <span className="font-bold text-sm text-[var(--color-text)] block">
+            {toPersianDigits(signals.tabSwitchCount)} مرتبه
+          </span>
+          <span className="text-[11px] text-[var(--color-text-muted)] mt-0.5 block">
+            مدت دوری: {hasAwayTime ? formatDuration(signals.totalTimeAwayMs) : "۰ ثانیه"}
+          </span>
+          {hasIncompleteExits && (
+            <span className="text-[10px] text-amber-600 mt-0.5 block font-medium">
+              ({toPersianDigits(signals.incompleteExitCount)} خروج بدون بازگشت قطعی)
+            </span>
+          )}
+        </div>
+
+        {/* Descriptive Pastes */}
+        <div className="p-3 rounded-xl bg-white border border-slate-200/80">
+          <div className="flex items-center gap-1.5 text-[var(--color-text-muted)] mb-1">
+            <ClipboardPaste className="w-3.5 h-3.5 text-slate-500" />
+            <span className="text-[11px] font-medium">Paste در تشریحی:</span>
+          </div>
+          <span className="font-bold text-sm text-[var(--color-text)] block">
+            {toPersianDigits(signals.totalPasteCount)} مرتبه
+          </span>
+          <span className="text-[11px] text-[var(--color-text-muted)] mt-0.5 block">
+            در {toPersianDigits(signals.pastedQuestionsCount)} سؤال تشریحی
+          </span>
+        </div>
+
+        {/* Reconnect / Refresh */}
+        <div className="p-3 rounded-xl bg-white border border-slate-200/80">
+          <div className="flex items-center gap-1.5 text-[var(--color-text-muted)] mb-1">
+            <RefreshCw className="w-3.5 h-3.5 text-slate-500" />
+            <span className="text-[11px] font-medium">اتصال مجدد / Refresh:</span>
+          </div>
+          <span className="font-bold text-sm text-[var(--color-text)] block">
+            {toPersianDigits(signals.reconnectCount)} مرتبه
+          </span>
+          <span className="text-[11px] text-[var(--color-text-muted)] mt-0.5 block">
+            بارگذاری مجدد آزمون
+          </span>
+        </div>
+
+        {/* Concurrent Session */}
+        <div className="p-3 rounded-xl bg-white border border-slate-200/80">
+          <div className="flex items-center gap-1.5 text-[var(--color-text-muted)] mb-1">
+            <Smartphone className="w-3.5 h-3.5 text-slate-500" />
+            <span className="text-[11px] font-medium">نشست همزمان:</span>
+          </div>
+          <span
+            className={`font-bold text-sm block ${
+              signals.concurrentSessionDetected ? "text-rose-600" : "text-emerald-600"
+            }`}
+          >
+            {signals.concurrentSessionDetected ? "مشاهده شد" : "مشاهده نشد"}
+          </span>
+          <span className="text-[11px] text-[var(--color-text-muted)] mt-0.5 block">
+            {signals.concurrentSessionDetected ? "ورود همزمان با تب یا دستگاه دیگر" : "تک‌کاربره"}
+          </span>
+        </div>
+      </div>
+
+      {/* Breakdown Table for Descriptive Paste if any */}
+      {hasPastes && hasBreakdown && (
+        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+          <div className="px-3.5 py-2.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between text-xs font-bold text-slate-700">
+            <span className="flex items-center gap-1.5">
+              <ClipboardPaste className="w-3.5 h-3.5 text-[#008080]" />
+              تفکیک رویدادهای Paste در سؤالات تشریحی
+            </span>
+            <span className="text-[11px] text-slate-500 font-normal">
+              مجموع {toPersianDigits(signals.totalPasteCount)} بار در {toPersianDigits(signals.descriptivePasteBreakdown.length)} سؤال
+            </span>
+          </div>
+          <div className="divide-y divide-slate-100 text-xs">
+            {signals.descriptivePasteBreakdown.map((item) => (
+              <div
+                key={item.questionId}
+                className="px-3.5 py-2 flex items-center justify-between hover:bg-slate-50/50 transition-colors"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="w-5 h-5 rounded-md bg-[var(--color-surface-warm)] text-[var(--color-text)] font-bold flex items-center justify-center text-[11px]">
+                    {item.orderIndex + 1}
+                  </span>
+                  <span className="font-semibold text-slate-800">
+                    سؤال شماره {toPersianDigits(item.orderIndex + 1)}
+                  </span>
+                </div>
+                <div className="flex items-center gap-4 text-[11px] text-slate-600">
+                  <span>
+                    تعداد Paste: <strong className="font-bold text-slate-800">{toPersianDigits(item.pasteCount)}</strong> بار
+                  </span>
+                  <span>
+                    حجم: {toPersianDigits(item.pastedCharactersTotal)} کاراکتر ({toPersianDigits(item.pastedWordsTotal)} کلمه)
+                  </span>
+                  {item.lastPastedAt && (
+                    <span className="text-slate-400 font-mono" dir="ltr">
+                      {new Date(item.lastPastedAt).toLocaleTimeString("fa-IR", {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Signals Summary List */}
+      {signals.signals && signals.signals.length > 0 && (
+        <div className="p-3 rounded-xl bg-white border border-slate-200/80 space-y-1.5">
+          <span className="font-bold text-xs text-[var(--color-text)] block mb-1">
+            خلاصه سیگنال‌های رفتاری:
+          </span>
+          <ul className="list-disc list-inside space-y-1 text-xs text-slate-700">
+            {signals.signals.map((sig, idx) => (
+              <li key={idx} className="leading-relaxed">
+                {sig}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Non-accusatory Disclaimer */}
+      <div className="flex items-start gap-2 p-2.5 rounded-xl bg-slate-100/80 text-[11px] text-slate-600 leading-relaxed">
+        <Info className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
+        <span>
+          <strong className="font-semibold text-slate-700">توجه استاد گرامی:</strong> این نشانه‌ها صرفاً داده‌های فنی ثبت‌شده برای آگاهی استاد بوده و ادعای قطعی تخلف محسوب نمی‌شوند. قضاوت نهایی بر عهده استاد آزمون است.
+        </span>
+      </div>
+    </Card>
+  );
+}
+
 function DescriptiveAnswerIntegrityCard({
   analysis,
 }: {
@@ -587,6 +800,13 @@ function DescriptiveAnswerIntegrityCard({
             <Badge variant="secondary" size="sm" className="gap-1 font-bold">
               <Zap className="w-3.5 h-3.5" />
               ورود سریع متن
+            </Badge>
+          )}
+
+          {analysis.telemetryInconsistencyDetected && (
+            <Badge variant="warning" size="sm" className="gap-1 bg-amber-50 text-amber-800 border-amber-200 font-bold">
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+              ناسازگاری در داده‌های ثبت‌شده پاسخ
             </Badge>
           )}
 

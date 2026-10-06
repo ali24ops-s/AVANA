@@ -56,6 +56,8 @@ import {
   type TeacherConversationMessage,
   type TeacherMessageCategory,
   type TeacherMessageStatus,
+  type TeacherExamAttemptSecurityEventInput,
+  applySecurityEventToAttemptIntegrity,
 } from "@avana/domain";
 
 
@@ -127,6 +129,11 @@ export interface TeacherExamAttemptStore {
     attemptId: string,
     status: "submitted" | "timed_out",
     passingScorePercentage?: number | null,
+  ): Promise<TeacherExamAttempt>;
+  recordSecurityEvent(
+    attemptId: string,
+    event: TeacherExamAttemptSecurityEventInput,
+    serverNow?: Date,
   ): Promise<TeacherExamAttempt>;
 }
 
@@ -329,6 +336,9 @@ function toTeacherExamAttempt(row: TeacherExamAttemptRecord): TeacherExamAttempt
     allowBackNavigation: row.allowBackNavigation ?? true,
     perQuestionTimeSeconds: row.perQuestionTimeSeconds ?? null,
     questionSnapshot: safeParseJson<ExamSnapshotQuestion[]>(row.questionSnapshot, []),
+    integrityMetadata:
+      (row as { integrityMetadata?: TeacherExamAttempt["integrityMetadata"] })
+        .integrityMetadata ?? null,
     createdAt: requireIsoString(row.createdAt),
     updatedAt: requireIsoString(row.updatedAt),
   };
@@ -1127,6 +1137,58 @@ export class DrizzleTeacherExamAttemptStore implements TeacherExamAttemptStore {
     });
   }
 
+  async recordSecurityEvent(
+    attemptId: string,
+    event: TeacherExamAttemptSecurityEventInput,
+    serverNow: Date = new Date(),
+  ): Promise<TeacherExamAttempt> {
+    return await this.db.transaction(async (tx) => {
+      // 1. SELECT attempt FOR UPDATE to lock attempt row and eliminate Lost Update race conditions
+      const [row] = await tx
+        .select()
+        .from(teacherExamAttempts)
+        .where(eq(teacherExamAttempts.id, attemptId))
+        .for("update");
+
+      if (!row) {
+        throw new DomainError("not_found", "تلاش یافت نشد");
+      }
+
+      if (row.status !== "in_progress") {
+        throw new DomainError("bad_request", "آزمون پایان یافته و امکان ثبت رویداد نیست");
+      }
+
+      const attempt = toTeacherExamAttempt(row);
+
+      // Rate limiting: prevent spamming the endpoint (max 30 events in recent window)
+      const nowMs = serverNow.getTime();
+      const existingEvents = attempt.integrityMetadata?.events || [];
+      const recentEvents = existingEvents.filter(
+        (e) => nowMs - new Date(e.serverReceivedAt).getTime() < 10000,
+      );
+      if (recentEvents.length >= 30) {
+        throw new DomainError("too_many_requests", "تعداد درخواست‌های ارسالی بیش از حد مجاز است");
+      }
+
+      const updatedMetadata = applySecurityEventToAttemptIntegrity(
+        attempt.integrityMetadata,
+        event,
+        serverNow,
+      );
+
+      const [updatedRow] = await tx
+        .update(teacherExamAttempts)
+        .set({
+          integrityMetadata: updatedMetadata,
+          updatedAt: serverNow,
+        })
+        .where(eq(teacherExamAttempts.id, attemptId))
+        .returning();
+
+      return toTeacherExamAttempt(updatedRow);
+    });
+  }
+
   async update(id: string, patch: Partial<TeacherExamAttempt>): Promise<TeacherExamAttempt | null> {
     if (!isUUID(id)) return null;
     const values: Record<string, unknown> = {
@@ -1150,6 +1212,9 @@ export class DrizzleTeacherExamAttemptStore implements TeacherExamAttemptStore {
       values.percentage = patch.percentage !== null ? patch.percentage.toFixed(2) : null;
     }
     if (patch.passed !== undefined) values.passed = patch.passed;
+    if (patch.integrityMetadata !== undefined) {
+      values.integrityMetadata = patch.integrityMetadata ?? null;
+    }
 
     const [row] = await this.db
       .update(teacherExamAttempts)

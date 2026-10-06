@@ -13,6 +13,7 @@ import {
   calculateRuntimeExamState,
   sanitizeQuestionsForStudent,
   validateSaveAnswerInput,
+  validateExamSecurityEventInput,
   computePerQuestionTiming,
 } from "@avana/domain";
 import type {
@@ -487,6 +488,46 @@ export class TeacherExamAttemptService {
       tabSwitchesCount: input.tabSwitchesCount ?? undefined,
       integrityMetadata: input.integrityData ?? undefined,
     });
+  }
+
+  /**
+   * Records a client security telemetry event (tab_hidden, tab_visible, reconnect)
+   * on the active attempt. Idempotent, throttled, and strictly validated.
+   */
+  async recordSecurityEvent(
+    actor: Actor,
+    examId: string,
+    raw: unknown,
+  ): Promise<{ success: true }> {
+    const { exam } = await this.assertStudentExamAccess(actor, examId);
+    const attempt = await this.attemptStore.getByExamAndStudent(exam.id, actor.userId);
+    if (!attempt) {
+      throw new DomainError("not_found", "تلاش فعالی برای این آزمون یافت نشد");
+    }
+
+    if (attempt.status !== "in_progress") {
+      throw new DomainError("bad_request", "آزمون پایان یافته و امکان ثبت رویداد نیست");
+    }
+
+    const nowMs = Date.now();
+    const deadlineMs = new Date(attempt.deadlineAt).getTime();
+    if (nowMs > deadlineMs + ATTEMPT_SUBMISSION_GRACE_MS) {
+      try {
+        await this.finalizeAttempt(attempt, exam, "timed_out");
+      } catch (err) {
+        if (!(err instanceof DomainError && err.code === "conflict")) {
+          throw err;
+        }
+      }
+      throw new DomainError("timeout", "مهلت پاسخگویی به آزمون به پایان رسیده است");
+    }
+
+    const input = validateExamSecurityEventInput(raw);
+
+    // Atomically lock attempt row, evaluate security event, and persist updated metadata
+    await this.attemptStore.recordSecurityEvent(attempt.id, input, new Date());
+
+    return { success: true };
   }
 
   /**

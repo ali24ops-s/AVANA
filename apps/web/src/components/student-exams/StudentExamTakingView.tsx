@@ -30,6 +30,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   useSaveStudentExamAnswer,
   useSubmitStudentExamAttempt,
+  useRecordStudentExamSecurityEvent,
   studentExamKeys,
 } from "../../hooks/useStudentTeacherExams.js";
 import {
@@ -266,7 +267,48 @@ export function StudentExamTakingView({
   // Question Active Timing (Monotonic Clock) & Render Readiness
   // ---------------------------------------------------------------------------
   const [isQuestionReady, setIsQuestionReady] = useState<boolean>(false);
-  const [tabSwitchAlert, setTabSwitchAlert] = useState<boolean>(false);
+
+  // Client Session ID for this tab (isolated per browser tab via sessionStorage)
+  const clientSessionIdRef = useRef<string | null>(null);
+  const getClientSessionId = useCallback(() => {
+    if (clientSessionIdRef.current) return clientSessionIdRef.current;
+    if (typeof window === "undefined") {
+      clientSessionIdRef.current = crypto.randomUUID();
+      return clientSessionIdRef.current;
+    }
+    try {
+      const storageKey = `avana_exam_client_session_${attempt.id}`;
+      let sid = window.sessionStorage.getItem(storageKey);
+      if (!sid) {
+        sid = crypto.randomUUID();
+        window.sessionStorage.setItem(storageKey, sid);
+      }
+      clientSessionIdRef.current = sid;
+      return sid;
+    } catch {
+      clientSessionIdRef.current = crypto.randomUUID();
+      return clientSessionIdRef.current;
+    }
+  }, [attempt.id]);
+
+  const recordEventMutation = useRecordStudentExamSecurityEvent(examId);
+
+  // Copy and Context Menu Protection for Question Content (Preserves student answer textarea functionality)
+  const handleExamCopy = useCallback((e: React.ClipboardEvent) => {
+    const target = e.target as HTMLElement | null;
+    if (target && (target.tagName === "TEXTAREA" || target.tagName === "INPUT")) {
+      return; // Allow selecting and copying own text inside answer fields
+    }
+    e.preventDefault();
+  }, []);
+
+  const handleExamContextMenu = useCallback((e: React.MouseEvent) => {
+    const target = e.target as HTMLElement | null;
+    if (target && (target.tagName === "TEXTAREA" || target.tagName === "INPUT")) {
+      return; // Allow context menu inside answer fields
+    }
+    e.preventDefault();
+  }, []);
 
   // Accumulated active duration in ms per question: questionId -> totalMs
   const questionActiveDurationsRef = useRef<Map<string, number>>(new Map());
@@ -358,20 +400,37 @@ export function StudentExamTakingView({
     };
   }, [currentIndex, currentQuestionForReadiness?.id, startQuestionActiveSlice, stopQuestionActiveSlice]);
 
-  // Tab Visibility Security Listener
+  // Record initial session connection / reconnect event on mount
+  useEffect(() => {
+    const sId = getClientSessionId();
+    recordEventMutation.mutate({
+      id: crypto.randomUUID(),
+      type: "reconnect",
+      clientSessionId: sId,
+      clientTimestamp: new Date().toISOString(),
+    });
+  }, [getClientSessionId, recordEventMutation]);
+
+  // Tab Visibility Security Listener (records events silently without student alert)
   useEffect(() => {
     if (typeof document === "undefined") return;
 
     const handleVisibilityChange = () => {
+      const sId = getClientSessionId();
       if (document.visibilityState === "hidden") {
-        // Pause active timer slice and record tab switch violation
+        // Pause active timer slice and record tab switch
         stopQuestionActiveSlice();
         tabSwitchesCountRef.current++;
         if (currentQuestionForReadiness) {
           const prev = questionTabSwitchesRef.current.get(currentQuestionForReadiness.id) || 0;
           questionTabSwitchesRef.current.set(currentQuestionForReadiness.id, prev + 1);
         }
-        setTabSwitchAlert(true);
+        recordEventMutation.mutate({
+          id: crypto.randomUUID(),
+          type: "tab_hidden",
+          clientSessionId: sId,
+          clientTimestamp: new Date().toISOString(),
+        });
       } else if (document.visibilityState === "visible") {
         // Resume active slice if within exam deadline
         if (
@@ -381,6 +440,12 @@ export function StudentExamTakingView({
         ) {
           startQuestionActiveSlice(currentQuestionForReadiness.id);
         }
+        recordEventMutation.mutate({
+          id: crypto.randomUUID(),
+          type: "tab_visible",
+          clientSessionId: sId,
+          clientTimestamp: new Date().toISOString(),
+        });
       }
     };
 
@@ -391,7 +456,9 @@ export function StudentExamTakingView({
   }, [
     currentQuestionForReadiness,
     deadlineMs,
+    getClientSessionId,
     isSubmitting,
+    recordEventMutation,
     startQuestionActiveSlice,
     stopQuestionActiveSlice,
   ]);
@@ -1197,7 +1264,12 @@ export function StudentExamTakingView({
   const isCurrentDescriptive = currentQuestion.questionType === "descriptive";
 
   return (
-    <div className="min-h-screen bg-[var(--color-bg-default)] text-[var(--color-text)] flex flex-col font-sans select-none" dir="rtl">
+    <div
+      className="min-h-screen bg-[var(--color-bg-default)] text-[var(--color-text)] flex flex-col font-sans select-none"
+      dir="rtl"
+      onCopy={handleExamCopy}
+      onContextMenu={handleExamContextMenu}
+    >
       {/* --------------------------------------------------------------------- */}
       {/* Sticky Top Header Bar */}
       {/* --------------------------------------------------------------------- */}
@@ -1273,15 +1345,7 @@ export function StudentExamTakingView({
           </div>
         </div>
 
-        {/* Tab Switch Security Warning Banner */}
-        {tabSwitchAlert && (
-          <div className="bg-amber-500 text-white text-xs py-1 px-4 text-center font-medium flex items-center justify-center gap-1.5 shadow-xs">
-            <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-            <span>
-              خروج از تب آزمون ثبت شد ({toPersianDigits(tabSwitchesCountRef.current)} مرتبه). طبق قوانین آزمون، زمان آزمون متوقف نشده و تمام فعالیت‌ها ثبت می‌شوند.
-            </span>
-          </div>
-        )}
+
 
         {/* Warning Banners */}
         {isPastDeadline && (

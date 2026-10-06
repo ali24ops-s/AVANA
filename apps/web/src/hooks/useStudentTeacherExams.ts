@@ -181,6 +181,23 @@ export function useSaveStudentExamAnswer(examId: string) {
   });
 }
 
+export function useRecordStudentExamSecurityEvent(examId: string) {
+  const api = getStudentPlatformApi();
+
+  return useMutation<
+    { success: boolean },
+    Error,
+    {
+      id: string;
+      type: "tab_hidden" | "tab_visible" | "reconnect";
+      clientSessionId: string;
+      clientTimestamp?: string | null;
+    }
+  >({
+    mutationFn: (event) => api.recordSecurityEvent(examId, event),
+  });
+}
+
 export function useSubmitStudentExamAttempt(examId: string, classroomId?: string) {
   const queryClient = useQueryClient();
   const api = getStudentPlatformApi();

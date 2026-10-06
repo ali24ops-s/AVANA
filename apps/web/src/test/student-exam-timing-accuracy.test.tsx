@@ -293,8 +293,8 @@ describe("Student Exam Timing Accuracy & Tab Visibility Suite", () => {
     expect(activeDuration).toBeGreaterThanOrEqual(4500);
     expect(tabSwitches).toBe(1);
 
-    // Verify warning banner appeared in DOM
-    expect(screen.getByText(/خروج از تب آزمون ثبت شد/)).toBeDefined();
+    // Verify warning banner does NOT appear in DOM (stealth requirement for student)
+    expect(screen.queryByText(/خروج از تب آزمون ثبت شد/)).toBeNull();
   });
 
   it("Test 7 — Zero Timer Polling / Heartbeat: Timer does NOT generate periodic HTTP requests", async () => {

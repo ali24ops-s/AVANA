@@ -160,6 +160,18 @@ export const studentTeacherPlatformRoutes: FastifyPluginAsync<
   );
 
   app.post(
+    "/v1/student/exams/:examId/events",
+    { preHandler: [requireAuth] },
+    async (request) => {
+      const actor = getActor(request);
+      const { examId } = request.params as { examId: string };
+      await attemptService.recordSecurityEvent(actor, examId, request.body);
+      return { success: true };
+    },
+  );
+
+
+  app.post(
     "/v1/student/exams/:examId/submit",
     { preHandler: [requireAuth] },
     async (request) => {

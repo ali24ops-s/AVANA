@@ -36,6 +36,7 @@ import type {
   AttemptGradingStatus,
   TrueFalseStatementReview,
   DescriptiveAnswerIntegrityAnalysis,
+  TeacherExamAttemptIntegrityAnalysis,
   TeacherConversation,
   TeacherConversationMessage,
   TeacherConversationWithDetails,
@@ -131,6 +132,7 @@ export interface StudentQuestionReviewDTO {
 export interface StudentExamResultForTeacherDTO {
   attempt: StudentAttemptSummaryDTO;
   questions: StudentQuestionReviewDTO[];
+  attemptSignals?: TeacherExamAttemptIntegrityAnalysis | null;
 }
 
 // ---------------------------------------------------------------------------

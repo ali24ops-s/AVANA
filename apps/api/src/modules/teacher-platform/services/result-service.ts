@@ -5,6 +5,7 @@ import {
   gradeAttempt,
   validateGradeDescriptiveAnswerInput,
   analyzeDescriptiveAnswerIntegrity,
+  analyzeAttemptIntegrity,
   type Actor,
   type TeacherExam,
   type TeacherExamAttempt,
@@ -15,6 +16,8 @@ import {
   type AttemptGradingStatus,
   type TrueFalseStatementReview,
   type DescriptiveAnswerIntegrityAnalysis,
+  type DescriptivePasteQuestionSummary,
+  type TeacherExamAttemptIntegrityAnalysis,
   type StudentExamResultState,
   ATTEMPT_SUBMISSION_GRACE_MS,
 } from "@avana/domain";
@@ -305,6 +308,7 @@ export class TeacherExamResultService {
   ): Promise<{
     attempt: StudentAttemptSummaryDTO;
     questions: StudentQuestionReviewDTO[];
+    attemptSignals?: TeacherExamAttemptIntegrityAnalysis | null;
   }> {
     const exam = await this.assertTeacherExamAccess(actor, examId);
     const attempt = await this.attemptStore.getByExamAndStudent(exam.id, studentId);
@@ -372,6 +376,28 @@ export class TeacherExamResultService {
       };
     });
 
+    const descriptivePasteBreakdown: DescriptivePasteQuestionSummary[] = [];
+    for (const q of questions) {
+      if (q.integrityAnalysis && q.integrityAnalysis.pasteCount > 0) {
+        const lastPasteEvent = q.integrityAnalysis.timeline
+          ?.filter((t) => t.type === "paste")
+          .slice(-1)[0];
+        descriptivePasteBreakdown.push({
+          questionId: q.questionId,
+          orderIndex: q.orderIndex,
+          pasteCount: q.integrityAnalysis.pasteCount,
+          pastedCharactersTotal: q.integrityAnalysis.pastedCharactersTotal,
+          pastedWordsTotal: q.integrityAnalysis.pastedWordsTotal,
+          lastPastedAt: lastPasteEvent ? lastPasteEvent.timestamp : null,
+        });
+      }
+    }
+
+    const attemptSignals = analyzeAttemptIntegrity(
+      attempt.integrityMetadata,
+      descriptivePasteBreakdown,
+    );
+
     return {
       attempt: {
         id: attempt.id,
@@ -393,6 +419,7 @@ export class TeacherExamResultService {
             : null,
       },
       questions,
+      attemptSignals,
     };
   }
 
