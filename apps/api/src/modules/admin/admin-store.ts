@@ -407,7 +407,7 @@ export interface AdminStore {
   getDocument(id: string): Promise<AdminDocumentRecord | null>;
   getSystemHealth(): Promise<AdminSystemHealth>;
   listLogs(params: { page: number; pageSize: number; level?: string }): Promise<{ logs: AdminLogRecord[]; totalCount: number }>;
-  listAuditLogs(params: { page: number; pageSize: number; search?: string; action?: string; entityType?: string; adminEmail?: string }): Promise<{ logs: AdminAuditRecord[]; totalCount: number }>;
+  listAuditLogs(params: { page: number; pageSize: number; search?: string; action?: string; entityType?: string; adminEmail?: string; from?: string }): Promise<{ logs: AdminAuditRecord[]; totalCount: number }>;
   
   // Content Phase 2
   listLessons(params: { page: number; pageSize: number; search?: string }): Promise<{ lessons: AdminLessonRecord[]; totalCount: number }>;

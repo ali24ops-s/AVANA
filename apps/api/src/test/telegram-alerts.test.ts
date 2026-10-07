@@ -600,8 +600,340 @@ describe("Telegram Operational Alerts Test Suite", () => {
       expect(sentText).toContain("AVANA Status");
       expect(sentText).toContain("سالم (Healthy)");
       expect(sentText).toContain("PostgreSQL");
+      expect(sentText).toContain("ورکر (Worker): ⚪ نامشخص (عدم تنظیم پروب)");
       expect(sentText).toContain("در انتظار: 3");
       expect(sentText).toContain("42");
+    });
+
+    it("reports Worker healthy when active jobs exist and heartbeat is fresh", async () => {
+      let sentText = "";
+      const mockClient = {
+        sendMessage: vi.fn().mockImplementation((text: string) => {
+          sentText = text;
+          return Promise.resolve({ sent: true });
+        }),
+      } as unknown as TelegramClient;
+
+      const { TelegramOpsBot } = await import("../observability/telegram-ops-bot.js");
+      const bot = new TelegramOpsBot({
+        enabled: true,
+        botToken: "test-token",
+        adminChatId,
+        telegramClient: mockClient,
+        workerHealthChecker: vi.fn().mockResolvedValue({
+          status: "healthy",
+          details: "در حال پردازش ۲ جاب (ضربان قلب ورکر تازه است)",
+        }),
+      });
+
+      await bot.handleUpdate({
+        update_id: 21,
+        message: {
+          message_id: 21,
+          chat: { id: 629710703, type: "private" },
+          date: Math.floor(Date.now() / 1000),
+          text: "/status",
+        },
+      });
+
+      expect(sentText).toContain("ورکر (Worker): 🟢 سالم (در حال پردازش ۲ جاب (ضربان قلب ورکر تازه است))");
+    });
+
+    it("reports Worker unhealthy when active jobs exist but heartbeat is stale", async () => {
+      let sentText = "";
+      const mockClient = {
+        sendMessage: vi.fn().mockImplementation((text: string) => {
+          sentText = text;
+          return Promise.resolve({ sent: true });
+        }),
+      } as unknown as TelegramClient;
+
+      const { TelegramOpsBot } = await import("../observability/telegram-ops-bot.js");
+      const bot = new TelegramOpsBot({
+        enabled: true,
+        botToken: "test-token",
+        adminChatId,
+        telegramClient: mockClient,
+        workerHealthChecker: vi.fn().mockResolvedValue({
+          status: "unhealthy",
+          details: "دارای ۱ جاب متوقف‌شده (ضربان قلب ورکر دریافت نمی‌شود)",
+        }),
+      });
+
+      await bot.handleUpdate({
+        update_id: 22,
+        message: {
+          message_id: 22,
+          chat: { id: 629710703, type: "private" },
+          date: Math.floor(Date.now() / 1000),
+          text: "/status",
+        },
+      });
+
+      expect(sentText).toContain("ورکر (Worker): 🔴 غیرفعال (دارای ۱ جاب متوقف‌شده (ضربان قلب ورکر دریافت نمی‌شود))");
+    });
+
+    it("reports Worker unknown when no active jobs and no process-level heartbeat signal", async () => {
+      let sentText = "";
+      const mockClient = {
+        sendMessage: vi.fn().mockImplementation((text: string) => {
+          sentText = text;
+          return Promise.resolve({ sent: true });
+        }),
+      } as unknown as TelegramClient;
+
+      const { TelegramOpsBot } = await import("../observability/telegram-ops-bot.js");
+      const bot = new TelegramOpsBot({
+        enabled: true,
+        botToken: "test-token",
+        adminChatId,
+        telegramClient: mockClient,
+        workerHealthChecker: vi.fn().mockResolvedValue({
+          status: "unknown",
+          details: "بدون جاب فعال (ورکر در وضعیت انتظار / آماده)",
+        }),
+      });
+
+      await bot.handleUpdate({
+        update_id: 23,
+        message: {
+          message_id: 23,
+          chat: { id: 629710703, type: "private" },
+          date: Math.floor(Date.now() / 1000),
+          text: "/status",
+        },
+      });
+
+      expect(sentText).toContain("ورکر (Worker): ⚪ نامشخص (بدون جاب فعال (ورکر در وضعیت انتظار / آماده))");
+    });
+
+    it("supports checkWorkerHealth helper logic for fresh, stale, and idle queue", async () => {
+      const { checkWorkerHealth } = await import("../observability/worker-health-probe.js");
+
+      // 1. Idle queue (activeCount === 0) -> strictly returns unknown to avoid false positive
+      const mockIdleQueue = {
+        getActiveCount: vi.fn().mockResolvedValue(0),
+      } as unknown as import("bullmq").Queue;
+
+      const idleRes = await checkWorkerHealth({ queue: mockIdleQueue });
+      expect(idleRes.status).toBe("unknown");
+      expect(idleRes.details).toContain("بدون جاب فعال");
+
+      // 2. Active jobs with fresh heartbeat -> healthy
+      const mockActiveQueue = {
+        getActiveCount: vi.fn().mockResolvedValue(2),
+      } as unknown as import("bullmq").Queue;
+
+      const freshDate = new Date(Date.now() - 30_000); // 30s ago
+      const mockDbFresh = {
+        select: vi.fn().mockReturnValue({
+          from: vi.fn().mockReturnValue({
+            where: vi.fn().mockReturnValue({
+              orderBy: vi.fn().mockReturnValue({
+                limit: vi.fn().mockResolvedValue([{ heartbeatAt: freshDate, updatedAt: freshDate }]),
+              }),
+            }),
+          }),
+        }),
+      } as unknown as import("@avana/database/client").DbClient;
+
+      const freshRes = await checkWorkerHealth({ queue: mockActiveQueue, db: mockDbFresh });
+      expect(freshRes.status).toBe("healthy");
+      expect(freshRes.details).toContain("ضربان قلب ورکر تازه است");
+
+      // 3. Active jobs with stale heartbeat (>5 min) -> unhealthy
+      const staleDate = new Date(Date.now() - 600_000); // 10m ago
+      const mockDbStale = {
+        select: vi.fn().mockReturnValue({
+          from: vi.fn().mockReturnValue({
+            where: vi.fn().mockReturnValue({
+              orderBy: vi.fn().mockReturnValue({
+                limit: vi.fn().mockResolvedValue([{ heartbeatAt: staleDate, updatedAt: staleDate }]),
+              }),
+            }),
+          }),
+        }),
+      } as unknown as import("@avana/database/client").DbClient;
+
+      const staleRes = await checkWorkerHealth({ queue: mockActiveQueue, db: mockDbStale });
+      expect(staleRes.status).toBe("unhealthy");
+      expect(staleRes.details).toContain("متوقف‌شده");
+    });
+
+    it("handles command parsing with username case-insensitively and rejects other bots", async () => {
+      const mockSendMessage = vi.fn().mockResolvedValue({ sent: true });
+      const mockClient = {
+        sendMessage: mockSendMessage,
+      } as unknown as TelegramClient;
+
+      const { TelegramOpsBot } = await import("../observability/telegram-ops-bot.js");
+      const bot = new TelegramOpsBot({
+        enabled: true,
+        botToken: "test-token",
+        adminChatId,
+        botUsername: "avana_alerts_bot",
+        telegramClient: mockClient,
+      });
+
+      // 1. /status without username -> processed
+      await bot.handleUpdate({
+        update_id: 31,
+        message: { message_id: 31, chat: { id: 629710703, type: "private" }, date: 1, text: "/status" },
+      });
+      expect(mockSendMessage).toHaveBeenCalledTimes(1);
+
+      // 2. /status@avana_alerts_bot exact -> processed
+      await bot.handleUpdate({
+        update_id: 32,
+        message: { message_id: 32, chat: { id: 629710703, type: "private" }, date: 2, text: "/status@avana_alerts_bot" },
+      });
+      expect(mockSendMessage).toHaveBeenCalledTimes(2);
+
+      // 3. /STATUS@AVANA_ALERTS_BOT uppercase -> processed
+      await bot.handleUpdate({
+        update_id: 33,
+        message: { message_id: 33, chat: { id: 629710703, type: "private" }, date: 3, text: "/STATUS@AVANA_ALERTS_BOT" },
+      });
+      expect(mockSendMessage).toHaveBeenCalledTimes(3);
+
+      // 4. /queues@avana_alerts_bot -> processed
+      await bot.handleUpdate({
+        update_id: 34,
+        message: { message_id: 34, chat: { id: 629710703, type: "private" }, date: 4, text: "/queues@avana_alerts_bot" },
+      });
+      expect(mockSendMessage).toHaveBeenCalledTimes(4);
+
+      // 5. /errors@avana_alerts_bot -> processed
+      await bot.handleUpdate({
+        update_id: 35,
+        message: { message_id: 35, chat: { id: 629710703, type: "private" }, date: 5, text: "/errors@avana_alerts_bot" },
+      });
+      expect(mockSendMessage).toHaveBeenCalledTimes(5);
+
+      // 6. /status@other_bot -> ignored
+      await bot.handleUpdate({
+        update_id: 36,
+        message: { message_id: 36, chat: { id: 629710703, type: "private" }, date: 6, text: "/status@other_bot" },
+      });
+      expect(mockSendMessage).toHaveBeenCalledTimes(5);
+
+      // 7. /status@avana (old hardcoded tag) -> ignored
+      await bot.handleUpdate({
+        update_id: 37,
+        message: { message_id: 37, chat: { id: 629710703, type: "private" }, date: 7, text: "/status@avana" },
+      });
+      expect(mockSendMessage).toHaveBeenCalledTimes(5);
+    });
+
+    it("filters errors strictly to last 24h, uses totalCount independent of page length, and deduplicates logs", async () => {
+      let sentText = "";
+      const mockClient = {
+        sendMessage: vi.fn().mockImplementation((text: string) => {
+          sentText = text;
+          return Promise.resolve({ sent: true });
+        }),
+      } as unknown as TelegramClient;
+
+      const now = Date.now();
+      const recentTimestamp = new Date(now - 10 * 60 * 1000).toISOString(); // 10 mins ago
+
+      const mockListAuditLogs = vi.fn().mockImplementation(async (params: { action?: string; search?: string; from?: string }) => {
+        expect(params.from).toBeDefined();
+
+        if (params.action === "generation.failed") {
+          return {
+            totalCount: 14, // 14 total failures in 24h
+            logs: [
+              {
+                id: "shared-log-1",
+                action: "generation.failed",
+                entity: "document",
+                entityId: "doc-1",
+                timestamp: recentTimestamp,
+                metadata: {},
+              },
+              {
+                id: "gen-log-2",
+                action: "generation.failed",
+                entity: "document",
+                entityId: "doc-2",
+                timestamp: new Date(now - 20 * 60 * 1000).toISOString(),
+                metadata: {},
+              },
+            ],
+          };
+        }
+
+        if (params.search === "failed") {
+          return {
+            totalCount: 19, // 19 total search matches
+            logs: [
+              // Duplicate id from genFailedRes to test deduplication
+              {
+                id: "shared-log-1",
+                action: "generation.failed",
+                entity: "document",
+                entityId: "doc-1",
+                timestamp: recentTimestamp,
+                metadata: {},
+              },
+              {
+                id: "payment-log-3",
+                action: "payment.failed",
+                entity: "order",
+                entityId: "order-3",
+                timestamp: new Date(now - 5 * 60 * 1000).toISOString(),
+                metadata: {},
+              },
+            ],
+          };
+        }
+
+        return { logs: [], totalCount: 0 };
+      });
+
+      const mockAdminStore = {
+        listAuditLogs: mockListAuditLogs,
+      } as unknown as import("../modules/admin/admin-store.js").AdminStore;
+
+      const { TelegramOpsBot } = await import("../observability/telegram-ops-bot.js");
+      const bot = new TelegramOpsBot({
+        enabled: true,
+        botToken: "test-token",
+        adminChatId,
+        telegramClient: mockClient,
+        adminStore: mockAdminStore,
+      });
+
+      await bot.handleUpdate({
+        update_id: 40,
+        message: {
+          message_id: 40,
+          chat: { id: 629710703, type: "private" },
+          date: Math.floor(Date.now() / 1000),
+          text: "/errors",
+        },
+      });
+
+      expect(mockListAuditLogs).toHaveBeenCalledWith(
+        expect.objectContaining({
+          from: expect.any(String),
+        }),
+      );
+
+      // Verifies totalCount is accurately reported, NOT logs.length
+      expect(sentText).toContain("خطاهای تولید محتوا: 14");
+      expect(sentText).toContain("سایر وقایع خطا: 5"); // 19 - 14
+
+      // Verifies shared-log-1 is only listed once (deduplicated)
+      const matches = sentText.match(/doc-1/g);
+      expect(matches).not.toBeNull();
+      expect(matches?.length).toBe(1);
+
+      // Verifies descending chronological order: payment-log-3 (5m ago) before shared-log-1 (10m ago)
+      const paymentPos = sentText.indexOf("خطای پرداخت");
+      const genPos = sentText.indexOf("شکست تولید محتوا");
+      expect(paymentPos).toBeLessThan(genPos);
     });
 
     it("handles dependency failure in /status without throwing", async () => {

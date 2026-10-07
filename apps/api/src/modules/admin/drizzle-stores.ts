@@ -763,14 +763,20 @@ export class DrizzleAdminStore implements AdminStore {
     return { logs: [], totalCount: 0 };
   }
 
-  async listAuditLogs(params: { page: number; pageSize: number; search?: string; action?: string; entityType?: string; adminEmail?: string }): Promise<{ logs: AdminAuditRecord[]; totalCount: number }> {
-    const { page, pageSize, search, action, entityType, adminEmail } = params;
+  async listAuditLogs(params: { page: number; pageSize: number; search?: string; action?: string; entityType?: string; adminEmail?: string; from?: string }): Promise<{ logs: AdminAuditRecord[]; totalCount: number }> {
+    const { page, pageSize, search, action, entityType, adminEmail, from } = params;
     const offset = (page - 1) * pageSize;
 
     const conditions: Array<SQL | undefined> = [];
     if (action) conditions.push(eq(auditLogs.action, action));
     if (entityType) conditions.push(eq(auditLogs.entityType, entityType));
     if (adminEmail) conditions.push(eq(users.email, adminEmail));
+    if (from) {
+      const fromDate = new Date(from);
+      if (!isNaN(fromDate.getTime())) {
+        conditions.push(gte(auditLogs.createdAt, fromDate));
+      }
+    }
     if (search) {
       conditions.push(
         or(

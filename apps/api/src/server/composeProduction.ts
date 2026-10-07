@@ -97,6 +97,7 @@ import { AuditService } from "../observability/audit-service.js";
 import { TelegramClient } from "../observability/telegram-client.js";
 import { AdminAlertService } from "../observability/admin-alert-service.js";
 import { TelegramOpsBot } from "../observability/telegram-ops-bot.js";
+import { checkWorkerHealth } from "../observability/worker-health-probe.js";
 import { DrizzleAdminStore } from "../modules/admin/drizzle-stores.js";
 import {
   DrizzleContentPackStore,
@@ -514,9 +515,15 @@ export async function composeProduction(
     enabled: config.telegram.enabled,
     botToken: config.telegram.botToken,
     adminChatId: config.telegram.adminChatId,
+    botUsername: config.telegram.botUsername,
     telegramClient,
     adminStore,
     generationQueue: queue.getRawQueue(),
+    workerHealthChecker: () =>
+      checkWorkerHealth({
+        queue: queue.getRawQueue(),
+        db,
+      }),
   });
 
   if (config.telegram.enabled && config.telegram.botToken && config.telegram.adminChatId) {

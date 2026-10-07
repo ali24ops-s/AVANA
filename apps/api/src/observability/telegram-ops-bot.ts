@@ -22,6 +22,7 @@ export interface TelegramOpsBotOptions {
   enabled: boolean;
   botToken?: string;
   adminChatId?: string;
+  botUsername?: string;
   telegramClient: TelegramClient;
   adminStore?: AdminStore;
   generationQueue?: Queue;
@@ -35,6 +36,7 @@ export interface TelegramOpsBotOptions {
 export class TelegramOpsBot {
   private readonly enabled: boolean;
   private readonly adminChatId?: string;
+  private readonly botUsername: string;
   private readonly telegramClient: TelegramClient;
   private readonly adminStore?: AdminStore;
   private readonly generationQueue?: Queue;
@@ -55,6 +57,7 @@ export class TelegramOpsBot {
   constructor(options: TelegramOpsBotOptions) {
     this.enabled = options.enabled && Boolean(options.botToken && options.adminChatId);
     this.adminChatId = options.adminChatId?.trim();
+    this.botUsername = (options.botUsername ?? "avana_alerts_bot").replace(/^@/, "").trim().toLowerCase();
     this.telegramClient = options.telegramClient;
     this.adminStore = options.adminStore;
     this.generationQueue = options.generationQueue;
@@ -167,7 +170,21 @@ export class TelegramOpsBot {
       return;
     }
 
-    // In-memory rate limiting check
+    const rawFirstToken = message.text.trim().split(/\s+/)[0] ?? "";
+    const commandMatch = rawFirstToken.match(/^(\/[a-z0-9_]+)(?:@([a-z0-9_]+))?$/i);
+    if (!commandMatch) {
+      return;
+    }
+
+    const baseCommand = commandMatch[1].toLowerCase();
+    const targetUsername = commandMatch[2]?.toLowerCase();
+
+    // If username is specified (e.g. /status@avana_alerts_bot), verify it matches this bot
+    if (targetUsername && targetUsername !== this.botUsername) {
+      return;
+    }
+
+    // In-memory rate limiting check (only for recognized, targeted commands)
     if (this.isRateLimited(chatId)) {
       await this.telegramClient.sendMessage(
         "⚠️ تعداد درخواست‌های شما بیش از حد مجاز است. لطفاً چند لحظه صبر کنید.",
@@ -176,23 +193,18 @@ export class TelegramOpsBot {
       return;
     }
 
-    const commandText = message.text.trim().split(/\s+/)[0]?.toLowerCase();
-
-    switch (commandText) {
-      case "/status":
-      case "/status@avana": {
+    switch (baseCommand) {
+      case "/status": {
         const text = await this.buildStatusMessage();
         await this.telegramClient.sendMessage(text, chatId);
         break;
       }
-      case "/queues":
-      case "/queues@avana": {
+      case "/queues": {
         const text = await this.buildQueuesMessage();
         await this.telegramClient.sendMessage(text, chatId);
         break;
       }
-      case "/errors":
-      case "/errors@avana": {
+      case "/errors": {
         const text = await this.buildErrorsMessage();
         await this.telegramClient.sendMessage(text, chatId);
         break;
@@ -257,12 +269,13 @@ export class TelegramOpsBot {
         const workerRes = await this.withTimeout(this.workerHealthChecker(), 3000);
         const wIcon = workerRes.status === "healthy" ? "🟢" : workerRes.status === "unhealthy" ? "🔴" : "⚪";
         const wLabel = workerRes.status === "healthy" ? "سالم" : workerRes.status === "unhealthy" ? "غیرفعال" : "نامشخص";
-        lines.push(`ورکر (Worker): ${wIcon} ${wLabel}`);
+        const detailsSuffix = workerRes.details ? ` (${workerRes.details})` : "";
+        lines.push(`ورکر (Worker): ${wIcon} ${wLabel}${detailsSuffix}`);
       } catch {
         lines.push("ورکر (Worker): 🔴 غیرقابل دسترس");
       }
     } else {
-      lines.push("ورکر (Worker): 🟢 فعال (Running)");
+      lines.push("ورکر (Worker): ⚪ نامشخص (عدم تنظیم پروب)");
     }
 
     // 4. Queues summary
@@ -351,13 +364,16 @@ export class TelegramOpsBot {
     }
 
     try {
-      // Query recent error events without heavy DB load
+      const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+      // Query recent error events in the last 24 hours without heavy DB load
       const [genFailedRes, api500Res] = await Promise.all([
         this.withTimeout(
           this.adminStore.listAuditLogs({
             page: 1,
             pageSize: 5,
             action: "generation.failed",
+            from: since24h,
           }),
           2500,
         ).catch(() => ({ logs: [], totalCount: 0 })),
@@ -366,6 +382,7 @@ export class TelegramOpsBot {
             page: 1,
             pageSize: 5,
             search: "failed",
+            from: since24h,
           }),
           2500,
         ).catch(() => ({ logs: [], totalCount: 0 })),
@@ -373,12 +390,26 @@ export class TelegramOpsBot {
 
       const genFailedCount = genFailedRes.totalCount;
       lines.push(`🔴 خطاهای تولید محتوا: ${genFailedCount}`);
-      
-      const otherLogs = api500Res.logs.filter((l) => l.action !== "generation.failed");
-      lines.push(`🟠 سایر وقایع خطا: ${otherLogs.length}`);
+
+      // Count of other errors strictly for last 24h
+      const otherErrorsCount = Math.max(0, api500Res.totalCount - (api500Res.logs.filter((l) => l.action === "generation.failed").length ? genFailedCount : 0));
+      lines.push(`🟠 سایر وقایع خطا: ${otherErrorsCount}`);
       lines.push("");
 
-      const combinedLogs = [...genFailedRes.logs, ...otherLogs]
+      // Deduplicate logs by id, sort descending by timestamp, take top 5
+      const seenIds = new Set<string>();
+      const candidateLogs = [...genFailedRes.logs, ...api500Res.logs];
+      const uniqueLogs: typeof candidateLogs = [];
+
+      for (const log of candidateLogs) {
+        const idKey = log.id ? String(log.id) : `${log.action}:${log.timestamp}`;
+        if (!seenIds.has(idKey)) {
+          seenIds.add(idKey);
+          uniqueLogs.push(log);
+        }
+      }
+
+      const combinedLogs = uniqueLogs
         .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
         .slice(0, 5);
 
@@ -391,11 +422,11 @@ export class TelegramOpsBot {
           const timeStr = !isNaN(date.getTime())
             ? date.toLocaleTimeString("fa-IR", { hour: "2-digit", minute: "2-digit" })
             : log.timestamp;
-          
+
           let actionLabel = log.action;
           if (log.action === "generation.failed") actionLabel = "شکست تولید محتوا";
           else if (log.action.includes("payment")) actionLabel = "خطای پرداخت";
-          
+
           lines.push(`• ${timeStr} — ${actionLabel} (شناسه: ${log.entityId ? log.entityId.slice(0, 8) : "نامشخص"})`);
         }
       }

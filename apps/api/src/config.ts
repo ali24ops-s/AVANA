@@ -135,6 +135,7 @@ export type ApiConfig = {
     enabled: boolean;
     botToken?: string;
     adminChatId?: string;
+    botUsername: string;
     timeoutMs: number;
     apiBaseUrl?: string;
   };
@@ -538,6 +539,11 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
       enabled: env.TELEGRAM_ALERTS_ENABLED === "true",
       botToken: env.TELEGRAM_BOT_TOKEN?.trim() || undefined,
       adminChatId: env.TELEGRAM_ADMIN_CHAT_ID?.trim() || undefined,
+      botUsername: getOptionalString(
+        env,
+        "TELEGRAM_BOT_USERNAME",
+        "avana_alerts_bot",
+      ).replace(/^@/, "").trim(),
       timeoutMs:
         env.TELEGRAM_TIMEOUT_MS && Number(env.TELEGRAM_TIMEOUT_MS) > 0
           ? Number(env.TELEGRAM_TIMEOUT_MS)

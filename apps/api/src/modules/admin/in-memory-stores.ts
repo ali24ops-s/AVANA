@@ -401,7 +401,7 @@ export class InMemoryAdminStore implements AdminStore {
     return { logs: [], totalCount: 0 };
   }
 
-  async listAuditLogs(_params?: { page: number; pageSize: number; search?: string; action?: string; entityType?: string; adminEmail?: string }): Promise<{ logs: AdminAuditRecord[]; totalCount: number }> {
+  async listAuditLogs(_params?: { page: number; pageSize: number; search?: string; action?: string; entityType?: string; adminEmail?: string; from?: string }): Promise<{ logs: AdminAuditRecord[]; totalCount: number }> {
     return { logs: [], totalCount: 0 };
   }
 
