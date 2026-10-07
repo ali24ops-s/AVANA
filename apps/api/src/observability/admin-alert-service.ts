@@ -35,6 +35,11 @@ export class AdminAlertService {
   private readonly logger: (msg: string) => void;
   private readonly cooldownWindowMs: number;
   private readonly cooldownMap = new Map<string, number>();
+  /**
+   * Tracks component failure state to ensure Recovery alerts only fire after a real failure
+   * Transition: healthy -> failed -> healthy
+   */
+  private readonly failedComponents = new Set<string>();
 
   constructor(options: AdminAlertServiceOptions = {}) {
     this.enabled = options.enabled ?? false;
@@ -58,6 +63,7 @@ export class AdminAlertService {
 
   /**
    * Send a critical alert (fire-and-forget, completely error-isolated).
+   * Marks the component/category as failed.
    */
   async notifyCritical(
     category: string,
@@ -68,12 +74,57 @@ export class AdminAlertService {
       cooldownKey?: string;
     },
   ): Promise<boolean> {
+    this.failedComponents.add(category);
     return this.sendAlert({
       category,
       title,
       severity: "critical",
       details: options?.details,
       error: options?.error,
+    }, options?.cooldownKey);
+  }
+
+  /**
+   * Send a recovery alert only if the component was previously marked failed.
+   * Clears the failure flag upon successful transition.
+   */
+  async notifyRecovery(
+    category: string,
+    title: string,
+    options?: {
+      details?: Record<string, string | number | boolean | null | undefined>;
+      cooldownKey?: string;
+    },
+  ): Promise<boolean> {
+    if (!this.failedComponents.has(category)) {
+      return false; // Do not send recovery if it wasn't previously in failed state
+    }
+    this.failedComponents.delete(category);
+
+    return this.sendAlert({
+      category,
+      title,
+      severity: "info",
+      details: options?.details,
+    }, options?.cooldownKey ?? `recovery:${category}`);
+  }
+
+  /**
+   * Send an informational or business alert (e.g. payment completed, teacher approved).
+   */
+  async notifyInfo(
+    category: string,
+    title: string,
+    options?: {
+      details?: Record<string, string | number | boolean | null | undefined>;
+      cooldownKey?: string;
+    },
+  ): Promise<boolean> {
+    return this.sendAlert({
+      category,
+      title,
+      severity: "info",
+      details: options?.details,
     }, options?.cooldownKey);
   }
 
@@ -181,6 +232,13 @@ export class AdminAlertService {
       method: "متد HTTP",
       requestId: "شناسه درخواست",
       ip: "آدرس IP",
+      amount: "مبلغ (تومان)",
+      gateway: "درگاه پرداخت",
+      status: "وضعیت",
+      teacherId: "شناسه استاد",
+      reason: "علت",
+      queue: "صف",
+      orderId: "شناسه سفارش",
     };
     return fieldMap[key] || key;
   }

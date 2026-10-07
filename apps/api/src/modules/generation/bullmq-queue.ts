@@ -75,7 +75,22 @@ export class BullMqGenerationQueue implements GenerationQueue {
       startedAt: null,
       completedAt: null,
       deletedAt: null,
+      questionPatternId: payload.questionPatternId ?? null,
+      questionPatternVersion: payload.questionPatternVersion ?? null,
     });
+
+    if (payload.sources && payload.sources.length > 0 && this.jobStore.addSources) {
+      await this.jobStore.addSources(
+        payload.sources.map((s) => ({
+          id: crypto.randomUUID(),
+          generationJobId,
+          documentId: s.documentId,
+          role: s.role ?? (s.order === 0 ? "primary_notes" : "supplementary_reference"),
+          orderIndex: s.order,
+          createdAt: now,
+        })),
+      );
+    }
 
     process.stdout.write(`[GENERATION] job created: ${generationJobId} (doc: ${payload.documentId})\n`);
 
@@ -112,7 +127,17 @@ export class BullMqGenerationQueue implements GenerationQueue {
       generationKey: payload.generationKey,
       force: payload.force,
       generationContext: payload.generationContext,
+      sources: payload.sources,
+      questionPatternId: payload.questionPatternId,
+      questionPatternVersion: payload.questionPatternVersion,
     };
+  }
+
+  /**
+   * Access the underlying BullMQ Queue for metrics/monitoring.
+   */
+  getRawQueue(): Queue {
+    return this.queue;
   }
 
   async close(): Promise<void> {

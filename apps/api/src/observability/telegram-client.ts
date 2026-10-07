@@ -22,12 +22,39 @@ export interface TelegramSendMessageResult {
   reason?: string;
 }
 
+export interface TelegramUpdate {
+  update_id: number;
+  message?: {
+    message_id: number;
+    from?: {
+      id: number;
+      is_bot?: boolean;
+      first_name?: string;
+      username?: string;
+    };
+    chat: {
+      id: number;
+      type: string;
+      title?: string;
+      username?: string;
+    };
+    date: number;
+    text?: string;
+  };
+}
+
+export interface TelegramGetUpdatesResult {
+  ok: boolean;
+  updates: TelegramUpdate[];
+  reason?: string;
+}
+
 interface TelegramApiResponse {
   ok: boolean;
   result?: {
     message_id?: number;
     [key: string]: unknown;
-  };
+  } | unknown[];
   description?: string;
   error_code?: number;
 }
@@ -114,9 +141,14 @@ export class TelegramClient {
         };
       }
 
+      const messageId =
+        parsed.result && !Array.isArray(parsed.result) && typeof parsed.result === "object"
+          ? (parsed.result as { message_id?: number }).message_id
+          : undefined;
+
       return {
         sent: true,
-        messageId: parsed.result?.message_id,
+        messageId,
       };
     } catch (err: unknown) {
       if (controller.signal.aborted) {
@@ -132,6 +164,107 @@ export class TelegramClient {
       };
     } finally {
       clearTimeout(timer);
+    }
+  }
+
+  /**
+   * Fetch updates via long polling (getUpdates).
+   *
+   * NEVER throws an error to the caller — returns status with empty updates list on failure.
+   */
+  async getUpdates(
+    options: {
+      offset?: number;
+      limit?: number;
+      timeoutSec?: number;
+      signal?: AbortSignal;
+    } = {},
+  ): Promise<TelegramGetUpdatesResult> {
+    if (!this.botToken) {
+      return { ok: false, updates: [], reason: "missing_bot_token" };
+    }
+
+    const timeoutSec = Math.max(0, Math.min(50, options.timeoutSec ?? 0));
+    const endpoint = `${this.apiBaseUrl}/bot${this.botToken}/getUpdates`;
+
+    // Total request timeout: Telegram timeout + buffer (default 5s buffer)
+    const requestTimeoutMs = (timeoutSec * 1000) + this.timeoutMs;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), requestTimeoutMs);
+
+    const onExternalAbort = () => {
+      controller.abort();
+    };
+
+    if (options.signal) {
+      if (options.signal.aborted) {
+        clearTimeout(timer);
+        return { ok: false, updates: [], reason: "aborted" };
+      }
+      options.signal.addEventListener("abort", onExternalAbort, { once: true });
+    }
+
+    try {
+      const response = await this.fetchImpl(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          offset: options.offset,
+          limit: options.limit ?? 20,
+          timeout: timeoutSec,
+          allowed_updates: ["message"],
+        }),
+        signal: controller.signal,
+      });
+
+      let parsed: TelegramApiResponse | null = null;
+      try {
+        const json = await response.json();
+        if (json && typeof json === "object") {
+          parsed = json as TelegramApiResponse;
+        }
+      } catch {
+        parsed = null;
+      }
+
+      if (!response.ok || !parsed?.ok || !Array.isArray(parsed.result)) {
+        const errorDesc = parsed?.description || `HTTP ${response.status}`;
+        return {
+          ok: false,
+          updates: [],
+          reason: `telegram_api_error: ${errorDesc}`,
+        };
+      }
+
+      return {
+        ok: true,
+        updates: parsed.result as TelegramUpdate[],
+      };
+    } catch (err: unknown) {
+      if (options.signal?.aborted) {
+        return { ok: false, updates: [], reason: "aborted" };
+      }
+      if (controller.signal.aborted) {
+        return {
+          ok: false,
+          updates: [],
+          reason: `timeout_after_${requestTimeoutMs}ms`,
+        };
+      }
+      const safeMessage = err instanceof Error ? err.message : String(err);
+      return {
+        ok: false,
+        updates: [],
+        reason: `network_error: ${safeMessage}`,
+      };
+    } finally {
+      clearTimeout(timer);
+      if (options.signal) {
+        options.signal.removeEventListener("abort", onExternalAbort);
+      }
     }
   }
 }

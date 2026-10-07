@@ -15,3 +15,5 @@ export { TelegramClient } from "./telegram-client.js";
 export type { TelegramClientOptions, TelegramSendMessageResult } from "./telegram-client.js";
 export { AdminAlertService } from "./admin-alert-service.js";
 export type { AdminAlertServiceOptions, AlertPayload, AlertSeverity } from "./admin-alert-service.js";
+export { TelegramOpsBot } from "./telegram-ops-bot.js";
+export type { TelegramOpsBotOptions } from "./telegram-ops-bot.js";

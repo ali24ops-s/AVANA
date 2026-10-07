@@ -92,6 +92,17 @@ async function main(): Promise<void> {
     process.stdout.write(
       `[worker] Generation worker ready (queue="${config.generation.queueName}", admin: ${deps.adminGateway.provider}, user: ${deps.userGateway.provider}).\n`,
     );
+    // Real recovery transition: only sends alert if previously failed
+    void deps.adminAlertService.notifyRecovery(
+      "worker.queue_error",
+      "بازیابی موفق ورکر صف محتوا آوانا",
+      {
+        details: {
+          queue: config.generation.queueName,
+          status: "سالم و آماده دریافت جاب",
+        },
+      },
+    );
   });
   worker.on("error", (err) => {
     process.stderr.write(`[worker] Worker error: ${String(err)}\n`);

@@ -96,6 +96,7 @@ import { DrizzleAuditStore } from "../observability/drizzle-stores.js";
 import { AuditService } from "../observability/audit-service.js";
 import { TelegramClient } from "../observability/telegram-client.js";
 import { AdminAlertService } from "../observability/admin-alert-service.js";
+import { TelegramOpsBot } from "../observability/telegram-ops-bot.js";
 import { DrizzleAdminStore } from "../modules/admin/drizzle-stores.js";
 import {
   DrizzleContentPackStore,
@@ -129,6 +130,7 @@ export interface ProductionDependencies {
   v1Options: V1RouteOptions;
   auditService: AuditService;
   adminAlertService: AdminAlertService;
+  telegramOpsBot?: TelegramOpsBot;
   close: () => Promise<void>;
 }
 
@@ -416,6 +418,7 @@ export async function composeProduction(
   
   // Admin Store
   const adminStore = new DrizzleAdminStore(db);
+  const questionPatternStore = new DrizzleQuestionPatternStore(db);
 
   // Library & Content Pack Stores
   const contentPackStore = new DrizzleContentPackStore(db);
@@ -447,7 +450,7 @@ export async function composeProduction(
     telegramClient,
   });
 
-  // Tap AuditService for critical domain events (e.g. generation.failed)
+  // Tap AuditService for domain events (e.g. generation.failed, payments, teachers)
   auditService.addListener((events) => {
     for (const event of events) {
       if (event.action === "generation.failed") {
@@ -463,9 +466,62 @@ export async function composeProduction(
             cooldownKey: `generation.failed:${event.entityId}:${event.details?.errorCode}`,
           },
         );
+      } else if (event.action === "payment.completed") {
+        void adminAlertService.notifyInfo(
+          "payment.completed",
+          "تکمیل موفق تراکنش پرداخت",
+          {
+            details: {
+              orderId: String(event.details?.orderId ?? event.entityId),
+              amount: Number(event.details?.amount ?? 0),
+              gateway: String(event.details?.gateway ?? "online"),
+              status: "موفق",
+            },
+            cooldownKey: `payment.completed:${event.entityId}`,
+          },
+        );
+      } else if ((event.action as string) === "TEACHER_APPROVED") {
+        void adminAlertService.notifyInfo(
+          "teacher.approved",
+          "تأیید درخواست تدریس استاد",
+          {
+            details: {
+              teacherId: event.entityId,
+              status: "تأیید شده",
+            },
+            cooldownKey: `teacher.approved:${event.entityId}`,
+          },
+        );
+      } else if ((event.action as string) === "TEACHER_REJECTED") {
+        void adminAlertService.notifyInfo(
+          "teacher.rejected",
+          "رد درخواست تدریس استاد",
+          {
+            details: {
+              teacherId: event.entityId,
+              reason: String(event.details?.reason ?? "عدم احراز شرایط"),
+              status: "رد شده",
+            },
+            cooldownKey: `teacher.rejected:${event.entityId}`,
+          },
+        );
       }
     }
   });
+
+  // AVANA Ops Bot: Inbound polling commands (/status, /queues, /errors)
+  const telegramOpsBot = new TelegramOpsBot({
+    enabled: config.telegram.enabled,
+    botToken: config.telegram.botToken,
+    adminChatId: config.telegram.adminChatId,
+    telegramClient,
+    adminStore,
+    generationQueue: queue.getRawQueue(),
+  });
+
+  if (config.telegram.enabled && config.telegram.botToken && config.telegram.adminChatId) {
+    telegramOpsBot.start();
+  }
 
   const searchStore = new DrizzleSearchStore(db);
   const blogStore = new DrizzleBlogStore(db);
@@ -555,6 +611,7 @@ export async function composeProduction(
     reportStore,
     auditService,
     adminStore,
+    questionPatternStore,
     contentPackStore,
     contentPackUsageStore,
     searchStore,
@@ -608,5 +665,12 @@ export async function composeProduction(
     );
   }
 
-  return { v1Options, auditService, adminAlertService, close };
+  const enhancedClose = async () => {
+    if (telegramOpsBot) {
+      await telegramOpsBot.stop();
+    }
+    await close();
+  };
+
+  return { v1Options, auditService, adminAlertService, telegramOpsBot, close: enhancedClose };
 }

@@ -407,4 +407,396 @@ describe("Telegram Operational Alerts Test Suite", () => {
       expect(notifyMock).not.toHaveBeenCalled();
     });
   });
+
+  // =========================================================================
+  // 5. Recovery Alerting & Component Failure Transitions
+  // =========================================================================
+  describe("Recovery Alerting (healthy -> failed -> healthy)", () => {
+    it("does not send recovery alert if component was never in a failed state", async () => {
+      const mockClient = {
+        isConfigured: () => true,
+        sendMessage: vi.fn().mockResolvedValue({ sent: true }),
+      } as unknown as TelegramClient;
+
+      const service = new AdminAlertService({
+        enabled: true,
+        telegramClient: mockClient,
+      });
+
+      const recovered = await service.notifyRecovery("worker.queue_error", "ورکر سالم شد");
+      expect(recovered).toBe(false);
+      expect(mockClient.sendMessage).not.toHaveBeenCalled();
+    });
+
+    it("sends recovery alert when transitioning from failed back to healthy", async () => {
+      const sentMessages: string[] = [];
+      const mockClient = {
+        isConfigured: () => true,
+        sendMessage: vi.fn().mockImplementation((text: string) => {
+          sentMessages.push(text);
+          return Promise.resolve({ sent: true });
+        }),
+      } as unknown as TelegramClient;
+
+      const service = new AdminAlertService({
+        enabled: true,
+        telegramClient: mockClient,
+      });
+
+      // 1. Component fails
+      await service.notifyCritical("worker.queue_error", "خطای صف ورکر");
+      expect(sentMessages.length).toBe(1);
+      expect(sentMessages[0]).toContain("خطای صف ورکر");
+
+      // 2. Component recovers
+      const recovered = await service.notifyRecovery("worker.queue_error", "بازیابی ورکر");
+      expect(recovered).toBe(true);
+      expect(sentMessages.length).toBe(2);
+      expect(sentMessages[1]).toContain("بازیابی ورکر");
+
+      // 3. Second recovery attempt does not fire (already cleared failure state)
+      const secondRecovery = await service.notifyRecovery("worker.queue_error", "بازیابی مجدد");
+      expect(secondRecovery).toBe(false);
+      expect(sentMessages.length).toBe(2);
+    });
+  });
+
+  // =========================================================================
+  // 6. Business Alerts (Payment & Teacher)
+  // =========================================================================
+  describe("Business Events Alerting", () => {
+    it("sends informational alert for payment.completed and teacher events", async () => {
+      const sentMessages: string[] = [];
+      const mockClient = {
+        isConfigured: () => true,
+        sendMessage: vi.fn().mockImplementation((text: string) => {
+          sentMessages.push(text);
+          return Promise.resolve({ sent: true });
+        }),
+      } as unknown as TelegramClient;
+
+      const service = new AdminAlertService({
+        enabled: true,
+        telegramClient: mockClient,
+      });
+
+      await service.notifyInfo("payment.completed", "تکمیل پرداخت", {
+        details: {
+          orderId: "ord-1234",
+          amount: 250000,
+          gateway: "zarinpal",
+          status: "موفق",
+        },
+      });
+
+      expect(sentMessages.length).toBe(1);
+      expect(sentMessages[0]).toContain("تکمیل پرداخت");
+      expect(sentMessages[0]).toContain("250000");
+      expect(sentMessages[0]).not.toContain("password");
+      expect(sentMessages[0]).not.toContain("token");
+
+      await service.notifyInfo("teacher.approved", "تأیید استاد", {
+        details: {
+          teacherId: "teacher-uuid-1",
+          status: "تأیید شده",
+        },
+      });
+
+      expect(sentMessages.length).toBe(2);
+      expect(sentMessages[1]).toContain("تأیید استاد");
+    });
+  });
+
+  // =========================================================================
+  // 7. TelegramOpsBot Inbound Commands (/status, /queues, /errors)
+  // =========================================================================
+  describe("TelegramOpsBot Inbound Commands & Security", () => {
+    const adminChatId = "629710703";
+
+    it("silently drops updates from unauthorized chat IDs", async () => {
+      const mockClient = {
+        sendMessage: vi.fn().mockResolvedValue({ sent: true }),
+        getUpdates: vi.fn().mockResolvedValue({ ok: true, updates: [] }),
+      } as unknown as TelegramClient;
+
+      const { TelegramOpsBot } = await import("../observability/telegram-ops-bot.js");
+      const bot = new TelegramOpsBot({
+        enabled: true,
+        botToken: "test-token",
+        adminChatId,
+        telegramClient: mockClient,
+      });
+
+      await bot.handleUpdate({
+        update_id: 1,
+        message: {
+          message_id: 10,
+          chat: { id: 999999999, type: "private" },
+          date: Math.floor(Date.now() / 1000),
+          text: "/status",
+        },
+      });
+
+      expect(mockClient.sendMessage).not.toHaveBeenCalled();
+    });
+
+    it("responds to /status for authorized adminChatId and sanitizes health check", async () => {
+      let sentText = "";
+      const mockClient = {
+        sendMessage: vi.fn().mockImplementation((text: string) => {
+          sentText = text;
+          return Promise.resolve({ sent: true });
+        }),
+        getUpdates: vi.fn().mockResolvedValue({ ok: true, updates: [] }),
+      } as unknown as TelegramClient;
+
+      const mockAdminStore = {
+        getSystemHealth: vi.fn().mockResolvedValue({
+          database: "healthy",
+          redis: "healthy",
+          ai: "healthy",
+          services: {
+            database: { status: "healthy" },
+            redis: { status: "healthy" },
+            ai: { status: "healthy" },
+          },
+        }),
+        getDashboardStats: vi.fn().mockResolvedValue({
+          generationsToday: 42,
+          generationSuccessRate: 95,
+        }),
+      } as unknown as import("../modules/admin/admin-store.js").AdminStore;
+
+      const mockQueue = {
+        name: "content_generate",
+        getJobCounts: vi.fn().mockResolvedValue({
+          waiting: 3,
+          active: 1,
+          failed: 0,
+        }),
+      } as unknown as import("bullmq").Queue;
+
+      const { TelegramOpsBot } = await import("../observability/telegram-ops-bot.js");
+      const bot = new TelegramOpsBot({
+        enabled: true,
+        botToken: "test-token",
+        adminChatId,
+        telegramClient: mockClient,
+        adminStore: mockAdminStore,
+        generationQueue: mockQueue,
+      });
+
+      await bot.handleUpdate({
+        update_id: 2,
+        message: {
+          message_id: 20,
+          chat: { id: 629710703, type: "private" },
+          date: Math.floor(Date.now() / 1000),
+          text: "/status",
+        },
+      });
+
+      expect(mockClient.sendMessage).toHaveBeenCalledWith(expect.any(String), adminChatId);
+      expect(sentText).toContain("AVANA Status");
+      expect(sentText).toContain("سالم (Healthy)");
+      expect(sentText).toContain("PostgreSQL");
+      expect(sentText).toContain("در انتظار: 3");
+      expect(sentText).toContain("42");
+    });
+
+    it("handles dependency failure in /status without throwing", async () => {
+      let sentText = "";
+      const mockClient = {
+        sendMessage: vi.fn().mockImplementation((text: string) => {
+          sentText = text;
+          return Promise.resolve({ sent: true });
+        }),
+      } as unknown as TelegramClient;
+
+      const mockAdminStore = {
+        getSystemHealth: vi.fn().mockRejectedValue(new Error("DB connection timeout password=supersecret")),
+      } as unknown as import("../modules/admin/admin-store.js").AdminStore;
+
+      const { TelegramOpsBot } = await import("../observability/telegram-ops-bot.js");
+      const bot = new TelegramOpsBot({
+        enabled: true,
+        botToken: "test-token",
+        adminChatId,
+        telegramClient: mockClient,
+        adminStore: mockAdminStore,
+      });
+
+      await bot.handleUpdate({
+        update_id: 3,
+        message: {
+          message_id: 30,
+          chat: { id: 629710703, type: "private" },
+          date: Math.floor(Date.now() / 1000),
+          text: "/status",
+        },
+      });
+
+      expect(mockClient.sendMessage).toHaveBeenCalled();
+      expect(sentText).toContain("AVANA Status");
+      expect(sentText).toContain("در دسترس نیست");
+      // Must NOT leak database password
+      expect(sentText).not.toContain("supersecret");
+    });
+
+    it("executes /queues command and returns BullMQ metrics", async () => {
+      let sentText = "";
+      const mockClient = {
+        sendMessage: vi.fn().mockImplementation((text: string) => {
+          sentText = text;
+          return Promise.resolve({ sent: true });
+        }),
+      } as unknown as TelegramClient;
+
+      const mockQueue = {
+        name: "content_generate",
+        getJobCounts: vi.fn().mockResolvedValue({
+          waiting: 5,
+          active: 2,
+          completed: 120,
+          failed: 1,
+          delayed: 0,
+        }),
+      } as unknown as import("bullmq").Queue;
+
+      const { TelegramOpsBot } = await import("../observability/telegram-ops-bot.js");
+      const bot = new TelegramOpsBot({
+        enabled: true,
+        botToken: "test-token",
+        adminChatId,
+        telegramClient: mockClient,
+        generationQueue: mockQueue,
+      });
+
+      await bot.handleUpdate({
+        update_id: 4,
+        message: {
+          message_id: 40,
+          chat: { id: 629710703, type: "private" },
+          date: Math.floor(Date.now() / 1000),
+          text: "/queues",
+        },
+      });
+
+      expect(mockClient.sendMessage).toHaveBeenCalled();
+      expect(sentText).toContain("BullMQ");
+      expect(sentText).toContain("content_generate");
+      expect(sentText).toContain("Waiting");
+      expect(sentText).toContain("5");
+    });
+
+    it("executes /errors command and sanitizes output", async () => {
+      let sentText = "";
+      const mockClient = {
+        sendMessage: vi.fn().mockImplementation((text: string) => {
+          sentText = text;
+          return Promise.resolve({ sent: true });
+        }),
+      } as unknown as TelegramClient;
+
+      const mockAdminStore = {
+        listAuditLogs: vi.fn().mockResolvedValue({
+          totalCount: 2,
+          logs: [
+            {
+              id: "log-1",
+              action: "generation.failed",
+              entity: "document",
+              entityId: "doc-failed-uuid-long",
+              timestamp: new Date().toISOString(),
+              metadata: { secret: "12345" },
+            },
+          ],
+        }),
+      } as unknown as import("../modules/admin/admin-store.js").AdminStore;
+
+      const { TelegramOpsBot } = await import("../observability/telegram-ops-bot.js");
+      const bot = new TelegramOpsBot({
+        enabled: true,
+        botToken: "test-token",
+        adminChatId,
+        telegramClient: mockClient,
+        adminStore: mockAdminStore,
+      });
+
+      await bot.handleUpdate({
+        update_id: 5,
+        message: {
+          message_id: 50,
+          chat: { id: 629710703, type: "private" },
+          date: Math.floor(Date.now() / 1000),
+          text: "/errors",
+        },
+      });
+
+      expect(mockClient.sendMessage).toHaveBeenCalled();
+      expect(sentText).toContain("گزارش خطاهای اخیر");
+      expect(sentText).toContain("شکست تولید محتوا");
+      expect(sentText).not.toContain("12345"); // Sanitized details
+    });
+
+    it("enforces in-memory rate limiting against command flooding", async () => {
+      const mockClient = {
+        sendMessage: vi.fn().mockResolvedValue({ sent: true }),
+      } as unknown as TelegramClient;
+
+      const { TelegramOpsBot } = await import("../observability/telegram-ops-bot.js");
+      const bot = new TelegramOpsBot({
+        enabled: true,
+        botToken: "test-token",
+        adminChatId,
+        telegramClient: mockClient,
+        rateLimitWindowMs: 10_000,
+        maxCommandsPerWindow: 2,
+      });
+
+      // Send 2 allowed commands
+      await bot.handleUpdate({
+        update_id: 10,
+        message: { message_id: 1, chat: { id: 629710703, type: "private" }, date: 1, text: "/help" },
+      });
+      await bot.handleUpdate({
+        update_id: 11,
+        message: { message_id: 2, chat: { id: 629710703, type: "private" }, date: 2, text: "/help" },
+      });
+
+      // Third command triggers rate limit warning
+      await bot.handleUpdate({
+        update_id: 12,
+        message: { message_id: 3, chat: { id: 629710703, type: "private" }, date: 3, text: "/help" },
+      });
+
+      expect(mockClient.sendMessage).toHaveBeenLastCalledWith(
+        expect.stringContaining("بیش از حد مجاز"),
+        adminChatId,
+      );
+    });
+
+    it("supports start and stop lifecycle gracefully", async () => {
+      const mockGetUpdates = vi.fn().mockResolvedValue({ ok: true, updates: [] });
+      const mockClient = {
+        sendMessage: vi.fn().mockResolvedValue({ sent: true }),
+        getUpdates: mockGetUpdates,
+      } as unknown as TelegramClient;
+
+      const { TelegramOpsBot } = await import("../observability/telegram-ops-bot.js");
+      const bot = new TelegramOpsBot({
+        enabled: true,
+        botToken: "test-token",
+        adminChatId,
+        telegramClient: mockClient,
+        pollIntervalMs: 50,
+      });
+
+      bot.start();
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      await bot.stop();
+
+      expect(mockGetUpdates).toHaveBeenCalled();
+    });
+  });
 });
