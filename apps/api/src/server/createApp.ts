@@ -9,10 +9,12 @@ import { DomainError } from "@avana/domain";
 import { createLogger } from "../observability/logger.js";
 import { observabilityPlugin } from "../observability/plugin.js";
 import { securityPlugin } from "../http/security.js";
+import type { AdminAlertService } from "../observability/admin-alert-service.js";
 
 export type CreateAppOptions = {
   config: ApiConfig;
   logger?: pino.Logger;
+  adminAlertService?: AdminAlertService;
 };
 
 /**
@@ -67,6 +69,7 @@ function isDomainError(err: unknown): err is DomainError {
 export function createApp({
   config,
   logger: providedLogger,
+  adminAlertService,
 }: CreateAppOptions): FastifyInstance {
   const logger = providedLogger ?? createLogger(config);
 
@@ -172,6 +175,24 @@ export function createApp({
       if (config.nodeEnv !== "production") {
         process.stderr.write(`[unhandled-error] ${err?.stack || err?.message || String(err)}\n`);
       }
+
+      // Operational Alert: Non-blocking notification for unhandled 500 errors
+      if (adminAlertService) {
+        void adminAlertService.notifyCritical(
+          "api.unhandled_500",
+          "خطای ۵۰۰ غیرمنتظره در سرور API",
+          {
+            error: err,
+            details: {
+              url: request.raw.url,
+              method: request.raw.method,
+              requestId: (request as unknown as { context?: { requestId?: string } })?.context?.requestId,
+            },
+            cooldownKey: `api.unhandled_500:${request.raw.url}:${(err as Error)?.message || String(err)}`,
+          },
+        ).catch(() => {});
+      }
+
       writeErrorEnvelope(
         reply,
         request,

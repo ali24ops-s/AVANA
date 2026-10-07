@@ -20,6 +20,9 @@ export function createLogger(config: ApiConfig): pino.Logger {
     "req.body.password",
     "req.body.token",
     "req.body.secret",
+    "telegram.botToken",
+    "botToken",
+    "TELEGRAM_BOT_TOKEN",
   ];
 
   return pino({

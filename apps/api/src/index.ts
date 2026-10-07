@@ -48,8 +48,8 @@ export async function startApi(
  */
 export async function startApiWithDb(): Promise<ReturnType<typeof createApp>> {
   const config = loadApiConfig();
-  const { v1Options, close } = await composeProduction(config);
-  const app = createApp({ config });
+  const { v1Options, adminAlertService, close } = await composeProduction(config);
+  const app = createApp({ config, adminAlertService });
   void app.register(v1Routes, v1Options);
 
   // Graceful shutdown — close DB pool on server stop

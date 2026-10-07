@@ -35,6 +35,7 @@ import {
 export interface ProductionDependencies {
   v1Options: V1RouteOptions;
   auditService: AuditService;
+  adminAlertService: AdminAlertService;
   close: () => Promise<void>;
 }
 import { DrizzleOrganizationStore } from "../modules/organizations/drizzle-stores.js";
@@ -93,11 +94,14 @@ import {
 } from "../modules/generation/index.js";
 import { DrizzleAuditStore } from "../observability/drizzle-stores.js";
 import { AuditService } from "../observability/audit-service.js";
+import { TelegramClient } from "../observability/telegram-client.js";
+import { AdminAlertService } from "../observability/admin-alert-service.js";
 import { DrizzleAdminStore } from "../modules/admin/drizzle-stores.js";
 import {
   DrizzleContentPackStore,
   DrizzleContentPackUsageStore,
 } from "../modules/library/index.js";
+import { DrizzleQuestionPatternStore } from "../modules/generation/question-patterns-store.js";
 import { DrizzleSearchStore } from "../modules/search/index.js";
 import {
   DrizzleCommerceStore,
@@ -124,6 +128,7 @@ import type { CourseId } from "@avana/domain";
 export interface ProductionDependencies {
   v1Options: V1RouteOptions;
   auditService: AuditService;
+  adminAlertService: AdminAlertService;
   close: () => Promise<void>;
 }
 
@@ -429,6 +434,39 @@ export async function composeProduction(
 
   const auditStore = new DrizzleAuditStore(db);
   const auditService = new AuditService(auditStore);
+
+  // Operational Telegram Alerts
+  const telegramClient = new TelegramClient({
+    botToken: config.telegram.botToken,
+    adminChatId: config.telegram.adminChatId,
+    timeoutMs: config.telegram.timeoutMs,
+    apiBaseUrl: config.telegram.apiBaseUrl,
+  });
+  const adminAlertService = new AdminAlertService({
+    enabled: config.telegram.enabled,
+    telegramClient,
+  });
+
+  // Tap AuditService for critical domain events (e.g. generation.failed)
+  auditService.addListener((events) => {
+    for (const event of events) {
+      if (event.action === "generation.failed") {
+        void adminAlertService.notifyCritical(
+          "generation.failed",
+          "شکست نهایی فرآیند تولید محتوا",
+          {
+            details: {
+              documentId: event.entityId,
+              errorCode: String(event.details?.errorCode ?? "unknown"),
+              retryCount: Number(event.details?.retryCount ?? 0),
+            },
+            cooldownKey: `generation.failed:${event.entityId}:${event.details?.errorCode}`,
+          },
+        );
+      }
+    }
+  });
+
   const searchStore = new DrizzleSearchStore(db);
   const blogStore = new DrizzleBlogStore(db);
 
@@ -570,5 +608,5 @@ export async function composeProduction(
     );
   }
 
-  return { v1Options, auditService, close };
+  return { v1Options, auditService, adminAlertService, close };
 }

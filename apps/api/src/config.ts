@@ -131,6 +131,13 @@ export type ApiConfig = {
       instructions?: string;
     };
   };
+  telegram: {
+    enabled: boolean;
+    botToken?: string;
+    adminChatId?: string;
+    timeoutMs: number;
+    apiBaseUrl?: string;
+  };
 };
 
 function parseGeminiApiKeys(env: NodeJS.ProcessEnv): string[] {
@@ -526,6 +533,16 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
           env.CARD_TO_CARD_INSTRUCTIONS ||
           "لطفاً مبلغ دقیق را به شماره کارت فوق واریز کرده و سپس اطلاعات پرداخت را ثبت نمایید. سفارش شما پس از بررسی و تأیید نهایی فعال خواهد شد.",
       },
+    },
+    telegram: {
+      enabled: env.TELEGRAM_ALERTS_ENABLED === "true",
+      botToken: env.TELEGRAM_BOT_TOKEN?.trim() || undefined,
+      adminChatId: env.TELEGRAM_ADMIN_CHAT_ID?.trim() || undefined,
+      timeoutMs:
+        env.TELEGRAM_TIMEOUT_MS && Number(env.TELEGRAM_TIMEOUT_MS) > 0
+          ? Number(env.TELEGRAM_TIMEOUT_MS)
+          : 5_000,
+      apiBaseUrl: env.TELEGRAM_API_BASE_URL?.trim() || undefined,
     },
   };
 }

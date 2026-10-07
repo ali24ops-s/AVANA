@@ -95,6 +95,17 @@ async function main(): Promise<void> {
   });
   worker.on("error", (err) => {
     process.stderr.write(`[worker] Worker error: ${String(err)}\n`);
+    void deps.adminAlertService.notifyCritical(
+      "worker.queue_error",
+      "خطای سطح زیرساخت در ورکر صف محتوا",
+      {
+        error: err,
+        details: {
+          queue: config.generation.queueName,
+        },
+        cooldownKey: `worker:error:${String(err)}`,
+      },
+    );
   });
 
   const shutdown = async () => {
@@ -109,9 +120,34 @@ async function main(): Promise<void> {
   process.on("SIGTERM", shutdown);
 }
 
-main().catch((err) => {
+main().catch(async (err) => {
   const message =
     err instanceof Error ? (err.stack ?? err.message) : String(err);
   process.stderr.write(`[worker] Failed to start: ${message}\n`);
+
+  try {
+    const config = loadWorkerConfig();
+    const { TelegramClient } = await import("@avana/api/observability/telegram-client");
+    const { AdminAlertService } = await import("@avana/api/observability/admin-alert-service");
+    const alertService = new AdminAlertService({
+      enabled: config.telegram.enabled,
+      telegramClient: new TelegramClient({
+        botToken: config.telegram.botToken,
+        adminChatId: config.telegram.adminChatId,
+        timeoutMs: config.telegram.timeoutMs,
+        apiBaseUrl: config.telegram.apiBaseUrl,
+      }),
+    });
+    await alertService.notifyCritical(
+      "worker.fatal_crash",
+      "توقف کامل یا کرش فرآیند ورکر آوانا",
+      {
+        error: err,
+      },
+    );
+  } catch {
+    // Non-blocking
+  }
+
   process.exit(1);
 });

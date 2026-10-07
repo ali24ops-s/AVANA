@@ -106,6 +106,18 @@
       "import": "./dist/observability/drizzle-stores.js",
       "default": "./src/observability/drizzle-stores.ts"
     },
+    "./observability/telegram-client": {
+      "types": "./src/observability/telegram-client.ts",
+      "development": "./src/observability/telegram-client.ts",
+      "import": "./dist/observability/telegram-client.js",
+      "default": "./src/observability/telegram-client.ts"
+    },
+    "./observability/admin-alert-service": {
+      "types": "./src/observability/admin-alert-service.ts",
+      "development": "./src/observability/admin-alert-service.ts",
+      "import": "./dist/observability/admin-alert-service.js",
+      "default": "./src/observability/admin-alert-service.ts"
+    },
     "./observability/test/in-memory-stores": {
       "types": "./src/observability/test/in-memory-stores.ts",
       "development": "./src/observability/test/in-memory-stores.ts",

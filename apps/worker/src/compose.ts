@@ -36,6 +36,8 @@ import { DrizzleNotificationStore } from "@avana/api/notifications/drizzle-store
 import { NotificationService } from "@avana/api/notifications/notification-service";
 import { DrizzleWalletStore } from "@avana/api/wallet/wallet-store";
 import { WalletService } from "@avana/api/wallet/wallet-service";
+import { TelegramClient } from "@avana/api/observability/telegram-client";
+import { AdminAlertService } from "@avana/api/observability/admin-alert-service";
 import type { WorkerConfig } from "./config.js";
 
 export interface WorkerDependencies {
@@ -50,6 +52,7 @@ export interface WorkerDependencies {
   adminGateway: ModelGateway;
   userGateway: ModelGateway;
   gateway: ModelGateway;
+  adminAlertService: AdminAlertService;
   close: () => Promise<void>;
 }
 
@@ -95,6 +98,38 @@ export async function composeWorker(
   // Audit service.
   const auditStore = new DrizzleAuditStore(db);
   const auditService = new AuditService(auditStore);
+
+  // Operational Telegram Alerts
+  const telegramClient = new TelegramClient({
+    botToken: config.telegram.botToken,
+    adminChatId: config.telegram.adminChatId,
+    timeoutMs: config.telegram.timeoutMs,
+    apiBaseUrl: config.telegram.apiBaseUrl,
+  });
+  const adminAlertService = new AdminAlertService({
+    enabled: config.telegram.enabled,
+    telegramClient,
+  });
+
+  // Tap AuditService for worker-originated generation failures
+  auditService.addListener((events) => {
+    for (const event of events) {
+      if (event.action === "generation.failed") {
+        void adminAlertService.notifyCritical(
+          "generation.failed",
+          "شکست نهایی فرآیند تولید محتوا در ورکر",
+          {
+            details: {
+              documentId: event.entityId,
+              errorCode: String(event.details?.errorCode ?? "unknown"),
+              retryCount: Number(event.details?.retryCount ?? 0),
+            },
+            cooldownKey: `worker:generation.failed:${event.entityId}:${event.details?.errorCode}`,
+          },
+        );
+      }
+    }
+  });
 
   // Wallet service for user balance mutations and generation debit refunds.
   const walletService = new WalletService(walletStore, auditService);
@@ -174,6 +209,7 @@ export async function composeWorker(
     adminGateway,
     userGateway,
     gateway: userGateway,
+    adminAlertService,
     close,
   };
 }
