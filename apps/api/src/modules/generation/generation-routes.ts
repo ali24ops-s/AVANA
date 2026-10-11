@@ -31,6 +31,7 @@ import {
   type ModelPricingConfig,
   type ReferencePricingBaseline,
   normalizeRequestedContentTypes,
+  normalizeGenerationSources,
 } from "@avana/domain";
 import type { WalletService } from "../wallet/wallet-service.js";
 import type { WalletStore } from "../wallet/wallet-store.js";
@@ -39,6 +40,7 @@ import { GenerationService } from "./generation-service.js";
 import type { AuthMiddlewareDeps } from "../../http/authMiddleware.js";
 import { makeAuthMiddleware } from "../../http/authMiddleware.js";
 import type {
+  DocumentRecord,
   DocumentStore,
   DocumentChunkStore,
   ModuleStore,
@@ -96,6 +98,7 @@ export interface GenerationRouteOptions {
   walletService?: WalletService;
   walletStore?: WalletStore;
   entitlementService?: EntitlementService;
+  questionPatternStore?: import("./question-patterns-store.js").QuestionPatternStore;
 }
 
 const UUID_RE =
@@ -180,6 +183,13 @@ export const generationRoutes: FastifyPluginAsync<
         opts.entitlementService,
       )
     : undefined;
+
+  if (opts.questionPatternStore) {
+    service.setQuestionPatternStore(opts.questionPatternStore);
+    if (adminService) {
+      adminService.setQuestionPatternStore(opts.questionPatternStore);
+    }
+  }
 
   /**
    * Helper to extract actor from authenticated request.
@@ -374,6 +384,8 @@ export const generationRoutes: FastifyPluginAsync<
         flashcards?: boolean;
         exam?: boolean;
         prompt_version?: string;
+        question_pattern_id?: string | null;
+        question_pattern_version?: number | null;
       };
 
       let requestedTypes: GeneratedContentType[] = [];
@@ -529,6 +541,29 @@ export const generationRoutes: FastifyPluginAsync<
       // or frontend invalidations instantly see the queued item before worker starts.
       await service.progressService.queue(documentId, organizationId);
 
+      let resolvedPatternId: import("@avana/domain").QuestionPatternId | undefined;
+      let resolvedPatternVersion: number | undefined;
+
+      // Question Patterns are strictly restricted to admin/editor context.
+      // Non-admin / student callers cannot inject or pin question patterns.
+      if (
+        isActorAdmin &&
+        typeof body.question_pattern_id === "string" &&
+        opts.questionPatternStore
+      ) {
+        const patternId = body.question_pattern_id as import("@avana/domain").QuestionPatternId;
+        const pattern = await opts.questionPatternStore.findById(
+          patternId,
+          typeof body.question_pattern_version === "number"
+            ? body.question_pattern_version
+            : undefined,
+        );
+        if (pattern && pattern.isActive && !pattern.deletedAt) {
+          resolvedPatternId = pattern.id;
+          resolvedPatternVersion = pattern.version;
+        }
+      }
+
       // 3. Enqueue generation job with pre-allocated jobId
       let result;
       try {
@@ -543,6 +578,8 @@ export const generationRoutes: FastifyPluginAsync<
           promptVersion: body.prompt_version,
           generationKey,
           generationContext,
+          questionPatternId: resolvedPatternId,
+          questionPatternVersion: resolvedPatternVersion,
         });
       } catch (enqueueErr) {
         // Enqueue compensation: refund debit if public generation was charged
@@ -579,6 +616,277 @@ export const generationRoutes: FastifyPluginAsync<
         request_id: request.id,
         job_id: result.generationJobId,
         status: result.status,
+      };
+    },
+  );
+
+  // -----------------------------------------------------------------------
+  // POST /v1/organizations/:organizationId/courses/:courseId/generate
+  // Multi-source unified content generation endpoint.
+  // -----------------------------------------------------------------------
+  app.post(
+    "/v1/organizations/:organizationId/courses/:courseId/generate",
+    { preHandler: [requireAuth] },
+    async (request, reply) => {
+      const actor = getActor(request);
+      const params = request.params as {
+        organizationId: string;
+        courseId: string;
+      };
+      const organizationId = getOrganizationId(params);
+      const courseId = getCourseId(params);
+
+      const body = (request.body ?? {}) as {
+        sources?: Array<{ documentId: string; order?: number }>;
+        types?: string[];
+        prompt_version?: string;
+      };
+
+      // 1. Validate sources input
+      const normalizedSources = normalizeGenerationSources(body.sources);
+
+      // 2. Authorize course access
+      if (opts.courseStore) {
+        const sysOrgId =
+          opts.systemOrganizationId ??
+          (process.env.SYSTEM_ORGANIZATION_ID as OrganizationId);
+        const course = await opts.courseStore.findByIdForUser(
+          courseId,
+          actor.userId,
+          sysOrgId,
+        );
+        if (!course) {
+          throw new DomainError("not_found", "Course not found");
+        }
+        if (
+          course.organizationId !== organizationId &&
+          (!sysOrgId || course.organizationId !== sysOrgId)
+        ) {
+          throw new DomainError("forbidden", "Access denied to this course");
+        }
+      }
+
+      // 3. Verify all source documents belong to org, course, and are in extracted/ready state
+      const sourceDocs: DocumentRecord[] = [];
+      for (const s of normalizedSources) {
+        const doc = await documentStore.findByIdForOrganization(s.documentId, organizationId);
+        if (!doc) {
+          throw new DomainError("not_found", `Document ${s.documentId} not found`);
+        }
+        if (doc.courseId && doc.courseId !== courseId) {
+          throw new DomainError("bad_request", `Document ${s.documentId} does not belong to this course`);
+        }
+        const allowedStatuses = ["extracted", "review_pending", "ready"];
+        if (!allowedStatuses.includes(doc.status)) {
+          throw new DomainError(
+            "conflict",
+            `Document ${s.documentId} is not in a valid state for generation (status: ${doc.status})`,
+          );
+        }
+        sourceDocs.push(doc);
+      }
+
+      // Resolve requested content types
+      let requestedTypes: GeneratedContentType[] = ["lesson", "flashcard", "quiz", "review_summary"];
+      if (Array.isArray(body.types) && body.types.length > 0) {
+        requestedTypes = body.types as GeneratedContentType[];
+      }
+
+      const isActorAdmin =
+        actor.role === "platform_admin" ||
+        actor.role === "organization_admin" ||
+        actor.role === "course_editor";
+      const generationContext: GenerationContext = isActorAdmin ? "admin" : "public";
+
+      // 4. Concurrency control: atomically reserve ALL documents
+      const reservedDocs: Array<{ doc: DocumentRecord; prevStatus: DocumentRecord["status"] }> = [];
+      try {
+        for (const doc of sourceDocs) {
+          let res: { previousStatus: DocumentRecord["status"]; document: DocumentRecord } | undefined;
+          if (documentStore.reserveForGeneration) {
+            res = await documentStore.reserveForGeneration(doc.id, organizationId);
+          } else {
+            if (doc.status === "generating" || doc.status === "pending_generation") {
+              res = undefined;
+            } else {
+              const prev = doc.status;
+              const updatedDoc = await documentStore.update({
+                ...doc,
+                status: "pending_generation",
+                updatedAt: new Date().toISOString(),
+              });
+              res = { previousStatus: prev, document: updatedDoc };
+            }
+          }
+
+          if (!res) {
+            throw new DomainError(
+              "conflict",
+              `سند ${doc.originalName} در حال حاضر در حال پردازش یا تولید محتوا است.`,
+            );
+          }
+          reservedDocs.push({ doc: res.document, prevStatus: res.previousStatus });
+        }
+      } catch (reserveErr) {
+        // Rollback already-reserved documents
+        for (const r of reservedDocs) {
+          await documentStore.update({
+            ...r.doc,
+            status: r.prevStatus,
+            updatedAt: new Date().toISOString(),
+          });
+        }
+        throw reserveErr;
+      }
+
+      const primarySource = normalizedSources[0];
+      const jobId = randomUUID() as GenerationJobId;
+      const generationKey = `multi:${courseId}:${randomUUID()}`;
+
+      // 5. Billing: Single charge for aggregate multi-source generation
+      if (generationContext === "public") {
+        if (!walletService) {
+          throw new DomainError("bad_request", "Wallet service is not configured");
+        }
+
+        const estimate = await service.estimateCostForSources(
+          actor,
+          organizationId,
+          normalizedSources.map((s) => s.documentId),
+          requestedTypes,
+          courseId,
+        );
+
+        const chargedAmountToman = estimate.userPrice.totalPriceToman;
+
+        if (chargedAmountToman > 0) {
+          try {
+            await walletService.debit({
+              userId: actor.userId,
+              amount: chargedAmountToman,
+              source: "content_generation",
+              referenceType: "generation_job",
+              referenceId: jobId,
+              idempotencyKey: `generation-debit:${jobId}`,
+              metadata: {
+                jobId,
+                documentId: primarySource.documentId,
+                courseId,
+                organizationId,
+                sourcesCount: normalizedSources.length,
+                types: requestedTypes,
+                chargedAmountToman,
+              },
+            });
+          } catch (debitErr) {
+            // Revert all reservations
+            for (const r of reservedDocs) {
+              await documentStore.update({
+                ...r.doc,
+                status: r.prevStatus,
+                updatedAt: new Date().toISOString(),
+              });
+            }
+            throw debitErr;
+          }
+        }
+      }
+
+      // Mark progress as queued for primary document
+      await service.progressService.queue(primarySource.documentId, organizationId);
+
+      // 6. Enqueue generation job with primary documentId and all sources
+      let result;
+      try {
+        result = await queue.enqueueGenerationJob({
+          jobId,
+          actorUserId: actor.userId,
+          actorRole: actor.role,
+          organizationId,
+          documentId: primarySource.documentId,
+          courseId: courseId as never,
+          types: requestedTypes,
+          promptVersion: body.prompt_version,
+          generationKey,
+          generationContext,
+          sources: normalizedSources,
+        });
+      } catch (enqueueErr) {
+        if (generationContext === "public" && walletService && walletStore) {
+          await refundGenerationJobDebit({
+            walletService,
+            walletStore,
+            jobId,
+            actorUserId: actor.userId,
+            documentId: primarySource.documentId,
+            organizationId,
+            reason: "enqueue_failed",
+          });
+        }
+
+        for (const r of reservedDocs) {
+          await documentStore.update({
+            ...r.doc,
+            status: r.prevStatus,
+            updatedAt: new Date().toISOString(),
+          });
+        }
+        await service.progressService.fail(
+          primarySource.documentId,
+          organizationId,
+          enqueueErr instanceof Error ? enqueueErr.message : "خطا در صف‌بندی عملیات تولید محتوا.",
+        );
+
+        throw enqueueErr;
+      }
+
+      reply.code(202);
+      return {
+        request_id: request.id,
+        job_id: result.generationJobId,
+        status: result.status,
+      };
+    },
+  );
+
+  // -----------------------------------------------------------------------
+  // POST /v1/organizations/:organizationId/courses/:courseId/estimate-cost
+  // Estimate cost for multi-source unified generation.
+  // -----------------------------------------------------------------------
+  app.post(
+    "/v1/organizations/:organizationId/courses/:courseId/estimate-cost",
+    { preHandler: [requireAuth] },
+    async (request) => {
+      const actor = getActor(request);
+      const params = request.params as {
+        organizationId: string;
+        courseId: string;
+      };
+      const organizationId = getOrganizationId(params);
+      const courseId = getCourseId(params);
+
+      const body = (request.body ?? {}) as {
+        sources?: Array<{ documentId: string; order?: number }>;
+        types?: string[];
+      };
+
+      const normalizedSources = normalizeGenerationSources(body.sources);
+      const requestedTypes =
+        Array.isArray(body.types) && body.types.length > 0
+          ? (body.types as GeneratedContentType[])
+          : (["lesson", "flashcard", "quiz", "review_summary"] as GeneratedContentType[]);
+
+      const estimate = await service.estimateCostForSources(
+        actor,
+        organizationId,
+        normalizedSources.map((s) => s.documentId),
+        requestedTypes,
+        courseId,
+      );
+
+      return {
+        request_id: request.id,
+        estimate,
       };
     },
   );

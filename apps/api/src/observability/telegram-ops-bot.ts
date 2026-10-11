@@ -16,6 +16,8 @@
 
 import type { TelegramClient, TelegramUpdate } from "./telegram-client.js";
 import type { AdminStore, AdminSystemHealth, AdminAiAnalytics } from "../modules/admin/admin-store.js";
+import type { AdminService } from "../modules/admin/admin-service.js";
+import type { AuditService } from "./audit-service.js";
 import type { Queue } from "bullmq";
 
 export interface TelegramOpsBotOptions {
@@ -25,6 +27,9 @@ export interface TelegramOpsBotOptions {
   botUsername?: string;
   telegramClient: TelegramClient;
   adminStore?: AdminStore;
+  adminService?: AdminService;
+  auditService?: AuditService;
+  adminUserId?: string;
   generationQueue?: Queue;
   workerHealthChecker?: () => Promise<{ status: "healthy" | "unhealthy" | "unknown"; details?: string }>;
   logger?: (msg: string) => void;
@@ -39,6 +44,9 @@ export class TelegramOpsBot {
   private readonly botUsername: string;
   private readonly telegramClient: TelegramClient;
   private readonly adminStore?: AdminStore;
+  private readonly adminService?: AdminService;
+  private readonly auditService?: AuditService;
+  private readonly adminUserId?: string;
   private readonly generationQueue?: Queue;
   private readonly workerHealthChecker?: () => Promise<{ status: "healthy" | "unhealthy" | "unknown"; details?: string }>;
   private readonly logger: (msg: string) => void;
@@ -60,6 +68,9 @@ export class TelegramOpsBot {
     this.botUsername = (options.botUsername ?? "avana_alerts_bot").replace(/^@/, "").trim().toLowerCase();
     this.telegramClient = options.telegramClient;
     this.adminStore = options.adminStore;
+    this.adminService = options.adminService;
+    this.auditService = options.auditService;
+    this.adminUserId = options.adminUserId;
     this.generationQueue = options.generationQueue;
     this.workerHealthChecker = options.workerHealthChecker;
     this.logger =
@@ -158,6 +169,11 @@ export class TelegramOpsBot {
    * Process a single Telegram update with strict authorization and rate limiting.
    */
   async handleUpdate(update: TelegramUpdate): Promise<void> {
+    if (update.callback_query) {
+      await this.handleCallbackQuery(update.callback_query);
+      return;
+    }
+
     const message = update.message;
     if (!message || !message.text) {
       return;
@@ -464,6 +480,227 @@ export class TelegramOpsBot {
       timer = setTimeout(() => reject(new Error("Timeout")), timeoutMs);
     });
     return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timer));
+  }
+
+  /**
+   * Handle incoming callback query from Telegram inline keyboard buttons.
+   */
+  async handleCallbackQuery(cq: NonNullable<TelegramUpdate["callback_query"]>): Promise<void> {
+    const chatId = cq.message?.chat?.id ? String(cq.message.chat.id).trim() : "";
+
+    // STRICT SECURITY: Silently drop callback queries from unauthorized chat IDs
+    if (!this.adminChatId || chatId !== this.adminChatId) {
+      return;
+    }
+
+    // In-memory sliding rate limiter check
+    if (this.isRateLimited(chatId)) {
+      await this.telegramClient.answerCallbackQuery({
+        callbackQueryId: cq.id,
+        text: "⚠️ تعداد درخواست‌های شما بیش از حد مجاز است. لطفاً چند لحظه صبر کنید.",
+        showAlert: true,
+      });
+      return;
+    }
+
+    const rawData = cq.data?.trim() ?? "";
+    const match = rawData.match(/^pay:(app|rej):([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i);
+    if (!match) {
+      // Invalid callback format or forged data -> clear spinner and return safely
+      await this.telegramClient.answerCallbackQuery({ callbackQueryId: cq.id });
+      return;
+    }
+
+    const action = match[1].toLowerCase();
+    const paymentId = match[2].toLowerCase();
+
+    // Answer callback query immediately to stop client-side spinner
+    await this.telegramClient.answerCallbackQuery({ callbackQueryId: cq.id });
+
+    // Canonical State Pre-validation
+    if (!this.adminStore?.getCommercePayment) {
+      this.logger("[telegram-ops-bot] Cannot process payment callback: adminStore.getCommercePayment not available.");
+      return;
+    }
+
+    let paymentRecord: any;
+    try {
+      paymentRecord = await this.adminStore.getCommercePayment(paymentId);
+    } catch {
+      paymentRecord = null;
+    }
+
+    const messageId = cq.message?.message_id;
+
+    if (!paymentRecord) {
+      if (messageId) {
+        await this.telegramClient.editMessageText({
+          messageId,
+          text: `⚠️ پرداخت با شناسه ${paymentId} یافت نشد.`,
+          overrideChatId: chatId,
+        });
+      }
+      return;
+    }
+
+    if (paymentRecord.status !== "pending_admin_review") {
+      if (messageId) {
+        await this.telegramClient.editMessageText({
+          messageId,
+          text: "⚠️ این پرداخت قبلاً تعیین تکلیف شده است.",
+          overrideChatId: chatId,
+        });
+      }
+      return;
+    }
+
+    if (paymentRecord.gateway !== "card_to_card") {
+      if (messageId) {
+        await this.telegramClient.editMessageText({
+          messageId,
+          text: "⚠️ این نوع پرداخت در وضعیت بررسی دستی قرار ندارد.",
+          overrideChatId: chatId,
+        });
+      }
+      return;
+    }
+
+    if (!this.adminService) {
+      this.logger("[telegram-ops-bot] Cannot mutate payment: adminService is not provided.");
+      return;
+    }
+
+    // Resolve an existing admin user ID for audit and foreign key integrity
+    let resolvedAdminId = this.adminUserId;
+    if (!resolvedAdminId && this.adminStore?.listUsers) {
+      try {
+        const adminUsers = await this.adminStore.listUsers({
+          page: 1,
+          pageSize: 1,
+          role: "platform_admin",
+        });
+        if (adminUsers.users.length > 0) {
+          resolvedAdminId = adminUsers.users[0].id;
+        }
+      } catch {
+        // Fallback
+      }
+    }
+    if (!resolvedAdminId) {
+      resolvedAdminId = "00000000-0000-0000-0000-000000000001";
+    }
+
+    const REJECT_REASON = "رد پرداخت از طریق Telegram Ops Bot";
+
+    try {
+      if (action === "app") {
+        await this.adminService.approvePayment(resolvedAdminId, paymentId);
+
+        if (this.auditService) {
+          void this.auditService.emit([
+            {
+              actorId: resolvedAdminId as any,
+              organizationId: null,
+              action: "payment.approved",
+              entityType: "payment",
+              entityId: paymentId,
+              details: {
+                actorType: "admin/telegram",
+                telegramChatId: chatId,
+                amount: paymentRecord.amount,
+                result: "success",
+              },
+              createdAt: new Date().toISOString(),
+            },
+          ]);
+        }
+
+        if (messageId) {
+          const timeStr = new Date().toISOString();
+          const amountStr = `${Number(paymentRecord.amount).toLocaleString("fa-IR")} تومان`;
+          const lines = [
+            "💳 پرداخت تأیید شد",
+            "",
+            `مبلغ: ${amountStr}`,
+            `شناسه: ${paymentId}`,
+            "تأیید توسط: Admin (تلگرام)",
+            `زمان: ${timeStr}`,
+          ];
+
+          await this.telegramClient.editMessageText({
+            messageId,
+            text: lines.join("\n"),
+            overrideChatId: chatId,
+          });
+        }
+      } else {
+        await this.adminService.rejectPayment(resolvedAdminId, paymentId, REJECT_REASON);
+
+        if (this.auditService) {
+          void this.auditService.emit([
+            {
+              actorId: resolvedAdminId as any,
+              organizationId: null,
+              action: "payment.rejected",
+              entityType: "payment",
+              entityId: paymentId,
+              details: {
+                actorType: "admin/telegram",
+                telegramChatId: chatId,
+                amount: paymentRecord.amount,
+                reason: REJECT_REASON,
+                result: "success",
+              },
+              createdAt: new Date().toISOString(),
+            },
+          ]);
+        }
+
+        if (messageId) {
+          const timeStr = new Date().toISOString();
+          const amountStr = `${Number(paymentRecord.amount).toLocaleString("fa-IR")} تومان`;
+          const lines = [
+            "❌ پرداخت رد شد",
+            "",
+            `مبلغ: ${amountStr}`,
+            `شناسه: ${paymentId}`,
+            "دسترسی مرتبط غیرفعال شد.",
+            "رد توسط: Admin (تلگرام)",
+            `زمان: ${timeStr}`,
+          ];
+
+          await this.telegramClient.editMessageText({
+            messageId,
+            text: lines.join("\n"),
+            overrideChatId: chatId,
+          });
+        }
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (
+        msg.includes("payment_already_approved") ||
+        msg.includes("payment_already_rejected") ||
+        msg.includes("invalid_payment_status") ||
+        (err as any)?.code === "conflict"
+      ) {
+        if (messageId) {
+          await this.telegramClient.editMessageText({
+            messageId,
+            text: "⚠️ این پرداخت قبلاً تعیین تکلیف شده است.",
+            overrideChatId: chatId,
+          });
+        }
+      } else {
+        this.logger(`[telegram-ops-bot] Error executing payment action ${action} for ${paymentId}: ${msg}`);
+        if (messageId) {
+          await this.telegramClient.sendMessage(
+            "⚠️ خطا در اجرای عملیات پرداخت. لطفاً وضعیت را از پنل مدیریت بررسی کنید.",
+            chatId,
+          );
+        }
+      }
+    }
   }
 
   /**

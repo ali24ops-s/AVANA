@@ -16,6 +16,7 @@ import {
   generatedContents,
   generatedContentCitations,
   generationJobs,
+  generationJobSources,
   generationChunks,
 } from "@avana/database/schema";
 import type {
@@ -27,6 +28,7 @@ import type {
 import type {
   GenerationJobStore,
   GenerationJobRecord,
+  GenerationJobSourceRecord,
 } from "./generation-jobs-store.js";
 import type {
   GenerationChunkStore,
@@ -44,6 +46,7 @@ import type {
   GenerationJobId,
   LessonId,
   OrganizationId,
+  SourcePackRole,
   UserId,
 } from "@avana/domain";
 import type {
@@ -457,6 +460,8 @@ function toGenerationJobRecord(row: {
   leaseExpiresAt?: Date | null;
   completedAt: Date | null;
   deletedAt: Date | null;
+  questionPatternId?: string | null;
+  questionPatternVersion?: number | null;
 }): GenerationJobRecord {
   return {
     id: row.id as GenerationJobId,
@@ -477,6 +482,8 @@ function toGenerationJobRecord(row: {
     leaseExpiresAt: row.leaseExpiresAt?.toISOString() ?? null,
     completedAt: row.completedAt?.toISOString() ?? null,
     deletedAt: row.deletedAt?.toISOString() ?? null,
+    questionPatternId: row.questionPatternId ?? null,
+    questionPatternVersion: row.questionPatternVersion ?? null,
   };
 }
 
@@ -569,6 +576,8 @@ export class DrizzleGenerationJobStore implements GenerationJobStore {
         heartbeatAt: record.heartbeatAt ? new Date(record.heartbeatAt) : null,
         leaseExpiresAt: record.leaseExpiresAt ? new Date(record.leaseExpiresAt) : null,
         completedAt: record.completedAt ? new Date(record.completedAt) : null,
+        questionPatternId: record.questionPatternId ?? null,
+        questionPatternVersion: record.questionPatternVersion ?? null,
       })
       .returning();
 
@@ -700,6 +709,42 @@ export class DrizzleGenerationJobStore implements GenerationJobStore {
           isNull(generationJobs.deletedAt),
         ),
       );
+  }
+
+  async addSources(sources: GenerationJobSourceRecord[]): Promise<void> {
+    if (sources.length === 0) return;
+    await this.db
+      .insert(generationJobSources)
+      .values(
+        sources.map((s) => ({
+          id: s.id,
+          generationJobId: s.generationJobId,
+          documentId: s.documentId,
+          role: s.role ?? (s.orderIndex === 0 ? "primary_notes" : "supplementary_reference"),
+          orderIndex: s.orderIndex,
+          createdAt: new Date(s.createdAt),
+        })),
+      )
+      .onConflictDoNothing();
+  }
+
+  async listSourcesByJob(
+    generationJobId: GenerationJobId,
+  ): Promise<GenerationJobSourceRecord[]> {
+    const rows = await this.db
+      .select()
+      .from(generationJobSources)
+      .where(eq(generationJobSources.generationJobId, generationJobId))
+      .orderBy(asc(generationJobSources.orderIndex));
+
+    return rows.map((r) => ({
+      id: r.id,
+      generationJobId: r.generationJobId as GenerationJobId,
+      documentId: r.documentId as DocumentId,
+      role: (r.role as SourcePackRole) ?? (r.orderIndex === 0 ? "primary_notes" : "supplementary_reference"),
+      orderIndex: r.orderIndex,
+      createdAt: r.createdAt.toISOString(),
+    }));
   }
 }
 

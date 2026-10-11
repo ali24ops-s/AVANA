@@ -22,6 +22,15 @@ export interface TelegramSendMessageResult {
   reason?: string;
 }
 
+export interface TelegramInlineKeyboardButton {
+  text: string;
+  callback_data: string;
+}
+
+export interface TelegramInlineKeyboardMarkup {
+  inline_keyboard: TelegramInlineKeyboardButton[][];
+}
+
 export interface TelegramUpdate {
   update_id: number;
   message?: {
@@ -40,6 +49,26 @@ export interface TelegramUpdate {
     };
     date: number;
     text?: string;
+  };
+  callback_query?: {
+    id: string;
+    from: {
+      id: number;
+      is_bot?: boolean;
+      first_name?: string;
+      username?: string;
+    };
+    message?: {
+      message_id: number;
+      chat: {
+        id: number;
+        type: string;
+        title?: string;
+        username?: string;
+      };
+      text?: string;
+    };
+    data?: string;
   };
 }
 
@@ -91,6 +120,7 @@ export class TelegramClient {
   async sendMessage(
     text: string,
     overrideChatId?: string,
+    replyMarkup?: TelegramInlineKeyboardMarkup,
   ): Promise<TelegramSendMessageResult> {
     const targetChatId = overrideChatId?.trim() || this.adminChatId;
 
@@ -109,17 +139,22 @@ export class TelegramClient {
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
 
     try {
+      const bodyPayload: Record<string, unknown> = {
+        chat_id: targetChatId,
+        text: text.trim(),
+        disable_web_page_preview: true,
+      };
+      if (replyMarkup) {
+        bodyPayload.reply_markup = replyMarkup;
+      }
+
       const response = await this.fetchImpl(endpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Accept: "application/json",
         },
-        body: JSON.stringify({
-          chat_id: targetChatId,
-          text: text.trim(),
-          disable_web_page_preview: true,
-        }),
+        body: JSON.stringify(bodyPayload),
         signal: controller.signal,
       });
 
@@ -162,6 +197,156 @@ export class TelegramClient {
         sent: false,
         reason: `network_error: ${safeMessage}`,
       };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * Edit an existing message text and optionally update/remove its inline keyboard.
+   *
+   * NEVER throws an error to the caller — returns a status object.
+   */
+  async editMessageText(options: {
+    messageId: number;
+    text: string;
+    overrideChatId?: string;
+    replyMarkup?: TelegramInlineKeyboardMarkup;
+  }): Promise<{ ok: boolean; reason?: string }> {
+    const targetChatId = options.overrideChatId?.trim() || this.adminChatId;
+
+    if (!this.botToken) {
+      return { ok: false, reason: "missing_bot_token" };
+    }
+    if (!targetChatId) {
+      return { ok: false, reason: "missing_chat_id" };
+    }
+    if (!options.text || options.text.trim().length === 0) {
+      return { ok: false, reason: "empty_text" };
+    }
+
+    const endpoint = `${this.apiBaseUrl}/bot${this.botToken}/editMessageText`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+
+    try {
+      const bodyPayload: Record<string, unknown> = {
+        chat_id: targetChatId,
+        message_id: options.messageId,
+        text: options.text.trim(),
+        disable_web_page_preview: true,
+      };
+      if (options.replyMarkup) {
+        bodyPayload.reply_markup = options.replyMarkup;
+      }
+
+      const response = await this.fetchImpl(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(bodyPayload),
+        signal: controller.signal,
+      });
+
+      let parsed: TelegramApiResponse | null = null;
+      try {
+        const json = await response.json();
+        if (json && typeof json === "object") {
+          parsed = json as TelegramApiResponse;
+        }
+      } catch {
+        parsed = null;
+      }
+
+      if (!response.ok || !parsed?.ok) {
+        const errorDesc = parsed?.description || `HTTP ${response.status}`;
+        return {
+          ok: false,
+          reason: `telegram_api_error: ${errorDesc}`,
+        };
+      }
+
+      return { ok: true };
+    } catch (err: unknown) {
+      if (controller.signal.aborted) {
+        return { ok: false, reason: `timeout_after_${this.timeoutMs}ms` };
+      }
+      const safeMessage = err instanceof Error ? err.message : String(err);
+      return { ok: false, reason: `network_error: ${safeMessage}` };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * Answer a callback query from an inline button to clear the client loading spinner.
+   *
+   * NEVER throws an error to the caller — returns a status object.
+   */
+  async answerCallbackQuery(options: {
+    callbackQueryId: string;
+    text?: string;
+    showAlert?: boolean;
+  }): Promise<{ ok: boolean; reason?: string }> {
+    if (!this.botToken) {
+      return { ok: false, reason: "missing_bot_token" };
+    }
+    if (!options.callbackQueryId) {
+      return { ok: false, reason: "missing_callback_query_id" };
+    }
+
+    const endpoint = `${this.apiBaseUrl}/bot${this.botToken}/answerCallbackQuery`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+
+    try {
+      const bodyPayload: Record<string, unknown> = {
+        callback_query_id: options.callbackQueryId,
+      };
+      if (options.text) {
+        bodyPayload.text = options.text;
+      }
+      if (options.showAlert !== undefined) {
+        bodyPayload.show_alert = options.showAlert;
+      }
+
+      const response = await this.fetchImpl(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(bodyPayload),
+        signal: controller.signal,
+      });
+
+      let parsed: TelegramApiResponse | null = null;
+      try {
+        const json = await response.json();
+        if (json && typeof json === "object") {
+          parsed = json as TelegramApiResponse;
+        }
+      } catch {
+        parsed = null;
+      }
+
+      if (!response.ok || !parsed?.ok) {
+        const errorDesc = parsed?.description || `HTTP ${response.status}`;
+        return {
+          ok: false,
+          reason: `telegram_api_error: ${errorDesc}`,
+        };
+      }
+
+      return { ok: true };
+    } catch (err: unknown) {
+      if (controller.signal.aborted) {
+        return { ok: false, reason: `timeout_after_${this.timeoutMs}ms` };
+      }
+      const safeMessage = err instanceof Error ? err.message : String(err);
+      return { ok: false, reason: `network_error: ${safeMessage}` };
     } finally {
       clearTimeout(timer);
     }
@@ -215,7 +400,7 @@ export class TelegramClient {
           offset: options.offset,
           limit: options.limit ?? 20,
           timeout: timeoutSec,
-          allowed_updates: ["message"],
+          allowed_updates: ["message", "callback_query"],
         }),
         signal: controller.signal,
       });

@@ -9,6 +9,12 @@ import { courseRoutes } from "../modules/courses/index.js";
 import { learningRoutes } from "../modules/learning/index.js";
 import { documentRoutes } from "../modules/documents/index.js";
 import { generationRoutes, reviewRoutes } from "../modules/generation/index.js";
+import {
+  sourcePackRoutes,
+  SourcePackService,
+  DrizzleSourcePackStore,
+  type SourcePackStore,
+} from "../modules/source-packs/index.js";
 import { libraryRoutes } from "../modules/library/index.js";
 import type {
   ContentPackStore,
@@ -52,6 +58,10 @@ import type {
   GeneratedContentStore,
   GeneratedContentCitationStore,
 } from "../modules/generation/generation-store.js";
+import {
+  DrizzleQuestionPatternStore,
+  InMemoryQuestionPatternStore,
+} from "../modules/generation/question-patterns-store.js";
 import type { GenerationChunkStore } from "../modules/generation/generation-chunk-store.js";
 import type { GenerationJobStore } from "../modules/generation/generation-jobs-store.js";
 import type { GenerationQueue } from "../modules/generation/generation-queue.js";
@@ -86,6 +96,7 @@ import {
 } from "../modules/identity/index.js";
 import type { StorageProvider } from "../modules/storage/index.js";
 import type { AuditService } from "../observability/audit-service.js";
+import { Ga4MeasurementProtocolService } from "../modules/observability/ga4-measurement-protocol.js";
 
 import type {
   EmailVerificationStore,
@@ -231,7 +242,11 @@ export interface V1RouteOptions {
   teacherConversationStore?: import("../modules/teacher-platform/stores.js").TeacherConversationStore;
   teacherConversationMessageStore?: import("../modules/teacher-platform/stores.js").TeacherConversationMessageStore;
   teacherMessageService?: TeacherMessageService;
+  sourcePackStore?: SourcePackStore;
+  sourcePackService?: SourcePackService;
+  questionPatternStore?: import("../modules/generation/question-patterns-store.js").QuestionPatternStore;
   db?: import("@avana/database/client").DbClient;
+  ga4Service?: Ga4MeasurementProtocolService;
 }
 
 
@@ -242,6 +257,16 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
   void app.register(healthRoutes);
   void app.register(readinessRoutes);
   void app.register(seoRoutes, { blogStore: opts.blogStore });
+
+  const ga4Service =
+    opts.ga4Service ??
+    (opts.config?.analytics?.ga4MeasurementId && opts.config?.analytics?.ga4ApiSecret
+      ? new Ga4MeasurementProtocolService({
+          measurementId: opts.config.analytics.ga4MeasurementId,
+          apiSecret: opts.config.analytics.ga4ApiSecret,
+          debugMode: opts.config.analytics.debugMode,
+        })
+      : undefined);
 
   const notificationService =
     opts.notificationService ??
@@ -278,6 +303,7 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       organizationStore: opts.organizationStore,
       notificationService,
       referralService,
+      auditService: opts.auditService,
     });
   }
 
@@ -495,6 +521,80 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
     });
   }
 
+  // Register Source Pack routes
+  if (
+    opts.config &&
+    opts.sessionStore &&
+    opts.userStore &&
+    opts.documentStore &&
+    opts.courseStore
+  ) {
+    const packStore: SourcePackStore =
+      opts.sourcePackStore ??
+      (opts.db ? new DrizzleSourcePackStore(opts.db as any) : undefined!);
+
+    if (packStore) {
+      let generationServiceForPacks: GenerationService | undefined;
+      if (
+        opts.generatedContentStore &&
+        opts.generatedContentCitationStore &&
+        opts.gateway
+      ) {
+        generationServiceForPacks = new GenerationService(
+          opts.generatedContentStore,
+          opts.generatedContentCitationStore,
+          opts.gateway,
+          opts.documentStore,
+          opts.documentChunkStore ?? ({} as any),
+          defaultPolicy,
+          opts.auditService,
+          opts.organizationStore,
+          opts.moduleStore,
+          opts.lessonStore,
+          opts.flashcardStore,
+          opts.quizStore,
+          opts.quizQuestionStore,
+          opts.courseStore,
+          opts.config.systemOrganizationId as OrganizationId,
+          opts.generationChunkStore,
+          opts.generationJobStore,
+          opts.generationProgressService,
+          notificationService,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          opts.config.generation?.pricing,
+          opts.adminStore
+            ? () => opts.adminStore!.getContentGenerationPricing()
+            : undefined,
+        );
+      }
+
+      const packService =
+        opts.sourcePackService ??
+        new SourcePackService({
+          store: packStore,
+          documentStore: opts.documentStore,
+          courseStore: opts.courseStore,
+          generationService: generationServiceForPacks,
+          generationQueue: opts.queue,
+          walletService,
+          walletStore: opts.walletStore,
+          systemOrganizationId: opts.config.systemOrganizationId as OrganizationId,
+        });
+
+      await app.register(sourcePackRoutes, {
+        service: packService,
+        sessionService: new SessionService(
+          opts.sessionStore,
+          opts.config.session,
+        ),
+        userStore: opts.userStore,
+      });
+    }
+  }
+
   let sharedStudyService: StudyService | undefined;
   let specialExamAutomationService: SpecialExamAutomationService | undefined;
   // Register study consumption routes (PR6-7) if all required stores are provided.
@@ -689,6 +789,11 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
             adminStore: opts.adminStore,
           })
         : undefined);
+    const questionPatternStore =
+      opts.questionPatternStore ??
+      ((opts.adminStore as any)?.db
+        ? new DrizzleQuestionPatternStore((opts.adminStore as any).db)
+        : new InMemoryQuestionPatternStore());
 
     const officialContentService =
       opts.officialContentService ??
@@ -714,26 +819,30 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
             opts.quizQuestionStore,
             opts.documentStore,
             opts.generatedContentStore,
-            new GenerationService(
-              opts.generatedContentStore,
-              opts.generatedContentCitationStore,
-              officialGateway,
-              opts.documentStore,
-              opts.documentChunkStore,
-              defaultPolicy,
-              opts.auditService,
-              opts.organizationStore,
-              opts.moduleStore,
-              opts.lessonStore,
-              opts.flashcardStore,
-              opts.quizStore,
-              opts.quizQuestionStore,
-              opts.courseStore,
-              opts.config.systemOrganizationId as OrganizationId,
-              opts.generationChunkStore,
-              opts.generationJobStore,
-              progressService,
-            ),
+            (() => {
+              const gs = new GenerationService(
+                opts.generatedContentStore,
+                opts.generatedContentCitationStore,
+                officialGateway,
+                opts.documentStore,
+                opts.documentChunkStore,
+                defaultPolicy,
+                opts.auditService,
+                opts.organizationStore,
+                opts.moduleStore,
+                opts.lessonStore,
+                opts.flashcardStore,
+                opts.quizStore,
+                opts.quizQuestionStore,
+                opts.courseStore,
+                opts.config.systemOrganizationId as OrganizationId,
+                opts.generationChunkStore,
+                opts.generationJobStore,
+                progressService,
+              );
+              gs.setQuestionPatternStore(questionPatternStore);
+              return gs;
+            })(),
             new ReviewService(
               opts.generatedContentStore,
               opts.generatedContentCitationStore,
@@ -819,6 +928,11 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       walletService,
       promotionService,
       referralService,
+      questionPatternStore,
+      quizQuestionStore: opts.quizQuestionStore,
+      gateway: opts.adminGateway ?? opts.gateway,
+      adminGateway: opts.adminGateway ?? opts.gateway,
+      ga4Service,
     });
   }
 
@@ -899,6 +1013,7 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
         : undefined,
       promotionService,
       referralService,
+      ga4Service,
       systemOrganizationId: opts.config?.systemOrganizationId
         ? (opts.config.systemOrganizationId as OrganizationId)
         : undefined,

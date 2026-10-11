@@ -308,9 +308,15 @@ export function getContentPlanningTemplate(): string {
     ``,
     `⸻`,
     ``,
-    `1. CORE PRINCIPLE: SOURCE STRUCTURE ≠ LEARNING STRUCTURE`,
+    `1. CORE PRINCIPLE: SOURCE STRUCTURE ≠ LEARNING STRUCTURE & SOURCE ROLE GOVERNANCE`,
     ``,
     `The source document is the scientific source, not the required educational structure.`,
+    ``,
+    `When multiple sources are provided, each chunk is labeled with its pedagogical role:`,
+    `* PRIMARY NOTES (جزوه اصلی): The foundational educational backbone. Primary topics, order, and lesson progression MUST be derived predominantly from this source.`,
+    `* QUESTION TEMPLATE (قالب سؤالات): Provides examination patterns, question styles, difficulty, and problem formatting. DO NOT treat this file's text as the primary curriculum spine or lesson facts, but use it to guide question generation and high-yield examination focus.`,
+    `* PRIMARY REFERENCE (رفرنس اصلی): Authoritative reference textbook. Use for scientific validation, clarifying ambiguous mechanisms, expanding depth, and resolving gaps in notes, but should NOT replace the core lecture structure unnecessarily.`,
+    `* SUPPLEMENTARY REFERENCE (رفرنس تکمیلی): Auxiliary material for additional clinical examples, analogies, case vignettes, and supplementary pearls.`,
     ``,
     `DO NOT simply follow:`,
     ``,
@@ -601,6 +607,17 @@ export function getContentPlanningTemplate(): string {
     `* B. Conceptual Visualization: When the topic features canonical relationships (e.g. Emax/EC50 dose-response, competitive antagonism rightward shifts, partial vs full agonist ceiling, inverse agonism/two-state receptor models), set mode: "conceptual", type: "line", sourceDataRequired: false, and specify the concept and educational rationale. NEVER output mathematical parameters or fabricated numbers.`,
     `* C. Data-driven Visualization: Only when the source chunks explicitly contain verified numbers, tables, or time-series data. Set mode: "data", sourceDataRequired: true, and list citationChunkIds. NEVER invent data.`,
     `* Density: Maximum 1-2 charts per session where pedagogy genuinely demands visualization. Most sessions should have [].`,
+    ``,
+    `⸻`,
+    ``,
+    `13.7. MULTI-SOURCE SYNTHESIS & UNIFIED CURRICULUM`,
+    `When source chunks originate from multiple documents (labeled as PRIMARY and SUPPLEMENTARY):`,
+    `* All sources form a single, unified educational curriculum.`,
+    `* The PRIMARY source (Source 1 / order 0) dictates the foundational structure, outline, and pedagogical sequence.`,
+    `* SUPPLEMENTARY sources (Sources 2+ / order > 0) enrich the curriculum with deeper explanations, clinical nuances, and exercise context.`,
+    `* DEDUPLICATION: When overlapping or identical concepts appear in multiple sources, MERGE them into a SINGLE coherent concept/session. Do NOT create parallel or duplicated sessions for the same topic.`,
+    `* ATTRIBUTION: For merged sessions and concepts, include relevantChunkIds from ALL sources that discuss that concept so downstream generation can draw upon them.`,
+    `* CONFLICT RESOLUTION: In the event of minor discrepancies between sources, prioritize the PRIMARY source for the main pedagogical definition and note supplementary variations.`,
     ``,
     `⸻`,
     ``,
@@ -2448,6 +2465,8 @@ export interface QuizGenerationPromptParams {
   lessonContent: string;
   chunkContext: string;
   chunkIdList: string[];
+  pattern?: import("@avana/domain").QuestionPatternDefinition | null;
+  questionTemplateContext?: string;
 }
 
 export interface QuizBatchItemPromptParams {
@@ -2517,6 +2536,57 @@ export function buildQuizBatchGenerationUserPrompt(
   ].join("\n");
 }
 
+export function buildQuizPatternGuidelinesSection(
+  pattern: import("@avana/domain").QuestionPatternDefinition,
+): string {
+  const examplesBlock =
+    pattern.examples && pattern.examples.length > 0
+      ? pattern.examples
+          .map((ex, idx) => {
+            const choicesStr = Array.isArray(ex.choices)
+              ? ex.choices.map((c, cIdx) => `    ${cIdx + 1}. ${c}`).join("\n")
+              : "";
+            const ansStr =
+              typeof ex.correctAnswer === "string"
+                ? ex.correctAnswer
+                : JSON.stringify(ex.correctAnswer);
+            return [
+              `[Reference Example ${idx + 1}]`,
+              ex.clinicalContext ? `Context / Scenario: ${ex.clinicalContext}` : "",
+              `Stem: ${ex.question}`,
+              `Choices:\n${choicesStr}`,
+              `Correct Answer: ${ansStr}`,
+              ex.explanation ? `Explanation: ${ex.explanation}` : "",
+            ]
+              .filter(Boolean)
+              .join("\n");
+          })
+          .join("\n\n")
+      : "No reference examples provided.";
+
+  return [
+    ``,
+    `QUESTION PATTERN — STRUCTURAL & COGNITIVE GUIDANCE:`,
+    `Pattern Title: "${pattern.title}"`,
+    `Cognitive Level: ${pattern.cognitiveLevel}`,
+    ...(pattern.skills && pattern.skills.length > 0
+      ? [`Target Skills: ${pattern.skills.join(", ")}`]
+      : []),
+    `Structural Instructions:`,
+    pattern.systemInstructions,
+    ``,
+    `STRICT ANTI-HALLUCINATION & GROUNDING INVARIANT:`,
+    `The reference examples and pattern instructions below describe question structure, reasoning depth, cognitive approach, and distractor construction ONLY.`,
+    `They are NOT factual sources.`,
+    `All factual content, clinical claims, disease names, drug names, patient values, dosages, mechanisms, and numerical figures MUST come exclusively from the provided RELEVANT SOURCE CHUNKS.`,
+    `Do NOT copy, transfer, or introduce any facts, scenarios, patient cases, drugs, or clinical details from the pattern examples into the generated questions.`,
+    `Use the examples ONLY to understand how a high-discrimination question should be structured.`,
+    ``,
+    `REFERENCE STRUCTURAL EXAMPLES (FEW-SHOT):`,
+    examplesBlock,
+  ].join("\n");
+}
+
 export function buildQuizGenerationUserPrompt(
   params: QuizGenerationPromptParams,
 ): string {
@@ -2570,6 +2640,15 @@ export function buildQuizGenerationUserPrompt(
     ``,
     `AVAILABLE CHUNK IDs:`,
     JSON.stringify(params.chunkIdList),
+    ...(params.pattern ? [buildQuizPatternGuidelinesSection(params.pattern)] : []),
+    ...(params.questionTemplateContext
+      ? [
+          ``,
+          `QUESTION TEMPLATE SAMPLES (Style, Difficulty, and Pattern Guidance from Source):`,
+          params.questionTemplateContext,
+          `Adhere to the question style, exam pattern, difficulty, and question framing of the template above. Ground all scientific facts strictly in the session source chunks.`,
+        ]
+      : []),
     ``,
     `OUTPUT INSTRUCTIONS:`,
     `Return ONLY valid JSON matching this schema:`,

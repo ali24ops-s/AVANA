@@ -28,6 +28,9 @@ export interface DocumentStatusCardProps {
   courseId?: string | null;
   onNavigateToReview?: () => void;
   canGenerate?: boolean;
+  isSelectable?: boolean;
+  isSelected?: boolean;
+  onToggleSelect?: (documentId: string) => void;
 }
 
 const TRANSIENT_STATUSES: ReadonlySet<DocumentStatus> = new Set<DocumentStatus>([
@@ -76,6 +79,9 @@ export function DocumentStatusCard({
   courseId,
   onNavigateToReview,
   canGenerate: canGenerateProp,
+  isSelectable = false,
+  isSelected = false,
+  onToggleSelect,
 }: DocumentStatusCardProps) {
   const { user, memberships } = useAuth();
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
@@ -340,9 +346,20 @@ export function DocumentStatusCard({
   );
 
   return (
-    <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-4 sm:p-5 space-y-4 shadow-xs">
+    <div className={`bg-[var(--color-surface)] rounded-2xl border ${isSelected ? "border-[#008080] ring-1 ring-[#008080]" : "border-[var(--color-border)]"} p-4 sm:p-5 space-y-4 shadow-xs transition-colors`}>
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 sm:gap-4">
         <div className="flex items-start gap-3 min-w-0 flex-1">
+          {isSelectable && (
+            <div className="pt-2">
+              <input
+                type="checkbox"
+                aria-label={`انتخاب سند ${document.original_name}`}
+                checked={isSelected}
+                onChange={() => onToggleSelect?.(document.id)}
+                className="w-4 h-4 rounded text-[#008080] focus:ring-[#008080] border-gray-300 cursor-pointer"
+              />
+            </div>
+          )}
           <div className="w-10 h-10 rounded-xl bg-teal-50 border border-teal-200 text-[#008080] flex items-center justify-center flex-shrink-0 mt-0.5">
             <FileText className="w-5 h-5" />
           </div>

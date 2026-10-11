@@ -396,6 +396,8 @@ export class OfficialContentService {
       exam?: boolean;
       review_summary?: boolean;
       force?: boolean;
+      questionPatternId?: string | null;
+      questionPatternVersion?: number | null;
     },
   ): Promise<{ generationRunId: string; status: CourseStatus }> {
     this.requireContentManager(actor);
@@ -470,6 +472,8 @@ export class OfficialContentService {
           generationKey,
           courseId,
           force: options?.force,
+          questionPatternId: options?.questionPatternId as any,
+          questionPatternVersion: options?.questionPatternVersion,
         },
       );
 

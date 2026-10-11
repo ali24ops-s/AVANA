@@ -653,3 +653,83 @@ export function parseCourseReleaseId(
   }
   return value as CourseReleaseId;
 }
+
+export type SourcePackId = Brand<UUID, "sourcePackId">;
+export type SourcePackDocumentId = Brand<UUID, "sourcePackDocumentId">;
+
+export function asSourcePackId(id: UUID): SourcePackId {
+  return id as SourcePackId;
+}
+
+export function isSourcePackId(value: string): value is SourcePackId {
+  return isUUID(value);
+}
+
+export function parseSourcePackId(
+  value: string,
+  fieldName = "sourcePackId",
+): SourcePackId {
+  if (!isSourcePackId(value)) {
+    throw new Error(`Invalid UUID for ${fieldName}`);
+  }
+  return value as SourcePackId;
+}
+
+export function asSourcePackDocumentId(id: UUID): SourcePackDocumentId {
+  return id as SourcePackDocumentId;
+}
+
+export function isSourcePackDocumentId(value: string): value is SourcePackDocumentId {
+  return isUUID(value);
+}
+
+export function parseSourcePackDocumentId(
+  value: string,
+  fieldName = "sourcePackDocumentId",
+): SourcePackDocumentId {
+  if (!isSourcePackDocumentId(value)) {
+    throw new Error(`Invalid UUID for ${fieldName}`);
+  }
+  return value as SourcePackDocumentId;
+}
+
+export type QuestionPatternId = Brand<UUID, "questionPatternId">;
+// eslint-disable-next-line no-secrets/no-secrets
+export type QuestionPatternExampleId = Brand<UUID, "questionPatternExampleId">;
+
+export function asQuestionPatternId(id: UUID): QuestionPatternId {
+  return id as QuestionPatternId;
+}
+
+export function isQuestionPatternId(value: string): value is QuestionPatternId {
+  return isUUID(value);
+}
+
+export function parseQuestionPatternId(
+  value: string,
+  fieldName = "questionPatternId",
+): QuestionPatternId {
+  if (!isQuestionPatternId(value)) {
+    throw new Error(`Invalid UUID for ${fieldName}`);
+  }
+  return value as QuestionPatternId;
+}
+
+export function asQuestionPatternExampleId(id: UUID): QuestionPatternExampleId {
+  return id as QuestionPatternExampleId;
+}
+
+export function isQuestionPatternExampleId(value: string): value is QuestionPatternExampleId {
+  return isUUID(value);
+}
+
+export function parseQuestionPatternExampleId(
+  value: string,
+  // eslint-disable-next-line no-secrets/no-secrets
+  fieldName = "questionPatternExampleId",
+): QuestionPatternExampleId {
+  if (!isQuestionPatternExampleId(value)) {
+    throw new Error(`Invalid UUID for ${fieldName}`);
+  }
+  return value as QuestionPatternExampleId;
+}

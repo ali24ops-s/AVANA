@@ -713,6 +713,17 @@ export type GenerateContentRequest = {
   prompt_version?: string;
 };
 
+export type GenerationSourceInput = {
+  documentId: string;
+  order: number;
+};
+
+export type MultiSourceGenerationRequest = {
+  sources: GenerationSourceInput[];
+  types?: GeneratedContentType[];
+  prompt_version?: string;
+};
+
 export type GenerateContentResponse = {
   request_id: string;
   contents: GeneratedContentResource[];
@@ -1224,4 +1235,71 @@ export type AdminReferralListItem = {
 export type AdminReferralListResponse = {
   referrals: AdminReferralListItem[];
   total: number;
+};
+
+// ---------------------------------------------------------------------------
+// Source Pack Contracts
+// ---------------------------------------------------------------------------
+
+export type SourcePackRole =
+  | "primary_notes"
+  | "question_template"
+  | "primary_reference"
+  | "supplementary_reference"
+  | "primary"
+  | "supplementary";
+
+export type SourcePackDocumentItem = {
+  document_id: UUID;
+  role: SourcePackRole;
+  order_index: number;
+  original_name?: string | null;
+  status?: string | null;
+  mime_type?: string | null;
+  size_bytes?: number | null;
+};
+
+export type SourcePackResource = {
+  id: UUID;
+  organization_id: UUID;
+  course_id: UUID;
+  title: string;
+  description?: string | null;
+  created_by_user_id: UUID;
+  created_at: string;
+  updated_at: string;
+  documents: SourcePackDocumentItem[];
+};
+
+export type SourcePackResponse = {
+  request_id: string;
+  source_pack: SourcePackResource;
+};
+
+export type SourcePackListResponse = {
+  request_id: string;
+  source_packs: SourcePackResource[];
+};
+
+export type CreateSourcePackDocumentInput = {
+  document_id: UUID;
+  role?: SourcePackRole;
+  order_index?: number;
+};
+
+export type CreateSourcePackRequest = {
+  title: string;
+  description?: string | null;
+  documents: CreateSourcePackDocumentInput[];
+};
+
+export type UpdateSourcePackRequest = {
+  title?: string;
+  description?: string | null;
+  documents?: CreateSourcePackDocumentInput[];
+};
+
+export type SourcePackGenerateRequest = {
+  types?: GeneratedContentType[];
+  prompt_version?: string;
 };

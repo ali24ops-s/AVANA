@@ -207,7 +207,7 @@ export function AdminUsersPage() {
                       </span>
                     </td>
                     <td className="px-4 sm:px-6 py-3.5 whitespace-nowrap">
-                      {user.emailVerified ? (
+                      {user.isVerified ? (
                         <span className="inline-flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 text-xs font-medium whitespace-nowrap">
                           <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
                           تأیید شده
@@ -215,9 +215,36 @@ export function AdminUsersPage() {
                       ) : (
                         <span className="inline-flex items-center gap-1.5 text-[var(--color-text-muted)] text-xs font-medium whitespace-nowrap">
                           <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-text-muted)]"></span>
-                          در انتظار
+                          در انتظار تأیید
                         </span>
                       )}
+                      <div className="flex items-center gap-1.5 text-[11px] text-[var(--color-text-muted)] mt-1">
+                        <span
+                          className={`inline-flex items-center gap-0.5 cursor-help ${
+                            user.emailVerified
+                              ? "text-emerald-600 dark:text-emerald-400 font-medium"
+                              : "text-[var(--color-text-muted)] opacity-60"
+                          }`}
+                          title={user.emailVerified ? "ایمیل تأیید شده است" : "ایمیل تأیید نشده است"}
+                          aria-label={user.emailVerified ? "ایمیل تأیید شده" : "ایمیل تأیید نشده"}
+                        >
+                          <span>ایمیل</span>
+                          <span>{user.emailVerified ? "✓" : "—"}</span>
+                        </span>
+                        <span className="opacity-30">•</span>
+                        <span
+                          className={`inline-flex items-center gap-0.5 cursor-help ${
+                            user.phoneVerified
+                              ? "text-emerald-600 dark:text-emerald-400 font-medium"
+                              : "text-[var(--color-text-muted)] opacity-60"
+                          }`}
+                          title={user.phoneVerified ? "شماره همراه تأیید شده است" : "شماره همراه تأیید نشده است"}
+                          aria-label={user.phoneVerified ? "شماره همراه تأیید شده" : "شماره همراه تأیید نشده"}
+                        >
+                          <span>موبایل</span>
+                          <span>{user.phoneVerified ? "✓" : "—"}</span>
+                        </span>
+                      </div>
                     </td>
                     <td className="px-4 sm:px-6 py-3.5 text-[var(--color-text-muted)] text-xs whitespace-nowrap hidden sm:table-cell">
                       {new Date(user.createdAt).toLocaleDateString("fa-IR")}

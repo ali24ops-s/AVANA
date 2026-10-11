@@ -21,6 +21,8 @@ import type {
   DocumentId,
   GenerationJobId,
   OrganizationId,
+  QuestionPatternId,
+  SourcePackRole,
 } from "@avana/domain";
 import type { GeneratedContentType } from "@avana/domain";
 import type { GenerationJobStore } from "./generation-jobs-store.js";
@@ -49,6 +51,13 @@ export type GenerationJobPayload = {
   generationKey?: string;
   force?: boolean;
   generationContext?: GenerationContext;
+  sources?: Array<{
+    documentId: DocumentId;
+    order: number;
+    role?: SourcePackRole;
+  }>;
+  questionPatternId?: QuestionPatternId | null;
+  questionPatternVersion?: number | null;
 };
 
 /**
@@ -140,8 +149,23 @@ export class InMemoryGenerationQueue implements GenerationQueue {
       startedAt: null,
       completedAt: null,
       deletedAt: null,
+      questionPatternId: payload.questionPatternId ?? null,
+      questionPatternVersion: payload.questionPatternVersion ?? null,
     };
     await this.jobStore.create(record as never);
+
+    if (payload.sources && payload.sources.length > 0 && this.jobStore.addSources) {
+      await this.jobStore.addSources(
+        payload.sources.map((s) => ({
+          id: crypto.randomUUID(),
+          generationJobId: jobId,
+          documentId: s.documentId,
+          role: s.role ?? (s.order === 0 ? "primary_notes" : "supplementary_reference"),
+          orderIndex: s.order,
+          createdAt: now,
+        })),
+      );
+    }
 
     const isActorAdmin =
       payload.actorRole === "platform_admin" ||
@@ -197,6 +221,9 @@ export class InMemoryGenerationQueue implements GenerationQueue {
               courseId: payload.courseId,
               jobId: record.id,
               generationContext: effectiveContext,
+              sources: payload.sources,
+              questionPatternId: payload.questionPatternId,
+              questionPatternVersion: payload.questionPatternVersion,
             },
           );
 

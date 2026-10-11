@@ -5,7 +5,16 @@ import { AuditService } from "../observability/audit-service.js";
 import { InMemoryAuditStore } from "../observability/test/in-memory-stores.js";
 import { createApp } from "../server/createApp.js";
 import { loadApiConfig } from "../config.js";
+import { randomUUID } from "node:crypto";
+import { type Actor, asUserId } from "@avana/domain";
 import type { AuditEvent } from "@avana/domain";
+import { InMemoryCommerceStore } from "../modules/commerce/commerce-store.js";
+import { CommerceService } from "../modules/commerce/commerce-service.js";
+import { MockPaymentGateway } from "../modules/commerce/gateway/mock-gateway.js";
+import { InMemoryAdminStore } from "../modules/admin/in-memory-stores.js";
+import { AdminService } from "../modules/admin/admin-service.js";
+import { InMemoryWalletStore } from "../modules/wallet/wallet-store.js";
+import { WalletService } from "../modules/wallet/wallet-service.js";
 
 describe("Telegram Operational Alerts Test Suite", () => {
   // =========================================================================
@@ -1129,6 +1138,1436 @@ describe("Telegram Operational Alerts Test Suite", () => {
       await bot.stop();
 
       expect(mockGetUpdates).toHaveBeenCalled();
+    });
+  });
+
+  // =========================================================================
+  // 8. Telegram New Registrations, Payments & Callback Actions (Approve / Reject)
+  // =========================================================================
+  describe("Telegram Registrations, Payments & Callback Actions", () => {
+    const adminChatId = "629710703";
+
+    it("notifies on user.registered and teacher.requested", async () => {
+      const sentPayloads: Array<{ text: string; replyMarkup?: any }> = [];
+      const mockClient = {
+        isConfigured: vi.fn().mockReturnValue(true),
+        sendMessage: vi.fn().mockImplementation((text: string, _chatId?: string, replyMarkup?: any) => {
+          sentPayloads.push({ text, replyMarkup });
+          return Promise.resolve({ sent: true });
+        }),
+      } as unknown as TelegramClient;
+
+      const alertService = new AdminAlertService({
+        enabled: true,
+        telegramClient: mockClient,
+      });
+
+      await alertService.notifyUserRegistered({
+        userId: "user-123",
+        name: "علی رضایی",
+      });
+
+      expect(sentPayloads.length).toBe(1);
+      expect(sentPayloads[0].text).toContain("ثبت‌نام کاربر جدید");
+      expect(sentPayloads[0].text).toContain("علی رضایی");
+      expect(sentPayloads[0].text).toContain("user-123");
+
+      await alertService.notifyTeacherRequested({
+        teacherId: "teacher-456",
+        name: "دکتر اکبری",
+        university: "دانشگاه تهران",
+      });
+
+      expect(sentPayloads.length).toBe(2);
+      expect(sentPayloads[1].text).toContain("درخواست ثبت‌نام استاد");
+      expect(sentPayloads[1].text).toContain("دکتر اکبری");
+      expect(sentPayloads[1].text).toContain("دانشگاه تهران");
+      expect(sentPayloads[1].text).toContain("teacher-456");
+    });
+
+    it("sends payment notification with inline buttons for C2C and dedupes multiple triggers", async () => {
+      const sentPayloads: Array<{ text: string; replyMarkup?: any }> = [];
+      const mockClient = {
+        isConfigured: vi.fn().mockReturnValue(true),
+        sendMessage: vi.fn().mockImplementation((text: string, _chatId?: string, replyMarkup?: any) => {
+          sentPayloads.push({ text, replyMarkup });
+          return Promise.resolve({ sent: true });
+        }),
+      } as unknown as TelegramClient;
+
+      const alertService = new AdminAlertService({
+        enabled: true,
+        telegramClient: mockClient,
+      });
+
+      const paymentId = "c2c-pay-789";
+
+      // First trigger: c2c_submitted
+      const sentFirst = await alertService.notifyPaymentReceived({
+        paymentId,
+        amount: 350000,
+        productTitle: "اشتراک طلایی",
+        status: "در انتظار بررسی ادمین",
+        isC2C: true,
+        trackingNumber: "TRK-987654",
+        sourceCardLast4: "6037991812345678",
+        payerName: "علی رضایی",
+        paidAt: "2026-10-08T12:00:00.000Z",
+      });
+
+      expect(sentFirst).toBe(true);
+      expect(sentPayloads.length).toBe(1);
+      const text = sentPayloads[0].text;
+      expect(text).toContain("پرداخت کارت‌به‌کارت جدید");
+      expect(text).toContain("۳۵۰٬۰۰۰ تومان");
+      expect(text).toContain("اشتراک طلایی");
+      expect(text).toContain("شماره پیگیری: TRK-987654");
+      expect(text).toContain("کارت مبدأ: **** **** **** 5678");
+      expect(text).toContain("واریزکننده: علی رضایی");
+      expect(text).toContain("تاریخ واریز: 2026-10-08T12:00:00.000Z");
+      expect(text).toContain("وضعیت: در انتظار بررسی ادمین");
+      expect(text).toContain(`شناسه: ${paymentId}`);
+      expect(sentPayloads[0].replyMarkup).toBeDefined();
+      expect(sentPayloads[0].replyMarkup.inline_keyboard[0][0].callback_data).toBe(`pay:app:${paymentId}`);
+      expect(sentPayloads[0].replyMarkup.inline_keyboard[0][1].callback_data).toBe(`pay:rej:${paymentId}`);
+
+      // Second trigger for identical payment (deduplication check)
+      const sentSecond = await alertService.notifyPaymentReceived({
+        paymentId,
+        amount: 350000,
+        status: "موفق",
+        isC2C: false,
+      });
+
+      expect(sentSecond).toBe(false);
+      expect(sentPayloads.length).toBe(1); // Deduped via cooldownKey
+    });
+
+    it("formats C2C payment alerts properly when optional fields are omitted or empty", async () => {
+      let sentText = "";
+      const mockClient = {
+        isConfigured: vi.fn().mockReturnValue(true),
+        sendMessage: vi.fn().mockImplementation((text: string) => {
+          sentText = text;
+          return Promise.resolve({ sent: true });
+        }),
+      } as unknown as TelegramClient;
+
+      const alertService = new AdminAlertService({
+        enabled: true,
+        telegramClient: mockClient,
+      });
+
+      await alertService.notifyPaymentReceived({
+        paymentId: "c2c-pay-minimal",
+        amount: 100000,
+        status: "در انتظار بررسی ادمین",
+        isC2C: true,
+        trackingNumber: "TRK-111",
+      });
+
+      expect(sentText).toContain("پرداخت کارت‌به‌کارت جدید");
+      expect(sentText).toContain("۱۰۰٬۰۰۰ تومان");
+      expect(sentText).toContain("شماره پیگیری: TRK-111");
+      expect(sentText).not.toContain("واریزکننده:");
+      expect(sentText).not.toContain("کارت مبدأ:");
+      expect(sentText).not.toContain("تاریخ واریز:");
+      expect(sentText).toContain("وضعیت: در انتظار بررسی ادمین");
+    });
+
+    it("strictly preserves security boundaries in C2C payment alerts without exposing secrets or raw receipts", async () => {
+      let sentText = "";
+      const mockClient = {
+        isConfigured: vi.fn().mockReturnValue(true),
+        sendMessage: vi.fn().mockImplementation((text: string) => {
+          sentText = text;
+          return Promise.resolve({ sent: true });
+        }),
+      } as unknown as TelegramClient;
+
+      const alertService = new AdminAlertService({
+        enabled: true,
+        telegramClient: mockClient,
+      });
+
+      await alertService.notifyPaymentReceived({
+        paymentId: "c2c-pay-security",
+        amount: 200000,
+        status: "در انتظار بررسی ادمین",
+        isC2C: true,
+        trackingNumber: "TRK-SEC-123",
+        sourceCardLast4: "5022291098761234",
+        payerName: "سارا حسینی",
+      });
+
+      // Validates last 4 digits masking
+      expect(sentText).toContain("**** **** **** 1234");
+      // Full 16-digit card number must NEVER appear in the message
+      expect(sentText).not.toContain("5022291098761234");
+      // Sensitive tokens, CVV, passwords must not be present
+      expect(sentText).not.toContain("cvv");
+      expect(sentText).not.toContain("password");
+      expect(sentText).not.toContain("token");
+      expect(sentText).not.toContain("receiptUrl");
+      expect(sentText).not.toContain("rawPaymentText");
+    });
+
+    it("preserves original format for non-C2C payments (payment.completed)", async () => {
+      let sentText = "";
+      let capturedMarkup: import("../observability/telegram-client.js").TelegramInlineKeyboardMarkup | undefined = undefined;
+      const mockClient = {
+        isConfigured: vi.fn().mockReturnValue(true),
+        sendMessage: vi.fn().mockImplementation((text: string, _chatId?: string, markup?: import("../observability/telegram-client.js").TelegramInlineKeyboardMarkup) => {
+          sentText = text;
+          capturedMarkup = markup;
+          return Promise.resolve({ sent: true });
+        }),
+      } as unknown as TelegramClient;
+
+      const alertService = new AdminAlertService({
+        enabled: true,
+        telegramClient: mockClient,
+      });
+
+      await alertService.notifyPaymentReceived({
+        paymentId: "gateway-pay-456",
+        amount: 500000,
+        productTitle: "آزمون ویژه",
+        status: "موفق",
+        isC2C: false,
+      });
+
+      expect(sentText).toContain("💳 پرداخت جدید");
+      expect(sentText).not.toContain("پرداخت کارت‌به‌کارت جدید");
+      expect(sentText).not.toContain("اطلاعات واریز:");
+      expect(sentText).toContain("مبلغ: ۵۰۰٬۰۰۰ تومان");
+      expect(sentText).toContain("نوع: آزمون ویژه");
+      expect(sentText).toContain("وضعیت: موفق");
+      expect(capturedMarkup).toBeUndefined();
+    });
+
+    it("silently ignores callback queries from unauthorized chat IDs", async () => {
+      const mockClient = {
+        isConfigured: vi.fn().mockReturnValue(true),
+        answerCallbackQuery: vi.fn().mockResolvedValue({ ok: true }),
+        editMessageText: vi.fn().mockResolvedValue({ ok: true }),
+      } as unknown as TelegramClient;
+
+      const mockAdminService = {
+        approvePayment: vi.fn(),
+        rejectPayment: vi.fn(),
+      } as unknown as import("../modules/admin/admin-service.js").AdminService;
+
+      const { TelegramOpsBot } = await import("../observability/telegram-ops-bot.js");
+      const bot = new TelegramOpsBot({
+        enabled: true,
+        botToken: "test-token",
+        adminChatId,
+        telegramClient: mockClient,
+        adminService: mockAdminService,
+      });
+
+      await bot.handleUpdate({
+        update_id: 100,
+        callback_query: {
+          id: "cb-unauth",
+          from: { id: 888888, is_bot: false, first_name: "Attacker" },
+          message: {
+            message_id: 55,
+            chat: { id: 888888, type: "private" },
+            date: 1000,
+            text: "پرداخت جدید",
+          },
+          data: "pay:app:00000000-0000-4000-8000-000000000001",
+        },
+      });
+
+      expect(mockClient.answerCallbackQuery).not.toHaveBeenCalled();
+      expect(mockAdminService.approvePayment).not.toHaveBeenCalled();
+    });
+
+    it("rejects callback queries with invalid UUID format", async () => {
+      const mockClient = {
+        isConfigured: vi.fn().mockReturnValue(true),
+        answerCallbackQuery: vi.fn().mockResolvedValue({ ok: true }),
+        editMessageText: vi.fn().mockResolvedValue({ ok: true }),
+      } as unknown as TelegramClient;
+
+      const { TelegramOpsBot } = await import("../observability/telegram-ops-bot.js");
+      const bot = new TelegramOpsBot({
+        enabled: true,
+        botToken: "test-token",
+        adminChatId,
+        telegramClient: mockClient,
+      });
+
+      await bot.handleUpdate({
+        update_id: 101,
+        callback_query: {
+          id: "cb-invalid-uuid",
+          from: { id: 629710703, is_bot: false, first_name: "Admin" },
+          message: {
+            message_id: 56,
+            chat: { id: 629710703, type: "private" },
+            date: 1000,
+            text: "پرداخت جدید",
+          },
+          data: "pay:app:invalid-uuid-format",
+        },
+      });
+
+      expect(mockClient.answerCallbackQuery).toHaveBeenCalledWith({
+        callbackQueryId: "cb-invalid-uuid",
+      });
+      expect(mockClient.editMessageText).not.toHaveBeenCalled();
+    });
+
+    it("approves C2C payment canonically, edits telegram message and removes buttons", async () => {
+      const validPaymentId = "11111111-1111-4111-8111-111111111111";
+      const mockClient = {
+        isConfigured: vi.fn().mockReturnValue(true),
+        answerCallbackQuery: vi.fn().mockResolvedValue({ ok: true }),
+        editMessageText: vi.fn().mockResolvedValue({ ok: true }),
+      } as unknown as TelegramClient;
+
+      const mockAdminStore = {
+        getCommercePayment: vi.fn().mockResolvedValue({
+          id: validPaymentId,
+          amount: 100000,
+          status: "pending_admin_review",
+          gateway: "card_to_card",
+        }),
+        listUsers: vi.fn().mockResolvedValue({
+          users: [{ id: "admin-uuid-1", role: "platform_admin" }],
+        }),
+      } as unknown as import("../modules/admin/admin-store.js").AdminStore;
+
+      const mockAdminService = {
+        approvePayment: vi.fn().mockResolvedValue({
+          success: true,
+          message: "پرداخت کارت‌به‌کارت با موفقیت تأیید شد.",
+        }),
+      } as unknown as import("../modules/admin/admin-service.js").AdminService;
+
+      const mockAuditService = {
+        emit: vi.fn().mockResolvedValue(undefined),
+      } as unknown as AuditService;
+
+      const { TelegramOpsBot } = await import("../observability/telegram-ops-bot.js");
+      const bot = new TelegramOpsBot({
+        enabled: true,
+        botToken: "test-token",
+        adminChatId,
+        telegramClient: mockClient,
+        adminStore: mockAdminStore,
+        adminService: mockAdminService,
+        auditService: mockAuditService,
+        adminUserId: "admin-uuid-1",
+      });
+
+      await bot.handleUpdate({
+        update_id: 102,
+        callback_query: {
+          id: "cb-approve-1",
+          from: { id: 629710703, is_bot: false, first_name: "Admin" },
+          message: {
+            message_id: 60,
+            chat: { id: 629710703, type: "private" },
+            date: 1000,
+            text: "💳 پرداخت جدید\nمبلغ: ۱۰۰٬۰۰۰ تومان",
+          },
+          data: `pay:app:${validPaymentId}`,
+        },
+      });
+
+      expect(mockClient.answerCallbackQuery).toHaveBeenCalledWith({ callbackQueryId: "cb-approve-1" });
+      expect(mockAdminService.approvePayment).toHaveBeenCalledWith("admin-uuid-1", validPaymentId);
+      expect(mockClient.editMessageText).toHaveBeenCalledWith({
+        messageId: 60,
+        text: expect.stringContaining("💳 پرداخت تأیید شد"),
+        overrideChatId: adminChatId,
+      });
+      expect(mockAuditService.emit).toHaveBeenCalledWith([
+        expect.objectContaining({
+          action: "payment.approved",
+          entityId: validPaymentId,
+        }),
+      ]);
+    });
+
+    it("rejects C2C payment canonically with exact reason, edits telegram message and removes buttons", async () => {
+      const validPaymentId = "22222222-2222-4222-8222-222222222222";
+      const mockClient = {
+        isConfigured: vi.fn().mockReturnValue(true),
+        answerCallbackQuery: vi.fn().mockResolvedValue({ ok: true }),
+        editMessageText: vi.fn().mockResolvedValue({ ok: true }),
+      } as unknown as TelegramClient;
+
+      const mockAdminStore = {
+        getCommercePayment: vi.fn().mockResolvedValue({
+          id: validPaymentId,
+          amount: 200000,
+          status: "pending_admin_review",
+          gateway: "card_to_card",
+        }),
+        listUsers: vi.fn().mockResolvedValue({
+          users: [{ id: "admin-uuid-1", role: "platform_admin" }],
+        }),
+      } as unknown as import("../modules/admin/admin-store.js").AdminStore;
+
+      const mockAdminService = {
+        rejectPayment: vi.fn().mockResolvedValue({
+          success: true,
+          message: "پرداخت کارت‌به‌کارت رد شد.",
+        }),
+      } as unknown as import("../modules/admin/admin-service.js").AdminService;
+
+      const mockAuditService = {
+        emit: vi.fn().mockResolvedValue(undefined),
+      } as unknown as AuditService;
+
+      const { TelegramOpsBot } = await import("../observability/telegram-ops-bot.js");
+      const bot = new TelegramOpsBot({
+        enabled: true,
+        botToken: "test-token",
+        adminChatId,
+        telegramClient: mockClient,
+        adminStore: mockAdminStore,
+        adminService: mockAdminService,
+        auditService: mockAuditService,
+        adminUserId: "admin-uuid-1",
+      });
+
+      await bot.handleUpdate({
+        update_id: 103,
+        callback_query: {
+          id: "cb-reject-1",
+          from: { id: 629710703, is_bot: false, first_name: "Admin" },
+          message: {
+            message_id: 61,
+            chat: { id: 629710703, type: "private" },
+            date: 1000,
+            text: "💳 پرداخت جدید\nمبلغ: ۲۰۰٬۰۰۰ تومان",
+          },
+          data: `pay:rej:${validPaymentId}`,
+        },
+      });
+
+      expect(mockClient.answerCallbackQuery).toHaveBeenCalledWith({ callbackQueryId: "cb-reject-1" });
+      expect(mockAdminService.rejectPayment).toHaveBeenCalledWith(
+        "admin-uuid-1",
+        validPaymentId,
+        "رد پرداخت از طریق Telegram Ops Bot",
+      );
+      expect(mockClient.editMessageText).toHaveBeenCalledWith({
+        messageId: 61,
+        text: expect.stringContaining("❌ پرداخت رد شد"),
+        overrideChatId: adminChatId,
+      });
+      expect(mockAuditService.emit).toHaveBeenCalledWith([
+        expect.objectContaining({
+          action: "payment.rejected",
+          entityId: validPaymentId,
+        }),
+      ]);
+    });
+
+    it("prevents double-action conflict when payment is already settled", async () => {
+      const validPaymentId = "33333333-3333-4333-8333-333333333333";
+      const mockClient = {
+        answerCallbackQuery: vi.fn().mockResolvedValue({ ok: true }),
+        editMessageText: vi.fn().mockResolvedValue({ ok: true }),
+      } as unknown as TelegramClient;
+
+      const mockAdminStore = {
+        getCommercePayment: vi.fn().mockResolvedValue({
+          id: validPaymentId,
+          status: "admin_approved", // Already settled
+          gateway: "card_to_card",
+        }),
+      } as unknown as import("../modules/admin/admin-store.js").AdminStore;
+
+      const mockAdminService = {
+        approvePayment: vi.fn(),
+        rejectPayment: vi.fn(),
+      } as unknown as import("../modules/admin/admin-service.js").AdminService;
+
+      const { TelegramOpsBot } = await import("../observability/telegram-ops-bot.js");
+      const bot = new TelegramOpsBot({
+        enabled: true,
+        botToken: "test-token",
+        adminChatId,
+        telegramClient: mockClient,
+        adminStore: mockAdminStore,
+        adminService: mockAdminService,
+      });
+
+      await bot.handleUpdate({
+        update_id: 104,
+        callback_query: {
+          id: "cb-settled",
+          from: { id: 629710703, is_bot: false, first_name: "Admin" },
+          message: {
+            message_id: 62,
+            chat: { id: 629710703, type: "private" },
+            date: 1000,
+            text: "💳 پرداخت جدید",
+          },
+          data: `pay:rej:${validPaymentId}`,
+        },
+      });
+
+      expect(mockClient.answerCallbackQuery).toHaveBeenCalledWith({ callbackQueryId: "cb-settled" });
+      expect(mockClient.editMessageText).toHaveBeenCalledWith({
+        messageId: 62,
+        text: "⚠️ این پرداخت قبلاً تعیین تکلیف شده است.",
+        overrideChatId: adminChatId,
+      });
+      expect(mockAdminService.rejectPayment).not.toHaveBeenCalled();
+    });
+  });
+
+  // =========================================================================
+  // 9. Financial Alerting Enhancements & Multi-Product Verification
+  // =========================================================================
+  describe("Financial Alerting Enhancements & Multi-Product Verification", () => {
+    it("formats wallet top-up payment alert accurately (C2C and Online Gateway)", async () => {
+      let sentTextC2C = "";
+      let sentTextOnline = "";
+      const mockClient = {
+        isConfigured: vi.fn().mockReturnValue(true),
+        sendMessage: vi.fn().mockImplementation((text: string) => {
+          if (!sentTextC2C) {
+            sentTextC2C = text;
+          } else {
+            sentTextOnline = text;
+          }
+          return Promise.resolve({ sent: true });
+        }),
+      } as unknown as TelegramClient;
+
+      const alertService = new AdminAlertService({
+        enabled: true,
+        telegramClient: mockClient,
+      });
+
+      // 1. C2C Wallet Top-up
+      await alertService.notifyPaymentReceived({
+        paymentId: "topup-c2c-1",
+        amount: 500000,
+        productType: "wallet_topup",
+        productTitle: "شارژ کیف پول",
+        isC2C: true,
+        sourceCardLast4: "5894",
+        trackingNumber: "TRK-TOP-99",
+        status: "در انتظار بررسی ادمین",
+      });
+
+      expect(sentTextC2C).toContain("💳 درخواست شارژ کیف پول (پرداخت کارت‌به‌کارت جدید)");
+      expect(sentTextC2C).toContain("نوع: شارژ کیف پول");
+      expect(sentTextC2C).not.toContain("اشتراک آوانا");
+      expect(sentTextC2C).toContain("۵۰۰٬۰۰۰ تومان");
+      expect(sentTextC2C).toContain("**** **** **** 5894");
+
+      // 2. Online Gateway Wallet Top-up
+      await alertService.notifyPaymentReceived({
+        paymentId: "topup-online-1",
+        amount: 1000000,
+        productType: "wallet_topup",
+        productTitle: "شارژ کیف پول",
+        gateway: "zarinpal",
+        isC2C: false,
+        status: "موفق",
+      });
+
+      expect(sentTextOnline).toContain("💳 شارژ کیف پول (پرداخت جدید)");
+      expect(sentTextOnline).toContain("نوع: شارژ کیف پول");
+      expect(sentTextOnline).toContain("درگاه اینترنتی (زرین‌پال)");
+      expect(sentTextOnline).not.toContain("اشتراک آوانا");
+    });
+
+    it("formats standalone course purchase accurately (C2C and Online Gateway)", async () => {
+      let sentTextC2C = "";
+      let sentTextOnline = "";
+      const mockClient = {
+        isConfigured: vi.fn().mockReturnValue(true),
+        sendMessage: vi.fn().mockImplementation((text: string) => {
+          if (!sentTextC2C) {
+            sentTextC2C = text;
+          } else {
+            sentTextOnline = text;
+          }
+          return Promise.resolve({ sent: true });
+        }),
+      } as unknown as TelegramClient;
+
+      const alertService = new AdminAlertService({
+        enabled: true,
+        telegramClient: mockClient,
+      });
+
+      // C2C Course
+      await alertService.notifyPaymentReceived({
+        paymentId: "course-c2c-1",
+        amount: 850000,
+        productType: "course",
+        productTitle: "آموزش جامع فلاتر",
+        isC2C: true,
+        sourceCardLast4: "6037",
+        trackingNumber: "TRK-CRS-1",
+        status: "در انتظار بررسی ادمین",
+      });
+
+      expect(sentTextC2C).toContain("💳 سفارش دوره آموزشی (پرداخت کارت‌به‌کارت جدید)");
+      expect(sentTextC2C).toContain("نوع: آموزش جامع فلاتر");
+      expect(sentTextC2C).not.toContain("اشتراک آوانا");
+
+      // Online Course
+      await alertService.notifyPaymentReceived({
+        paymentId: "course-online-1",
+        amount: 850000,
+        productType: "course",
+        productTitle: "آموزش جامع فلاتر",
+        gateway: "zarinpal",
+        isC2C: false,
+        status: "موفق",
+      });
+
+      expect(sentTextOnline).toContain("💳 خرید دوره آموزشی (پرداخت جدید)");
+      expect(sentTextOnline).toContain("نوع: آموزش جامع فلاتر");
+      expect(sentTextOnline).toContain("درگاه اینترنتی (زرین‌پال)");
+    });
+
+    it("formats subscription purchase with specific subscription plan title", async () => {
+      let sentText = "";
+      const mockClient = {
+        isConfigured: vi.fn().mockReturnValue(true),
+        sendMessage: vi.fn().mockImplementation((text: string) => {
+          sentText = text;
+          return Promise.resolve({ sent: true });
+        }),
+      } as unknown as TelegramClient;
+
+      const alertService = new AdminAlertService({
+        enabled: true,
+        telegramClient: mockClient,
+      });
+
+      await alertService.notifyPaymentReceived({
+        paymentId: "sub-plan-1",
+        amount: 350000,
+        productType: "subscription",
+        productTitle: "اشتراک آوانا (سه‌ماهه)",
+        gateway: "zarinpal",
+        isC2C: false,
+        status: "موفق",
+      });
+
+      expect(sentText).toContain("💳 خرید اشتراک (پرداخت جدید)");
+      expect(sentText).toContain("نوع: اشتراک آوانا (سه‌ماهه)");
+    });
+
+    it("formats wallet debit payment method (gateway=wallet) correctly", async () => {
+      let sentText = "";
+      const mockClient = {
+        isConfigured: vi.fn().mockReturnValue(true),
+        sendMessage: vi.fn().mockImplementation((text: string) => {
+          sentText = text;
+          return Promise.resolve({ sent: true });
+        }),
+      } as unknown as TelegramClient;
+
+      const alertService = new AdminAlertService({
+        enabled: true,
+        telegramClient: mockClient,
+      });
+
+      await alertService.notifyPaymentReceived({
+        paymentId: "wallet-deb-1",
+        amount: 200000,
+        productType: "course",
+        productTitle: "دوره فیزیک کوانتوم",
+        gateway: "wallet",
+        isC2C: false,
+        status: "موفق",
+      });
+
+      expect(sentText).toContain("روش پرداخت: کیف پول");
+      expect(sentText).toContain("نوع: دوره فیزیک کوانتوم");
+    });
+
+    it("sends wallet refund alert with proper formatting and cooldown deduplication", async () => {
+      let sentMessages: string[] = [];
+      const mockClient = {
+        isConfigured: vi.fn().mockReturnValue(true),
+        sendMessage: vi.fn().mockImplementation((text: string) => {
+          sentMessages.push(text);
+          return Promise.resolve({ sent: true });
+        }),
+      } as unknown as TelegramClient;
+
+      const alertService = new AdminAlertService({
+        enabled: true,
+        telegramClient: mockClient,
+      });
+
+      const firstSent = await alertService.notifyWalletRefunded({
+        walletId: "w-ref-001",
+        amount: 150000,
+        source: "admin_adjustment",
+        userId: "usr-ref-99",
+        referenceType: "order",
+        referenceId: "ord-ref-12",
+      });
+
+      expect(firstSent).toBe(true);
+      expect(sentMessages).toHaveLength(1);
+      expect(sentMessages[0]).toContain("🔄 بازپرداخت کیف پول");
+      expect(sentMessages[0]).toContain("۱۵۰٬۰۰۰ تومان");
+      expect(sentMessages[0]).toContain("منبع بازپرداخت: admin_adjustment");
+
+      // Repeated trigger within cooldown window should be deduped
+      const secondSent = await alertService.notifyWalletRefunded({
+        walletId: "w-ref-001",
+        amount: 150000,
+        source: "admin_adjustment",
+        userId: "usr-ref-99",
+      });
+
+      expect(secondSent).toBe(false);
+      expect(sentMessages).toHaveLength(1);
+    });
+
+    it("sends payment.approved and payment.rejected alerts from web admin with cooldown", async () => {
+      let sentMessages: string[] = [];
+      const mockClient = {
+        isConfigured: vi.fn().mockReturnValue(true),
+        sendMessage: vi.fn().mockImplementation((text: string) => {
+          sentMessages.push(text);
+          return Promise.resolve({ sent: true });
+        }),
+      } as unknown as TelegramClient;
+
+      const alertService = new AdminAlertService({
+        enabled: true,
+        telegramClient: mockClient,
+      });
+
+      // Approved alert
+      const approvedSent = await alertService.notifyPaymentApproved({
+        paymentId: "pay-app-test-1",
+        amount: 400000,
+        productTitle: "شارژ کیف پول",
+        productType: "wallet_topup",
+        approvedBy: "admin-uuid-1",
+        actorType: "admin/web",
+      });
+
+      expect(approvedSent).toBe(true);
+      expect(sentMessages[0]).toContain("✅ پرداخت تأیید شد");
+      expect(sentMessages[0]).toContain("۴۰۰٬۰۰۰ تومان");
+      expect(sentMessages[0]).toContain("تأیید توسط: Admin (پنل مدیریت)");
+
+      // Dedupe check for approve
+      const approvedDuplicate = await alertService.notifyPaymentApproved({
+        paymentId: "pay-app-test-1",
+        amount: 400000,
+      });
+      expect(approvedDuplicate).toBe(false);
+
+      // Rejected alert
+      const rejectedSent = await alertService.notifyPaymentRejected({
+        paymentId: "pay-rej-test-1",
+        amount: 400000,
+        productTitle: "شارژ کیف پول",
+        productType: "wallet_topup",
+        rejectedBy: "admin-uuid-1",
+        reason: "شماره پیگیری نامعتبر است",
+        actorType: "admin/web",
+      });
+
+      expect(rejectedSent).toBe(true);
+      expect(sentMessages[1]).toContain("❌ پرداخت رد شد");
+      expect(sentMessages[1]).toContain("علت رد: شماره پیگیری نامعتبر است");
+      expect(sentMessages[1]).toContain("رد توسط: Admin (پنل مدیریت)");
+
+      // Dedupe check for reject
+      const rejectedDuplicate = await alertService.notifyPaymentRejected({
+        paymentId: "pay-rej-test-1",
+        reason: "تکرار",
+      });
+      expect(rejectedDuplicate).toBe(false);
+    });
+
+    it("composition verification: AdminService properly credits user wallet balance when approving wallet top-up", async () => {
+      const commerceStore = new InMemoryCommerceStore();
+      const mockGateway = new MockPaymentGateway();
+      const walletStore = new InMemoryWalletStore();
+      const auditStore = new InMemoryAuditStore();
+      const auditService = new AuditService(auditStore);
+      const walletService = new WalletService(walletStore, auditService, commerceStore);
+
+      const commerceService = new CommerceService(
+        commerceStore,
+        mockGateway,
+        undefined,
+        undefined,
+        walletService,
+        {
+          enabled: true,
+          destinationCardNumber: "5894631131738239",
+          cardholderName: "آوانا",
+          instructions: "انتقال کارت به کارت",
+        },
+      );
+
+      const adminStore = new InMemoryAdminStore();
+      adminStore.setCommerceStore(commerceStore);
+
+      // Wired as in composeProduction.ts
+      const adminService = new AdminService(
+        adminStore,
+        walletService,
+        commerceStore,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        auditService,
+      );
+
+      const testUser: Actor = {
+        userId: asUserId(randomUUID() as any),
+        role: "student",
+      };
+      const adminUser: Actor = {
+        userId: asUserId(randomUUID() as any),
+        role: "platform_admin",
+      };
+
+      // 1. Initial wallet balance is 0
+      const initialWallet = await walletService.getMyWallet(testUser);
+      expect(initialWallet.balance).toBe(0);
+
+      // 2. Discover wallet_topup product
+      const products = await commerceService.listActiveProducts();
+      const topupProduct = products.find((p) => p.type === "wallet_topup")!;
+      expect(topupProduct).toBeDefined();
+
+      const topupAmount = 750000;
+
+      // 3. Submit C2C payment for wallet top-up
+      const submission = await commerceService.submitCardToCardPayment(
+        testUser,
+        {
+          productId: topupProduct.id,
+          amount: topupAmount,
+          trackingNumber: "TRK-TOPUP-VERIFY-1",
+          sourceCardLast4: "5022",
+        },
+        "idempotency-key-topup-verify",
+      );
+
+      expect(submission.success).toBe(true);
+      const paymentId = submission.paymentId;
+
+      // Balance remains 0 before admin approval
+      const midWallet = await walletService.getMyWallet(testUser);
+      expect(midWallet.balance).toBe(0);
+
+      // 4. Admin approves payment
+      const approveResult = await adminService.approvePayment(
+        adminUser.userId,
+        paymentId,
+        { actorType: "admin/web" },
+      );
+
+      expect(approveResult.success).toBe(true);
+      expect(approveResult.payment.status).toBe("admin_approved");
+
+      // 5. User wallet balance is now credited!
+      const finalWallet = await walletService.getMyWallet(testUser);
+      expect(finalWallet.balance).toBe(topupAmount);
+
+      // Verify transaction ledger
+      const txs = await walletService.listMyTransactions(testUser);
+      expect(txs.total).toBe(1);
+      expect(txs.transactions[0].type).toBe("credit");
+      expect(txs.transactions[0].amount).toBe(topupAmount);
+      expect(txs.transactions[0].source).toBe("wallet_topup");
+
+      // Verify audit event was recorded
+      const events = await auditStore.listAll();
+      const approveEvent = events.find((e) => e.action === "payment.approved");
+      expect(approveEvent).toBeDefined();
+      expect(approveEvent?.details?.productType).toBe("wallet_topup");
+    });
+  });
+
+  // =========================================================================
+  // 10. Supplementary Audit & Real-World Invariance Tests
+  // =========================================================================
+  describe("10. Supplementary Audit & Real-World Invariance Tests", () => {
+    it("TelegramOpsBot E2E: approves wallet top-up, credits ledger atomically, and rejects duplicate re-clicks", async () => {
+      const commerceStore = new InMemoryCommerceStore();
+      const mockGateway = new MockPaymentGateway();
+      const walletStore = new InMemoryWalletStore();
+      const auditStore = new InMemoryAuditStore();
+      const auditService = new AuditService(auditStore);
+      const walletService = new WalletService(walletStore, auditService, commerceStore);
+
+      const commerceService = new CommerceService(
+        commerceStore,
+        mockGateway,
+        undefined,
+        undefined,
+        walletService,
+        {
+          enabled: true,
+          destinationCardNumber: "5894631131738239",
+          cardholderName: "آوانا",
+          instructions: "کارت به کارت",
+        },
+      );
+
+      const adminStore = new InMemoryAdminStore();
+      adminStore.setCommerceStore(commerceStore);
+
+      const adminService = new AdminService(
+        adminStore,
+        walletService,
+        commerceStore,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        auditService,
+      );
+
+      let editMessageCalls: { messageId: number; text: string }[] = [];
+      const mockClient = {
+        isConfigured: vi.fn().mockReturnValue(true),
+        answerCallbackQuery: vi.fn().mockResolvedValue({ ok: true }),
+        editMessageText: vi.fn().mockImplementation((opts: any) => {
+          editMessageCalls.push({ messageId: opts.messageId, text: opts.text });
+          return Promise.resolve({ ok: true });
+        }),
+      } as unknown as TelegramClient;
+
+      const adminChatId = "629710703";
+      const { TelegramOpsBot } = await import("../observability/telegram-ops-bot.js");
+      const bot = new TelegramOpsBot({
+        enabled: true,
+        botToken: "test-token",
+        adminChatId,
+        telegramClient: mockClient,
+        adminStore,
+        adminService,
+        auditService,
+        adminUserId: "admin-uuid-ops",
+      });
+
+      const testUser: Actor = {
+        userId: asUserId(randomUUID() as any),
+        role: "student",
+      };
+
+      // 1. Initial State: Balance is 0, zero ledger transactions
+      const initialWallet = await walletService.getMyWallet(testUser);
+      expect(initialWallet.balance).toBe(0);
+      const initialTxs = await walletService.listMyTransactions(testUser);
+      expect(initialTxs.total).toBe(0);
+
+      // 2. User submits wallet top-up request
+      const products = await commerceService.listActiveProducts();
+      const topupProduct = products.find((p) => p.type === "wallet_topup")!;
+      const topupAmount = 350000;
+
+      const submission = await commerceService.submitCardToCardPayment(
+        testUser,
+        {
+          productId: topupProduct.id,
+          amount: topupAmount,
+          trackingNumber: "TRK-OPS-TOPUP-01",
+          sourceCardLast4: "6037",
+        },
+        "idempotency-ops-01",
+      );
+      expect(submission.success).toBe(true);
+      const paymentId = submission.paymentId;
+
+      // Ensure pre-approval balance is still strictly 0
+      const preApprovalWallet = await walletService.getMyWallet(testUser);
+      expect(preApprovalWallet.balance).toBe(0);
+
+      // 3. Admin clicks approve button in TelegramOpsBot
+      await bot.handleCallbackQuery({
+        id: "cq-approve-first",
+        from: { id: 629710703, is_bot: false, first_name: "Admin" },
+        message: {
+          message_id: 110,
+          chat: { id: 629710703, type: "private" },
+          date: 1000,
+          text: "💳 درخواست شارژ کیف پول",
+        },
+        data: `pay:app:${paymentId}`,
+      });
+
+      // Verify telegram message edited with confirmation
+      expect(mockClient.answerCallbackQuery).toHaveBeenCalledWith({ callbackQueryId: "cq-approve-first" });
+      expect(editMessageCalls.length).toBe(1);
+      expect(editMessageCalls[0].text).toContain("💳 پرداخت تأیید شد");
+
+      // Verify wallet balance is credited
+      const postApprovalWallet = await walletService.getMyWallet(testUser);
+      expect(postApprovalWallet.balance).toBe(topupAmount);
+
+      // Verify ledger transaction
+      const postApprovalTxs = await walletService.listMyTransactions(testUser);
+      expect(postApprovalTxs.total).toBe(1);
+      expect(postApprovalTxs.transactions[0].type).toBe("credit");
+      expect(postApprovalTxs.transactions[0].amount).toBe(topupAmount);
+      expect(postApprovalTxs.transactions[0].source).toBe("wallet_topup");
+
+      // 4. DUPLICATE RE-CLICK TEST: Click approve button a second time
+      await bot.handleCallbackQuery({
+        id: "cq-approve-duplicate",
+        from: { id: 629710703, is_bot: false, first_name: "Admin" },
+        message: {
+          message_id: 110,
+          chat: { id: 629710703, type: "private" },
+          date: 1000,
+          text: "💳 درخواست شارژ کیف پول",
+        },
+        data: `pay:app:${paymentId}`,
+      });
+
+      // Telegram warns that payment is already settled
+      expect(editMessageCalls.length).toBe(2);
+      expect(editMessageCalls[1].text).toContain("⚠️ این پرداخت قبلاً تعیین تکلیف شده است.");
+
+      // CRITICAL INVARIANCE: Wallet balance MUST NOT increase again!
+      const afterDuplicateWallet = await walletService.getMyWallet(testUser);
+      expect(afterDuplicateWallet.balance).toBe(topupAmount);
+
+      // Ledger must still have only 1 transaction
+      const afterDuplicateTxs = await walletService.listMyTransactions(testUser);
+      expect(afterDuplicateTxs.total).toBe(1);
+    });
+
+    it("prevents double crediting when web panel approves first then telegram button is clicked", async () => {
+      const commerceStore = new InMemoryCommerceStore();
+      const mockGateway = new MockPaymentGateway();
+      const walletStore = new InMemoryWalletStore();
+      const auditStore = new InMemoryAuditStore();
+      const auditService = new AuditService(auditStore);
+      const walletService = new WalletService(walletStore, auditService, commerceStore);
+
+      const commerceService = new CommerceService(
+        commerceStore,
+        mockGateway,
+        undefined,
+        undefined,
+        walletService,
+        {
+          enabled: true,
+          destinationCardNumber: "5894631131738239",
+          cardholderName: "آوانا",
+          instructions: "کارت به کارت",
+        },
+      );
+
+      const adminStore = new InMemoryAdminStore();
+      adminStore.setCommerceStore(commerceStore);
+
+      const adminService = new AdminService(
+        adminStore,
+        walletService,
+        commerceStore,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        auditService,
+      );
+
+      let editMessageCalls: { messageId: number; text: string }[] = [];
+      const mockClient = {
+        isConfigured: vi.fn().mockReturnValue(true),
+        answerCallbackQuery: vi.fn().mockResolvedValue({ ok: true }),
+        editMessageText: vi.fn().mockImplementation((opts: any) => {
+          editMessageCalls.push({ messageId: opts.messageId, text: opts.text });
+          return Promise.resolve({ ok: true });
+        }),
+      } as unknown as TelegramClient;
+
+      const adminChatId = "629710703";
+      const { TelegramOpsBot } = await import("../observability/telegram-ops-bot.js");
+      const bot = new TelegramOpsBot({
+        enabled: true,
+        botToken: "test-token",
+        adminChatId,
+        telegramClient: mockClient,
+        adminStore,
+        adminService,
+        auditService,
+        adminUserId: "admin-uuid-ops",
+      });
+
+      const testUser: Actor = {
+        userId: asUserId(randomUUID() as any),
+        role: "student",
+      };
+
+      const products = await commerceService.listActiveProducts();
+      const topupProduct = products.find((p) => p.type === "wallet_topup")!;
+      const topupAmount = 200000;
+
+      const submission = await commerceService.submitCardToCardPayment(
+        testUser,
+        {
+          productId: topupProduct.id,
+          amount: topupAmount,
+          trackingNumber: "TRK-RACE-01",
+          sourceCardLast4: "5022",
+        },
+        "idempotency-race-01",
+      );
+      const paymentId = submission.paymentId;
+
+      // 1. Web panel approves first
+      const webResult = await adminService.approvePayment("admin-web-id", paymentId, { actorType: "admin/web" });
+      expect(webResult.success).toBe(true);
+
+      const walletAfterWeb = await walletService.getMyWallet(testUser);
+      expect(walletAfterWeb.balance).toBe(topupAmount);
+
+      // 2. Admin clicks button on Telegram afterwards
+      await bot.handleCallbackQuery({
+        id: "cq-race-tg",
+        from: { id: 629710703, is_bot: false, first_name: "Admin" },
+        message: {
+          message_id: 111,
+          chat: { id: 629710703, type: "private" },
+          date: 1000,
+          text: "💳 درخواست شارژ کیف پول",
+        },
+        data: `pay:app:${paymentId}`,
+      });
+
+      expect(editMessageCalls[0].text).toContain("⚠️ این پرداخت قبلاً تعیین تکلیف شده است.");
+
+      // Wallet balance must stay 200,000 (NOT 400,000!)
+      const walletAfterTg = await walletService.getMyWallet(testUser);
+      expect(walletAfterTg.balance).toBe(topupAmount);
+
+      const txs = await walletService.listMyTransactions(testUser);
+      expect(txs.total).toBe(1);
+    });
+
+    // Dedicated Purchase & Alert Verification Tests for Each Specific Scenario
+    it("Purchase Alert Scenario 1: Wallet Top-up via Card-to-Card", async () => {
+      let sentText = "";
+      const mockClient = {
+        isConfigured: vi.fn().mockReturnValue(true),
+        sendMessage: vi.fn().mockImplementation((text: string) => {
+          sentText = text;
+          return Promise.resolve({ sent: true });
+        }),
+      } as unknown as TelegramClient;
+
+      const alertService = new AdminAlertService({ enabled: true, telegramClient: mockClient });
+
+      await alertService.notifyPaymentReceived({
+        paymentId: "pay-topup-c2c-audit",
+        orderId: "ord-topup-c2c-audit",
+        amount: 500000,
+        productType: "wallet_topup",
+        productTitle: "شارژ کیف پول",
+        isC2C: true,
+        sourceCardLast4: "5894",
+        trackingNumber: "TRK-TOP-AUDIT",
+        status: "در انتظار بررسی ادمین",
+      });
+
+      expect(sentText).toContain("💳 درخواست شارژ کیف پول (پرداخت کارت‌به‌کارت جدید)");
+      expect(sentText).toContain("مبلغ: ۵۰۰٬۰۰۰ تومان");
+      expect(sentText).toContain("نوع: شارژ کیف پول");
+      expect(sentText).toContain("روش پرداخت: کارت‌به‌کارت");
+      expect(sentText).toContain("شناسه سفارش: ord-topup-c2c-audit");
+    });
+
+    it("Purchase Alert Scenario 2: Standalone Course Purchase via Card-to-Card", async () => {
+      let sentText = "";
+      const mockClient = {
+        isConfigured: vi.fn().mockReturnValue(true),
+        sendMessage: vi.fn().mockImplementation((text: string) => {
+          sentText = text;
+          return Promise.resolve({ sent: true });
+        }),
+      } as unknown as TelegramClient;
+
+      const alertService = new AdminAlertService({ enabled: true, telegramClient: mockClient });
+
+      await alertService.notifyPaymentReceived({
+        paymentId: "pay-course-c2c-audit",
+        orderId: "ord-course-c2c-audit",
+        amount: 850000,
+        productType: "course",
+        productTitle: "آموزش جامع فلاتر",
+        isC2C: true,
+        sourceCardLast4: "6037",
+        trackingNumber: "TRK-CRS-AUDIT",
+        status: "در انتظار بررسی ادمین",
+      });
+
+      expect(sentText).toContain("💳 سفارش دوره آموزشی (پرداخت کارت‌به‌کارت جدید)");
+      expect(sentText).toContain("مبلغ: ۸۵۰٬۰۰۰ تومان");
+      expect(sentText).toContain("نوع: آموزش جامع فلاتر");
+      expect(sentText).toContain("روش پرداخت: کارت‌به‌کارت");
+      expect(sentText).toContain("شناسه سفارش: ord-course-c2c-audit");
+    });
+
+    it("Purchase Alert Scenario 3: Standalone Course Purchase via Online Gateway", async () => {
+      let sentText = "";
+      const mockClient = {
+        isConfigured: vi.fn().mockReturnValue(true),
+        sendMessage: vi.fn().mockImplementation((text: string) => {
+          sentText = text;
+          return Promise.resolve({ sent: true });
+        }),
+      } as unknown as TelegramClient;
+
+      const alertService = new AdminAlertService({ enabled: true, telegramClient: mockClient });
+
+      await alertService.notifyPaymentReceived({
+        paymentId: "pay-course-online-audit",
+        orderId: "ord-course-online-audit",
+        amount: 950000,
+        productType: "course",
+        productTitle: "آموزش جامع معماری نرم‌افزار",
+        gateway: "zarinpal",
+        isC2C: false,
+        status: "موفق",
+      });
+
+      expect(sentText).toContain("💳 خرید دوره آموزشی (پرداخت جدید)");
+      expect(sentText).toContain("مبلغ: ۹۵۰٬۰۰۰ تومان");
+      expect(sentText).toContain("نوع: آموزش جامع معماری نرم‌افزار");
+      expect(sentText).toContain("روش پرداخت: درگاه اینترنتی (زرین‌پال)");
+      expect(sentText).toContain("شناسه سفارش: ord-course-online-audit");
+    });
+
+    it("Purchase Alert Scenario 4: Course Purchase via Wallet Debit", async () => {
+      let sentText = "";
+      const mockClient = {
+        isConfigured: vi.fn().mockReturnValue(true),
+        sendMessage: vi.fn().mockImplementation((text: string) => {
+          sentText = text;
+          return Promise.resolve({ sent: true });
+        }),
+      } as unknown as TelegramClient;
+
+      const alertService = new AdminAlertService({ enabled: true, telegramClient: mockClient });
+
+      await alertService.notifyPaymentReceived({
+        paymentId: "pay-course-wallet-audit",
+        orderId: "ord-course-wallet-audit",
+        amount: 300000,
+        productType: "course",
+        productTitle: "دوره فیزیک کوانتوم",
+        gateway: "wallet",
+        isC2C: false,
+        status: "موفق",
+      });
+
+      expect(sentText).toContain("💳 خرید دوره آموزشی (پرداخت جدید)");
+      expect(sentText).toContain("مبلغ: ۳۰۰٬۰۰۰ تومان");
+      expect(sentText).toContain("نوع: دوره فیزیک کوانتوم");
+      expect(sentText).toContain("روش پرداخت: کیف پول");
+      expect(sentText).toContain("شناسه سفارش: ord-course-wallet-audit");
+    });
+
+    it("Purchase Alert Scenario 5: Monthly Subscription Purchase", async () => {
+      let sentText = "";
+      const mockClient = {
+        isConfigured: vi.fn().mockReturnValue(true),
+        sendMessage: vi.fn().mockImplementation((text: string) => {
+          sentText = text;
+          return Promise.resolve({ sent: true });
+        }),
+      } as unknown as TelegramClient;
+
+      const alertService = new AdminAlertService({ enabled: true, telegramClient: mockClient });
+
+      await alertService.notifyPaymentReceived({
+        paymentId: "pay-sub-monthly-audit",
+        orderId: "ord-sub-monthly-audit",
+        amount: 150000,
+        productType: "subscription",
+        productTitle: "اشتراک ماهانه آوانا",
+        gateway: "zarinpal",
+        isC2C: false,
+        status: "موفق",
+      });
+
+      expect(sentText).toContain("💳 خرید اشتراک (پرداخت جدید)");
+      expect(sentText).toContain("مبلغ: ۱۵۰٬۰۰۰ تومان");
+      expect(sentText).toContain("نوع: اشتراک ماهانه آوانا");
+      expect(sentText).toContain("روش پرداخت: درگاه اینترنتی (زرین‌پال)");
+      expect(sentText).toContain("شناسه سفارش: ord-sub-monthly-audit");
+    });
+
+    it("Purchase Alert Scenario 6: Quarterly Subscription Purchase", async () => {
+      let sentText = "";
+      const mockClient = {
+        isConfigured: vi.fn().mockReturnValue(true),
+        sendMessage: vi.fn().mockImplementation((text: string) => {
+          sentText = text;
+          return Promise.resolve({ sent: true });
+        }),
+      } as unknown as TelegramClient;
+
+      const alertService = new AdminAlertService({ enabled: true, telegramClient: mockClient });
+
+      await alertService.notifyPaymentReceived({
+        paymentId: "pay-sub-quarterly-audit",
+        orderId: "ord-sub-quarterly-audit",
+        amount: 390000,
+        productType: "subscription",
+        productTitle: "اشتراک سه‌ماهه آوانا",
+        gateway: "zarinpal",
+        isC2C: false,
+        status: "موفق",
+      });
+
+      expect(sentText).toContain("💳 خرید اشتراک (پرداخت جدید)");
+      expect(sentText).toContain("مبلغ: ۳۹۰٬۰۰۰ تومان");
+      expect(sentText).toContain("نوع: اشتراک سه‌ماهه آوانا");
+      expect(sentText).toContain("روش پرداخت: درگاه اینترنتی (زرین‌پال)");
+      expect(sentText).toContain("شناسه سفارش: ord-sub-quarterly-audit");
+    });
+
+    it("Purchase Alert Scenario 7: Yearly Subscription Purchase", async () => {
+      let sentText = "";
+      const mockClient = {
+        isConfigured: vi.fn().mockReturnValue(true),
+        sendMessage: vi.fn().mockImplementation((text: string) => {
+          sentText = text;
+          return Promise.resolve({ sent: true });
+        }),
+      } as unknown as TelegramClient;
+
+      const alertService = new AdminAlertService({ enabled: true, telegramClient: mockClient });
+
+      await alertService.notifyPaymentReceived({
+        paymentId: "pay-sub-yearly-audit",
+        orderId: "ord-sub-yearly-audit",
+        amount: 1200000,
+        productType: "subscription",
+        productTitle: "اشتراک یک‌ساله آوانا",
+        gateway: "zarinpal",
+        isC2C: false,
+        status: "موفق",
+      });
+
+      expect(sentText).toContain("💳 خرید اشتراک (پرداخت جدید)");
+      expect(sentText).toContain("مبلغ: ۱٬۲۰۰٬۰۰۰ تومان");
+      expect(sentText).toContain("نوع: اشتراک یک‌ساله آوانا");
+      expect(sentText).toContain("روش پرداخت: درگاه اینترنتی (زرین‌پال)");
+      expect(sentText).toContain("شناسه سفارش: ord-sub-yearly-audit");
+    });
+
+    it("Purchase Alert Scenario 8: Wallet Refund Alert", async () => {
+      let sentText = "";
+      const mockClient = {
+        isConfigured: vi.fn().mockReturnValue(true),
+        sendMessage: vi.fn().mockImplementation((text: string) => {
+          sentText = text;
+          return Promise.resolve({ sent: true });
+        }),
+      } as unknown as TelegramClient;
+
+      const alertService = new AdminAlertService({ enabled: true, telegramClient: mockClient });
+
+      const sent = await alertService.notifyWalletRefunded({
+        walletId: "w-refund-audit-01",
+        amount: 180000,
+        source: "admin_adjustment",
+        userId: "usr-ref-42",
+        referenceType: "order",
+        referenceId: "ord-ref-99",
+      });
+
+      expect(sent).toBe(true);
+      expect(sentText).toContain("🔄 بازپرداخت کیف پول");
+      expect(sentText).toContain("مبلغ: ۱۸۰٬۰۰۰ تومان");
+      expect(sentText).toContain("شناسه کیف پول: w-refund-audit-01");
+      expect(sentText).toContain("منبع بازپرداخت: admin_adjustment");
+    });
+
+    it("AuditService duplicate event handling & distinction between alert cooldown and financial idempotency", async () => {
+      let sentCount = 0;
+      const mockClient = {
+        isConfigured: vi.fn().mockReturnValue(true),
+        sendMessage: vi.fn().mockImplementation(() => {
+          sentCount++;
+          return Promise.resolve({ sent: true });
+        }),
+      } as unknown as TelegramClient;
+
+      const alertService = new AdminAlertService({ enabled: true, telegramClient: mockClient });
+      const auditStore = new InMemoryAuditStore();
+      const auditService = new AuditService(auditStore);
+
+      // Wire audit listener as in composeProduction
+      auditService.addListener((events) => {
+        for (const event of events) {
+          if (event.action === "payment.completed") {
+            const paymentId = String(event.details?.paymentId ?? event.entityId);
+            void alertService.notifyPaymentReceived({
+              paymentId,
+              orderId: typeof event.details?.orderId === "string" ? event.details.orderId : undefined,
+              amount: Number(event.details?.amount ?? 0),
+              productTitle: typeof event.details?.productTitle === "string" ? event.details.productTitle : undefined,
+              productType: typeof event.details?.productType === "string" ? event.details.productType : undefined,
+              gateway: typeof event.details?.gateway === "string" ? event.details.gateway : undefined,
+              status: "موفق",
+              isC2C: false,
+            });
+          }
+        }
+      });
+
+      const duplicatePaymentId = "pay-dup-audit-test";
+      const sampleEvent: AuditEvent = {
+        actorId: asUserId("usr-dup-1" as any),
+        organizationId: null,
+        action: "payment.completed",
+        entityType: "payment",
+        entityId: duplicatePaymentId,
+        createdAt: new Date().toISOString(),
+        details: {
+          paymentId: duplicatePaymentId,
+          orderId: "ord-dup-1",
+          amount: 500000,
+          productTitle: "دوره فیزیک",
+          productType: "course",
+          gateway: "zarinpal",
+        },
+      };
+
+      // Emit event first time
+      await auditService.emit([sampleEvent]);
+      expect(sentCount).toBe(1);
+
+      // Emit exact duplicate event (e.g. from network retry or duplicate hook)
+      await auditService.emit([sampleEvent]);
+      // Cooldown in AdminAlertService suppressed duplicate Telegram alert!
+      expect(sentCount).toBe(1);
     });
   });
 });

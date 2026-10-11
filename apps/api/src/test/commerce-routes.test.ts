@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, no-secrets/no-secrets */
 import { describe, expect, it, beforeEach } from "vitest";
 import { randomUUID } from "node:crypto";
 import { createApp } from "../server/createApp.js";
@@ -451,6 +452,191 @@ describe("Commerce & Monetization HTTP Endpoints Test Suite", () => {
     expect(ordersResB.statusCode).toBe(200);
     const bodyB = JSON.parse(ordersResB.body);
     expect(bodyB.items).toHaveLength(0);
+  });
+
+  describe("POST /v1/commerce/analytics/consent/revoke Security & Authorization", () => {
+    it("allows anonymous caller to report local consent revocation without order_id gracefully and touches no store records", async () => {
+      const app = await buildTestApp();
+      const initialOrders = await commerceStore.listOrdersByUser("usr_any" as any);
+      expect(initialOrders).toHaveLength(0);
+
+      const res = await app.inject({
+        method: "POST",
+        url: "/v1/commerce/analytics/consent/revoke",
+        payload: {},
+      });
+
+      expect(res.statusCode).toBe(200);
+      const data = JSON.parse(res.body);
+      expect(data).toEqual({ ok: true, revoked: true, count: 0 });
+    });
+
+    it("rejects unauthenticated caller attempting to revoke a specific order with 401 and leaves store unmodified", async () => {
+      const app = await buildTestApp();
+      const user = await registerAndLogin(app, "owner-unauth-check@test.avana.dev");
+      const products = await commerceStore.listActiveProducts();
+      const monthly = products.find((p) => p.code === "sub_monthly")!;
+      const c2cRes = await app.inject({
+        method: "POST",
+        url: "/v1/commerce/card-to-card/submit",
+        cookies: user.cookies,
+        payload: {
+          product_id: monthly.id,
+          amount: monthly.price,
+          tracking_number: "TRK-UNAUTH-TARGET",
+          source_card_last4: "1111",
+          analytics: {
+            consent: "granted",
+            ga_client_id: "11111.22222",
+          },
+        },
+      });
+      const orderId = JSON.parse(c2cRes.body).orderId;
+
+      const res = await app.inject({
+        method: "POST",
+        url: "/v1/commerce/analytics/consent/revoke",
+        payload: { order_id: orderId },
+      });
+
+      expect(res.statusCode).toBe(401);
+      const data = JSON.parse(res.body);
+      expect(data.error.code).toBe("unauthorized");
+
+      // Verify store was completely untouched
+      const orderInStore = await commerceStore.findOrderById(orderId);
+      expect((orderInStore?.metadata?.analytics as any)?.consent).toBe("granted");
+      expect((orderInStore?.metadata?.analytics as any)?.purchase_status).not.toBe("skipped_no_consent");
+    });
+
+    it("rejects authenticated user attempting to revoke another user's order with 403", async () => {
+      const app = await buildTestApp();
+      const userA = await registerAndLogin(app, "victim-user@test.avana.dev");
+      const userB = await registerAndLogin(app, "attacker-user@test.avana.dev");
+
+      // Victim creates an order
+      const products = await commerceStore.listActiveProducts();
+      const monthly = products.find((p) => p.code === "sub_monthly")!;
+      const c2cRes = await app.inject({
+        method: "POST",
+        url: "/v1/commerce/card-to-card/submit",
+        cookies: userA.cookies,
+        payload: {
+          product_id: monthly.id,
+          amount: monthly.price,
+          tracking_number: "TRK-VICTIM-ORDER",
+          source_card_last4: "9999",
+          analytics: {
+            consent: "granted",
+            ga_client_id: "99999.11111",
+          },
+        },
+      });
+      expect(c2cRes.statusCode).toBe(201);
+      const victimOrderId = JSON.parse(c2cRes.body).orderId;
+
+      // Attacker attempts IDOR revocation on victim's order
+      const attackRes = await app.inject({
+        method: "POST",
+        url: "/v1/commerce/analytics/consent/revoke",
+        cookies: userB.cookies,
+        payload: { order_id: victimOrderId },
+      });
+
+      expect(attackRes.statusCode).toBe(403);
+      const err = JSON.parse(attackRes.body);
+      expect(err.error.code).toBe("forbidden");
+
+      // Verify victim's order was NOT tampered with
+      const storedOrder = await commerceStore.findOrderById(victimOrderId);
+      expect((storedOrder?.metadata?.analytics as any)?.consent).toBe("granted");
+    });
+
+    it("ignores body spoofed userId and only derives actor identity from verified session", async () => {
+      const app = await buildTestApp();
+      const userA = await registerAndLogin(app, "victim-spoof@test.avana.dev");
+      const userB = await registerAndLogin(app, "attacker-spoof@test.avana.dev");
+
+      // Victim creates an order
+      const products = await commerceStore.listActiveProducts();
+      const monthly = products.find((p) => p.code === "sub_monthly")!;
+      const c2cRes = await app.inject({
+        method: "POST",
+        url: "/v1/commerce/card-to-card/submit",
+        cookies: userA.cookies,
+        payload: {
+          product_id: monthly.id,
+          amount: monthly.price,
+          tracking_number: "TRK-VICTIM-SPOOF",
+          source_card_last4: "8888",
+          analytics: {
+            consent: "granted",
+            ga_client_id: "88888.22222",
+          },
+        },
+      });
+      const victimOrderId = JSON.parse(c2cRes.body).orderId;
+
+      // Attacker passes userA's userId in body
+      const spoofRes = await app.inject({
+        method: "POST",
+        url: "/v1/commerce/analytics/consent/revoke",
+        cookies: userB.cookies,
+        payload: {
+          userId: userA.userId,
+          user_id: userA.userId,
+        },
+      });
+
+      expect(spoofRes.statusCode).toBe(200);
+
+      // Victim's order must remain untouched (still granted)
+      const storedOrder = await commerceStore.findOrderById(victimOrderId);
+      expect((storedOrder?.metadata?.analytics as any)?.consent).toBe("granted");
+    });
+
+    it("successfully revokes consent for authenticated user's own order", async () => {
+      const app = await buildTestApp();
+      const user = await registerAndLogin(app, "owner-revoke@test.avana.dev");
+
+      // User creates an order
+      const products = await commerceStore.listActiveProducts();
+      const monthly = products.find((p) => p.code === "sub_monthly")!;
+      const c2cRes = await app.inject({
+        method: "POST",
+        url: "/v1/commerce/card-to-card/submit",
+        cookies: user.cookies,
+        payload: {
+          product_id: monthly.id,
+          amount: monthly.price,
+          tracking_number: "TRK-OWNER-REVOKE",
+          source_card_last4: "7777",
+          analytics: {
+            consent: "granted",
+            ga_client_id: "77777.33333",
+          },
+        },
+      });
+      const orderId = JSON.parse(c2cRes.body).orderId;
+
+      // User revokes their own order
+      const revokeRes = await app.inject({
+        method: "POST",
+        url: "/v1/commerce/analytics/consent/revoke",
+        cookies: user.cookies,
+        payload: { order_id: orderId },
+      });
+
+      expect(revokeRes.statusCode).toBe(200);
+      const data = JSON.parse(revokeRes.body);
+      expect(data.ok).toBe(true);
+
+      // Stored order must now have consent denied and status skipped_no_consent
+      const updatedOrder = await commerceStore.findOrderById(orderId);
+      const analytics = updatedOrder?.metadata?.analytics as any;
+      expect(analytics?.consent).toBe("denied");
+      expect(analytics?.purchase_status).toBe("skipped_no_consent");
+    });
   });
 });
 

@@ -35,6 +35,7 @@ import {
   InMemoryGeneratedContentCitationStore,
   InMemoryGenerationJobStore,
 } from "../modules/generation/test/in-memory-stores.js";
+import { InMemoryQuestionPatternStore } from "../modules/generation/question-patterns-store.js";
 import {
   InMemoryFlashcardStore,
   InMemoryFlashcardReviewStore,
@@ -84,6 +85,7 @@ import {
   InMemoryTeacherExamAttemptStore,
   InMemoryTeacherExamAttemptAnswerStore,
 } from "../modules/teacher-platform/index.js";
+import { InMemorySourcePackStore } from "../modules/source-packs/index.js";
 import { seedLocalDevData } from "../dev/seed.js";
 import type { V1RouteOptions } from "../routes/v1.js";
 import type { ApiConfig } from "../config.js";
@@ -305,6 +307,8 @@ export async function composeLocalDev(
     teacherExamQuestionStore,
     teacherExamAttemptStore,
     teacherExamAttemptAnswerStore,
+    sourcePackStore: new InMemorySourcePackStore(),
+    questionPatternStore: new InMemoryQuestionPatternStore(),
   };
 
   // Seed demo data for local development — awaited before routes register

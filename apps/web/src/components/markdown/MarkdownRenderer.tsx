@@ -236,8 +236,9 @@ export function normalizeRichContent(text: string): string {
   // 0. Unwrap raw JSON objects or string literals if passed as content
   let raw = unwrapJsonContent(text);
 
-  // 0.1 Sanitize trailing leaked metadata artifacts (like leaked citationChunkIds UUID arrays)
+  // 0.1 Sanitize trailing leaked metadata artifacts & model EOF traces
   raw = raw
+    .replace(/```\[EOF\][\s\S]*$/g, "")
     .replace(/,?\s*"citationChunkIds"\s*:\s*\[[\s\S]*?\]\s*}?$/s, "")
     .replace(/,?\s*"kind"\s*:\s*"[^"]*"\s*}?$/s, "")
     .replace(
@@ -246,9 +247,34 @@ export function normalizeRichContent(text: string): string {
     )
     .trimEnd();
 
+  // 0.2 Fix keyboard typos (e.g. Persian layout '---j' -> '---')
+  raw = raw.replace(/^---j$/gm, "---");
+
   // Split content by code blocks (fenced ```...``` and inline `...`)
   // Uses paired match to prevent desynchronization on unclosed single backticks
   const parts = raw.split(/(```[\s\S]*?```|`[^`\n]+`)/g);
+
+  // Known \ce{...} formulas and identifiers mapping to KaTeX or clean biological text
+  const formulaMap: Record<string, string> = {
+    IDH1: "IDH1",
+    IDH2: "IDH2",
+    FLT3: "FLT3",
+    BRCA: "BRCA",
+    BRCA1: "BRCA1",
+    BRCA2: "BRCA2",
+    "ER-\\alpha": "ER-α",
+    "TNF-\\alpha": "TNF-α",
+    "\\beta_2": "$\\beta_2$",
+    "HCO3^-": "$\\text{HCO}_3^-$",
+    "Cl^-": "$\\text{Cl}^-$",
+    "NH4^+": "$\\text{NH}_4^+$",
+    "Na+": "$\\text{Na}^+$",
+    "K+": "$\\text{K}^+$",
+    "H+": "$\\text{H}^+$",
+    "H2": "$\\text{H}_2$",
+    "CO2 + H2O <=> H2CO3 <=> H+ + HCO3^-":
+      "$\\text{CO}_2 + \\text{H}_2\\text{O} \\rightleftharpoons \\text{H}_2\\text{CO}_3 \\rightleftharpoons \\text{H}^+ + \\text{HCO}_3^-$",
+  };
 
   return parts
     .map((part, index) => {
@@ -260,6 +286,14 @@ export function normalizeRichContent(text: string): string {
           if (isScientificToken(inner)) {
             return inner; // Unwrap scientific token to plain text
           }
+        }
+        // For educational domain blocks (chemical, reaction, smiles, rxn, chart) that contain literal \n, unescape them so their parsers work correctly
+        if (
+          part.startsWith("```") &&
+          /```(?:chemical|smiles|reaction|rxn|chemical-reaction|chart|charts|chart-json)/i.test(part) &&
+          (part.includes("\\n") || part.includes("\\r\\n"))
+        ) {
+          return part.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n");
         }
         return part; // Leave real code untouched
       }
@@ -349,10 +383,10 @@ export function normalizeRichContent(text: string): string {
           let seg = segment;
 
           // Normalize escaped newlines in plain text (e.g. \\r\\n -> \n, \\n -> \n)
+          // Preserves legitimate LaTeX commands starting with \n (such as \nu, \nabla, \neq, \natural, \nearrow, \nwarrow, \ni)
           seg = seg.replace(/\\newline\b/g, "\n");
           seg = seg.replace(/\\r\\n/g, "\n");
-          seg = seg.replace(/\\n(?![a-zA-Z])/g, "\n");
-          seg = seg.replace(/\\n(?=(?:[0-9\-*•#>\s\u0600-\u06FF]))/g, "\n");
+          seg = seg.replace(/\\n(?!(?:nu|nabla|neq|natural|nearrow|nwarrow|ni)\b)/g, "\n");
 
           // Normalize escaped quotes (\") in plain text
           seg = seg.replace(/\\"/g, '"');
@@ -362,8 +396,20 @@ export function normalizeRichContent(text: string): string {
             .replace(/\\?text\{([^{}\n]+)\}/g, "$1")
             .replace(/(?:\b|\t)ext\{([^{}\n]+)\}/g, "$1");
 
-          // Normalize escaped tabs (\\t) and literal tabs in plain text
-          seg = seg.replace(/\\t/g, " ");
+          // Normalize escaped tabs (\\t) and literal tabs in plain text (protecting \text and LaTeX commands)
+          seg = seg.replace(/\\t(?!(?:ext|au|heta|imes)\b)/g, " ");
+
+          // Convert mhchem \ce{...} formulas to clean biological text or KaTeX math (done after legacy \text unwrap to preserve \text inside math)
+          seg = seg.replace(/\\ce\{([^{}]+)\}/g, (m, formula) => {
+            const trimmed = formula.trim().replace(/\\\\/g, "\\");
+            if (formulaMap[trimmed]) {
+              return formulaMap[trimmed];
+            }
+            if (/^[A-Za-z0-9_-]+$/.test(trimmed)) {
+              return trimmed;
+            }
+            return m;
+          });
 
           // Safe raw LaTeX arrow and symbol conversions outside math and code
           seg = seg
@@ -377,9 +423,17 @@ export function normalizeRichContent(text: string): string {
             .replace(/\\uparrow\b/g, "↑")
             .replace(/\\downarrow\b/g, "↓")
             .replace(/\\times\b/g, "×")
-            .replace(/\\leq\b/g, "≤")
-            .replace(/\\geq\b/g, "≥")
-            .replace(/\\pm\b/g, "±");
+            .replace(/\\(?:leq|le)\b/g, "≤")
+            .replace(/\\(?:geq|ge)\b/g, "≥")
+            .replace(/\\pm\b/g, "±")
+            .replace(/\\alpha\b/g, "α")
+            .replace(/\\beta\b/g, "β")
+            .replace(/\\gamma\b/g, "γ")
+            .replace(/\\delta\b/g, "δ")
+            .replace(/\\mu\b/g, "µ")
+            .replace(/\\circ\b/g, "°")
+            .replace(/\\approx\b/g, "≈")
+            .replace(/\\neq\b/g, "≠");
 
           return seg;
         })

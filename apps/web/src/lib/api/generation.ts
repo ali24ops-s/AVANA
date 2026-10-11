@@ -8,6 +8,7 @@ import type {
   GeneratedContentListResponse,
   GeneratedContentResponse,
   GenerateContentRequest,
+  MultiSourceGenerationRequest,
 } from "@avana/contracts";
 import type { ApiClient } from "./client.js";
 
@@ -81,6 +82,8 @@ export type GenerateContentOptions = GenerateContentRequest & {
   flashcards?: boolean;
   exam?: boolean;
   review_summary?: boolean;
+  question_pattern_id?: string | null;
+  question_pattern_version?: number | null;
 };
 
 export type GenerationJobResource = {
@@ -164,6 +167,36 @@ export function createGenerationApi(client: ApiClient) {
       return client.post<TriggerGenerationResponse>(
         `/v1/organizations/${organizationId}/courses/${courseId}/documents/${documentId}/generate`,
         data ?? {},
+      );
+    },
+
+    /**
+     * POST /v1/organizations/:organizationId/courses/:courseId/generate
+     * Starts async multi-source content generation job (returns 202 with job_id).
+     */
+    triggerMultiSourceGeneration(
+      organizationId: string,
+      courseId: string,
+      data: MultiSourceGenerationRequest,
+    ): Promise<TriggerGenerationResponse> {
+      return client.post<TriggerGenerationResponse>(
+        `/v1/organizations/${organizationId}/courses/${courseId}/generate`,
+        data,
+      );
+    },
+
+    /**
+     * POST /v1/organizations/:organizationId/courses/:courseId/estimate-cost
+     * Estimates cost for multi-source content generation.
+     */
+    estimateMultiSourceCost(
+      organizationId: string,
+      courseId: string,
+      data: { sources: Array<{ documentId: string; order?: number }>; types?: string[] },
+    ): Promise<{ request_id: string; estimate: unknown }> {
+      return client.post<{ request_id: string; estimate: unknown }>(
+        `/v1/organizations/${organizationId}/courses/${courseId}/estimate-cost`,
+        data,
       );
     },
 

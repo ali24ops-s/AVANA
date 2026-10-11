@@ -20,6 +20,7 @@ import type {
   DocumentId,
   GenerationJobId,
   OrganizationId,
+  SourcePackRole,
 } from "@avana/domain";
 import type { GenerationJobStatus } from "@avana/domain";
 
@@ -50,6 +51,17 @@ export type GenerationJobRecord = {
   leaseExpiresAt?: string | null;
   completedAt: string | null;
   deletedAt: string | null;
+  questionPatternId?: string | null;
+  questionPatternVersion?: number | null;
+};
+
+export type GenerationJobSourceRecord = {
+  id: string;
+  generationJobId: GenerationJobId;
+  documentId: DocumentId;
+  role?: SourcePackRole;
+  orderIndex: number;
+  createdAt: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -57,6 +69,18 @@ export type GenerationJobRecord = {
 // ---------------------------------------------------------------------------
 
 export interface GenerationJobStore {
+  /**
+   * Persist source document mappings for a multi-source generation job.
+   */
+  addSources?(sources: GenerationJobSourceRecord[]): Promise<void>;
+
+  /**
+   * List source documents linked to a generation job, ordered by order_index.
+   */
+  listSourcesByJob?(
+    generationJobId: GenerationJobId,
+  ): Promise<GenerationJobSourceRecord[]>;
+
   /**
    * Find a generation job by ID, scoped to an organization.
    * Returns undefined for missing/cross-org/soft-deleted rows (non-disclosing).

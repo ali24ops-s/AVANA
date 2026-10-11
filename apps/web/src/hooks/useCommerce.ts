@@ -125,6 +125,11 @@ export function useVerifyPayment() {
       queryClient.invalidateQueries({ queryKey: ["my-entitlements"] });
       queryClient.invalidateQueries({ queryKey: ["my-orders"] });
       queryClient.invalidateQueries({ queryKey: ["access-check"] });
+      queryClient.invalidateQueries({ queryKey: ["my-courses"] });
+      queryClient.invalidateQueries({ queryKey: ["courses"] });
+      queryClient.invalidateQueries({ queryKey: ["library-course-packages"] });
+      queryClient.invalidateQueries({ queryKey: ["library-resources"] });
+      queryClient.invalidateQueries({ queryKey: ["course-learning"] });
     },
   });
 }
@@ -177,6 +182,11 @@ export function useSubmitCardToCardPayment() {
       queryClient.invalidateQueries({ queryKey: ["my-entitlements"] });
       queryClient.invalidateQueries({ queryKey: ["my-orders"] });
       queryClient.invalidateQueries({ queryKey: ["access-check"] });
+      queryClient.invalidateQueries({ queryKey: ["my-courses"] });
+      queryClient.invalidateQueries({ queryKey: ["courses"] });
+      queryClient.invalidateQueries({ queryKey: ["library-course-packages"] });
+      queryClient.invalidateQueries({ queryKey: ["library-resources"] });
+      queryClient.invalidateQueries({ queryKey: ["course-learning"] });
     },
   });
 }

@@ -12,6 +12,7 @@ import type { FastifyRequest, FastifyReply } from "fastify";
 import type { SessionService } from "../modules/identity/session-service.js";
 import type { UserStore } from "../modules/identity/user-store.js";
 import { DomainError, type Role } from "@avana/domain";
+import { attachSessionCookies } from "../modules/identity/cookie-utils.js";
 
 export type AuthMiddlewareDeps = {
   sessionService: SessionService;
@@ -39,7 +40,7 @@ export function makeAuthMiddleware(deps: AuthMiddlewareDeps) {
    */
   async function requireAuth(
     request: FastifyRequest,
-    _reply: FastifyReply,
+    reply: FastifyReply,
   ): Promise<void> {
     const sessionCookie = request.cookies?.["avana_session"];
     const authHeader = request.headers.authorization;
@@ -73,6 +74,10 @@ export function makeAuthMiddleware(deps: AuthMiddlewareDeps) {
 
     if (!details.valid || !details.user) {
       throw new DomainError("unauthorized", "Not signed in");
+    }
+
+    if (details.renewed) {
+      attachSessionCookies(reply, token, sessionService.getConfig());
     }
 
     const user = details.user;
@@ -135,7 +140,7 @@ export function makeAuthMiddleware(deps: AuthMiddlewareDeps) {
    */
   async function optionalAuth(
     request: FastifyRequest,
-    _reply: FastifyReply,
+    reply: FastifyReply,
   ): Promise<void> {
     const sessionCookie = request.cookies?.["avana_session"];
     const authHeader = request.headers.authorization;
@@ -152,6 +157,9 @@ export function makeAuthMiddleware(deps: AuthMiddlewareDeps) {
     try {
       const details = await sessionService.validateSessionDetails(token);
       if (details.valid && details.user && !details.revoked) {
+        if (details.renewed) {
+          attachSessionCookies(reply, token, sessionService.getConfig());
+        }
         const userRecord = await userStore.findById(details.user.userId);
         if (userRecord) {
           const effectiveRole =

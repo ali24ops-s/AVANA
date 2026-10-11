@@ -16,10 +16,12 @@ import { randomUUID } from "node:crypto";
 import type { FastifyPluginAsync } from "fastify";
 import {
   type Actor,
+  type UserId,
   type CheckAccessInput,
   type CardToCardInfoResponse,
   DomainError,
   parseProductId,
+  parseOrderId,
   isProductId,
   parsePaymentId,
   DEFAULT_SUBSCRIPTION_CREDIT_BONUSES,
@@ -82,6 +84,72 @@ export interface CommerceRouteOptions {
   promotionService?: PromotionService;
   referralService?: import("../referral/referral-service.js").ReferralService;
   systemOrganizationId?: import("@avana/domain").OrganizationId;
+  ga4Service?: import("../observability/ga4-measurement-protocol.js").Ga4MeasurementProtocolService;
+}
+
+export interface ValidatedAnalytics {
+  [key: string]: unknown;
+  consent?: "granted" | "denied";
+  ga_client_id?: string;
+  ga_session_id?: string;
+  utm_source?: string;
+  utm_medium?: string;
+  utm_campaign?: string;
+  utm_term?: string;
+  utm_content?: string;
+}
+
+/**
+ * Validates and sanitizes analytics metadata sent from the client.
+ * Whitelists only safe attribution keys, caps lengths, rejects PII and invalid formats.
+ */
+export function sanitizeAnalyticsInput(input: unknown): ValidatedAnalytics | null {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+  const raw = input as Record<string, unknown>;
+
+  const clean: ValidatedAnalytics = {};
+  let count = 0;
+
+  if (raw.consent === "granted" || raw.consent === "denied") {
+    clean.consent = raw.consent;
+    count++;
+  }
+
+  if (typeof raw.ga_client_id === "string") {
+    const val = raw.ga_client_id.trim();
+    if (val.length >= 5 && val.length <= 50 && /^[a-zA-Z0-9_.-]+$/.test(val) && !val.includes("@")) {
+      clean.ga_client_id = val;
+      count++;
+    }
+  }
+
+  if (typeof raw.ga_session_id === "string" || typeof raw.ga_session_id === "number") {
+    const val = String(raw.ga_session_id).trim();
+    if (/^\d{8,18}$/.test(val)) {
+      clean.ga_session_id = val;
+      count++;
+    }
+  }
+
+  const utmKeys = ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content"] as const;
+  for (const k of utmKeys) {
+    if (typeof raw[k] === "string") {
+      const val = raw[k].trim();
+      if (
+        val.length > 0 &&
+        val.length <= 100 &&
+        /^[a-zA-Z0-9_\-.~%+]+$/.test(val) &&
+        !val.includes("@") &&
+        !val.includes("%40") &&
+        !/(?:\+|%2B)?\d{8,16}/.test(val)
+      ) {
+        clean[k] = val;
+        count++;
+      }
+    }
+  }
+
+  return count > 0 ? clean : null;
 }
 
 export const commerceRoutes: FastifyPluginAsync<CommerceRouteOptions> = async (
@@ -110,9 +178,10 @@ export const commerceRoutes: FastifyPluginAsync<CommerceRouteOptions> = async (
     walletService,
     subscriptionCreditBonusesProvider,
     promotionService,
+    ga4Service,
   } = opts;
 
-  const { requireAuth } = makeAuthMiddleware({ sessionService, userStore });
+  const { requireAuth, optionalAuth } = makeAuthMiddleware({ sessionService, userStore });
 
   const commerceService = new CommerceService(
     commerceStore,
@@ -132,7 +201,9 @@ export const commerceRoutes: FastifyPluginAsync<CommerceRouteOptions> = async (
     subscriptionCreditBonusesProvider,
     promotionService,
     opts.referralService,
+    ga4Service,
   );
+
 
   const paymentExtractionService =
     opts.paymentExtractionService ??
@@ -252,6 +323,7 @@ export const commerceRoutes: FastifyPluginAsync<CommerceRouteOptions> = async (
         gateway?: string;
         coupon_code?: string;
         couponCode?: string;
+        analytics?: unknown;
       };
 
       const rawProductId = body.product_id ?? body.productId;
@@ -266,6 +338,7 @@ export const commerceRoutes: FastifyPluginAsync<CommerceRouteOptions> = async (
         "http://localhost:5173/checkout/callback";
 
       const couponCode = body.coupon_code ?? body.couponCode;
+      const analytics = sanitizeAnalyticsInput(body.analytics);
 
       const result = await commerceService.checkout(
         actor,
@@ -274,9 +347,11 @@ export const commerceRoutes: FastifyPluginAsync<CommerceRouteOptions> = async (
           callbackUrl: defaultCallback,
           gateway: body.gateway,
           couponCode,
+          analytics: analytics ?? undefined,
         },
         request.id,
       );
+
 
       reply.code(201);
       return result;
@@ -771,6 +846,7 @@ export const commerceRoutes: FastifyPluginAsync<CommerceRouteOptions> = async (
         extractionMethod?: "rule" | "ai" | "hybrid" | "manual";
         coupon_code?: string;
         couponCode?: string;
+        analytics?: Record<string, unknown>;
       };
 
       const rawProductId = body.product_id ?? body.productId;
@@ -816,6 +892,7 @@ export const commerceRoutes: FastifyPluginAsync<CommerceRouteOptions> = async (
       const rawPaymentText = body.raw_payment_text ?? body.rawPaymentText;
       const extractionMethod = body.extraction_method ?? body.extractionMethod;
       const couponCode = body.coupon_code ?? body.couponCode;
+      const analytics = sanitizeAnalyticsInput(body.analytics);
 
       if (!amount) {
         throw new DomainError("bad_request", "مبلغ واریزی (amount) الزامی است.");
@@ -847,9 +924,11 @@ export const commerceRoutes: FastifyPluginAsync<CommerceRouteOptions> = async (
           rawPaymentText,
           extractionMethod,
           couponCode,
+          analytics: analytics ?? undefined,
         },
         request.id,
       );
+
 
       reply.code(201);
       return result;
@@ -1148,6 +1227,63 @@ export const commerceRoutes: FastifyPluginAsync<CommerceRouteOptions> = async (
           updated_at: o.updatedAt,
         })),
       };
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // POST /v1/commerce/analytics/consent/revoke — Revoke analytics consent
+  // -------------------------------------------------------------------------
+  app.post(
+    "/v1/commerce/analytics/consent/revoke",
+    { preHandler: [optionalAuth] },
+    async (request, reply) => {
+      const reqAny = request as {
+        user?: { userId: string; email: string; role: string };
+        body?: unknown;
+      };
+      const body = (reqAny.body ?? {}) as { order_id?: string; orderId?: string };
+      const rawOrderId = body.order_id ?? body.orderId;
+
+      // 1. Unauthenticated callers:
+      // An anonymous visitor toggling consent off in the browser banner has no orders on server.
+      // If an unauthenticated caller attempts to pass an orderId, strictly reject (no anonymous order tampering).
+      if (!reqAny.user?.userId) {
+        if (rawOrderId) {
+          throw new DomainError(
+            "unauthorized",
+            "برای لغو رضایت تحلیل سفارش مشخص، ورود به حساب کاربری الزامی است.",
+          );
+        }
+        reply.code(200);
+        return { ok: true, revoked: true, count: 0 };
+      }
+
+      // 2. Authenticated caller:
+      // Identity is strictly sourced from verified session (reqAny.user.userId), never client body.
+      const authenticatedUserId = reqAny.user.userId as UserId;
+
+      // Revoke all pending orders belonging to the authenticated actor
+      let revokedCount = await commerceStore.revokeUserAnalyticsConsent(authenticatedUserId);
+
+      // 3. If a specific order ID was provided, strictly enforce ownership (prevent IDOR)
+      if (rawOrderId) {
+        const orderId = parseOrderId(rawOrderId, "order_id");
+        const order = await commerceStore.findOrderById(orderId);
+        if (!order) {
+          throw new DomainError("not_found", "سفارش مورد نظر یافت نشد.");
+        }
+        if (order.userId !== authenticatedUserId) {
+          throw new DomainError(
+            "forbidden",
+            "شما دسترسی مجاز برای تغییر وضعیت سفارش سایر کاربران را ندارید.",
+          );
+        }
+        await commerceStore.revokeOrderAnalyticsConsent(orderId);
+        revokedCount++;
+      }
+
+      reply.code(200);
+      return { ok: true, revoked: true, count: revokedCount };
     },
   );
 };

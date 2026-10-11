@@ -32,6 +32,7 @@ export type CheckoutRequest = {
   callback_url?: string;
   gateway?: string;
   coupon_code?: string;
+  analytics?: Record<string, unknown>;
 };
 
 export type CheckoutResponse = {
@@ -141,6 +142,7 @@ export type CardToCardPaymentRequest = {
   raw_payment_text?: string;
   extraction_method?: "rule" | "ai" | "hybrid" | "manual";
   coupon_code?: string;
+  analytics?: Record<string, unknown>;
 };
 
 export type SpecialExamPreviewRequest = {

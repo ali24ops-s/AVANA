@@ -14,6 +14,7 @@
  */
 
 import { createBrowserRouter, Navigate, useParams } from "react-router-dom";
+import { RootTrackerLayout } from "../lib/tracker/index.js";
 import { ProtectedRoute } from "../components/shell/ProtectedRoute.js";
 import { useAuth } from "../providers/AuthProvider.js";
 import { isContentManagerOrAdmin } from "../utils/generationPermissions.js";
@@ -136,7 +137,10 @@ function CourseManageRedirect() {
 
 export const router = createBrowserRouter(
   [
-    // Public routes
+    {
+      element: <RootTrackerLayout />,
+      children: [
+        // Public routes
     {
       path: "/",
       element: <LandingPage />,
@@ -586,6 +590,8 @@ export const router = createBrowserRouter(
             },
           ],
         },
+      ],
+    },
       ],
     },
   ],

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams, useSearchParams, useNavigate, Link } from "react-router-dom";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   BookOpen,
   Layers,
@@ -17,11 +17,15 @@ import {
   HelpCircle,
   UploadCloud,
   FileCheck,
-  Download,
-  Upload,
   Flag,
+  GraduationCap,
+  User,
+  School,
+  AlertTriangle,
+  Info,
 } from "lucide-react";
-import type { OfficialCourse } from "../../lib/api/admin.js";
+import type { AdminCourseRecord, OfficialCourse } from "../../lib/api/admin.js";
+import { useAdmin } from "../../hooks/useAdmin.js";
 import { CourseStructurePanel } from "../../components/admin/studio/CourseStructurePanel.js";
 import { SourceProductionPanel } from "../../components/admin/studio/SourceProductionPanel.js";
 import { DraftReviewPanel } from "../../components/admin/studio/DraftReviewPanel.js";
@@ -33,9 +37,16 @@ import { ContentImportModal } from "../../components/admin/content/ContentImport
 import { toPersianDigits } from "@avana/domain";
 import { formatToman } from "../../components/admin/commerce/commerceUtils.js";
 
-export type CourseHubTab = "structure" | "generation" | "review" | "publish" | "settings" | "reports";
+export type CourseHubTab =
+  | "structure"
+  | "generation"
+  | "review"
+  | "publish"
+  | "settings"
+  | "reports"
+  | "details";
 
-const VALID_TABS: readonly CourseHubTab[] = [
+const OFFICIAL_VALID_TABS: readonly CourseHubTab[] = [
   "structure",
   "generation",
   "review",
@@ -44,21 +55,112 @@ const VALID_TABS: readonly CourseHubTab[] = [
   "reports",
 ] as const;
 
+const INSPECTION_VALID_TABS: readonly CourseHubTab[] = [
+  "structure",
+  "details",
+  "reports",
+] as const;
+
 export function AdminCourseHubPage() {
   const { courseId } = useParams<{ courseId: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const adminApi = useAdmin();
 
-  // Resolve current active tab from searchParams, fallback to 'structure'
+  const [course, setCourse] = useState<AdminCourseRecord | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [is404, setIs404] = useState(false);
+
+  // Export / Import Modals State
+  const [isExportOpen, setIsExportOpen] = useState(false);
+  const [isImportOpen, setIsImportOpen] = useState(false);
+
+  const fetchCourse = useCallback(async () => {
+    if (!courseId) return;
+    try {
+      setLoading(true);
+      setError(null);
+      setIs404(false);
+
+      try {
+        const res = await adminApi.getCourse(courseId);
+        if (res && res.course) {
+          setCourse(res.course);
+          return;
+        }
+      } catch {
+        // Fallback to content-studio endpoint if getCourse is unmocked or fails
+      }
+
+      const res = await fetch("/v1/admin/content-studio/courses", { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        const found = (data.courses || []).find((c: any) => c.id === courseId);
+        if (found) {
+          setCourse({
+            id: found.id,
+            name: found.name,
+            subject: found.subject ?? null,
+            description: found.description ?? null,
+            status: found.status,
+            isOfficial: true,
+            scope: "official",
+            organizationId: found.organizationId,
+            createdAt: found.createdAt,
+            updatedAt: found.updatedAt,
+            counts: {
+              modules: found.moduleCount ?? 0,
+              lessons: found.lessonCount ?? 0,
+              flashcards: found.flashcardCount ?? 0,
+              quizzes: found.quizQuestionCount ?? 0,
+            },
+            product: found.product ?? null,
+          });
+          return;
+        }
+      }
+
+      setIs404(true);
+    } catch (err: unknown) {
+      const e = err as Error;
+      if (
+        e.message?.includes("404") ||
+        e.message?.includes("not_found") ||
+        e.message?.includes("یافت نشد")
+      ) {
+        setIs404(true);
+      } else {
+        setError(e.message || "خطا در دریافت اطلاعات دوره");
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [courseId, adminApi]);
+
+  useEffect(() => {
+    void fetchCourse();
+  }, [fetchCourse]);
+
+  const isOfficial = course?.scope === "official" || Boolean(course?.isOfficial);
+
+  // Resolve current active tab from searchParams
   const rawTab = searchParams.get("tab");
   const activeTab: CourseHubTab = useMemo(() => {
-    if (rawTab === "sources") return "generation"; // Backward-compatibility mapping
-    if (rawTab && (VALID_TABS as readonly string[]).includes(rawTab)) {
-      return rawTab as CourseHubTab;
+    if (rawTab === "sources") return "generation";
+    if (isOfficial) {
+      if (rawTab && (OFFICIAL_VALID_TABS as readonly string[]).includes(rawTab)) {
+        return rawTab as CourseHubTab;
+      }
+      return "structure";
+    } else {
+      if (rawTab && (INSPECTION_VALID_TABS as readonly string[]).includes(rawTab)) {
+        return rawTab as CourseHubTab;
+      }
+      return "structure";
     }
-    return "structure";
-  }, [rawTab]);
+  }, [rawTab, isOfficial]);
 
   const setTab = useCallback(
     (newTab: CourseHubTab) => {
@@ -74,46 +176,53 @@ export function AdminCourseHubPage() {
     [setSearchParams]
   );
 
-  const [courses, setCourses] = useState<OfficialCourse[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  // Export / Import Modals State
-  const [isExportOpen, setIsExportOpen] = useState(false);
-  const [isImportOpen, setIsImportOpen] = useState(false);
-
-  const fetchCourses = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const res = await fetch("/v1/admin/content-studio/courses", { credentials: "include" });
-      if (!res.ok) throw new Error("دریافت اطلاعات دوره‌ها با خطا مواجه شد.");
-      const data = await res.json();
-      setCourses(data.courses || []);
-    } catch (err: unknown) {
-      const e = err as Error;
-      setError(e.message || "خطای ناشناخته در دریافت دوره‌ها");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchCourses();
-  }, [fetchCourses]);
-
-  const course = useMemo(() => {
-    return courses.find((c) => c.id === courseId);
-  }, [courses, courseId]);
-
-  const organizationId = course?.organizationId || "";
+  // Switcher courses query in the same scope
+  const siblingCoursesQuery = useQuery({
+    queryKey: ["admin", "courses-switcher", course?.scope],
+    queryFn: async () => {
+      if (!course?.scope) return [];
+      const res = await adminApi.listCourses(1, 50, undefined, course.scope);
+      return res.courses || [];
+    },
+    enabled: Boolean(course?.scope),
+  });
 
   const handleSwitchCourse = (targetCourseId: string) => {
     if (!targetCourseId || targetCourseId === courseId) return;
     navigate(`/admin/courses/${targetCourseId}?tab=${activeTab}`);
   };
 
-  const getStatusBadge = (status: OfficialCourse["status"]) => {
+  // Convert AdminCourseRecord to OfficialCourse adapter for studio components
+  const officialCourseAdapter = useMemo<OfficialCourse | null>(() => {
+    if (!course) return null;
+    return {
+      id: course.id,
+      organizationId: course.organizationId,
+      name: course.name,
+      description: course.description ?? null,
+      subject: course.subject,
+      status: (course.status as OfficialCourse["status"]) || "draft",
+      isOfficial: Boolean(course.isOfficial),
+      moduleCount: course.counts.modules,
+      lessonCount: course.counts.lessons,
+      flashcardCount: course.counts.flashcards,
+      quizQuestionCount: course.counts.quizzes,
+      product: course.product
+        ? {
+            id: course.product.id,
+            code: course.product.code,
+            name: course.name,
+            price: course.product.price,
+            currency: course.product.currency,
+            active: course.product.active,
+          }
+        : null,
+      createdAt: course.createdAt,
+      updatedAt: course.updatedAt || course.createdAt,
+    };
+  }, [course]);
+
+  const getStatusBadge = (status?: string) => {
     switch (status) {
       case "draft":
         return (
@@ -155,6 +264,12 @@ export function AdminCourseHubPage() {
             بایگانی شده
           </span>
         );
+      default:
+        return (
+          <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-[var(--color-surface-subtle)] text-[var(--color-text-muted)] border border-[var(--color-border)]">
+            {status || "پیش‌نویس"}
+          </span>
+        );
     }
   };
 
@@ -163,26 +278,22 @@ export function AdminCourseHubPage() {
     return (
       <div className="py-24 flex flex-col items-center justify-center gap-3 text-[var(--color-text-muted)]" dir="rtl">
         <Loader2 className="w-9 h-9 animate-spin text-[var(--color-primary-default)]" />
-        <p className="text-sm font-medium">در حال بارگذاری هاب مدیریت دوره...</p>
+        <p className="text-sm font-medium">در حال بارگذاری اطلاعات دوره...</p>
       </div>
     );
   }
 
-  // Not found / Error state
-  if (!course) {
+  // Real 404 state
+  if (is404) {
     return (
       <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-10 text-center space-y-4 max-w-xl mx-auto my-12 shadow-sm" dir="rtl">
         <AlertCircle className="w-12 h-12 text-rose-500 mx-auto" />
         <h3 className="text-base font-bold text-[var(--color-text)]">دوره مورد نظر یافت نشد</h3>
-        {error ? (
-          <p className="text-xs text-rose-500">{error}</p>
-        ) : (
-          <p className="text-xs text-[var(--color-text-muted)]">
-            دوره با شناسه <span className="font-mono text-[var(--color-text)]">{courseId}</span> یافت نشد یا ممکن است حذف شده باشد.
-          </p>
-        )}
+        <p className="text-xs text-[var(--color-text-muted)]">
+          دوره با شناسه <span className="font-mono text-[var(--color-text)]">{courseId}</span> یافت نشد یا ممکن است حذف شده باشد.
+        </p>
         <Link
-          to="/admin/courses"
+          to="/admin/courses?tab=official"
           className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[var(--color-primary-default)] hover:bg-[var(--color-primary-dark)] text-[var(--color-primary-contrast)] text-xs font-bold transition-all shadow-sm"
         >
           <ChevronRight className="w-4 h-4" />
@@ -192,7 +303,38 @@ export function AdminCourseHubPage() {
     );
   }
 
-  // Loaded Course Hub
+  // Network or Server Error state
+  if (error && !course) {
+    return (
+      <div className="bg-[var(--color-surface)] rounded-2xl border border-rose-500/20 p-10 text-center space-y-4 max-w-xl mx-auto my-12 shadow-sm bg-rose-500/5" dir="rtl">
+        <AlertCircle className="w-12 h-12 text-rose-500 mx-auto" />
+        <h3 className="text-base font-bold text-rose-600 dark:text-rose-400">خطا در دریافت اطلاعات دوره</h3>
+        <p className="text-xs text-rose-500/80">{error}</p>
+        <div className="flex items-center justify-center gap-3">
+          <button
+            type="button"
+            onClick={() => fetchCourse()}
+            className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-all shadow-sm flex items-center gap-2"
+          >
+            <RefreshCw className="w-4 h-4" />
+            <span>تلاش مجدد</span>
+          </button>
+          <Link
+            to="/admin/courses?tab=official"
+            className="px-5 py-2.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] text-xs font-bold hover:bg-[var(--color-surface-subtle)] transition-colors"
+          >
+            بازگشت به فهرست
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  if (!course) return null;
+
+  const organizationId = course.organizationId || "";
+  const backTab = course.scope === "teacher" ? "teacher" : course.scope === "user" ? "user" : "official";
+
   return (
     <div className="space-y-6 text-[var(--color-text)]" dir="rtl">
       {/* Course Hub Top Header */}
@@ -208,26 +350,32 @@ export function AdminCourseHubPage() {
             </Link>
             <ChevronLeft className="w-3.5 h-3.5 text-[var(--color-text-muted)]" />
             <Link
-              to="/admin/courses"
+              to={`/admin/courses?tab=${backTab}`}
               className="hover:text-[var(--color-primary-default)] transition-colors font-bold text-[var(--color-text)]"
             >
-              آموزش و دوره‌ها
+              {course.scope === "teacher"
+                ? "دوره‌های اساتید"
+                : course.scope === "user"
+                ? "دوره‌های کاربران"
+                : "دوره‌های رسمی آوانا"}
             </Link>
             <ChevronLeft className="w-3.5 h-3.5 text-[var(--color-text-muted)]" />
 
             {/* Quick Course Switcher Dropdown */}
-            <select
-              value={course.id}
-              onChange={(e) => handleSwitchCourse(e.target.value)}
-              aria-label="انتخاب دوره آموزشی"
-              className="bg-[var(--color-surface-subtle)] border border-[var(--color-border)] text-[var(--color-text)] rounded-xl px-2.5 py-1 text-xs font-bold focus:outline-none focus:border-[var(--color-primary-default)] max-w-[200px] sm:max-w-xs truncate"
-            >
-              {courses.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name} ({c.status})
-                </option>
-              ))}
-            </select>
+            {siblingCoursesQuery.data && siblingCoursesQuery.data.length > 0 && (
+              <select
+                value={course.id}
+                onChange={(e) => handleSwitchCourse(e.target.value)}
+                aria-label="انتخاب دوره آموزشی"
+                className="bg-[var(--color-surface-subtle)] border border-[var(--color-border)] text-[var(--color-text)] rounded-xl px-2.5 py-1 text-xs font-bold focus:outline-none focus:border-[var(--color-primary-default)] max-w-[200px] sm:max-w-xs truncate"
+              >
+                {siblingCoursesQuery.data.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} ({c.status || "draft"})
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
@@ -238,60 +386,79 @@ export function AdminCourseHubPage() {
               className="px-3 py-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-subtle)] hover:bg-[var(--color-surface)] text-[var(--color-text)] text-xs font-bold transition-colors flex items-center gap-1.5"
               title="دریافت بسته خروجی محتوای دوره (ZIP)"
             >
-              <Download className="w-3.5 h-3.5 text-[var(--color-primary-default)]" />
+              <FileCheck className="w-3.5 h-3.5 text-[var(--color-text-muted)]" />
               <span>خروجی ZIP</span>
             </button>
 
-            <button
-              type="button"
-              onClick={() => setIsImportOpen(true)}
-              className="px-3 py-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-subtle)] hover:bg-[var(--color-surface)] text-[var(--color-text)] text-xs font-bold transition-colors flex items-center gap-1.5"
-              title="ورود بسته محتوا به این دوره"
-            >
-              <Upload className="w-3.5 h-3.5 text-blue-500" />
-              <span>ورود محتوا</span>
-            </button>
+            {isOfficial && (
+              <button
+                type="button"
+                onClick={() => setIsImportOpen(true)}
+                className="px-3 py-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-subtle)] hover:bg-[var(--color-surface)] text-[var(--color-text)] text-xs font-bold transition-colors flex items-center gap-1.5"
+                title="بارگذاری و درون‌ریزی بسته محتوایی دوره (ZIP)"
+              >
+                <UploadCloud className="w-3.5 h-3.5 text-[var(--color-primary-default)]" />
+                <span>ورود محتوا (ZIP)</span>
+              </button>
+            )}
 
             <button
               type="button"
-              onClick={fetchCourses}
+              onClick={() => fetchCourse()}
               disabled={loading}
-              className="p-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-subtle)] hover:bg-[var(--color-surface)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors"
+              className="p-2.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-subtle)] hover:bg-[var(--color-surface)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors"
               title="به‌روزرسانی اطلاعات دوره"
-              aria-label="به‌روزرسانی"
             >
-              <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+              <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
             </button>
-
-            <Link
-              to="/admin/courses"
-              className="px-4 py-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-subtle)] hover:bg-[var(--color-surface)] text-[var(--color-text)] text-xs font-bold transition-colors flex items-center gap-1.5"
-            >
-              <ChevronRight className="w-3.5 h-3.5" />
-              <span>بازگشت به دوره‌ها</span>
-            </Link>
           </div>
         </div>
 
-        {/* Row 2: Main Course Title, Badges & Aggregate Learning Counters */}
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pt-3 border-t border-[var(--color-border)]">
+        {/* Row 2: Title, Category Badges & Metrics */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pt-2">
           <div className="space-y-1.5">
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2.5">
               <h1 className="text-xl sm:text-2xl font-black text-[var(--color-text)]">
                 {course.name}
               </h1>
               {getStatusBadge(course.status)}
-              {course.isOfficial && (
-                <span className="px-2.5 py-0.5 rounded-xl bg-[var(--color-primary-default)]/10 text-[var(--color-primary-default)] text-xs border border-[var(--color-primary-default)]/30 font-bold">
-                  دوره رسمی آوانا
+
+              {/* Scope Badge */}
+              {isOfficial && (
+                <span className="px-2.5 py-0.5 rounded-xl bg-[var(--color-primary-default)]/10 text-[var(--color-primary-default)] text-xs border border-[var(--color-primary-default)]/30 font-bold flex items-center gap-1">
+                  <ShieldCheck className="w-3 h-3" />
+                  <span>دوره رسمی آوانا</span>
                 </span>
               )}
+
+              {course.scope === "teacher" && (
+                <span className="px-2.5 py-0.5 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 text-xs border border-blue-500/30 font-bold flex items-center gap-1">
+                  <GraduationCap className="w-3 h-3" />
+                  <span>دوره استاد</span>
+                </span>
+              )}
+
+              {course.scope === "user" && (
+                <span className="px-2.5 py-0.5 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 text-xs border border-amber-500/30 font-bold flex items-center gap-1">
+                  <User className="w-3 h-3" />
+                  <span>دوره شخصی کاربر</span>
+                </span>
+              )}
+
+              {course.needsReview && (
+                <span className="px-2.5 py-0.5 rounded-xl bg-amber-500/15 text-amber-700 dark:text-amber-400 text-xs border border-amber-500/30 font-black flex items-center gap-1">
+                  <AlertTriangle className="w-3 h-3 text-amber-600" />
+                  <span>نیازمند بررسی مالکیت</span>
+                </span>
+              )}
+
               {course.subject && (
                 <span className="px-2.5 py-0.5 rounded-xl bg-[var(--color-surface-subtle)] text-[var(--color-text-muted)] text-xs border border-[var(--color-border)] font-medium">
                   {course.subject}
                 </span>
               )}
             </div>
+
             {course.description && (
               <p className="text-xs sm:text-sm text-[var(--color-text-muted)] max-w-3xl line-clamp-2">
                 {course.description}
@@ -303,25 +470,25 @@ export function AdminCourseHubPage() {
           <div className="flex flex-wrap items-center gap-2 sm:gap-3 bg-[var(--color-surface-subtle)] p-2.5 rounded-xl border border-[var(--color-border)]">
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--color-primary-default)]/10 border border-[var(--color-primary-default)]/20 text-[var(--color-primary-default)] text-xs">
               <Layers className="w-3.5 h-3.5 text-[var(--color-primary-default)]" />
-              <span className="font-bold">{toPersianDigits(course.moduleCount)}</span>
+              <span className="font-bold">{course.counts.modules}</span>
               <span className="text-[11px] opacity-80">فصل</span>
             </div>
 
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-600 dark:text-blue-400 text-xs">
               <BookOpen className="w-3.5 h-3.5 text-blue-500" />
-              <span className="font-bold">{toPersianDigits(course.lessonCount)}</span>
+              <span className="font-bold">{course.counts.lessons}</span>
               <span className="text-[11px] opacity-80">درس</span>
             </div>
 
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-purple-500/10 border border-purple-500/20 text-purple-600 dark:text-purple-400 text-xs">
               <Sparkles className="w-3.5 h-3.5 text-purple-500" />
-              <span className="font-bold">{toPersianDigits(course.flashcardCount)}</span>
+              <span className="font-bold">{course.counts.flashcards}</span>
               <span className="text-[11px] opacity-80">فلش‌کارت</span>
             </div>
 
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 text-xs">
               <HelpCircle className="w-3.5 h-3.5 text-amber-500" />
-              <span className="font-bold">{toPersianDigits(course.quizQuestionCount)}</span>
+              <span className="font-bold">{course.counts.quizzes}</span>
               <span className="text-[11px] opacity-80">سؤال تستی</span>
             </div>
 
@@ -337,86 +504,131 @@ export function AdminCourseHubPage() {
         </div>
       </div>
 
-      {/* Course Hub 5 Tabs Navigation */}
-      <div className="flex items-center gap-2 p-1.5 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl overflow-x-auto text-xs font-bold shadow-sm">
-        <button
-          type="button"
-          onClick={() => setTab("structure")}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all whitespace-nowrap ${
-            activeTab === "structure"
-              ? "bg-[var(--color-primary-default)] text-[var(--color-primary-contrast)] shadow-sm"
-              : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-subtle)]"
-          }`}
-        >
-          <Layers className="w-4 h-4" />
-          <span>۱. ساختار و سرفصل‌ها</span>
-        </button>
+      {/* Tabs Navigation */}
+      {isOfficial ? (
+        /* Official Course Tabs (Full Content Studio) */
+        <div className="flex items-center gap-2 p-1.5 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl overflow-x-auto text-xs font-bold shadow-sm">
+          <button
+            type="button"
+            onClick={() => setTab("structure")}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all whitespace-nowrap ${
+              activeTab === "structure"
+                ? "bg-[var(--color-primary-default)] text-[var(--color-primary-contrast)] shadow-sm"
+                : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-subtle)]"
+            }`}
+          >
+            <Layers className="w-4 h-4" />
+            <span>۱. ساختار و سرفصل‌ها</span>
+          </button>
 
-        <button
-          type="button"
-          onClick={() => setTab("generation")}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all whitespace-nowrap ${
-            activeTab === "generation"
-              ? "bg-[var(--color-primary-default)] text-[var(--color-primary-contrast)] shadow-sm"
-              : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-subtle)]"
-          }`}
-        >
-          <UploadCloud className="w-4 h-4" />
-          <span>۲. تولید هوشمند و منابع</span>
-        </button>
+          <button
+            type="button"
+            onClick={() => setTab("generation")}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all whitespace-nowrap ${
+              activeTab === "generation"
+                ? "bg-[var(--color-primary-default)] text-[var(--color-primary-contrast)] shadow-sm"
+                : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-subtle)]"
+            }`}
+          >
+            <Sparkles className="w-4 h-4" />
+            <span>۲. منابع و تولید خودکار</span>
+          </button>
 
-        <button
-          type="button"
-          onClick={() => setTab("review")}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all whitespace-nowrap ${
-            activeTab === "review"
-              ? "bg-[var(--color-primary-default)] text-[var(--color-primary-contrast)] shadow-sm"
-              : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-subtle)]"
-          }`}
-        >
-          <FileCheck className="w-4 h-4" />
-          <span>۳. بازبینی پیش‌نویس‌ها</span>
-        </button>
+          <button
+            type="button"
+            onClick={() => setTab("review")}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all whitespace-nowrap ${
+              activeTab === "review"
+                ? "bg-[var(--color-primary-default)] text-[var(--color-primary-contrast)] shadow-sm"
+                : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-subtle)]"
+            }`}
+          >
+            <FileCheck className="w-4 h-4" />
+            <span>۳. میز بازبینی پیش‌نویس‌ها</span>
+          </button>
 
-        <button
-          type="button"
-          onClick={() => setTab("publish")}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all whitespace-nowrap ${
-            activeTab === "publish"
-              ? "bg-[var(--color-primary-default)] text-[var(--color-primary-contrast)] shadow-sm"
-              : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-subtle)]"
-          }`}
-        >
-          <ShieldCheck className="w-4 h-4" />
-          <span>۴. انتشار و تجاری‌سازی</span>
-        </button>
+          <button
+            type="button"
+            onClick={() => setTab("publish")}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all whitespace-nowrap ${
+              activeTab === "publish"
+                ? "bg-[var(--color-primary-default)] text-[var(--color-primary-contrast)] shadow-sm"
+                : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-subtle)]"
+            }`}
+          >
+            <ShieldCheck className="w-4 h-4" />
+            <span>۴. انتشار و تجاری‌سازی</span>
+          </button>
 
-        <button
-          type="button"
-          onClick={() => setTab("settings")}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all whitespace-nowrap ${
-            activeTab === "settings"
-              ? "bg-[var(--color-primary-default)] text-[var(--color-primary-contrast)] shadow-sm"
-              : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-subtle)]"
-          }`}
-        >
-          <Settings className="w-4 h-4" />
-          <span>۵. تنظیمات دوره</span>
-        </button>
+          <button
+            type="button"
+            onClick={() => setTab("settings")}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all whitespace-nowrap ${
+              activeTab === "settings"
+                ? "bg-[var(--color-primary-default)] text-[var(--color-primary-contrast)] shadow-sm"
+                : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-subtle)]"
+            }`}
+          >
+            <Settings className="w-4 h-4" />
+            <span>۵. تنظیمات دوره</span>
+          </button>
 
-        <button
-          type="button"
-          onClick={() => setTab("reports")}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all whitespace-nowrap ${
-            activeTab === "reports"
-              ? "bg-[var(--color-primary-default)] text-[var(--color-primary-contrast)] shadow-sm"
-              : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-subtle)]"
-          }`}
-        >
-          <Flag className="w-4 h-4" />
-          <span>۶. گزارش‌های مشکل درسنامه</span>
-        </button>
-      </div>
+          <button
+            type="button"
+            onClick={() => setTab("reports")}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all whitespace-nowrap ${
+              activeTab === "reports"
+                ? "bg-[var(--color-primary-default)] text-[var(--color-primary-contrast)] shadow-sm"
+                : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-subtle)]"
+            }`}
+          >
+            <Flag className="w-4 h-4" />
+            <span>۶. گزارش‌های مشکل درسنامه</span>
+          </button>
+        </div>
+      ) : (
+        /* Teacher & User Courses Inspection Tabs */
+        <div className="flex items-center gap-2 p-1.5 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl overflow-x-auto text-xs font-bold shadow-sm">
+          <button
+            type="button"
+            onClick={() => setTab("structure")}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all whitespace-nowrap ${
+              activeTab === "structure"
+                ? "bg-[var(--color-primary-default)] text-[var(--color-primary-contrast)] shadow-sm"
+                : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-subtle)]"
+            }`}
+          >
+            <Layers className="w-4 h-4" />
+            <span>۱. ساختار و سرفصل‌ها</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setTab("details")}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all whitespace-nowrap ${
+              activeTab === "details"
+                ? "bg-[var(--color-primary-default)] text-[var(--color-primary-contrast)] shadow-sm"
+                : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-subtle)]"
+            }`}
+          >
+            <Info className="w-4 h-4" />
+            <span>۲. مشخصات مالکیت و سیستم</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setTab("reports")}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all whitespace-nowrap ${
+              activeTab === "reports"
+                ? "bg-[var(--color-primary-default)] text-[var(--color-primary-contrast)] shadow-sm"
+                : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-subtle)]"
+            }`}
+          >
+            <Flag className="w-4 h-4" />
+            <span>۳. گزارش‌های مشکل درسنامه</span>
+          </button>
+        </div>
+      )}
 
       {/* Main Tab Panel Content */}
       <div className="animate-in fade-in">
@@ -424,35 +636,116 @@ export function AdminCourseHubPage() {
           <CourseStructurePanel courseId={course.id} />
         )}
 
-        {activeTab === "generation" && (
-          <SourceProductionPanel
-            course={course}
-            organizationId={organizationId}
-            onGenerationComplete={() => setTab("review")}
-            onNavigateToReview={() => setTab("review")}
-          />
+        {isOfficial && officialCourseAdapter && (
+          <>
+            {activeTab === "generation" && (
+              <SourceProductionPanel
+                course={officialCourseAdapter}
+                organizationId={organizationId}
+                onGenerationComplete={() => setTab("review")}
+                onNavigateToReview={() => setTab("review")}
+              />
+            )}
+
+            {activeTab === "review" && (
+              <DraftReviewPanel
+                courseId={course.id}
+                organizationId={organizationId}
+                onNavigateToApproval={() => setTab("publish")}
+              />
+            )}
+
+            {activeTab === "publish" && (
+              <PublicationActionCenter
+                course={officialCourseAdapter}
+                onSuccess={fetchCourse}
+              />
+            )}
+
+            {activeTab === "settings" && (
+              <CourseSettingsPanel
+                course={officialCourseAdapter}
+                onRefresh={fetchCourse}
+              />
+            )}
+          </>
         )}
 
-        {activeTab === "review" && (
-          <DraftReviewPanel
-            courseId={course.id}
-            organizationId={organizationId}
-            onNavigateToApproval={() => setTab("publish")}
-          />
-        )}
+        {/* Dedicated Ownership & System Details Panel for Inspection */}
+        {!isOfficial && activeTab === "details" && (
+          <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-6 space-y-6">
+            <div>
+              <h2 className="text-base font-bold text-[var(--color-text)] flex items-center gap-2">
+                <Info className="w-5 h-5 text-[var(--color-primary-default)]" />
+                <span>مشخصات فنی و مالکیت دوره</span>
+              </h2>
+              <p className="text-xs text-[var(--color-text-muted)] mt-1">
+                اطلاعات ثبت‌شده در دیتابیس پیرامون سازنده، مالک حقوقی و کلاس‌های آموزشی متصل
+              </p>
+            </div>
 
-        {activeTab === "publish" && (
-          <PublicationActionCenter
-            course={course}
-            onSuccess={fetchCourses}
-          />
-        )}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="bg-[var(--color-surface-subtle)] p-4 rounded-xl border border-[var(--color-border)] space-y-2">
+                <span className="text-xs font-bold text-[var(--color-text-muted)] block">شناسه دوره (Course ID)</span>
+                <span className="font-mono text-xs text-[var(--color-text)] select-all block">{course.id}</span>
+              </div>
 
-        {activeTab === "settings" && (
-          <CourseSettingsPanel
-            course={course}
-            onRefresh={fetchCourses}
-          />
+              <div className="bg-[var(--color-surface-subtle)] p-4 rounded-xl border border-[var(--color-border)] space-y-2">
+                <span className="text-xs font-bold text-[var(--color-text-muted)] block">شناسه سازمان مالک (Organization ID)</span>
+                <span className="font-mono text-xs text-[var(--color-text)] select-all block">{course.organizationId || "نامشخص"}</span>
+              </div>
+
+              {course.teacher && (
+                <div className="bg-blue-500/5 p-4 rounded-xl border border-blue-500/20 space-y-1">
+                  <span className="text-xs font-bold text-blue-600 dark:text-blue-400 block flex items-center gap-1.5">
+                    <GraduationCap className="w-4 h-4" />
+                    <span>استاد مسئول</span>
+                  </span>
+                  <div className="text-sm font-black text-[var(--color-text)]">{course.teacher.name}</div>
+                  <div className="text-xs text-[var(--color-text-muted)]">{course.teacher.email}</div>
+                </div>
+              )}
+
+              {course.classroom && (
+                <div className="bg-blue-500/5 p-4 rounded-xl border border-blue-500/20 space-y-1">
+                  <span className="text-xs font-bold text-blue-600 dark:text-blue-400 block flex items-center gap-1.5">
+                    <School className="w-4 h-4" />
+                    <span>کلاس درس متصل</span>
+                  </span>
+                  <div className="text-sm font-black text-[var(--color-text)]">{course.classroom.title}</div>
+                  <div className="text-xs text-[var(--color-text-muted)]">
+                    کد دعوت: <span className="font-mono font-bold text-blue-600 dark:text-blue-400">{course.classroom.inviteCode}</span>
+                  </div>
+                </div>
+              )}
+
+              {course.owner && (
+                <div className="bg-amber-500/5 p-4 rounded-xl border border-amber-500/20 space-y-1">
+                  <span className="text-xs font-bold text-amber-600 dark:text-amber-400 block flex items-center gap-1.5">
+                    <User className="w-4 h-4" />
+                    <span>مالک حساب / سازمان</span>
+                  </span>
+                  <div className="text-sm font-black text-[var(--color-text)]">{course.owner.name}</div>
+                  <div className="text-xs text-[var(--color-text-muted)]">{course.owner.email}</div>
+                </div>
+              )}
+
+              {course.creator && (
+                <div className="bg-[var(--color-surface-subtle)] p-4 rounded-xl border border-[var(--color-border)] space-y-1">
+                  <span className="text-xs font-bold text-[var(--color-text-muted)] block">سازنده اولیه</span>
+                  <div className="text-sm font-black text-[var(--color-text)]">{course.creator.name}</div>
+                  <div className="text-xs text-[var(--color-text-muted)]">{course.creator.email}</div>
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 bg-[var(--color-surface-subtle)] rounded-xl border border-[var(--color-border)] text-xs text-[var(--color-text-muted)] space-y-1">
+              <div>تاریخ ایجاد: {toPersianDigits(new Date(course.createdAt).toLocaleString("fa-IR"))}</div>
+              {course.updatedAt && (
+                <div>آخرین به‌روزرسانی: {toPersianDigits(new Date(course.updatedAt).toLocaleString("fa-IR"))}</div>
+              )}
+            </div>
+          </div>
         )}
 
         {activeTab === "reports" && (
@@ -468,20 +761,22 @@ export function AdminCourseHubPage() {
       <ContentExportModal
         isOpen={isExportOpen}
         onClose={() => setIsExportOpen(false)}
-        courses={courses.map((c) => ({ id: c.id, name: c.name }))}
+        courses={[{ id: course.id, name: course.name }]}
       />
 
       {/* Content Import Modal */}
-      <ContentImportModal
-        isOpen={isImportOpen}
-        onClose={() => setIsImportOpen(false)}
-        onSuccess={() => {
-          setIsImportOpen(false);
-          void queryClient.invalidateQueries({ queryKey: ["course-hierarchy", course.id] });
-          void queryClient.invalidateQueries({ queryKey: ["admin", "courses"] });
-          void fetchCourses();
-        }}
-      />
+      {isOfficial && (
+        <ContentImportModal
+          isOpen={isImportOpen}
+          onClose={() => setIsImportOpen(false)}
+          onSuccess={() => {
+            setIsImportOpen(false);
+            void queryClient.invalidateQueries({ queryKey: ["course-hierarchy", course.id] });
+            void queryClient.invalidateQueries({ queryKey: ["admin", "courses"] });
+            void fetchCourse();
+          }}
+        />
+      )}
     </div>
   );
 }

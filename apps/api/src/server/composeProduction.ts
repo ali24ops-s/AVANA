@@ -99,6 +99,7 @@ import { AdminAlertService } from "../observability/admin-alert-service.js";
 import { TelegramOpsBot } from "../observability/telegram-ops-bot.js";
 import { checkWorkerHealth } from "../observability/worker-health-probe.js";
 import { DrizzleAdminStore } from "../modules/admin/drizzle-stores.js";
+import { AdminService } from "../modules/admin/admin-service.js";
 import {
   DrizzleContentPackStore,
   DrizzleContentPackUsageStore,
@@ -110,7 +111,10 @@ import {
   MockPaymentGateway,
   ZarinpalPaymentGateway,
 } from "../modules/commerce/index.js";
-import { DrizzleWalletStore } from "../modules/wallet/index.js";
+import {
+  DrizzleWalletStore,
+  WalletService,
+} from "../modules/wallet/index.js";
 import { DrizzleReferralStore } from "../modules/referral/index.js";
 import { DrizzleBlogStore } from "../modules/blog/index.js";
 import {
@@ -418,7 +422,9 @@ export async function composeProduction(
   const reportStore = new DrizzleContentReportStore(db);
   
   // Admin Store
-  const adminStore = new DrizzleAdminStore(db);
+  const adminStore = new DrizzleAdminStore(db, {
+    systemOrganizationId: config.systemOrganizationId,
+  });
   const questionPatternStore = new DrizzleQuestionPatternStore(db);
 
   // Library & Content Pack Stores
@@ -451,7 +457,7 @@ export async function composeProduction(
     telegramClient,
   });
 
-  // Tap AuditService for domain events (e.g. generation.failed, payments, teachers)
+  // Tap AuditService for domain events (e.g. generation.failed, payments, teachers, user registrations)
   auditService.addListener((events) => {
     for (const event of events) {
       if (event.action === "generation.failed") {
@@ -467,20 +473,86 @@ export async function composeProduction(
             cooldownKey: `generation.failed:${event.entityId}:${event.details?.errorCode}`,
           },
         );
+      } else if (event.action === "user.registered") {
+        void adminAlertService.notifyUserRegistered({
+          userId: event.entityId,
+          name: typeof event.details?.name === "string" ? event.details.name : undefined,
+        });
+      } else if (event.action === "teacher.requested") {
+        void adminAlertService.notifyTeacherRequested({
+          teacherId: event.entityId,
+          name: typeof event.details?.name === "string" ? event.details.name : undefined,
+          university: typeof event.details?.university === "string" ? event.details.university : undefined,
+        });
+      } else if (event.action === "payment.c2c_submitted") {
+        void adminAlertService.notifyPaymentReceived({
+          paymentId: event.entityId,
+          orderId: typeof event.details?.orderId === "string" ? event.details.orderId : undefined,
+          userId: typeof event.details?.userId === "string" ? event.details.userId : (event.actorId || undefined),
+          amount: Number(event.details?.amount ?? 0),
+          productTitle: typeof event.details?.productTitle === "string" ? event.details.productTitle : undefined,
+          productType: typeof event.details?.productType === "string" ? event.details.productType : undefined,
+          status: "در انتظار بررسی ادمین",
+          isC2C: true,
+          trackingNumber: typeof event.details?.trackingNumber === "string" ? event.details.trackingNumber : undefined,
+          sourceCardLast4: typeof event.details?.sourceCardLast4 === "string" ? event.details.sourceCardLast4 : undefined,
+          payerName: typeof event.details?.payerName === "string" ? event.details.payerName : undefined,
+          paidAt: typeof event.details?.paymentDate === "string"
+            ? event.details.paymentDate
+            : (typeof event.details?.paidAt === "string" ? event.details.paidAt : undefined),
+        });
       } else if (event.action === "payment.completed") {
-        void adminAlertService.notifyInfo(
-          "payment.completed",
-          "تکمیل موفق تراکنش پرداخت",
-          {
-            details: {
-              orderId: String(event.details?.orderId ?? event.entityId),
-              amount: Number(event.details?.amount ?? 0),
-              gateway: String(event.details?.gateway ?? "online"),
-              status: "موفق",
-            },
-            cooldownKey: `payment.completed:${event.entityId}`,
-          },
-        );
+        const paymentId = String(event.details?.paymentId ?? event.entityId);
+        void adminAlertService.notifyPaymentReceived({
+          paymentId,
+          orderId: typeof event.details?.orderId === "string" ? event.details.orderId : undefined,
+          userId: typeof event.details?.userId === "string" ? event.details.userId : (event.actorId || undefined),
+          amount: Number(event.details?.amount ?? 0),
+          productTitle: typeof event.details?.productTitle === "string" ? event.details.productTitle : undefined,
+          productType: typeof event.details?.productType === "string" ? event.details.productType : undefined,
+          gateway: typeof event.details?.gateway === "string" ? event.details.gateway : undefined,
+          status: "موفق",
+          isC2C: false,
+        });
+      } else if (event.action === "payment.approved") {
+        if (event.details?.actorType !== "admin/telegram") {
+          void adminAlertService.notifyPaymentApproved({
+            paymentId: event.entityId,
+            orderId: typeof event.details?.orderId === "string" ? event.details.orderId : undefined,
+            amount: Number(event.details?.amount ?? 0),
+            productTitle: typeof event.details?.productTitle === "string" ? event.details.productTitle : undefined,
+            productType: typeof event.details?.productType === "string" ? event.details.productType : undefined,
+            userId: typeof event.details?.userId === "string" ? event.details.userId : undefined,
+            approvedBy: typeof event.details?.adminId === "string" ? event.details.adminId : undefined,
+            actorType: typeof event.details?.actorType === "string" ? event.details.actorType : "admin/web",
+            createdAt: event.createdAt,
+          });
+        }
+      } else if (event.action === "payment.rejected") {
+        if (event.details?.actorType !== "admin/telegram") {
+          void adminAlertService.notifyPaymentRejected({
+            paymentId: event.entityId,
+            orderId: typeof event.details?.orderId === "string" ? event.details.orderId : undefined,
+            amount: Number(event.details?.amount ?? 0),
+            productTitle: typeof event.details?.productTitle === "string" ? event.details.productTitle : undefined,
+            productType: typeof event.details?.productType === "string" ? event.details.productType : undefined,
+            userId: typeof event.details?.userId === "string" ? event.details.userId : undefined,
+            rejectedBy: typeof event.details?.adminId === "string" ? event.details.adminId : undefined,
+            reason: String(event.details?.reason || "رد پرداخت"),
+            actorType: typeof event.details?.actorType === "string" ? event.details.actorType : "admin/web",
+            createdAt: event.createdAt,
+          });
+        }
+      } else if (event.action === "wallet.refunded") {
+        void adminAlertService.notifyWalletRefunded({
+          walletId: event.entityId,
+          amount: Number(event.details?.amount ?? 0),
+          source: typeof event.details?.source === "string" ? event.details.source : undefined,
+          userId: event.actorId || undefined,
+          referenceType: typeof event.details?.referenceType === "string" ? event.details.referenceType : undefined,
+          referenceId: typeof event.details?.referenceId === "string" ? event.details.referenceId : undefined,
+          createdAt: event.createdAt,
+        });
       } else if ((event.action as string) === "TEACHER_APPROVED") {
         void adminAlertService.notifyInfo(
           "teacher.approved",
@@ -510,7 +582,26 @@ export async function composeProduction(
     }
   });
 
-  // AVANA Ops Bot: Inbound polling commands (/status, /queues, /errors)
+  const searchStore = new DrizzleSearchStore(db);
+  const blogStore = new DrizzleBlogStore(db);
+
+  // Commerce & Monetization Stores & Payment Gateway
+  const commerceStore = new DrizzleCommerceStore(db);
+  const walletStore = new DrizzleWalletStore(db);
+  const walletService = new WalletService(walletStore, auditService, commerceStore);
+  const adminService = new AdminService(
+    adminStore,
+    walletService,
+    commerceStore,
+    notificationService,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    auditService,
+  );
+
+  // AVANA Ops Bot: Inbound polling commands (/status, /queues, /errors) + Callback actions
   const telegramOpsBot = new TelegramOpsBot({
     enabled: config.telegram.enabled,
     botToken: config.telegram.botToken,
@@ -518,6 +609,8 @@ export async function composeProduction(
     botUsername: config.telegram.botUsername,
     telegramClient,
     adminStore,
+    adminService,
+    auditService,
     generationQueue: queue.getRawQueue(),
     workerHealthChecker: () =>
       checkWorkerHealth({
@@ -529,13 +622,6 @@ export async function composeProduction(
   if (config.telegram.enabled && config.telegram.botToken && config.telegram.adminChatId) {
     telegramOpsBot.start();
   }
-
-  const searchStore = new DrizzleSearchStore(db);
-  const blogStore = new DrizzleBlogStore(db);
-
-  // Commerce & Monetization Stores & Payment Gateway
-  const commerceStore = new DrizzleCommerceStore(db);
-  const walletStore = new DrizzleWalletStore(db);
   const referralStore = new DrizzleReferralStore(db);
   let paymentGateway: MockPaymentGateway | ZarinpalPaymentGateway;
   if (

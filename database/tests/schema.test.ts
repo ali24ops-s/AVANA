@@ -535,4 +535,39 @@ describe("PR-6 database schema", () => {
     expect(cols).toHaveProperty("publishedBy");
     expect(cols).toHaveProperty("publishedAt");
   });
+
+  test("question_patterns table is defined and has required columns including skills and cognitiveLevel", () => {
+    expect(schema.questionPatterns).toBeDefined();
+    const cols = getTableColumns(schema.questionPatterns);
+    expect(cols).toHaveProperty("id");
+    expect(cols).toHaveProperty("title");
+    expect(cols).toHaveProperty("description");
+    expect(cols).toHaveProperty("cognitiveLevel");
+    expect(cols).toHaveProperty("skills");
+    expect(cols).toHaveProperty("systemInstructions");
+    expect(cols).toHaveProperty("isActive");
+    expect(cols).toHaveProperty("version");
+    expect(cols).toHaveProperty("createdAt");
+    expect(cols).toHaveProperty("updatedAt");
+    expect(cols).toHaveProperty("deletedAt");
+
+    // Specific contract assertions for question pattern refactor columns
+    expect(cols.skills.dataType).toBe("json");
+    expect(cols.cognitiveLevel.dataType).toBe("string");
+  });
+
+  test("question_pattern_examples table is defined and has required columns", () => {
+    expect(schema.questionPatternExamples).toBeDefined();
+    const cols = getTableColumns(schema.questionPatternExamples);
+    expect(cols).toHaveProperty("id");
+    expect(cols).toHaveProperty("questionPatternId");
+    expect(cols).toHaveProperty("sourceQuizQuestionId");
+    expect(cols).toHaveProperty("question");
+    expect(cols).toHaveProperty("choices");
+    expect(cols).toHaveProperty("correctAnswer");
+    expect(cols).toHaveProperty("explanation");
+    expect(cols).toHaveProperty("clinicalContext");
+    expect(cols).toHaveProperty("sortOrder");
+    expect(cols).toHaveProperty("createdAt");
+  });
 });

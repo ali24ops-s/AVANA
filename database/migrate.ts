@@ -72,6 +72,12 @@ import { up as up0068 } from "./migrations/0068_teacher_academic_profile.js";
 import { up as up0069 } from "./migrations/0069_classroom_educational_contents.js";
 import { up as up0070 } from "./migrations/0070_teacher_student_messaging.js";
 import { up as up0071 } from "./migrations/0071_repair_legacy_registration_org_admins.js";
+import { up as up0072 } from "./migrations/0072_teacher_exam_attempt_integrity.js";
+import { up as up0073 } from "./migrations/0073_generation_job_sources.js";
+import { up as up0074 } from "./migrations/0074_source_packs.js";
+import { up as up0075 } from "./migrations/0075_question_patterns.js";
+import { up as up0076 } from "./migrations/0076_source_pack_semantic_roles.js";
+import { up as up0077 } from "./migrations/0077_question_pattern_skills_and_cognitive_levels.js";
 
 function localConnectionString(): string {
   const user = "avana";
@@ -232,6 +238,18 @@ async function runMigrations() {
     await up0070(db);
     console.log("Applying 0071_repair_legacy_registration_org_admins...");
     await up0071(db);
+    console.log("Applying 0072_teacher_exam_attempt_integrity...");
+    await up0072(db);
+    console.log("Applying 0073_generation_job_sources...");
+    await up0073(db);
+    console.log("Applying 0074_source_packs...");
+    await up0074(db);
+    console.log("Applying 0075_question_patterns...");
+    await up0075(db);
+    console.log("Applying 0076_source_pack_semantic_roles...");
+    await up0076(db);
+    console.log("Applying 0077_question_pattern_skills_and_cognitive_levels...");
+    await up0077(db);
 
     console.log("All database migrations applied successfully.");
   } catch (error) {

@@ -11,6 +11,7 @@ import { Link } from "react-router-dom";
 import { BrandLogo } from "../brand/BrandLogo.js";
 import { Send, Mail } from "lucide-react";
 import { AVANA_SOCIAL_LINKS } from "../../config/social.js";
+import { openPrivacySettings } from "../../lib/tracker/consent.js";
 
 export function Footer() {
   const footerLinks = [
@@ -60,6 +61,13 @@ export function Footer() {
               </a>
             )
           )}
+          <button
+            type="button"
+            onClick={openPrivacySettings}
+            className="hover:text-[#008080] transition-colors duration-200 font-medium cursor-pointer bg-transparent border-0 p-0 text-xs text-[#3d4f55]"
+          >
+            تنظیمات حریم خصوصی
+          </button>
         </div>
 
         {/* Social Icons & Contact */}

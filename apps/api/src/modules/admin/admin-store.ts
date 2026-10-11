@@ -23,6 +23,8 @@ export type AdminUserRecord = {
   role: string;
   teacherStatus?: "pending" | "approved" | "rejected";
   emailVerified: boolean;
+  phoneVerified: boolean;
+  isVerified: boolean;
   createdAt: string;
   lastActiveAt?: string;
 };
@@ -51,16 +53,68 @@ export type DataIntegrityReport = {
   failedGenerations: number;
 };
 
+export type AdminCourseScope = "official" | "teacher" | "user";
+
+export interface AdminCourseActorInfo {
+  id: string;
+  name: string;
+  email: string;
+  role?: string;
+}
+
+export interface AdminCourseClassroomInfo {
+  id: string;
+  title: string;
+  inviteCode: string;
+  teacherId?: string;
+  teacherName?: string;
+}
+
 export interface AdminCourseRecord {
   id: string;
   name: string;
   subject: string | null;
+  description?: string | null;
+  status: string;
+  isOfficial: boolean;
+  scope: AdminCourseScope;
+  organizationId: string;
   createdAt: string;
+  updatedAt?: string;
+  creator?: AdminCourseActorInfo | null;
+  owner?: AdminCourseActorInfo | null;
+  teacher?: AdminCourseActorInfo | null;
+  classroom?: AdminCourseClassroomInfo | null;
+  hasContent: boolean;
+  needsReview?: boolean;
   counts: {
     modules: number;
     lessons: number;
     flashcards: number;
     quizzes: number;
+  };
+  product?: {
+    id: string;
+    code: string;
+    price: number;
+    currency: string;
+    active: boolean;
+  } | null;
+  publication?: {
+    id: string;
+    version: number;
+    status: string;
+    publishedAt?: string | null;
+  } | null;
+}
+
+export interface AdminCoursesList {
+  courses: AdminCourseRecord[];
+  totalCount: number;
+  counts?: {
+    official: number;
+    teacher: number;
+    user: number;
   };
 }
 
@@ -98,6 +152,7 @@ export interface AdminSystemHealth {
 
 export interface AdminStoreOptions {
   redisUrl?: string;
+  systemOrganizationId?: string;
   gateway?: {
     checkHealth?: () => Promise<{
       status: string;
@@ -402,7 +457,13 @@ export interface AdminStore {
   getDataIntegrityReport(): Promise<DataIntegrityReport>;
 
   // Phase 2
-  listCourses(params: { page: number; pageSize: number; search?: string }): Promise<{ courses: AdminCourseRecord[]; totalCount: number }>;
+  listCourses(params: {
+    page: number;
+    pageSize: number;
+    search?: string;
+    scope?: "official" | "teacher" | "user" | "all";
+  }): Promise<AdminCoursesList>;
+  getCourseById(courseId: string): Promise<AdminCourseRecord | null>;
   listDocuments(params: { page: number; pageSize: number; search?: string; status?: string }): Promise<{ documents: AdminDocumentRecord[]; totalCount: number }>;
   getDocument(id: string): Promise<AdminDocumentRecord | null>;
   getSystemHealth(): Promise<AdminSystemHealth>;
@@ -447,6 +508,7 @@ export interface AdminStore {
     entitlementId: string,
     reason?: string,
   ): Promise<{ success: boolean; entitlement: AdminEntitlementRecord; message?: string }>;
+  getCommercePayment(paymentId: string): Promise<AdminPaymentRecord | null>;
   approveCommercePayment(
     adminId: string,
     paymentId: string,

@@ -104,6 +104,24 @@ export class InMemorySessionStore implements SessionStore {
     }
   }
 
+  async extendSession(
+    id: string,
+    newExpiresAt: string,
+    lastUsedAt: string,
+  ): Promise<boolean> {
+    const session = this.sessions.get(id);
+    if (
+      !session ||
+      session.revokedAt ||
+      new Date(session.expiresAt).getTime() <= new Date(lastUsedAt).getTime()
+    ) {
+      return false;
+    }
+    session.expiresAt = newExpiresAt;
+    session.lastUsedAt = lastUsedAt;
+    return true;
+  }
+
   async revoke(id: string, revokedAt: string, reason?: string): Promise<void> {
     const session = this.sessions.get(id);
     if (session) {

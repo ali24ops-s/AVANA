@@ -26,6 +26,7 @@ import type {
 import type {
   GenerationJobStore,
   GenerationJobRecord,
+  GenerationJobSourceRecord,
 } from "../generation-jobs-store.js";
 import type {
   GenerationChunkStore,
@@ -279,6 +280,7 @@ export class InMemoryGeneratedContentCitationStore implements GeneratedContentCi
 
 export class InMemoryGenerationJobStore implements GenerationJobStore {
   private jobs: Map<string, GenerationJobRecord> = new Map();
+  private sources: GenerationJobSourceRecord[] = [];
 
   async findByIdForOrganization(
     id: GenerationJobId,
@@ -452,6 +454,24 @@ export class InMemoryGenerationJobStore implements GenerationJobStore {
   /** Get all stored jobs (for test assertions). */
   getAll(): GenerationJobRecord[] {
     return Array.from(this.jobs.values()).map((j) => ({ ...j }));
+  }
+
+  async addSources(sources: GenerationJobSourceRecord[]): Promise<void> {
+    this.sources.push(
+      ...sources.map((s) => ({
+        ...s,
+        role: s.role ?? (s.orderIndex === 0 ? "primary_notes" : "supplementary_reference"),
+      })),
+    );
+  }
+
+  async listSourcesByJob(
+    generationJobId: GenerationJobId,
+  ): Promise<GenerationJobSourceRecord[]> {
+    return this.sources
+      .filter((s) => s.generationJobId === generationJobId)
+      .sort((a, b) => a.orderIndex - b.orderIndex)
+      .map((s) => ({ ...s }));
   }
 }
 

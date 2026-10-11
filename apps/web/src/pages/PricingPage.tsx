@@ -30,6 +30,8 @@ import {
 } from "@avana/domain";
 import { useCommerceProducts, useMySubscription } from "../hooks/useCommerce.js";
 import { PricingModal } from "../components/commerce/PricingModal.js";
+import { convertTomanToIrr, trackBeginCheckout } from "../lib/tracker/index.js";
+
 
 export function PricingPage() {
   const location = useLocation();
@@ -57,6 +59,26 @@ export function PricingPage() {
   const handleSelectPlan = (productId: string) => {
     setSelectedPlanId(productId);
     setIsPricingModalOpen(true);
+
+    const product = products.find((p) => p.id === productId);
+    if (product) {
+      const money = convertTomanToIrr(product.price);
+      if (money) {
+        trackBeginCheckout({
+          currency: "IRR",
+          value: money.value,
+          items: [
+            {
+              item_id: product.id,
+              item_name: product.title,
+              item_category: "subscription",
+              price: money.value,
+              quantity: 1,
+            },
+          ],
+        });
+      }
+    }
   };
 
   const sharedFeatures = [

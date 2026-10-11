@@ -13,7 +13,7 @@
  * - User confirmation & instant subscription activation
  */
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useSearchParams, useNavigate, Link } from "react-router-dom";
 import {
   CreditCard,
@@ -58,6 +58,13 @@ import {
   useValidateCoupon,
 } from "../hooks/useCommerce.js";
 import { useAuth } from "../providers/AuthProvider.js";
+import {
+  convertTomanToIrr,
+  getClientAnalyticsPayload,
+  trackAddPaymentInfo,
+  trackBeginCheckout,
+  trackCardToCardSubmitted,
+} from "../lib/tracker/index.js";
 
 export function CardToCardPaymentPage() {
   const [searchParams] = useSearchParams();
@@ -216,6 +223,34 @@ export function CardToCardPaymentPage() {
   const cashbackAmount = appliedCoupon ? appliedCoupon.cashbackAmount : 0;
   const payableAmount = appliedCoupon ? appliedCoupon.finalPayableAmount : effectivePrice;
 
+  // Track begin_checkout once per product selection upon arrival on checkout screen
+  const checkoutTrackedRef = React.useRef<string | null>(null);
+  useEffect(() => {
+    if (selectedProduct && selectedProduct.id && payableAmount > 0) {
+      if (checkoutTrackedRef.current !== selectedProduct.id) {
+        checkoutTrackedRef.current = selectedProduct.id;
+        const money = convertTomanToIrr(payableAmount);
+        if (money) {
+          trackBeginCheckout({
+            currency: "IRR",
+            value: money.value,
+            items: [
+              {
+                item_id: selectedProduct.id,
+                item_name: selectedProduct.title,
+                item_category: selectedProduct.type,
+                price: money.value,
+                quantity: 1,
+              },
+            ],
+            coupon: appliedCoupon?.code,
+          });
+        }
+      }
+    }
+  }, [selectedProduct, payableAmount, appliedCoupon?.code]);
+
+
   // Extraction & Form states
   const [paymentText, setPaymentText] = useState("");
   const [hasExtracted, setHasExtracted] = useState(false);
@@ -373,6 +408,27 @@ export function CardToCardPaymentPage() {
       return;
     }
 
+    const money = convertTomanToIrr(payableAmount);
+    if (money && selectedProduct) {
+      trackAddPaymentInfo({
+        currency: "IRR",
+        value: money.value,
+        payment_type: "card_to_card",
+        items: [
+          {
+            item_id: selectedProduct.id,
+            item_name: selectedProduct.title,
+            item_category: selectedProduct.type,
+            price: money.value,
+            quantity: 1,
+          },
+        ],
+        coupon: appliedCoupon?.code,
+      });
+    }
+
+    const analyticsPayload = getClientAnalyticsPayload();
+
     c2cMutation.mutate(
       {
         product_id: selectedProduct.id,
@@ -386,6 +442,7 @@ export function CardToCardPaymentPage() {
         receipt_url: receiptUrl.trim() || undefined,
         raw_payment_text: paymentText.trim() || undefined,
         extraction_method: hasExtracted ? extractionMethod : "manual",
+        analytics: analyticsPayload || undefined,
       },
       {
         onSuccess: (res: { message?: string; attemptId?: string; attempt_id?: string }) => {
@@ -393,6 +450,22 @@ export function CardToCardPaymentPage() {
           setSuccessMessage(res.message || "");
           if (res.attemptId || res.attempt_id) {
             setCreatedAttemptId(res.attemptId || res.attempt_id || null);
+          }
+
+          if (money && selectedProduct) {
+            trackCardToCardSubmitted({
+              currency: "IRR",
+              value: money.value,
+              items: [
+                {
+                  item_id: selectedProduct.id,
+                  item_name: selectedProduct.title,
+                  item_category: selectedProduct.type,
+                  price: money.value,
+                  quantity: 1,
+                },
+              ],
+            });
           }
         },
         onError: (err: { envelope?: { error?: { message?: string } }; response?: { data?: { message?: string } }; message?: string }) => {

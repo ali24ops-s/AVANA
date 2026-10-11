@@ -22,6 +22,7 @@ import {
 } from "@avana/domain";
 import { Button, AvanaSelect } from "@avana/ui";
 import { getSafeInternalRedirect } from "../../utils/urlSecurity.js";
+import { trackSignUp } from "../../lib/tracker/index.js";
 
 export function RegisterPage() {
   const [searchParams] = useSearchParams();
@@ -160,6 +161,7 @@ export function RegisterPage() {
         normalizedFac,
         normalizedDept,
       );
+      trackSignUp("password");
       const verifyRedirect =
         safeRedirect !== "/home"
           ? `/verify-email?redirect=${encodeURIComponent(safeRedirect)}`

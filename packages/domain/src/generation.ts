@@ -15,9 +15,55 @@ import type {
   DocumentId,
   GenerationJobId,
   OrganizationId,
+  QuestionPatternId,
+  QuestionPatternExampleId,
 } from "./ids.js";
 import type { ChemicalStructure, ChemicalReaction } from "./chemistry/types.js";
 import type { SuggestedVisualization } from "./chart/types.js";
+import { type SourcePackRole, canonicalizeSourceRole } from "./source-pack.js";
+
+// ---------------------------------------------------------------------------
+// Multi-Source Generation Primitives (MVP)
+// ---------------------------------------------------------------------------
+
+export type GenerationSource = {
+  documentId: DocumentId;
+  order: number;
+  role?: SourcePackRole;
+};
+
+/**
+ * Normalizes multi-source generation inputs:
+ * 1. Validates source count (min 2, max 10 for multi-source).
+ * 2. Rejects duplicate document IDs.
+ * 3. Sorts by order ascending and maps order to 0, 1, 2, ...
+ * 4. Canonicalizes semantic source roles (defaults first doc to primary_notes, subsequent to supplementary_reference).
+ */
+export function normalizeGenerationSources(
+  sources: Array<{ documentId: DocumentId; order?: number; role?: SourcePackRole }> | unknown,
+): GenerationSource[] {
+  if (!Array.isArray(sources) || sources.length < 2) {
+    throw new DomainError("bad_request", "عملیات تولید چندسندی نیازمند حداقل ۲ سند است.");
+  }
+  if (sources.length > 10) {
+    throw new DomainError("bad_request", "حداکثر تعداد مجاز اسناد برای تولید همزمان ۱۰ سند است.");
+  }
+
+  const seen = new Set<string>();
+  for (const s of sources) {
+    if (seen.has(s.documentId)) {
+      throw new DomainError("bad_request", `سند تکراری در درخواست یافت شد: ${s.documentId}`);
+    }
+    seen.add(s.documentId);
+  }
+
+  const sorted = [...sources].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  return sorted.map((s, index) => ({
+    documentId: s.documentId,
+    order: index,
+    role: s.role ? canonicalizeSourceRole(s.role) : (index === 0 ? "primary_notes" : "supplementary_reference"),
+  }));
+}
 
 // ---------------------------------------------------------------------------
 // Incremental / Resumable Generation Primitives
@@ -489,6 +535,248 @@ export type QuizPayload = {
     citationChunkIds?: string[];
   }>;
   citationChunkIds: string[];
+  questionPatternId?: string;
+  questionPatternVersion?: number;
+  questionPatternTitle?: string;
+};
+
+// ---------------------------------------------------------------------------
+// Question Pattern Domain Types (Admin Reference Patterns)
+// ---------------------------------------------------------------------------
+
+export type CognitiveLevel =
+  | "recall"
+  | "understand"
+  | "apply"
+  | "analyze"
+  | "evaluate";
+
+export const COGNITIVE_LEVELS: readonly CognitiveLevel[] = [
+  "recall",
+  "understand",
+  "apply",
+  "analyze",
+  "evaluate",
+] as const;
+
+export const COGNITIVE_LEVEL_LABELS_FA: Record<CognitiveLevel, string> = {
+  recall: "یادآوری",
+  understand: "درک و تفسیر",
+  apply: "کاربرد",
+  analyze: "تحلیل",
+  evaluate: "ارزیابی و قضاوت",
+};
+
+export interface QuestionSkillDefinition {
+  id: string;
+  labelFa: string;
+  category: "cognitive" | "clinical" | "analytical" | "practical";
+}
+
+export const STANDARD_QUESTION_SKILLS: readonly QuestionSkillDefinition[] = [
+  { id: "direct_recall", labelFa: "یادآوری مستقیم", category: "cognitive" },
+  { id: "calculation", labelFa: "محاسبه", category: "analytical" },
+  { id: "comparison", labelFa: "مقایسه", category: "analytical" },
+  { id: "data_interpretation", labelFa: "تفسیر داده", category: "analytical" },
+  { id: "problem_solving", labelFa: "حل مسئله", category: "cognitive" },
+  { id: "causal_reasoning", labelFa: "استدلال علّی", category: "cognitive" },
+  { id: "decision_making", labelFa: "تصمیم‌گیری", category: "practical" },
+  { id: "best_answer_selection", labelFa: "انتخاب بهترین گزینه", category: "practical" },
+  { id: "scenario_analysis", labelFa: "تحلیل سناریو", category: "analytical" },
+  { id: "error_identification", labelFa: "شناسایی خطا", category: "analytical" },
+  { id: "outcome_prediction", labelFa: "پیش‌بینی پیامد", category: "cognitive" },
+  { id: "diagnosis", labelFa: "تشخیص", category: "clinical" },
+  { id: "differential_diagnosis", labelFa: "تشخیص افتراقی", category: "clinical" },
+  { id: "treatment_management", labelFa: "مدیریت درمان", category: "clinical" },
+  { id: "clinical_reasoning", labelFa: "استدلال بالینی", category: "clinical" },
+] as const;
+
+/**
+ * Normalizes any incoming string into a valid Bloom MCQ CognitiveLevel.
+ * Safe fallback is "recall".
+ */
+export function normalizeCognitiveLevel(raw?: string | null): CognitiveLevel {
+  if (!raw) return "recall";
+  const s = raw.trim().toLowerCase();
+  if (
+    s === "recall" ||
+    s === "factual_recall" ||
+    s === "factual" ||
+    s === "یادآوری" ||
+    s === "یادآوری نکات مستقیم"
+  ) {
+    return "recall";
+  }
+  if (
+    s === "understand" ||
+    s === "comprehension" ||
+    s === "درک" ||
+    s === "درک و تفسیر"
+  ) {
+    return "understand";
+  }
+  if (
+    s === "apply" ||
+    s === "application" ||
+    s === "کاربرد" ||
+    s === "pharmacotherapy_management" ||
+    s === "مدیریت دارودرمانی"
+  ) {
+    return "apply";
+  }
+  if (
+    s === "analyze" ||
+    s === "analysis" ||
+    s === "تحلیل" ||
+    s === "clinical_reasoning" ||
+    s === "differential_diagnosis" ||
+    s === "استدلال بالینی" ||
+    s === "تشخیص افتراقی"
+  ) {
+    return "analyze";
+  }
+  if (
+    s === "evaluate" ||
+    s === "evaluation" ||
+    s === "ارزیابی" ||
+    s === "ارزیابی و قضاوت"
+  ) {
+    return "evaluate";
+  }
+  return "recall";
+}
+
+/**
+ * Maps legacy pre-upgrade cognitive level strings to pure CognitiveLevel and separate skills.
+ */
+export function mapLegacyCognitiveLevelToSkill(raw?: string | null): {
+  cognitiveLevel: CognitiveLevel;
+  skills: string[];
+} {
+  if (!raw) {
+    return { cognitiveLevel: "recall", skills: [] };
+  }
+  const s = raw.trim().toLowerCase();
+  switch (s) {
+    case "clinical_reasoning":
+    case "استدلال بالینی":
+      return {
+        cognitiveLevel: "analyze",
+        skills: ["clinical_reasoning", "scenario_analysis"],
+      };
+    case "differential_diagnosis":
+    case "تشخیص افتراقی":
+      return {
+        cognitiveLevel: "analyze",
+        skills: ["differential_diagnosis"],
+      };
+    case "pharmacotherapy_management":
+    case "مدیریت دارودرمانی":
+      return {
+        cognitiveLevel: "apply",
+        skills: ["treatment_management"],
+      };
+    case "factual_recall":
+    case "یادآوری نکات مستقیم":
+      return {
+        cognitiveLevel: "recall",
+        skills: ["direct_recall"],
+      };
+    case "recall":
+    case "understand":
+    case "apply":
+    case "analyze":
+    case "evaluate":
+      return {
+        cognitiveLevel: s as CognitiveLevel,
+        skills: [],
+      };
+    default:
+      return {
+        cognitiveLevel: normalizeCognitiveLevel(s),
+        skills: [],
+      };
+  }
+}
+
+export type QuestionPatternRecord = {
+  id: QuestionPatternId;
+  title: string;
+  description?: string | null;
+  cognitiveLevel: CognitiveLevel;
+  skills: string[];
+  systemInstructions: string;
+  isActive: boolean;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt?: string | null;
+};
+
+export type QuestionPatternExampleRecord = {
+  id: QuestionPatternExampleId;
+  questionPatternId: QuestionPatternId;
+  sourceQuizQuestionId?: string | null;
+  question: string;
+  choices: string[];
+  correctAnswer: unknown;
+  explanation?: string | null;
+  clinicalContext?: string | null;
+  sortOrder: number;
+  createdAt: string;
+};
+
+export type QuestionPatternDefinition = QuestionPatternRecord & {
+  examples: QuestionPatternExampleRecord[];
+};
+
+export type QuizPatternPromptSection = {
+  title: string;
+  cognitiveLevel: CognitiveLevel;
+  skills?: string[];
+  systemInstructions: string;
+  examples: Array<{
+    question: string;
+    choices: string[];
+    correctAnswer: string;
+    explanation?: string;
+    clinicalContext?: string;
+  }>;
+};
+
+export type PatternExtractionConfidence = "high" | "medium" | "low";
+
+export type QuestionPatternExtractionResult = {
+  title: string;
+  description?: string;
+  cognitiveLevel: CognitiveLevel;
+  skills: string[];
+  questionStructure?: string;
+  reasoningStyle?: string;
+  stemStyle?: string;
+  optionCount?: number;
+  answerType?: string;
+  distractorStrategy?: string;
+  difficultyCharacteristics?: string;
+  scenarioCharacteristics?: string;
+  systemInstructions: string;
+  confidence: PatternExtractionConfidence;
+  warnings?: string[];
+  parsedExamples?: Array<{
+    question: string;
+    choices: string[];
+    correctAnswer: number | string;
+    explanation?: string;
+    clinicalContext?: string;
+  }>;
+};
+
+export type SampleQuestionInput = {
+  question: string;
+  choices?: string[];
+  correctAnswer?: number | string;
+  explanation?: string;
+  clinicalContext?: string;
 };
 
 export type ReviewSummaryComparison = {

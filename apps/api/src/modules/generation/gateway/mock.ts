@@ -43,6 +43,7 @@ function detectType(req: CompletionRequest): string {
         "quiz_supplemental",
         "review_summary",
         "lesson",
+        "pattern_extraction",
       ].includes(normalized)
     ) {
       return normalized;
@@ -120,6 +121,14 @@ function detectType(req: CompletionRequest): string {
   ) {
     return "review_summary";
   }
+  if (
+    haystack.includes("pattern_extraction") ||
+    haystack.includes("Psychometrics & Question Design Engine") ||
+    haystack.includes("extract a reusable Question Pattern") ||
+    haystack.includes("SAMPLE_QUESTIONS")
+  ) {
+    return "pattern_extraction";
+  }
   return "lesson";
 }
 
@@ -128,6 +137,108 @@ function detectType(req: CompletionRequest): string {
  */
 function buildPayload(type: string, promptText = ""): unknown {
   switch (type) {
+    case "pattern_extraction": {
+      const isMixed =
+        promptText.toLowerCase().includes("mixed") ||
+        promptText.toLowerCase().includes("ناهمگون");
+      const isCalculation =
+        promptText.toLowerCase().includes("محاسبه") ||
+        promptText.toLowerCase().includes("calculation");
+      const isDirectRecall =
+        promptText.toLowerCase().includes("یادآوری") ||
+        promptText.toLowerCase().includes("recall");
+
+      if (isMixed) {
+        return {
+          title: "الگوی سؤالات ترکیبی و ناهمگون",
+          description:
+            "مجموعه سؤالات نمونه ارسال‌شده دارای تنوع ساختاری و سطوح شناختی متفاوت هستند.",
+          cognitiveLevel: "analyze",
+          skills: ["scenario_analysis", "direct_recall", "calculation"],
+          questionStructure:
+            "صورت سؤال متغیر (ترکیب سناریو، محاسباتی و مستقیم) → ۴ گزینه",
+          reasoningStyle: "متغیر (تک‌مرحله‌ای تا چندمرحله‌ای)",
+          stemStyle: "ناهمگن میان نمونه‌ها",
+          optionCount: 4,
+          answerType: "single_best_answer",
+          distractorStrategy: "گزینه‌های با سطوح تفکیک نامتجانس",
+          difficultyCharacteristics: "ترکیبی و نامتعادل",
+          systemInstructions:
+            "توجه: نمونه‌های ارائه‌شده یکپارچه نیستند. در تولید سؤال، تمرکز بر سناریوهای کاربردی همراه با گزینه‌های هم‌سطح پیشنهاد می‌شود.",
+          confidence: "low",
+          warnings: [
+            "نمونه‌های ارائه‌شده الگوی واحد و پایداری ندارند و شامل سطوح شناختی متفاوتی (یادآوری، محاسباتی و تحلیلی) هستند.",
+          ],
+        };
+      }
+
+      if (isCalculation) {
+        return {
+          title: "الگوی محاسبات دارویی و فارماکوکینتیک",
+          description:
+            "سؤالات محاسباتی مبتنی بر داده‌های کمی، فرمول و استدلال ریاضی",
+          cognitiveLevel: "apply",
+          skills: ["calculation", "problem_solving", "data_interpretation"],
+          questionStructure:
+            "طرح مسئله کمی و مقادیر متغیر → پرسش مجهول → ۴ گزینه عددی همراه با واحد",
+          reasoningStyle: "محاسباتی و فرمول‌محور",
+          stemStyle: "داده‌محور و شفاف",
+          optionCount: 4,
+          answerType: "single_best_answer",
+          distractorStrategy:
+            "گزینه‌های حاصل از خطاهای رایج محاسباتی نظیر اشتباه در تبدیل واحد یا فرمول",
+          difficultyCharacteristics: "متوسط به بالا بر مبنای دقت محاسباتی",
+          systemInstructions:
+            "هر سؤال باید شامل مقادیر صریح، متغیرهای معین و نیاز به حل مسئله گام‌به‌گام باشد. گزینه‌ها باید همگی عددی و هم‌فرمت باشند.",
+          confidence: "high",
+          warnings: [],
+        };
+      }
+
+      if (isDirectRecall) {
+        return {
+          title: "الگوی یادآوری مستقیم نکات و تعاریف",
+          description:
+            "سؤالات مستقیم جهت سنجش حافظه و یادآوری مفاهیم پایه بدون سناریو",
+          cognitiveLevel: "recall",
+          skills: ["direct_recall"],
+          questionStructure: "پرسش مستقیم یا عبارت ناکامل → ۴ گزینه مفهومی",
+          reasoningStyle: "یادآوری مستقیم دانش پایه",
+          stemStyle: "کوتاه، مستقیم و شفاف",
+          optionCount: 4,
+          answerType: "single_best_answer",
+          distractorStrategy: "اصطلاحات و تعاریف مشابه از همان مبحث",
+          difficultyCharacteristics: "آسان تا متوسط",
+          systemInstructions:
+            "سؤال باید مستقیماً یک تعریف، استاندارد یا نکته کلیدی را بسنجد و از شاخ‌وبرگ دادن یا سناریوی طولانی پرهیز کند.",
+          confidence: "high",
+          warnings: [],
+        };
+      }
+
+      return {
+        title: "الگوی سناریومحور با استدلال بالینی و تصمیم‌گیری",
+        description:
+          "سؤالات سناریومحور نیازمند تحلیل داده‌های چندگانه و تصمیم‌گیری دقیق",
+        cognitiveLevel: "analyze",
+        skills: ["scenario_analysis", "decision_making", "data_interpretation"],
+        questionStructure:
+          "سناریو / شرح‌حال → داده‌های کلیدی و علائم → پرسش تصمیم‌محور → ۴ گزینه هم‌سطح",
+        reasoningStyle: "استدلال چندمرحله‌ای استنتاجی",
+        stemStyle: "روایی، کاربردی و واقع‌گرایانه",
+        optionCount: 4,
+        answerType: "single_best_answer",
+        distractorStrategy:
+          "گزینه‌های انحرافی محتمل و متناسب با سناریو بر اساس خطاهای رایج شناختی",
+        difficultyCharacteristics: "سخت، تفکیک بالا از طریق گزینه‌های نزدیک",
+        scenarioCharacteristics:
+          "شامل وضعیت زمینه، متغیرهای حساس و شرایط تصمیم‌گیری",
+        systemInstructions:
+          "سؤال باید با یک سناریوی مختصر آغاز شده، اطلاعات کلیدی را بیان کند و سپس از فراگیر بخواهد مناسب‌ترین تصمیم یا تحلیل را انتخاب نماید. گزینه‌های غلط باید کاملاً باورپذیر و هم‌سطح با گزینه درست طراحی شوند. منبع تمام فکت‌ها منحصراً چانک‌های متن منبع است.",
+        confidence: "high",
+        warnings: [],
+      };
+    }
     case "content_plan":
     case "outline": {
       const targetMatch =
