@@ -63,6 +63,7 @@ import type {
   AdminTeacherExam,
   AdminTeacherActivity,
   AdminTeacherOverview,
+  AdminCoursesList,
 } from "./admin-store.js";
 
 export class InMemoryAdminStore implements AdminStore {
@@ -78,6 +79,13 @@ export class InMemoryAdminStore implements AdminStore {
     } else if (optionsOrCommerceStore) {
       this.options = optionsOrCommerceStore as AdminStoreOptions;
     }
+  }
+
+  public memoryWallets: Array<{ userId: string; balance: number; currency: string }> = [];
+  public walletStore?: import("../wallet/wallet-store.js").WalletStore;
+
+  setWalletStore(ws: import("../wallet/wallet-store.js").WalletStore): void {
+    this.walletStore = ws;
   }
   async getDashboardStats(): Promise<DashboardStats> {
     return {
@@ -112,9 +120,17 @@ export class InMemoryAdminStore implements AdminStore {
 
     if (params?.status) {
       if (params.status === "active") {
-        filtered = filtered.filter((u) => u.emailVerified);
+        filtered = filtered.filter((u) => {
+          const emailVerified = Boolean(u.emailVerified ?? (u.emailVerifiedAt != null));
+          const phoneVerified = Boolean(u.phoneVerified ?? (u.phoneVerifiedAt != null));
+          return emailVerified || phoneVerified;
+        });
       } else if (params.status === "inactive") {
-        filtered = filtered.filter((u) => !u.emailVerified);
+        filtered = filtered.filter((u) => {
+          const emailVerified = Boolean(u.emailVerified ?? (u.emailVerifiedAt != null));
+          const phoneVerified = Boolean(u.phoneVerified ?? (u.phoneVerifiedAt != null));
+          return !emailVerified && !phoneVerified;
+        });
       }
     }
 
@@ -130,15 +146,22 @@ export class InMemoryAdminStore implements AdminStore {
 
     return {
       totalCount,
-      users: paginated.map((u) => ({
-        id: u.id,
-        email: u.email,
-        name: u.name ?? undefined,
-        role: u.role,
-        emailVerified: !!u.emailVerified,
-        createdAt: (u as unknown as { createdAt?: string }).createdAt || new Date().toISOString(),
-        lastActiveAt: (u as unknown as { updatedAt?: string }).updatedAt || new Date().toISOString(),
-      })),
+      users: paginated.map((u) => {
+        const emailVerified = Boolean(u.emailVerified ?? (u.emailVerifiedAt != null));
+        const phoneVerified = Boolean(u.phoneVerified ?? (u.phoneVerifiedAt != null));
+        const isVerified = emailVerified || phoneVerified;
+        return {
+          id: u.id,
+          email: u.email,
+          name: u.name ?? undefined,
+          role: u.role,
+          emailVerified,
+          phoneVerified,
+          isVerified,
+          createdAt: (u as unknown as { createdAt?: string }).createdAt || new Date().toISOString(),
+          lastActiveAt: (u as unknown as { updatedAt?: string }).updatedAt || new Date().toISOString(),
+        };
+      }),
     };
   }
 
@@ -287,8 +310,52 @@ export class InMemoryAdminStore implements AdminStore {
     };
   }
 
-  async listCourses(_params?: { page: number; pageSize: number; search?: string }): Promise<{ courses: AdminCourseRecord[]; totalCount: number }> {
-    return { courses: [], totalCount: 0 };
+  public memoryCourses: AdminCourseRecord[] = [];
+
+  async listCourses(params?: {
+    page?: number;
+    pageSize?: number;
+    search?: string;
+    scope?: "official" | "teacher" | "user" | "all";
+  }): Promise<AdminCoursesList> {
+    let filtered = [...this.memoryCourses];
+
+    if (params?.search && params.search.trim()) {
+      const q = params.search.trim().toLowerCase();
+      filtered = filtered.filter(
+        (c) =>
+          c.name.toLowerCase().includes(q) ||
+          (c.subject && c.subject.toLowerCase().includes(q)),
+      );
+    }
+
+    if (params?.scope && params.scope !== "all") {
+      filtered = filtered.filter((c) => c.scope === params.scope);
+    }
+
+    const officialCount = this.memoryCourses.filter((c) => c.scope === "official").length;
+    const teacherCount = this.memoryCourses.filter((c) => c.scope === "teacher").length;
+    const userCount = this.memoryCourses.filter((c) => c.scope === "user").length;
+
+    const page = params?.page || 1;
+    const pageSize = params?.pageSize || 20;
+    const offset = (page - 1) * pageSize;
+    const paginated = filtered.slice(offset, offset + pageSize);
+
+    return {
+      courses: paginated,
+      totalCount: filtered.length,
+      counts: {
+        official: officialCount,
+        teacher: teacherCount,
+        user: userCount,
+      },
+    };
+  }
+
+  async getCourseById(courseId: string): Promise<AdminCourseRecord | null> {
+    const course = this.memoryCourses.find((c) => c.id === courseId);
+    return course || null;
   }
 
   async listDocuments(params?: { page: number; pageSize: number; search?: string; status?: string }): Promise<{ documents: AdminDocumentRecord[]; totalCount: number }> {
@@ -1143,6 +1210,44 @@ export class InMemoryAdminStore implements AdminStore {
     };
   }
 
+  async getCommercePayment(paymentId: string): Promise<AdminPaymentRecord | null> {
+    let payment = this.memoryPayments.find((p) => p.id === paymentId);
+    if (!payment && this.commerceStore) {
+      const cPay = this.commerceStore.payments.find((p) => p.id === paymentId);
+      if (cPay) {
+        const cOrder = this.commerceStore.orders.find((o) => o.id === cPay.orderId);
+        const cProd = cOrder ? this.commerceStore.products.find((p) => p.id === cOrder.productId) : undefined;
+        payment = {
+          id: cPay.id,
+          orderId: cPay.orderId,
+          orderNumber: cOrder?.orderNumber ?? "C2C-ORDER",
+          userId: cPay.userId,
+          userEmail: "user@avana.app",
+          productId: cProd?.id,
+          productTitle: cProd?.title ?? "Product",
+          productType: cProd?.type ?? "subscription",
+          amount: cPay.amount,
+          currency: cPay.currency,
+          gateway: cPay.gateway,
+          authority: cPay.authority,
+          transactionId: cPay.transactionId,
+          status: cPay.status,
+          trackingNumber: cPay.trackingNumber ?? null,
+          sourceCardLast4: cPay.sourceCardLast4 ?? null,
+          payerName: cPay.payerName ?? null,
+          receiptUrl: cPay.receiptUrl ?? null,
+          initialValidationResult: cPay.initialValidationResult ?? null,
+          rejectionReason: cPay.rejectionReason ?? null,
+          reviewedAt: cPay.reviewedAt ?? null,
+          reviewedBy: cPay.reviewedBy ?? null,
+          paidAt: cPay.paidAt ?? null,
+          createdAt: cPay.createdAt,
+        };
+      }
+    }
+    return payment ?? null;
+  }
+
   async approveCommercePayment(
     adminId: string,
     paymentId: string,
@@ -1360,16 +1465,26 @@ export class InMemoryAdminStore implements AdminStore {
     let name: string | undefined;
     if (this.userStore) {
       const u = await this.userStore.findById(userId as any);
-      if (u) {
-        email = u.email;
-        name = u.name;
+      if (!u) {
+        throw new Error("user_not_found");
       }
+      email = u.email;
+      name = u.name;
     }
 
     const userOrders = this.memoryOrders.filter((o) => o.userId === userId);
     const userPayments = this.memoryPayments.filter((p) => p.userId === userId);
     const userSubs = this.memorySubscriptions.filter((s) => s.userId === userId);
     const userEnts = this.memoryEntitlements.filter((e) => e.userId === userId);
+
+    let walletInfo = { balance: 0, currency: "toman" };
+    if (this.walletStore) {
+      const w = await this.walletStore.findWalletByUserId(userId as any);
+      if (w) walletInfo = { balance: w.balance, currency: w.currency };
+    } else {
+      const mw = this.memoryWallets.find((w) => w.userId === userId);
+      if (mw) walletInfo = { balance: mw.balance, currency: mw.currency };
+    }
 
     return {
       user: { id: userId, email, name },
@@ -1379,6 +1494,7 @@ export class InMemoryAdminStore implements AdminStore {
       entitlements: userEnts,
       orders: userOrders,
       payments: userPayments,
+      wallet: walletInfo,
     };
   }
 
@@ -2046,6 +2162,10 @@ export class InMemoryAdminStore implements AdminStore {
       };
     });
 
+    const emailVerified = Boolean(user.emailVerified ?? (user.emailVerifiedAt != null));
+    const phoneVerified = Boolean(user.phoneVerified ?? (user.phoneVerifiedAt != null));
+    const isVerified = emailVerified || phoneVerified;
+
     return {
       teacher: {
         id: user.id,
@@ -2053,7 +2173,9 @@ export class InMemoryAdminStore implements AdminStore {
         email: user.email,
         role: "teacher",
         teacherStatus: user.teacherStatus || "approved",
-        emailVerified: !!user.emailVerified,
+        emailVerified,
+        phoneVerified,
+        isVerified,
         createdAt: (user as any).createdAt || new Date().toISOString(),
         lastActiveAt: (user as any).updatedAt || new Date().toISOString(),
       },

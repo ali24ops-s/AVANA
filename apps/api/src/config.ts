@@ -139,6 +139,11 @@ export type ApiConfig = {
     timeoutMs: number;
     apiBaseUrl?: string;
   };
+  analytics?: {
+    ga4MeasurementId?: string;
+    ga4ApiSecret?: string;
+    debugMode: boolean;
+  };
 };
 
 function parseGeminiApiKeys(env: NodeJS.ProcessEnv): string[] {
@@ -184,6 +189,20 @@ function parseCookieSecure(env: NodeJS.ProcessEnv, fallback: boolean): boolean {
   const v = env.AVANA_COOKIE_SECURE;
   if (v !== undefined && v.trim() !== "") {
     return v.trim().toLowerCase() === "true";
+  }
+  return fallback;
+}
+
+function parseSessionMaxAge(env: NodeJS.ProcessEnv, fallback: number): number {
+  const raw = env.AVANA_SESSION_MAX_AGE_MS;
+  if (raw !== undefined && raw.trim() !== "") {
+    const val = Number(raw.trim());
+    if (Number.isInteger(val) && val > 0) {
+      return val;
+    }
+    throw new Error(
+      `Invalid AVANA_SESSION_MAX_AGE_MS value: ${raw}. Must be a positive integer.`,
+    );
   }
   return fallback;
 }
@@ -364,7 +383,7 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
       cookieName: getOptionalString(env, "AVANA_SESSION_COOKIE", "avana_session"),
       secure: cookieSecure,
       sameSite: "lax",
-      maxAgeMs: 7 * 24 * 60 * 60 * 1000, // 7 days
+      maxAgeMs: parseSessionMaxAge(env, 14 * 24 * 60 * 60 * 1000), // 14 days default
       path: "/",
     },
     csrf: {
@@ -549,6 +568,11 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
           ? Number(env.TELEGRAM_TIMEOUT_MS)
           : 5_000,
       apiBaseUrl: env.TELEGRAM_API_BASE_URL?.trim() || undefined,
+    },
+    analytics: {
+      ga4MeasurementId: env.GA4_MEASUREMENT_ID?.trim() || undefined,
+      ga4ApiSecret: env.GA4_API_SECRET?.trim() || undefined,
+      debugMode: env.GA4_DEBUG_MODE === "true",
     },
   };
 }

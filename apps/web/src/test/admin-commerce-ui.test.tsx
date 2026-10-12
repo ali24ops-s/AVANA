@@ -10,6 +10,7 @@ import { AdminProductsPage } from "../pages/admin/commerce/AdminProductsPage.js"
 import { AdminProductEditModal } from "../components/admin/commerce/AdminProductEditModal.js";
 import { AdminCancelSubscriptionModal } from "../components/admin/commerce/AdminCancelSubscriptionModal.js";
 import { UserCommerceDrawer } from "../components/admin/commerce/UserCommerceDrawer.js";
+import { AdminGrantModal } from "../components/admin/commerce/AdminGrantModal.js";
 import { formatAmountOnly } from "../components/admin/commerce/commerceUtils.js";
 import { useAdmin } from "../hooks/useAdmin.js";
 
@@ -29,6 +30,7 @@ describe("Admin Commerce & Monetization Frontend Suite", () => {
     grantCommerceEntitlement: vi.fn(),
     cancelCommerceSubscription: vi.fn(),
     getUserCommerceProfile: vi.fn(),
+    getUserWallet: vi.fn(),
     listCourses: vi.fn(),
     listUsers: vi.fn(),
     getContentGenerationPricing: vi.fn(),
@@ -639,5 +641,102 @@ describe("Admin Commerce & Monetization Frontend Suite", () => {
     expect(screen.getByText("جزئیات پرداخت و متن استخراج‌شده")).toBeDefined();
     expect(screen.getByText("فیش پرداخت پیوست شده است")).toBeDefined();
     expect(screen.getByText("مشاهده فیش")).toBeDefined();
+  });
+
+  test("11. UserCommerceDrawer displays user wallet balance with quick recharge button", async () => {
+    mockAdminApi.getUserCommerceProfile.mockResolvedValue({
+      user: { id: "u-wallet-1", email: "walletuser@test.com", name: "کاربر کیف پول" },
+      wallet: { balance: 175000, currency: "toman" },
+      activeSubscription: null,
+      subscriptionHistory: [],
+      lifetimePurchases: [],
+      entitlements: [],
+      orders: [],
+      payments: [],
+    });
+
+    render(
+      <UserCommerceDrawer
+        isOpen={true}
+        userId="u-wallet-1"
+        onClose={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("موجودی کیف پول")).toBeDefined();
+      expect(screen.getByText("۱۷۵٬۰۰۰ تومان")).toBeDefined();
+      expect(screen.getByText("شارژ کیف پول")).toBeDefined();
+    });
+  });
+
+  test("12. AdminGrantModal supports wallet recharging with amount pills and calls grantCommerceEntitlement", async () => {
+    mockAdminApi.getUserWallet.mockResolvedValue({
+      balance: 50000,
+      currency: "toman",
+    });
+
+    mockAdminApi.grantCommerceEntitlement.mockResolvedValue({
+      success: true,
+      entitlement: {
+        id: "grant-w-1",
+        userId: "u-target-1",
+        resourceType: "wallet",
+        balance: 150000,
+      },
+    });
+
+    const onClose = vi.fn();
+    const onSuccess = vi.fn();
+
+    render(
+      <AdminGrantModal
+        isOpen={true}
+        defaultUserId="u-target-1"
+        defaultUserEmail="target@test.com"
+        onClose={onClose}
+        onSuccess={onSuccess}
+      />
+    );
+
+    expect(screen.getByText("اعطای دسترسی مستقیم ادمین (Admin Grant)")).toBeDefined();
+
+    // Click on "شارژ کیف پول" tab
+    const walletTab = screen.getByRole("button", { name: /شارژ کیف پول/i });
+    fireEvent.click(walletTab);
+
+    // Verify current balance is loaded
+    await waitFor(() => {
+      expect(screen.getByText("موجودی فعلی کیف پول کاربر:")).toBeDefined();
+      expect(screen.getByText("۵۰٬۰۰۰ تومان")).toBeDefined();
+    });
+
+    // Click on the quick suggestion pill "۱۰۰٬۰۰۰ تومان"
+    const quickPill = screen.getByRole("button", { name: "۱۰۰٬۰۰۰ تومان" });
+    fireEvent.click(quickPill);
+
+    // Verify input reflects amount
+    const amountInput = screen.getByPlaceholderText(/مثلاً ۵۰,۰۰۰/i) as HTMLInputElement;
+    expect(amountInput.value).toBe("۱۰۰٬۰۰۰");
+
+    // Enter optional reason
+    const reasonInput = screen.getByPlaceholderText(/علت شارژ کیف پول/i);
+    fireEvent.change(reasonInput, { target: { value: "شارژ هدیه به مناسبت شروع ترم" } });
+
+    // Submit the form
+    const submitBtn = screen.getAllByRole("button", { name: "شارژ کیف پول" }).find(b => b.getAttribute("type") === "submit")!;
+    fireEvent.click(submitBtn);
+
+    await waitFor(() => {
+      expect(mockAdminApi.grantCommerceEntitlement).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: "u-target-1",
+          resourceType: "wallet",
+          amount: 100000,
+          reason: "شارژ هدیه به مناسبت شروع ترم",
+          idempotencyKey: expect.stringMatching(/^grant-wallet-/),
+        })
+      );
+    });
   });
 });

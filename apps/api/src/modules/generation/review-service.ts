@@ -949,6 +949,16 @@ export class ReviewService {
       actor.role === "course_editor";
     const generationContext: GenerationContext = isActorAdmin ? "admin" : "public";
 
+    const payloadObj = record.payload as Record<string, unknown> | null;
+    const existingPatternId =
+      record.type === "quiz" && typeof payloadObj?.questionPatternId === "string"
+        ? (payloadObj.questionPatternId as import("@avana/domain").QuestionPatternId)
+        : undefined;
+    const existingPatternVersion =
+      record.type === "quiz" && typeof payloadObj?.questionPatternVersion === "number"
+        ? payloadObj.questionPatternVersion
+        : undefined;
+
     const result = await this.queue.enqueueGenerationJob({
       actorUserId: actor.userId,
       actorRole: actor.role,
@@ -960,6 +970,8 @@ export class ReviewService {
       generationKey,
       force: true,
       generationContext,
+      questionPatternId: existingPatternId,
+      questionPatternVersion: existingPatternVersion,
     });
 
     if (this.auditService) {

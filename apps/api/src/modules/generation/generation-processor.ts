@@ -72,6 +72,14 @@ function toPayload(job: Job): GenerationJobPayload {
       data.generationContext === "admin" || data.generationContext === "public"
         ? (data.generationContext as GenerationContext)
         : undefined,
+    questionPatternId:
+      typeof data.questionPatternId === "string"
+        ? (data.questionPatternId as import("@avana/domain").QuestionPatternId)
+        : undefined,
+    questionPatternVersion:
+      typeof data.questionPatternVersion === "number"
+        ? data.questionPatternVersion
+        : undefined,
   };
 }
 
@@ -309,6 +317,8 @@ export async function processGenerationJob(
         force: payload.force,
         jobId,
         generationContext: effectiveContext,
+          questionPatternId: payload.questionPatternId,
+        questionPatternVersion: payload.questionPatternVersion,
       },
     );
 

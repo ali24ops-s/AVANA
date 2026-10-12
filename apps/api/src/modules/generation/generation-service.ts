@@ -40,6 +40,8 @@ import {
   type GenerationJobStatus,
   type OrganizationId,
   type ResourceContext,
+  type QuestionPatternId,
+  type QuestionPatternDefinition,
   DomainError,
   buildActor,
   defaultPolicy,
@@ -115,7 +117,6 @@ import {
 import type { NotificationService } from "../notifications/notification-service.js";
 import type {
   DocumentRecord,
-  DocumentChunkRecord,
   DocumentStore,
   DocumentChunkStore,
   ModuleStore,
@@ -157,6 +158,7 @@ import {
   type ActiveGenerationResource,
 } from "./services/generation-active-status-service.js";
 import { GenerationLifecycleService } from "./services/generation-lifecycle-service.js";
+import type { QuestionPatternStore } from "./question-patterns-store.js";
 
 // ---------------------------------------------------------------------------
 // Response contract types
@@ -323,6 +325,7 @@ export class GenerationService {
   private readonly pricingConfig?: ModelPricingConfig;
   private readonly referencePricingProvider?: () => Promise<ReferencePricingBaseline>;
   private readonly entitlementService?: EntitlementService;
+  private questionPatternStore?: QuestionPatternStore;
 
   constructor(
     private readonly generatedContentStore: GeneratedContentStore,
@@ -414,6 +417,10 @@ export class GenerationService {
 
   setNotificationService(service?: NotificationService): void {
     this.notificationService = service;
+  }
+
+  setQuestionPatternStore(store?: QuestionPatternStore): void {
+    this.questionPatternStore = store;
   }
 
   /**
@@ -1066,7 +1073,13 @@ export class GenerationService {
   private async generateSessionsBatched(
     doc: DocumentRecord,
     sessionBlueprints: ContentPlan["sessions"],
-    chunks: Array<{ id: string; content: string; heading: string | null }>,
+    chunks: Array<{
+      id: string;
+      content: string;
+      heading: string | null;
+      sourceName?: string;
+      isPrimary?: boolean;
+    }>,
     _budget: GenerationBudget,
     promptVersion: string,
     correlationId: string,
@@ -1189,10 +1202,10 @@ export class GenerationService {
 
           const effectiveChunks = relevantChunks;
           const chunkContext = effectiveChunks
-            .map(
-              (c, i) =>
-                `[Chunk ID: ${c.id}] (Index ${i + 1})${c.heading ? ` - ${c.heading}` : ""}:\n${c.content}`,
-            )
+            .map((c, i) => {
+              const sourcePrefix = c.sourceName ? `[Source: ${c.sourceName}] ` : "";
+              return `${sourcePrefix}[Chunk ID: ${c.id}] (Index ${i + 1})${c.heading ? ` - ${c.heading}` : ""}:\n${c.content}`;
+            })
             .join("\n\n---\n\n");
           const chunkIdList = effectiveChunks.map((c) => c.id);
           const sessionBlueprintJson = JSON.stringify(
@@ -1511,10 +1524,10 @@ export class GenerationService {
 
       const effectiveChunks = relevantChunks;
       const chunkContext = effectiveChunks
-        .map(
-          (c, i) =>
-            `[Chunk ID: ${c.id}] (Index ${i + 1})${c.heading ? ` - ${c.heading}` : ""}:\n${c.content}`,
-        )
+        .map((c, i) => {
+          const sourcePrefix = c.sourceName ? `[Source: ${c.sourceName}] ` : "";
+          return `${sourcePrefix}[Chunk ID: ${c.id}] (Index ${i + 1})${c.heading ? ` - ${c.heading}` : ""}:\n${c.content}`;
+        })
         .join("\n\n---\n\n");
       const chunkIdList = effectiveChunks.map((c) => c.id);
 
@@ -2456,7 +2469,7 @@ export class GenerationService {
     doc: DocumentRecord,
     sessionBlueprints: ContentPlan["sessions"],
     sessionsMarkdown: Array<{ title: string; contentMarkdown: string }>,
-    chunks: Array<{ id: string; content: string; heading: string | null }>,
+    chunks: Array<{ id: string; content: string; heading: string | null; role?: string | null }>,
     budget: GenerationBudget,
     promptVersion: string,
     correlationId: string,
@@ -2464,6 +2477,7 @@ export class GenerationService {
     documentId: DocumentId,
     targetCourseId?: CourseId,
     jobId?: string,
+    pattern?: QuestionPatternDefinition | null,
   ): Promise<{
     quizzesBySession: Map<
       number,
@@ -3127,6 +3141,17 @@ export class GenerationService {
         matchedSession?.contentMarkdown ||
         `[Session Blueprint Summary]\nTopic: ${blueprint.title}\nDescription: ${blueprint.description || ""}\nCore Concepts to Cover:\n${(blueprint.coreConcepts || []).map((c) => `- ${c}`).join("\n")}\n\nNote: Ground all quiz questions strictly in the provided source chunks.`;
 
+      const questionTemplateChunks = chunks.filter((c) => c.role === "question_template");
+      const questionTemplateContext =
+        questionTemplateChunks.length > 0
+          ? questionTemplateChunks
+              .map(
+                (c, i) =>
+                  `[Template Sample ${i + 1} - Chunk ID: ${c.id}]:\n${c.content}`,
+              )
+              .join("\n\n---\n\n")
+          : undefined;
+
       const prompt = buildQuizGenerationUserPrompt({
         documentTitle: doc.originalName,
         sessionBlueprint: sessionBlueprintJson,
@@ -3134,6 +3159,8 @@ export class GenerationService {
         lessonContent,
         chunkContext,
         chunkIdList,
+        pattern,
+        questionTemplateContext,
       });
 
       process.stdout.write(
@@ -3544,7 +3571,15 @@ export class GenerationService {
    */
   public buildReviewSummaryGenerationInput(
     doc: DocumentRecord,
-    chunks: DocumentChunkRecord[],
+    chunks: Array<{
+      id: string;
+      content: string;
+      heading?: string | null;
+      startPage?: number;
+      tokenEstimate?: number;
+      sourceName?: string;
+      isPrimary?: boolean;
+    }>,
     contentPlan: ContentPlan,
     generatedSessions: Array<{
       title: string;
@@ -3809,6 +3844,96 @@ export class GenerationService {
   }
 
   /**
+   * Estimate aggregated generation cost across multiple source documents.
+   */
+  async estimateCostForSources(
+    actor: Actor,
+    organizationId: OrganizationId,
+    sourceIds: DocumentId[],
+    types: GeneratedContentType[],
+    _courseId?: CourseId,
+  ): Promise<{
+    userPrice: ReferenceBasedUserPriceResult;
+    aiCostEstimate: CostEstimateResult;
+    estimatedPriceToman: number;
+    formattedPrice: string;
+    currency: "toman";
+    disclaimer: string;
+  }> {
+    await this.authorize(actor, organizationId, "content:generate");
+
+    let totalTokens = 0;
+    let totalCharacters = 0;
+    let totalChunksCount = 0;
+    let combinedPageCount = 0;
+
+    for (const docId of sourceIds) {
+      const doc = await this.requireDocument(organizationId, docId);
+      combinedPageCount += doc.pageCount ?? 0;
+      const chunks = await this.chunkStore.listByDocument(docId);
+      if (!chunks || chunks.length === 0) {
+        throw new DomainError(
+          "unprocessable",
+          `سند "${doc.originalName}" فاقد محتوای متنی استخراج‌شده است.`,
+        );
+      }
+      totalChunksCount += chunks.length;
+      totalTokens += chunks.reduce((acc, c) => acc + (c.tokenEstimate || 0), 0);
+      totalCharacters += chunks.reduce((acc, c) => acc + c.content.length, 0);
+    }
+
+    if (totalTokens <= 0) {
+      throw new DomainError(
+        "unprocessable",
+        "اسناد انتخابی حاوی توکن معتبری برای تخمین هزینه نیستند.",
+      );
+    }
+
+    const requestedTypes =
+      types && types.length > 0
+        ? types
+        : (["lesson", "flashcard", "quiz", "review_summary"] as GeneratedContentType[]);
+    const enabled = requestedTypes.filter((t): t is GeneratedContentType =>
+      isGenerationTypeEnabled(t),
+    );
+
+    let baselineOverride: Partial<ReferencePricingBaseline> | undefined;
+    if (this.referencePricingProvider) {
+      try {
+        baselineOverride = await this.referencePricingProvider();
+      } catch {
+        // Fallback safely to canonical default baseline
+      }
+    }
+
+    const userPrice = calculateReferenceBasedUserPrice({
+      targetUsableTokens: totalTokens,
+      types: enabled,
+      baseline: baselineOverride,
+    });
+
+    const aiCostEstimate = calculateEstimatedGenerationCost({
+      documentMetrics: {
+        pageCount: combinedPageCount > 0 ? combinedPageCount : sourceIds.length * 10,
+        chunkCount: totalChunksCount,
+        totalTokens,
+        totalCharacters,
+      },
+      types: enabled,
+      pricing: this.pricingConfig,
+    });
+
+    return {
+      userPrice,
+      aiCostEstimate,
+      estimatedPriceToman: userPrice.totalPriceToman,
+      formattedPrice: userPrice.formattedTotalPrice,
+      currency: "toman",
+      disclaimer: userPrice.disclaimer,
+    };
+  }
+
+  /**
    * Check if a document has an actively running worker with a valid lease or recent heartbeat.
    * Delegated to GenerationQueryService.
    */
@@ -3895,6 +4020,8 @@ export class GenerationService {
       force?: boolean;
       jobId?: string;
       generationContext?: GenerationContext;
+      questionPatternId?: QuestionPatternId | null;
+      questionPatternVersion?: number | null;
     } = {},
   ): Promise<GenerateResult> {
     await this.authorize(actor, organizationId, "content:generate");
@@ -4099,44 +4226,50 @@ export class GenerationService {
 
     // Load source chunks
     const chunks = await this.chunkStore.listByDocument(documentId);
-    if (chunks.length === 0) {
-      throw new DomainError(
-        "conflict",
-        "Document has no chunks available to cite. Please extract text first.",
-      );
-    }
 
     const now = new Date().toISOString();
     let docStatus: DocumentRecord["status"] = doc.status;
 
-    // Transition document to generating state immediately
-    if (docStatus === "extracted" || docStatus === "uploaded" || docStatus === "failed") {
-      await this.documentStore.update({
-        ...doc,
-        status: "generating",
-        errorCode: null,
-        updatedAt: now,
-      });
-      docStatus = "generating";
-    }
-
-    // Calculate adaptive generation budget
-    const totalTokens = chunks.reduce(
-      (acc, c) => acc + (c.tokenEstimate || 1),
-      0,
-    );
-    const totalCharacters = chunks.reduce(
-      (acc, c) => acc + c.content.length,
-      0,
-    );
-    const budget = calculateGenerationBudget({
-      pageCount: doc.pageCount,
-      chunkCount: chunks.length,
-      totalTokens,
-      totalCharacters,
-    });
-
     try {
+      if (chunks.length === 0) {
+        throw new DomainError(
+          "conflict",
+          "Document has no chunks available to cite. Please extract text first.",
+        );
+      }
+
+      // Transition document to generating state immediately
+      if (
+        doc.status === "extracted" ||
+        doc.status === "uploaded" ||
+        doc.status === "failed" ||
+        doc.status === "pending_generation"
+      ) {
+        await this.documentStore.update({
+          ...doc,
+          status: "generating",
+          errorCode: null,
+          updatedAt: now,
+        });
+        docStatus = "generating";
+      }
+
+      // Calculate adaptive generation budget
+      const totalTokens = chunks.reduce(
+        (acc, c) => acc + (c.tokenEstimate || 1),
+        0,
+      );
+      const totalCharacters = chunks.reduce(
+        (acc, c) => acc + c.content.length,
+        0,
+      );
+      const budget = calculateGenerationBudget({
+        pageCount: doc.pageCount,
+        chunkCount: chunks.length,
+        totalTokens,
+        totalCharacters,
+      });
+
       const resolvedModelName =
         (this.gateway as { modelName?: string }).modelName ??
         this.gateway.model ??
@@ -4297,8 +4430,20 @@ export class GenerationService {
       >();
       let allQuizCitations = new Set<string>();
       let quizUsage = { inputTokens: 0, outputTokens: 0 };
+      let resolvedPattern: QuestionPatternDefinition | null = null;
+
       if (toGenerate.includes("quiz")) {
         await this.checkCancellation(input.jobId, organizationId, documentId);
+
+        if (input.questionPatternId && this.questionPatternStore) {
+          resolvedPattern = await this.questionPatternStore.findById(
+            input.questionPatternId,
+            typeof input.questionPatternVersion === "number"
+              ? input.questionPatternVersion
+              : undefined,
+          );
+        }
+
         const qzRes = await this.generateQuizzesBatched(
           doc,
           contentPlan.sessions,
@@ -4311,6 +4456,7 @@ export class GenerationService {
           documentId,
           targetCourseId,
           input.jobId,
+          resolvedPattern,
         );
         quizzesBySession = qzRes.quizzesBySession;
         allQuizCitations = qzRes.allCitations;
@@ -4442,6 +4588,13 @@ export class GenerationService {
               allQuizCitations.size > 0
                 ? Array.from(allQuizCitations)
                 : planningRes.citationChunkIds,
+            ...(resolvedPattern
+              ? {
+                  questionPatternId: resolvedPattern.id,
+                  questionPatternVersion: resolvedPattern.version,
+                  questionPatternTitle: resolvedPattern.title,
+                }
+              : {}),
           };
           typeUsage = quizUsage;
         } else if (type === "review_summary") {

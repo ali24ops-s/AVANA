@@ -653,3 +653,44 @@ export function parseCourseReleaseId(
   }
   return value as CourseReleaseId;
 }
+
+export type QuestionPatternId = Brand<UUID, "questionPatternId">;
+// eslint-disable-next-line no-secrets/no-secrets
+export type QuestionPatternExampleId = Brand<UUID, "questionPatternExampleId">;
+
+export function asQuestionPatternId(id: UUID): QuestionPatternId {
+  return id as QuestionPatternId;
+}
+
+export function isQuestionPatternId(value: string): value is QuestionPatternId {
+  return isUUID(value);
+}
+
+export function parseQuestionPatternId(
+  value: string,
+  fieldName = "questionPatternId",
+): QuestionPatternId {
+  if (!isQuestionPatternId(value)) {
+    throw new Error(`Invalid UUID for ${fieldName}`);
+  }
+  return value as QuestionPatternId;
+}
+
+export function asQuestionPatternExampleId(id: UUID): QuestionPatternExampleId {
+  return id as QuestionPatternExampleId;
+}
+
+export function isQuestionPatternExampleId(value: string): value is QuestionPatternExampleId {
+  return isUUID(value);
+}
+
+export function parseQuestionPatternExampleId(
+  value: string,
+  // eslint-disable-next-line no-secrets/no-secrets
+  fieldName = "questionPatternExampleId",
+): QuestionPatternExampleId {
+  if (!isQuestionPatternExampleId(value)) {
+    throw new Error(`Invalid UUID for ${fieldName}`);
+  }
+  return value as QuestionPatternExampleId;
+}

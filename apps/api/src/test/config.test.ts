@@ -36,3 +36,29 @@ describe("loadApiConfig - cookie security", () => {
     expect(config.csrf.secure).toBe(false);
   });
 });
+
+describe("loadApiConfig - session lifetime (maxAgeMs)", () => {
+  it("defaults to 14 days (1209600000 ms)", () => {
+    const config = loadApiConfig({
+      NODE_ENV: "production",
+    });
+    expect(config.session.maxAgeMs).toBe(14 * 24 * 60 * 60 * 1000);
+  });
+
+  it("honors valid AVANA_SESSION_MAX_AGE_MS override", () => {
+    const config = loadApiConfig({
+      NODE_ENV: "production",
+      AVANA_SESSION_MAX_AGE_MS: "86400000",
+    });
+    expect(config.session.maxAgeMs).toBe(86400000);
+  });
+
+  it("throws descriptive error for invalid AVANA_SESSION_MAX_AGE_MS value", () => {
+    expect(() =>
+      loadApiConfig({
+        NODE_ENV: "production",
+        AVANA_SESSION_MAX_AGE_MS: "not-a-number",
+      }),
+    ).toThrowError(/Invalid AVANA_SESSION_MAX_AGE_MS value/);
+  });
+});

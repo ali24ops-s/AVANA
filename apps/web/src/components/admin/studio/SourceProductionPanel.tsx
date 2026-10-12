@@ -173,6 +173,8 @@ export function SourceProductionPanel({
         exam: boolean;
         review_summary: boolean;
         force?: boolean;
+        questionPatternId?: string | null;
+        questionPatternVersion?: number | null;
       };
     }) => {
       setGenerateError(null);
@@ -189,6 +191,8 @@ export function SourceProductionPanel({
             exam: options.exam,
             review_summary: options.review_summary,
             force: options.force,
+            questionPatternId: options.questionPatternId,
+            questionPatternVersion: options.questionPatternVersion,
           }),
         },
       );
@@ -237,6 +241,8 @@ export function SourceProductionPanel({
     flashcards: boolean;
     exam: boolean;
     review_summary: boolean;
+    questionPatternId?: string | null;
+    questionPatternVersion?: number | null;
   }) => {
     if (!selectedDocForGeneration) return;
     generateMutation.mutate({
@@ -247,6 +253,8 @@ export function SourceProductionPanel({
         exam: selected.exam,
         review_summary: selected.review_summary,
         force: false,
+        questionPatternId: selected.questionPatternId,
+        questionPatternVersion: selected.questionPatternVersion,
       },
     });
   };

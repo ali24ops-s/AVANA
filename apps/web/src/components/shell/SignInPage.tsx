@@ -25,6 +25,7 @@ import { Button } from "@avana/ui";
 import { WORKER_MODE_ENABLED } from "../../config/features.js";
 import { getSafeInternalRedirect } from "../../utils/urlSecurity.js";
 import { resolveDefaultLandingRoute } from "../../utils/coursePermissions.js";
+import { trackLogin } from "../../lib/tracker/index.js";
 
 type LoginMethod = "email" | "phone";
 
@@ -119,6 +120,7 @@ export function SignInPage() {
     setIsSubmitting(true);
     try {
       const res = await signIn(trimmedEmail, password);
+      trackLogin("password");
       const targetUser = res?.user ?? user;
       const targetMemberships = res?.memberships ?? memberships;
       const targetDefault = resolveDefaultLandingRoute(targetUser, targetMemberships);
@@ -193,6 +195,7 @@ export function SignInPage() {
     setIsSubmitting(true);
     try {
       const res = await verifyPhoneLoginOtp(validation.normalized, cleanCode);
+      trackLogin("otp");
       const targetUser = res?.user ?? user;
       const targetMemberships = res?.memberships ?? memberships;
       const targetDefault = resolveDefaultLandingRoute(targetUser, targetMemberships);

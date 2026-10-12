@@ -79,19 +79,6 @@ export class BullMqGenerationQueue implements GenerationQueue {
       questionPatternVersion: payload.questionPatternVersion ?? null,
     });
 
-    if (payload.sources && payload.sources.length > 0 && this.jobStore.addSources) {
-      await this.jobStore.addSources(
-        payload.sources.map((s) => ({
-          id: crypto.randomUUID(),
-          generationJobId,
-          documentId: s.documentId,
-          role: s.role ?? (s.order === 0 ? "primary_notes" : "supplementary_reference"),
-          orderIndex: s.order,
-          createdAt: now,
-        })),
-      );
-    }
-
     process.stdout.write(`[GENERATION] job created: ${generationJobId} (doc: ${payload.documentId})\n`);
 
     // Enqueue the job with the same id (idempotent redelivery; jobId matches DB).
@@ -127,7 +114,6 @@ export class BullMqGenerationQueue implements GenerationQueue {
       generationKey: payload.generationKey,
       force: payload.force,
       generationContext: payload.generationContext,
-      sources: payload.sources,
       questionPatternId: payload.questionPatternId,
       questionPatternVersion: payload.questionPatternVersion,
     };

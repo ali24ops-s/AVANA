@@ -45,6 +45,12 @@ export interface SessionStore {
 
   updateLastUsed(id: string, lastUsedAt: string): Promise<void>;
 
+  /**
+   * Atomically extend session expiration and lastUsedAt if the session is currently active
+   * (revokedAt IS NULL and expiresAt > NOW()). Concurrency-safe; returns true if extended.
+   */
+  extendSession(id: string, newExpiresAt: string, lastUsedAt: string): Promise<boolean>;
+
   revoke(id: string, revokedAt: string, reason?: string): Promise<void>;
 
   revokeAllByUser(userId: UserId, revokedAt: string, reason?: string): Promise<void>;

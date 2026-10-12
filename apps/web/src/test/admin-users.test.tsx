@@ -16,7 +16,7 @@
 
 import * as React from "react";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor, fireEvent, cleanup } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent, cleanup, within } from "@testing-library/react";
 import { MemoryRouter, Routes, Route, Navigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider } from "../providers/AuthProvider.js";
@@ -38,6 +38,8 @@ const mockUsersList = {
       name: "Student One",
       role: "student",
       emailVerified: true,
+      phoneVerified: false,
+      isVerified: true,
       createdAt: "2026-08-01T10:00:00.000Z",
     },
     {
@@ -46,10 +48,22 @@ const mockUsersList = {
       name: "Teacher One",
       role: "teacher",
       emailVerified: false,
+      phoneVerified: true,
+      isVerified: true,
       createdAt: "2026-08-05T12:00:00.000Z",
     },
+    {
+      id: "u-103",
+      email: "unverified@avana.test",
+      name: "Unverified User",
+      role: "student",
+      emailVerified: false,
+      phoneVerified: false,
+      isVerified: false,
+      createdAt: "2026-08-08T12:00:00.000Z",
+    },
   ],
-  totalCount: 2,
+  totalCount: 3,
 };
 
 function setupMockFetch(options: {
@@ -351,6 +365,75 @@ describe("Admin Users Management — Phase 4", () => {
     await waitFor(() => {
       expect(screen.getByTestId("student-home")).toBeInTheDocument();
       expect(screen.queryByText("مدیریت کاربران")).not.toBeInTheDocument();
+    });
+  });
+
+  it("Case 11 — Dual-channel status badge: verified users display 'تأیید شده' and unverified display 'در انتظار تأیید'", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(setupMockFetch());
+    renderUsersPage();
+
+    await waitFor(() => {
+      const table = screen.getByRole("table");
+      // Both student1 (email verified) and teacher1 (phone verified) should have "تأیید شده" in table
+      const approvedBadges = within(table).getAllByText("تأیید شده");
+      expect(approvedBadges.length).toBe(2);
+
+      // u-103 (neither verified) should have "در انتظار تأیید" in table
+      const pendingBadges = within(table).getAllByText("در انتظار تأیید");
+      expect(pendingBadges.length).toBe(1);
+    });
+  });
+
+  it("Case 12 — Channel breakdown indicators display correct checkmarks and tooltips", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(setupMockFetch());
+    renderUsersPage();
+
+    await waitFor(() => {
+      // Email verified tooltips: student1 has it verified
+      const emailVerifiedIndicators = screen.getAllByTitle("ایمیل تأیید شده است");
+      expect(emailVerifiedIndicators.length).toBe(1);
+
+      // Email unverified tooltips: teacher1 and u-103
+      const emailUnverifiedIndicators = screen.getAllByTitle("ایمیل تأیید نشده است");
+      expect(emailUnverifiedIndicators.length).toBe(2);
+
+      // Phone verified tooltips: teacher1 has it verified
+      const phoneVerifiedIndicators = screen.getAllByTitle("شماره همراه تأیید شده است");
+      expect(phoneVerifiedIndicators.length).toBe(1);
+
+      // Phone unverified tooltips: student1 and u-103
+      const phoneUnverifiedIndicators = screen.getAllByTitle("شماره همراه تأیید نشده است");
+      expect(phoneUnverifiedIndicators.length).toBe(2);
+    });
+  });
+
+  it("Case 13 — Status filter queries active and inactive statuses correctly", async () => {
+    const mockFetch = setupMockFetch();
+    vi.spyOn(globalThis, "fetch").mockImplementation(mockFetch);
+    renderUsersPage();
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("فیلتر بر اساس وضعیت")).toBeInTheDocument();
+    });
+
+    const statusSelect = screen.getByLabelText("فیلتر بر اساس وضعیت");
+
+    // Filter by active
+    fireEvent.change(statusSelect, { target: { value: "active" } });
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining("status=active"),
+        expect.any(Object)
+      );
+    });
+
+    // Filter by inactive
+    fireEvent.change(statusSelect, { target: { value: "inactive" } });
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining("status=inactive"),
+        expect.any(Object)
+      );
     });
   });
 });

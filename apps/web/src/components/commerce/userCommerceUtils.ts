@@ -296,7 +296,46 @@ export type UserChipSubscriptionState =
     };
 
 /**
- * Computes presentation details for the Header User Account Chip
+ * Checks whether user has an active subscription either from subscription record
+ * or through active subscription entitlements (promotional, manual grant, voucher).
+ * Handles both "active" and "active_pending_payment_review" states and expiration dates.
+ */
+export function isUserSubscriptionActive(
+  subscription?: { status?: string | null; expires_at?: string | null } | null,
+  entitlements?: Array<{ resource_type: string; expires_at?: string | null }> | null,
+  now: Date = new Date(),
+): boolean {
+  if (subscription) {
+    const status = subscription.status?.toLowerCase();
+    const isActiveStatus = status === "active" || status === "active_pending_payment_review";
+    if (isActiveStatus) {
+      if (!subscription.expires_at) {
+        return false;
+      }
+      const expiry = new Date(subscription.expires_at).getTime();
+      if (!isNaN(expiry) && expiry > now.getTime()) {
+        return true;
+      }
+    }
+  }
+
+  if (entitlements && entitlements.length > 0) {
+    const hasActiveSubEnt = entitlements.some((e) => {
+      if (e.resource_type !== "subscription") return false;
+      if (!e.expires_at) return true;
+      const expiry = new Date(e.expires_at).getTime();
+      return !isNaN(expiry) && expiry > now.getTime();
+    });
+    if (hasActiveSubEnt) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Resolves user header chip subscription display state
  * based on the user's current subscription lifecycle status.
  */
 export function getUserChipSubscriptionInfo(
@@ -313,9 +352,10 @@ export function getUserChipSubscriptionInfo(
   }
 
   const normalizedStatus = subscription.status?.toLowerCase();
+  const isActive = normalizedStatus === "active" || normalizedStatus === "active_pending_payment_review";
 
   // Non-active explicit status
-  if (normalizedStatus && normalizedStatus !== "active") {
+  if (normalizedStatus && !isActive) {
     return {
       status: "expired",
       badgeLabel: "منقضی شده",

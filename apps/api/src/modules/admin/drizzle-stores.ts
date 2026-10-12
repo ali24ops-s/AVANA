@@ -28,6 +28,8 @@ import {
   teacherExams,
   teacherExamQuestions,
   teacherExamAttempts,
+  coursePublications,
+  wallets,
 } from "@avana/database/schema";
 import {
   resolveEffectiveRole,
@@ -60,7 +62,11 @@ import type {
   AdminGenerationJobRecord,
   AdminRejectedContentRecord,
   DataIntegrityReport,
+  AdminCourseScope,
   AdminCourseRecord,
+  AdminCoursesList,
+  AdminCourseActorInfo,
+  AdminCourseClassroomInfo,
   AdminDocumentRecord,
   AdminSystemHealth,
   AdminStoreOptions,
@@ -127,10 +133,14 @@ function safeToIsoOrNull(val: unknown): string | null {
 }
 
 export class DrizzleAdminStore implements AdminStore {
+  private readonly systemOrganizationId: string;
+
   constructor(
     private readonly db: DbClient,
     private readonly options?: AdminStoreOptions,
-  ) {}
+  ) {
+    this.systemOrganizationId = options?.systemOrganizationId || "b4a0b464-16db-4087-92b7-163a1e6f6776";
+  }
 
   async getDashboardStats(): Promise<DashboardStats> {
     const today = new Date();
@@ -192,9 +202,9 @@ export class DrizzleAdminStore implements AdminStore {
 
     if (status) {
       if (status === "active") {
-        conditions.push(isNotNull(users.emailVerifiedAt));
+        conditions.push(or(isNotNull(users.emailVerifiedAt), isNotNull(users.phoneVerifiedAt)));
       } else if (status === "inactive") {
-        conditions.push(isNull(users.emailVerifiedAt));
+        conditions.push(and(isNull(users.emailVerifiedAt), isNull(users.phoneVerifiedAt)));
       }
     }
 
@@ -300,12 +310,17 @@ export class DrizzleAdminStore implements AdminStore {
       users: userRows.map((u) => {
         const userRoles = rolesMap.get(u.id) || [];
         const effectiveRole = resolveEffectiveRole(u.globalRole, userRoles);
+        const emailVerified = u.emailVerifiedAt != null;
+        const phoneVerified = u.phoneVerifiedAt != null;
+        const isVerified = emailVerified || phoneVerified;
         return {
           id: u.id,
           email: u.email,
           name: u.name ?? undefined,
           role: effectiveRole,
-          emailVerified: u.emailVerifiedAt != null,
+          emailVerified,
+          phoneVerified,
+          isVerified,
           createdAt: u.createdAt.toISOString(),
           lastActiveAt: u.updatedAt.toISOString(), // proxy for last active
         };
@@ -482,68 +497,375 @@ export class DrizzleAdminStore implements AdminStore {
     };
   }
 
-  // --- Phase 2 ---
+  // --- Phase 2: Course Management & Separation ---
 
-  async listCourses(params: { page: number; pageSize: number; search?: string }): Promise<{ courses: AdminCourseRecord[]; totalCount: number }> {
-    const { page, pageSize, search } = params;
+  private async enrichCourseRecords(courseRows: Array<typeof courses.$inferSelect>): Promise<AdminCourseRecord[]> {
+    if (courseRows.length === 0) return [];
+
+    const courseIds = courseRows.map((c) => c.id);
+    const orgIds = Array.from(new Set(courseRows.map((c) => c.organizationId).filter(Boolean)));
+
+    const courseStats = new Map<string, { modules: number; lessons: number; flashcards: number; quizzes: number }>();
+    for (const id of courseIds) {
+      courseStats.set(id, { modules: 0, lessons: 0, flashcards: 0, quizzes: 0 });
+    }
+
+    const [modulesCounts, lessonsCounts, flashcardsCounts, quizzesCounts, classroomRows, orgMemberRows, auditRows, productRows, publicationRows] =
+      await Promise.all([
+        this.db.select({ courseId: modules.courseId, count: count() }).from(modules).where(and(inArray(modules.courseId, courseIds), isNull(modules.deletedAt))).groupBy(modules.courseId),
+        this.db.select({ courseId: modules.courseId, count: count() }).from(lessons).innerJoin(modules, eq(lessons.moduleId, modules.id)).where(and(inArray(modules.courseId, courseIds), isNull(lessons.deletedAt), isNull(modules.deletedAt))).groupBy(modules.courseId),
+        this.db.select({ courseId: flashcards.courseId, count: count() }).from(flashcards).where(and(inArray(flashcards.courseId, courseIds), isNull(flashcards.deletedAt))).groupBy(flashcards.courseId),
+        this.db.select({ courseId: quizzes.courseId, count: count() }).from(quizzes).where(and(inArray(quizzes.courseId, courseIds), isNull(quizzes.deletedAt))).groupBy(quizzes.courseId),
+        this.db.select({
+          id: classrooms.id,
+          title: classrooms.title,
+          inviteCode: classrooms.inviteCode,
+          courseId: classrooms.courseId,
+          teacherId: classrooms.teacherId,
+        }).from(classrooms).where(and(isNotNull(classrooms.courseId), inArray(classrooms.courseId, courseIds))),
+        orgIds.length > 0 ? this.db.select({
+          organizationId: organizationMemberships.organizationId,
+          userId: users.id,
+          name: users.name,
+          email: users.email,
+          role: organizationMemberships.role,
+          teacherStatus: users.teacherStatus,
+        }).from(organizationMemberships)
+          .innerJoin(users, eq(users.id, organizationMemberships.userId))
+          .where(and(inArray(organizationMemberships.organizationId, orgIds), isNull(users.deletedAt))) : Promise.resolve([]),
+        this.db.select({
+          courseId: auditLogs.entityId,
+          actorId: auditLogs.actorId,
+          name: users.name,
+          email: users.email,
+          teacherStatus: users.teacherStatus,
+        }).from(auditLogs)
+          .leftJoin(users, eq(users.id, auditLogs.actorId))
+          .where(and(
+            eq(auditLogs.entityType, "course"),
+            eq(auditLogs.action, "course.created"),
+            inArray(auditLogs.entityId, courseIds),
+          )),
+        this.db.select().from(products).where(and(
+          or(
+            inArray(products.code, courseIds.map((id) => `course_${id}`)),
+            inArray(products.targetId, courseIds),
+          ),
+          isNull(products.deletedAt),
+        )),
+        this.db.select().from(coursePublications).where(and(
+          inArray(coursePublications.courseId, courseIds),
+          isNull(coursePublications.deletedAt),
+        )).orderBy(desc(coursePublications.version)),
+      ]);
+
+    for (const row of modulesCounts) {
+      if (row.courseId) {
+        const s = courseStats.get(row.courseId);
+        if (s) s.modules = row.count;
+      }
+    }
+    for (const row of lessonsCounts) {
+      if (row.courseId) {
+        const s = courseStats.get(row.courseId);
+        if (s) s.lessons = row.count;
+      }
+    }
+    for (const row of flashcardsCounts) {
+      if (row.courseId) {
+        const s = courseStats.get(row.courseId);
+        if (s) s.flashcards = row.count;
+      }
+    }
+    for (const row of quizzesCounts) {
+      if (row.courseId) {
+        const s = courseStats.get(row.courseId);
+        if (s) s.quizzes = row.count;
+      }
+    }
+
+    const classroomByCourseId = new Map<string, typeof classroomRows[0]>();
+    const teacherIdsFromClassrooms: string[] = [];
+    for (const cr of classroomRows) {
+      if (cr.courseId && !classroomByCourseId.has(cr.courseId)) {
+        classroomByCourseId.set(cr.courseId, cr);
+        if (cr.teacherId) teacherIdsFromClassrooms.push(cr.teacherId);
+      }
+    }
+
+    const teacherUserMap = new Map<string, { id: string; name: string | null; email: string }>();
+    for (const om of orgMemberRows) {
+      teacherUserMap.set(om.userId, { id: om.userId, name: om.name, email: om.email });
+    }
+    const missingTeacherIds = teacherIdsFromClassrooms.filter((tId) => !teacherUserMap.has(tId));
+    if (missingTeacherIds.length > 0) {
+      const extraTeachers = await this.db.select({
+        id: users.id,
+        name: users.name,
+        email: users.email,
+      }).from(users).where(inArray(users.id, missingTeacherIds));
+      for (const t of extraTeachers) {
+        teacherUserMap.set(t.id, t);
+      }
+    }
+
+    const orgMembersByOrgId = new Map<string, typeof orgMemberRows>();
+    for (const om of orgMemberRows) {
+      const list = orgMembersByOrgId.get(om.organizationId) || [];
+      list.push(om);
+      orgMembersByOrgId.set(om.organizationId, list);
+    }
+
+    const creatorByCourseId = new Map<string, typeof auditRows[0]>();
+    for (const ar of auditRows) {
+      if (ar.courseId && !creatorByCourseId.has(ar.courseId)) {
+        creatorByCourseId.set(ar.courseId, ar);
+      }
+    }
+
+    const productByCourseId = new Map<string, typeof productRows[0]>();
+    for (const pr of productRows) {
+      if (pr.targetId && !productByCourseId.has(pr.targetId)) {
+        productByCourseId.set(pr.targetId, pr);
+      } else if (pr.code.startsWith("course_")) {
+        const cId = pr.code.replace("course_", "");
+        if (!productByCourseId.has(cId)) {
+          productByCourseId.set(cId, pr);
+        }
+      }
+    }
+
+    const pubByCourseId = new Map<string, typeof publicationRows[0]>();
+    for (const pub of publicationRows) {
+      if (pub.courseId && !pubByCourseId.has(pub.courseId)) {
+        pubByCourseId.set(pub.courseId, pub);
+      }
+    }
+
+    return courseRows.map((c) => {
+      const isOfficial = c.organizationId === this.systemOrganizationId && c.isOfficial === true;
+      const linkedClassroom = classroomByCourseId.get(c.id);
+      const orgMembers = orgMembersByOrgId.get(c.organizationId) || [];
+      const creatorAudit = creatorByCourseId.get(c.id);
+
+      const teacherMember = orgMembers.find((m) => m.teacherStatus === "approved" || m.role === "teacher");
+      const creatorIsTeacher = creatorAudit?.teacherStatus === "approved";
+      const isTeacher = !isOfficial && (Boolean(linkedClassroom) || Boolean(teacherMember) || creatorIsTeacher);
+
+      let scope: AdminCourseScope = "user";
+      if (isOfficial) {
+        scope = "official";
+      } else if (isTeacher) {
+        scope = "teacher";
+      } else {
+        scope = "user";
+      }
+
+      let needsReview = false;
+      if (c.isOfficial && c.organizationId !== this.systemOrganizationId) {
+        needsReview = true;
+      }
+      if (!c.isOfficial && c.organizationId === this.systemOrganizationId) {
+        needsReview = true;
+      }
+      if (scope === "user" && orgMembers.length === 0 && !creatorAudit) {
+        needsReview = true;
+      }
+
+      let teacherInfo: AdminCourseActorInfo | null = null;
+      let classroomInfo: AdminCourseClassroomInfo | null = null;
+      if (linkedClassroom) {
+        const tUser = teacherUserMap.get(linkedClassroom.teacherId);
+        teacherInfo = {
+          id: linkedClassroom.teacherId,
+          name: tUser?.name || "استاد",
+          email: tUser?.email || "",
+          role: "teacher",
+        };
+        classroomInfo = {
+          id: linkedClassroom.id,
+          title: linkedClassroom.title,
+          inviteCode: linkedClassroom.inviteCode,
+          teacherId: linkedClassroom.teacherId,
+          teacherName: tUser?.name || "استاد",
+        };
+      } else if (teacherMember) {
+        teacherInfo = {
+          id: teacherMember.userId,
+          name: teacherMember.name || "استاد",
+          email: teacherMember.email || "",
+          role: teacherMember.role || "teacher",
+        };
+      } else if (creatorIsTeacher && creatorAudit?.actorId) {
+        teacherInfo = {
+          id: creatorAudit.actorId,
+          name: creatorAudit.name || "استاد",
+          email: creatorAudit.email || "",
+          role: "teacher",
+        };
+      }
+
+      const primaryMember = orgMembers[0];
+      const ownerInfo: AdminCourseActorInfo | null = primaryMember
+        ? {
+            id: primaryMember.userId,
+            name: primaryMember.name || "کاربر",
+            email: primaryMember.email || "",
+            role: primaryMember.role,
+          }
+        : null;
+
+      const creatorInfo: AdminCourseActorInfo | null = creatorAudit?.actorId
+        ? {
+            id: creatorAudit.actorId,
+            name: creatorAudit.name || "ایجادکننده",
+            email: creatorAudit.email || "",
+          }
+        : ownerInfo;
+
+      const counts = courseStats.get(c.id) || { modules: 0, lessons: 0, flashcards: 0, quizzes: 0 };
+      const hasContent = (counts.modules + counts.lessons) > 0;
+
+      const linkedProduct = productByCourseId.get(c.id);
+      const linkedPub = pubByCourseId.get(c.id);
+
+      return {
+        id: c.id,
+        name: c.name,
+        subject: c.subject,
+        description: c.description,
+        status: c.status || "published",
+        isOfficial,
+        scope,
+        organizationId: c.organizationId,
+        createdAt: c.createdAt.toISOString(),
+        updatedAt: c.updatedAt?.toISOString(),
+        creator: creatorInfo,
+        owner: ownerInfo,
+        teacher: teacherInfo,
+        classroom: classroomInfo,
+        hasContent,
+        needsReview,
+        counts,
+        product: linkedProduct
+          ? {
+              id: linkedProduct.id,
+              code: linkedProduct.code,
+              price: linkedProduct.price,
+              currency: linkedProduct.currency,
+              active: linkedProduct.active,
+            }
+          : null,
+        publication: linkedPub
+          ? {
+              id: linkedPub.id,
+              version: linkedPub.version,
+              status: linkedPub.status,
+              publishedAt: safeToIsoOrNull(linkedPub.publishedAt),
+            }
+          : null,
+      };
+    });
+  }
+
+  async listCourses(params: {
+    page: number;
+    pageSize: number;
+    search?: string;
+    scope?: "official" | "teacher" | "user" | "all";
+  }): Promise<AdminCoursesList> {
+    const { page, pageSize, search, scope = "all" } = params;
     const offset = (page - 1) * pageSize;
 
     const conditions: Array<SQL | undefined> = [isNull(courses.deletedAt)];
-    if (search) {
-      conditions.push(ilike(courses.name, `%${search}%`));
+    if (search && search.trim()) {
+      conditions.push(ilike(courses.name, `%${search.trim()}%`));
     }
+
+    const isOfficialSql = sql`(${courses.organizationId} = ${this.systemOrganizationId} AND ${courses.isOfficial} = true)`;
+    const isTeacherSql = sql`(
+      NOT ${isOfficialSql} AND (
+        ${courses.id} IN (SELECT c_room.course_id FROM classrooms c_room WHERE c_room.course_id IS NOT NULL)
+        OR ${courses.organizationId} IN (
+          SELECT om.organization_id FROM organization_memberships om
+          JOIN users u ON u.id = om.user_id
+          WHERE u.teacher_status = 'approved' OR om.role = 'teacher'
+        )
+      )
+    )`;
+    const isUserSql = sql`(NOT ${isOfficialSql} AND NOT ${isTeacherSql})`;
+
+    if (scope === "official") {
+      conditions.push(isOfficialSql);
+    } else if (scope === "teacher") {
+      conditions.push(isTeacherSql);
+    } else if (scope === "user") {
+      conditions.push(isUserSql);
+    }
+
     const whereClause = and(...conditions);
 
     const baseQuery = this.db.select().from(courses).where(whereClause);
     const countQuery = this.db.select({ count: count() }).from(courses).where(whereClause);
 
-    const [totalRes, courseRows] = await Promise.all([
+    const countsPromise = this.db.execute(sql`
+      SELECT
+        COUNT(*) FILTER (WHERE deleted_at IS NULL AND organization_id = ${this.systemOrganizationId} AND is_official = true)::int AS official_count,
+        COUNT(*) FILTER (WHERE deleted_at IS NULL AND NOT (organization_id = ${this.systemOrganizationId} AND is_official = true) AND (
+          id IN (SELECT c_room.course_id FROM classrooms c_room WHERE c_room.course_id IS NOT NULL)
+          OR organization_id IN (
+            SELECT om.organization_id FROM organization_memberships om
+            JOIN users u ON u.id = om.user_id
+            WHERE u.teacher_status = 'approved' OR om.role = 'teacher'
+          )
+        ))::int AS teacher_count,
+        COUNT(*) FILTER (WHERE deleted_at IS NULL AND NOT (organization_id = ${this.systemOrganizationId} AND is_official = true) AND NOT (
+          id IN (SELECT c_room.course_id FROM classrooms c_room WHERE c_room.course_id IS NOT NULL)
+          OR organization_id IN (
+            SELECT om.organization_id FROM organization_memberships om
+            JOIN users u ON u.id = om.user_id
+            WHERE u.teacher_status = 'approved' OR om.role = 'teacher'
+          )
+        ))::int AS user_count
+      FROM courses
+    `).catch(() => []);
+
+    const [totalRes, courseRows, countsRaw] = await Promise.all([
       countQuery,
-      baseQuery.limit(pageSize).offset(offset).orderBy(sql`${courses.createdAt} DESC`),
+      baseQuery.limit(pageSize).offset(offset).orderBy(desc(courses.createdAt)),
+      countsPromise,
     ]);
 
-    const courseIds = courseRows.map((c) => c.id);
-    const courseStats = new Map<string, { modules: number; lessons: number; flashcards: number; quizzes: number }>();
+    const countsRow = Array.isArray(countsRaw) ? countsRaw[0] : (countsRaw as any)?.rows?.[0] || {};
+    const categoryCounts = {
+      official: Number(countsRow.official_count ?? 0),
+      teacher: Number(countsRow.teacher_count ?? 0),
+      user: Number(countsRow.user_count ?? 0),
+    };
 
-    if (courseIds.length > 0) {
-      const [modulesCounts, lessonsCounts, flashcardsCounts, quizzesCounts] = await Promise.all([
-        this.db.select({ courseId: modules.courseId, count: count() }).from(modules).where(inArray(modules.courseId, courseIds)).groupBy(modules.courseId),
-        this.db.select({ courseId: modules.courseId, count: count() }).from(lessons).innerJoin(modules, eq(lessons.moduleId, modules.id)).where(and(inArray(modules.courseId, courseIds), isNull(lessons.deletedAt))).groupBy(modules.courseId),
-        this.db.select({ courseId: flashcards.courseId, count: count() }).from(flashcards).where(and(inArray(flashcards.courseId, courseIds), isNull(flashcards.deletedAt))).groupBy(flashcards.courseId),
-        this.db.select({ courseId: quizzes.courseId, count: count() }).from(quizzes).where(and(inArray(quizzes.courseId, courseIds), isNull(quizzes.deletedAt))).groupBy(quizzes.courseId),
-      ]);
-
-      for (const id of courseIds) {
-        courseStats.set(id, { modules: 0, lessons: 0, flashcards: 0, quizzes: 0 });
-      }
-      for (const row of modulesCounts) {
-        const stats = courseStats.get(row.courseId);
-        if (stats) stats.modules = row.count;
-      }
-      for (const row of lessonsCounts) {
-        const stats = courseStats.get(row.courseId);
-        if (stats) stats.lessons = row.count;
-      }
-      for (const row of flashcardsCounts) {
-        const stats = courseStats.get(row.courseId);
-        if (stats) stats.flashcards = row.count;
-      }
-      for (const row of quizzesCounts) {
-        const stats = courseStats.get(row.courseId);
-        if (stats) stats.quizzes = row.count;
-      }
-    }
+    const enriched = await this.enrichCourseRecords(courseRows);
 
     return {
       totalCount: totalRes[0].count,
-      courses: courseRows.map((c) => ({
-        id: c.id,
-        name: c.name,
-        subject: c.subject,
-        createdAt: c.createdAt.toISOString(),
-        counts: courseStats.get(c.id) || { modules: 0, lessons: 0, flashcards: 0, quizzes: 0 }
-      })),
+      courses: enriched,
+      counts: categoryCounts,
     };
+  }
+
+  async getCourseById(courseId: string): Promise<AdminCourseRecord | null> {
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(courseId);
+    if (!isUuid) return null;
+
+    const courseRows = await this.db
+      .select()
+      .from(courses)
+      .where(and(eq(courses.id, courseId), isNull(courses.deletedAt)))
+      .limit(1);
+
+    if (courseRows.length === 0) return null;
+
+    const enriched = await this.enrichCourseRecords(courseRows);
+    return enriched[0] || null;
   }
 
   private formatDocumentGenerationProgress(
@@ -2669,6 +2991,57 @@ export class DrizzleAdminStore implements AdminStore {
     });
   }
 
+  async getCommercePayment(paymentId: string): Promise<AdminPaymentRecord | null> {
+    const [record] = await this.db
+      .select({
+        payment: payments,
+        order: { id: orders.id, orderNumber: orders.orderNumber },
+        user: { id: users.id, email: users.email, name: users.name },
+        product: { id: products.id, title: products.title, type: products.type },
+      })
+      .from(payments)
+      .innerJoin(orders, eq(payments.orderId, orders.id))
+      .innerJoin(users, eq(payments.userId, users.id))
+      .innerJoin(products, eq(orders.productId, products.id))
+      .where(eq(payments.id, paymentId))
+      .limit(1);
+
+    if (!record) {
+      return null;
+    }
+
+    return {
+      id: record.payment.id,
+      orderId: record.order.id,
+      orderNumber: record.order.orderNumber,
+      userId: record.user.id,
+      userName: record.user.name || undefined,
+      userEmail: record.user.email,
+      productId: record.product.id,
+      productTitle: record.product.title,
+      productType: record.product.type,
+      amount: record.payment.amount,
+      currency: record.payment.currency,
+      gateway: record.payment.gateway,
+      authority: record.payment.authority,
+      transactionId: record.payment.transactionId,
+      status: record.payment.status,
+      trackingNumber: record.payment.trackingNumber ?? null,
+      sourceCardLast4: record.payment.sourceCardLast4 ?? null,
+      payerName: record.payment.payerName ?? null,
+      receiptUrl: record.payment.receiptUrl ?? null,
+      initialValidationResult:
+        (record.payment.initialValidationResult as Record<string, unknown>) ?? null,
+      rejectionReason: record.payment.rejectionReason ?? null,
+      reviewedAt: record.payment.reviewedAt
+        ? record.payment.reviewedAt.toISOString()
+        : null,
+      reviewedBy: record.payment.reviewedBy ?? null,
+      paidAt: record.payment.paidAt ? record.payment.paidAt.toISOString() : null,
+      createdAt: record.payment.createdAt.toISOString(),
+    };
+  }
+
   async approveCommercePayment(
     adminId: string,
     paymentId: string,
@@ -3196,6 +3569,13 @@ export class DrizzleAdminStore implements AdminStore {
       createdAt: r.payment.createdAt.toISOString(),
     }));
 
+    // Wallet
+    const [walletRow] = await this.db
+      .select({ balance: wallets.balance, currency: wallets.currency })
+      .from(wallets)
+      .where(eq(wallets.userId, userId))
+      .limit(1);
+
     return {
       user: {
         id: userRecord.id,
@@ -3208,6 +3588,9 @@ export class DrizzleAdminStore implements AdminStore {
       entitlements,
       orders: orderList,
       payments: paymentList,
+      wallet: walletRow
+        ? { balance: walletRow.balance, currency: walletRow.currency }
+        : { balance: 0, currency: "toman" },
     };
   }
 
@@ -3870,6 +4253,8 @@ export class DrizzleAdminStore implements AdminStore {
         role: "teacher",
         teacherStatus: (userRecord.teacherStatus as "pending" | "approved" | "rejected") || "approved",
         emailVerified: !!userRecord.emailVerifiedAt,
+        phoneVerified: !!userRecord.phoneVerifiedAt,
+        isVerified: !!(userRecord.emailVerifiedAt || userRecord.phoneVerifiedAt),
         createdAt: safeToIsoString(userRecord.createdAt),
         lastActiveAt: safeToIsoString(userRecord.updatedAt),
       },

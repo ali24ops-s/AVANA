@@ -27,12 +27,14 @@ export interface SessionValidationResult {
   revoked?: boolean;
   revocationReason?: string | null;
   session?: import("./session-store.js").SessionRecord;
+  renewed?: boolean;
 }
 
 export class SessionService {
   constructor(
     private readonly store: SessionStore,
     private readonly config: SessionConfig,
+    readonly getNow: () => number = () => Date.now(),
   ) {}
 
   /** Create a new session for the given user. Returns the raw token + session ID. */
@@ -42,7 +44,8 @@ export class SessionService {
   ): Promise<{ sessionToken: string; sessionId: string }> {
     const sessionToken = generateSessionToken();
     const tokenHash = hashToken(sessionToken);
-    const expiresAt = new Date(Date.now() + this.config.maxAgeMs).toISOString();
+    const now = this.getNow();
+    const expiresAt = new Date(now + this.config.maxAgeMs).toISOString();
 
     const { id } = await this.store.insert({
       userId,
@@ -65,7 +68,8 @@ export class SessionService {
   ): Promise<{ sessionToken: string; sessionId: string; revokedCount: number }> {
     const sessionToken = generateSessionToken();
     const tokenHash = hashToken(sessionToken);
-    const expiresAt = new Date(Date.now() + this.config.maxAgeMs).toISOString();
+    const now = this.getNow();
+    const expiresAt = new Date(now + this.config.maxAgeMs).toISOString();
 
     const { id, revokedCount } = await this.store.createSessionWithTakeover({
       userId,
@@ -88,7 +92,7 @@ export class SessionService {
     const session = await this.store.findByTokenHash(tokenHash);
 
     if (!session) {
-      return { valid: false, revoked: false };
+      return { valid: false, revoked: false, renewed: false };
     }
 
     if (session.revokedAt) {
@@ -97,17 +101,45 @@ export class SessionService {
         revoked: true,
         revocationReason: session.revocationReason ?? "session_takeover",
         session,
+        renewed: false,
       };
     }
 
-    const now = Date.now();
+    const now = this.getNow();
     const expiresAt = new Date(session.expiresAt).getTime();
     if (expiresAt <= now) {
-      return { valid: false, revoked: false, session };
+      return { valid: false, revoked: false, session, renewed: false };
     }
 
-    // Update lastUsedAt asynchronously (non-blocking)
-    void this.store.updateLastUsed(session.id, new Date().toISOString());
+    const remainingMs = expiresAt - now;
+    // Rolling session threshold: extend when less than 7 days (or half TTL if maxAgeMs is shorter) remain
+    const renewalThresholdMs = Math.min(
+      7 * 24 * 60 * 60 * 1000,
+      Math.floor(this.config.maxAgeMs / 2),
+    );
+
+    let renewed = false;
+    let finalSession = session;
+
+    if (remainingMs < renewalThresholdMs) {
+      const newExpiresAt = new Date(now + this.config.maxAgeMs).toISOString();
+      const updated = await this.store.extendSession(
+        session.id,
+        newExpiresAt,
+        new Date(now).toISOString(),
+      );
+      if (updated) {
+        renewed = true;
+        finalSession = {
+          ...session,
+          expiresAt: newExpiresAt,
+          lastUsedAt: new Date(now).toISOString(),
+        };
+      }
+    } else {
+      // Update lastUsedAt asynchronously (non-blocking)
+      void this.store.updateLastUsed(session.id, new Date(now).toISOString());
+    }
 
     return {
       valid: true,
@@ -115,7 +147,8 @@ export class SessionService {
         userId: session.userId,
         email: "",
       },
-      session,
+      session: finalSession,
+      renewed,
     };
   }
 

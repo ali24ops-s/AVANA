@@ -9,6 +9,7 @@ import {
   PlusCircle,
   AlertCircle,
   ShieldOff,
+  Wallet,
 } from "lucide-react";
 import type { AdminUserCommerceProfile, AdminEntitlementRecord } from "../../../lib/api/admin.js";
 import {
@@ -45,8 +46,9 @@ export function UserCommerceDrawer({ isOpen, userId, onClose }: UserCommerceDraw
     try {
       const data = await adminApi.getUserCommerceProfile(userId);
       setProfile(data);
-    } catch (err: any) {
-      setErrorMsg(err.message || "خطا در دریافت اطلاعات مالی کاربر");
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "خطا در دریافت اطلاعات مالی کاربر";
+      setErrorMsg(message);
     } finally {
       setIsLoading(false);
     }
@@ -115,6 +117,31 @@ export function UserCommerceDrawer({ isOpen, userId, onClose }: UserCommerceDraw
 
               {!isLoading && profile && (
                 <>
+                  {/* Wallet Balance Card */}
+                  <div className="border border-[var(--color-border)] rounded-2xl p-5 bg-[var(--color-surface)] shadow-sm">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-xs font-semibold text-[var(--color-text-muted)] uppercase tracking-wider flex items-center gap-1.5">
+                        <Wallet className="w-4 h-4 text-[var(--color-primary-default)]" />
+                        موجودی کیف پول
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setIsGrantModalOpen(true)}
+                        className="text-xs text-[var(--color-primary-default)] hover:text-[var(--color-primary-dark)] font-medium flex items-center gap-1 cursor-pointer transition-colors"
+                      >
+                        <PlusCircle className="w-3.5 h-3.5" />
+                        <span>شارژ کیف پول</span>
+                      </button>
+                    </div>
+
+                    <div className="bg-[var(--color-surface-warm)] p-3.5 rounded-xl border border-[var(--color-border)] flex items-center justify-between">
+                      <span className="text-xs text-[var(--color-text-muted)]">موجودی در دسترس:</span>
+                      <span className="text-sm font-bold text-[var(--color-text)]">
+                        {formatToman(profile.wallet?.balance ?? 0)}
+                      </span>
+                    </div>
+                  </div>
+
                   {/* 1. Active Subscription Card */}
                   <div className="border border-[var(--color-border)] rounded-2xl p-5 bg-[var(--color-surface)] shadow-sm">
                     <div className="flex items-center justify-between mb-3">

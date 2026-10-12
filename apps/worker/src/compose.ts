@@ -101,13 +101,13 @@ export async function composeWorker(
 
   // Operational Telegram Alerts
   const telegramClient = new TelegramClient({
-    botToken: config.telegram.botToken,
-    adminChatId: config.telegram.adminChatId,
-    timeoutMs: config.telegram.timeoutMs,
-    apiBaseUrl: config.telegram.apiBaseUrl,
+    botToken: config.telegram?.botToken,
+    adminChatId: config.telegram?.adminChatId,
+    timeoutMs: config.telegram?.timeoutMs ?? 5000,
+    apiBaseUrl: config.telegram?.apiBaseUrl,
   });
   const adminAlertService = new AdminAlertService({
-    enabled: config.telegram.enabled,
+    enabled: config.telegram?.enabled ?? false,
     telegramClient,
   });
 

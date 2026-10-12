@@ -358,7 +358,7 @@ export function PublicationActionCenter({
           <div>
             <div className="flex items-center gap-2">
               <h3 className="text-base font-bold text-[var(--color-text)]">
-                {course.name}
+                انتشار دوره {course.name}
               </h3>
               <span className="px-2.5 py-0.5 rounded-full bg-[var(--color-primary-default)]/10 text-[var(--color-primary-default)] text-xs font-black">
                 نسخه v{toPersianDigits(course.version ?? 1)}

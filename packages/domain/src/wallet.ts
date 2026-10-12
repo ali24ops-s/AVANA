@@ -133,6 +133,8 @@ export type WalletTransactionRecord = {
 
 export type CreditWalletInput = {
   userId: UserId;
+  actorId?: UserId;
+  mutationType?: WalletTransactionType;
   amount: number;
   source: WalletTransactionSource;
   referenceType: WalletReferenceType;

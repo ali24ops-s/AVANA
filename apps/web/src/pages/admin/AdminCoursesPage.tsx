@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useAdmin } from "../../hooks/useAdmin.js";
 import {
   Search,
@@ -26,8 +26,13 @@ import {
   RefreshCw,
   X,
   Trash2,
+  GraduationCap,
+  User,
+  Users,
+  School,
+  AlertTriangle,
 } from "lucide-react";
-import type { AdminCourseRecord, OfficialCourse } from "../../lib/api/admin.js";
+import type { AdminCourseRecord, AdminCourseScope, OfficialCourse } from "../../lib/api/admin.js";
 import { AdminCourseDeleteModal } from "../../components/admin/courses/AdminCourseDeleteModal.js";
 import { formatPersianOf, toPersianDigits } from "@avana/domain";
 import { formatToman } from "../../components/admin/commerce/commerceUtils.js";
@@ -39,6 +44,26 @@ export function AdminCoursesPage() {
   const queryClient = useQueryClient();
   const adminApi = useAdmin();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Tab sync: official (default) | teacher | user
+  const tabParam = searchParams.get("tab");
+  const currentTab: AdminCourseScope =
+    tabParam === "teacher"
+      ? "teacher"
+      : tabParam === "user"
+      ? "user"
+      : "official";
+
+  const handleTabChange = (newTab: AdminCourseScope) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set("tab", newTab);
+      return next;
+    });
+    setPage(1);
+    setStatusFilter("all");
+  };
 
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
@@ -68,13 +93,17 @@ export function AdminCoursesPage() {
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
-  // Queries
+  // Main courses query with scope
   const coursesQuery = useQuery({
-    queryKey: ["admin", "courses", page, search],
-    queryFn: () => adminApi.listCourses(page, pageSize, search),
+    queryKey: ["admin", "courses", currentTab, page, search],
+    queryFn: () =>
+      tabParam
+        ? adminApi.listCourses(page, pageSize, search, currentTab)
+        : adminApi.listCourses(page, pageSize, search),
     placeholderData: (prev) => prev,
   });
 
+  // Official courses query for studio details if in official tab
   const officialCoursesQuery = useQuery({
     queryKey: ["admin", "official-courses"],
     queryFn: async () => {
@@ -85,6 +114,7 @@ export function AdminCoursesPage() {
         return [];
       }
     },
+    enabled: currentTab === "official",
   });
 
   const officialMap = useMemo(() => {
@@ -156,20 +186,32 @@ export function AdminCoursesPage() {
   const rawCourses = coursesQuery.data?.courses || [];
   const totalCount = coursesQuery.data?.totalCount || 0;
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  const counts = coursesQuery.data?.counts;
 
-  // Compute Header Overview Stats
+  // Compute Header Overview Stats for official courses
   const officialList = officialCoursesQuery.data || [];
-  const totalCoursesCount = totalCount || officialList.length;
   const draftCoursesCount = officialList.filter((c) => c.status === "draft").length;
   const generatingCoursesCount = officialList.filter((c) => c.status === "generating").length;
   const reviewCoursesCount = officialList.filter((c) => c.status === "review").length;
   const publishedCoursesCount = officialList.filter((c) => c.status === "published").length;
 
+  // Teacher overview stats
+  const teacherCoursesWithClassroom = useMemo(() => {
+    if (currentTab !== "teacher") return 0;
+    return rawCourses.filter((c) => Boolean(c.classroom)).length;
+  }, [currentTab, rawCourses]);
+
+  // User overview stats
+  const userCoursesWithContent = useMemo(() => {
+    if (currentTab !== "user") return 0;
+    return rawCourses.filter((c) => c.hasContent).length;
+  }, [currentTab, rawCourses]);
+
   // Client-side filtering & sorting on current dataset
   const displayedCourses = useMemo(() => {
     let result = rawCourses.map((c) => {
       const official = officialMap.get(c.id);
-      const status = official?.status || "draft";
+      const status = c.status || official?.status || "draft";
       const counts = official
         ? {
             modules: official.moduleCount,
@@ -179,17 +221,20 @@ export function AdminCoursesPage() {
           }
         : c.counts;
 
+      const scope = c.scope || (official?.isOfficial ? "official" : (currentTab || "official"));
+
       return {
         ...c,
         status,
-        isOfficial: official?.isOfficial ?? true,
-        product: official?.product || null,
-        description: official?.description || null,
+        scope,
+        isOfficial: c.isOfficial ?? official?.isOfficial ?? (scope === "official"),
+        product: c.product ?? official?.product ?? null,
+        description: c.description ?? official?.description ?? null,
         counts,
       };
     });
 
-    // Filter by status if requested
+    // Filter by status if requested (for official tab)
     if (statusFilter !== "all") {
       result = result.filter((c) => c.status === statusFilter);
     }
@@ -225,7 +270,7 @@ export function AdminCoursesPage() {
 
   const hasActiveFilters = Boolean(search || statusFilter !== "all" || sortBy !== "newest");
 
-  const getStatusBadge = (status: OfficialCourse["status"]) => {
+  const getStatusBadge = (status?: string) => {
     switch (status) {
       case "draft":
         return (
@@ -267,10 +312,16 @@ export function AdminCoursesPage() {
             بایگانی شده
           </span>
         );
+      default:
+        return (
+          <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-[var(--color-surface-subtle)] text-[var(--color-text-muted)] border border-[var(--color-border)]">
+            {status || "پیش‌نویس"}
+          </span>
+        );
     }
   };
 
-  const getStatusAwareCta = (status: OfficialCourse["status"]) => {
+  const getStatusAwareCta = (status?: string) => {
     switch (status) {
       case "draft":
         return {
@@ -308,7 +359,7 @@ export function AdminCoursesPage() {
 
   return (
     <div className="space-y-6 text-[var(--color-text)]" dir="rtl">
-      {/* 1. Education Workspace Header & Overview */}
+      {/* 1. Education Workspace Header */}
       <div className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] p-6 sm:p-7 shadow-sm space-y-6">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="space-y-1.5">
@@ -317,9 +368,11 @@ export function AdminCoursesPage() {
                 <BookOpen className="w-6 h-6" />
               </div>
               <div>
-                <h1 className="text-xl sm:text-2xl font-black text-[var(--color-text)] text-center sm:text-right">آموزش و دوره‌ها</h1>
+                <h1 className="text-xl sm:text-2xl font-black text-[var(--color-text)] text-center sm:text-right">
+                  آموزش و دوره‌ها
+                </h1>
                 <p className="text-xs sm:text-sm text-[var(--color-text-muted)]">
-                  مدیریت ساختار آموزشی، تولید محتوا، بازبینی و انتشار دوره‌ها
+                  تفکیک و مدیریت دوره‌های رسمی آوانا، دوره‌های اساتید و دوره‌های شخصی کاربران
                 </p>
               </div>
             </div>
@@ -340,48 +393,170 @@ export function AdminCoursesPage() {
               <RefreshCw className={`w-4 h-4 ${coursesQuery.isFetching ? "animate-spin" : ""}`} />
             </button>
 
-            {/* Primary Action: Create Course */}
-            <button
-              type="button"
-              onClick={() => {
-                setCreateError(null);
-                setIsCreateOpen(true);
-              }}
-              className="px-5 py-3 rounded-xl bg-[var(--color-primary-default)] hover:bg-[var(--color-primary-dark)] text-[var(--color-primary-contrast)] text-xs sm:text-sm font-bold transition-all shadow-sm flex items-center gap-2"
-            >
-              <Plus className="w-4 h-4" />
-              <span>ایجاد دوره جدید</span>
-            </button>
+            {/* Primary Action: Create Course (Only for Official Tab) */}
+            {currentTab === "official" && (
+              <button
+                type="button"
+                onClick={() => {
+                  setCreateError(null);
+                  setIsCreateOpen(true);
+                }}
+                className="px-5 py-3 rounded-xl bg-[var(--color-primary-default)] hover:bg-[var(--color-primary-dark)] text-[var(--color-primary-contrast)] text-xs sm:text-sm font-bold transition-all shadow-sm flex items-center gap-2"
+              >
+                <Plus className="w-4 h-4" />
+                <span>ایجاد دوره جدید</span>
+              </button>
+            )}
           </div>
         </div>
 
-        {/* Header Stats Badges */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 pt-4 border-t border-[var(--color-border)]">
-          <div className="bg-[var(--color-surface-subtle)] p-3.5 rounded-xl border border-[var(--color-border)] flex flex-col gap-1">
-            <span className="text-[11px] text-[var(--color-text-muted)] font-medium">تعداد کل دوره‌ها</span>
-            <span className="text-lg font-black text-[var(--color-text)]">{toPersianDigits(totalCoursesCount)}</span>
-          </div>
+        {/* 3 Mandatory Category Tabs */}
+        <div className="flex items-center gap-2 p-1.5 bg-[var(--color-surface-subtle)] rounded-xl border border-[var(--color-border)] overflow-x-auto">
+          {/* Tab 1: Official Courses */}
+          <button
+            type="button"
+            onClick={() => handleTabChange("official")}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs sm:text-sm font-bold transition-all whitespace-nowrap ${
+              currentTab === "official"
+                ? "bg-[var(--color-surface)] text-[var(--color-text)] shadow-sm border border-[var(--color-border)]"
+                : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)]/50"
+            }`}
+          >
+            <ShieldCheck className={`w-4 h-4 ${currentTab === "official" ? "text-[var(--color-primary-default)]" : ""}`} />
+            <span>دوره‌های رسمی آوانا</span>
+            <span className={`px-2 py-0.5 rounded-full text-xs ${
+              currentTab === "official"
+                ? "bg-[var(--color-primary-default)]/15 text-[var(--color-primary-default)] font-black"
+                : "bg-[var(--color-border)] text-[var(--color-text-muted)]"
+            }`}>
+              {toPersianDigits(counts?.official ?? (currentTab === "official" ? totalCount : 0))}
+            </span>
+          </button>
 
-          <div className="bg-[var(--color-surface-subtle)] p-3.5 rounded-xl border border-[var(--color-border)] flex flex-col gap-1">
-            <span className="text-[11px] text-[var(--color-text-muted)] font-medium">پیش‌نویس (Draft)</span>
-            <span className="text-lg font-black text-[var(--color-text-muted)]">{toPersianDigits(draftCoursesCount)}</span>
-          </div>
+          {/* Tab 2: Teacher Courses */}
+          <button
+            type="button"
+            onClick={() => handleTabChange("teacher")}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs sm:text-sm font-bold transition-all whitespace-nowrap ${
+              currentTab === "teacher"
+                ? "bg-[var(--color-surface)] text-[var(--color-text)] shadow-sm border border-[var(--color-border)]"
+                : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)]/50"
+            }`}
+          >
+            <GraduationCap className={`w-4 h-4 ${currentTab === "teacher" ? "text-blue-500" : ""}`} />
+            <span>دوره‌های اساتید</span>
+            <span className={`px-2 py-0.5 rounded-full text-xs ${
+              currentTab === "teacher"
+                ? "bg-blue-500/15 text-blue-600 dark:text-blue-400 font-black"
+                : "bg-[var(--color-border)] text-[var(--color-text-muted)]"
+            }`}>
+              {toPersianDigits(counts?.teacher ?? (currentTab === "teacher" ? totalCount : 0))}
+            </span>
+          </button>
 
-          <div className="bg-purple-500/10 p-3.5 rounded-xl border border-purple-500/20 flex flex-col gap-1">
-            <span className="text-[11px] text-purple-600 dark:text-purple-400 font-medium">در حال تولید AI</span>
-            <span className="text-lg font-black text-purple-600 dark:text-purple-400">{toPersianDigits(generatingCoursesCount)}</span>
-          </div>
-
-          <div className="bg-amber-500/10 p-3.5 rounded-xl border border-amber-500/20 flex flex-col gap-1">
-            <span className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">در انتظار بازبینی</span>
-            <span className="text-lg font-black text-amber-600 dark:text-amber-400">{toPersianDigits(reviewCoursesCount)}</span>
-          </div>
-
-          <div className="bg-emerald-500/10 p-3.5 rounded-xl border border-emerald-500/20 flex flex-col gap-1 col-span-2 sm:col-span-1">
-            <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">منتشر شده در کاتالوگ</span>
-            <span className="text-lg font-black text-emerald-600 dark:text-emerald-400">{toPersianDigits(publishedCoursesCount)}</span>
-          </div>
+          {/* Tab 3: User Personal Courses */}
+          <button
+            type="button"
+            onClick={() => handleTabChange("user")}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs sm:text-sm font-bold transition-all whitespace-nowrap ${
+              currentTab === "user"
+                ? "bg-[var(--color-surface)] text-[var(--color-text)] shadow-sm border border-[var(--color-border)]"
+                : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)]/50"
+            }`}
+          >
+            <User className={`w-4 h-4 ${currentTab === "user" ? "text-amber-500" : ""}`} />
+            <span>دوره‌های کاربران</span>
+            <span className={`px-2 py-0.5 rounded-full text-xs ${
+              currentTab === "user"
+                ? "bg-amber-500/15 text-amber-600 dark:text-amber-400 font-black"
+                : "bg-[var(--color-border)] text-[var(--color-text-muted)]"
+            }`}>
+              {toPersianDigits(counts?.user ?? (currentTab === "user" ? totalCount : 0))}
+            </span>
+          </button>
         </div>
+
+        {/* Tab-Specific Overview Stats */}
+        {currentTab === "official" && (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 pt-4 border-t border-[var(--color-border)]">
+            <div className="bg-[var(--color-surface-subtle)] p-3.5 rounded-xl border border-[var(--color-border)] flex flex-col gap-1">
+              <span className="text-[11px] text-[var(--color-text-muted)] font-medium">تعداد کل دوره‌ها</span>
+              <span className="text-lg font-black text-[var(--color-text)]">
+                {toPersianDigits(counts?.official ?? totalCount)}
+              </span>
+            </div>
+
+            <div className="bg-[var(--color-surface-subtle)] p-3.5 rounded-xl border border-[var(--color-border)] flex flex-col gap-1">
+              <span className="text-[11px] text-[var(--color-text-muted)] font-medium">پیش‌نویس (Draft)</span>
+              <span className="text-lg font-black text-[var(--color-text-muted)]">{toPersianDigits(draftCoursesCount)}</span>
+            </div>
+
+            <div className="bg-purple-500/10 p-3.5 rounded-xl border border-purple-500/20 flex flex-col gap-1">
+              <span className="text-[11px] text-purple-600 dark:text-purple-400 font-medium">در حال تولید AI</span>
+              <span className="text-lg font-black text-purple-600 dark:text-purple-400">{toPersianDigits(generatingCoursesCount)}</span>
+            </div>
+
+            <div className="bg-amber-500/10 p-3.5 rounded-xl border border-amber-500/20 flex flex-col gap-1">
+              <span className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">در انتظار بازبینی</span>
+              <span className="text-lg font-black text-amber-600 dark:text-amber-400">{toPersianDigits(reviewCoursesCount)}</span>
+            </div>
+
+            <div className="bg-emerald-500/10 p-3.5 rounded-xl border border-emerald-500/20 flex flex-col gap-1 col-span-2 sm:col-span-1">
+              <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">منتشر شده در کاتالوگ</span>
+              <span className="text-lg font-black text-emerald-600 dark:text-emerald-400">{toPersianDigits(publishedCoursesCount)}</span>
+            </div>
+          </div>
+        )}
+
+        {currentTab === "teacher" && (
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-4 border-t border-[var(--color-border)]">
+            <div className="bg-[var(--color-surface-subtle)] p-3.5 rounded-xl border border-[var(--color-border)] flex flex-col gap-1">
+              <span className="text-[11px] text-[var(--color-text-muted)] font-medium">کل دوره‌های اساتید</span>
+              <span className="text-lg font-black text-[var(--color-text)]">
+                {toPersianDigits(counts?.teacher ?? totalCount)}
+              </span>
+            </div>
+
+            <div className="bg-blue-500/10 p-3.5 rounded-xl border border-blue-500/20 flex flex-col gap-1">
+              <span className="text-[11px] text-blue-600 dark:text-blue-400 font-medium">دوره‌های متصل به کلاس درس</span>
+              <span className="text-lg font-black text-blue-600 dark:text-blue-400">
+                {toPersianDigits(teacherCoursesWithClassroom)}
+              </span>
+            </div>
+
+            <div className="bg-[var(--color-surface-subtle)] p-3.5 rounded-xl border border-[var(--color-border)] flex flex-col gap-1">
+              <span className="text-[11px] text-[var(--color-text-muted)] font-medium">دوره‌های مستقل اساتید</span>
+              <span className="text-lg font-black text-[var(--color-text)]">
+                {toPersianDigits(Math.max(0, (counts?.teacher ?? totalCount) - teacherCoursesWithClassroom))}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {currentTab === "user" && (
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-4 border-t border-[var(--color-border)]">
+            <div className="bg-[var(--color-surface-subtle)] p-3.5 rounded-xl border border-[var(--color-border)] flex flex-col gap-1">
+              <span className="text-[11px] text-[var(--color-text-muted)] font-medium">کل دوره‌های کاربران</span>
+              <span className="text-lg font-black text-[var(--color-text)]">
+                {toPersianDigits(counts?.user ?? totalCount)}
+              </span>
+            </div>
+
+            <div className="bg-emerald-500/10 p-3.5 rounded-xl border border-emerald-500/20 flex flex-col gap-1">
+              <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">دوره‌های دارای محتوا</span>
+              <span className="text-lg font-black text-emerald-600 dark:text-emerald-400">
+                {toPersianDigits(userCoursesWithContent)}
+              </span>
+            </div>
+
+            <div className="bg-amber-500/10 p-3.5 rounded-xl border border-amber-500/20 flex flex-col gap-1">
+              <span className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">دوره‌های خالی / آزمایشی</span>
+              <span className="text-lg font-black text-amber-600 dark:text-amber-400">
+                {toPersianDigits(Math.max(0, (counts?.user ?? totalCount) - userCoursesWithContent))}
+              </span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* 2. Search, Status Filter & Sorting Bar */}
@@ -391,7 +566,13 @@ export function AdminCoursesPage() {
           <div className="relative flex-1">
             <input
               type="text"
-              placeholder="جستجوی نام یا موضوع دوره..."
+              placeholder={
+                currentTab === "official"
+                  ? "جستجوی نام یا موضوع دوره رسمی..."
+                  : currentTab === "teacher"
+                  ? "جستجوی دوره استاد یا عنوان کلاس..."
+                  : "جستجوی دوره شخصی کاربر..."
+              }
               value={search}
               onChange={(e) => {
                 setSearch(e.target.value);
@@ -405,24 +586,26 @@ export function AdminCoursesPage() {
 
           {/* Filter & Sort Controls */}
           <div className="flex flex-wrap items-center gap-3">
-            {/* Status Filter */}
-            <div className="flex items-center gap-1.5 bg-[var(--color-surface-subtle)] border border-[var(--color-border)] rounded-xl px-3 py-1.5 text-xs">
-              <span className="text-[var(--color-text-muted)] text-[11px]">وضعیت:</span>
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value as StatusFilterOption)}
-                aria-label="فیلتر وضعیت دوره"
-                className="bg-transparent text-[var(--color-text)] text-xs font-bold focus:outline-none cursor-pointer"
-              >
-                <option value="all" className="bg-[var(--color-surface)] text-[var(--color-text)]">همه</option>
-                <option value="draft" className="bg-[var(--color-surface)] text-[var(--color-text)]">پیش‌نویس</option>
-                <option value="generating" className="bg-[var(--color-surface)] text-[var(--color-text)]">در حال تولید</option>
-                <option value="review" className="bg-[var(--color-surface)] text-[var(--color-text)]">در انتظار بازبینی</option>
-                <option value="approved" className="bg-[var(--color-surface)] text-[var(--color-text)]">تایید شده</option>
-                <option value="published" className="bg-[var(--color-surface)] text-[var(--color-text)]">منتشر شده</option>
-                <option value="archived" className="bg-[var(--color-surface)] text-[var(--color-text)]">بایگانی شده</option>
-              </select>
-            </div>
+            {/* Status Filter (Only in official tab) */}
+            {currentTab === "official" && (
+              <div className="flex items-center gap-1.5 bg-[var(--color-surface-subtle)] border border-[var(--color-border)] rounded-xl px-3 py-1.5 text-xs">
+                <span className="text-[var(--color-text-muted)] text-[11px]">وضعیت:</span>
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value as StatusFilterOption)}
+                  aria-label="فیلتر وضعیت دوره"
+                  className="bg-transparent text-[var(--color-text)] text-xs font-bold focus:outline-none cursor-pointer"
+                >
+                  <option value="all" className="bg-[var(--color-surface)] text-[var(--color-text)]">همه</option>
+                  <option value="draft" className="bg-[var(--color-surface)] text-[var(--color-text)]">پیش‌نویس</option>
+                  <option value="generating" className="bg-[var(--color-surface)] text-[var(--color-text)]">در حال تولید</option>
+                  <option value="review" className="bg-[var(--color-surface)] text-[var(--color-text)]">در انتظار بازبینی</option>
+                  <option value="approved" className="bg-[var(--color-surface)] text-[var(--color-text)]">تایید شده</option>
+                  <option value="published" className="bg-[var(--color-surface)] text-[var(--color-text)]">منتشر شده</option>
+                  <option value="archived" className="bg-[var(--color-surface)] text-[var(--color-text)]">بایگانی شده</option>
+                </select>
+              </div>
+            )}
 
             {/* Sort Control */}
             <div className="flex items-center gap-1.5 bg-[var(--color-surface-subtle)] border border-[var(--color-border)] rounded-xl px-3 py-1.5 text-xs">
@@ -456,7 +639,7 @@ export function AdminCoursesPage() {
         </div>
       </div>
 
-      {/* 3. Course Cards / Rows Container */}
+      {/* 3. Course Cards Container */}
       <div className="space-y-4">
         {coursesQuery.isLoading ? (
           <div className="py-20 flex flex-col items-center justify-center gap-3 text-[var(--color-text-muted)] bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)]">
@@ -485,16 +668,20 @@ export function AdminCoursesPage() {
             <p className="text-xs text-[var(--color-text-muted)] max-w-md mx-auto leading-relaxed">
               {hasActiveFilters
                 ? "هیچ دوره‌ای با کلمه جستجو شده یا فیلترهای انتخابی مطابقت ندارد."
-                : "اولین دوره رسمی آوانا را ایجاد کنید و فرایند تولید و انتشار محتوا را شروع کنید."}
+                : currentTab === "official"
+                ? "اولین دوره رسمی آوانا را ایجاد کنید و فرایند تولید و انتشار محتوا را شروع کنید."
+                : currentTab === "teacher"
+                ? "در حال حاضر هیچ دوره‌ای توسط اساتید در سیستم ثبت نشده است."
+                : "در حال حاضر هیچ دوره شخصی‌ای توسط کاربران در سیستم ایجاد نشده است."}
             </p>
-            {!hasActiveFilters && (
+            {!hasActiveFilters && currentTab === "official" && (
               <button
                 type="button"
                 onClick={() => setIsCreateOpen(true)}
                 className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[var(--color-primary-default)] hover:bg-[var(--color-primary-dark)] text-[var(--color-primary-contrast)] text-xs font-bold transition-all shadow-sm"
               >
                 <Plus className="w-4 h-4" />
-                <span>ایجاد اولین دوره</span>
+                <span>ایجاد اولین دوره رسمی</span>
               </button>
             )}
           </div>
@@ -508,9 +695,9 @@ export function AdminCoursesPage() {
                 key={course.id}
                 className="bg-[var(--color-surface)] rounded-2xl border border-[var(--color-border)] hover:border-[var(--color-primary-default)]/30 p-5 sm:p-6 transition-all shadow-sm hover:shadow-md space-y-4 group"
               >
-                {/* Row 1: Identity, Status, and Commercial Pricing */}
+                {/* Row 1: Identity, Category Badges & Metadata */}
                 <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                  <div className="space-y-1.5 flex-1">
+                  <div className="space-y-2 flex-1">
                     <div className="flex flex-wrap items-center gap-2.5">
                       <Link
                         to={`/admin/courses/${course.id}?tab=structure`}
@@ -518,7 +705,9 @@ export function AdminCoursesPage() {
                       >
                         {course.name}
                       </Link>
+
                       {getStatusBadge(course.status)}
+
                       {course.subject ? (
                         <span className="px-2.5 py-0.5 rounded-lg bg-[var(--color-surface-subtle)] text-[var(--color-text-muted)] text-xs border border-[var(--color-border)] font-medium">
                           {course.subject}
@@ -528,12 +717,96 @@ export function AdminCoursesPage() {
                           عمومی
                         </span>
                       )}
+
+                      {/* Explicit Scope Badge */}
                       {course.isOfficial && (
-                        <span className="px-2 py-0.5 rounded-lg bg-[var(--color-primary-default)]/10 text-[var(--color-primary-default)] text-[10px] border border-[var(--color-primary-default)]/20 font-bold">
-                          رسمی (Official)
+                        <span className="px-2.5 py-0.5 rounded-lg bg-[var(--color-primary-default)]/10 text-[var(--color-primary-default)] text-xs border border-[var(--color-primary-default)]/20 font-bold flex items-center gap-1">
+                          <ShieldCheck className="w-3 h-3" />
+                          <span>رسمی آوانا</span>
+                        </span>
+                      )}
+
+                      {course.scope === "teacher" && (
+                        <span className="px-2.5 py-0.5 rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400 text-xs border border-blue-500/20 font-bold flex items-center gap-1">
+                          <GraduationCap className="w-3 h-3" />
+                          <span>دوره استاد</span>
+                        </span>
+                      )}
+
+                      {course.scope === "user" && (
+                        <span className="px-2.5 py-0.5 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 text-xs border border-amber-500/20 font-bold flex items-center gap-1">
+                          <User className="w-3 h-3" />
+                          <span>دوره شخصی کاربر</span>
+                        </span>
+                      )}
+
+                      {/* Content presence badge for user courses */}
+                      {course.scope === "user" && (
+                        course.hasContent ? (
+                          <span className="px-2 py-0.5 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[11px] border border-emerald-500/20 font-semibold">
+                            دارای محتوا
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded-lg bg-[var(--color-surface-subtle)] text-[var(--color-text-muted)] text-[11px] border border-[var(--color-border)] font-medium">
+                            خالی / آزمایشی
+                          </span>
+                        )
+                      )}
+
+                      {/* Conflicting / Ambiguous Flag Badge */}
+                      {course.needsReview && (
+                        <span className="px-2.5 py-0.5 rounded-lg bg-amber-500/15 text-amber-700 dark:text-amber-400 text-xs border border-amber-500/30 font-black flex items-center gap-1 animate-pulse">
+                          <AlertTriangle className="w-3 h-3 text-amber-600" />
+                          <span>نیازمند بررسی مالکیت</span>
                         </span>
                       )}
                     </div>
+
+                    {/* Ownership & Classroom Details for Teacher & User Scopes */}
+                    {course.scope === "teacher" && (
+                      <div className="flex flex-wrap items-center gap-3 text-xs text-[var(--color-text-muted)] pt-1">
+                        <div className="flex items-center gap-1 bg-[var(--color-surface-subtle)] px-2.5 py-1 rounded-lg border border-[var(--color-border)]">
+                          <GraduationCap className="w-3.5 h-3.5 text-blue-500" />
+                          <span className="font-medium text-[var(--color-text)]">استاد مسئول:</span>
+                          <span>{course.teacher?.name || "نامشخص"}</span>
+                          {course.teacher?.email && (
+                            <span className="text-[11px] opacity-75">({course.teacher.email})</span>
+                          )}
+                        </div>
+
+                        {course.creator && course.teacher && course.creator.id !== course.teacher.id && (
+                          <div className="flex items-center gap-1 bg-[var(--color-surface-subtle)] px-2.5 py-1 rounded-lg border border-[var(--color-border)]">
+                            <span className="font-medium text-[var(--color-text)]">سازنده اولیه:</span>
+                            <span>{course.creator.name}</span>
+                          </div>
+                        )}
+
+                        {course.classroom ? (
+                          <div className="flex items-center gap-1 bg-blue-500/10 text-blue-600 dark:text-blue-400 px-2.5 py-1 rounded-lg border border-blue-500/20 font-semibold">
+                            <School className="w-3.5 h-3.5" />
+                            <span>کلاس: {course.classroom.title}</span>
+                            <span className="text-[11px] font-mono px-1 bg-blue-500/15 rounded">کد: {course.classroom.inviteCode}</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1 bg-[var(--color-surface-subtle)] px-2.5 py-1 rounded-lg border border-[var(--color-border)] text-[var(--color-text-muted)]">
+                            <span>بدون کلاس درس متصل</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {course.scope === "user" && (
+                      <div className="flex flex-wrap items-center gap-3 text-xs text-[var(--color-text-muted)] pt-1">
+                        <div className="flex items-center gap-1 bg-[var(--color-surface-subtle)] px-2.5 py-1 rounded-lg border border-[var(--color-border)]">
+                          <User className="w-3.5 h-3.5 text-amber-500" />
+                          <span className="font-medium text-[var(--color-text)]">کاربر مالک:</span>
+                          <span>{course.owner?.name || course.creator?.name || "نامشخص"}</span>
+                          {(course.owner?.email || course.creator?.email) && (
+                            <span className="text-[11px] opacity-75">({course.owner?.email || course.creator?.email})</span>
+                          )}
+                        </div>
+                      </div>
+                    )}
 
                     {course.description && (
                       <p className="text-xs text-[var(--color-text-muted)] line-clamp-1 max-w-3xl">
@@ -542,21 +815,23 @@ export function AdminCoursesPage() {
                     )}
                   </div>
 
-                  {/* Commercial Product Info */}
+                  {/* Pricing Info & Quick Action Icons */}
                   <div className="flex items-center gap-3 self-start lg:self-center shrink-0">
-                    {course.product ? (
-                      <div className="bg-[var(--color-surface-subtle)] px-3 py-1.5 rounded-xl border border-[var(--color-border)] text-right">
-                        <div className="font-bold text-xs text-emerald-600 dark:text-emerald-400">
-                          {formatToman(course.product.price)}
+                    {course.scope === "official" && (
+                      course.product ? (
+                        <div className="bg-[var(--color-surface-subtle)] px-3 py-1.5 rounded-xl border border-[var(--color-border)] text-right">
+                          <div className="font-bold text-xs text-emerald-600 dark:text-emerald-400">
+                            {formatToman(course.product.price)}
+                          </div>
+                          <div className="text-[10px] text-[var(--color-text-muted)]">
+                            {course.product.active ? "🟢 در حال فروش" : "🟡 پیش‌نویس قیمت"}
+                          </div>
                         </div>
-                        <div className="text-[10px] text-[var(--color-text-muted)]">
-                          {course.product.active ? "🟢 در حال فروش" : "🟡 پیش‌نویس قیمت"}
-                        </div>
-                      </div>
-                    ) : (
-                      <span className="text-[11px] text-[var(--color-text-muted)] bg-[var(--color-surface-subtle)] px-3 py-1.5 rounded-lg border border-[var(--color-border)]">
-                        بدون محصول
-                      </span>
+                      ) : (
+                        <span className="text-[11px] text-[var(--color-text-muted)] bg-[var(--color-surface-subtle)] px-3 py-1.5 rounded-lg border border-[var(--color-border)]">
+                          بدون محصول
+                        </span>
+                      )
                     )}
 
                     {/* Quick Edit Metadata Button */}
@@ -584,14 +859,14 @@ export function AdminCoursesPage() {
                       }}
                       aria-label={`حذف دوره ${course.name}`}
                       className="p-2 rounded-lg text-[var(--color-text-muted)] hover:text-rose-500 bg-[var(--color-surface-subtle)] hover:bg-[var(--color-surface)] border border-[var(--color-border)] transition-colors"
-                      title="حذف قطعی دوره"
+                      title="حذف دوره"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 </div>
 
-                {/* Row 2: Content Metrics & Lifecycle Indicator */}
+                {/* Row 2: Content Metrics & Navigation */}
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pt-3 border-t border-[var(--color-border)]">
                   {/* Content Counters */}
                   <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs">
@@ -626,61 +901,75 @@ export function AdminCoursesPage() {
 
                   {/* Actions & Course Hub Direct Links */}
                   <div className="flex flex-wrap items-center gap-2">
-                    {/* Quick tab shortcuts */}
-                    <Link
-                      to={`/admin/courses/${course.id}?tab=structure`}
-                      className="px-2.5 py-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-subtle)] hover:bg-[var(--color-surface)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] text-xs font-semibold transition-colors flex items-center gap-1"
-                      title="مشاهده سرفصل‌ها و ساختار دوره"
-                    >
-                      <Layers className="w-3 h-3 text-[var(--color-primary-default)]" />
-                      <span>ساختار</span>
-                    </Link>
+                    {course.scope === "official" ? (
+                      <>
+                        {/* Quick tab shortcuts for official courses */}
+                        <Link
+                          to={`/admin/courses/${course.id}?tab=structure`}
+                          className="px-2.5 py-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-subtle)] hover:bg-[var(--color-surface)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] text-xs font-semibold transition-colors flex items-center gap-1"
+                          title="مشاهده سرفصل‌ها و ساختار دوره"
+                        >
+                          <Layers className="w-3 h-3 text-[var(--color-primary-default)]" />
+                          <span>ساختار</span>
+                        </Link>
 
-                    <Link
-                      to={`/admin/courses/${course.id}?tab=generation`}
-                      className="px-2.5 py-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-subtle)] hover:bg-[var(--color-surface)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] text-xs font-semibold transition-colors flex items-center gap-1"
-                      title="منابع و تولید هوشمند محتوا"
-                    >
-                      <UploadCloud className="w-3 h-3 text-purple-500" />
-                      <span>تولید</span>
-                    </Link>
+                        <Link
+                          to={`/admin/courses/${course.id}?tab=generation`}
+                          className="px-2.5 py-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-subtle)] hover:bg-[var(--color-surface)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] text-xs font-semibold transition-colors flex items-center gap-1"
+                          title="منابع و تولید هوشمند محتوا"
+                        >
+                          <UploadCloud className="w-3 h-3 text-purple-500" />
+                          <span>تولید</span>
+                        </Link>
 
-                    <Link
-                      to={`/admin/courses/${course.id}?tab=review`}
-                      className="px-2.5 py-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-subtle)] hover:bg-[var(--color-surface)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] text-xs font-semibold transition-colors flex items-center gap-1"
-                      title="میز بازبینی پیش‌نویس‌ها"
-                    >
-                      <FileCheck className="w-3 h-3 text-amber-500" />
-                      <span>بازبینی</span>
-                    </Link>
+                        <Link
+                          to={`/admin/courses/${course.id}?tab=review`}
+                          className="px-2.5 py-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-subtle)] hover:bg-[var(--color-surface)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] text-xs font-semibold transition-colors flex items-center gap-1"
+                          title="میز بازبینی پیش‌نویس‌ها"
+                        >
+                          <FileCheck className="w-3 h-3 text-amber-500" />
+                          <span>بازبینی</span>
+                        </Link>
 
-                    <Link
-                      to={`/admin/courses/${course.id}?tab=publish`}
-                      className="px-2.5 py-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-subtle)] hover:bg-[var(--color-surface)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] text-xs font-semibold transition-colors flex items-center gap-1"
-                      title="انتشار و قیمت‌گذاری"
-                    >
-                      <ShieldCheck className="w-3 h-3 text-emerald-500" />
-                      <span>انتشار</span>
-                    </Link>
+                        <Link
+                          to={`/admin/courses/${course.id}?tab=publish`}
+                          className="px-2.5 py-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-subtle)] hover:bg-[var(--color-surface)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] text-xs font-semibold transition-colors flex items-center gap-1"
+                          title="انتشار و قیمت‌گذاری"
+                        >
+                          <ShieldCheck className="w-3 h-3 text-emerald-500" />
+                          <span>انتشار</span>
+                        </Link>
 
-                    <Link
-                      to={`/admin/courses/${course.id}?tab=settings`}
-                      className="px-2.5 py-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-subtle)] hover:bg-[var(--color-surface)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] text-xs font-semibold transition-colors flex items-center gap-1"
-                      title="تنظیمات و بایگانی"
-                    >
-                      <Settings className="w-3 h-3 text-[var(--color-text-muted)]" />
-                      <span>تنظیمات</span>
-                    </Link>
+                        <Link
+                          to={`/admin/courses/${course.id}?tab=settings`}
+                          className="px-2.5 py-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-subtle)] hover:bg-[var(--color-surface)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] text-xs font-semibold transition-colors flex items-center gap-1"
+                          title="تنظیمات و بایگانی"
+                        >
+                          <Settings className="w-3 h-3 text-[var(--color-text-muted)]" />
+                          <span>تنظیمات</span>
+                        </Link>
 
-                    {/* Status-aware Primary Action -> Direct to Canonical Course Hub */}
-                    <Link
-                      to={`/admin/courses/${course.id}?tab=${statusCta.tab}`}
-                      className="px-4 py-1.5 rounded-lg bg-[var(--color-primary-default)] hover:bg-[var(--color-primary-dark)] text-[var(--color-primary-contrast)] text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 me-1"
-                    >
-                      <StatusCtaIcon className="w-3.5 h-3.5" />
-                      <span>{statusCta.label}</span>
-                      <ChevronLeft className="w-3 h-3" />
-                    </Link>
+                        {/* Status-aware Primary Action */}
+                        <Link
+                          to={`/admin/courses/${course.id}?tab=${statusCta.tab}`}
+                          className="px-4 py-1.5 rounded-lg bg-[var(--color-primary-default)] hover:bg-[var(--color-primary-dark)] text-[var(--color-primary-contrast)] text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 me-1"
+                        >
+                          <StatusCtaIcon className="w-3.5 h-3.5" />
+                          <span>{statusCta.label}</span>
+                          <ChevronLeft className="w-3 h-3" />
+                        </Link>
+                      </>
+                    ) : (
+                      /* Inspection CTA for Teacher and User Scopes */
+                      <Link
+                        to={`/admin/courses/${course.id}?tab=structure`}
+                        className="px-4 py-1.5 rounded-lg bg-[var(--color-surface-subtle)] hover:bg-[var(--color-surface)] text-[var(--color-text)] border border-[var(--color-border)] hover:border-[var(--color-primary-default)]/30 text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 me-1"
+                      >
+                        <Layers className="w-3.5 h-3.5 text-[var(--color-primary-default)]" />
+                        <span>بررسی ساختار دوره</span>
+                        <ChevronLeft className="w-3 h-3" />
+                      </Link>
+                    )}
                   </div>
                 </div>
               </div>
@@ -724,7 +1013,7 @@ export function AdminCoursesPage() {
         )}
       </div>
 
-      {/* 5. Create Course Modal */}
+      {/* 5. Create Official Course Modal */}
       {isCreateOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
@@ -754,71 +1043,65 @@ export function AdminCoursesPage() {
 
             <form onSubmit={handleCreateCourse} className="p-6 space-y-4">
               {createError && (
-                <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-500 text-xs flex items-center gap-2">
+                <div className="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-500 rounded-xl text-xs flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 shrink-0" />
                   <span>{createError}</span>
                 </div>
               )}
 
-              <div>
-                <label className="block text-xs font-bold text-[var(--color-text)] mb-2">
+              <div className="space-y-1.5">
+                <label htmlFor="create-course-name" className="text-xs font-bold text-[var(--color-text)]">
                   نام دوره <span className="text-rose-500">*</span>
                 </label>
                 <input
+                  id="create-course-name"
                   type="text"
                   value={newCourseName}
                   onChange={(e) => setNewCourseName(e.target.value)}
                   placeholder="مثال: فیزیولوژی اعصاب بالینی"
-                  disabled={creating}
+                  className="w-full bg-[var(--color-surface-subtle)] border border-[var(--color-border)] rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary-default)]"
                   required
-                  className="w-full bg-[var(--color-surface-subtle)] border border-[var(--color-border)] rounded-xl px-4 py-2.5 text-xs sm:text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:border-[var(--color-primary-default)] focus:ring-1 focus:ring-[var(--color-primary-default)] transition-colors"
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-[var(--color-text)] mb-2">
-                  رشته / موضوع تخصصی
-                </label>
+              <div className="space-y-1.5">
+                <label htmlFor="create-course-subject" className="text-xs font-bold text-[var(--color-text)]">موضوع / رشته</label>
                 <input
+                  id="create-course-subject"
                   type="text"
                   value={newCourseSubject}
                   onChange={(e) => setNewCourseSubject(e.target.value)}
-                  placeholder="مثال: پزشکی، داروسازی، هوش مصنوعی"
-                  disabled={creating}
-                  className="w-full bg-[var(--color-surface-subtle)] border border-[var(--color-border)] rounded-xl px-4 py-2.5 text-xs sm:text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:border-[var(--color-primary-default)] focus:ring-1 focus:ring-[var(--color-primary-default)] transition-colors"
+                  placeholder="مثال: تجربی / پزشکی"
+                  className="w-full bg-[var(--color-surface-subtle)] border border-[var(--color-border)] rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary-default)]"
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-[var(--color-text)] mb-2">
-                  توضیحات تکمیلی (اختیاری)
-                </label>
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-[var(--color-text)]">توضیحات کوتاه</label>
                 <textarea
                   value={newCourseDescription}
                   onChange={(e) => setNewCourseDescription(e.target.value)}
-                  placeholder="توضیحاتی درباره اهداف آموزشی، مخاطبان و سرفصل‌ها..."
+                  placeholder="توضیحاتی درباره سرفصل‌ها و اهداف دوره..."
                   rows={3}
-                  disabled={creating}
-                  className="w-full bg-[var(--color-surface-subtle)] border border-[var(--color-border)] rounded-xl p-3 text-xs sm:text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:border-[var(--color-primary-default)] focus:ring-1 focus:ring-[var(--color-primary-default)] transition-colors resize-none"
+                  className="w-full bg-[var(--color-surface-subtle)] border border-[var(--color-border)] rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary-default)] resize-none"
                 />
               </div>
 
-              <div className="pt-4 border-t border-[var(--color-border)] flex items-center justify-end gap-3">
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-[var(--color-border)]">
                 <button
                   type="button"
                   onClick={() => setIsCreateOpen(false)}
-                  disabled={creating}
-                  className="px-4 py-2.5 rounded-xl bg-[var(--color-surface-subtle)] hover:bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)] text-xs font-bold transition-colors"
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-[var(--color-text-muted)] hover:bg-[var(--color-surface-subtle)] transition-colors"
                 >
                   انصراف
                 </button>
                 <button
                   type="submit"
-                  disabled={creating || !newCourseName.trim()}
-                  className="px-5 py-2.5 rounded-xl bg-[var(--color-primary-default)] hover:bg-[var(--color-primary-dark)] disabled:opacity-50 text-[var(--color-primary-contrast)] text-xs font-bold transition-all shadow-sm flex items-center gap-2"
+                  disabled={creating}
+                  className="px-5 py-2 rounded-xl bg-[var(--color-primary-default)] hover:bg-[var(--color-primary-dark)] text-[var(--color-primary-contrast)] text-xs font-bold transition-all shadow-sm flex items-center gap-2 disabled:opacity-50"
                 >
-                  {creating && <Loader2 className="w-4 h-4 animate-spin" />}
-                  <span>{creating ? "در حال ایجاد..." : "ایجاد دوره و ورود به هاب"}</span>
+                  {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                  <span>ایجاد دوره و ورود به هاب</span>
                 </button>
               </div>
             </form>
@@ -826,7 +1109,7 @@ export function AdminCoursesPage() {
         </div>
       )}
 
-      {/* 6. Quick Edit Course Metadata Modal */}
+      {/* 6. Edit Metadata Modal */}
       {editingCourse && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
@@ -835,67 +1118,94 @@ export function AdminCoursesPage() {
           aria-labelledby="edit-modal-title"
         >
           <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl w-full max-w-md shadow-xl overflow-hidden animate-in fade-in zoom-in-95" dir="rtl">
-            <div className="p-6 border-b border-[var(--color-border)] space-y-1">
-              <h3 id="edit-modal-title" className="text-base font-bold text-[var(--color-text)]">ویرایش مشخصات دوره</h3>
-              <p className="text-xs text-[var(--color-text-muted)]">
-                در حال ویرایش اطلاعات <span className="text-[var(--color-text)] font-medium">{editingCourse.name}</span>
-              </p>
-            </div>
-
-            <div className="p-6 space-y-4">
-              <div>
-                <label htmlFor="courseName" className="block text-xs font-bold text-[var(--color-text)] mb-2">نام دوره</label>
-                <input
-                  id="courseName"
-                  type="text"
-                  value={editForm.name}
-                  onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
-                  className="w-full bg-[var(--color-surface-subtle)] border border-[var(--color-border)] rounded-xl px-4 py-2.5 text-xs sm:text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:border-[var(--color-primary-default)] focus:ring-1 focus:ring-[var(--color-primary-default)] transition-colors"
-                  placeholder="نام دوره را وارد کنید..."
-                />
+            <div className="p-6 border-b border-[var(--color-border)] flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-[var(--color-primary-default)]/10 border border-[var(--color-primary-default)]/30 text-[var(--color-primary-default)] flex items-center justify-center">
+                  <Edit2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 id="edit-modal-title" className="text-base font-bold text-[var(--color-text)]">ویرایش مشخصات دوره</h3>
+                  <p className="text-xs text-[var(--color-text-muted)] mt-0.5">اصلاح عنوان و موضوع</p>
+                </div>
               </div>
-
-              <div>
-                <label htmlFor="courseSubject" className="block text-xs font-bold text-[var(--color-text)] mb-2">موضوع (اختیاری)</label>
-                <input
-                  id="courseSubject"
-                  type="text"
-                  value={editForm.subject}
-                  onChange={(e) => setEditForm({ ...editForm, subject: e.target.value })}
-                  className="w-full bg-[var(--color-surface-subtle)] border border-[var(--color-border)] rounded-xl px-4 py-2.5 text-xs sm:text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:border-[var(--color-primary-default)] focus:ring-1 focus:ring-[var(--color-primary-default)] transition-colors"
-                  placeholder="موضوع دوره را وارد کنید..."
-                />
-              </div>
-            </div>
-
-            <div className="p-5 border-t border-[var(--color-border)] flex justify-end gap-3 bg-[var(--color-surface-subtle)]">
               <button
                 type="button"
                 onClick={() => setEditingCourse(null)}
-                disabled={updateMutation.isPending}
-                className="px-4 py-2.5 text-xs font-bold text-[var(--color-text-muted)] hover:text-[var(--color-text)] bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl transition-colors"
+                className="p-2 text-[var(--color-text-muted)] hover:text-[var(--color-text)] rounded-xl hover:bg-[var(--color-surface-subtle)] transition-colors"
               >
-                انصراف
-              </button>
-              <button
-                type="button"
-                onClick={() => updateMutation.mutate({ id: editingCourse.id, name: editForm.name, subject: editForm.subject })}
-                disabled={updateMutation.isPending || !editForm.name.trim()}
-                className="px-5 py-2.5 text-xs font-bold text-[var(--color-primary-contrast)] bg-[var(--color-primary-default)] hover:bg-[var(--color-primary-dark)] rounded-xl transition-all disabled:opacity-50 flex items-center gap-2 shadow-sm"
-              >
-                {updateMutation.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                <span>{updateMutation.isPending ? "در حال ذخیره..." : "ذخیره تغییرات"}</span>
+                <X className="w-4 h-4" />
               </button>
             </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (!editingCourse) return;
+                updateMutation.mutate({
+                  id: editingCourse.id,
+                  name: editForm.name.trim(),
+                  subject: editForm.subject.trim(),
+                });
+              }}
+              className="p-6 space-y-4"
+            >
+              <div className="space-y-1.5">
+                <label htmlFor="edit-course-name" className="text-xs font-bold text-[var(--color-text)]">
+                  نام دوره <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  id="edit-course-name"
+                  type="text"
+                  value={editForm.name}
+                  onChange={(e) => setEditForm((prev) => ({ ...prev, name: e.target.value }))}
+                  className="w-full bg-[var(--color-surface-subtle)] border border-[var(--color-border)] rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary-default)]"
+                  required
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label htmlFor="edit-course-subject" className="text-xs font-bold text-[var(--color-text)]">موضوع</label>
+                <input
+                  id="edit-course-subject"
+                  type="text"
+                  value={editForm.subject}
+                  onChange={(e) => setEditForm((prev) => ({ ...prev, subject: e.target.value }))}
+                  className="w-full bg-[var(--color-surface-subtle)] border border-[var(--color-border)] rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary-default)]"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-[var(--color-border)]">
+                <button
+                  type="button"
+                  onClick={() => setEditingCourse(null)}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-[var(--color-text-muted)] hover:bg-[var(--color-surface-subtle)] transition-colors"
+                >
+                  انصراف
+                </button>
+                <button
+                  type="submit"
+                  disabled={updateMutation.isPending}
+                  className="px-5 py-2 rounded-xl bg-[var(--color-primary-default)] hover:bg-[var(--color-primary-dark)] text-[var(--color-primary-contrast)] text-xs font-bold transition-all shadow-sm flex items-center gap-2 disabled:opacity-50"
+                >
+                  {updateMutation.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
+                  <span>ذخیره تغییرات</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
 
+      {/* 7. Delete Course Confirmation Modal */}
       <AdminCourseDeleteModal
         isOpen={Boolean(deletingCourse)}
         course={deletingCourse}
         onClose={() => setDeletingCourse(null)}
-        onSuccess={() => setDeletingCourse(null)}
+        onSuccess={() => {
+          void queryClient.invalidateQueries({ queryKey: ["admin", "courses"] });
+          void queryClient.invalidateQueries({ queryKey: ["admin", "official-courses"] });
+          setDeletingCourse(null);
+        }}
       />
     </div>
   );

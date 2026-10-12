@@ -6,8 +6,11 @@ import {
   validateAndNormalizeIranPhone,
   isValidAcademicField,
   validateTeacherAcademicProfile,
+  auditUserRegistered,
+  auditTeacherRequested,
   type Role,
 } from "@avana/domain";
+import type { AuditService } from "../../observability/audit-service.js";
 import { type SessionService, generateSessionToken, hashToken } from "./session-service.js";
 import type { UserRecord, UserStore } from "./user-store.js";
 import type { EmailVerificationStore } from "./email-verification-store.js";
@@ -22,6 +25,7 @@ import type { DeviceService } from "./device-service.js";
 import { detectDeviceType } from "./device-service.js";
 
 import type { NotificationService } from "../notifications/notification-service.js";
+import { attachSessionCookies } from "./cookie-utils.js";
 
 export interface AuthRouteOptions {
   identityAdapter?: IdentityAdapter;
@@ -36,6 +40,7 @@ export interface AuthRouteOptions {
   verificationSecret?: string;
   notificationService?: NotificationService;
   referralService?: import("../referral/referral-service.js").ReferralService;
+  auditService?: AuditService;
   appUrl?: string;
 }
 
@@ -283,7 +288,7 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
   /**
    * GET /v1/me — Returns the current authenticated user.
    */
-  app.get("/v1/me", async (request, _reply) => {
+  app.get("/v1/me", async (request, reply) => {
     const token = extractSessionToken(request);
     if (!token) {
       throw new DomainError("unauthorized", "Not signed in");
@@ -309,6 +314,10 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
 
     if (!details.valid || !details.user) {
       throw new DomainError("unauthorized", "Not signed in");
+    }
+
+    if (details.renewed) {
+      attachSessionCookies(reply, token, sessionService.getConfig());
     }
 
     const user = details.user;
@@ -353,7 +362,7 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
   /**
    * PATCH /v1/auth/profile — Update current authenticated user's profile name and/or major.
    */
-  app.patch("/v1/auth/profile", async (request, _reply) => {
+  app.patch("/v1/auth/profile", async (request, reply) => {
     const token = extractSessionToken(request);
     if (!token) {
       throw new DomainError("unauthorized", "Not signed in");
@@ -379,6 +388,10 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
 
     if (!details.valid || !details.user) {
       throw new DomainError("unauthorized", "Not signed in");
+    }
+
+    if (details.renewed) {
+      attachSessionCookies(reply, token, sessionService.getConfig());
     }
 
     const actorUserId = details.user.userId;
@@ -581,7 +594,7 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
     if (deviceService) {
       sessionToken = generateSessionToken();
       const tokenHash = hashToken(sessionToken);
-      const expiresAt = new Date(Date.now() + config.maxAgeMs).toISOString();
+      const expiresAt = new Date(sessionService.getNow() + config.maxAgeMs).toISOString();
 
       const result = await deviceService.authenticateAndTakeover({
         userId: userId as UserId,
@@ -626,21 +639,7 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
       });
     }
 
-    reply.setCookie("avana_session", sessionToken, {
-      path: "/",
-      httpOnly: true,
-      secure: config.secure,
-      sameSite: config.sameSite,
-      maxAge: config.maxAgeMs / 1000,
-    });
-
-    reply.setCookie("avana_csrf", sessionToken, {
-      path: "/",
-      httpOnly: false,
-      secure: config.secure,
-      sameSite: config.sameSite,
-      maxAge: config.maxAgeMs / 1000,
-    });
+    attachSessionCookies(reply, sessionToken, config);
   }
 
   /**
@@ -858,6 +857,32 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
             "Failed to dispatch registration notification",
           );
         });
+    }
+
+    if (opts.auditService) {
+      try {
+        const isTeacherApplication =
+          body?.role === "teacher" ||
+          Boolean(resolvedUniversity || resolvedFaculty || resolvedDepartment);
+
+        const auditEvent = isTeacherApplication
+          ? auditTeacherRequested(userRecord.id as UserId, {
+              name: userRecord.name ?? undefined,
+              university: resolvedUniversity,
+              faculty: resolvedFaculty,
+              department: resolvedDepartment,
+            })
+          : auditUserRegistered(userRecord.id as UserId, {
+              name: userRecord.name ?? undefined,
+            });
+
+        await opts.auditService.emit([auditEvent]);
+      } catch (err) {
+        app.log.warn(
+          { err: err instanceof Error ? err.message : String(err) },
+          "Failed to emit registration audit event",
+        );
+      }
     }
 
     const memberships = await resolveMemberships(
@@ -1981,6 +2006,9 @@ export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (
     if (existingToken) {
       const details = await sessionService.validateSessionDetails(existingToken);
       if (details.valid && details.user && details.user.userId === userRecord.id) {
+        if (details.renewed) {
+          attachSessionCookies(reply, existingToken, sessionService.getConfig());
+        }
         return {
           request_id: request.id,
           user: {

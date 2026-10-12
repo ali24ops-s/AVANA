@@ -54,4 +54,26 @@ describe("Footer Social & Contact Links", () => {
     expect(infoMailLink).toBeInTheDocument();
     expect(infoMailLink).toHaveAttribute("href", "mailto:info@avana.ir");
   });
+
+  it("renders privacy settings button and triggers open privacy settings event", () => {
+    let eventFired = false;
+    const listener = () => {
+      eventFired = true;
+    };
+    window.addEventListener("avana:open-privacy-settings", listener);
+
+    render(
+      <MemoryRouter>
+        <Footer />
+      </MemoryRouter>
+    );
+
+    const privacyBtn = screen.getByRole("button", { name: "تنظیمات حریم خصوصی" });
+    expect(privacyBtn).toBeInTheDocument();
+
+    privacyBtn.click();
+    expect(eventFired).toBe(true);
+
+    window.removeEventListener("avana:open-privacy-settings", listener);
+  });
 });

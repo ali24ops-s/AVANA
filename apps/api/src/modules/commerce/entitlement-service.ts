@@ -213,7 +213,20 @@ export class EntitlementService {
     // -----------------------------------------------------------------------
     // 3. Active Subscription Check
     // -----------------------------------------------------------------------
-    if (snapshot.hasActiveSubscription) {
+    // Check if course explicitly excludes subscription access (requires direct purchase)
+    let isExcludedFromSubscription = false;
+    if (effectiveCourseId) {
+      const courseProduct = snapshot.productsByTarget.get(`course:${effectiveCourseId}`);
+      if (
+        courseProduct?.metadata &&
+        ((courseProduct.metadata as Record<string, unknown>).subscriptionExcluded === true ||
+          (courseProduct.metadata as Record<string, unknown>).requiresDirectPurchase === true)
+      ) {
+        isExcludedFromSubscription = true;
+      }
+    }
+
+    if (snapshot.hasActiveSubscription && !isExcludedFromSubscription) {
       return {
         granted: true,
         reason: "subscription",

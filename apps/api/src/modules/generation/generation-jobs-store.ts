@@ -50,6 +50,8 @@ export type GenerationJobRecord = {
   leaseExpiresAt?: string | null;
   completedAt: string | null;
   deletedAt: string | null;
+  questionPatternId?: string | null;
+  questionPatternVersion?: number | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -57,6 +59,7 @@ export type GenerationJobRecord = {
 // ---------------------------------------------------------------------------
 
 export interface GenerationJobStore {
+
   /**
    * Find a generation job by ID, scoped to an organization.
    * Returns undefined for missing/cross-org/soft-deleted rows (non-disclosing).

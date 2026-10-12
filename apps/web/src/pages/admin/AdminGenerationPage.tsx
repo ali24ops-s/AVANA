@@ -19,24 +19,28 @@ import {
 } from "lucide-react";
 import { toPersianDigits, formatPersianOf } from "@avana/domain";
 import { ContentReviewDetail } from "../../components/review/ContentReviewDetail.js";
+import { QuestionPatternsManager } from "../../components/admin/patterns/QuestionPatternsManager.js";
 import type {
   AdminGenerationJobRecord,
   AdminRejectedContentRecord,
 } from "../../lib/api/admin.js";
 
-type GenerationTab = "jobs" | "rejected";
+type GenerationTab = "jobs" | "rejected" | "patterns";
 
 export function AdminGenerationPage() {
   const adminApi = useAdmin();
   const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get("tab");
   const activeTab: GenerationTab =
-    searchParams.get("tab") === "rejected" ? "rejected" : "jobs";
+    tabParam === "rejected" ? "rejected" : tabParam === "patterns" ? "patterns" : "jobs";
 
   const setTab = (tab: GenerationTab) => {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
       if (tab === "rejected") {
         next.set("tab", "rejected");
+      } else if (tab === "patterns") {
+        next.set("tab", "patterns");
       } else {
         next.delete("tab");
       }
@@ -231,6 +235,20 @@ export function AdminGenerationPage() {
           >
             <Ban className="w-4 h-4" />
             محتواهای ردشده
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "patterns"}
+            onClick={() => setTab("patterns")}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl font-bold transition-all whitespace-nowrap ${
+              activeTab === "patterns"
+                ? "bg-amber-600 text-white shadow-sm"
+                : "text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)]"
+            }`}
+          >
+            <Sparkles className="w-4 h-4" />
+            الگوهای سؤال (Patterns)
           </button>
         </div>
       </div>
@@ -603,6 +621,9 @@ export function AdminGenerationPage() {
           </div>
         </div>
       )}
+
+      {/* TAB 3: Question Patterns Management */}
+      {activeTab === "patterns" && <QuestionPatternsManager />}
 
       {/* Detail Modal / Drawer for Rejected Item */}
       {selectedRejectedItem && (

@@ -14,6 +14,7 @@ import type {
   AdminCommerceStats,
   AdminOrdersList,
   AdminPaymentsList,
+  AdminPaymentRecord,
   AdminSubscriptionsList,
   AdminEntitlementsList,
   AdminProductRecord,
@@ -47,6 +48,12 @@ import type { NotificationService } from "../notifications/notification-service.
 import { grantSubscriptionActivationGiftIfEligible } from "../commerce/subscription-gift-helper.js";
 import type { PromotionService } from "../commerce/promotion-service.js";
 import type { StudyService } from "../study/study-service.js";
+import {
+  type Ga4MeasurementProtocolService,
+  dispatchOrderGa4Purchase,
+} from "../observability/ga4-measurement-protocol.js";
+import type { AuditService } from "../../observability/audit-service.js";
+
 
 export class AdminService {
   constructor(
@@ -57,7 +64,10 @@ export class AdminService {
     private readonly promotionService?: PromotionService,
     _referralService?: import("../referral/referral-service.js").ReferralService,
     private readonly studyService?: StudyService,
+    private readonly ga4Service?: Ga4MeasurementProtocolService,
+    private readonly auditService?: AuditService,
   ) {}
+
 
   async getDashboardStats(): Promise<DashboardStats> {
     return this.store.getDashboardStats();
@@ -229,9 +239,70 @@ export class AdminService {
     input: AdminGrantInput,
   ): Promise<any> {
     if (!input.userId) throw new DomainError("bad_request", "User ID is required");
-    if (!["subscription", "course", "content_pack"].includes(input.resourceType)) {
+    if (!["subscription", "course", "content_pack", "wallet"].includes(input.resourceType)) {
       throw new DomainError("bad_request", "Invalid resource type");
     }
+
+    if (input.resourceType === "wallet") {
+      if (!this.walletService) {
+        throw new DomainError("internal_error", "سرویس کیف پول در دسترس نیست.");
+      }
+      // 1. Verify user exists
+      await this.store.getUserCommerceProfile(input.userId);
+
+      // 2. Validate amount
+      if (
+        input.amount === undefined ||
+        typeof input.amount !== "number" ||
+        isNaN(input.amount) ||
+        !Number.isInteger(input.amount) ||
+        input.amount < 1000 ||
+        input.amount > 100000000
+      ) {
+        throw new DomainError(
+          "bad_request",
+          "مبلغ شارژ باید یک عدد صحیح مثبت بین ۱,۰۰۰ تا ۱۰۰,۰۰۰,۰۰۰ تومان باشد.",
+        );
+      }
+
+      // 3. Prepare idempotency key and reference
+      const grantReferenceId = `admin-grant-${randomUUID()}`;
+      const idempotencyKey = input.idempotencyKey?.trim() || `admin-grant:${input.userId}:${randomUUID()}`;
+
+      // 4. Atomically credit wallet via WalletService
+      const creditResult = await this.walletService.credit({
+        userId: asUserId(input.userId as UUID),
+        actorId: asUserId(adminId as UUID),
+        amount: input.amount,
+        mutationType: "admin_adjustment",
+        source: "admin_adjustment",
+        referenceType: "admin_grant",
+        referenceId: grantReferenceId,
+        idempotencyKey,
+        metadata: {
+          adminId,
+          reason: input.reason?.trim() || "شارژ کیف پول توسط مدیر",
+          grantedAt: new Date().toISOString(),
+        },
+      });
+
+      return {
+        id: creditResult.transaction.id,
+        resourceType: "wallet",
+        resourceId: null,
+        sourceType: "admin_grant",
+        userId: input.userId,
+        amount: input.amount,
+        balance: creditResult.wallet.balance,
+        currency: creditResult.wallet.currency,
+        transactionId: creditResult.transaction.id,
+        balanceBefore: creditResult.transaction.balanceBefore,
+        balanceAfter: creditResult.transaction.balanceAfter,
+        isDuplicate: creditResult.isDuplicate,
+        createdAt: creditResult.transaction.createdAt,
+      };
+    }
+
     if ((input.resourceType === "course" || input.resourceType === "content_pack") && !input.resourceId) {
       throw new DomainError("bad_request", "Resource ID is required for course or content_pack grants");
     }
@@ -239,6 +310,19 @@ export class AdminService {
       throw new DomainError("bad_request", "durationDays must be between 1 and 3650");
     }
     return this.store.grantCommerceEntitlement(adminId, input);
+  }
+
+  async getUserWallet(
+    adminId: string,
+    userId: string,
+  ): Promise<{ balance: number; currency: string; formatted_balance: string }> {
+    if (!adminId) throw new DomainError("unauthorized", "Unauthorized");
+    if (!userId) throw new DomainError("bad_request", "User ID is required");
+    await this.store.getUserCommerceProfile(userId);
+    if (!this.walletService) {
+      throw new DomainError("internal_error", "سرویس کیف پول در دسترس نیست.");
+    }
+    return this.walletService.getUserWallet(asUserId(userId as UUID));
   }
 
   async cancelUserSubscription(
@@ -263,9 +347,17 @@ export class AdminService {
     return this.store.revokeCommerceEntitlement(adminId, entitlementId, reason);
   }
 
+  async getPayment(paymentId: string): Promise<AdminPaymentRecord | null> {
+    if (!paymentId) {
+      throw new DomainError("bad_request", "شناسه پرداخت الزامی است.");
+    }
+    return this.store.getCommercePayment(paymentId);
+  }
+
   async approvePayment(
     adminId: string,
     paymentId: string,
+    options?: { actorType?: string; skipAudit?: boolean },
   ): Promise<{ success: boolean; payment: any; message?: string }> {
     if (!paymentId) {
       throw new DomainError("bad_request", "شناسه پرداخت الزامی است.");
@@ -293,11 +385,17 @@ export class AdminService {
     }
 
     if (result.success && result.payment) {
+      const isAlreadyApproved = result.message === "پرداخت قبلاً تأیید شده است.";
+      if (isAlreadyApproved) {
+        return result;
+      }
+
       try {
         const orderId = asOrderId(result.payment.orderId as UUID);
-        let order = this.commerceStore
+        const order = this.commerceStore
           ? await this.commerceStore.findOrderById(orderId)
           : null;
+
         let product = order && this.commerceStore
           ? await this.commerceStore.findProductById(order.productId)
           : null;
@@ -456,9 +554,43 @@ export class AdminService {
             }
           }
         }
+
+        if (this.ga4Service && this.commerceStore && order) {
+          void dispatchOrderGa4Purchase({
+            orderId: order.id,
+            store: this.commerceStore,
+            ga4Service: this.ga4Service,
+          });
+        }
+
+        if (this.auditService && options?.actorType === "admin/web") {
+          void this.auditService.emit([
+            {
+              actorId: asUserId(adminId as any),
+              organizationId: null,
+              action: "payment.approved",
+              entityType: "payment",
+              entityId: paymentId,
+              createdAt: new Date().toISOString(),
+              details: {
+                paymentId,
+                orderId,
+                amount: result.payment.amount,
+                productTitle: product?.title || result.payment.productTitle,
+                productType: product?.type || result.payment.productType || (isWalletTopup ? "wallet_topup" : undefined),
+                userId: result.payment.userId,
+                adminId,
+                actorType: "admin/web",
+                sourceCardLast4: result.payment.sourceCardLast4,
+                trackingNumber: result.payment.trackingNumber,
+              },
+            },
+          ]);
+        }
       } catch {
         // Handled silently to prevent blocking approval completion if wallet/notification fails
       }
+
     }
 
     return result;
@@ -468,6 +600,7 @@ export class AdminService {
     adminId: string,
     paymentId: string,
     reason: string,
+    options?: { actorType?: string; skipAudit?: boolean },
   ): Promise<{ success: boolean; payment: any; message?: string }> {
     if (!paymentId) {
       throw new DomainError("bad_request", "شناسه پرداخت الزامی است.");
@@ -564,6 +697,30 @@ export class AdminService {
           if (red) {
             red.status = "cancelled";
           }
+        }
+
+        if (this.auditService && options?.actorType === "admin/web") {
+          void this.auditService.emit([
+            {
+              actorId: asUserId(adminId as any),
+              organizationId: null,
+              action: "payment.rejected",
+              entityType: "payment",
+              entityId: paymentId,
+              createdAt: new Date().toISOString(),
+              details: {
+                paymentId,
+                orderId,
+                amount: result.payment.amount,
+                productTitle: product?.title || result.payment.productTitle,
+                productType: product?.type || result.payment.productType || (isWalletTopup ? "wallet_topup" : undefined),
+                userId: result.payment.userId,
+                adminId,
+                reason: trimmedReason,
+                actorType: options?.actorType || "admin/web",
+              },
+            },
+          ]);
         }
       } catch {
         // Handled silently to prevent blocking rejection completion

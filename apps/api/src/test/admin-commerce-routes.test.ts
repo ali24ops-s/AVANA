@@ -8,6 +8,7 @@ import {
 } from "../modules/identity/test/in-memory-stores.js";
 import { InMemoryOrganizationStore } from "../modules/organizations/test/in-memory-stores.js";
 import { InMemoryAdminStore } from "../modules/admin/index.js";
+import { InMemoryWalletStore } from "../modules/wallet/index.js";
 import { v1Routes } from "../routes/v1.js";
 import { Roles, type Role, type UserId, type OrganizationId } from "@avana/domain";
 import { randomUUID } from "node:crypto";
@@ -52,6 +53,9 @@ describe("Admin Commerce & Monetization Routes", () => {
     const support = await createUserWithRole("support@test.com", Roles.support_agent);
     const platformAdmin = await createUserWithRole("platformadmin@test.com", Roles.platform_admin);
 
+    const walletStore = new InMemoryWalletStore();
+    adminStore.setWalletStore(walletStore);
+
     const app = createApp({ config });
     await app.register(v1Routes, {
       config,
@@ -59,11 +63,13 @@ describe("Admin Commerce & Monetization Routes", () => {
       userStore,
       adminStore,
       organizationStore: orgStore,
+      walletStore,
     });
 
     return {
       app,
       adminStore,
+      walletStore,
       student,
       teacher,
       editor,
@@ -340,5 +346,267 @@ describe("Admin Commerce & Monetization Routes", () => {
     const afterBody = JSON.parse(afterProfRes.body);
     expect(afterBody.activeSubscription).toBeNull();
     expect(afterBody.subscriptionHistory[0].status).toBe("cancelled");
+  });
+
+  test("8. Platform Admin can successfully grant wallet credit with valid amount and metadata", async () => {
+    const { app, platformAdmin, student, walletStore } = await setupTestApp();
+
+    const grantRes = await app.inject({
+      method: "POST",
+      url: "/v1/admin/commerce/grants",
+      cookies: { avana_session: platformAdmin.sessionToken },
+      payload: {
+        userId: student.user.id,
+        resourceType: "wallet",
+        amount: 50000,
+        reason: "پاداش فعالیت آموزشی",
+      },
+    });
+
+    expect(grantRes.statusCode).toBe(201);
+    const body = JSON.parse(grantRes.body);
+    expect(body.success).toBe(true);
+    expect(body.entitlement.resourceType).toBe("wallet");
+    expect(body.entitlement.amount).toBe(50000);
+    expect(body.entitlement.balance).toBe(50000);
+    expect(body.entitlement.currency).toBe("toman");
+
+    // Check wallet store directly
+    const wallet = await walletStore.findWalletByUserId(student.user.id);
+    expect(wallet?.balance).toBe(50000);
+
+    // Check transaction ledger
+    const { transactions } = await walletStore.listTransactionsByUserId(student.user.id);
+    expect(transactions.length).toBe(1);
+    expect(transactions[0].type).toBe("admin_adjustment");
+    expect(transactions[0].source).toBe("admin_adjustment");
+    expect(transactions[0].referenceType).toBe("admin_grant");
+    expect(transactions[0].amount).toBe(50000);
+    expect(transactions[0].balanceBefore).toBe(0);
+    expect(transactions[0].balanceAfter).toBe(50000);
+    expect(transactions[0].metadata.adminId).toBe(platformAdmin.user.id);
+    expect(transactions[0].metadata.reason).toBe("پاداش فعالیت آموزشی");
+  });
+
+  test("9. Input validation rejects invalid amounts (0, negative, floats, < 1000, > 100,000,000)", async () => {
+    const { app, platformAdmin, student } = await setupTestApp();
+
+    const invalidAmounts = [0, -10000, 500.5, 999, 100000001, "invalid", null, undefined];
+
+    for (const invalidAmount of invalidAmounts) {
+      const res = await app.inject({
+        method: "POST",
+        url: "/v1/admin/commerce/grants",
+        cookies: { avana_session: platformAdmin.sessionToken },
+        payload: {
+          userId: student.user.id,
+          resourceType: "wallet",
+          amount: invalidAmount,
+        },
+      });
+
+      expect(res.statusCode).toBe(400);
+      const body = JSON.parse(res.body);
+      expect(body.code).toBe("invalid_input");
+    }
+  });
+
+  test("10. RBAC: Non-admin users cannot grant wallet credit (returns 403)", async () => {
+    const { app, student, teacher, editor, orgAdmin, support } = await setupTestApp();
+
+    const nonAdmins = [student, teacher, editor, orgAdmin, support];
+
+    for (const actor of nonAdmins) {
+      const res = await app.inject({
+        method: "POST",
+        url: "/v1/admin/commerce/grants",
+        cookies: { avana_session: actor.sessionToken },
+        payload: {
+          userId: student.user.id,
+          resourceType: "wallet",
+          amount: 25000,
+        },
+      });
+
+      expect(res.statusCode).toBe(403);
+    }
+  });
+
+  test("11. Non-existent user returns 404 Not Found", async () => {
+    const { app, platformAdmin } = await setupTestApp();
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/admin/commerce/grants",
+      cookies: { avana_session: platformAdmin.sessionToken },
+      payload: {
+        userId: "00000000-0000-0000-0000-000000000000",
+        resourceType: "wallet",
+        amount: 20000,
+      },
+    });
+
+    expect(res.statusCode).toBe(404);
+    const body = JSON.parse(res.body);
+    expect(body.code).toBe("not_found");
+  });
+
+  test("12. Idempotency: duplicate request with same key returns original result and does not double credit", async () => {
+    const { app, platformAdmin, student, walletStore } = await setupTestApp();
+    const idemKey = "idem-test-key-12345";
+
+    // First request
+    const firstRes = await app.inject({
+      method: "POST",
+      url: "/v1/admin/commerce/grants",
+      cookies: { avana_session: platformAdmin.sessionToken },
+      payload: {
+        userId: student.user.id,
+        resourceType: "wallet",
+        amount: 40000,
+        idempotencyKey: idemKey,
+      },
+    });
+
+    expect(firstRes.statusCode).toBe(201);
+    const firstBody = JSON.parse(firstRes.body);
+    expect(firstBody.entitlement.balance).toBe(40000);
+    expect(firstBody.entitlement.isDuplicate).toBe(false);
+
+    // Duplicate request with identical key
+    const secondRes = await app.inject({
+      method: "POST",
+      url: "/v1/admin/commerce/grants",
+      cookies: { avana_session: platformAdmin.sessionToken },
+      payload: {
+        userId: student.user.id,
+        resourceType: "wallet",
+        amount: 40000,
+        idempotencyKey: idemKey,
+      },
+    });
+
+    expect(secondRes.statusCode).toBe(201);
+    const secondBody = JSON.parse(secondRes.body);
+    expect(secondBody.entitlement.balance).toBe(40000);
+    expect(secondBody.entitlement.isDuplicate).toBe(true);
+    expect(secondBody.entitlement.id).toBe(firstBody.entitlement.id);
+
+    // Verify wallet was NOT credited twice
+    const wallet = await walletStore.findWalletByUserId(student.user.id);
+    expect(wallet?.balance).toBe(40000);
+
+    const { transactions } = await walletStore.listTransactionsByUserId(student.user.id);
+    expect(transactions.length).toBe(1);
+  });
+
+  test("13. Idempotency conflict: reusing key with different amount or user returns 409 conflict", async () => {
+    const { app, platformAdmin, student, teacher } = await setupTestApp();
+    const sharedKey = "shared-idem-key-conflict";
+
+    await app.inject({
+      method: "POST",
+      url: "/v1/admin/commerce/grants",
+      cookies: { avana_session: platformAdmin.sessionToken },
+      payload: {
+        userId: student.user.id,
+        resourceType: "wallet",
+        amount: 30000,
+        idempotencyKey: sharedKey,
+      },
+    });
+
+    // Reusing key with different amount
+    const conflictRes1 = await app.inject({
+      method: "POST",
+      url: "/v1/admin/commerce/grants",
+      cookies: { avana_session: platformAdmin.sessionToken },
+      payload: {
+        userId: student.user.id,
+        resourceType: "wallet",
+        amount: 60000,
+        idempotencyKey: sharedKey,
+      },
+    });
+    expect(conflictRes1.statusCode).toBe(409);
+
+    // Reusing key with different user
+    const conflictRes2 = await app.inject({
+      method: "POST",
+      url: "/v1/admin/commerce/grants",
+      cookies: { avana_session: platformAdmin.sessionToken },
+      payload: {
+        userId: teacher.user.id,
+        resourceType: "wallet",
+        amount: 30000,
+        idempotencyKey: sharedKey,
+      },
+    });
+    expect(conflictRes2.statusCode).toBe(409);
+  });
+
+  test("14. Wallet grant does not alter subscriptions, courses or create fake payment records", async () => {
+    const { app, platformAdmin, student } = await setupTestApp();
+
+    await app.inject({
+      method: "POST",
+      url: "/v1/admin/commerce/grants",
+      cookies: { avana_session: platformAdmin.sessionToken },
+      payload: {
+        userId: student.user.id,
+        resourceType: "wallet",
+        amount: 70000,
+      },
+    });
+
+    const profRes = await app.inject({
+      method: "GET",
+      url: `/v1/admin/users/${student.user.id}/commerce`,
+      cookies: { avana_session: platformAdmin.sessionToken },
+    });
+
+    const profile = JSON.parse(profRes.body);
+    expect(profile.wallet.balance).toBe(70000);
+    expect(profile.wallet.currency).toBe("toman");
+    expect(profile.activeSubscription).toBeNull();
+    expect(profile.subscriptionHistory.length).toBe(0);
+    expect(profile.lifetimePurchases.length).toBe(0);
+    expect(profile.entitlements.length).toBe(0);
+    expect(profile.orders.length).toBe(0);
+    expect(profile.payments.length).toBe(0);
+  });
+
+  test("15. Admin can query user wallet directly via /v1/admin/users/:id/wallet", async () => {
+    const { app, platformAdmin, student } = await setupTestApp();
+
+    // Initial balance
+    const initRes = await app.inject({
+      method: "GET",
+      url: `/v1/admin/users/${student.user.id}/wallet`,
+      cookies: { avana_session: platformAdmin.sessionToken },
+    });
+    expect(initRes.statusCode).toBe(200);
+    expect(JSON.parse(initRes.body).balance).toBe(0);
+
+    // Credit wallet
+    await app.inject({
+      method: "POST",
+      url: "/v1/admin/commerce/grants",
+      cookies: { avana_session: platformAdmin.sessionToken },
+      payload: {
+        userId: student.user.id,
+        resourceType: "wallet",
+        amount: 15000,
+      },
+    });
+
+    // Updated balance
+    const afterRes = await app.inject({
+      method: "GET",
+      url: `/v1/admin/users/${student.user.id}/wallet`,
+      cookies: { avana_session: platformAdmin.sessionToken },
+    });
+    expect(afterRes.statusCode).toBe(200);
+    expect(JSON.parse(afterRes.body).balance).toBe(15000);
   });
 });

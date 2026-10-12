@@ -43,6 +43,18 @@ import { getPromptRegistry } from "../generation/prompt-registry.js";
 import type { OfficialContentService } from "./official-content-service.js";
 import type { ContentPackStore } from "../library/library-store.js";
 import type { CommerceStore } from "../commerce/commerce-store.js";
+import type {
+  QuestionPatternStore,
+} from "../generation/question-patterns-store.js";
+import {
+  DrizzleQuestionPatternStore,
+  InMemoryQuestionPatternStore,
+} from "../generation/question-patterns-store.js";
+import { PatternExtractionService } from "../generation/pattern-extraction-service.js";
+import {
+  parseQuestionPatternId,
+  parseQuestionPatternExampleId,
+} from "@avana/domain";
 import type { PromotionService } from "../commerce/promotion-service.js";
 import type { AuditService } from "../../observability/audit-service.js";
 import type { DeviceService } from "../identity/device-service.js";
@@ -117,18 +129,24 @@ export interface AdminRouteOptions extends AuthMiddlewareDeps {
   walletService?: WalletService;
   promotionService?: PromotionService;
   referralService?: import("../referral/referral-service.js").ReferralService;
+  questionPatternStore?: QuestionPatternStore;
+  quizQuestionStore?: import("../study/index.js").QuizQuestionStore;
+  gateway?: import("../generation/gateway/index.js").ModelGateway;
+  adminGateway?: import("../generation/gateway/index.js").ModelGateway;
+  ga4Service?: import("../observability/ga4-measurement-protocol.js").Ga4MeasurementProtocolService;
 }
 
 export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
   app,
   opts,
 ) => {
-  const { sessionService, userStore, adminStore, walletService, commerceStore, notificationService, promotionService, referralService, studyService } = opts;
+  const { sessionService, userStore, adminStore, walletService, commerceStore, notificationService, promotionService, referralService, studyService, ga4Service } = opts;
   if (commerceStore && typeof (adminStore as any).setCommerceStore === "function") {
     (adminStore as any).setCommerceStore(commerceStore);
   }
-  const adminService = new AdminService(adminStore, walletService, commerceStore, notificationService, promotionService, referralService, studyService);
+  const adminService = new AdminService(adminStore, walletService, commerceStore, notificationService, promotionService, referralService, studyService, ga4Service, opts.auditService);
   const { requireAuth, requireRole } = makeAuthMiddleware({ sessionService, userStore });
+
 
   const contentRepairService =
     opts.contentRepairService ??
@@ -152,6 +170,12 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
       ? new DrizzleContentReportStore((opts.adminStore as any).db)
       : new InMemoryContentReportStore());
 
+  const questionPatternStore: QuestionPatternStore =
+    opts.questionPatternStore ??
+    ((opts.adminStore as any)?.db
+      ? new DrizzleQuestionPatternStore((opts.adminStore as any).db)
+      : new InMemoryQuestionPatternStore());
+
   // All routes here require platform_admin, EXCEPT content management, studio, export/import, generation, and content-reports routes for content workers
   app.addHook("preHandler", requireAuth);
   app.addHook("preHandler", async (request, reply) => {
@@ -167,7 +191,8 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
       rawPath.endsWith("/prompts") ||
       rawPath.includes("/content/") ||
       rawPath.includes("/content-reports") ||
-      rawPath.includes("/content-repair");
+      rawPath.includes("/content-repair") ||
+      (rawPath.includes("/question-patterns") && (request.method === "GET" || rawPath.endsWith("/extract")));
 
     if (isWorkerAllowed) {
       const user = (request as unknown as { user?: { userId: string; email: string; role: string; globalRole?: string | null } }).user;
@@ -271,13 +296,41 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
 
   app.get("/courses", async (request, reply) => {
     try {
-      const query = request.query as { page?: string; pageSize?: string; search?: string };
+      const query = request.query as {
+        page?: string;
+        pageSize?: string;
+        search?: string;
+        scope?: "official" | "teacher" | "user" | "all";
+      };
       const page = parseInt(query.page || "1", 10);
       const pageSize = parseInt(query.pageSize || "20", 10);
-      const data = await opts.adminStore.listCourses({ page, pageSize, search: query.search });
+      const data = await opts.adminStore.listCourses({
+        page,
+        pageSize,
+        search: query.search,
+        scope: query.scope,
+      });
       return reply.send(data);
     } catch (error) {
       request.log.error({ err: error }, "Failed to list courses");
+      return reply.status(500).send({ code: "internal_error" });
+    }
+  });
+
+  app.get("/courses/:id", async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+      const course = await opts.adminStore.getCourseById(id);
+      if (!course) {
+        return reply.status(404).send({
+          code: "not_found",
+          error: "not_found",
+          message: "دوره مورد نظر یافت نشد یا ممکن است حذف شده باشد.",
+        });
+      }
+      return reply.send({ course });
+    } catch (error) {
+      request.log.error({ err: error }, "Failed to get course details");
       return reply.status(500).send({ code: "internal_error" });
     }
   });
@@ -1196,6 +1249,194 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
   app.get("/prompts", handlePrompts);
   app.get("/generation/prompts", handlePrompts);
 
+  // -------------------------------------------------------------------------
+  // Question Patterns Endpoints (Admin Reference Patterns)
+  // -------------------------------------------------------------------------
+
+  // 1. List question patterns (supports ?status=active)
+  app.get<{
+    Querystring: { status?: string };
+  }>("/question-patterns", async (request, reply) => {
+    const activeOnly = request.query?.status === "active";
+    const patterns = await questionPatternStore.listPatterns({ activeOnly });
+    return reply.send({ patterns });
+  });
+
+  // 2. Get single pattern definition with examples
+  app.get<{
+    Params: { id: string };
+  }>("/question-patterns/:id", async (request, reply) => {
+    const patternId = parseQuestionPatternId(request.params.id);
+    const pattern = await questionPatternStore.findById(patternId);
+    if (!pattern) {
+      throw new DomainError("not_found", "الگوی سؤال یافت نشد.");
+    }
+    return reply.send({ pattern });
+  });
+
+  // 3. Create question pattern
+  app.post<{
+    Body: {
+      title: string;
+      description?: string | null;
+      cognitiveLevel?: string;
+      skills?: string[];
+      systemInstructions: string;
+      isActive?: boolean;
+    };
+  }>("/question-patterns", async (request, reply) => {
+    const body = request.body || {};
+    if (!body.title || !body.title.trim()) {
+      return reply.status(400).send({ code: "bad_request", message: "عنوان الگو الزامی است." });
+    }
+    if (!body.systemInstructions || !body.systemInstructions.trim()) {
+      return reply.status(400).send({ code: "bad_request", message: "دستورالعمل ساختاری الگو الزامی است." });
+    }
+
+    const pattern = await questionPatternStore.create({
+      title: body.title.trim(),
+      description: body.description?.trim() || null,
+      cognitiveLevel: body.cognitiveLevel?.trim() || "recall",
+      skills: Array.isArray(body.skills) ? body.skills : undefined,
+      systemInstructions: body.systemInstructions.trim(),
+      isActive: body.isActive ?? true,
+    });
+    return reply.status(201).send({ success: true, pattern });
+  });
+
+  // 4. Update question pattern (bumps version if instructions, cognitiveLevel, or skills change)
+  app.patch<{
+    Params: { id: string };
+    Body: {
+      title?: string;
+      description?: string | null;
+      cognitiveLevel?: string;
+      skills?: string[];
+      systemInstructions?: string;
+      isActive?: boolean;
+    };
+  }>("/question-patterns/:id", async (request, reply) => {
+    const patternId = parseQuestionPatternId(request.params.id);
+    const pattern = await questionPatternStore.update(patternId, request.body || {});
+    return reply.send({ success: true, pattern });
+  });
+
+  // 5. AI Extract pattern from sample questions
+  app.post<{
+    Body: {
+      samples: Array<string | import("@avana/domain").SampleQuestionInput>;
+    };
+  }>("/question-patterns/extract", async (request, reply) => {
+    const body = request.body || {};
+    if (!Array.isArray(body.samples) || body.samples.length === 0) {
+      return reply.status(400).send({
+        code: "bad_request",
+        message: "ارسال حداقل یک سؤال نمونه برای استخراج الگو الزامی است.",
+      });
+    }
+
+    const extractionGateway = opts.adminGateway || opts.gateway;
+    if (!extractionGateway) {
+      throw new DomainError(
+        "service_unavailable",
+        "سرویس هوش مصنوعی جهت تحلیل الگوی سؤال پیکربندی نشده است.",
+      );
+    }
+
+    const extractionService = new PatternExtractionService({
+      gateway: extractionGateway,
+    });
+
+    const result = await extractionService.extractPattern({
+      samples: body.samples,
+      organizationId: (request as unknown as { user?: { organizationId?: string } }).user?.organizationId,
+    });
+
+    return reply.send({ success: true, ...result });
+  });
+
+  // 5. Soft delete question pattern
+  app.delete<{
+    Params: { id: string };
+  }>("/question-patterns/:id", async (request, reply) => {
+    const patternId = parseQuestionPatternId(request.params.id);
+    const deleted = await questionPatternStore.softDelete(patternId);
+    if (!deleted) {
+      throw new DomainError("not_found", "الگوی سؤال یافت نشد یا از قبل حذف شده است.");
+    }
+    return reply.send({ success: true });
+  });
+
+  // 6. Add example to pattern (bumps pattern version)
+  app.post<{
+    Params: { id: string };
+    Body: {
+      sourceQuizQuestionId?: string | null;
+      question?: string;
+      choices?: string[];
+      correctAnswer?: unknown;
+      explanation?: string | null;
+      clinicalContext?: string | null;
+      sortOrder?: number;
+    };
+  }>("/question-patterns/:id/examples", async (request, reply) => {
+    const patternId = parseQuestionPatternId(request.params.id);
+    const body = request.body || {};
+
+    let question = body.question;
+    let choices = body.choices;
+    let correctAnswer = body.correctAnswer;
+    let explanation = body.explanation;
+    let clinicalContext = body.clinicalContext;
+
+    // If sourceQuizQuestionId provided, snapshot fields from existing quiz question
+    if (body.sourceQuizQuestionId && opts.quizQuestionStore) {
+      const liveQuestions = await opts.quizQuestionStore.listByIds([body.sourceQuizQuestionId as any]);
+      const liveQuestion = liveQuestions[0];
+      if (liveQuestion) {
+        question = question || liveQuestion.question;
+        choices = choices || ((liveQuestion.choices as string[]) ?? []);
+        correctAnswer = correctAnswer !== undefined ? correctAnswer : liveQuestion.correctAnswer;
+        explanation = explanation || liveQuestion.explanation;
+      }
+    }
+
+    if (!question || !question.trim()) {
+      return reply.status(400).send({ code: "bad_request", message: "متن سؤال نمونه الزامی است." });
+    }
+    if (!Array.isArray(choices) || choices.length === 0) {
+      return reply.status(400).send({ code: "bad_request", message: "گزینه‌های سؤال الزامی هستند." });
+    }
+    if (correctAnswer === undefined || correctAnswer === null) {
+      return reply.status(400).send({ code: "bad_request", message: "پاسخ صحیح الزامی است." });
+    }
+
+    const example = await questionPatternStore.addExample(patternId, {
+      sourceQuizQuestionId: body.sourceQuizQuestionId,
+      question: question.trim(),
+      choices: choices.map((c) => String(c).trim()),
+      correctAnswer,
+      explanation: explanation?.trim() || null,
+      clinicalContext: clinicalContext?.trim() || null,
+      sortOrder: body.sortOrder ?? 0,
+    });
+
+    return reply.status(201).send({ success: true, example });
+  });
+
+  // 7. Delete example from pattern (bumps pattern version)
+  app.delete<{
+    Params: { id: string; exampleId: string };
+  }>("/question-patterns/:id/examples/:exampleId", async (request, reply) => {
+    const patternId = parseQuestionPatternId(request.params.id);
+    const exampleId = parseQuestionPatternExampleId(request.params.exampleId);
+    const deleted = await questionPatternStore.deleteExample(patternId, exampleId);
+    if (!deleted) {
+      throw new DomainError("not_found", "نمونه سؤال یافت نشد.");
+    }
+    return reply.send({ success: true });
+  });
+
   app.get("/settings/features", async (_request, reply) => {
     const features = [
       { id: "f1", name: "AI Generation", status: "enabled", environment: "all" },
@@ -1896,9 +2137,12 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
   app.post<{
     Body: {
       userId: string;
-      resourceType: "subscription" | "course" | "content_pack" | "content";
+      resourceType: "subscription" | "course" | "content_pack" | "content" | "wallet";
       resourceId?: string | null;
       durationDays?: number;
+      amount?: number;
+      reason?: string;
+      idempotencyKey?: string;
     };
   }>("/commerce/grants", async (request, reply) => {
     const user = (request as unknown as { user: { userId: string; email: string; role: string } }).user;
@@ -1907,8 +2151,23 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
     if (!body.userId) {
       return reply.status(400).send({ code: "invalid_input", message: "شناسه کاربر الزامی است." });
     }
-    if (!["subscription", "course", "content_pack"].includes(body.resourceType)) {
+    if (!["subscription", "course", "content_pack", "wallet"].includes(body.resourceType)) {
       return reply.status(400).send({ code: "invalid_input", message: "نوع منبع معتبر نیست." });
+    }
+    if (body.resourceType === "wallet") {
+      if (
+        body.amount === undefined ||
+        typeof body.amount !== "number" ||
+        isNaN(body.amount) ||
+        !Number.isInteger(body.amount) ||
+        body.amount < 1000 ||
+        body.amount > 100000000
+      ) {
+        return reply.status(400).send({
+          code: "invalid_input",
+          message: "مبلغ شارژ باید یک عدد صحیح مثبت بین ۱,۰۰۰ تا ۱۰۰,۰۰۰,۰۰۰ تومان باشد.",
+        });
+      }
     }
     if ((body.resourceType === "course" || body.resourceType === "content_pack") && !body.resourceId) {
       return reply.status(400).send({
@@ -1921,11 +2180,22 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
       const entitlement = await adminService.grantCommerceEntitlement(user.userId, body);
       return reply.status(201).send({ success: true, entitlement });
     } catch (error: unknown) {
-      const err = error as { message?: string };
+      const err = error as { message?: string; code?: string };
       request.log.error({ err: error }, "Failed to grant commerce entitlement");
 
       if (err.message === "user_not_found") {
         return reply.status(404).send({ code: "not_found", message: "کاربر مورد نظر یافت نشد." });
+      }
+      if (err instanceof DomainError) {
+        if (err.code === "not_found") {
+          return reply.status(404).send({ code: "not_found", message: err.message });
+        }
+        if (err.code === "bad_request") {
+          return reply.status(400).send({ code: "invalid_input", message: err.message });
+        }
+        if (err.code === "conflict") {
+          return reply.status(409).send({ code: "conflict", message: err.message });
+        }
       }
       if (err.message === "course_not_found") {
         return reply.status(404).send({ code: "not_found", message: "دوره آموزشی مورد نظر یافت نشد." });
@@ -1950,6 +2220,23 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
         return reply.status(404).send({ code: "not_found", message: "کاربر یافت نشد." });
       }
       return reply.status(500).send({ code: "internal_error" });
+    }
+  });
+
+  app.get<{ Params: { id: string } }>("/users/:id/wallet", async (request, reply) => {
+    const user = (request as unknown as { user: { userId: string } }).user;
+    const { id } = request.params;
+    try {
+      const wallet = await adminService.getUserWallet(user.userId, id);
+      return reply.send(wallet);
+    } catch (error: unknown) {
+      const err = error as { message?: string };
+      request.log.error({ err: error }, "Failed to get user wallet");
+
+      if (err.message === "user_not_found" || (err instanceof DomainError && err.code === "not_found")) {
+        return reply.status(404).send({ code: "not_found", message: "کاربر یافت نشد." });
+      }
+      return reply.status(500).send({ code: "internal_error", message: err.message || "خطای سرور" });
     }
   });
 
@@ -2202,7 +2489,16 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
     // 3. Trigger Official Content Generation (reuses canonical GenerationService)
     app.post<{
       Params: { id: string };
-      Body: { documentId: string; lesson?: boolean; flashcards?: boolean; exam?: boolean; review_summary?: boolean; force?: boolean };
+      Body: {
+        documentId: string;
+        lesson?: boolean;
+        flashcards?: boolean;
+        exam?: boolean;
+        review_summary?: boolean;
+        force?: boolean;
+        questionPatternId?: string | null;
+        questionPatternVersion?: number | null;
+      };
     }>("/content-studio/courses/:id/generate", async (request, reply) => {
       const user = (request as unknown as { user: { userId: string; role: Role } }).user;
       const { id } = request.params;

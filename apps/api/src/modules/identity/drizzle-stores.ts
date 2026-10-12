@@ -253,6 +253,29 @@ export class DrizzleSessionStore implements SessionStore {
       .where(eq(sessions.id, id));
   }
 
+  async extendSession(
+    id: string,
+    newExpiresAt: string,
+    lastUsedAt: string,
+  ): Promise<boolean> {
+    const res = await this.db
+      .update(sessions)
+      .set({
+        expiresAt: new Date(newExpiresAt),
+        lastUsedAt: new Date(lastUsedAt),
+      })
+      .where(
+        and(
+          eq(sessions.id, id),
+          sql`${sessions.revokedAt} IS NULL`,
+          gt(sessions.expiresAt, new Date(lastUsedAt)),
+        ),
+      )
+      .returning({ id: sessions.id });
+
+    return res.length > 0;
+  }
+
   async revoke(id: string, revokedAt: string, reason?: string): Promise<void> {
     await this.db
       .update(sessions)

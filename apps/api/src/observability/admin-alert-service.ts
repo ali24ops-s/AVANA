@@ -9,7 +9,7 @@
  * - Fire-and-forget delivery: errors never bubble up to callers.
  */
 
-import { TelegramClient } from "./telegram-client.js";
+import { TelegramClient, type TelegramInlineKeyboardMarkup } from "./telegram-client.js";
 
 export type AlertSeverity = "critical" | "warning" | "info";
 
@@ -20,6 +20,8 @@ export interface AlertPayload {
   details?: Record<string, string | number | boolean | null | undefined>;
   error?: unknown;
   timestamp?: string;
+  replyMarkup?: TelegramInlineKeyboardMarkup;
+  customText?: string;
 }
 
 export interface AdminAlertServiceOptions {
@@ -129,6 +131,358 @@ export class AdminAlertService {
   }
 
   /**
+   * Send notification for a new user registration (no sensitive data or unnecessary PII).
+   */
+  async notifyUserRegistered(details: {
+    userId: string;
+    name?: string;
+    createdAt?: string;
+  }): Promise<boolean> {
+    const time = details.createdAt ?? new Date().toISOString();
+    const lines = [
+      "👤 ثبت‌نام کاربر جدید",
+      "",
+      `نام: ${details.name || "نامشخص"}`,
+      `زمان: ${time}`,
+      `شناسه: ${details.userId}`,
+    ];
+    return this.sendAlert(
+      {
+        category: "user.registered",
+        title: "ثبت‌نام کاربر جدید",
+        severity: "info",
+        customText: lines.join("\n"),
+        timestamp: time,
+      },
+      `user.registered:${details.userId}`,
+    );
+  }
+
+  /**
+   * Send notification for a new teacher registration / application request.
+   */
+  async notifyTeacherRequested(details: {
+    teacherId: string;
+    name?: string;
+    university?: string;
+    createdAt?: string;
+  }): Promise<boolean> {
+    const time = details.createdAt ?? new Date().toISOString();
+    const lines = [
+      "👨‍🏫 درخواست ثبت‌نام استاد",
+      "",
+      `نام: ${details.name || "نامشخص"}`,
+      `دانشگاه: ${details.university || "نامشخص"}`,
+      `زمان: ${time}`,
+      `شناسه درخواست: ${details.teacherId}`,
+    ];
+    return this.sendAlert(
+      {
+        category: "teacher.requested",
+        title: "درخواست ثبت‌نام استاد",
+        severity: "info",
+        customText: lines.join("\n"),
+        timestamp: time,
+      },
+      `teacher.requested:${details.teacherId}`,
+    );
+  }
+
+  /**
+   * Send notification for a new payment with inline buttons for reviewable payments.
+   */
+  async notifyPaymentReceived(details: {
+    paymentId: string;
+    amount: number;
+    productTitle?: string;
+    productType?: string;
+    status: string;
+    gateway?: string;
+    isC2C?: boolean;
+    createdAt?: string;
+    trackingNumber?: string;
+    sourceCardLast4?: string;
+    payerName?: string;
+    paidAt?: string;
+    orderId?: string;
+    userId?: string;
+    userName?: string;
+  }): Promise<boolean> {
+    const time = details.createdAt ?? new Date().toISOString();
+    const formattedAmount = `${Number(details.amount).toLocaleString("fa-IR")} تومان`;
+
+    let typeLabel: string;
+    if (details.productType === "wallet_topup" || details.productTitle === "شارژ کیف پول") {
+      typeLabel = "شارژ کیف پول";
+    } else if (details.productType === "course") {
+      typeLabel = details.productTitle ? details.productTitle : "دوره آموزشی";
+    } else if (details.productType === "subscription") {
+      typeLabel = details.productTitle || "اشتراک آوانا";
+    } else {
+      typeLabel = details.productTitle || details.productType || "اشتراک آوانا";
+    }
+
+    const statusLabel = details.status;
+
+    const resolveGatewayLabel = (gw?: string, isC2C?: boolean): string => {
+      if (isC2C) return "کارت‌به‌کارت";
+      if (!gw) return "درگاه اینترنتی";
+      if (gw === "wallet") return "کیف پول";
+      if (gw === "zarinpal") return "درگاه اینترنتی (زرین‌پال)";
+      if (gw === "mock") return "درگاه آزمایشی (Mock)";
+      return `درگاه اینترنتی (${gw})`;
+    };
+
+    const lines: string[] = [];
+
+    if (details.isC2C) {
+      if (details.productType === "wallet_topup" || details.productTitle === "شارژ کیف پول") {
+        lines.push("💳 درخواست شارژ کیف پول (پرداخت کارت‌به‌کارت جدید)", "");
+      } else if (details.productType === "course") {
+        lines.push("💳 سفارش دوره آموزشی (پرداخت کارت‌به‌کارت جدید)", "");
+      } else if (details.productType === "subscription") {
+        lines.push("💳 سفارش اشتراک (پرداخت کارت‌به‌کارت جدید)", "");
+      } else {
+        lines.push("💳 پرداخت کارت‌به‌کارت جدید", "");
+      }
+
+      lines.push(`مبلغ: ${formattedAmount}`);
+      lines.push(`نوع: ${typeLabel}`);
+      lines.push(`روش پرداخت: ${resolveGatewayLabel(details.gateway, true)}`);
+      if (details.orderId) {
+        lines.push(`شناسه سفارش: ${details.orderId}`);
+      }
+      if (details.userId) {
+        lines.push(`شناسه کاربر: ${details.userId}`);
+      }
+
+      const c2cLines: string[] = [];
+      if (details.trackingNumber?.trim()) {
+        c2cLines.push(`• شماره پیگیری: ${details.trackingNumber.trim()}`);
+      }
+      if (details.sourceCardLast4?.trim()) {
+        const last4 = details.sourceCardLast4.trim().slice(-4);
+        c2cLines.push(`• کارت مبدأ: **** **** **** ${last4}`);
+      }
+      if (details.payerName?.trim()) {
+        c2cLines.push(`• واریزکننده: ${details.payerName.trim()}`);
+      }
+      if (details.paidAt?.trim()) {
+        c2cLines.push(`• تاریخ واریز: ${details.paidAt.trim()}`);
+      }
+
+      if (c2cLines.length > 0) {
+        lines.push("", "اطلاعات واریز:", ...c2cLines);
+      }
+
+      lines.push("", `وضعیت: ${statusLabel}`);
+      lines.push(`زمان: ${time}`);
+      lines.push(`شناسه: ${details.paymentId}`);
+    } else {
+      if (details.productType === "wallet_topup" || details.productTitle === "شارژ کیف پول") {
+        lines.push("💳 شارژ کیف پول (پرداخت جدید)", "");
+      } else if (details.productType === "course") {
+        lines.push("💳 خرید دوره آموزشی (پرداخت جدید)", "");
+      } else if (details.productType === "subscription") {
+        lines.push("💳 خرید اشتراک (پرداخت جدید)", "");
+      } else {
+        lines.push("💳 پرداخت جدید", "");
+      }
+
+      lines.push(`مبلغ: ${formattedAmount}`);
+      lines.push(`نوع: ${typeLabel}`);
+      lines.push(`روش پرداخت: ${resolveGatewayLabel(details.gateway, false)}`);
+      if (details.orderId) {
+        lines.push(`شناسه سفارش: ${details.orderId}`);
+      }
+      if (details.userId) {
+        lines.push(`شناسه کاربر: ${details.userId}`);
+      }
+      lines.push(`وضعیت: ${statusLabel}`);
+      lines.push(`زمان: ${time}`);
+      lines.push(`شناسه: ${details.paymentId}`);
+    }
+
+    const replyMarkup: TelegramInlineKeyboardMarkup | undefined = details.isC2C
+      ? {
+          inline_keyboard: [
+            [
+              { text: "✅ تأیید پرداخت", callback_data: `pay:app:${details.paymentId}` },
+              { text: "❌ رد پرداخت", callback_data: `pay:rej:${details.paymentId}` },
+            ],
+          ],
+        }
+      : undefined;
+
+    return this.sendAlert(
+      {
+        category: "payment.received",
+        title: "پرداخت جدید",
+        severity: "info",
+        customText: lines.join("\n"),
+        replyMarkup,
+        timestamp: time,
+      },
+      `payment:${details.paymentId}`,
+    );
+  }
+
+  /**
+   * Send notification for an approved payment (e.g. approved via Web Admin Panel).
+   */
+  async notifyPaymentApproved(details: {
+    paymentId: string;
+    orderId?: string;
+    amount: number;
+    productTitle?: string;
+    productType?: string;
+    userId?: string;
+    approvedBy?: string;
+    actorType?: string;
+    createdAt?: string;
+  }): Promise<boolean> {
+    const time = details.createdAt ?? new Date().toISOString();
+    const formattedAmount = `${Number(details.amount).toLocaleString("fa-IR")} تومان`;
+    let typeLabel: string;
+    if (details.productType === "wallet_topup" || details.productTitle === "شارژ کیف پول") {
+      typeLabel = "شارژ کیف پول";
+    } else if (details.productType === "course") {
+      typeLabel = details.productTitle ? details.productTitle : "دوره آموزشی";
+    } else if (details.productType === "subscription") {
+      typeLabel = details.productTitle || "اشتراک آوانا";
+    } else {
+      typeLabel = details.productTitle || details.productType || "سفارش آوانا";
+    }
+
+    const lines: string[] = [
+      "✅ پرداخت تأیید شد",
+      "",
+      `مبلغ: ${formattedAmount}`,
+      `نوع: ${typeLabel}`,
+      `شناسه پرداخت: ${details.paymentId}`,
+    ];
+    if (details.orderId) {
+      lines.push(`شناسه سفارش: ${details.orderId}`);
+    }
+    if (details.userId) {
+      lines.push(`شناسه کاربر: ${details.userId}`);
+    }
+    const approver = details.actorType === "admin/telegram" ? "Admin (تلگرام)" : "Admin (پنل مدیریت)";
+    lines.push(`تأیید توسط: ${approver}`);
+    lines.push(`زمان: ${time}`);
+
+    return this.sendAlert(
+      {
+        category: "payment.approved",
+        title: "پرداخت تأیید شد",
+        severity: "info",
+        customText: lines.join("\n"),
+        timestamp: time,
+      },
+      `payment:approved:${details.paymentId}`,
+    );
+  }
+
+  /**
+   * Send notification for a rejected payment (e.g. rejected via Web Admin Panel).
+   */
+  async notifyPaymentRejected(details: {
+    paymentId: string;
+    orderId?: string;
+    amount: number;
+    productTitle?: string;
+    productType?: string;
+    userId?: string;
+    rejectedBy?: string;
+    reason: string;
+    actorType?: string;
+    createdAt?: string;
+  }): Promise<boolean> {
+    const time = details.createdAt ?? new Date().toISOString();
+    const formattedAmount = `${Number(details.amount).toLocaleString("fa-IR")} تومان`;
+    let typeLabel: string;
+    if (details.productType === "wallet_topup" || details.productTitle === "شارژ کیف پول") {
+      typeLabel = "شارژ کیف پول";
+    } else if (details.productType === "course") {
+      typeLabel = details.productTitle ? details.productTitle : "دوره آموزشی";
+    } else if (details.productType === "subscription") {
+      typeLabel = details.productTitle || "اشتراک آوانا";
+    } else {
+      typeLabel = details.productTitle || details.productType || "سفارش آوانا";
+    }
+
+    const lines: string[] = [
+      "❌ پرداخت رد شد",
+      "",
+      `مبلغ: ${formattedAmount}`,
+      `نوع: ${typeLabel}`,
+      `علت رد: ${details.reason}`,
+      `شناسه پرداخت: ${details.paymentId}`,
+    ];
+    if (details.orderId) {
+      lines.push(`شناسه سفارش: ${details.orderId}`);
+    }
+    if (details.userId) {
+      lines.push(`شناسه کاربر: ${details.userId}`);
+    }
+    const rejector = details.actorType === "admin/telegram" ? "Admin (تلگرام)" : "Admin (پنل مدیریت)";
+    lines.push(`رد توسط: ${rejector}`);
+    lines.push(`زمان: ${time}`);
+
+    return this.sendAlert(
+      {
+        category: "payment.rejected",
+        title: "پرداخت رد شد",
+        severity: "info",
+        customText: lines.join("\n"),
+        timestamp: time,
+      },
+      `payment:rejected:${details.paymentId}`,
+    );
+  }
+
+  /**
+   * Send notification for a wallet refund event.
+   */
+  async notifyWalletRefunded(details: {
+    walletId: string;
+    amount: number;
+    source?: string;
+    userId?: string;
+    referenceType?: string;
+    referenceId?: string;
+    createdAt?: string;
+  }): Promise<boolean> {
+    const time = details.createdAt ?? new Date().toISOString();
+    const formattedAmount = `${Number(details.amount).toLocaleString("fa-IR")} تومان`;
+
+    const lines: string[] = [
+      "🔄 بازپرداخت کیف پول",
+      "",
+      `مبلغ: ${formattedAmount}`,
+      `شناسه کیف پول: ${details.walletId}`,
+    ];
+    if (details.source) {
+      lines.push(`منبع بازپرداخت: ${details.source}`);
+    }
+    if (details.referenceId) {
+      lines.push(`شناسه مرجع: ${details.referenceId}`);
+    }
+    lines.push(`زمان: ${time}`);
+
+    return this.sendAlert(
+      {
+        category: "wallet.refunded",
+        title: "بازپرداخت کیف پول",
+        severity: "info",
+        customText: lines.join("\n"),
+        timestamp: time,
+      },
+      `wallet:refund:${details.walletId}:${details.amount}:${time.slice(0, 16)}`,
+    );
+  }
+
+  /**
    * Main alert sender with cooldown checks and safe formatting.
    */
   async sendAlert(
@@ -159,10 +513,10 @@ export class AdminAlertService {
 
     this.cooldownMap.set(key, now);
 
-    const message = this.formatMessage(payload);
+    const message = payload.customText || this.formatMessage(payload);
 
     try {
-      const res = await this.telegramClient.sendMessage(message);
+      const res = await this.telegramClient.sendMessage(message, undefined, payload.replyMarkup);
       if (!res.sent) {
         this.logger(`[admin-alert] Telegram delivery failed: ${res.reason ?? "unknown"}`);
       }

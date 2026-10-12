@@ -84,7 +84,7 @@ export function CourseSettingsPanel({ course, onRefresh }: CourseSettingsPanelPr
       const res = await adminApi.updateCourseMetadata(course.id, {
         name: name.trim(),
         subject: subject.trim() || undefined,
-        targetAcademicFields,
+        ...(targetAcademicFields.length > 0 ? { targetAcademicFields } : {}),
       });
 
       if (res && res.success) {

@@ -96,6 +96,7 @@ export interface GenerationRouteOptions {
   walletService?: WalletService;
   walletStore?: WalletStore;
   entitlementService?: EntitlementService;
+  questionPatternStore?: import("./question-patterns-store.js").QuestionPatternStore;
 }
 
 const UUID_RE =
@@ -180,6 +181,13 @@ export const generationRoutes: FastifyPluginAsync<
         opts.entitlementService,
       )
     : undefined;
+
+  if (opts.questionPatternStore) {
+    service.setQuestionPatternStore(opts.questionPatternStore);
+    if (adminService) {
+      adminService.setQuestionPatternStore(opts.questionPatternStore);
+    }
+  }
 
   /**
    * Helper to extract actor from authenticated request.
@@ -374,6 +382,8 @@ export const generationRoutes: FastifyPluginAsync<
         flashcards?: boolean;
         exam?: boolean;
         prompt_version?: string;
+        question_pattern_id?: string | null;
+        question_pattern_version?: number | null;
       };
 
       let requestedTypes: GeneratedContentType[] = [];
@@ -529,6 +539,29 @@ export const generationRoutes: FastifyPluginAsync<
       // or frontend invalidations instantly see the queued item before worker starts.
       await service.progressService.queue(documentId, organizationId);
 
+      let resolvedPatternId: import("@avana/domain").QuestionPatternId | undefined;
+      let resolvedPatternVersion: number | undefined;
+
+      // Question Patterns are strictly restricted to admin/editor context.
+      // Non-admin / student callers cannot inject or pin question patterns.
+      if (
+        isActorAdmin &&
+        typeof body.question_pattern_id === "string" &&
+        opts.questionPatternStore
+      ) {
+        const patternId = body.question_pattern_id as import("@avana/domain").QuestionPatternId;
+        const pattern = await opts.questionPatternStore.findById(
+          patternId,
+          typeof body.question_pattern_version === "number"
+            ? body.question_pattern_version
+            : undefined,
+        );
+        if (pattern && pattern.isActive && !pattern.deletedAt) {
+          resolvedPatternId = pattern.id;
+          resolvedPatternVersion = pattern.version;
+        }
+      }
+
       // 3. Enqueue generation job with pre-allocated jobId
       let result;
       try {
@@ -543,6 +576,8 @@ export const generationRoutes: FastifyPluginAsync<
           promptVersion: body.prompt_version,
           generationKey,
           generationContext,
+          questionPatternId: resolvedPatternId,
+          questionPatternVersion: resolvedPatternVersion,
         });
       } catch (enqueueErr) {
         // Enqueue compensation: refund debit if public generation was charged

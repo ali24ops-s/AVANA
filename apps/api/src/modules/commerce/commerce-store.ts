@@ -9,7 +9,8 @@
  * - user_entitlements
  */
 
-import { eq, and, desc, isNull, or, gt, lt, ilike, ne, inArray, isNotNull } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
+import { eq, and, desc, isNull, or, gt, lt, ilike, ne, inArray, isNotNull, sql } from "drizzle-orm";
 import type { DbClient } from "@avana/database/client";
 import {
   products,
@@ -70,6 +71,16 @@ export interface CommerceStore {
     id: OrderId,
     status: OrderRecord["status"],
   ): Promise<OrderRecord | null>;
+  claimOrderForAnalyticsPurchase(orderId: OrderId): Promise<OrderRecord | null>;
+  recordOrderAnalyticsPurchaseResult(
+    orderId: OrderId,
+    status: "sent" | "failed" | "skipped_no_client_id" | "skipped_no_consent",
+    claimId?: string,
+    error?: string,
+  ): Promise<void>;
+  revokeOrderAnalyticsConsent(orderId: OrderId): Promise<void>;
+  revokeUserAnalyticsConsent(userId: UserId): Promise<number>;
+
 
   // Payments
   findPaymentById(id: PaymentId): Promise<PaymentRecord | null>;
@@ -332,6 +343,164 @@ export class DrizzleCommerceStore implements CommerceStore {
       .returning();
     return rows[0] ? this.mapOrder(rows[0]) : null;
   }
+
+  async claimOrderForAnalyticsPurchase(orderId: OrderId): Promise<OrderRecord | null> {
+    const nowEpoch = Date.now();
+    const nowIso = new Date(nowEpoch).toISOString();
+    const claimId = randomUUID();
+    const cutoffEpoch = nowEpoch - 15 * 60 * 1000;
+
+    const rows = await this.db
+      .update(orders)
+      .set({
+        metadata: sql`COALESCE(${orders.metadata}, '{}'::jsonb) || jsonb_build_object(
+          'analytics',
+          COALESCE(${orders.metadata}->'analytics', '{}'::jsonb) || jsonb_build_object(
+            'purchase_status', 'processing'::text,
+            'claim_id', ${claimId}::text,
+            'claimed_at', ${nowIso}::text,
+            'claimed_at_epoch', ${nowEpoch}::bigint
+          )
+        )`,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(orders.id, orderId),
+          // Never claim if already sent
+          or(
+            isNull(sql`${orders.metadata}->'analytics'->>'purchase_status'`),
+            sql`${orders.metadata}->'analytics'->>'purchase_status' != 'sent'`,
+          ),
+          // Can claim if not claimed yet, or failed, or processing with expired lease (> 15 mins)
+          or(
+            isNull(sql`${orders.metadata}->'analytics'->>'purchase_status'`),
+            sql`${orders.metadata}->'analytics'->>'purchase_status' = 'failed'`,
+            and(
+              sql`${orders.metadata}->'analytics'->>'purchase_status' = 'processing'`,
+              sql`CASE
+                WHEN ${orders.metadata}->'analytics'->>'claimed_at_epoch' ~ '^[0-9]+$'
+                THEN (${orders.metadata}->'analytics'->>'claimed_at_epoch')::bigint < ${cutoffEpoch}
+                ELSE false
+              END`
+            ),
+          )
+        )
+      )
+      .returning();
+
+    return rows[0] ? this.mapOrder(rows[0]) : null;
+  }
+
+  async recordOrderAnalyticsPurchaseResult(
+    orderId: OrderId,
+    status: "sent" | "failed" | "skipped_no_client_id" | "skipped_no_consent",
+    claimId?: string,
+    error?: string,
+  ): Promise<void> {
+    const nowIso = new Date().toISOString();
+    const sanitizedErr = error ? error.slice(0, 200) : null;
+
+    const conditions = [
+      eq(orders.id, orderId),
+      // Never overwrite if already 'sent'
+      or(
+        isNull(sql`${orders.metadata}->'analytics'->>'purchase_status'`),
+        sql`${orders.metadata}->'analytics'->>'purchase_status' != 'sent'`,
+      ),
+    ];
+
+    // Never overwrite skipped_no_consent unless recording skipped_no_consent
+    if (status !== "skipped_no_consent") {
+      conditions.push(
+        or(
+          isNull(sql`${orders.metadata}->'analytics'->>'purchase_status'`),
+          sql`${orders.metadata}->'analytics'->>'purchase_status' != 'skipped_no_consent'`,
+        ),
+      );
+    }
+
+    if (claimId) {
+      conditions.push(
+        eq(sql`${orders.metadata}->'analytics'->>'claim_id'`, claimId),
+      );
+    }
+
+    const analyticsPatch = sanitizedErr
+      ? sql`jsonb_build_object('purchase_status', ${status}::text, 'purchase_reported_at', ${nowIso}::text, 'last_error', ${sanitizedErr}::text)`
+      : sql`jsonb_build_object('purchase_status', ${status}::text, 'purchase_reported_at', ${nowIso}::text)`;
+
+    await this.db
+      .update(orders)
+      .set({
+        metadata: sql`COALESCE(${orders.metadata}, '{}'::jsonb) || jsonb_build_object(
+          'analytics',
+          COALESCE(${orders.metadata}->'analytics', '{}'::jsonb) || ${analyticsPatch}
+        )`,
+        updatedAt: new Date(),
+      })
+      .where(and(...conditions));
+  }
+
+  async revokeOrderAnalyticsConsent(orderId: OrderId): Promise<void> {
+    const nowIso = new Date().toISOString();
+    await this.db
+      .update(orders)
+      .set({
+        metadata: sql`COALESCE(${orders.metadata}, '{}'::jsonb) || jsonb_build_object(
+          'analytics',
+          COALESCE(${orders.metadata}->'analytics', '{}'::jsonb) || jsonb_build_object(
+            'consent', 'denied'::text,
+            'revoked_at', ${nowIso}::text,
+            'purchase_status', 'skipped_no_consent'::text,
+            'claim_id', null::text
+          )
+        )`,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(orders.id, orderId),
+          // Never overwrite if already sent
+          or(
+            isNull(sql`${orders.metadata}->'analytics'->>'purchase_status'`),
+            sql`${orders.metadata}->'analytics'->>'purchase_status' != 'sent'`,
+          ),
+        ),
+      );
+  }
+
+  async revokeUserAnalyticsConsent(userId: UserId): Promise<number> {
+    const nowIso = new Date().toISOString();
+    const rows = await this.db
+      .update(orders)
+      .set({
+        metadata: sql`COALESCE(${orders.metadata}, '{}'::jsonb) || jsonb_build_object(
+          'analytics',
+          COALESCE(${orders.metadata}->'analytics', '{}'::jsonb) || jsonb_build_object(
+            'consent', 'denied'::text,
+            'revoked_at', ${nowIso}::text,
+            'purchase_status', 'skipped_no_consent'::text,
+            'claim_id', null::text
+          )
+        )`,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(orders.userId, userId),
+          // Only update unsent orders
+          or(
+            isNull(sql`${orders.metadata}->'analytics'->>'purchase_status'`),
+            sql`${orders.metadata}->'analytics'->>'purchase_status' != 'sent'`,
+          ),
+        ),
+      )
+      .returning({ id: orders.id });
+
+    return rows.length;
+  }
+
 
   // --- Payments ---
 
@@ -1296,6 +1465,132 @@ export class InMemoryCommerceStore implements CommerceStore {
     o.updatedAt = new Date().toISOString();
     return { ...o };
   }
+
+  async claimOrderForAnalyticsPurchase(orderId: OrderId): Promise<OrderRecord | null> {
+    const o = this.orders.find((x) => x.id === orderId);
+    if (!o) return null;
+    const metadata = (o.metadata ?? {}) as Record<string, unknown>;
+    const analytics = (metadata.analytics ?? {}) as Record<string, unknown>;
+    if (
+      analytics.purchase_status === "sent" ||
+      analytics.purchase_status === "skipped_no_consent" ||
+      analytics.purchase_status === "skipped_no_client_id"
+    ) {
+      return null;
+    }
+
+    const nowEpoch = Date.now();
+    const leaseDurationMs = 15 * 60 * 1000;
+
+    if (analytics.purchase_status === "processing") {
+      const claimedEpoch = typeof analytics.claimed_at_epoch === "number"
+        ? analytics.claimed_at_epoch
+        : typeof analytics.claimed_at === "string"
+        ? Date.parse(analytics.claimed_at)
+        : NaN;
+      if (!Number.isNaN(claimedEpoch) && nowEpoch - claimedEpoch < leaseDurationMs) {
+        return null;
+      }
+    }
+
+    const claimId = randomUUID();
+    const nowIso = new Date(nowEpoch).toISOString();
+
+    o.metadata = {
+      ...metadata,
+      analytics: {
+        ...analytics,
+        purchase_status: "processing",
+        claim_id: claimId,
+        claimed_at: nowIso,
+        claimed_at_epoch: nowEpoch,
+      },
+    };
+    return { ...o };
+  }
+
+  async recordOrderAnalyticsPurchaseResult(
+    orderId: OrderId,
+    status: "sent" | "failed" | "skipped_no_client_id" | "skipped_no_consent",
+    claimId?: string,
+    error?: string,
+  ): Promise<void> {
+    const o = this.orders.find((x) => x.id === orderId);
+    if (!o) return;
+    const metadata = (o.metadata ?? {}) as Record<string, unknown>;
+    const analytics = (metadata.analytics ?? {}) as Record<string, unknown>;
+
+    // Never overwrite if already sent
+    if (analytics.purchase_status === "sent") {
+      return;
+    }
+
+    // Never overwrite skipped_no_consent unless recording skipped_no_consent
+    if (status !== "skipped_no_consent" && analytics.purchase_status === "skipped_no_consent") {
+      return;
+    }
+
+    // If claimId provided, strictly match claim_id
+    if (claimId && analytics.claim_id !== claimId) {
+      return;
+    }
+
+    o.metadata = {
+      ...metadata,
+      analytics: {
+        ...analytics,
+        purchase_status: status,
+        purchase_reported_at: new Date().toISOString(),
+        ...(error ? { last_error: error.slice(0, 200) } : {}),
+      },
+    };
+  }
+
+  async revokeOrderAnalyticsConsent(orderId: OrderId): Promise<void> {
+    const o = this.orders.find((x) => x.id === orderId);
+    if (!o) return;
+    const metadata = (o.metadata ?? {}) as Record<string, unknown>;
+    const analytics = (metadata.analytics ?? {}) as Record<string, unknown>;
+    if (analytics.purchase_status === "sent") {
+      return;
+    }
+    o.metadata = {
+      ...metadata,
+      analytics: {
+        ...analytics,
+        consent: "denied",
+        revoked_at: new Date().toISOString(),
+        purchase_status: "skipped_no_consent",
+        claim_id: null,
+      },
+    };
+  }
+
+  async revokeUserAnalyticsConsent(userId: UserId): Promise<number> {
+    let count = 0;
+    const nowIso = new Date().toISOString();
+    for (const o of this.orders) {
+      if (o.userId === userId) {
+        const metadata = (o.metadata ?? {}) as Record<string, unknown>;
+        const analytics = (metadata.analytics ?? {}) as Record<string, unknown>;
+        if (analytics.purchase_status !== "sent") {
+          o.metadata = {
+            ...metadata,
+            analytics: {
+              ...analytics,
+              consent: "denied",
+              revoked_at: nowIso,
+              purchase_status: "skipped_no_consent",
+              claim_id: null,
+            },
+          };
+          count++;
+        }
+      }
+    }
+    return count;
+  }
+
 
   // --- Payments ---
 

@@ -836,6 +836,8 @@ export const generationJobs = pgTable(
     leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    questionPatternId: uuid("question_pattern_id"),
+    questionPatternVersion: integer("question_pattern_version"),
   },
   (table) => ({
     orgStatusIdx: index("idx_generation_jobs_org_status").on(
@@ -847,6 +849,9 @@ export const generationJobs = pgTable(
     statusHeartbeatIdx: index("idx_generation_jobs_status_heartbeat").on(
       table.status,
       table.heartbeatAt,
+    ),
+    questionPatternIdx: index("idx_generation_jobs_question_pattern").on(
+      table.questionPatternId,
     ),
   }),
 );
@@ -3081,6 +3086,29 @@ export const teacherExamAttempts = pgTable(
         }>
       >()
       .notNull(),
+    integrityMetadata: jsonb("integrity_metadata").$type<{
+      tabSwitchCount: number;
+      incompleteExitCount: number;
+      totalTimeAwayMs: number;
+      reconnectCount: number;
+      concurrentSessionDetected: boolean;
+      activeSessions?: Array<{
+        clientSessionId: string;
+        firstSeenAt: string;
+        lastSeenAt: string;
+      }>;
+      events: Array<{
+        id: string;
+        type: "tab_hidden" | "tab_visible" | "reconnect";
+        serverReceivedAt: string;
+        clientTimestamp?: string | null;
+        clientSessionId: string;
+        durationAwayMs?: number | null;
+      }>;
+      lastExitTimestamp?: string | null;
+      lastExitSessionId?: string | null;
+      lastEventTimestamp?: string | null;
+    }>(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -3405,3 +3433,68 @@ export type TeacherConversationMessageRecord =
   typeof teacherConversationMessages.$inferSelect;
 export type NewTeacherConversationMessageRecord =
   typeof teacherConversationMessages.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Question Patterns (AI Exam Generation Reference Patterns MVP)
+// ---------------------------------------------------------------------------
+
+export const questionPatterns = pgTable(
+  "question_patterns",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    title: varchar("title", { length: 255 }).notNull(),
+    description: text("description"),
+    cognitiveLevel: varchar("cognitive_level", { length: 50 }).default("recall"),
+    skills: jsonb("skills").$type<string[]>().notNull().default([]),
+    systemInstructions: text("system_instructions").notNull(),
+    isActive: boolean("is_active").notNull().default(true),
+    version: integer("version").notNull().default(1),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (table) => ({
+    activeIdx: index("idx_question_patterns_active").on(table.isActive),
+  }),
+);
+
+export const questionPatternExamples = pgTable(
+  "question_pattern_examples",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    questionPatternId: uuid("question_pattern_id")
+      .notNull()
+      .references(() => questionPatterns.id, { onDelete: "cascade" }),
+    sourceQuizQuestionId: uuid("source_quiz_question_id").references(
+      () => quizQuestions.id,
+      { onDelete: "set null" },
+    ),
+    question: text("question").notNull(),
+    choices: jsonb("choices").notNull(),
+    correctAnswer: jsonb("correct_answer").notNull(),
+    explanation: text("explanation"),
+    clinicalContext: text("clinical_context"),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    patternIdx: index("idx_question_pattern_examples_pattern").on(
+      table.questionPatternId,
+      table.sortOrder,
+    ),
+    sourceQuestionIdx: index("idx_question_pattern_examples_source_question").on(
+      table.sourceQuizQuestionId,
+    ),
+  }),
+);
+
+export type QuestionPatternDbRecord = typeof questionPatterns.$inferSelect;
+export type NewQuestionPatternDbRecord = typeof questionPatterns.$inferInsert;
+export type QuestionPatternExampleDbRecord = typeof questionPatternExamples.$inferSelect;
+export type NewQuestionPatternExampleDbRecord = typeof questionPatternExamples.$inferInsert;

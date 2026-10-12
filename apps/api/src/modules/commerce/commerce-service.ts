@@ -48,6 +48,10 @@ import type { StudyService } from "../study/study-service.js";
 import type { WalletService } from "../wallet/wallet-service.js";
 import type { PromotionService } from "./promotion-service.js";
 import { grantSubscriptionActivationGiftIfEligible } from "./subscription-gift-helper.js";
+import {
+  type Ga4MeasurementProtocolService,
+  dispatchOrderGa4Purchase,
+} from "../observability/ga4-measurement-protocol.js";
 
 export interface CheckoutInput {
   productId: ProductId;
@@ -55,7 +59,9 @@ export interface CheckoutInput {
   gateway?: string;
   couponCode?: string;
   metadata?: Record<string, unknown>;
+  analytics?: Record<string, unknown>;
 }
+
 
 export interface CheckoutResponse {
   order_id: OrderId;
@@ -111,7 +117,9 @@ export class CommerceService {
     private readonly subscriptionCreditBonusesProvider?: () => Promise<SubscriptionCreditBonusesConfig>,
     private readonly promotionService?: PromotionService,
     _referralService?: import("../referral/referral-service.js").ReferralService,
+    private readonly ga4Service?: Ga4MeasurementProtocolService,
   ) {}
+
 
   /**
    * List all sellable active products.
@@ -253,7 +261,9 @@ export class CommerceService {
 
     const orderMetadata: Record<string, unknown> = {
       ...(input.metadata ?? {}),
+      ...(input.analytics ? { analytics: input.analytics } : {}),
     };
+
     if (promoEvalResult) {
       orderMetadata.couponCode = input.couponCode;
       orderMetadata.promotionId = promoEvalResult.promotionId;
@@ -427,11 +437,15 @@ export class CommerceService {
             createdAt: now,
             details: {
               paymentId,
+              orderId,
               productId: product.id,
+              productTitle: product.title,
+              productType: product.type,
               amount: payableAmount,
               gateway: "wallet",
               transactionId: debitResult.transaction.id,
               attemptId: attemptResult?.attempt?.id,
+              userId: actor.userId,
             },
           },
         ]);
@@ -799,6 +813,15 @@ export class CommerceService {
       });
     }
 
+    if (this.ga4Service) {
+      void dispatchOrderGa4Purchase({
+        orderId: order.id,
+        store: this.store,
+        ga4Service: this.ga4Service,
+      });
+    }
+
+
     if (this.auditService) {
       await this.auditService.emit([
         {
@@ -809,14 +832,19 @@ export class CommerceService {
           entityId: payment.id,
           createdAt: paidAt,
           details: {
+            paymentId: payment.id,
             orderId: order.id,
             productId: product.id,
+            productTitle: product.title,
+            productType: product.type,
             amount: payment.amount,
+            gateway: payment.gateway,
             transactionId: verifyResult.transactionId,
             resourceType: entitlementResourceType,
             resourceId: entitlementResourceId,
             expiresAt: entitlementExpiresAt,
             requestId,
+            userId: order.userId,
           },
         },
       ]);
@@ -1140,7 +1168,9 @@ export class CommerceService {
         sourceCardLast4,
         payerName: input.payerName?.trim() || null,
         type: product.type,
+        ...(input.analytics ? { analytics: input.analytics } : {}),
         ...(promoEvalResult ? {
+
           couponCode: input.couponCode,
           promotionId: promoEvalResult.promotionId,
           redemptionId: promoEvalResult.redemptionId,
@@ -1240,11 +1270,16 @@ export class CommerceService {
           details: {
             orderId,
             productId: product.id,
+            productTitle: product.title,
+            productType: product.type,
             amount: input.amount,
             trackingNumber,
             sourceCardLast4,
+            payerName: input.payerName?.trim() || undefined,
+            paymentDate: paymentRecord.paidAt || undefined,
             expiresAt: entitlementExpiresAt,
             requestId,
+            userId: actor.userId,
           },
         },
       ]);

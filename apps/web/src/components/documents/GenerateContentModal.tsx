@@ -25,12 +25,15 @@ import { useAuth } from "../../providers/AuthProvider.js";
 import { canUserGenerateContent } from "../../utils/generationPermissions.js";
 import { isUserAdmin } from "../../utils/adminPermissions.js";
 import { createApiClient, getApiBaseUrl } from "../../lib/api/client.js";
+import { ApiError } from "../../lib/api/errors.js";
 import {
   createGenerationApi,
   type DocumentContentStatus,
   type DocumentContentStatusResponse,
+  type GenerationCostEstimateResponse,
 } from "../../lib/api/generation.js";
 import { toPersianDigits } from "@avana/domain";
+import { AvanaSelect } from "@avana/ui";
 
 export interface GenerateContentModalProps {
   isOpen: boolean;
@@ -56,6 +59,8 @@ export interface GenerateContentModalProps {
     flashcards: boolean;
     exam: boolean;
     review_summary: boolean;
+    questionPatternId?: string | null;
+    questionPatternVersion?: number | null;
   }) => void;
 }
 
@@ -80,6 +85,7 @@ export function GenerateContentModal({
   const [selectedFlashcards, setSelectedFlashcards] = useState(true);
   const [selectedExam, setSelectedExam] = useState(true);
   const [selectedReviewSummary, setSelectedReviewSummary] = useState(false);
+  const [selectedQuestionPatternId, setSelectedQuestionPatternId] = useState<string>("");
 
   // Sync initial selection when modal opens or contentStatus changes
   useEffect(() => {
@@ -184,19 +190,21 @@ export function GenerateContentModal({
     data: costEstimate,
     isLoading: isCostLoading,
     isError: isCostError,
+    error: costError,
     refetch: refetchCost,
   } = useQuery(
     {
       queryKey: costQueryKey,
-      queryFn: () =>
-        genApi.estimateGenerationCost(organizationId!, documentId!, courseId, {
+      queryFn: async (): Promise<GenerationCostEstimateResponse> => {
+        return genApi.estimateGenerationCost(organizationId!, documentId!, courseId, {
           types: newItemsToGenerate,
-        }),
+        });
+      },
       enabled: Boolean(
         !hideCostEstimate &&
           isOpen &&
           organizationId &&
-          documentId &&
+          Boolean(documentId) &&
           newItemsToGenerate.length > 0 &&
           !allAvailableGenerated,
       ),
@@ -206,6 +214,51 @@ export function GenerateContentModal({
   );
 
   const isAdmin = isUserAdmin(user, memberships);
+
+  const { data: patternsData } = useQuery<{
+    patterns: Array<{
+      id: string;
+      title: string;
+      description: string | null;
+      cognitiveLevel: string;
+      version: number;
+      isActive: boolean;
+      examplesCount: number;
+    }>;
+  }>(
+    {
+      queryKey: ["active-question-patterns"],
+      queryFn: async () => {
+        return apiClient.get<{
+          patterns: Array<{
+            id: string;
+            title: string;
+            description: string | null;
+            cognitiveLevel: string;
+            version: number;
+            isActive: boolean;
+            examplesCount: number;
+          }>;
+        }>("/v1/admin/question-patterns?status=active");
+      },
+      enabled: Boolean(isOpen && isAdmin),
+      staleTime: 60_000,
+    },
+    resolvedQueryClient,
+  );
+
+  const availablePatterns = patternsData?.patterns ?? [];
+
+  const patternOptions = useMemo(
+    () => [
+      { value: "", label: "بدون الگو (تولید استاندارد آوانا)" },
+      ...availablePatterns.map((pat) => ({
+        value: pat.id,
+        label: `${pat.title} (${pat.examplesCount} نمونه مرجع - نگارش ${toPersianDigits(pat.version)})`,
+      })),
+    ],
+    [availablePatterns],
+  );
 
   const { data: walletData, isLoading: isWalletLoading } = useQuery<{
     balance: number;
@@ -237,10 +290,11 @@ export function GenerateContentModal({
       walletData.balance < estimatedPriceToman,
     );
 
+
   const isEstimateRequired = Boolean(
     !hideCostEstimate &&
       organizationId &&
-      documentId &&
+      Boolean(documentId) &&
       newItemsToGenerate.length > 0 &&
       !allAvailableGenerated,
   );
@@ -267,11 +321,20 @@ export function GenerateContentModal({
       return;
     }
 
+    const willGenerateExam = !isExamGenerated && selectedExam;
+    const selectedPattern = willGenerateExam && selectedQuestionPatternId
+      ? availablePatterns.find((p) => p.id === selectedQuestionPatternId)
+      : null;
+
     onConfirmGenerate({
       lesson: !isLessonGenerated && selectedLesson,
       flashcards: !isFlashcardsGenerated && selectedFlashcards,
-      exam: !isExamGenerated && selectedExam,
+      exam: willGenerateExam,
       review_summary: !isReviewSummaryGenerated && selectedReviewSummary,
+      ...(selectedPattern ? {
+        questionPatternId: selectedPattern.id,
+        questionPatternVersion: selectedPattern.version,
+      } : {}),
     });
   };
 
@@ -488,56 +551,83 @@ export function GenerateContentModal({
                 </label>
 
                 {/* 3. EXAM / QUIZ OPTION */}
-                <label
-                  className={`flex items-start justify-between gap-4 p-4 rounded-2xl border transition-all cursor-pointer select-none ${
+                <div
+                  className={`rounded-2xl border transition-all select-none ${
                     isExamGenerated
-                      ? "bg-[var(--color-surface-warm)] border-[var(--color-border)] opacity-80 cursor-not-allowed"
+                      ? "bg-[var(--color-surface-warm)] border-[var(--color-border)] opacity-80"
                       : selectedExam
                       ? "bg-[#008080]/10 border-[#008080] shadow-xs"
                       : "bg-[var(--color-surface-warm)] border-[var(--color-border)] hover:border-[#008080]/40"
                   }`}
                 >
-                  <div className="flex items-start gap-3.5 min-w-0">
-                    <div
-                      className={`p-2.5 rounded-xl border shrink-0 mt-0.5 ${
-                        isExamGenerated
-                          ? "bg-emerald-50 border-emerald-200 text-emerald-700"
-                          : "bg-amber-50 border-amber-200 text-amber-700"
-                      }`}
-                    >
-                      <HelpCircle className="w-5 h-5" />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-sm text-[var(--color-text)]">
-                          آزمون (Exam / Quiz)
-                        </span>
-                        {isExamGenerated ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                            <CheckCircle2 className="w-3 h-3" />
-                            <span>تولید شده ({toPersianDigits(contentStatus?.exam?.count || 1)} سؤال)</span>
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
-                            آماده تولید
-                          </span>
-                        )}
+                  <label
+                    className={`flex items-start justify-between gap-4 p-4 ${
+                      isExamGenerated ? "cursor-not-allowed" : "cursor-pointer"
+                    }`}
+                  >
+                    <div className="flex items-start gap-3.5 min-w-0">
+                      <div
+                        className={`p-2.5 rounded-xl border shrink-0 mt-0.5 ${
+                          isExamGenerated
+                            ? "bg-emerald-50 border-emerald-200 text-emerald-700"
+                            : "bg-amber-50 border-amber-200 text-amber-700"
+                        }`}
+                      >
+                        <HelpCircle className="w-5 h-5" />
                       </div>
-                      <p className="text-xs text-[var(--color-text-muted)] mt-1">
-                        سؤالات تستی ۴ گزینه‌ای استاندارد همراه با پاسخ تشریحی
-                      </p>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-sm text-[var(--color-text)]">
+                            آزمون (Exam / Quiz)
+                          </span>
+                          {isExamGenerated ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                              <CheckCircle2 className="w-3 h-3" />
+                              <span>تولید شده ({toPersianDigits(contentStatus?.exam?.count || 1)} سؤال)</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                              آماده تولید
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-[var(--color-text-muted)] mt-1">
+                          سؤالات تستی ۴ گزینه‌ای استاندارد همراه با پاسخ تشریحی
+                        </p>
+                      </div>
                     </div>
-                  </div>
 
-                  <input
-                    type="checkbox"
-                    checked={isExamGenerated || selectedExam}
-                    disabled={isExamGenerated || isGenerating}
-                    onChange={(e) => setSelectedExam(e.target.checked)}
-                    className="w-5 h-5 rounded-lg border-[var(--color-border)] text-[#008080] focus:ring-[#008080] focus:ring-offset-0 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed mt-1"
-                    aria-label="انتخاب آزمون"
-                  />
-                </label>
+                    <input
+                      type="checkbox"
+                      checked={isExamGenerated || selectedExam}
+                      disabled={isExamGenerated || isGenerating}
+                      onChange={(e) => setSelectedExam(e.target.checked)}
+                      className="w-5 h-5 rounded-lg border-[var(--color-border)] text-[#008080] focus:ring-[#008080] focus:ring-offset-0 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed mt-1"
+                      aria-label="انتخاب آزمون"
+                    />
+                  </label>
+
+                  {/* Question Pattern Selector (Inside Exam Card) */}
+                  {isAdmin && !isExamGenerated && selectedExam && (
+                    <div
+                      data-testid="question-pattern-selector"
+                      className="px-4 pb-4 pt-3 border-t border-[#008080]/15 animate-in fade-in duration-150"
+                    >
+                      <AvanaSelect
+                        id="question-pattern-select"
+                        dataTestId="question-pattern-select"
+                        label="نوع الگو"
+                        value={selectedQuestionPatternId}
+                        onChange={(val) =>
+                          setSelectedQuestionPatternId(typeof val === "string" ? val : val[0] || "")
+                        }
+                        disabled={isGenerating}
+                        placeholder="بدون الگو (تولید استاندارد آوانا)"
+                        options={patternOptions}
+                      />
+                    </div>
+                  )}
+                </div>
 
                 {/* 4. REVIEW SUMMARY OPTION */}
                 <label
@@ -594,7 +684,11 @@ export function GenerateContentModal({
 
               {/* Cost Estimation Box */}
               {!hideCostEstimate &&
-                Boolean(organizationId && documentId && newItemsToGenerate.length > 0) && (
+                Boolean(
+                  organizationId &&
+                    Boolean(documentId) &&
+                    newItemsToGenerate.length > 0,
+                ) && (
                   <div
                   data-testid="cost-estimation-box"
                   className="p-3.5 sm:p-4 rounded-2xl bg-teal-500/5 border border-teal-500/20 space-y-1.5"
@@ -609,7 +703,7 @@ export function GenerateContentModal({
                         <Loader2 className="w-3.5 h-3.5 animate-spin text-[#008080]" />
                         <span>در حال برآورد هزینه...</span>
                       </div>
-                    ) : isCostError ? (
+) : isCostError ? (
                       <div className="flex items-center gap-2">
                         <span className="text-xs text-rose-600 font-bold">خطا در برآورد</span>
                         <button
@@ -714,7 +808,7 @@ export function GenerateContentModal({
                       <span>
                         {newItemsToGenerate.length === 3
                           ? "تولید محتوا"
-                          : "تولید انتخاب‌شده"}
+                          : "تولید محتوای انتخاب‌شده"}
                       </span>
                     </>
                   )}

@@ -36,6 +36,7 @@ async function main(): Promise<void> {
   // Try PostgreSQL composition; only use in-memory stores if explicitly requested via USE_IN_MEMORY_DEV
   let v1Options: V1RouteOptions;
   let close: () => Promise<void>;
+  let composedWorker: ReturnType<typeof createGenerationWorker> | undefined;
 
   try {
     const prod = await composeProduction(config);
@@ -43,6 +44,7 @@ async function main(): Promise<void> {
     await prod.v1Options.userStore.findByEmail("probe@local.dev");
     v1Options = prod.v1Options;
     close = prod.close;
+    composedWorker = prod.worker;
     process.stdout.write("[dev] Connected to PostgreSQL stores.\n");
   } catch (err) {
     if (process.env.USE_IN_MEMORY_DEV === "true") {
@@ -74,10 +76,11 @@ async function main(): Promise<void> {
 
   void app.register(v1Routes, v1Options);
 
-  // Boot inline generation worker in dev mode so jobs are processed automatically
-  let worker: ReturnType<typeof createGenerationWorker> | null = null;
-  try {
-    if (v1Options.generatedContentStore && v1Options.generationJobStore) {
+  // Boot inline generation worker in dev mode only if not already composed
+  let worker: ReturnType<typeof createGenerationWorker> | null = composedWorker ?? null;
+  if (!worker) {
+    try {
+      if (v1Options.generatedContentStore && v1Options.generationJobStore) {
       const adminGateway = v1Options.adminGateway ?? v1Options.gateway!;
       const userGateway = v1Options.gateway!;
 
@@ -164,15 +167,16 @@ async function main(): Promise<void> {
         process.stderr.write(`[worker] Generation worker warning: ${String(err)}\n`);
       });
     }
-  } catch (err) {
-    process.stderr.write(
-      `[dev] Could not initialize inline generation worker: ${String(err)}\n`,
-    );
+    } catch (err) {
+      process.stderr.write(
+        `[dev] Could not initialize inline generation worker: ${String(err)}\n`,
+      );
+    }
   }
 
   // Graceful shutdown — close DB pool and worker on server stop
   app.addHook("onClose", async () => {
-    if (worker) {
+    if (worker && worker !== composedWorker) {
       await worker.close();
     }
     await close();

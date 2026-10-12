@@ -12,7 +12,9 @@ import {
   Infinity as InfinityIcon,
   Search,
   Loader2,
+  Wallet,
 } from "lucide-react";
+import { toPersianDigits } from "@avana/domain";
 import type { AdminUserRecord, AdminCourseRecord } from "../../../lib/api/admin.js";
 
 interface AdminGrantModalProps {
@@ -32,7 +34,7 @@ export function AdminGrantModal({
 }: AdminGrantModalProps) {
   const adminApi = useAdmin();
 
-  const [resourceType, setResourceType] = useState<"subscription" | "course" | "content_pack">("subscription");
+  const [resourceType, setResourceType] = useState<"subscription" | "course" | "content_pack" | "wallet">("subscription");
   const [selectedUserId, setSelectedUserId] = useState<string>(defaultUserId || "");
   const [userSearchQuery, setUserSearchQuery] = useState<string>(defaultUserEmail || "");
   const [userSearchResults, setUserSearchResults] = useState<AdminUserRecord[]>([]);
@@ -45,6 +47,14 @@ export function AdminGrantModal({
 
   const [durationDays, setDurationDays] = useState<number>(30);
   const [customDuration, setCustomDuration] = useState<string>("");
+
+  // Wallet Top-up states
+  const [walletAmount, setWalletAmount] = useState<string>("");
+  const [walletAmountDisplay, setWalletAmountDisplay] = useState<string>("");
+  const [walletReason, setWalletReason] = useState<string>("");
+  const [currentWalletBalance, setCurrentWalletBalance] = useState<number | null>(null);
+  const [isLoadingWallet, setIsLoadingWallet] = useState<boolean>(false);
+  const [idempotencyKey, setIdempotencyKey] = useState<string>(() => `grant-wallet-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -61,6 +71,11 @@ export function AdminGrantModal({
     if (!isOpen) {
       setErrorMsg(null);
       setSuccessMsg(null);
+      setWalletAmount("");
+      setWalletAmountDisplay("");
+      setWalletReason("");
+      setCurrentWalletBalance(null);
+      setIdempotencyKey(`grant-wallet-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`);
       return;
     }
 
@@ -78,8 +93,8 @@ export function AdminGrantModal({
           .filter((p) => p.type === "content_pack" && p.targetId)
           .map((p) => ({ id: p.targetId!, title: p.targetTitle || p.title }));
         setAvailablePacks(packs);
-      } catch (err) {
-        console.error("Failed to load grant resources:", err);
+      } catch {
+        // Silently handle grant resources load failure
       } finally {
         setIsLoadingResources(false);
       }
@@ -87,6 +102,31 @@ export function AdminGrantModal({
 
     loadResources();
   }, [isOpen]);
+
+  // Load user wallet balance when wallet resource type is selected
+  useEffect(() => {
+    if (!isOpen || !selectedUserId || resourceType !== "wallet") return;
+
+    let isMounted = true;
+    const fetchWallet = async () => {
+      setIsLoadingWallet(true);
+      try {
+        const res = await adminApi.getUserWallet(selectedUserId);
+        if (isMounted) {
+          setCurrentWalletBalance(res.balance);
+        }
+      } catch {
+        // Silently handle user wallet balance load failure
+      } finally {
+        if (isMounted) setIsLoadingWallet(false);
+      }
+    };
+
+    fetchWallet();
+    return () => {
+      isMounted = false;
+    };
+  }, [isOpen, selectedUserId, resourceType]);
 
   // Debounced user search
   useEffect(() => {
@@ -100,8 +140,8 @@ export function AdminGrantModal({
       try {
         const res = await adminApi.listUsers(1, 5, userSearchQuery);
         setUserSearchResults(res.users);
-      } catch (err) {
-        console.error("User search failed:", err);
+      } catch {
+        // Silently handle user search failure
       } finally {
         setIsSearchingUsers(false);
       }
@@ -112,6 +152,27 @@ export function AdminGrantModal({
 
   if (!isOpen) return null;
 
+  const selectQuickAmount = (val: number) => {
+    setWalletAmount(String(val));
+    setWalletAmountDisplay(toPersianDigits(val.toLocaleString("fa-IR")));
+  };
+
+  const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value;
+    const normalized = raw
+      .replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d)))
+      .replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)))
+      .replace(/[^0-9]/g, "");
+
+    setWalletAmount(normalized);
+    if (!normalized) {
+      setWalletAmountDisplay("");
+    } else {
+      const num = parseInt(normalized, 10);
+      setWalletAmountDisplay(toPersianDigits(num.toLocaleString("fa-IR")));
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
@@ -119,6 +180,41 @@ export function AdminGrantModal({
 
     if (!selectedUserId) {
       setErrorMsg("لطفاً یک کاربر را انتخاب کنید.");
+      return;
+    }
+
+    if (resourceType === "wallet") {
+      const parsedAmount = parseInt(walletAmount, 10);
+      if (!parsedAmount || isNaN(parsedAmount) || parsedAmount < 1000 || parsedAmount > 100000000) {
+        setErrorMsg("مبلغ شارژ باید یک عدد صحیح مثبت بین ۱,۰۰۰ تا ۱۰۰,۰۰۰,۰۰۰ تومان باشد.");
+        return;
+      }
+
+      setIsSubmitting(true);
+      try {
+        const res = await adminApi.grantCommerceEntitlement({
+          userId: selectedUserId,
+          resourceType: "wallet",
+          amount: parsedAmount,
+          reason: walletReason.trim() || undefined,
+          idempotencyKey,
+        });
+
+        const newBal = res.entitlement?.balance ?? ((currentWalletBalance ?? 0) + parsedAmount);
+        setCurrentWalletBalance(newBal);
+        setSuccessMsg(
+          `کیف پول کاربر با موفقیت به مبلغ ${toPersianDigits(parsedAmount.toLocaleString("fa-IR"))} تومان شارژ شد. موجودی جدید: ${toPersianDigits(newBal.toLocaleString("fa-IR"))} تومان`
+        );
+        setTimeout(() => {
+          onSuccess();
+          onClose();
+        }, 1500);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : "خطا در شارژ کیف پول کاربر.";
+        setErrorMsg(message);
+      } finally {
+        setIsSubmitting(false);
+      }
       return;
     }
 
@@ -147,8 +243,9 @@ export function AdminGrantModal({
         onSuccess();
         onClose();
       }, 1000);
-    } catch (err: any) {
-      setErrorMsg(err.message || "خطا در اعطای دسترسی.");
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "خطا در اعطای دسترسی.";
+      setErrorMsg(message);
     } finally {
       setIsSubmitting(false);
     }
@@ -244,7 +341,7 @@ export function AdminGrantModal({
             <label className="block text-sm font-medium text-[var(--color-text)] mb-2">
               نوع دسترسی <span className="text-[var(--color-primary-default)]">*</span>
             </label>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               <button
                 type="button"
                 onClick={() => setResourceType("subscription")}
@@ -283,8 +380,117 @@ export function AdminGrantModal({
                 <FolderTree className="w-5 h-5" />
                 <span>بسته محتوایی</span>
               </button>
+
+              <button
+                type="button"
+                onClick={() => setResourceType("wallet")}
+                className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border text-xs font-medium transition-all cursor-pointer ${
+                  resourceType === "wallet"
+                    ? "border-[var(--color-primary-default)] bg-[var(--color-primary-default)]/10 text-[var(--color-primary-default)]"
+                    : "border-[var(--color-border)] bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)]"
+                }`}
+              >
+                <Wallet className="w-5 h-5" />
+                <span>شارژ کیف پول</span>
+              </button>
             </div>
           </div>
+
+          {/* Wallet Selector & Controls */}
+          {resourceType === "wallet" && (
+            <div className="space-y-4">
+              {/* Current Wallet Balance Card */}
+              <div className="flex items-center justify-between p-3.5 rounded-xl bg-[var(--color-surface-warm)] border border-[var(--color-border)]">
+                <div className="flex items-center gap-2 text-xs font-medium text-[var(--color-text-muted)]">
+                  <Wallet className="w-4 h-4 text-[var(--color-primary-default)]" />
+                  <span>موجودی فعلی کیف پول کاربر:</span>
+                </div>
+                <div>
+                  {isLoadingWallet ? (
+                    <div className="flex items-center gap-1 text-xs text-[var(--color-text-muted)]">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--color-primary-default)]" />
+                      <span>در حال دریافت...</span>
+                    </div>
+                  ) : (
+                    <span className="text-sm font-bold text-[var(--color-text)]">
+                      {currentWalletBalance !== null
+                        ? `${toPersianDigits(currentWalletBalance.toLocaleString("fa-IR"))} تومان`
+                        : "۰ تومان"}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Amount Input */}
+              <div>
+                <label className="block text-sm font-medium text-[var(--color-text)] mb-2">
+                  مبلغ شارژ (تومان) <span className="text-[var(--color-primary-default)]">*</span>
+                </label>
+                <div className="relative flex items-center">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="مثلاً ۵۰,۰۰۰"
+                    value={walletAmountDisplay}
+                    onChange={handleAmountChange}
+                    disabled={isSubmitting}
+                    className="w-full bg-[var(--color-surface-warm)] border border-[var(--color-border)] rounded-xl ps-4 pe-14 py-2.5 text-sm text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary-default)] font-mono"
+                  />
+                  <span className="text-xs text-[var(--color-text-muted)] absolute end-3.5 pointer-events-none">
+                    تومان
+                  </span>
+                </div>
+
+                {/* Amount preview */}
+                {walletAmount && parseInt(walletAmount, 10) > 0 && (
+                  <p className="text-xs text-[var(--color-primary-default)] font-medium mt-1.5">
+                    مبلغ شارژ: {toPersianDigits(parseInt(walletAmount, 10).toLocaleString("fa-IR"))} تومان
+                  </p>
+                )}
+
+                {/* Quick suggestions */}
+                <div className="grid grid-cols-3 gap-2 mt-2.5">
+                  {[
+                    { label: "۵۰٬۰۰۰ تومان", val: 50000 },
+                    { label: "۱۰۰٬۰۰۰ تومان", val: 100000 },
+                    { label: "۲۰۰٬۰۰۰ تومان", val: 200000 },
+                  ].map((item) => (
+                    <button
+                      type="button"
+                      key={item.val}
+                      onClick={() => selectQuickAmount(item.val)}
+                      disabled={isSubmitting}
+                      className={`py-1.5 rounded-lg border text-xs font-medium transition-colors cursor-pointer text-center ${
+                        walletAmount === String(item.val)
+                          ? "border-[var(--color-primary-default)] bg-[var(--color-primary-default)]/10 text-[var(--color-primary-default)]"
+                          : "border-[var(--color-border)] bg-[var(--color-surface-warm)] text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)]"
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[11px] text-[var(--color-text-muted)] mt-1.5">
+                  حداقل ۱٬۰۰۰ تومان و حداکثر ۱۰۰٬۰۰۰٬۰۰۰ تومان
+                </p>
+              </div>
+
+              {/* Optional Reason Input */}
+              <div>
+                <label className="block text-sm font-medium text-[var(--color-text)] mb-2">
+                  توضیح یا دلیل شارژ <span className="text-xs text-[var(--color-text-muted)]">(اختیاری)</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="علت شارژ کیف پول (جهت ثبت در سوابق حسابرسی)..."
+                  value={walletReason}
+                  onChange={(e) => setWalletReason(e.target.value)}
+                  disabled={isSubmitting}
+                  className="w-full bg-[var(--color-surface-warm)] border border-[var(--color-border)] rounded-xl px-3 py-2.5 text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:border-[var(--color-primary-default)]"
+                />
+              </div>
+            </div>
+          )}
 
           {/* 3. Resource Selector (if Course or Pack) */}
           {resourceType === "course" && (
@@ -395,10 +601,17 @@ export function AdminGrantModal({
             </button>
             <button
               type="submit"
-              disabled={isSubmitting || isLoadingResources}
+              disabled={isSubmitting || isLoadingResources || (resourceType === "wallet" && (!walletAmount || parseInt(walletAmount, 10) < 1000))}
               className="px-5 py-2.5 rounded-xl text-sm font-medium text-[var(--color-primary-contrast)] bg-[var(--color-primary-default)] hover:bg-[var(--color-primary-dark)] disabled:opacity-50 transition-colors flex items-center gap-2 cursor-pointer shadow-sm"
             >
-              {isSubmitting ? "در حال اعطا..." : "اعطای دسترسی"}
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>{resourceType === "wallet" ? "در حال شارژ..." : "در حال اعطا..."}</span>
+                </>
+              ) : (
+                <span>{resourceType === "wallet" ? "شارژ کیف پول" : "اعطای دسترسی"}</span>
+              )}
             </button>
           </div>
         </form>

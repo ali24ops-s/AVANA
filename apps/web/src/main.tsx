@@ -6,6 +6,12 @@ import "./index.css";
 import { router } from "./routes/index.js";
 import { QueryProvider } from "./providers/QueryProvider.js";
 import { AuthProvider } from "./providers/AuthProvider.js";
+import { initGtm, isAnalyticsEnabled } from "./lib/tracker/index.js";
+
+// Initialize GTM container at client boot ONLY if configured and user consent is active
+if (isAnalyticsEnabled()) {
+  initGtm();
+}
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

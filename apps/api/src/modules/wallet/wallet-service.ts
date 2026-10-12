@@ -158,14 +158,27 @@ export class WalletService {
   }
 
   /**
+   * Admin/Internal method to get any user's wallet balance.
+   */
+  async getUserWallet(userId: UserId): Promise<UserWalletDto> {
+    const wallet = await this.store.getOrCreateWallet(userId);
+    return {
+      balance: wallet.balance,
+      currency: "toman",
+      formatted_balance: formatTomanPrice(wallet.balance),
+    };
+  }
+
+  /**
    * Internal service method to credit a user's wallet atomically.
    */
   async credit(
     input: CreditWalletInput,
   ): Promise<{ wallet: WalletRecord; transaction: WalletTransactionRecord; isDuplicate: boolean }> {
+    const mutationType = input.mutationType ?? "credit";
     const result = await this.store.executeAtomicWalletMutation({
       userId: input.userId,
-      mutationType: "credit",
+      mutationType,
       amount: input.amount,
       source: input.source,
       referenceType: input.referenceType,
@@ -175,25 +188,31 @@ export class WalletService {
     });
 
     if (!result.isDuplicate && this.auditService) {
-      await this.auditService.emit([
-        {
-          actorId: input.userId,
-          organizationId: null,
-          action: "wallet.credited",
-          entityType: "wallet",
-          entityId: result.wallet.id,
-          createdAt: result.transaction.createdAt,
-          details: {
-            transactionId: result.transaction.id,
-            amount: input.amount,
-            source: input.source,
-            balanceBefore: result.transaction.balanceBefore,
-            balanceAfter: result.transaction.balanceAfter,
-            referenceType: input.referenceType,
-            referenceId: input.referenceId,
+      try {
+        await this.auditService.emit([
+          {
+            actorId: input.actorId ?? input.userId,
+            organizationId: null,
+            action: "wallet.credited",
+            entityType: "wallet",
+            entityId: result.wallet.id,
+            createdAt: result.transaction.createdAt,
+            details: {
+              transactionId: result.transaction.id,
+              amount: input.amount,
+              source: input.source,
+              balanceBefore: result.transaction.balanceBefore,
+              balanceAfter: result.transaction.balanceAfter,
+              referenceType: input.referenceType,
+              referenceId: input.referenceId,
+              ...(input.actorId ? { adminId: input.actorId, targetUserId: input.userId } : {}),
+              ...(input.metadata?.reason ? { reason: String(input.metadata.reason) } : {}),
+            },
           },
-        },
-      ]);
+        ]);
+      } catch {
+        // Suppress audit log failure so financial operation remains consistent
+      }
     }
 
     return result;

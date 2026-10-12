@@ -194,7 +194,7 @@ function CourseHeaderRow({
           </Badge>
         ) : isSubscription ? (
           <Badge variant="primary" size="sm" icon={<Zap className="h-3 w-3" />}>
-            در دسترس با اشتراک
+            در دسترس با اشتراک شما
           </Badge>
         ) : isFree ? (
           <Badge variant="info" size="sm" icon={<Sparkles className="h-3 w-3" />}>
@@ -279,10 +279,12 @@ export function CourseCard({
     ? "not_started"
     : undefined;
 
-  const hasAccess = access?.hasAccess ?? true;
   const isPurchased = access?.isPurchased === true;
   const isSubscription = access?.isSubscription === true;
+  const isFree = access?.isFree === true || (!access?.isPurchased && !access?.isSubscription && access?.price === 0);
+  const hasAccess = access?.hasAccess ?? (isPurchased || isSubscription || isFree);
   const price = access?.price ?? 0;
+  const canShowBuy = !hasAccess && !isPurchased && !isSubscription && !isFree && price > 0;
 
   const resolvedTestId =
     dataTestId ||
@@ -320,7 +322,14 @@ export function CourseCard({
         <CourseHeaderRow
           hasCoverImage={Boolean(coverImage)}
           subject={subject}
-          access={access}
+          access={{
+            ...access,
+            hasAccess,
+            isPurchased,
+            isSubscription,
+            isFree,
+            price,
+          }}
           isCompleted={isCompleted}
           learningStatus={learningStatus}
           variant={variant}
@@ -462,7 +471,7 @@ export function CourseCard({
                 <Eye className="h-3.5 w-3.5" />
                 <span>مشاهده دوره</span>
               </Link>
-              {onBuy && (
+              {canShowBuy && onBuy && (
                 <Button
                   type="button"
                   size="sm"
@@ -488,7 +497,7 @@ export function CourseCard({
             >
               <div className="flex items-center gap-1.5">
                 <span>
-                  {isInProgress ? "ادامه یادگیری" : isCompleted ? "ورود به دوره" : "شروع دوره"}
+                  {isInProgress ? "ادامه یادگیری" : isCompleted ? "ورود به دوره" : "شروع یادگیری"}
                 </span>
               </div>
               <ChevronLeft className="h-4 w-4 transition-transform group-hover:-translate-x-1 rtl:group-hover:-translate-x-1" />
@@ -501,7 +510,7 @@ export function CourseCard({
             </span>
 
             <div className="flex items-center gap-2">
-              {!isPurchased && !isSubscription && price > 0 && onBuy && (
+              {canShowBuy && onBuy && (
                 <Button
                   variant="primary"
                   size="sm"
@@ -521,7 +530,9 @@ export function CourseCard({
                 className="text-primary font-semibold flex items-center gap-1 group-hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
               >
                 <span>
-                  {isPurchased || isSubscription || price === 0 ? "ورود" : "پیش‌نمایش"}
+                  {hasAccess
+                    ? (isInProgress ? "ادامه یادگیری" : isCompleted ? "ورود به دوره" : "شروع یادگیری")
+                    : "پیش‌نمایش"}
                 </span>
                 <ChevronLeft className="w-3.5 h-3.5 transition-transform group-hover:-translate-x-0.5" />
               </Link>
@@ -617,7 +628,15 @@ export function CourseLibraryCardAdapter({
         flashcardCount: flashcardCount && flashcardCount > 0 ? flashcardCount : undefined,
         quizQuestionCount: quizQuestionCount && quizQuestionCount > 0 ? quizQuestionCount : undefined,
       }}
-      onBuy={onBuy ? () => onBuy(course) : undefined}
+      onBuy={
+        onBuy &&
+        purchase?.canPurchase !== false &&
+        !access?.hasAccess &&
+        !access?.isPurchased &&
+        access?.accessSource !== "subscription"
+          ? () => onBuy(course)
+          : undefined
+      }
       onView={onView ? () => onView(course) : undefined}
     />
   );

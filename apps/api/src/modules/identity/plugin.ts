@@ -37,6 +37,7 @@ export interface IdentityPluginOptions {
   organizationStore?: OrganizationStore;
   notificationService?: NotificationService;
   referralService?: import("../referral/referral-service.js").ReferralService;
+  auditService?: import("../../observability/audit-service.js").AuditService;
 }
 
 export async function registerIdentityModule(
@@ -88,6 +89,7 @@ export async function registerIdentityModule(
     verificationSecret: config.auth?.verificationSecret,
     notificationService: options.notificationService,
     referralService: options.referralService,
+    auditService: options.auditService,
     appUrl: config.appUrl,
   };
   await app.register(authRoutes, authOpts);

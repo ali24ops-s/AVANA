@@ -15,6 +15,7 @@ import {
   AlertCircle,
   FileQuestion,
   Plus,
+  BookPlus,
 } from "lucide-react";
 import { useAuth } from "../providers/AuthProvider.js";
 import { createApiClient, getApiBaseUrl } from "../lib/api/client.js";
@@ -31,8 +32,8 @@ import {
   useMySubscription,
 } from "../hooks/useCommerce.js";
 import { Button } from "@avana/ui";
-import { BookPlus } from "lucide-react";
 import { MyCourseCardAdapter } from "../components/avana/CourseCard.js";
+import { isUserSubscriptionActive } from "../components/commerce/userCommerceUtils.js";
 import type { OrganizationResource, CourseResource, CourseListResponse } from "@avana/contracts";
 
 /**
@@ -429,13 +430,30 @@ function CourseCard({
     (p) => p.target_type === "course" && p.target_id === course.id,
   );
 
-  // Check if purchased directly
+  // Check if purchased directly (valid lifetime or unexpired)
+  const now = new Date();
   const isPurchased = (entitlementsData?.items ?? []).some(
-    (e) => e.resource_type === "course" && e.resource_id === course.id,
+    (e) =>
+      e.resource_type === "course" &&
+      e.resource_id === course.id &&
+      (!e.expires_at || new Date(e.expires_at) > now),
   );
 
-  // Check if user has active subscription
-  const hasSubscription = subData?.subscription?.status === "active";
+  // Check if course is explicitly excluded from subscription coverage
+  const isExcludedFromSubscription = Boolean(
+    courseProduct?.metadata &&
+      ((courseProduct.metadata as Record<string, unknown>).subscriptionExcluded === true ||
+        (courseProduct.metadata as Record<string, unknown>).requiresDirectPurchase === true),
+  );
+
+  // Check if user has active subscription granting access to this course
+  const hasSubscription =
+    !isExcludedFromSubscription &&
+    isUserSubscriptionActive(
+      subData?.subscription,
+      entitlementsData?.items,
+      now,
+    );
 
   const handleBuyCourse = () => {
     if (courseProduct) {

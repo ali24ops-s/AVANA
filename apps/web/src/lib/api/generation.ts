@@ -81,6 +81,8 @@ export type GenerateContentOptions = GenerateContentRequest & {
   flashcards?: boolean;
   exam?: boolean;
   review_summary?: boolean;
+  question_pattern_id?: string | null;
+  question_pattern_version?: number | null;
 };
 
 export type GenerationJobResource = {

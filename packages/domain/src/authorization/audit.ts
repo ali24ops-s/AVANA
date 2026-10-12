@@ -79,6 +79,8 @@ export type AuditAction =
   | "wallet.credited"
   | "wallet.debited"
   | "wallet.refunded"
+  | "user.registered"
+  | "teacher.requested"
   | "referral.attached"
   | "referral.qualified"
   | "referral.rewarded"
@@ -966,6 +968,50 @@ export function auditFeedbackResponded(
     entityType: "feedback",
     entityId: feedbackId,
     details: { status },
+    createdAt: utcNow(),
+  };
+}
+
+export function auditUserRegistered(
+  userId: UserId,
+  details: {
+    name?: string;
+  },
+): AuditEvent {
+  return {
+    actorId: userId,
+    organizationId: null,
+    action: "user.registered",
+    entityType: "user",
+    entityId: userId,
+    details: {
+      name: details.name,
+    },
+    createdAt: utcNow(),
+  };
+}
+
+export function auditTeacherRequested(
+  userId: UserId,
+  details: {
+    name?: string;
+    university?: string;
+    faculty?: string;
+    department?: string;
+  },
+): AuditEvent {
+  return {
+    actorId: userId,
+    organizationId: null,
+    action: "teacher.requested",
+    entityType: "user",
+    entityId: userId,
+    details: {
+      name: details.name,
+      university: details.university,
+      faculty: details.faculty,
+      department: details.department,
+    },
     createdAt: utcNow(),
   };
 }

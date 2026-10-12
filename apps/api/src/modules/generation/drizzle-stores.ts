@@ -457,6 +457,8 @@ function toGenerationJobRecord(row: {
   leaseExpiresAt?: Date | null;
   completedAt: Date | null;
   deletedAt: Date | null;
+  questionPatternId?: string | null;
+  questionPatternVersion?: number | null;
 }): GenerationJobRecord {
   return {
     id: row.id as GenerationJobId,
@@ -477,6 +479,8 @@ function toGenerationJobRecord(row: {
     leaseExpiresAt: row.leaseExpiresAt?.toISOString() ?? null,
     completedAt: row.completedAt?.toISOString() ?? null,
     deletedAt: row.deletedAt?.toISOString() ?? null,
+    questionPatternId: row.questionPatternId ?? null,
+    questionPatternVersion: row.questionPatternVersion ?? null,
   };
 }
 
@@ -569,6 +573,8 @@ export class DrizzleGenerationJobStore implements GenerationJobStore {
         heartbeatAt: record.heartbeatAt ? new Date(record.heartbeatAt) : null,
         leaseExpiresAt: record.leaseExpiresAt ? new Date(record.leaseExpiresAt) : null,
         completedAt: record.completedAt ? new Date(record.completedAt) : null,
+        questionPatternId: record.questionPatternId ?? null,
+        questionPatternVersion: record.questionPatternVersion ?? null,
       })
       .returning();
 

@@ -12,11 +12,12 @@
 
 import { loadApiConfig } from "./config.js";
 import { createApp } from "./server/createApp.js";
-import { composeProduction } from "./server/composeProduction.js";
+import { composeProduction, type ComposeProductionOptions } from "./server/composeProduction.js";
 import { v1Routes } from "./routes/v1.js";
 
 export { type ApiConfig } from "./config.js";
 export { createApp } from "./server/createApp.js";
+export { type ComposeProductionOptions } from "./server/composeProduction.js";
 
 /**
  * Start the API server with optional V1 route options (stores).
@@ -46,13 +47,15 @@ export async function startApi(
  * Uses composeProduction to wire all stores with PostgreSQL via Drizzle ORM.
  * Intended for production deployments where the database is available.
  */
-export async function startApiWithDb(): Promise<ReturnType<typeof createApp>> {
+export async function startApiWithDb(
+  options?: ComposeProductionOptions,
+): Promise<ReturnType<typeof createApp>> {
   const config = loadApiConfig();
-  const { v1Options, adminAlertService, close } = await composeProduction(config);
+  const { v1Options, adminAlertService, close } = await composeProduction(config, options);
   const app = createApp({ config, adminAlertService });
   void app.register(v1Routes, v1Options);
 
-  // Graceful shutdown — close DB pool on server stop
+  // Graceful shutdown — close DB pool, worker, and queue on server stop
   app.addHook("onClose", async () => {
     await close();
   });

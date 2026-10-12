@@ -248,6 +248,13 @@ export class DrizzleWalletStore implements WalletStore {
           .limit(1);
 
         if (existingTx) {
+          if (existingTx.userId !== userId || existingTx.amount !== amount) {
+            throw new DomainError(
+              "conflict",
+              "کلید تکرارناپذیری قبلاً با پارامترهای متفاوتی استفاده شده است.",
+            );
+          }
+
           const [w] = await tx
             .select()
             .from(wallets)
@@ -481,6 +488,12 @@ export class InMemoryWalletStore implements WalletStore {
       const trimmedKey = idempotencyKey?.trim() || null;
       if (trimmedKey && this.idempotencyMap.has(trimmedKey)) {
         const existingTx = this.idempotencyMap.get(trimmedKey)!;
+        if (existingTx.userId !== userId || existingTx.amount !== amount) {
+          throw new DomainError(
+            "conflict",
+            "کلید تکرارناپذیری قبلاً با پارامترهای متفاوتی استفاده شده است.",
+          );
+        }
         const wallet = await this.getOrCreateWallet(userId);
         return {
           wallet,

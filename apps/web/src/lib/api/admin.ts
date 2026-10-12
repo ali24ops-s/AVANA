@@ -39,6 +39,8 @@ export interface AdminUserRecord {
   role: string;
   teacherStatus?: "pending" | "approved" | "rejected";
   emailVerified: boolean;
+  phoneVerified: boolean;
+  isVerified: boolean;
   createdAt: string;
   lastActiveAt?: string;
 }
@@ -132,6 +134,23 @@ export interface AdminTeacherOverview {
   recentActivity: AdminTeacherActivity[];
 }
 
+export type AdminCourseScope = "official" | "teacher" | "user";
+
+export interface AdminCourseActorInfo {
+  id: string;
+  name: string;
+  email: string;
+  role?: string;
+}
+
+export interface AdminCourseClassroomInfo {
+  id: string;
+  title: string;
+  inviteCode: string;
+  teacherId?: string;
+  teacherName?: string;
+}
+
 export interface CourseCounts {
   modules: number;
   lessons: number;
@@ -143,13 +162,43 @@ export interface AdminCourseRecord {
   id: string;
   name: string;
   subject: string | null;
+  description?: string | null;
+  status?: string;
+  isOfficial?: boolean;
+  scope?: AdminCourseScope;
+  organizationId?: string;
   createdAt: string;
+  updatedAt?: string;
+  creator?: AdminCourseActorInfo | null;
+  owner?: AdminCourseActorInfo | null;
+  teacher?: AdminCourseActorInfo | null;
+  classroom?: AdminCourseClassroomInfo | null;
+  hasContent?: boolean;
+  needsReview?: boolean;
   counts: CourseCounts;
+  product?: {
+    id: string;
+    code: string;
+    price: number;
+    currency: string;
+    active: boolean;
+  } | null;
+  publication?: {
+    id: string;
+    version: number;
+    status: string;
+    publishedAt?: string | null;
+  } | null;
 }
 
 export interface AdminCoursesList {
   courses: AdminCourseRecord[];
   totalCount: number;
+  counts?: {
+    official: number;
+    teacher: number;
+    user: number;
+  };
 }
 
 export interface AdminGenerationJobRecord {
@@ -389,13 +438,20 @@ export interface AdminUserCommerceProfile {
   entitlements: AdminEntitlementRecord[];
   orders: AdminOrderRecord[];
   payments: AdminPaymentRecord[];
+  wallet?: {
+    balance: number;
+    currency: string;
+  } | null;
 }
 
 export interface AdminGrantInput {
   userId: string;
-  resourceType: "subscription" | "course" | "content_pack";
+  resourceType: "subscription" | "course" | "content_pack" | "wallet";
   resourceId?: string | null;
   durationDays?: number;
+  amount?: number;
+  reason?: string;
+  idempotencyKey?: string;
 }
 
 export interface AdminUserDeviceRecord {
@@ -488,9 +544,19 @@ export function createAdminApi(client: {
       return client.post<{ success: boolean; teacherId: string; status: string }>(`/v1/admin/teachers/${encodeURIComponent(teacherId)}/reject`, { reason });
     },
 
-    async listCourses(page = 1, pageSize = 20, search?: string): Promise<AdminCoursesList> {
+    async listCourses(
+      page = 1,
+      pageSize = 20,
+      search?: string,
+      scope?: AdminCourseScope | "all"
+    ): Promise<AdminCoursesList> {
       const searchParam = search ? `&search=${encodeURIComponent(search)}` : "";
-      return client.get<AdminCoursesList>(`/v1/admin/courses?page=${page}&pageSize=${pageSize}${searchParam}`);
+      const scopeParam = scope && scope !== "all" ? `&scope=${encodeURIComponent(scope)}` : "";
+      return client.get<AdminCoursesList>(`/v1/admin/courses?page=${page}&pageSize=${pageSize}${searchParam}${scopeParam}`);
+    },
+
+    async getCourse(courseId: string): Promise<{ course: AdminCourseRecord }> {
+      return client.get<{ course: AdminCourseRecord }>(`/v1/admin/courses/${encodeURIComponent(courseId)}`);
     },
 
     async listGenerationJobs(page = 1, pageSize = 20, status?: string, search?: string): Promise<{ jobs: AdminGenerationJobRecord[]; totalCount: number }> {
@@ -737,10 +803,18 @@ export function createAdminApi(client: {
 
     async grantCommerceEntitlement(
       input: AdminGrantInput
-    ): Promise<{ success: boolean; entitlement: AdminEntitlementRecord }> {
-      return client.post<{ success: boolean; entitlement: AdminEntitlementRecord }>(
+    ): Promise<{ success: boolean; entitlement: any }> {
+      return client.post<{ success: boolean; entitlement: any }>(
         "/v1/admin/commerce/grants",
         input
+      );
+    },
+
+    async getUserWallet(
+      userId: string
+    ): Promise<{ balance: number; currency: string; formatted_balance: string }> {
+      return client.get<{ balance: number; currency: string; formatted_balance: string }>(
+        `/v1/admin/users/${userId}/wallet`
       );
     },
 
@@ -951,6 +1025,9 @@ export function createAdminApi(client: {
         flashcards?: boolean;
         exam?: boolean;
         review_summary?: boolean;
+        force?: boolean;
+        questionPatternId?: string | null;
+        questionPatternVersion?: number | null;
       },
     ): Promise<{ generationRunId: string; status: string }> {
       return client.post<{ generationRunId: string; status: string }>(
@@ -1138,7 +1215,106 @@ export function createAdminApi(client: {
       }
       return client.post(`/v1/admin/content/courses/${courseId}/modules/reorder`, { items });
     },
+
+    async listQuestionPatterns(status?: "active"): Promise<{ patterns: AdminQuestionPatternSummary[] }> {
+      const qs = status ? `?status=${encodeURIComponent(status)}` : "";
+      return client.get<{ patterns: AdminQuestionPatternSummary[] }>(`/v1/admin/question-patterns${qs}`);
+    },
+
+    async getQuestionPattern(id: string): Promise<{ pattern: AdminQuestionPatternDetail }> {
+      return client.get<{ pattern: AdminQuestionPatternDetail }>(`/v1/admin/question-patterns/${encodeURIComponent(id)}`);
+    },
+
+    async createQuestionPattern(data: {
+      title: string;
+      description?: string | null;
+      cognitiveLevel?: string;
+      skills?: string[];
+      systemInstructions: string;
+      isActive?: boolean;
+    }): Promise<{ success: boolean; pattern: AdminQuestionPatternDetail }> {
+      return client.post<{ success: boolean; pattern: AdminQuestionPatternDetail }>("/v1/admin/question-patterns", data);
+    },
+
+    async updateQuestionPattern(
+      id: string,
+      data: {
+        title?: string;
+        description?: string | null;
+        cognitiveLevel?: string;
+        skills?: string[];
+        systemInstructions?: string;
+        isActive?: boolean;
+      },
+    ): Promise<{ success: boolean; pattern: AdminQuestionPatternDetail }> {
+      return client.patch<{ success: boolean; pattern: AdminQuestionPatternDetail }>(`/v1/admin/question-patterns/${encodeURIComponent(id)}`, data);
+    },
+
+    async extractQuestionPattern(data: {
+      samples: Array<string | { question: string; choices?: string[]; correctAnswer?: unknown; explanation?: string }>;
+    }): Promise<{ success: boolean } & import("@avana/domain").QuestionPatternExtractionResult> {
+      return client.post<{ success: boolean } & import("@avana/domain").QuestionPatternExtractionResult>(
+        "/v1/admin/question-patterns/extract",
+        data,
+      );
+    },
+
+    async deleteQuestionPattern(id: string): Promise<{ success: boolean }> {
+      return client.delete<{ success: boolean }>(`/v1/admin/question-patterns/${encodeURIComponent(id)}`);
+    },
+
+    async addQuestionPatternExample(
+      patternId: string,
+      data: {
+        sourceQuizQuestionId?: string | null;
+        question?: string;
+        choices?: string[];
+        correctAnswer?: unknown;
+        explanation?: string | null;
+        clinicalContext?: string | null;
+        sortOrder?: number;
+      },
+    ): Promise<{ success: boolean; example: AdminQuestionPatternExample }> {
+      return client.post<{ success: boolean; example: AdminQuestionPatternExample }>(`/v1/admin/question-patterns/${encodeURIComponent(patternId)}/examples`, data);
+    },
+
+    async deleteQuestionPatternExample(patternId: string, exampleId: string): Promise<{ success: boolean }> {
+      return client.delete<{ success: boolean }>(`/v1/admin/question-patterns/${encodeURIComponent(patternId)}/examples/${encodeURIComponent(exampleId)}`);
+    },
   };
+}
+
+export interface AdminQuestionPatternSummary {
+  id: string;
+  title: string;
+  description: string | null;
+  cognitiveLevel: string;
+  skills: string[];
+  systemInstructions: string;
+  version: number;
+  isActive: boolean;
+  examplesCount: number;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+}
+
+export interface AdminQuestionPatternExample {
+  id: string;
+  patternId: string;
+  sourceQuizQuestionId: string | null;
+  question: string;
+  choices: string[];
+  correctAnswer: unknown;
+  explanation: string | null;
+  clinicalContext: string | null;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdminQuestionPatternDetail extends AdminQuestionPatternSummary {
+  examples: AdminQuestionPatternExample[];
 }
 
 export interface DeleteOfficialCourseOptions {

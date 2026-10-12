@@ -1918,7 +1918,63 @@ $$
       expect(container.textContent).toContain("ضریب وان‌ت‌هوف است");
     });
   });
+
+  describe("Pharmacotherapy 4 Content Normalization & Resilience Suite", () => {
+    it("1. unescapes literal \\n before uppercase medical terms (e.g. \\nESI, \\nGFR, \\nACE)", () => {
+      const text = "ارزیابی اولیه:\\nESI سطح ۲\\nGFR کمتر از ۶۰\\nACE inhibitor تجویز شد.";
+      const normalized = normalizeRichContent(text);
+      expect(normalized).toBe("ارزیابی اولیه:\nESI سطح ۲\nGFR کمتر از ۶۰\nACE inhibitor تجویز شد.");
+    });
+
+    it("2. converts biological \\ce{...} tags (BRCA1, IDH1, FLT3, ER-\\alpha, TNF-\\alpha) to clean text", () => {
+      const text = "جهش در ژن \\ce{BRCA1} و \\ce{BRCA2} و همچنین \\ce{IDH1} و گیرنده \\ce{ER-\\alpha} و سایتوکین \\ce{TNF-\\alpha}.";
+      const normalized = normalizeRichContent(text);
+      expect(normalized).toContain("BRCA1");
+      expect(normalized).toContain("BRCA2");
+      expect(normalized).toContain("IDH1");
+      expect(normalized).toContain("ER-α");
+      expect(normalized).toContain("TNF-α");
+      expect(normalized).not.toContain("\\ce{");
+    });
+
+    it("3. converts chemical \\ce{...} ions into KaTeX math ($...$)", () => {
+      const text = "سطح سرمی \\ce{HCO3^-} و \\ce{Cl^-} و \\ce{Na+} و \\ce{K+} بررسی شد.";
+      const normalized = normalizeRichContent(text);
+      expect(normalized).toContain("$\\text{HCO}_3^-$");
+      expect(normalized).toContain("$\\text{Cl}^-$");
+      expect(normalized).toContain("$\\text{Na}^+$");
+      expect(normalized).toContain("$\\text{K}^+$");
+      expect(normalized).not.toContain("\\ce{");
+
+      const { container } = render(<RichContent content={text} />);
+      const katexElements = container.querySelectorAll(".katex");
+      expect(katexElements.length).toBe(4);
+    });
+
+    it("4. strips model EOF leak artifacts (```[EOF]klaros-io/...)", () => {
+      const text = "متن پایانی جلسه```[EOF]klaros-io/k2/k1/internal/config";
+      const normalized = normalizeRichContent(text);
+      expect(normalized).toBe("متن پایانی جلسه");
+      expect(normalized).not.toContain("[EOF]");
+    });
+
+    it("5. normalizes Persian keyboard dash typo '---j' to horizontal rule '---'", () => {
+      const text = "بخش اول\n\n---j\n\nبخش دوم";
+      const normalized = normalizeRichContent(text);
+      expect(normalized).toBe("بخش اول\n\n---\n\nبخش دوم");
+    });
+
+    it("6. converts standalone Greek letters and operators outside math (\\alpha, \\beta, \\ge, \\approx)", () => {
+      const text = "گیرنده \\alpha-1 و \\beta-2 با دوز \\ge 10 میلی‌گرم و اثربخشی \\approx 90%.";
+      const normalized = normalizeRichContent(text);
+      expect(normalized).toContain("α-1");
+      expect(normalized).toContain("β-2");
+      expect(normalized).toContain("≥ 10");
+      expect(normalized).toContain("≈ 90%");
+      expect(normalized).not.toContain("\\alpha");
+      expect(normalized).not.toContain("\\beta");
+      expect(normalized).not.toContain("\\ge");
+      expect(normalized).not.toContain("\\approx");
+    });
+  });
 });
-
-
-

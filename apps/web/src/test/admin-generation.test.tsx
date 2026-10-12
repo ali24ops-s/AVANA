@@ -4,6 +4,7 @@ import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AdminGenerationPage } from "../pages/admin/AdminGenerationPage";
 import { AdminGenerationDetailPage } from "../pages/admin/AdminGenerationDetailPage";
+import { toPersianDigits } from "@avana/domain";
 import * as useAdminModule from "../hooks/useAdmin";
 import { api } from "../lib/api/admin";
 
@@ -166,7 +167,7 @@ describe("Admin Generation Center Frontend", () => {
     
     // Model & Token usage
     expect(screen.getByText("gpt-4")).toBeInTheDocument();
-    expect(screen.getByText("150")).toBeInTheDocument(); // total tokens
+    expect(screen.getByText(toPersianDigits(150))).toBeInTheDocument(); // total tokens
     
     // Payload json representation
     expect(screen.getByText(/"test": "data"/)).toBeInTheDocument();

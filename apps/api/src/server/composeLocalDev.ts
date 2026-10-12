@@ -35,6 +35,7 @@ import {
   InMemoryGeneratedContentCitationStore,
   InMemoryGenerationJobStore,
 } from "../modules/generation/test/in-memory-stores.js";
+import { InMemoryQuestionPatternStore } from "../modules/generation/question-patterns-store.js";
 import {
   InMemoryFlashcardStore,
   InMemoryFlashcardReviewStore,
@@ -305,6 +306,7 @@ export async function composeLocalDev(
     teacherExamQuestionStore,
     teacherExamAttemptStore,
     teacherExamAttemptAnswerStore,
+    questionPatternStore: new InMemoryQuestionPatternStore(),
   };
 
   // Seed demo data for local development — awaited before routes register

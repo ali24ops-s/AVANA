@@ -21,6 +21,7 @@ import type {
   DocumentId,
   GenerationJobId,
   OrganizationId,
+  QuestionPatternId,
 } from "@avana/domain";
 import type { GeneratedContentType } from "@avana/domain";
 import type { GenerationJobStore } from "./generation-jobs-store.js";
@@ -49,6 +50,8 @@ export type GenerationJobPayload = {
   generationKey?: string;
   force?: boolean;
   generationContext?: GenerationContext;
+  questionPatternId?: QuestionPatternId | null;
+  questionPatternVersion?: number | null;
 };
 
 /**
@@ -140,6 +143,8 @@ export class InMemoryGenerationQueue implements GenerationQueue {
       startedAt: null,
       completedAt: null,
       deletedAt: null,
+      questionPatternId: payload.questionPatternId ?? null,
+      questionPatternVersion: payload.questionPatternVersion ?? null,
     };
     await this.jobStore.create(record as never);
 
@@ -197,6 +202,8 @@ export class InMemoryGenerationQueue implements GenerationQueue {
               courseId: payload.courseId,
               jobId: record.id,
               generationContext: effectiveContext,
+              questionPatternId: payload.questionPatternId,
+              questionPatternVersion: payload.questionPatternVersion,
             },
           );
 

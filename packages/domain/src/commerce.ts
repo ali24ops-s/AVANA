@@ -211,6 +211,7 @@ export type CardToCardPaymentInput = {
   rawPaymentText?: string; // Optional user-pasted text (sanitized before storage)
   extractionMethod?: "rule" | "ai" | "hybrid" | "manual"; // Extraction technique used
   couponCode?: string; // Optional coupon code
+  analytics?: Record<string, unknown>; // Optional sanitized analytics attribution
 };
 
 export type CardToCardInfoResponse = {

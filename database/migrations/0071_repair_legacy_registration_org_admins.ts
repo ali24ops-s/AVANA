@@ -29,16 +29,25 @@ export const TARGET_MEMBERSHIPS = [
     membershipId: "4591ba83-9a5a-4b23-98d0-24b0cb124bb0",
     userId: "0077321b-ed28-441e-af32-b6aa513fc73f",
     orgId: "c830eb8a-c603-4f90-8800-4b3e8e19c366",
+    allowedOrgIds: [
+      "c830eb8a-c603-4f90-8800-4b3e8e19c366",
+      "3193c905-23d5-4296-8f70-45d1480f62db",
+    ],
   },
   {
     membershipId: "533e8880-3b68-414e-bb49-01400b05ebbd",
     userId: "cccfafda-42e6-487b-b2ac-3f0068582869",
     orgId: "d549079f-6bc5-4c07-b2eb-14b301ca1efd",
+    allowedOrgIds: [
+      "d549079f-6bc5-4c07-b2eb-14b301ca1efd",
+      "b2a70017-310b-4c93-904c-b34eabff9755",
+    ],
   },
   {
     membershipId: "69381508-8af1-4fcf-a889-fe4c7570e5d1",
     userId: "cb72c03b-8b14-4046-a357-c3a088b7db08",
     orgId: "11fdb75b-8858-46fa-b93e-6aee29da185d",
+    allowedOrgIds: ["11fdb75b-8858-46fa-b93e-6aee29da185d"],
   },
 ] as const;
 
@@ -72,7 +81,7 @@ export async function up(db: any) {
         (t) =>
           t.membershipId === r.id &&
           t.userId === r.user_id &&
-          t.orgId === r.organization_id,
+          ((t as any).allowedOrgIds?.includes(r.organization_id) ?? t.orgId === r.organization_id),
       ),
   );
 
@@ -100,7 +109,10 @@ export async function up(db: any) {
         `[Migration 0071] Precondition failed: User ID mismatch for membership ${target.membershipId}. Expected ${target.userId}, found ${matched.user_id}`,
       );
     }
-    if (matched.organization_id !== target.orgId) {
+    const isOrgValid = (target as any).allowedOrgIds
+      ? (target as any).allowedOrgIds.includes(matched.organization_id)
+      : matched.organization_id === target.orgId;
+    if (!isOrgValid) {
       throw new Error(
         `[Migration 0071] Precondition failed: Organization ID mismatch for membership ${target.membershipId}. Expected ${target.orgId}, found ${matched.organization_id}`,
       );
@@ -158,6 +170,8 @@ export async function up(db: any) {
 
   // Insert audit log entries for operational tracking
   for (const target of TARGET_MEMBERSHIPS) {
+    const matched = rows.find((r) => r.id === target.membershipId);
+    const orgIdToAudit = matched?.organization_id ?? target.orgId;
     await db.execute(sql`
       INSERT INTO audit_logs (
         actor_id,
@@ -169,7 +183,7 @@ export async function up(db: any) {
         created_at
       ) VALUES (
         ${target.userId}::uuid,
-        ${target.orgId}::uuid,
+        ${orgIdToAudit}::uuid,
         'DATA_REPAIR_MIGRATION_0071',
         'organization_membership',
         ${target.membershipId}::uuid,
