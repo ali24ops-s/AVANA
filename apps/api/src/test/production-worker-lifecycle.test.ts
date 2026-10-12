@@ -438,4 +438,70 @@ describe("Production Generation Worker Lifecycle & Execution QA", () => {
       expect(userService.generateForDocument).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe("Scenario 8: Question Pattern Configuration & Processing Access in Worker", () => {
+    it("preserves question pattern payload and forwards it to GenerationService with store access", async () => {
+      const orgId = randomUUID() as OrganizationId;
+      const courseId = randomUUID() as CourseId;
+      const documentId = randomUUID() as DocumentId;
+      const patternJobId = `job-pattern-${randomUUID()}` as GenerationJobId;
+      const patternId = randomUUID();
+
+      const jobStore = new InMemoryGenerationJobStore();
+      const now = new Date().toISOString();
+
+      await jobStore.create({
+        id: patternJobId,
+        jobId: patternJobId,
+        organizationId: orgId,
+        documentId,
+        courseId,
+        type: "quiz",
+        status: "queued",
+        generationKey: `key-${patternJobId}`,
+        attempts: 0,
+        errorCode: null,
+        errorMessage: null,
+        createdAt: now,
+        updatedAt: now,
+        startedAt: null,
+        completedAt: null,
+        deletedAt: null,
+      });
+
+      const mockGenerateForDocument = vi.fn().mockResolvedValue(undefined);
+      const mockService = {
+        generateForDocument: mockGenerateForDocument,
+      };
+
+      const bullmqJob = {
+        id: patternJobId,
+        name: "generate",
+        data: {
+          actorUserId: randomUUID(),
+          actorRole: "platform_admin",
+          organizationId: orgId,
+          documentId,
+          courseId,
+          types: ["quiz"],
+          generationContext: "admin",
+          questionPatternId: patternId,
+          questionPatternVersion: 1,
+        },
+      } as unknown as Job;
+
+      await processGenerationJob(bullmqJob, {
+        adminGenerationService: mockService as unknown as GenerationService,
+        generationJobStore: jobStore,
+      });
+
+      expect(mockGenerateForDocument).toHaveBeenCalledTimes(1);
+      const callArgs = mockGenerateForDocument.mock.calls[0];
+      expect(callArgs[3]).toMatchObject({
+        questionPatternId: patternId,
+        questionPatternVersion: 1,
+        generationContext: "admin",
+      });
+    });
+  });
 });

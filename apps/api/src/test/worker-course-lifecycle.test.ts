@@ -200,20 +200,32 @@ describe("Worker End-to-End Course Preparation & Authorization Isolation", () =>
     );
 
     // Seed system organization and memberships
-    orgStore.addMembership({
-      id: randomUUID(),
-      organizationId: systemOrgId,
-      userId: workerActor.userId,
-      role: "content_worker",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+    await orgStore.createWithAdminMembership({
+      organization: {
+        id: systemOrgId,
+        name: "AVANA System",
+        slug: "avana-system",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      },
+      membership: {
+        id: randomUUID(),
+        organizationId: systemOrgId,
+        userId: adminActor.userId,
+        role: "platform_admin",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      },
+      auditEvents: [],
     });
 
     orgStore.addMembership({
       id: randomUUID(),
       organizationId: systemOrgId,
-      userId: adminActor.userId,
-      role: "platform_admin",
+      userId: workerActor.userId,
+      role: "content_worker",
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });

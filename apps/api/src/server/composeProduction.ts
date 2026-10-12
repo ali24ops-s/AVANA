@@ -784,6 +784,7 @@ export async function composeProduction(
       generationProgressService,
       notificationService,
     );
+    adminGenerationService.setQuestionPatternStore(questionPatternStore);
 
     const userGenerationService = new GenerationService(
       generatedContentStore,
@@ -806,6 +807,7 @@ export async function composeProduction(
       generationProgressService,
       notificationService,
     );
+    userGenerationService.setQuestionPatternStore(questionPatternStore);
 
     worker = createGenerationWorker(
       { url: config.redis.url },
