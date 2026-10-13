@@ -219,6 +219,39 @@ export class GenerationLifecycleService {
     }
 
     if (previousStatus === "stopping") {
+      const isLeaseExpired =
+        !job.leaseExpiresAt || new Date(job.leaseExpiresAt).getTime() < Date.now();
+
+      if (isLeaseExpired) {
+        await this.generationJobStore.update({
+          ...job,
+          status: "stopped",
+          leaseExpiresAt: null,
+          completedAt: now,
+          updatedAt: now,
+        });
+        await this.progressService.stop(job.documentId, organizationId);
+
+        const doc = await this.documentStore.findByIdForOrganization(
+          job.documentId,
+          organizationId,
+        );
+        if (doc && (doc.status === "generating" || doc.status === "pending_generation")) {
+          const remaining = await this.generatedContentStore.listByDocument(
+            job.documentId,
+            organizationId,
+          );
+          const hasDrafts = remaining.some((d) => !d.deletedAt && d.status !== "rejected");
+          const newDocStatus = hasDrafts ? "review_pending" : "extracted";
+          await this.documentStore.update({
+            ...doc,
+            status: newDocStatus,
+            updatedAt: now,
+          });
+        }
+        return { jobId, status: "stopped", previousStatus };
+      }
+
       return { jobId, status: "stopping", previousStatus };
     }
 
@@ -250,12 +283,13 @@ export class GenerationLifecycleService {
         documentId,
         organizationId,
       );
-      const activeJob = jobs.find(
-        (j) =>
-          j.status === "running" ||
-          j.status === "queued" ||
-          j.status === "stopping",
+      const sortedJobs = [...jobs].sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
       );
+      const activeJob =
+        sortedJobs.find((j) => j.status === "running") ??
+        sortedJobs.find((j) => j.status === "queued") ??
+        sortedJobs.find((j) => j.status === "stopping");
       if (activeJob) {
         result = await this.stopGenerationJob(actor, organizationId, activeJob.id);
       }

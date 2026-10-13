@@ -21,11 +21,14 @@ import {
   DrizzleGeneratedContentCitationStore,
   DrizzleGenerationJobStore,
   DrizzleGenerationChunkStore,
+  DrizzleGenerationProgressStore,
+  GenerationProgressService,
 } from "@avana/api/generation/drizzle-stores";
 import { DrizzleCourseStore } from "@avana/api/courses/drizzle-stores";
 import { GenerationRecoveryService } from "@avana/api/generation/generation-recovery-service";
 import {
   createModelGateway,
+  GapGPTModelGateway,
   OpenRouterModelGateway,
   type ModelGateway,
 } from "@avana/api/generation/gateway";
@@ -46,6 +49,8 @@ export interface WorkerDependencies {
   generationService: GenerationService;
   generationJobStore: DrizzleGenerationJobStore;
   generationChunkStore: DrizzleGenerationChunkStore;
+  generationProgressStore?: DrizzleGenerationProgressStore;
+  generationProgressService?: GenerationProgressService;
   recoveryService: GenerationRecoveryService;
   walletService: WalletService;
   walletStore: DrizzleWalletStore;
@@ -86,14 +91,21 @@ export async function composeWorker(
     geminiModel: config.generation.geminiModel,
   });
 
-  // User-facing content generation gateway: OpenRouter (DeepSeek)
-  // Zero fallback to Gemini or Cloudflare.
-  const userGateway: ModelGateway = new OpenRouterModelGateway({
-    apiKey: config.userAi.openrouterApiKey,
-    modelName: config.userAi.openrouterModel,
-    httpReferer: config.userAi.httpReferer,
-    appTitle: config.userAi.appTitle,
-  });
+  // User-facing content generation gateway: GapGPT (deepseek-v4-flash) or OpenRouter
+  // Zero fallback to Gemini, Cloudflare, or other external providers.
+  const userGateway: ModelGateway =
+    config.userAi.provider === "openrouter"
+      ? new OpenRouterModelGateway({
+          apiKey: config.userAi.openrouterApiKey,
+          modelName: config.userAi.openrouterModel,
+          httpReferer: config.userAi.httpReferer,
+          appTitle: config.userAi.appTitle,
+        })
+      : new GapGPTModelGateway({
+          apiKey: config.userAi.gapgptApiKey,
+          baseUrl: config.userAi.gapgptBaseUrl,
+          modelName: config.userAi.gapgptModel,
+        });
 
   // Audit service.
   const auditStore = new DrizzleAuditStore(db);
@@ -153,6 +165,9 @@ export async function composeWorker(
   const notificationStore = new DrizzleNotificationStore(db);
   const notificationService = new NotificationService(notificationStore);
 
+  const generationProgressStore = new DrizzleGenerationProgressStore(db);
+  const generationProgressService = new GenerationProgressService(generationProgressStore);
+
   // Admin GenerationService (strictly Gemini)
   const adminGenerationService = new GenerationService(
     generatedContentStore,
@@ -172,6 +187,7 @@ export async function composeWorker(
     undefined,
     generationChunkStore,
     generationJobStore,
+    generationProgressService,
   );
   adminGenerationService.setNotificationService(notificationService);
 
@@ -194,6 +210,7 @@ export async function composeWorker(
     undefined,
     generationChunkStore,
     generationJobStore,
+    generationProgressService,
   );
   userGenerationService.setNotificationService(notificationService);
 
@@ -203,6 +220,8 @@ export async function composeWorker(
     generationService: userGenerationService,
     generationJobStore,
     generationChunkStore,
+    generationProgressStore,
+    generationProgressService,
     recoveryService,
     walletService,
     walletStore,

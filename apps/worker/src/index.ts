@@ -16,14 +16,17 @@ import { composeWorker } from "./compose.js";
 import { createGenerationWorker } from "./processors/generation-processor.js";
 
 export function validateWorkerConfig(config: WorkerConfig): void {
+  const isGapGpt = config.userAi.provider === "gapgpt";
   const hasKey = Boolean(
-    config.userAi.openrouterApiKey &&
-      config.userAi.openrouterApiKey.trim().length > 0,
+    isGapGpt
+      ? config.userAi.gapgptApiKey && config.userAi.gapgptApiKey.trim().length > 0
+      : config.userAi.openrouterApiKey && config.userAi.openrouterApiKey.trim().length > 0,
   );
 
   if (!hasKey) {
+    const missingVar = isGapGpt ? "GAPGPT_API_KEY" : "OPENROUTER_API_KEY";
     throw new Error(
-      "Configuration error: OPENROUTER_API_KEY is missing or empty. Cannot start worker.",
+      `Configuration error: ${missingVar} is missing or empty. Cannot start worker.`,
     );
   }
 }
@@ -31,16 +34,23 @@ export function validateWorkerConfig(config: WorkerConfig): void {
 async function main(): Promise<void> {
   const config = loadWorkerConfig();
 
+  const isGapGpt = config.userAi.provider === "gapgpt";
+  const activeModel = isGapGpt
+    ? config.userAi.gapgptModel
+    : config.userAi.openrouterModel;
+
   // Safe startup diagnostics — NEVER logs the actual API key
   process.stdout.write(`[worker] AI provider: ${config.userAi.provider}\n`);
-  process.stdout.write(`[worker] AI model: ${config.userAi.openrouterModel}\n`);
+  process.stdout.write(`[worker] AI model: ${activeModel}\n`);
   process.stdout.write(`[worker] AI fallback: disabled\n`);
 
   const hasKey = Boolean(
-    config.userAi.openrouterApiKey &&
-      config.userAi.openrouterApiKey.trim().length > 0,
+    isGapGpt
+      ? config.userAi.gapgptApiKey && config.userAi.gapgptApiKey.trim().length > 0
+      : config.userAi.openrouterApiKey && config.userAi.openrouterApiKey.trim().length > 0,
   );
-  process.stdout.write(`[worker] OpenRouter API key configured: ${hasKey}\n`);
+  const providerLabel = isGapGpt ? "GapGPT" : "OpenRouter";
+  process.stdout.write(`[worker] ${providerLabel} API key configured: ${hasKey}\n`);
 
   validateWorkerConfig(config);
 
@@ -83,6 +93,7 @@ async function main(): Promise<void> {
       userGenerationService: deps.userGenerationService,
       generationService: deps.generationService,
       generationJobStore: deps.generationJobStore,
+      generationProgressService: deps.generationProgressService,
       walletService: deps.walletService,
       walletStore: deps.walletStore,
     },

@@ -677,4 +677,59 @@ export class TelegramClient {
       }
     }
   }
+
+  /**
+   * Register official bot commands menu in Telegram (setMyCommands).
+   *
+   * NEVER throws an error to the caller — returns a status object.
+   */
+  async setMyCommands(
+    commands: Array<{ command: string; description: string }>,
+  ): Promise<{ ok: boolean; reason?: string }> {
+    if (!this.botToken) {
+      return { ok: false, reason: "missing_bot_token" };
+    }
+
+    const endpoint = `${this.apiBaseUrl}/bot${this.botToken}/setMyCommands`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+
+    try {
+      const response = await this.fetchImpl(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({ commands }),
+        signal: controller.signal,
+      });
+
+      let parsed: TelegramApiResponse | null = null;
+      try {
+        const json = await response.json();
+        if (json && typeof json === "object") {
+          parsed = json as TelegramApiResponse;
+        }
+      } catch {
+        parsed = null;
+      }
+
+      if (!response.ok || !parsed?.ok) {
+        const errorDesc = parsed?.description || `HTTP ${response.status}`;
+        return { ok: false, reason: `telegram_api_error: ${errorDesc}` };
+      }
+
+      return { ok: true };
+    } catch (err: unknown) {
+      if (controller.signal.aborted) {
+        return { ok: false, reason: `timeout_after_${this.timeoutMs}ms` };
+      }
+      const safeMessage = this.sanitizeErrorMessage(err);
+      return { ok: false, reason: `network_error: ${safeMessage}` };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
 }
+

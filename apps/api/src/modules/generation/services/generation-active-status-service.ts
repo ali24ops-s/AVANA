@@ -329,6 +329,53 @@ export class GenerationActiveStatusService {
             isActive = false;
           }
         }
+      } else if (isActive && res.status === "stopping") {
+        const lastActivityTime = res.lastActivityAt
+          ? new Date(res.lastActivityAt).getTime()
+          : (record?.updatedAt ? new Date(record.updatedAt).getTime() : (doc.updatedAt ? new Date(doc.updatedAt).getTime() : 0));
+        const isTimeExceeded = (now - lastActivityTime) > STALE_THRESHOLD_MS;
+
+        if (isTimeExceeded) {
+          const hasActiveWorker = await this.queryService.isDocumentActivelyWorking(
+            doc.id,
+            organizationId,
+            STALE_THRESHOLD_MS,
+          );
+          if (!hasActiveWorker) {
+            // Safely finalize abandoned stopping job to stopped
+            if (this.queryService.generationJobStore) {
+              const jobs = await this.queryService.generationJobStore.listByDocument(doc.id, organizationId);
+              for (const j of jobs) {
+                if (j.status === "stopping" || j.status === "running") {
+                  await this.queryService.generationJobStore.update({
+                    ...j,
+                    status: "stopped",
+                    leaseExpiresAt: null,
+                    completedAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString(),
+                  });
+                }
+              }
+            }
+            await this.progressService.stop(doc.id, organizationId);
+
+            const drafts = await this.generatedContentStore.listByDocument(doc.id, organizationId);
+            const hasDrafts = drafts.some((d) => !d.deletedAt && d.status !== "rejected");
+            const newDocStatus = hasDrafts ? "review_pending" : "extracted";
+            if (doc.status === "generating" || doc.status === "pending_generation") {
+              await this.documentStore.update({
+                ...doc,
+                status: newDocStatus,
+                updatedAt: new Date().toISOString(),
+              });
+              doc.status = newDocStatus;
+            }
+
+            const updatedRecord = await this.progressService.getRecord(doc.id, organizationId);
+            res = this.progressService.toResource(updatedRecord, doc.status, null);
+            isActive = false;
+          }
+        }
       }
 
       const isStopped = !isPostGenerationOrCompleted && res.status === "stopped";

@@ -55,6 +55,7 @@ jobs:
         env:
           # Automatically derive base path from Pages setup (e.g., /AVANA/)
           BASE_PATH: ${{ steps.pages.outputs.base_path || '/AVANA/' }}
+          VITE_GA4_MEASUREMENT_ID: "G-2CZSJE8ZYH"
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

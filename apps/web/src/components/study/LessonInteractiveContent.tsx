@@ -249,8 +249,19 @@ export function LessonInteractiveContent({
         (e) => e.end > matchStart && e.start < matchEnd,
       );
 
+      // Filter entries that have a valid slice to wrap
+      const validEntries = intersecting.filter((entry) => {
+        const nodeTextLen = entry.node.textContent?.length || 0;
+        const nodeSliceStart = Math.max(0, matchStart - entry.start);
+        const nodeSliceEnd = Math.min(nodeTextLen, matchEnd - entry.start);
+        return nodeSliceStart < nodeSliceEnd;
+      });
+
+      const totalSegments = validEntries.length;
+
       // Wrap each intersecting text node slice safely using native splitText
-      for (const entry of intersecting) {
+      for (let i = 0; i < totalSegments; i++) {
+        const entry = validEntries[i];
         const nodeTextLen = entry.node.textContent?.length || 0;
         const nodeSliceStart = Math.max(0, matchStart - entry.start);
         const nodeSliceEnd = Math.min(nodeTextLen, matchEnd - entry.start);
@@ -261,6 +272,16 @@ export function LessonInteractiveContent({
           const mark = document.createElement("mark");
           mark.setAttribute("data-avana-annotation", ann.id);
           mark.setAttribute("data-annotation-type", ann.type);
+
+          if (totalSegments === 1) {
+            mark.setAttribute("data-mark-pos", "single");
+          } else if (i === 0) {
+            mark.setAttribute("data-mark-pos", "start");
+          } else if (i === totalSegments - 1) {
+            mark.setAttribute("data-mark-pos", "end");
+          } else {
+            mark.setAttribute("data-mark-pos", "middle");
+          }
 
           if (ann.type === "highlight") {
             mark.className = "avana-highlight";

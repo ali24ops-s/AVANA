@@ -113,6 +113,9 @@ export type ApiConfig = {
   };
   userAi: {
     provider: string;
+    gapgptApiKey?: string;
+    gapgptBaseUrl?: string;
+    gapgptModel: string;
     openrouterApiKey?: string;
     openrouterModel: string;
     httpReferer?: string;
@@ -528,7 +531,18 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
       },
     },
     userAi: {
-      provider: getOptionalString(env, "USER_AI_PROVIDER", "openrouter"),
+      provider: getOptionalString(env, "USER_AI_PROVIDER", "gapgpt"),
+      gapgptApiKey: env.GAPGPT_API_KEY,
+      gapgptBaseUrl: getOptionalString(
+        env,
+        "GAPGPT_BASE_URL",
+        "https://api.gapgpt.app/v1",
+      ),
+      gapgptModel: getOptionalString(
+        env,
+        "GAPGPT_USER_AI_MODEL",
+        getOptionalString(env, "GAPGPT_MODEL", "deepseek-v4-flash"),
+      ),
       openrouterApiKey: env.OPENROUTER_API_KEY,
       openrouterModel: getOptionalString(
         env,

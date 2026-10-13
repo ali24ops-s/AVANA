@@ -6,7 +6,9 @@
 
 export interface TrackerConfig {
   gtmId: string;
+  ga4MeasurementId?: string;
   enabled: boolean;
+  mode?: "ga4" | "gtm" | "disabled";
 }
 
 export type EventParamPrimitive = string | number | boolean | null | undefined;
@@ -87,8 +89,10 @@ export interface DataLayerEvent {
 
 declare global {
   interface Window {
-    dataLayer?: Array<Record<string, unknown>>;
+    dataLayer?: Array<Record<string, unknown> | unknown[] | IArguments>;
     __gtmInitialized?: boolean;
+    __ga4Initialized?: boolean;
+    gtag?: (...args: unknown[]) => void;
   }
 }
 

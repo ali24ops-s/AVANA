@@ -60,6 +60,7 @@ import type { GenerationChunkStore } from "../modules/generation/generation-chun
 import type { GenerationJobStore } from "../modules/generation/generation-jobs-store.js";
 import type { GenerationQueue } from "../modules/generation/generation-queue.js";
 import {
+  GapGPTModelGateway,
   OpenRouterModelGateway,
   type ModelGateway,
 } from "../modules/generation/gateway/index.js";
@@ -623,12 +624,18 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
   ) {
     const assistantGateway =
       opts.assistantGateway ??
-      new OpenRouterModelGateway({
-        apiKey: opts.config.userAi.openrouterApiKey,
-        modelName: opts.config.userAi.openrouterModel,
-        httpReferer: opts.config.userAi.httpReferer,
-        appTitle: opts.config.userAi.appTitle,
-      });
+      (opts.config.userAi.provider === "openrouter"
+        ? new OpenRouterModelGateway({
+            apiKey: opts.config.userAi.openrouterApiKey,
+            modelName: opts.config.userAi.openrouterModel,
+            httpReferer: opts.config.userAi.httpReferer,
+            appTitle: opts.config.userAi.appTitle,
+          })
+        : new GapGPTModelGateway({
+            apiKey: opts.config.userAi.gapgptApiKey,
+            baseUrl: opts.config.userAi.gapgptBaseUrl,
+            modelName: opts.config.userAi.gapgptModel,
+          }));
 
     await app.register(assistantRoutes, {
       sessionService: new SessionService(

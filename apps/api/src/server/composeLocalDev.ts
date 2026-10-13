@@ -34,7 +34,10 @@ import {
   InMemoryGeneratedContentStore,
   InMemoryGeneratedContentCitationStore,
   InMemoryGenerationJobStore,
+  InMemoryGenerationChunkStore,
 } from "../modules/generation/test/in-memory-stores.js";
+import { InMemoryGenerationProgressStore } from "../modules/generation/generation-progress-store.js";
+import { GenerationProgressService } from "../modules/generation/generation-progress-service.js";
 import { InMemoryQuestionPatternStore } from "../modules/generation/question-patterns-store.js";
 import {
   InMemoryFlashcardStore,
@@ -53,12 +56,13 @@ import {
 } from "../modules/study/index.js";
 import {
   createModelGateway,
+  GapGPTModelGateway,
   OpenRouterModelGateway,
   InMemoryGenerationQueue,
   GenerationService,
   type ModelGateway,
 } from "../modules/generation/index.js";
-import { defaultPolicy } from "@avana/domain";
+import { defaultPolicy, type OrganizationId } from "@avana/domain";
 import { LocalStorageProvider } from "../modules/storage/index.js";
 import { InMemoryCommerceStore } from "../modules/commerce/index.js";
 import { InMemoryWalletStore } from "../modules/wallet/index.js";
@@ -91,6 +95,7 @@ import type { ApiConfig } from "../config.js";
 
 export interface ComposeLocalDevOptions {
   gateway?: ModelGateway;
+  userGateway?: ModelGateway;
 }
 
 export interface LocalDevDependencies {
@@ -132,6 +137,9 @@ export async function composeLocalDev(
   const generatedContentCitationStore =
     new InMemoryGeneratedContentCitationStore();
   const generationJobStore = new InMemoryGenerationJobStore();
+  const generationChunkStore = new InMemoryGenerationChunkStore();
+  const generationProgressStore = new InMemoryGenerationProgressStore();
+  const generationProgressService = new GenerationProgressService(generationProgressStore);
 
   // Study stores
   const flashcardStore = new InMemoryFlashcardStore();
@@ -195,14 +203,23 @@ export async function composeLocalDev(
       geminiModel: config.generation.geminiModel,
     });
 
-  // Dedicated OpenRouter ModelGateway for User-Facing AI (Content Generation & Ask)
-  // Zero fallback to Gemini or Cloudflare.
-  const userGateway: ModelGateway = new OpenRouterModelGateway({
-    apiKey: config.userAi.openrouterApiKey,
-    modelName: config.userAi.openrouterModel,
-    httpReferer: config.userAi.httpReferer,
-    appTitle: config.userAi.appTitle,
-  });
+  // Dedicated ModelGateway for User-Facing AI (Content Generation & Ask)
+  // Strictly GapGPT (deepseek-v4-flash) or OpenRouter based on config.
+  // Zero fallback to Gemini, Cloudflare, or other external providers.
+  const userGateway: ModelGateway =
+    options?.userGateway ??
+    (config.userAi.provider === "openrouter"
+      ? new OpenRouterModelGateway({
+          apiKey: config.userAi.openrouterApiKey,
+          modelName: config.userAi.openrouterModel,
+          httpReferer: config.userAi.httpReferer,
+          appTitle: config.userAi.appTitle,
+        })
+      : new GapGPTModelGateway({
+          apiKey: config.userAi.gapgptApiKey,
+          baseUrl: config.userAi.gapgptBaseUrl,
+          modelName: config.userAi.gapgptModel,
+        }));
 
   const assistantGateway: ModelGateway = userGateway;
 
@@ -218,6 +235,16 @@ export async function composeLocalDev(
     defaultPolicy,
     auditService,
     organizationStore,
+    moduleStore,
+    lessonStore,
+    flashcardStore,
+    quizStore,
+    quizQuestionStore,
+    courseStore,
+    config.systemOrganizationId as OrganizationId,
+    generationChunkStore,
+    generationJobStore,
+    generationProgressService,
   );
 
   const userGenerationService = new GenerationService(
@@ -229,6 +256,16 @@ export async function composeLocalDev(
     defaultPolicy,
     auditService,
     organizationStore,
+    moduleStore,
+    lessonStore,
+    flashcardStore,
+    quizStore,
+    quizQuestionStore,
+    courseStore,
+    config.systemOrganizationId as OrganizationId,
+    generationChunkStore,
+    generationJobStore,
+    generationProgressService,
   );
 
   // In-memory generation queue with background execution.
@@ -279,6 +316,9 @@ export async function composeLocalDev(
     generatedContentStore,
     generatedContentCitationStore,
     generationJobStore,
+    generationChunkStore,
+    generationProgressStore,
+    generationProgressService,
     queue,
     gateway: userGateway,
     adminGateway,

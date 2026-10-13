@@ -810,7 +810,10 @@ export function ExamConfigView({
                         )}
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className="text-[11px] text-[var(--color-text-muted)] font-mono" dir="ltr">
+                        <span
+                          className="text-[11px] text-[var(--color-text-muted)] font-mono [unicode-bidi:isolate]"
+                          dir="rtl"
+                        >
                           {formattedDate}
                         </span>
                         <button

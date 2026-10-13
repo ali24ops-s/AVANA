@@ -189,4 +189,57 @@ describe("ExamConfigView Recent Exams Removal UI", () => {
       expect(mockRemoveExamAttemptFromHistory).toHaveBeenCalledWith("test-org", "att-1");
     });
   });
+
+  it("renders recent exam date and time with dir='rtl' and unicode-bidi isolate without LTR shifting", async () => {
+    // Specifically test date corresponding to "۵ مهر، ۲۲:۱۰"
+    const targetDate = new Date(2026, 8, 27, 22, 10);
+    const specificDateIso = targetDate.toISOString();
+
+    queryClient.setQueryData(["exam-history", "test-org"], {
+      items: [
+        {
+          attemptId: "att-date-test",
+          topic: "آزمون ارزیابی جامع",
+          status: "completed",
+          isSpecialExam: false,
+          totalQuestions: 20,
+          correct: 18,
+          score: 90,
+          startedAt: specificDateIso,
+          completedAt: null,
+        },
+      ],
+    });
+
+    renderView();
+
+    await waitFor(() => {
+      expect(screen.getByText("آزمون ارزیابی جامع")).toBeInTheDocument();
+    });
+
+    const expectedDateStr = targetDate.toLocaleDateString("fa-IR", {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+
+    // Verify formatted Persian date (e.g. "۵ مهر، ۲۲:۱۰")
+    expect(expectedDateStr).toContain("مهر");
+    const dateElement = screen.getByText(expectedDateStr);
+    expect(dateElement).toBeInTheDocument();
+
+    // Verify BiDi fix: element must explicitly have dir="rtl" and unicode-bidi: isolate
+    expect(dateElement).toHaveAttribute("dir", "rtl");
+    expect(dateElement).not.toHaveAttribute("dir", "ltr");
+    expect(dateElement.className).toContain("[unicode-bidi:isolate]");
+    expect(dateElement.className).toContain("font-mono");
+
+    // Verify card structure: delete button, badge, and title remain in place
+    const deleteBtn = screen.getByTestId("delete-attempt-att-date-test");
+    expect(deleteBtn).toBeInTheDocument();
+    expect(dateElement.parentElement).toContainElement(deleteBtn);
+    expect(screen.getByText("تکمیل شده")).toBeInTheDocument();
+  });
 });
+

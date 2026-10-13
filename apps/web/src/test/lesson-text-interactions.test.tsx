@@ -921,4 +921,297 @@ describe("Lesson Text Interaction & Selection Feature Suite", () => {
       expect(screen.getByRole("toolbar")).toBeInTheDocument();
     });
   });
+
+  describe("7. Continuous Background and Multi-Segment Annotation Integrity", () => {
+    it("renders multi-word highlight with continuous colored spaces and data-mark-pos='single'", async () => {
+      const annotationsList = [
+        {
+          id: "ann-multiword-1",
+          userId: "user-1",
+          lessonId: "lesson-cont-1",
+          type: "highlight" as const,
+          selectedText: "مهار اختصاصی گیرنده‌های بتا یک قلبی",
+          startOffset: 12,
+          endOffset: 46,
+          color: "default",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      ];
+
+      vi.spyOn(globalThis, "fetch").mockImplementation(() =>
+        Promise.resolve({
+          ok: true,
+          status: 200,
+          text: () => Promise.resolve(JSON.stringify({ items: annotationsList })),
+        } as unknown as Response),
+      );
+
+      const markdown = "این دارو با مهار اختصاصی گیرنده‌های بتا یک قلبی موجب کاهش ضربان قلب می‌شود.";
+
+      const { container } = render(
+        <QueryClientProvider client={queryClient}>
+          <LessonInteractiveContent
+            lessonId="lesson-cont-1"
+            courseId="course-1"
+            content={markdown}
+          />
+        </QueryClientProvider>,
+      );
+
+      await waitFor(() => {
+        const mark = container.querySelector("mark[data-avana-annotation='ann-multiword-1']");
+        expect(mark).toBeInTheDocument();
+        expect(mark).toHaveClass("avana-highlight");
+        expect(mark).toHaveAttribute("data-mark-pos", "single");
+        // Space characters must be preserved inside the mark text
+        expect(mark?.textContent).toBe("مهار اختصاصی گیرنده‌های بتا یک قلبی");
+        expect(mark?.textContent?.includes(" ")).toBe(true);
+      });
+    });
+
+    it("renders multi-word personal note with continuous background and interactive dialog support", async () => {
+      const annotationsList = [
+        {
+          id: "note-multiword-1",
+          userId: "user-1",
+          lessonId: "lesson-cont-2",
+          type: "note" as const,
+          selectedText: "افزایش جریان خون کلیوی و کاهش مقاومت عروقی",
+          noteText: "نکته فارماکولوژی: مکانیسم دیلاتاسیون شریانی",
+          startOffset: 15,
+          endOffset: 57,
+          color: "default",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      ];
+
+      vi.spyOn(globalThis, "fetch").mockImplementation(() =>
+        Promise.resolve({
+          ok: true,
+          status: 200,
+          text: () => Promise.resolve(JSON.stringify({ items: annotationsList })),
+        } as unknown as Response),
+      );
+
+      const markdown = "درمان منجر به افزایش جریان خون کلیوی و کاهش مقاومت عروقی می‌گردد.";
+
+      const { container } = render(
+        <QueryClientProvider client={queryClient}>
+          <LessonInteractiveContent
+            lessonId="lesson-cont-2"
+            courseId="course-1"
+            content={markdown}
+          />
+        </QueryClientProvider>,
+      );
+
+      await waitFor(() => {
+        const noteMark = container.querySelector("mark[data-avana-annotation='note-multiword-1']");
+        expect(noteMark).toBeInTheDocument();
+        expect(noteMark).toHaveClass("avana-note");
+        expect(noteMark).toHaveAttribute("data-mark-pos", "single");
+        expect(noteMark?.textContent).toBe("افزایش جریان خون کلیوی و کاهش مقاومت عروقی");
+      });
+
+      // Clicking opens the note edit dialog with existing text
+      const noteMark = container.querySelector("mark[data-avana-annotation='note-multiword-1']");
+      if (noteMark) {
+        fireEvent.click(noteMark);
+        await waitFor(() => {
+          expect(screen.getByText("ویرایش یادداشت شخصی")).toBeInTheDocument();
+          expect(screen.getByDisplayValue("نکته فارماکولوژی: مکانیسم دیلاتاسیون شریانی")).toBeInTheDocument();
+        });
+      }
+    });
+
+    it("renders cross-element selection spanning strong and plain text with start/middle/end data-mark-pos", async () => {
+      const annotationsList = [
+        {
+          id: "ann-cross-elem",
+          userId: "user-1",
+          lessonId: "lesson-cont-3",
+          type: "highlight" as const,
+          selectedText: "تجویز داروی آمپی‌سیلین خوراکی همراه با آب",
+          prefix: "در پروتکل درمان، ",
+          suffix: " توصیه می‌شود.",
+          startOffset: 17,
+          endOffset: 58,
+          color: "default",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      ];
+
+      vi.spyOn(globalThis, "fetch").mockImplementation(() =>
+        Promise.resolve({
+          ok: true,
+          status: 200,
+          text: () => Promise.resolve(JSON.stringify({ items: annotationsList })),
+        } as unknown as Response),
+      );
+
+      // Markdown containing bold element inside the selection
+      const markdown = "در پروتکل درمان، تجویز داروی **آمپی‌سیلین** خوراکی همراه با آب توصیه می‌شود.";
+
+      const { container } = render(
+        <QueryClientProvider client={queryClient}>
+          <LessonInteractiveContent
+            lessonId="lesson-cont-3"
+            courseId="course-1"
+            content={markdown}
+          />
+        </QueryClientProvider>,
+      );
+
+      await waitFor(() => {
+        const marks = container.querySelectorAll("mark[data-avana-annotation='ann-cross-elem']");
+        // Should span across multiple text nodes (before bold, inside bold, after bold)
+        expect(marks.length).toBeGreaterThan(1);
+
+        // Verify segment positions are mapped in document order
+        const startMark = marks[0];
+        const middleMark = marks[1];
+        const endMark = marks[marks.length - 1];
+
+        expect(startMark).toHaveAttribute("data-mark-pos", "start");
+        expect(startMark.textContent).toBe("تجویز داروی ");
+
+        if (marks.length === 3) {
+          expect(middleMark).toHaveAttribute("data-mark-pos", "middle");
+          expect(middleMark.textContent).toBe("آمپی‌سیلین");
+        }
+
+        expect(endMark).toHaveAttribute("data-mark-pos", "end");
+        expect(endMark.textContent).toBe(" خوراکی همراه با آب");
+
+        // Joined text of all marks equals the complete selected text with spaces
+        const combinedText = Array.from(marks).map((m) => m.textContent).join("");
+        expect(combinedText).toBe("تجویز داروی آمپی‌سیلین خوراکی همراه با آب");
+      });
+    });
+
+    it("handles multi-line text selection and preserves consecutive spaces and line breaks smoothly", async () => {
+      const annotationsList = [
+        {
+          id: "ann-multiline-1",
+          userId: "user-1",
+          lessonId: "lesson-cont-4",
+          type: "highlight" as const,
+          selectedText: "سطر اول محتوای بالینی\nسطر دوم با چند   فاصله متوالی",
+          color: "default",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      ];
+
+      vi.spyOn(globalThis, "fetch").mockImplementation(() =>
+        Promise.resolve({
+          ok: true,
+          status: 200,
+          text: () => Promise.resolve(JSON.stringify({ items: annotationsList })),
+        } as unknown as Response),
+      );
+
+      const markdown = "شروع پاراگراف: سطر اول محتوای بالینی\nسطر دوم با چند   فاصله متوالی و پایان آن.";
+
+      const { container } = render(
+        <QueryClientProvider client={queryClient}>
+          <LessonInteractiveContent
+            lessonId="lesson-cont-4"
+            courseId="course-1"
+            content={markdown}
+          />
+        </QueryClientProvider>,
+      );
+
+      await waitFor(() => {
+        const marks = container.querySelectorAll("mark[data-avana-annotation='ann-multiline-1']");
+        expect(marks.length).toBeGreaterThanOrEqual(1);
+        const combinedText = Array.from(marks).map((m) => m.textContent).join("");
+        expect(combinedText).toContain("سطر اول محتوای بالینی");
+        expect(combinedText).toContain("سطر دوم با چند   فاصله متوالی");
+      });
+    });
+
+    it("supports deleting a multi-segment cross-element highlight cleanly from DOM and resetting parent nodes", async () => {
+      let annotationsList = [
+        {
+          id: "ann-multi-del",
+          userId: "user-1",
+          lessonId: "lesson-cont-5",
+          type: "highlight" as const,
+          selectedText: "داروی سفتریاکسون وریدی",
+          color: "default",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      ];
+
+      vi.spyOn(globalThis, "fetch").mockImplementation((url, opts) => {
+        const urlStr = String(url);
+        if (urlStr.includes("/annotations/ann-multi-del") && opts?.method === "DELETE") {
+          annotationsList = [];
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            text: () => Promise.resolve(JSON.stringify({ ok: true })),
+          } as unknown as Response);
+        }
+        if (urlStr.includes("/annotations")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            text: () => Promise.resolve(JSON.stringify({ items: annotationsList })),
+          } as unknown as Response);
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          text: () => Promise.resolve(JSON.stringify({})),
+        } as unknown as Response);
+      });
+
+      const markdown = "تجویز داروی **سفتریاکسون** وریدی شروع شد.";
+
+      const { container } = render(
+        <QueryClientProvider client={queryClient}>
+          <LessonInteractiveContent
+            lessonId="lesson-cont-5"
+            courseId="course-1"
+            content={markdown}
+          />
+        </QueryClientProvider>,
+      );
+
+      let mark: Element | null = null;
+      await waitFor(() => {
+        mark = container.querySelector("mark[data-avana-annotation='ann-multi-del']");
+        expect(mark).toBeInTheDocument();
+      });
+
+      // Click mark to open dialog
+      if (mark) {
+        fireEvent.click(mark);
+      }
+
+      await waitFor(() => {
+        expect(screen.getByText("حذف هایلایت")).toBeInTheDocument();
+      });
+
+      // Click delete button
+      fireEvent.click(screen.getByText("حذف هایلایت"));
+
+      // Marks should be unmounted and removed from DOM
+      await waitFor(() => {
+        expect(
+          container.querySelector("mark[data-avana-annotation='ann-multi-del']"),
+        ).not.toBeInTheDocument();
+      });
+
+      // Text content remains fully intact without corruption
+      expect(container.textContent).toContain("تجویز داروی سفتریاکسون وریدی شروع شد.");
+    });
+  });
 });

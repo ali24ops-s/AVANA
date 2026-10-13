@@ -734,5 +734,200 @@ describe("GenerationLifecycleService (Unit Tests)", () => {
         expect(resetSpy).not.toHaveBeenCalled();
       }
     });
+
+    it("prioritizes running job over older stopping job when multiple jobs exist for document", async () => {
+      docs.push({
+        id: docId,
+        organizationId: orgId,
+        courseId,
+        title: "Test Doc",
+        filePath: "/path",
+        fileType: "application/pdf",
+        fileSize: 100,
+        contentHash: "hash",
+        extractedText: "text",
+        status: "processing",
+        errorMessage: null,
+        lessonCount: 0,
+        estimatedTimeMinutes: 0,
+        wordCount: 10,
+        uploadedBy: "admin-1",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+
+      // Older job: stuck in "stopping"
+      const olderStoppingJob: GenerationJobRecord = {
+        id: "job-old-stopping" as GenerationJobId,
+        documentId: docId,
+        organizationId: orgId,
+        status: "stopping",
+        targetTypes: ["lesson"],
+        priority: 1,
+        attempts: 1,
+        maxAttempts: 3,
+        payload: {},
+        leaseExpiresAt: null,
+        heartbeatAt: null,
+        startedAt: new Date(Date.now() - 60000).toISOString(),
+        completedAt: null,
+        failedAt: null,
+        errorCode: null,
+        errorMessage: null,
+        createdAt: new Date(Date.now() - 60000).toISOString(),
+        updatedAt: new Date(Date.now() - 50000).toISOString(),
+        deletedAt: null,
+      };
+      await jobStore.create(olderStoppingJob);
+
+      // Newer job: actively "running"
+      const newerRunningJob: GenerationJobRecord = {
+        id: "job-new-running" as GenerationJobId,
+        documentId: docId,
+        organizationId: orgId,
+        status: "running",
+        targetTypes: ["lesson"],
+        priority: 1,
+        attempts: 1,
+        maxAttempts: 3,
+        payload: {},
+        leaseExpiresAt: null,
+        heartbeatAt: null,
+        startedAt: new Date(Date.now() - 10000).toISOString(),
+        completedAt: null,
+        failedAt: null,
+        errorCode: null,
+        errorMessage: null,
+        createdAt: new Date(Date.now() - 10000).toISOString(),
+        updatedAt: new Date(Date.now() - 10000).toISOString(),
+        deletedAt: null,
+      };
+      await jobStore.create(newerRunningJob);
+
+      const res = await lifecycleService.stopGenerationForDocument(actor, orgId, docId);
+
+      expect(res.jobId).toBe("job-new-running");
+      expect(res.status).toBe("stopping");
+      expect(res.previousStatus).toBe("running");
+
+      const updatedNewJob = await jobStore.findByIdForOrganization(newerRunningJob.id, orgId);
+      expect(updatedNewJob?.status).toBe("stopping");
+    });
+
+    it("prioritizes queued job over older stopping job when multiple jobs exist for document", async () => {
+      docs.push({
+        id: docId,
+        organizationId: orgId,
+        courseId,
+        title: "Test Doc",
+        filePath: "/path",
+        fileType: "application/pdf",
+        fileSize: 100,
+        contentHash: "hash",
+        extractedText: "text",
+        status: "processing",
+        errorMessage: null,
+        lessonCount: 0,
+        estimatedTimeMinutes: 0,
+        wordCount: 10,
+        uploadedBy: "admin-1",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      });
+
+      // Older job: stuck in "stopping"
+      const olderStoppingJob: GenerationJobRecord = {
+        id: "job-old-stopping-2" as GenerationJobId,
+        documentId: docId,
+        organizationId: orgId,
+        status: "stopping",
+        targetTypes: ["lesson"],
+        priority: 1,
+        attempts: 1,
+        maxAttempts: 3,
+        payload: {},
+        leaseExpiresAt: null,
+        heartbeatAt: null,
+        startedAt: new Date(Date.now() - 60000).toISOString(),
+        completedAt: null,
+        failedAt: null,
+        errorCode: null,
+        errorMessage: null,
+        createdAt: new Date(Date.now() - 60000).toISOString(),
+        updatedAt: new Date(Date.now() - 50000).toISOString(),
+        deletedAt: null,
+      };
+      await jobStore.create(olderStoppingJob);
+
+      // Newer job: "queued"
+      const newerQueuedJob: GenerationJobRecord = {
+        id: "job-new-queued" as GenerationJobId,
+        documentId: docId,
+        organizationId: orgId,
+        status: "queued",
+        targetTypes: ["lesson"],
+        priority: 1,
+        attempts: 0,
+        maxAttempts: 3,
+        payload: {},
+        leaseExpiresAt: null,
+        heartbeatAt: null,
+        startedAt: null,
+        completedAt: null,
+        failedAt: null,
+        errorCode: null,
+        errorMessage: null,
+        createdAt: new Date(Date.now() - 10000).toISOString(),
+        updatedAt: new Date(Date.now() - 10000).toISOString(),
+        deletedAt: null,
+      };
+      await jobStore.create(newerQueuedJob);
+
+      const res = await lifecycleService.stopGenerationForDocument(actor, orgId, docId);
+
+      expect(res.jobId).toBe("job-new-queued");
+      expect(res.status).toBe("stopped");
+      expect(res.previousStatus).toBe("queued");
+
+      const updatedQueuedJob = await jobStore.findByIdForOrganization(newerQueuedJob.id, orgId);
+      expect(updatedQueuedJob?.status).toBe("stopped");
+    });
+
+    it("strictly isolates tenant when stopping generation for document", async () => {
+      const otherOrgId = "org-other" as OrganizationId;
+      const otherJob: GenerationJobRecord = {
+        id: "job-other-org" as GenerationJobId,
+        documentId: docId,
+        organizationId: otherOrgId,
+        status: "running",
+        targetTypes: ["lesson"],
+        priority: 1,
+        attempts: 1,
+        maxAttempts: 3,
+        payload: {},
+        leaseExpiresAt: null,
+        heartbeatAt: null,
+        startedAt: new Date().toISOString(),
+        completedAt: null,
+        failedAt: null,
+        errorCode: null,
+        errorMessage: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deletedAt: null,
+      };
+      await jobStore.create(otherJob);
+
+      // Actor from orgId tries to stop generation for docId (which has a job in otherOrgId)
+      // Because docId is not in orgId docs, it will not find other org's jobs
+      const res = await lifecycleService.stopGenerationForDocument(actor, orgId, docId);
+      expect(res.jobId).toBeUndefined();
+
+      // The other org's job remains untouched in "running"
+      const unchangedOtherJob = await jobStore.findByIdForOrganization(otherJob.id, otherOrgId);
+      expect(unchangedOtherJob?.status).toBe("running");
+    });
   });
 });

@@ -9,7 +9,7 @@
  * - Event dispatch is silenced when tracking is disabled
  */
 
-import { isAnalyticsEnabled } from "./config.js";
+import { isAnalyticsEnabled, getTrackerConfig } from "./config.js";
 import type {
   AddPaymentInfoParams,
   AuthMethod,
@@ -90,6 +90,68 @@ export function pushToDataLayer(eventData: Record<string, unknown>): boolean {
 }
 
 /**
+ * Safely dispatches an event to Google Analytics 4 via window.gtag.
+ * Fails gracefully if gtag is not available or throws.
+ */
+export function sendGtagEvent(
+  eventName: string,
+  eventParams?: Record<string, unknown>,
+): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  try {
+    if (typeof window.gtag === "function") {
+      window.gtag("event", eventName, eventParams || {});
+      return true;
+    }
+    // If window.gtag is not yet attached but dataLayer exists, queue in standard gtag format
+    if (window.dataLayer) {
+      window.dataLayer.push([
+        "event",
+        eventName,
+        eventParams || {},
+      ] as unknown as Record<string, unknown>);
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Internal dispatcher for tracking events.
+ * 1. Pushes to dataLayer for backward compatibility, testing, and GTM container.
+ * 2. In direct GA4 mode, forwards directly to GA4 via sendGtagEvent without duplicate dispatching.
+ */
+function emitEvent(
+  eventName: string,
+  eventParams?: Record<string, unknown>,
+  dataLayerOverride?: Record<string, unknown>,
+): boolean {
+  if (!isAnalyticsEnabled() || typeof window === "undefined") {
+    return false;
+  }
+
+  // 1. Record in window.dataLayer (for internal tests and GTM compatibility)
+  const dlPayload = dataLayerOverride ?? {
+    event: eventName,
+    ...(eventParams || {}),
+  };
+  pushToDataLayer(dlPayload);
+
+  // 2. In direct GA4 mode, dispatch directly to GA4 via window.gtag
+  const config = getTrackerConfig();
+  if (config.mode === "ga4") {
+    sendGtagEvent(eventName, eventParams);
+  }
+
+  return true;
+}
+
+/**
  * Central generic event dispatcher.
  * Type-safe parameters restricted to primitives (string, number, boolean, null, undefined).
  */
@@ -110,10 +172,7 @@ export function trackEvent(
     }
   }
 
-  return pushToDataLayer({
-    event: eventName,
-    ...cleanParams,
-  });
+  return emitEvent(eventName, cleanParams);
 }
 
 /**
@@ -138,10 +197,7 @@ export function trackPageView(
     page_path: pathname.split("?")[0]?.split("#")[0] || pathname,
   };
 
-  return pushToDataLayer({
-    event: "page_view",
-    ...payload,
-  });
+  return emitEvent("page_view", payload);
 }
 
 /**
@@ -159,10 +215,7 @@ export function trackSignUp(method: AuthMethod = "password"): boolean {
     method,
   };
 
-  return pushToDataLayer({
-    event: "sign_up",
-    ...payload,
-  });
+  return emitEvent("sign_up", payload);
 }
 
 /**
@@ -181,10 +234,7 @@ export function trackLogin(method: "password" | "otp" = "password"): boolean {
     method,
   };
 
-  return pushToDataLayer({
-    event: "login",
-    ...payload,
-  });
+  return emitEvent("login", payload);
 }
 
 /**
@@ -226,7 +276,7 @@ export function trackBeginCheckout(params: BeginCheckoutParams): boolean {
     ecommercePayload.coupon = params.coupon;
   }
 
-  return pushToDataLayer({
+  return emitEvent("begin_checkout", ecommercePayload, {
     event: "begin_checkout",
     ecommerce: ecommercePayload,
   });
@@ -271,7 +321,7 @@ export function trackAddPaymentInfo(params: AddPaymentInfoParams): boolean {
     ecommercePayload.coupon = params.coupon;
   }
 
-  return pushToDataLayer({
+  return emitEvent("add_payment_info", ecommercePayload, {
     event: "add_payment_info",
     ecommerce: ecommercePayload,
   });
@@ -303,19 +353,21 @@ export function trackCardToCardSubmitted(
     return false;
   }
 
-  return pushToDataLayer({
+  const ecommercePayload = {
+    currency: "IRR",
+    value: params.value,
+    items: params.items.map((item) => ({
+      item_id: item.item_id,
+      item_name: item.item_name,
+      ...(item.item_category ? { item_category: item.item_category } : {}),
+      price: item.price,
+      quantity: item.quantity,
+    })),
+  };
+
+  return emitEvent("card_to_card_submitted", ecommercePayload, {
     event: "card_to_card_submitted",
-    ecommerce: {
-      currency: "IRR",
-      value: params.value,
-      items: params.items.map((item) => ({
-        item_id: item.item_id,
-        item_name: item.item_name,
-        ...(item.item_category ? { item_category: item.item_category } : {}),
-        price: item.price,
-        quantity: item.quantity,
-      })),
-    },
+    ecommerce: ecommercePayload,
   });
 }
 

@@ -22,6 +22,7 @@ import type {
 } from "./types.js";
 
 export const DEFAULT_GAPGPT_MODEL = "gpt-5.6-luna";
+export const DEFAULT_GAPGPT_USER_AI_MODEL = "deepseek-v4-flash";
 export const DEFAULT_GAPGPT_BASE_URL = "https://api.gapgpt.app/v1";
 export const GAPGPT_API_CHAT_URL = "https://api.gapgpt.app/v1/chat/completions";
 const DEFAULT_REQUEST_TIMEOUT_MS = 180_000;
@@ -115,6 +116,7 @@ export class GapGPTModelGateway implements ModelGateway {
     this.apiKey = key;
     this.modelName =
       options.modelName?.trim() ||
+      process.env.GAPGPT_USER_AI_MODEL?.trim() ||
       process.env.GAPGPT_MODEL?.trim() ||
       DEFAULT_GAPGPT_MODEL;
     const rawBaseUrl =

@@ -829,7 +829,7 @@ mark.avana-highlight {
   border-bottom: 2px solid var(--avana-highlight-border);
   border-radius: 3px;
   padding: 1px 3px;
-  margin: 0 1px;
+  margin: 0;
   cursor: pointer;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
@@ -846,7 +846,7 @@ mark.avana-note {
   border-bottom: 2px solid var(--avana-note-border);
   border-radius: 3px;
   padding: 1px 3px;
-  margin: 0 1px;
+  margin: 0;
   cursor: pointer;
   position: relative;
   box-decoration-break: clone;
@@ -856,6 +856,40 @@ mark.avana-note {
 
 mark.avana-note:hover {
   background-color: rgba(91, 160, 196, 0.38);
+}
+
+/* Multi-segment continuity rules for highlights & notes crossing HTML/Markdown nodes */
+mark[data-mark-pos="start"] {
+  border-start-start-radius: 3px;
+  border-end-start-radius: 3px;
+  border-start-end-radius: 0;
+  border-end-end-radius: 0;
+  padding-inline-start: 3px;
+  padding-inline-end: 0;
+  margin: 0;
+}
+
+mark[data-mark-pos="middle"] {
+  border-radius: 0;
+  padding-inline-start: 0;
+  padding-inline-end: 0;
+  margin: 0;
+}
+
+mark[data-mark-pos="end"] {
+  border-start-start-radius: 0;
+  border-end-start-radius: 0;
+  border-start-end-radius: 3px;
+  border-end-end-radius: 3px;
+  padding-inline-start: 0;
+  padding-inline-end: 3px;
+  margin: 0;
+}
+
+mark[data-mark-pos="single"] {
+  border-radius: 3px;
+  padding: 1px 3px;
+  margin: 0;
 }
 
 

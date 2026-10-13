@@ -15,7 +15,7 @@
  */
 
 import type { TelegramClient, TelegramUpdate } from "./telegram-client.js";
-import type { AdminStore, AdminSystemHealth, AdminAiAnalytics } from "../modules/admin/admin-store.js";
+import type { AdminStore, AdminSystemHealth, AdminAiAnalytics, AdminPaymentRecord } from "../modules/admin/admin-store.js";
 import type { AdminService } from "../modules/admin/admin-service.js";
 import type { AuditService } from "./audit-service.js";
 import type { Queue } from "bullmq";
@@ -102,6 +102,7 @@ export class TelegramOpsBot {
     });
 
     this.logger("[telegram-ops-bot] Inbound command poller started.");
+    void this.syncBotCommands();
   }
 
   /**
@@ -225,6 +226,10 @@ export class TelegramOpsBot {
         await this.telegramClient.sendMessage(text, chatId);
         break;
       }
+      case "/payments": {
+        await this.handlePaymentsCommand(chatId);
+        break;
+      }
       case "/start":
       case "/help": {
         const text = [
@@ -234,6 +239,7 @@ export class TelegramOpsBot {
           "🔹 /status — وضعیت سلامت کلی و اجزای سیستم",
           "🔹 /queues — گزارش وضعیت و شمارنده صف‌های کاری",
           "🔹 /errors — گزارش خلاصه خطاهای ۲۴ ساعت اخیر",
+          "🔹 /payments — بررسی و مدیریت پرداخت‌های در انتظار تأیید",
         ].join("\n");
         await this.telegramClient.sendMessage(text, chatId);
         break;
@@ -451,6 +457,136 @@ export class TelegramOpsBot {
     }
 
     return lines.join("\n");
+  }
+
+  /**
+   * Handle /payments command to list pending card-to-card payments with approve/reject buttons.
+   */
+  async handlePaymentsCommand(chatId: string): Promise<void> {
+    if (!this.adminStore?.listCommercePayments) {
+      await this.telegramClient.sendMessage(
+        "⚠️ سرویس استعلام پرداخت‌ها در دسترس نیست.",
+        chatId,
+      );
+      return;
+    }
+
+    try {
+      const res = await this.withTimeout(
+        this.adminStore.listCommercePayments({
+          page: 1,
+          pageSize: 5,
+          status: "pending_admin_review",
+        }),
+        3000,
+      );
+
+      const payments = res.payments ?? [];
+      const totalCount = res.totalCount ?? payments.length;
+
+      if (payments.length === 0) {
+        await this.telegramClient.sendMessage(
+          "✅ هیچ پرداختی در انتظار بررسی نیست. تمام پرداخت‌ها تعیین تکلیف شده‌اند.",
+          chatId,
+        );
+        return;
+      }
+
+      if (totalCount > payments.length) {
+        await this.telegramClient.sendMessage(
+          `📋 ${payments.length.toLocaleString("fa-IR")} مورد از مجموع ${totalCount.toLocaleString("fa-IR")} پرداخت در انتظار بررسی نمایش داده می‌شود:`,
+          chatId,
+        );
+      }
+
+      for (const payment of payments) {
+        const text = this.formatPendingPaymentMessage(payment);
+        await this.telegramClient.sendMessage(text, chatId, {
+          inline_keyboard: [
+            [
+              { text: "✅ تأیید پرداخت", callback_data: `pay:app:${payment.id}` },
+              { text: "❌ رد پرداخت", callback_data: `pay:rej:${payment.id}` },
+            ],
+          ],
+        });
+      }
+    } catch (err: unknown) {
+      const safeError = this.sanitizeError(err);
+      await this.telegramClient.sendMessage(
+        `⚠️ خطا در دریافت اطلاعات پرداخت‌ها: ${safeError}`,
+        chatId,
+      );
+    }
+  }
+
+  /**
+   * Format single pending payment details safely without leaking PII or secrets.
+   */
+  private formatPendingPaymentMessage(payment: AdminPaymentRecord): string {
+    const amountStr = `${Number(payment.amount).toLocaleString("fa-IR")} تومان`;
+
+    let productTypeLabel = "نامشخص";
+    if (payment.productType === "wallet_topup" || payment.productTitle === "شارژ کیف پول") {
+      productTypeLabel = "شارژ کیف پول";
+    } else if (payment.productType === "course") {
+      productTypeLabel = "دوره آموزشی";
+    } else if (payment.productType === "subscription") {
+      productTypeLabel = "اشتراک";
+    } else if (payment.productTitle) {
+      productTypeLabel = payment.productTitle;
+    }
+
+    const lines: string[] = [
+      "💳 پرداخت در انتظار بررسی",
+      "",
+      `مبلغ: ${amountStr}`,
+      `نوع: ${productTypeLabel}`,
+    ];
+
+    if (payment.orderNumber || payment.orderId) {
+      lines.push(`شناسه سفارش: ${payment.orderNumber ?? payment.orderId}`);
+    }
+
+    if (payment.payerName) {
+      lines.push(`پرداخت‌کننده: ${payment.payerName}`);
+    }
+
+    if (payment.sourceCardLast4) {
+      lines.push(`کارت مبدأ: ****${payment.sourceCardLast4}`);
+    }
+
+    if (payment.trackingNumber) {
+      lines.push(`کد پیگیری: ${payment.trackingNumber}`);
+    }
+
+    if (payment.createdAt) {
+      const d = new Date(payment.createdAt);
+      const timeStr = !isNaN(d.getTime()) ? d.toISOString() : payment.createdAt;
+      lines.push(`زمان: ${timeStr}`);
+    }
+
+    lines.push(`شناسه: ${payment.id}`);
+
+    return lines.join("\n");
+  }
+
+  /**
+   * Sync official bot commands menu in Telegram (fire-and-forget, safe).
+   */
+  private async syncBotCommands(): Promise<void> {
+    if (typeof this.telegramClient.setMyCommands === "function") {
+      try {
+        await this.telegramClient.setMyCommands([
+          { command: "status", description: "وضعیت سلامت کلی سیستم" },
+          { command: "queues", description: "گزارش وضعیت صف‌های کاری" },
+          { command: "errors", description: "گزارش خلاصه خطاهای اخیر" },
+          { command: "payments", description: "بررسی و مدیریت پرداخت‌های در انتظار" },
+          { command: "help", description: "راهنمای دستورات ربات" },
+        ]);
+      } catch {
+        // Ignored safely
+      }
+    }
   }
 
   /**

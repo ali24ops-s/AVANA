@@ -137,9 +137,40 @@ export class InMemoryGenerationProgressStore implements GenerationProgressStore 
       current = Math.max(existing.progressCurrent, updates.progressCurrent);
     }
 
+    let finalStatus = existing.status;
+    if (updates.status) {
+      if (updates.status === "generating" || updates.status === "planning") {
+        const nonOverwritableStatuses: GenerationProgressStatus[] = [
+          "stopping",
+          "stopped",
+          "deleting",
+          "deleted",
+          "failed",
+        ];
+        if (nonOverwritableStatuses.includes(existing.status)) {
+          finalStatus = existing.status;
+        } else {
+          finalStatus = updates.status;
+        }
+      } else if (updates.status === "queued") {
+        const cannotQueueStatuses: GenerationProgressStatus[] = [
+          "stopping",
+          "deleting",
+          "deleted",
+        ];
+        if (cannotQueueStatuses.includes(existing.status)) {
+          finalStatus = existing.status;
+        } else {
+          finalStatus = updates.status;
+        }
+      } else {
+        finalStatus = updates.status;
+      }
+    }
+
     const updated: DocumentGenerationProgressRecord = {
       ...existing,
-      status: updates.status ?? existing.status,
+      status: finalStatus,
       stage: updates.stage !== undefined ? updates.stage : existing.stage,
       progressCurrent: current,
       progressTotal: updates.progressTotal !== undefined ? updates.progressTotal : existing.progressTotal,
@@ -289,10 +320,26 @@ export class DrizzleGenerationProgressStore implements GenerationProgressStore {
     }
 
     const now = new Date();
+    const statusExpr = updates.status
+      ? updates.status === "generating" || updates.status === "planning"
+        ? sql<GenerationProgressStatus>`CASE 
+            WHEN ${documentGenerationProgress.status} IN ('stopping', 'stopped', 'deleting', 'deleted', 'failed')
+            THEN ${documentGenerationProgress.status}
+            ELSE ${updates.status}
+          END`
+        : updates.status === "queued"
+          ? sql<GenerationProgressStatus>`CASE 
+              WHEN ${documentGenerationProgress.status} IN ('stopping', 'deleting', 'deleted')
+              THEN ${documentGenerationProgress.status}
+              ELSE ${updates.status}
+            END`
+          : updates.status
+      : existing.status;
+
     const rows = await this.db
       .update(documentGenerationProgress)
       .set({
-        status: updates.status ?? existing.status,
+        status: statusExpr,
         stage: updates.stage !== undefined ? updates.stage : existing.stage,
         progressCurrent: current,
         progressTotal: updates.progressTotal !== undefined ? updates.progressTotal : existing.progressTotal,

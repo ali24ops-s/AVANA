@@ -1438,6 +1438,325 @@ describe("Telegram Operational Alerts Test Suite", () => {
   });
 
   // =========================================================================
+  // 7.1. TelegramOpsBot /payments Command & Verification
+  // =========================================================================
+  describe("TelegramOpsBot /payments Command", () => {
+    const adminChatId = "629710703";
+
+    it("1. lists pending card-to-card payments with correct approve and reject buttons", async () => {
+      const sentPayloads: Array<{ text: string; replyMarkup?: any }> = [];
+      const mockClient = {
+        sendMessage: vi.fn().mockImplementation((text: string, _chatId?: string, replyMarkup?: any) => {
+          sentPayloads.push({ text, replyMarkup });
+          return Promise.resolve({ sent: true });
+        }),
+      } as unknown as TelegramClient;
+
+      const p1Id = "11111111-1111-4111-8111-111111111111";
+      const p2Id = "22222222-2222-4222-8222-222222222222";
+
+      const mockAdminStore = {
+        listCommercePayments: vi.fn().mockResolvedValue({
+          totalCount: 2,
+          payments: [
+            {
+              id: p1Id,
+              orderId: "ord-1",
+              orderNumber: "ORD-101",
+              userId: "u-1",
+              userEmail: "user1@example.com",
+              productTitle: "بسته طلایی زیست",
+              productType: "content_pack",
+              amount: 250000,
+              currency: "IRR",
+              gateway: "card_to_card",
+              status: "pending_admin_review",
+              trackingNumber: "TRK-98765",
+              sourceCardLast4: "5432",
+              payerName: "علی رضایی",
+              createdAt: "2026-10-13T10:00:00.000Z",
+            },
+            {
+              id: p2Id,
+              orderId: "ord-2",
+              orderNumber: "ORD-102",
+              userId: "u-2",
+              userEmail: "user2@example.com",
+              productTitle: "شارژ کیف پول",
+              productType: "wallet_topup",
+              amount: 100000,
+              currency: "IRR",
+              gateway: "card_to_card",
+              status: "pending_admin_review",
+              trackingNumber: "TRK-54321",
+              sourceCardLast4: "1234",
+              payerName: "سارا حسینی",
+              createdAt: "2026-10-13T11:00:00.000Z",
+            },
+          ],
+        }),
+      } as unknown as import("../modules/admin/admin-store.js").AdminStore;
+
+      const { TelegramOpsBot } = await import("../observability/telegram-ops-bot.js");
+      const bot = new TelegramOpsBot({
+        enabled: true,
+        botToken: "test-token",
+        adminChatId,
+        telegramClient: mockClient,
+        adminStore: mockAdminStore,
+      });
+
+      await bot.handleUpdate({
+        update_id: 20,
+        message: {
+          message_id: 100,
+          chat: { id: 629710703, type: "private" },
+          date: 1000,
+          text: "/payments",
+        },
+      });
+
+      expect(mockAdminStore.listCommercePayments).toHaveBeenCalledWith({
+        page: 1,
+        pageSize: 5,
+        status: "pending_admin_review",
+      });
+
+      // 2 payments returned -> 2 separate messages sent
+      expect(sentPayloads.length).toBe(2);
+
+      // Verify payload 1
+      expect(sentPayloads[0].text).toContain("پرداخت در انتظار بررسی");
+      expect(sentPayloads[0].text).toContain("۲۵۰٬۰۰۰ تومان");
+      expect(sentPayloads[0].text).toContain("بسته طلایی زیست");
+      expect(sentPayloads[0].text).toContain("کد پیگیری: TRK-98765");
+      expect(sentPayloads[0].text).toContain("کارت مبدأ: ****5432");
+      expect(sentPayloads[0].text).toContain("پرداخت‌کننده: علی رضایی");
+      expect(sentPayloads[0].text).toContain(`شناسه: ${p1Id}`);
+      expect(sentPayloads[0].replyMarkup).toEqual({
+        inline_keyboard: [
+          [
+            { text: "✅ تأیید پرداخت", callback_data: `pay:app:${p1Id}` },
+            { text: "❌ رد پرداخت", callback_data: `pay:rej:${p1Id}` },
+          ],
+        ],
+      });
+
+      // Verify payload 2 (wallet topup)
+      expect(sentPayloads[1].text).toContain("۱۰۰٬۰۰۰ تومان");
+      expect(sentPayloads[1].text).toContain("شارژ کیف پول");
+      expect(sentPayloads[1].text).toContain("کد پیگیری: TRK-54321");
+      expect(sentPayloads[1].text).toContain(`شناسه: ${p2Id}`);
+      expect(sentPayloads[1].replyMarkup).toEqual({
+        inline_keyboard: [
+          [
+            { text: "✅ تأیید پرداخت", callback_data: `pay:app:${p2Id}` },
+            { text: "❌ رد پرداخت", callback_data: `pay:rej:${p2Id}` },
+          ],
+        ],
+      });
+    });
+
+    it("2. displays appropriate Persian message when pending payments list is empty", async () => {
+      const sentPayloads: Array<{ text: string }> = [];
+      const mockClient = {
+        sendMessage: vi.fn().mockImplementation((text: string) => {
+          sentPayloads.push({ text });
+          return Promise.resolve({ sent: true });
+        }),
+      } as unknown as TelegramClient;
+
+      const mockAdminStore = {
+        listCommercePayments: vi.fn().mockResolvedValue({
+          totalCount: 0,
+          payments: [],
+        }),
+      } as unknown as import("../modules/admin/admin-store.js").AdminStore;
+
+      const { TelegramOpsBot } = await import("../observability/telegram-ops-bot.js");
+      const bot = new TelegramOpsBot({
+        enabled: true,
+        botToken: "test-token",
+        adminChatId,
+        telegramClient: mockClient,
+        adminStore: mockAdminStore,
+      });
+
+      await bot.handleUpdate({
+        update_id: 21,
+        message: {
+          message_id: 101,
+          chat: { id: 629710703, type: "private" },
+          date: 1001,
+          text: "/payments",
+        },
+      });
+
+      expect(sentPayloads.length).toBe(1);
+      expect(sentPayloads[0].text).toContain("هیچ پرداختی در انتظار بررسی نیست");
+    });
+
+    it("3. caps display to 5 payments per request and informs admin if total exceeds 5", async () => {
+      const sentPayloads: Array<{ text: string; replyMarkup?: any }> = [];
+      const mockClient = {
+        sendMessage: vi.fn().mockImplementation((text: string, _chatId?: string, replyMarkup?: any) => {
+          sentPayloads.push({ text, replyMarkup });
+          return Promise.resolve({ sent: true });
+        }),
+      } as unknown as TelegramClient;
+
+      const mockPayments = Array.from({ length: 5 }, (_, i) => ({
+        id: `00000000-0000-4000-8000-00000000000${i + 1}`,
+        orderId: `ord-${i + 1}`,
+        userId: `u-${i + 1}`,
+        amount: 50000 * (i + 1),
+        productTitle: "خرید دوره",
+        productType: "course",
+        gateway: "card_to_card",
+        status: "pending_admin_review",
+        createdAt: new Date().toISOString(),
+      }));
+
+      const mockAdminStore = {
+        listCommercePayments: vi.fn().mockResolvedValue({
+          totalCount: 12, // 12 pending payments in total
+          payments: mockPayments,
+        }),
+      } as unknown as import("../modules/admin/admin-store.js").AdminStore;
+
+      const { TelegramOpsBot } = await import("../observability/telegram-ops-bot.js");
+      const bot = new TelegramOpsBot({
+        enabled: true,
+        botToken: "test-token",
+        adminChatId,
+        telegramClient: mockClient,
+        adminStore: mockAdminStore,
+      });
+
+      await bot.handleUpdate({
+        update_id: 22,
+        message: {
+          message_id: 102,
+          chat: { id: 629710703, type: "private" },
+          date: 1002,
+          text: "/payments",
+        },
+      });
+
+      // 1 header message + 5 payment messages = 6 messages
+      expect(sentPayloads.length).toBe(6);
+      expect(sentPayloads[0].text).toContain("۵ مورد از مجموع ۱۲ پرداخت در انتظار بررسی");
+      expect(sentPayloads.slice(1).length).toBe(5);
+    });
+
+    it("4. silently drops /payments command from unauthorized chat IDs", async () => {
+      const mockClient = {
+        sendMessage: vi.fn().mockResolvedValue({ sent: true }),
+      } as unknown as TelegramClient;
+
+      const mockAdminStore = {
+        listCommercePayments: vi.fn().mockResolvedValue({ totalCount: 0, payments: [] }),
+      } as unknown as import("../modules/admin/admin-store.js").AdminStore;
+
+      const { TelegramOpsBot } = await import("../observability/telegram-ops-bot.js");
+      const bot = new TelegramOpsBot({
+        enabled: true,
+        botToken: "test-token",
+        adminChatId,
+        telegramClient: mockClient,
+        adminStore: mockAdminStore,
+      });
+
+      await bot.handleUpdate({
+        update_id: 23,
+        message: {
+          message_id: 103,
+          chat: { id: 999999999, type: "private" }, // Unauthorized
+          date: 1003,
+          text: "/payments",
+        },
+      });
+
+      expect(mockClient.sendMessage).not.toHaveBeenCalled();
+      expect(mockAdminStore.listCommercePayments).not.toHaveBeenCalled();
+    });
+
+    it("5. sanitizes database error and timeout without exposing internal secrets or stack traces", async () => {
+      const sentPayloads: Array<{ text: string }> = [];
+      const mockClient = {
+        sendMessage: vi.fn().mockImplementation((text: string) => {
+          sentPayloads.push({ text });
+          return Promise.resolve({ sent: true });
+        }),
+      } as unknown as TelegramClient;
+
+      const mockAdminStore = {
+        listCommercePayments: vi.fn().mockRejectedValue(
+          new Error("connect ECONNREFUSED postgres://postgres:superSecretPass123@10.0.0.5:5432/avana_db"),
+        ),
+      } as unknown as import("../modules/admin/admin-store.js").AdminStore;
+
+      const { TelegramOpsBot } = await import("../observability/telegram-ops-bot.js");
+      const bot = new TelegramOpsBot({
+        enabled: true,
+        botToken: "test-token",
+        adminChatId,
+        telegramClient: mockClient,
+        adminStore: mockAdminStore,
+      });
+
+      await bot.handleUpdate({
+        update_id: 24,
+        message: {
+          message_id: 104,
+          chat: { id: 629710703, type: "private" },
+          date: 1004,
+          text: "/payments",
+        },
+      });
+
+      expect(sentPayloads.length).toBe(1);
+      expect(sentPayloads[0].text).toContain("خطا در دریافت اطلاعات پرداخت‌ها");
+      expect(sentPayloads[0].text).not.toContain("superSecretPass123");
+      expect(sentPayloads[0].text).not.toContain("postgres");
+      expect(sentPayloads[0].text).not.toContain("10.0.0.5");
+    });
+
+    it("6. updates /help and /start command list with /payments", async () => {
+      let sentText = "";
+      const mockClient = {
+        sendMessage: vi.fn().mockImplementation((text: string) => {
+          sentText = text;
+          return Promise.resolve({ sent: true });
+        }),
+      } as unknown as TelegramClient;
+
+      const { TelegramOpsBot } = await import("../observability/telegram-ops-bot.js");
+      const bot = new TelegramOpsBot({
+        enabled: true,
+        botToken: "test-token",
+        adminChatId,
+        telegramClient: mockClient,
+      });
+
+      await bot.handleUpdate({
+        update_id: 25,
+        message: {
+          message_id: 105,
+          chat: { id: 629710703, type: "private" },
+          date: 1005,
+          text: "/help",
+        },
+      });
+
+      expect(sentText).toContain("/payments");
+      expect(sentText).toContain("/status");
+      expect(sentText).toContain("/queues");
+      expect(sentText).toContain("/errors");
+    });
+  });
+
+  // =========================================================================
   // 8. Telegram New Registrations, Payments & Callback Actions (Approve / Reject)
   // =========================================================================
   describe("Telegram Registrations, Payments & Callback Actions", () => {

@@ -138,6 +138,7 @@ async function main(): Promise<void> {
           userGenerationService,
           generationService: userGenerationService,
           generationJobStore: v1Options.generationJobStore,
+          generationProgressService: v1Options.generationProgressService,
           walletService,
           walletStore: v1Options.walletStore,
         },

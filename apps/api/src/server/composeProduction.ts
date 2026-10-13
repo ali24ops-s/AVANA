@@ -82,6 +82,7 @@ import {
 } from "../modules/study/index.js";
 import {
   createModelGateway,
+  GapGPTModelGateway,
   OpenRouterModelGateway,
   BullMqGenerationQueue,
   GenerationService,
@@ -438,14 +439,22 @@ export async function composeProduction(
   const contentPackStore = new DrizzleContentPackStore(db);
   const contentPackUsageStore = new DrizzleContentPackUsageStore(db);
 
-  // Dedicated OpenRouter ModelGateway for User-Facing AI (Content Generation & Ask)
-  // Zero fallback to Gemini or Cloudflare.
-  const userGateway: ModelGateway = new OpenRouterModelGateway({
-    apiKey: config.userAi.openrouterApiKey,
-    modelName: config.userAi.openrouterModel,
-    httpReferer: config.userAi.httpReferer,
-    appTitle: config.userAi.appTitle,
-  });
+  // Dedicated ModelGateway for User-Facing AI (Content Generation & Ask)
+  // Strictly GapGPT (deepseek-v4-flash) or OpenRouter based on config.
+  // Zero fallback to Gemini, Cloudflare, or other external providers.
+  const userGateway: ModelGateway =
+    config.userAi.provider === "openrouter"
+      ? new OpenRouterModelGateway({
+          apiKey: config.userAi.openrouterApiKey,
+          modelName: config.userAi.openrouterModel,
+          httpReferer: config.userAi.httpReferer,
+          appTitle: config.userAi.appTitle,
+        })
+      : new GapGPTModelGateway({
+          apiKey: config.userAi.gapgptApiKey,
+          baseUrl: config.userAi.gapgptBaseUrl,
+          modelName: config.userAi.gapgptModel,
+        });
 
   const assistantGateway: ModelGateway = userGateway;
 
@@ -832,6 +841,7 @@ export async function composeProduction(
         userGenerationService,
         generationService: userGenerationService,
         generationJobStore,
+        generationProgressService,
         walletService,
         walletStore,
       },
@@ -839,7 +849,7 @@ export async function composeProduction(
 
     worker.on("ready", () => {
       process.stdout.write(
-        `[worker] Generation worker ready on queue "${config.generation.queueName}" (admin: ${adminGateway.provider}/${adminGateway.model ?? "gemini"}, user: ${userGateway.provider}/${userGateway.model ?? "openrouter"})\n`,
+        `[worker] Generation worker ready on queue "${config.generation.queueName}" (admin: ${adminGateway.provider}/${adminGateway.model ?? "gemini"}, user: ${userGateway.provider}/${userGateway.model ?? "deepseek-v4-flash"})\n`,
       );
       void adminAlertService.notifyRecovery(
         "worker.queue_error",

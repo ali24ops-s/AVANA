@@ -26,11 +26,15 @@ import { MemoryRouter, Routes, Route, Link } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   initGtm,
+  initAnalytics,
   GTM_SCRIPT_ID,
+  GA4_SCRIPT_ID,
   isValidGtmId,
+  isValidGa4Id,
   getSafePageLocation,
   shouldTrackPath,
   trackEvent,
+  sendGtagEvent,
   trackPageView,
   trackSignUp,
   trackLogin,
@@ -81,6 +85,7 @@ const mockLocalStorage = createMockLocalStorage();
 Object.defineProperty(window, "localStorage", {
   value: mockLocalStorage,
   writable: true,
+  configurable: true,
 });
 
 function PageTrackerWrapper() {
@@ -105,7 +110,13 @@ describe("AVANA Tracker Infrastructure", () => {
     if (existingScript) {
       existingScript.remove();
     }
+    const existingGa4Script = document.getElementById(GA4_SCRIPT_ID);
+    if (existingGa4Script) {
+      existingGa4Script.remove();
+    }
     delete window.__gtmInitialized;
+    delete window.__ga4Initialized;
+    delete window.gtag;
     window.dataLayer = [];
     window.sessionStorage.clear();
     mockLocalStorage.clear();
@@ -117,7 +128,13 @@ describe("AVANA Tracker Infrastructure", () => {
     if (existingScript) {
       existingScript.remove();
     }
+    const existingGa4Script = document.getElementById(GA4_SCRIPT_ID);
+    if (existingGa4Script) {
+      existingGa4Script.remove();
+    }
     delete window.__gtmInitialized;
+    delete window.__ga4Initialized;
+    delete window.gtag;
     delete window.dataLayer;
     window.sessionStorage.clear();
     mockLocalStorage.clear();
@@ -1035,6 +1052,350 @@ describe("Strict Opt-in Consent Management (Phase 6)", () => {
           body: JSON.stringify({ order_id: "ord_sample_123" }),
         }),
       );
+    });
+  });
+
+  describe("Direct GA4 Connection & Hybrid Pipeline (Phase 2)", () => {
+    beforeEach(() => {
+      vi.restoreAllMocks();
+      const existingGtmScript = document.getElementById(GTM_SCRIPT_ID);
+      if (existingGtmScript) existingGtmScript.remove();
+      const existingGa4Script = document.getElementById(GA4_SCRIPT_ID);
+      if (existingGa4Script) existingGa4Script.remove();
+      delete window.__gtmInitialized;
+      delete window.__ga4Initialized;
+      delete window.gtag;
+      window.dataLayer = [];
+      window.sessionStorage.clear();
+      mockLocalStorage.clear();
+      document.title = "آوانا - همراه هوشمند یادگیری شما";
+    });
+
+    afterEach(() => {
+      const existingGtmScript = document.getElementById(GTM_SCRIPT_ID);
+      if (existingGtmScript) existingGtmScript.remove();
+      const existingGa4Script = document.getElementById(GA4_SCRIPT_ID);
+      if (existingGa4Script) existingGa4Script.remove();
+      delete window.__gtmInitialized;
+      delete window.__ga4Initialized;
+      delete window.gtag;
+      delete window.dataLayer;
+      window.sessionStorage.clear();
+      mockLocalStorage.clear();
+    });
+
+    // 1. Valid GA4 Measurement ID loads direct script and configures send_page_view: false
+    it("loads direct GA4 script with valid measurement ID and configures send_page_view: false", () => {
+      expect(isValidGa4Id("G-2CZSJE8ZYH")).toBe(true);
+      expect(isValidGa4Id("G-XYZ123")).toBe(true);
+      expect(isValidGa4Id("invalid_ga4")).toBe(false);
+      expect(isValidGa4Id("")).toBe(false);
+
+      const config = {
+        gtmId: "",
+        ga4MeasurementId: "G-2CZSJE8ZYH",
+        mode: "ga4" as const,
+        enabled: true,
+      };
+
+      const result = initAnalytics(config);
+      expect(result).toBe(true);
+
+      const script = document.getElementById(GA4_SCRIPT_ID) as HTMLScriptElement;
+      expect(script).not.toBeNull();
+      expect(script.src).toBe("https://www.googletagmanager.com/gtag/js?id=G-2CZSJE8ZYH");
+      expect(script.async).toBe(true);
+      expect(window.__ga4Initialized).toBe(true);
+      expect(typeof window.gtag).toBe("function");
+
+      // Verify gtag('config', id, { send_page_view: false }) was pushed into dataLayer
+      const configItem = window.dataLayer?.find(
+        (item: unknown) => {
+          const arr = Array.isArray(item) ? item : Array.from((item as IArguments) || []);
+          return arr[0] === "config" && arr[1] === "G-2CZSJE8ZYH";
+        },
+      );
+      expect(configItem).toBeDefined();
+      const configArr = Array.isArray(configItem) ? configItem : Array.from((configItem as IArguments) || []);
+      expect((configArr[2] as Record<string, unknown>)?.send_page_view).toBe(false);
+    });
+
+    // 2. Missing or invalid GA4 ID does not load script and tracking remains disabled
+    it("returns false and does not inject script when GA4 measurement ID is missing or invalid", () => {
+      const resEmpty = initAnalytics({
+        gtmId: "",
+        ga4MeasurementId: "",
+        mode: "disabled",
+        enabled: true,
+      });
+      expect(resEmpty).toBe(false);
+      expect(document.getElementById(GA4_SCRIPT_ID)).toBeNull();
+
+      const resInvalid = initAnalytics({
+        gtmId: "",
+        ga4MeasurementId: "invalid",
+        mode: "disabled",
+        enabled: false,
+      });
+      expect(resInvalid).toBe(false);
+      expect(document.getElementById(GA4_SCRIPT_ID)).toBeNull();
+    });
+
+    // 3. GA4 script is NOT loaded prior to explicit consent
+    it("does not load GA4 script before explicit user consent", () => {
+      vi.stubEnv("VITE_GA4_MEASUREMENT_ID", "G-2CZSJE8ZYH");
+      expect(getConsentStatus()).toBe("pending");
+      expect(hasAnalyticsConsent()).toBe(false);
+
+      const loaded = initAnalytics();
+      expect(loaded).toBe(false);
+      expect(document.getElementById(GA4_SCRIPT_ID)).toBeNull();
+      expect(window.__ga4Initialized).toBeUndefined();
+    });
+
+    // 4. GA4 script is injected at most ONCE across multiple calls
+    it("deduplicates script injection so GA4 is loaded only once", () => {
+      const config = {
+        gtmId: "",
+        ga4MeasurementId: "G-2CZSJE8ZYH",
+        mode: "ga4" as const,
+        enabled: true,
+      };
+
+      const first = initAnalytics(config);
+      expect(first).toBe(true);
+
+      const second = initAnalytics(config);
+      expect(second).toBe(true);
+
+      const scripts = document.querySelectorAll(`script#${GA4_SCRIPT_ID}`);
+      expect(scripts.length).toBe(1);
+    });
+
+    // 5. In direct GA4 mode, events are genuinely dispatched via window.gtag and recorded in dataLayer
+    it("dispatches events via window.gtag and records to window.dataLayer in GA4 mode", () => {
+      vi.spyOn(trackerConfig, "getTrackerConfig").mockReturnValue({
+        gtmId: "",
+        ga4MeasurementId: "G-2CZSJE8ZYH",
+        mode: "ga4",
+        enabled: true,
+      });
+      vi.spyOn(trackerConfig, "isAnalyticsEnabled").mockReturnValue(true);
+
+      // Initialize gtag
+      initAnalytics();
+
+      const gtagSpy = vi.spyOn(window, "gtag");
+
+      // Custom event
+      const tracked = trackEvent("lesson_completed", { course_id: "course_123", score: 95 });
+      expect(tracked).toBe(true);
+      expect(gtagSpy).toHaveBeenCalledWith("event", "lesson_completed", { course_id: "course_123", score: 95 });
+
+      // Check dataLayer has event object for test/tooling compatibility
+      const dlEvent = window.dataLayer?.find(
+        (item: unknown) => (item as Record<string, unknown>)?.event === "lesson_completed",
+      ) as Record<string, unknown>;
+      expect(dlEvent).toBeDefined();
+      expect(dlEvent.score).toBe(95);
+
+      // Auth events
+      trackSignUp("password");
+      expect(gtagSpy).toHaveBeenCalledWith("event", "sign_up", { method: "password" });
+
+      trackLogin("otp");
+      expect(gtagSpy).toHaveBeenCalledWith("event", "login", { method: "otp" });
+
+      // Ecommerce funnel events
+      trackBeginCheckout({
+        currency: "IRR",
+        value: 5000000,
+        items: [{ item_id: "sub_yearly", item_name: "اشتراک سالانه", price: 5000000, quantity: 1 }],
+      });
+      expect(gtagSpy).toHaveBeenCalledWith(
+        "event",
+        "begin_checkout",
+        expect.objectContaining({
+          currency: "IRR",
+          value: 5000000,
+          items: expect.arrayContaining([
+            expect.objectContaining({ item_id: "sub_yearly", price: 5000000 }),
+          ]),
+        }),
+      );
+    });
+
+    // 6. SPA navigation generates exactly one page_view and deduplicates
+    it("generates exactly one page_view per SPA navigation in GA4 mode", () => {
+      vi.spyOn(trackerConfig, "getTrackerConfig").mockReturnValue({
+        gtmId: "",
+        ga4MeasurementId: "G-2CZSJE8ZYH",
+        mode: "ga4",
+        enabled: true,
+      });
+      vi.spyOn(trackerConfig, "isAnalyticsEnabled").mockReturnValue(true);
+
+      initAnalytics();
+      const gtagSpy = vi.spyOn(window, "gtag");
+
+      const success = trackPageView("/courses/physics", "دوره فیزیک");
+      expect(success).toBe(true);
+
+      expect(gtagSpy).toHaveBeenCalledTimes(1);
+      expect(gtagSpy).toHaveBeenCalledWith(
+        "event",
+        "page_view",
+        expect.objectContaining({
+          page_path: "/courses/physics",
+          page_title: "دوره فیزیک",
+        }),
+      );
+
+      // Ensure page_location has query params and hash stripped
+      const callArgs = gtagSpy.mock.calls[0];
+      const params = callArgs[2] as Record<string, unknown>;
+      expect(params.page_location).not.toContain("?");
+      expect(params.page_location).not.toContain("#");
+    });
+
+    // 7. Strict Mode deduplication with usePageTracking
+    it("does not double-trigger pageview in GA4 mode under React Strict Mode", async () => {
+      vi.useFakeTimers();
+      vi.spyOn(trackerConfig, "getTrackerConfig").mockReturnValue({
+        gtmId: "",
+        ga4MeasurementId: "G-2CZSJE8ZYH",
+        mode: "ga4",
+        enabled: true,
+      });
+      vi.spyOn(trackerConfig, "isAnalyticsEnabled").mockReturnValue(true);
+
+      initAnalytics();
+      const gtagSpy = vi.spyOn(window, "gtag");
+
+      render(
+        <StrictMode>
+          <MemoryRouter initialEntries={["/exams"]}>
+            <PageTrackerWrapper />
+            <Routes>
+              <Route path="/exams" element={<div>آزمون‌ها</div>} />
+            </Routes>
+          </MemoryRouter>
+        </StrictMode>,
+      );
+
+      act(() => {
+        vi.runAllTimers();
+      });
+
+      const pageViewCalls = gtagSpy.mock.calls.filter((c) => c[1] === "page_view");
+      expect(pageViewCalls).toHaveLength(1);
+      vi.useRealTimers();
+    });
+
+    // 8. Immediate halting of event dispatches upon consent rejection or revocation
+    it("immediately halts GA4 event dispatches upon consent revocation", () => {
+      vi.stubEnv("VITE_GA4_MEASUREMENT_ID", "G-2CZSJE8ZYH");
+      vi.stubEnv("VITE_ANALYTICS_ENABLED", "true");
+
+      setConsent("granted");
+      initAnalytics();
+      expect(typeof window.gtag).toBe("function");
+      const gtagSpy = vi.spyOn(window, "gtag");
+
+      trackEvent("event_before_revoke", { active: true });
+      expect(gtagSpy).toHaveBeenCalledWith("event", "event_before_revoke", { active: true });
+
+      revokeConsent();
+      expect(hasAnalyticsConsent()).toBe(false);
+
+      gtagSpy.mockClear();
+
+      const blocked1 = trackEvent("event_after_revoke", { active: false });
+      const blocked2 = trackPageView("/after-revoke");
+      expect(blocked1).toBe(false);
+      expect(blocked2).toBe(false);
+      expect(gtagSpy).not.toHaveBeenCalled();
+    });
+
+    // 9. GTM mode is preserved when VITE_GTM_ID is set without GA4 ID
+    it("preserves GTM mode when only GTM ID is set and does not dispatch to gtag", () => {
+      vi.spyOn(trackerConfig, "getTrackerConfig").mockReturnValue({
+        gtmId: "GTM-529742BL",
+        ga4MeasurementId: "",
+        mode: "gtm",
+        enabled: true,
+      });
+      vi.spyOn(trackerConfig, "isAnalyticsEnabled").mockReturnValue(true);
+
+      initAnalytics();
+
+      expect(document.getElementById(GTM_SCRIPT_ID)).not.toBeNull();
+      expect(document.getElementById(GA4_SCRIPT_ID)).toBeNull();
+      expect(window.__gtmInitialized).toBe(true);
+      expect(window.__ga4Initialized).toBeUndefined();
+
+      trackEvent("gtm_event", { test: true });
+
+      // In GTM mode, dataLayer gets { event: "gtm_event", ... }
+      const dlEvent = window.dataLayer?.find(
+        (item: unknown) => (item as Record<string, unknown>)?.event === "gtm_event",
+      ) as Record<string, unknown>;
+      expect(dlEvent).toBeDefined();
+      expect(dlEvent.test).toBe(true);
+    });
+
+    // 10. No PII is sent to GA4
+    it("ensures no PII is leaked in GA4 event parameters", () => {
+      vi.spyOn(trackerConfig, "getTrackerConfig").mockReturnValue({
+        gtmId: "",
+        ga4MeasurementId: "G-2CZSJE8ZYH",
+        mode: "ga4",
+        enabled: true,
+      });
+      vi.spyOn(trackerConfig, "isAnalyticsEnabled").mockReturnValue(true);
+
+      initAnalytics();
+      const gtagSpy = vi.spyOn(window, "gtag");
+
+      trackSignUp("password");
+      trackLogin("otp");
+
+      for (const call of gtagSpy.mock.calls) {
+        const params = (call[2] || {}) as Record<string, unknown>;
+        expect(params.email).toBeUndefined();
+        expect(params.password).toBeUndefined();
+        expect(params.phone).toBeUndefined();
+        expect(params.user_id).toBeUndefined();
+        expect(params.name).toBeUndefined();
+      }
+    });
+
+    // 11. Authentic client_id extraction from GA4 cookies is confirmed
+    it("extracts authentic client_id and session_id from GA4 cookies matching measurement stream", () => {
+      vi.stubEnv("VITE_GA4_MEASUREMENT_ID", "G-2CZSJE8ZYH");
+      vi.spyOn(trackerConfig, "isAnalyticsEnabled").mockReturnValue(true);
+
+      document.cookie = "_ga=GA1.1.123456789.1670000000; path=/";
+      document.cookie = "_ga_2CZSJE8ZYH=GS1.1.1700000000.1.1.1700000010.0.0.0; path=/";
+
+      expect(getGaClientIdFromCookie()).toBe("123456789.1670000000");
+      expect(getGaSessionIdFromCookie()).toBe("1700000000");
+
+      const payload = getClientAnalyticsPayload();
+      expect(payload).toEqual(
+        expect.objectContaining({
+          consent: "granted",
+          ga_client_id: "123456789.1670000000",
+          ga_session_id: "1700000000",
+        }),
+      );
+    });
+
+    it("sendGtagEvent queues event to dataLayer if window.gtag is not yet attached", () => {
+      window.dataLayer = [];
+      const res = sendGtagEvent("custom_direct_event", { direct: true });
+      expect(res).toBe(true);
+      expect(window.dataLayer.length).toBe(1);
     });
   });
 

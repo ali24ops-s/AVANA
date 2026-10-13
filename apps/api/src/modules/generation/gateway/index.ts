@@ -43,6 +43,7 @@ export { GroqModelGateway, DEFAULT_GROQ_MODEL } from "./groq.js";
 export {
   GapGPTModelGateway,
   DEFAULT_GAPGPT_MODEL,
+  DEFAULT_GAPGPT_USER_AI_MODEL,
   DEFAULT_GAPGPT_BASE_URL,
   GAPGPT_API_CHAT_URL,
   cleanAndParseGapGPTJson,
@@ -218,6 +219,7 @@ export function createModelGateway(
         const resolvedModel =
           gapgptModelOption ||
           (requestedProvider === "gapgpt" ? modelName : undefined) ||
+          process.env.GAPGPT_USER_AI_MODEL ||
           process.env.GAPGPT_MODEL ||
           DEFAULT_GAPGPT_MODEL;
 

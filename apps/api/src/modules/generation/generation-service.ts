@@ -863,6 +863,7 @@ export class GenerationService {
           process.stdout.write(
             `[GENERATION] provider_response_received: stage=planning correlationId=${correlationId} inputTokens=${completion.usage?.inputTokens ?? 0} outputTokens=${completion.usage?.outputTokens ?? 0}\n`,
           );
+          await this.checkCancellation(jobId, organizationId, documentId);
 
           process.stdout.write(
             `[GENERATION] parsing_started: stage=planning correlationId=${correlationId}\n`,
@@ -1262,6 +1263,7 @@ export class GenerationService {
               documentId,
               stage: "lesson",
             });
+            await this.checkCancellation(jobId, organizationId, documentId);
 
             const parsed = this.cleanAndParseJson<{
               results?: Array<{
@@ -1577,6 +1579,7 @@ export class GenerationService {
             process.stdout.write(
               `[GENERATION] provider_response_received: stage=lesson chunkKey=${chunkKey} correlationId=${correlationId} inputTokens=${completion.usage?.inputTokens ?? 0} outputTokens=${completion.usage?.outputTokens ?? 0}\n`,
             );
+            await this.checkCancellation(jobId, organizationId, documentId);
 
             process.stdout.write(
               `[GENERATION] parsing_started: stage=lesson chunkKey=${chunkKey} correlationId=${correlationId}\n`,
@@ -1976,6 +1979,7 @@ export class GenerationService {
               documentId,
               stage: "flashcard",
             });
+            await this.checkCancellation(jobId, organizationId, documentId);
 
             const parsed = this.cleanAndParseJson<{
               results?: Array<{
@@ -2723,6 +2727,7 @@ export class GenerationService {
               documentId,
               stage: "quiz",
             });
+            await this.checkCancellation(jobId, organizationId, documentId);
 
             const parsed = this.cleanAndParseJson<{
               results?: Array<{
@@ -4685,6 +4690,7 @@ export class GenerationService {
                   process.stdout.write(
                     `[GENERATION] provider_response_received: stage=review_summary chunkKey=${chunkKey} correlationId=${summaryCorrelationId} inputTokens=${res.usage?.inputTokens ?? 0} outputTokens=${res.usage?.outputTokens ?? 0}\n`,
                   );
+                  await this.checkCancellation(input.jobId, organizationId, documentId);
 
                   process.stdout.write(
                     `[GENERATION] parsing_started: stage=review_summary chunkKey=${chunkKey} correlationId=${summaryCorrelationId}\n`,

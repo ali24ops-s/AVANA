@@ -30,7 +30,7 @@ export class GenerationQueryService {
     private readonly documentStore: DocumentStore,
     private readonly chunkRecordStore: GenerationChunkStore,
     private readonly progressService: GenerationProgressService,
-    private readonly generationJobStore?: GenerationJobStore,
+    public readonly generationJobStore?: GenerationJobStore,
     private readonly orgStore?: OrganizationStore,
     private readonly policy: AuthorizationPolicy = defaultPolicy,
   ) {}

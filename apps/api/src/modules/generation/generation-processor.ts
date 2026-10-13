@@ -38,6 +38,7 @@ import {
 } from "./generation-service.js";
 import type { GenerationJobStore } from "./generation-jobs-store.js";
 import type { GenerationJobPayload, GenerationContext } from "./generation-queue.js";
+import type { GenerationProgressService } from "./generation-progress-service.js";
 import type { WalletService } from "../wallet/wallet-service.js";
 import type { WalletStore } from "../wallet/wallet-store.js";
 import { refundGenerationJobDebit } from "./generation-refund-helper.js";
@@ -47,6 +48,7 @@ export type GenerationProcessorDeps = {
   adminGenerationService?: GenerationService;
   userGenerationService?: GenerationService;
   generationJobStore: GenerationJobStore;
+  generationProgressService?: GenerationProgressService;
   walletService?: WalletService;
   walletStore?: WalletStore;
 };
@@ -282,7 +284,6 @@ export async function processGenerationJob(
     payload.organizationId,
   );
   if (!existingJob || existingJob.status === "deleted" || existingJob.status === "deleting") {
-    process.stdout.write(`[GENERATION] job ${jobId} is already deleted/deleting. Skipping execution.\n`);
     return { job_id: jobId, status: "deleted" };
   }
   if (existingJob.status === "stopped" || existingJob.status === "stopping") {
@@ -295,6 +296,10 @@ export async function processGenerationJob(
       completedAt: now,
       updatedAt: now,
     });
+    const progressService = deps.generationProgressService ?? service?.progressService;
+    if (progressService) {
+      await progressService.stop(payload.documentId, payload.organizationId);
+    }
     await refundGenerationDebit(deps, jobId, payload, "job_stopped_pre_execution");
     return { job_id: jobId, status: "stopped" };
   }
@@ -317,7 +322,7 @@ export async function processGenerationJob(
         force: payload.force,
         jobId,
         generationContext: effectiveContext,
-          questionPatternId: payload.questionPatternId,
+        questionPatternId: payload.questionPatternId,
         questionPatternVersion: payload.questionPatternVersion,
       },
     );
@@ -327,8 +332,22 @@ export async function processGenerationJob(
       jobId,
       payload.organizationId,
     );
-    if (finalJob?.status === "stopped") {
-      process.stdout.write(`[GENERATION] job finished in stopped state: ${jobId}\n`);
+    if (finalJob?.status === "stopped" || finalJob?.status === "stopping") {
+      process.stdout.write(`[GENERATION] job finished in ${finalJob.status} state: ${jobId}. Finalizing stop.\n`);
+      const now = new Date().toISOString();
+      if (finalJob.status === "stopping") {
+        await deps.generationJobStore.update({
+          ...finalJob,
+          status: "stopped",
+          leaseExpiresAt: null,
+          completedAt: now,
+          updatedAt: now,
+        });
+      }
+      const progressService = deps.generationProgressService ?? service?.progressService;
+      if (progressService) {
+        await progressService.stop(payload.documentId, payload.organizationId);
+      }
       await refundGenerationDebit(deps, jobId, payload, "job_stopped_post_execution");
       return { job_id: jobId, status: "stopped" };
     }
@@ -346,6 +365,24 @@ export async function processGenerationJob(
       (err instanceof Error && err.name === "GenerationStoppedError")
     ) {
       process.stdout.write(`[GENERATION] job caught stopped error: ${jobId}\n`);
+      const finalJob = await generationJobStore.findByIdForOrganization(
+        jobId,
+        payload.organizationId,
+      );
+      if (finalJob && finalJob.status === "stopping") {
+        const now = new Date().toISOString();
+        await deps.generationJobStore.update({
+          ...finalJob,
+          status: "stopped",
+          leaseExpiresAt: null,
+          completedAt: now,
+          updatedAt: now,
+        });
+      }
+      const progressService = deps.generationProgressService ?? service?.progressService;
+      if (progressService) {
+        await progressService.stop(payload.documentId, payload.organizationId);
+      }
       await refundGenerationDebit(deps, jobId, payload, "job_stopped_error");
       return { job_id: jobId, status: "stopped" };
     }
@@ -355,6 +392,31 @@ export async function processGenerationJob(
     ) {
       process.stdout.write(`[GENERATION] job caught deleted error: ${jobId}\n`);
       return { job_id: jobId, status: "deleted" };
+    }
+
+    // If job was requested to stop when an error occurred, finalize as stopped
+    const finalJob = await generationJobStore.findByIdForOrganization(
+      jobId,
+      payload.organizationId,
+    );
+    if (finalJob && (finalJob.status === "stopping" || finalJob.status === "stopped")) {
+      process.stdout.write(`[GENERATION] job failed while in ${finalJob.status}: ${jobId}. Finalizing stop.\n`);
+      const now = new Date().toISOString();
+      if (finalJob.status === "stopping") {
+        await deps.generationJobStore.update({
+          ...finalJob,
+          status: "stopped",
+          leaseExpiresAt: null,
+          completedAt: now,
+          updatedAt: now,
+        });
+      }
+      const progressService = deps.generationProgressService ?? service?.progressService;
+      if (progressService) {
+        await progressService.stop(payload.documentId, payload.organizationId);
+      }
+      await refundGenerationDebit(deps, jobId, payload, "job_stopped_on_failure");
+      return { job_id: jobId, status: "stopped" };
     }
 
     const { errorCode, errorMessage } = await markFailed(generationJobStore, jobId, payload, err);
