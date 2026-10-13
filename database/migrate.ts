@@ -75,6 +75,8 @@ import { up as up0071 } from "./migrations/0071_repair_legacy_registration_org_a
 import { up as up0072 } from "./migrations/0072_teacher_exam_attempt_integrity.js";
 import { up as up0075 } from "./migrations/0075_question_patterns.js";
 import { up as up0077 } from "./migrations/0077_question_pattern_skills_and_cognitive_levels.js";
+import { up as up0078 } from "./migrations/0078_telegram_outbox.js";
+import { up as up0079 } from "./migrations/0079_telegram_outbox_lease_index.js";
 
 function localConnectionString(): string {
   const user = "avana";
@@ -241,6 +243,10 @@ async function runMigrations() {
     await up0075(db);
     console.log("Applying 0077_question_pattern_skills_and_cognitive_levels...");
     await up0077(db);
+    console.log("Applying 0078_telegram_outbox...");
+    await up0078(db);
+    console.log("Applying 0079_telegram_outbox_lease_index...");
+    await up0079(db);
 
     console.log("All database migrations applied successfully.");
   } catch (error) {

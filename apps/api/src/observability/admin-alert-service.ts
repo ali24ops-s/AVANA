@@ -10,6 +10,8 @@
  */
 
 import { TelegramClient, type TelegramInlineKeyboardMarkup } from "./telegram-client.js";
+import type { TelegramOutboxStore } from "./telegram-outbox-store.js";
+import type { TelegramOutboxDispatcher } from "./telegram-outbox-dispatcher.js";
 
 export type AlertSeverity = "critical" | "warning" | "info";
 
@@ -29,11 +31,15 @@ export interface AdminAlertServiceOptions {
   telegramClient?: TelegramClient;
   logger?: (msg: string) => void;
   cooldownWindowMs?: number;
+  outboxStore?: TelegramOutboxStore;
+  outboxDispatcher?: TelegramOutboxDispatcher;
 }
 
 export class AdminAlertService {
   private readonly enabled: boolean;
   private readonly telegramClient: TelegramClient;
+  private readonly outboxStore?: TelegramOutboxStore;
+  private readonly outboxDispatcher?: TelegramOutboxDispatcher;
   private readonly logger: (msg: string) => void;
   private readonly cooldownWindowMs: number;
   private readonly cooldownMap = new Map<string, number>();
@@ -46,6 +52,8 @@ export class AdminAlertService {
   constructor(options: AdminAlertServiceOptions = {}) {
     this.enabled = options.enabled ?? false;
     this.telegramClient = options.telegramClient ?? new TelegramClient();
+    this.outboxStore = options.outboxStore;
+    this.outboxDispatcher = options.outboxDispatcher;
     this.logger =
       options.logger ??
       ((msg) => {
@@ -154,7 +162,7 @@ export class AdminAlertService {
         customText: lines.join("\n"),
         timestamp: time,
       },
-      `user.registered:${details.userId}`,
+      `user:registered:${details.userId}`,
     );
   }
 
@@ -184,7 +192,7 @@ export class AdminAlertService {
         customText: lines.join("\n"),
         timestamp: time,
       },
-      `teacher.requested:${details.teacherId}`,
+      `teacher:requested:${details.teacherId}`,
     );
   }
 
@@ -314,6 +322,11 @@ export class AdminAlertService {
         }
       : undefined;
 
+    const cooldownKey = `payment:${details.paymentId}`;
+    const idempotencyKey = details.isC2C
+      ? `c2c:submitted:${details.paymentId}`
+      : `payment:completed:${details.paymentId}`;
+
     return this.sendAlert(
       {
         category: "payment.received",
@@ -323,7 +336,8 @@ export class AdminAlertService {
         replyMarkup,
         timestamp: time,
       },
-      `payment:${details.paymentId}`,
+      cooldownKey,
+      { idempotencyKey },
     );
   }
 
@@ -488,6 +502,7 @@ export class AdminAlertService {
   async sendAlert(
     payload: AlertPayload,
     cooldownKey?: string,
+    options?: { idempotencyKey?: string },
   ): Promise<boolean> {
     if (!this.isEnabled()) {
       return false;
@@ -514,6 +529,31 @@ export class AdminAlertService {
     this.cooldownMap.set(key, now);
 
     const message = payload.customText || this.formatMessage(payload);
+
+    if (this.outboxStore) {
+      try {
+        const targetChatId = this.telegramClient.getAdminChatId() || "";
+        const idempotencyKey = options?.idempotencyKey || key;
+        const record = await this.outboxStore.enqueue({
+          idempotencyKey,
+          chatId: targetChatId,
+          category: payload.category,
+          payload: {
+            text: message,
+            replyMarkup: payload.replyMarkup,
+          },
+        });
+
+        if (this.outboxDispatcher) {
+          this.outboxDispatcher.trigger();
+        }
+
+        return record !== null;
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.logger(`[admin-alert] Failed to enqueue alert to outbox: ${msg}`);
+      }
+    }
 
     try {
       const res = await this.telegramClient.sendMessage(message, undefined, payload.replyMarkup);

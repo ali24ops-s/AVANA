@@ -3498,3 +3498,49 @@ export type QuestionPatternDbRecord = typeof questionPatterns.$inferSelect;
 export type NewQuestionPatternDbRecord = typeof questionPatterns.$inferInsert;
 export type QuestionPatternExampleDbRecord = typeof questionPatternExamples.$inferSelect;
 export type NewQuestionPatternExampleDbRecord = typeof questionPatternExamples.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Telegram Outbox System
+// ---------------------------------------------------------------------------
+
+export const telegramOutbox = pgTable(
+  "telegram_outbox",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    idempotencyKey: varchar("idempotency_key", { length: 255 }).notNull().unique(),
+    chatId: varchar("chat_id", { length: 64 }).notNull(),
+    category: varchar("category", { length: 64 }).notNull(),
+    payload: jsonb("payload").notNull(),
+    status: varchar("status", { length: 32 }).notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    maxAttempts: integer("max_attempts").notNull().default(10),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    leaseToken: varchar("lease_token", { length: 64 }),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+  },
+  (table) => ({
+    idempotencyIdx: uniqueIndex("idx_telegram_outbox_idempotency_key").on(
+      table.idempotencyKey,
+    ),
+    pollIdx: index("idx_telegram_outbox_poll").on(
+      table.status,
+      table.nextAttemptAt,
+    ),
+    createdAtIdx: index("idx_telegram_outbox_created_at").on(
+      table.createdAt,
+    ),
+  }),
+);
+
+export type TelegramOutboxDbRecord = typeof telegramOutbox.$inferSelect;
+export type NewTelegramOutboxDbRecord = typeof telegramOutbox.$inferInsert;

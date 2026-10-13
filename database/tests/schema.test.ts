@@ -570,4 +570,26 @@ describe("PR-6 database schema", () => {
     expect(cols).toHaveProperty("sortOrder");
     expect(cols).toHaveProperty("createdAt");
   });
+
+  test("telegram_outbox table is defined and has required columns", () => {
+    expect(schema.telegramOutbox).toBeDefined();
+    const cols = getTableColumns(schema.telegramOutbox);
+    expect(cols).toHaveProperty("id");
+    expect(cols).toHaveProperty("idempotencyKey");
+    expect(cols).toHaveProperty("chatId");
+    expect(cols).toHaveProperty("category");
+    expect(cols).toHaveProperty("payload");
+    expect(cols).toHaveProperty("status");
+    expect(cols).toHaveProperty("attempts");
+    expect(cols).toHaveProperty("maxAttempts");
+    expect(cols).toHaveProperty("nextAttemptAt");
+    expect(cols).toHaveProperty("leaseExpiresAt");
+    expect(cols).toHaveProperty("leaseToken");
+    expect(cols).toHaveProperty("lastError");
+    expect(cols).toHaveProperty("createdAt");
+    expect(cols).toHaveProperty("updatedAt");
+    expect(cols).toHaveProperty("sentAt");
+
+    expect(cols.payload.dataType).toBe("json");
+  });
 });

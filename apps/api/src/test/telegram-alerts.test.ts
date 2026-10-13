@@ -1,4 +1,6 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { EventEmitter } from "node:events";
+import type https from "node:https";
 import { TelegramClient } from "../observability/telegram-client.js";
 import { AdminAlertService } from "../observability/admin-alert-service.js";
 import { AuditService } from "../observability/audit-service.js";
@@ -152,6 +154,300 @@ describe("Telegram Operational Alerts Test Suite", () => {
       const res = await client.sendMessage("پیام");
       expect(res.sent).toBe(false);
       expect(JSON.stringify(res)).not.toContain(token);
+    });
+  });
+
+  describe("TelegramClient - SOCKS5 Proxy Support", () => {
+    interface MockTransportOptions {
+      method?: string;
+      headers?: Record<string, string>;
+      agent?: unknown;
+      signal?: AbortSignal;
+    }
+
+    interface MockReq extends EventEmitter {
+      write: (chunk: string | Buffer) => boolean;
+      end: () => void;
+    }
+
+    interface MockRes extends EventEmitter {
+      statusCode?: number;
+      statusMessage?: string;
+      headers?: Record<string, string>;
+    }
+
+    it("reports proxy status correctly via isProxyConfigured", () => {
+      const clientWithoutProxy = new TelegramClient({
+        botToken: "dummy-token",
+        adminChatId: "123456",
+      });
+      expect(clientWithoutProxy.isProxyConfigured()).toBe(false);
+
+      const clientWithProxy = new TelegramClient({
+        botToken: "dummy-token",
+        adminChatId: "123456",
+        socksProxyUrl: "socks5://127.0.0.1:1080",
+      });
+      expect(clientWithProxy.isProxyConfigured()).toBe(true);
+      clientWithProxy.destroy();
+    });
+
+    it("executes sendMessage through SOCKS proxy transport with POST body and headers", async () => {
+      let capturedUrl: URL | null = null;
+      let capturedOptions: MockTransportOptions | null = null;
+      let capturedBody = "";
+
+      const customTransport = {
+        request: ((url: URL, options: MockTransportOptions, callback?: (res: MockRes) => void) => {
+          capturedUrl = url;
+          capturedOptions = options;
+          const req = new EventEmitter() as MockReq;
+          req.write = vi.fn().mockImplementation((chunk: string) => {
+            capturedBody += chunk;
+            return true;
+          });
+          req.end = vi.fn().mockImplementation(() => {
+            const res = new EventEmitter() as MockRes;
+            res.statusCode = 200;
+            res.statusMessage = "OK";
+            res.headers = { "content-type": "application/json" };
+            if (callback) callback(res);
+            queueMicrotask(() => {
+              res.emit(
+                "data",
+                Buffer.from(JSON.stringify({ ok: true, result: { message_id: 101 } })),
+              );
+              res.emit("end");
+            });
+          });
+          return req;
+        }) as unknown as typeof https.request,
+      };
+
+      const client = new TelegramClient({
+        botToken: "token123",
+        adminChatId: "admin_chat",
+        socksProxyUrl: "socks5://127.0.0.1:1080",
+        customTransport,
+      });
+
+      const res = await client.sendMessage("پیام تست از پراکسی");
+      expect(res.sent).toBe(true);
+      expect(res.messageId).toBe(101);
+      expect(capturedUrl?.pathname).toBe("/bottoken123/sendMessage");
+      expect(capturedOptions?.method).toBe("POST");
+      expect(capturedOptions?.agent).toBeDefined();
+      expect(capturedOptions?.headers?.["Content-Type"]).toBe("application/json");
+
+      const parsedBody = JSON.parse(capturedBody) as { chat_id: string; text: string };
+      expect(parsedBody.chat_id).toBe("admin_chat");
+      expect(parsedBody.text).toBe("پیام تست از پراکسی");
+      client.destroy();
+    });
+
+    it("executes editMessageText, answerCallbackQuery, and getUpdates through proxy transport", async () => {
+      const endpointsCalled: string[] = [];
+
+      const customTransport = {
+        request: ((url: URL, _options: MockTransportOptions, callback?: (res: MockRes) => void) => {
+          endpointsCalled.push(url.pathname);
+          const req = new EventEmitter() as MockReq;
+          req.write = vi.fn();
+          req.end = vi.fn().mockImplementation(() => {
+            const res = new EventEmitter() as MockRes;
+            res.statusCode = 200;
+            res.statusMessage = "OK";
+            res.headers = { "content-type": "application/json" };
+            if (callback) callback(res);
+            queueMicrotask(() => {
+              if (url.pathname.includes("getUpdates")) {
+                res.emit(
+                  "data",
+                  Buffer.from(
+                    JSON.stringify({
+                      ok: true,
+                      result: [{ update_id: 1, message: { text: "/status" } }],
+                    }),
+                  ),
+                );
+              } else {
+                res.emit(
+                  "data",
+                  Buffer.from(JSON.stringify({ ok: true, result: true })),
+                );
+              }
+              res.emit("end");
+            });
+          });
+          return req;
+        }) as unknown as typeof https.request,
+      };
+
+      const client = new TelegramClient({
+        botToken: "token123",
+        adminChatId: "admin_chat",
+        socksProxyUrl: "socks5://127.0.0.1:1080",
+        customTransport,
+      });
+
+      const editRes = await client.editMessageText({
+        messageId: 50,
+        text: "ویرایش پیام",
+      });
+      expect(editRes.ok).toBe(true);
+      expect(endpointsCalled).toContain("/bottoken123/editMessageText");
+
+      const ansRes = await client.answerCallbackQuery({
+        callbackQueryId: "cb_99",
+      });
+      expect(ansRes.ok).toBe(true);
+      expect(endpointsCalled).toContain("/bottoken123/answerCallbackQuery");
+
+      const updatesRes = await client.getUpdates();
+      expect(updatesRes.ok).toBe(true);
+      expect(updatesRes.updates).toHaveLength(1);
+      expect(endpointsCalled).toContain("/bottoken123/getUpdates");
+      client.destroy();
+    });
+
+    it("handles connection error in proxy transport safely without throwing", async () => {
+      const customTransport = {
+        request: ((_url: URL, _options: MockTransportOptions) => {
+          const req = new EventEmitter() as MockReq;
+          req.write = vi.fn();
+          req.end = vi.fn().mockImplementation(() => {
+            queueMicrotask(() => {
+              req.emit("error", new Error("connect ECONNREFUSED 127.0.0.1:1080"));
+            });
+          });
+          return req;
+        }) as unknown as typeof https.request,
+      };
+
+      const client = new TelegramClient({
+        botToken: "token123",
+        adminChatId: "admin_chat",
+        socksProxyUrl: "socks5://127.0.0.1:1080",
+        customTransport,
+      });
+
+      const res = await client.sendMessage("تست خطای شبکه");
+      expect(res.sent).toBe(false);
+      expect(res.reason).toContain("network_error");
+      expect(res.reason).toContain("ECONNREFUSED");
+      client.destroy();
+    });
+
+    it("handles timeout correctly when proxy transport hangs", async () => {
+      const customTransport = {
+        request: ((_url: URL, options: MockTransportOptions) => {
+          const req = new EventEmitter() as MockReq;
+          req.write = vi.fn();
+          req.end = vi.fn(); // Never responds
+          if (options.signal) {
+            options.signal.addEventListener(
+              "abort",
+              () => {
+                req.emit("error", new Error("The operation was aborted"));
+              },
+              { once: true },
+            );
+          }
+          return req;
+        }) as unknown as typeof https.request,
+      };
+
+      const client = new TelegramClient({
+        botToken: "token123",
+        adminChatId: "admin_chat",
+        timeoutMs: 50, // Short 50ms timeout
+        socksProxyUrl: "socks5://127.0.0.1:1080",
+        customTransport,
+      });
+
+      const res = await client.sendMessage("تست تایم‌اوت");
+      expect(res.sent).toBe(false);
+      expect(res.reason).toBe("timeout_after_50ms");
+      client.destroy();
+    });
+
+    it("handles external AbortSignal cancellation in getUpdates", async () => {
+      const customTransport = {
+        request: ((_url: URL, options: MockTransportOptions) => {
+          const req = new EventEmitter() as MockReq;
+          req.write = vi.fn();
+          req.end = vi.fn();
+          if (options.signal) {
+            options.signal.addEventListener(
+              "abort",
+              () => {
+                req.emit("error", new Error("The operation was aborted"));
+              },
+              { once: true },
+            );
+          }
+          return req;
+        }) as unknown as typeof https.request,
+      };
+
+      const client = new TelegramClient({
+        botToken: "token123",
+        adminChatId: "admin_chat",
+        socksProxyUrl: "socks5://127.0.0.1:1080",
+        customTransport,
+      });
+
+      const controller = new AbortController();
+      controller.abort(); // pre-aborted
+
+      const res = await client.getUpdates({ signal: controller.signal });
+      expect(res.ok).toBe(false);
+      expect(res.reason).toBe("aborted");
+      client.destroy();
+    });
+
+    it("strictly redacts bot token and proxy credentials from network error strings", async () => {
+      const secretToken = "BOT_SECRET_TOKEN_998877";
+      const secretPassword = "SUPER_SECRET_PROXY_PASS_XYZ";
+      const secretUser = "proxy_admin_user";
+
+      const customTransport = {
+        request: ((_url: URL, _options: MockTransportOptions) => {
+          const req = new EventEmitter() as MockReq;
+          req.write = vi.fn();
+          req.end = vi.fn().mockImplementation(() => {
+            queueMicrotask(() => {
+              req.emit(
+                "error",
+                new Error(
+                  `Proxy auth failure for socks5://${secretUser}:${secretPassword}@127.0.0.1:1080 requesting /bot${secretToken}/sendMessage: invalid credentials`,
+                ),
+              );
+            });
+          });
+          return req;
+        }) as unknown as typeof https.request,
+      };
+
+      const client = new TelegramClient({
+        botToken: secretToken,
+        adminChatId: "admin_chat",
+        socksProxyUrl: `socks5://${secretUser}:${secretPassword}@127.0.0.1:1080`,
+        customTransport,
+      });
+
+      const res = await client.sendMessage("تست نشت نکردن اطلاعات");
+      expect(res.sent).toBe(false);
+      expect(res.reason).toBeDefined();
+
+      const reasonString = res.reason ?? "";
+      expect(reasonString).not.toContain(secretPassword);
+      expect(reasonString).not.toContain(secretToken);
+      expect(reasonString).not.toContain(secretUser);
+      expect(reasonString).toContain("[REDACTED_PROXY_PASSWORD]");
+      expect(reasonString).toContain("[REDACTED_BOT_TOKEN]");
+      expect(reasonString).toContain("[REDACTED_PROXY_USER]");
+      client.destroy();
     });
   });
 

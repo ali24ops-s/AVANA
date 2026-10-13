@@ -23,6 +23,9 @@ export function createLogger(config: ApiConfig): pino.Logger {
     "telegram.botToken",
     "botToken",
     "TELEGRAM_BOT_TOKEN",
+    "telegram.socksProxyUrl",
+    "socksProxyUrl",
+    "TELEGRAM_SOCKS_PROXY_URL",
   ];
 
   return pino({

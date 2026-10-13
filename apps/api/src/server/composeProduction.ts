@@ -94,6 +94,8 @@ import { AuditService } from "../observability/audit-service.js";
 import { TelegramClient } from "../observability/telegram-client.js";
 import { AdminAlertService } from "../observability/admin-alert-service.js";
 import { TelegramOpsBot } from "../observability/telegram-ops-bot.js";
+import { DrizzleTelegramOutboxStore } from "../observability/telegram-outbox-store.js";
+import { TelegramOutboxDispatcher } from "../observability/telegram-outbox-dispatcher.js";
 import { checkWorkerHealth } from "../observability/worker-health-probe.js";
 import { DrizzleAdminStore } from "../modules/admin/drizzle-stores.js";
 import { AdminService } from "../modules/admin/admin-service.js";
@@ -137,6 +139,8 @@ export interface ProductionDependencies {
   auditService: AuditService;
   adminAlertService: AdminAlertService;
   telegramOpsBot?: TelegramOpsBot;
+  telegramOutboxStore?: DrizzleTelegramOutboxStore;
+  telegramOutboxDispatcher?: TelegramOutboxDispatcher;
   worker?: Worker;
   close: () => Promise<void>;
 }
@@ -448,16 +452,26 @@ export async function composeProduction(
   const auditStore = new DrizzleAuditStore(db);
   const auditService = new AuditService(auditStore);
 
-  // Operational Telegram Alerts
+  // Operational Telegram Alerts & Durable Outbox
   const telegramClient = new TelegramClient({
     botToken: config.telegram.botToken,
     adminChatId: config.telegram.adminChatId,
     timeoutMs: config.telegram.timeoutMs,
     apiBaseUrl: config.telegram.apiBaseUrl,
+    socksProxyUrl: config.telegram.socksProxyUrl,
   });
+
+  const telegramOutboxStore = new DrizzleTelegramOutboxStore(db);
+  const telegramOutboxDispatcher = new TelegramOutboxDispatcher({
+    store: telegramOutboxStore,
+    telegramClient,
+  });
+
   const adminAlertService = new AdminAlertService({
     enabled: config.telegram.enabled,
     telegramClient,
+    outboxStore: telegramOutboxStore,
+    outboxDispatcher: telegramOutboxDispatcher,
   });
 
   // Tap AuditService for domain events (e.g. generation.failed, payments, teachers, user registrations)
@@ -623,6 +637,7 @@ export async function composeProduction(
   });
 
   if (config.telegram.enabled && config.telegram.botToken && config.telegram.adminChatId) {
+    telegramOutboxDispatcher.start();
     telegramOpsBot.start();
   }
   const referralStore = new DrizzleReferralStore(db);
@@ -882,8 +897,19 @@ export async function composeProduction(
     if (telegramOpsBot) {
       await telegramOpsBot.stop();
     }
+    await telegramOutboxDispatcher.stop();
+    telegramClient.destroy();
     await close();
   };
 
-  return { v1Options, auditService, adminAlertService, telegramOpsBot, worker, close: enhancedClose };
+  return {
+    v1Options,
+    auditService,
+    adminAlertService,
+    telegramOpsBot,
+    telegramOutboxStore,
+    telegramOutboxDispatcher,
+    worker,
+    close: enhancedClose,
+  };
 }

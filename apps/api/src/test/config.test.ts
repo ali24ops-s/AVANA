@@ -62,3 +62,28 @@ describe("loadApiConfig - session lifetime (maxAgeMs)", () => {
     ).toThrowError(/Invalid AVANA_SESSION_MAX_AGE_MS value/);
   });
 });
+
+describe("loadApiConfig - telegram SOCKS5 proxy", () => {
+  it("defaults to undefined when TELEGRAM_SOCKS_PROXY_URL is not set", () => {
+    const config = loadApiConfig({
+      NODE_ENV: "production",
+    });
+    expect(config.telegram.socksProxyUrl).toBeUndefined();
+  });
+
+  it("parses valid TELEGRAM_SOCKS_PROXY_URL correctly", () => {
+    const config = loadApiConfig({
+      NODE_ENV: "production",
+      TELEGRAM_SOCKS_PROXY_URL: "socks5://127.0.0.1:1080",
+    });
+    expect(config.telegram.socksProxyUrl).toBe("socks5://127.0.0.1:1080");
+  });
+
+  it("ignores whitespace-only TELEGRAM_SOCKS_PROXY_URL", () => {
+    const config = loadApiConfig({
+      NODE_ENV: "production",
+      TELEGRAM_SOCKS_PROXY_URL: "   ",
+    });
+    expect(config.telegram.socksProxyUrl).toBeUndefined();
+  });
+});

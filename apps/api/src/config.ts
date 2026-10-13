@@ -138,6 +138,7 @@ export type ApiConfig = {
     botUsername: string;
     timeoutMs: number;
     apiBaseUrl?: string;
+    socksProxyUrl?: string;
   };
   analytics?: {
     ga4MeasurementId?: string;
@@ -568,6 +569,7 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
           ? Number(env.TELEGRAM_TIMEOUT_MS)
           : 5_000,
       apiBaseUrl: env.TELEGRAM_API_BASE_URL?.trim() || undefined,
+      socksProxyUrl: env.TELEGRAM_SOCKS_PROXY_URL?.trim() || undefined,
     },
     analytics: {
       ga4MeasurementId: env.GA4_MEASUREMENT_ID?.trim() || undefined,
