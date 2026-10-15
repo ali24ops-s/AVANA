@@ -402,6 +402,7 @@ export async function composeProduction(
     geminiApiKey: config.generation.geminiApiKey,
     geminiApiKeys: config.generation.geminiApiKeys,
     geminiModel: config.generation.geminiModel,
+    geminiSocksProxyUrl: config.generation.geminiSocksProxyUrl,
   });
 
   // BullMQ generation queue (Redis-backed producer).
@@ -908,6 +909,9 @@ export async function composeProduction(
       await telegramOpsBot.stop();
     }
     await telegramOutboxDispatcher.stop();
+    if ("destroy" in adminGateway && typeof adminGateway.destroy === "function") {
+      adminGateway.destroy();
+    }
     telegramClient.destroy();
     await close();
   };

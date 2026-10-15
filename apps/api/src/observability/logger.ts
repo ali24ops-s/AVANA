@@ -26,6 +26,9 @@ export function createLogger(config: ApiConfig): pino.Logger {
     "telegram.socksProxyUrl",
     "socksProxyUrl",
     "TELEGRAM_SOCKS_PROXY_URL",
+    "generation.geminiSocksProxyUrl",
+    "geminiSocksProxyUrl",
+    "GEMINI_SOCKS_PROXY_URL",
   ];
 
   return pino({

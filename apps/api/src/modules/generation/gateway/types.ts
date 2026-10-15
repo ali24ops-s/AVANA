@@ -94,4 +94,5 @@ export interface ModelGateway {
   readonly provider: ModelProvider;
   readonly model?: string;
   complete(req: CompletionRequest): Promise<CompletionResult>;
+  destroy?: () => void;
 }

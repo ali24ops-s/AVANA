@@ -87,3 +87,65 @@ describe("loadApiConfig - telegram SOCKS5 proxy", () => {
     expect(config.telegram.socksProxyUrl).toBeUndefined();
   });
 });
+
+describe("loadApiConfig - gemini SOCKS5 proxy", () => {
+  it("defaults to undefined when GEMINI_SOCKS_PROXY_URL is not set", () => {
+    const config = loadApiConfig({
+      NODE_ENV: "production",
+    });
+    expect(config.generation.geminiSocksProxyUrl).toBeUndefined();
+  });
+
+  it("parses valid GEMINI_SOCKS_PROXY_URL correctly (including production port 10808) and trims whitespace", () => {
+    const config = loadApiConfig({
+      NODE_ENV: "production",
+      GEMINI_SOCKS_PROXY_URL: "  socks5://127.0.0.1:10808  ",
+    });
+    expect(config.generation.geminiSocksProxyUrl).toBe("socks5://127.0.0.1:10808");
+  });
+
+  it("ignores whitespace-only GEMINI_SOCKS_PROXY_URL", () => {
+    const config = loadApiConfig({
+      NODE_ENV: "production",
+      GEMINI_SOCKS_PROXY_URL: "   ",
+    });
+    expect(config.generation.geminiSocksProxyUrl).toBeUndefined();
+  });
+
+  it("does not automatically inherit TELEGRAM_SOCKS_PROXY_URL", () => {
+    const config = loadApiConfig({
+      NODE_ENV: "production",
+      TELEGRAM_SOCKS_PROXY_URL: "socks5://127.0.0.1:1080",
+    });
+    expect(config.telegram.socksProxyUrl).toBe("socks5://127.0.0.1:1080");
+    expect(config.generation.geminiSocksProxyUrl).toBeUndefined();
+  });
+
+  it("throws descriptive error for invalid SOCKS protocol without leaking credentials", () => {
+    const invalidUrlWithCreds = `http://${"dummyuser"}:${"dummypassword"}@127.0.0.1:8080`;
+    expect(() =>
+      loadApiConfig({
+        NODE_ENV: "production",
+        GEMINI_SOCKS_PROXY_URL: invalidUrlWithCreds,
+      }),
+    ).toThrowError(/Invalid SOCKS proxy protocol: http:/);
+
+    try {
+      loadApiConfig({
+        NODE_ENV: "production",
+        GEMINI_SOCKS_PROXY_URL: invalidUrlWithCreds,
+      });
+    } catch (err: unknown) {
+      expect((err as Error).message).not.toContain("dummypassword");
+    }
+  });
+
+  it("throws descriptive error for malformed URL without leaking credentials", () => {
+    expect(() =>
+      loadApiConfig({
+        NODE_ENV: "production",
+        GEMINI_SOCKS_PROXY_URL: "not a url",
+      }),
+    ).toThrowError(/Invalid GEMINI_SOCKS_PROXY_URL: malformed URL/);
+  });
+});

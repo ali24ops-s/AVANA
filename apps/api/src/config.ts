@@ -92,6 +92,7 @@ export type ApiConfig = {
     geminiApiKey?: string;
     geminiApiKeys: string[];
     geminiModel: string;
+    geminiSocksProxyUrl?: string;
     cloudflareAccountId?: string;
     cloudflareApiToken?: string;
     cloudflareAiModel: string;
@@ -178,6 +179,27 @@ function parseGeminiApiKeys(env: NodeJS.ProcessEnv): string[] {
   }
 
   return keys;
+}
+
+function parseSocksProxyUrl(val?: string): string | undefined {
+  if (!val) return undefined;
+  const trimmed = val.trim();
+  if (trimmed.length === 0) return undefined;
+  try {
+    const parsed = new URL(trimmed);
+    const validProtocols = ["socks5:", "socks5h:", "socks4:", "socks4a:", "socks:"];
+    if (!validProtocols.includes(parsed.protocol.toLowerCase())) {
+      throw new Error(
+        `Invalid SOCKS proxy protocol: ${parsed.protocol}. Supported protocols: socks5, socks5h, socks4, socks4a, socks.`,
+      );
+    }
+    return trimmed;
+  } catch (err) {
+    if (err instanceof TypeError) {
+      throw new Error("Invalid GEMINI_SOCKS_PROXY_URL: malformed URL");
+    }
+    throw err;
+  }
 }
 
 function getOptionalString(
@@ -473,6 +495,7 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
       geminiApiKey: env.GEMINI_API_KEY,
       geminiApiKeys: parseGeminiApiKeys(env),
       geminiModel: getOptionalString(env, "GEMINI_MODEL", "gemini-3.6-flash"),
+      geminiSocksProxyUrl: parseSocksProxyUrl(env.GEMINI_SOCKS_PROXY_URL),
       cloudflareAccountId: env.CLOUDFLARE_ACCOUNT_ID,
       cloudflareApiToken: env.CLOUDFLARE_API_TOKEN,
       cloudflareAiModel: getOptionalString(

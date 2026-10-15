@@ -74,6 +74,7 @@ export interface CreateModelGatewayOptions {
   geminiApiKey?: string;
   geminiApiKeys?: string[];
   geminiModel?: string;
+  geminiSocksProxyUrl?: string;
   cloudflareAccountId?: string;
   cloudflareApiToken?: string;
   cloudflareAiModel?: string;
@@ -122,6 +123,7 @@ export function createModelGateway(
   let key: string | undefined = apiKey;
   let keysOption: string[] | undefined;
   let modelName: string | undefined = model;
+  let geminiSocksProxyUrlOption: string | undefined;
   let cfAccountId: string | undefined;
   let cfApiToken: string | undefined;
   let cfModel: string | undefined;
@@ -146,6 +148,7 @@ export function createModelGateway(
     key = providerOrOptions.geminiApiKey ?? key;
     keysOption = providerOrOptions.geminiApiKeys;
     modelName = providerOrOptions.geminiModel ?? modelName;
+    geminiSocksProxyUrlOption = providerOrOptions.geminiSocksProxyUrl;
     cfAccountId = providerOrOptions.cloudflareAccountId;
     cfApiToken = providerOrOptions.cloudflareApiToken;
     cfModel = providerOrOptions.cloudflareAiModel;
@@ -259,10 +262,14 @@ export function createModelGateway(
           process.env.GEMINI_MODEL ||
           "gemini-3.5-flash-lite";
 
+        const resolvedProxyUrl =
+          geminiSocksProxyUrlOption || process.env.GEMINI_SOCKS_PROXY_URL;
+
         instantiatedGateways.push(
           new GeminiModelGateway({
             apiKeys: resolvedKeys,
             modelName: resolvedModel,
+            socksProxyUrl: resolvedProxyUrl?.trim() || undefined,
           }),
         );
       }

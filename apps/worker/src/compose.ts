@@ -89,6 +89,7 @@ export async function composeWorker(
     geminiApiKey: config.generation.geminiApiKey,
     geminiApiKeys: config.generation.geminiApiKeys,
     geminiModel: config.generation.geminiModel,
+    geminiSocksProxyUrl: config.generation.geminiSocksProxyUrl,
   });
 
   // User-facing content generation gateway: GapGPT (deepseek-v4-flash) or OpenRouter
@@ -214,6 +215,13 @@ export async function composeWorker(
   );
   userGenerationService.setNotificationService(notificationService);
 
+  const workerClose = async () => {
+    if ("destroy" in adminGateway && typeof adminGateway.destroy === "function") {
+      adminGateway.destroy();
+    }
+    await close();
+  };
+
   return {
     adminGenerationService,
     userGenerationService,
@@ -229,6 +237,6 @@ export async function composeWorker(
     userGateway,
     gateway: userGateway,
     adminAlertService,
-    close,
+    close: workerClose,
   };
 }

@@ -23,6 +23,8 @@ import type {
   CompletionResult,
 } from "./types.js";
 import { GeminiKeyPool, type GeminiKeySlot } from "./gemini-key-pool.js";
+import { SocksProxyAgent } from "socks-proxy-agent";
+import { createSocksProxyFetch, type SocksProxyFetchOptions } from "./socks-fetch.js";
 
 export const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite";
 export const DEFAULT_REQUEST_TIMEOUT_MS = 180_000;
@@ -43,6 +45,10 @@ export interface GeminiModelGatewayOptions {
   fetchFn?: typeof fetch;
   /** Custom sleep implementation (used in unit tests for zero delay). */
   sleepFn?: (ms: number) => Promise<void>;
+  /** Optional SOCKS5 proxy URL for restricted environments (e.g. socks5://127.0.0.1:1080). */
+  socksProxyUrl?: string;
+  /** Optional custom transport for proxy fetch (used in unit tests). */
+  customTransport?: SocksProxyFetchOptions["customTransport"];
 }
 
 export class GeminiHttpError extends Error {
@@ -403,6 +409,8 @@ export class GeminiModelGateway implements ModelGateway {
   private readonly timeoutMs: number;
   private readonly fetchFn: typeof fetch;
   private readonly sleepFn: (ms: number) => Promise<void>;
+  private readonly socksProxyUrl?: string;
+  private readonly proxyAgent?: SocksProxyAgent;
 
   get model(): string {
     return this.modelName;
@@ -435,15 +443,60 @@ export class GeminiModelGateway implements ModelGateway {
 
     this.modelName = options.modelName?.trim() || DEFAULT_GEMINI_MODEL;
     this.timeoutMs = options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
-    this.fetchFn = options.fetchFn ?? globalThis.fetch;
     this.sleepFn = options.sleepFn ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
+    this.socksProxyUrl = options.socksProxyUrl?.trim() || undefined;
+
+    if (options.fetchFn) {
+      this.fetchFn = options.fetchFn;
+    } else if (this.socksProxyUrl) {
+      this.proxyAgent = new SocksProxyAgent(this.socksProxyUrl);
+      this.fetchFn = createSocksProxyFetch(this.proxyAgent, {
+        customTransport: options.customTransport,
+      });
+    } else {
+      this.fetchFn = globalThis.fetch;
+    }
   }
 
   /**
-   * Helper to sanitize text by redacting all API keys managed by the pool.
+   * Check if SOCKS5 proxy is configured for this gateway.
+   */
+  isProxyConfigured(): boolean {
+    return Boolean(this.socksProxyUrl);
+  }
+
+  /**
+   * Clean up proxy agent sockets and resources.
+   */
+  destroy(): void {
+    if (this.proxyAgent) {
+      this.proxyAgent.destroy();
+    }
+  }
+
+  /**
+   * Helper to sanitize text by redacting all API keys managed by the pool and proxy credentials.
    */
   private sanitize(str: string): string {
-    return this.keyPool.sanitize(str);
+    let sanitized = this.keyPool.sanitize(str);
+    if (this.socksProxyUrl) {
+      try {
+        const parsed = new URL(this.socksProxyUrl);
+        if (parsed.password) {
+          sanitized = sanitized.replaceAll(parsed.password, "[REDACTED_PROXY_PASSWORD]");
+        }
+        if (parsed.username) {
+          sanitized = sanitized.replaceAll(parsed.username, "[REDACTED_PROXY_USER]");
+        }
+      } catch {
+        // ignore
+      }
+    }
+    sanitized = sanitized.replace(
+      /:\/\/[^:@\s]+:[^@\s]+@/g,
+      "://[REDACTED_PROXY_USER]:[REDACTED_PROXY_PASSWORD]@",
+    );
+    return sanitized;
   }
 
   /**
