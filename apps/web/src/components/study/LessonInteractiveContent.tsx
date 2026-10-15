@@ -8,7 +8,7 @@
  * - 5 contextual actions: Ask Avana, Explain Simply, Highlight, Note, Report Issue
  */
 
-import React, { useRef, useState, useEffect, useLayoutEffect, useCallback } from "react";
+import React, { useRef, useState, useLayoutEffect, useCallback } from "react";
 import { MarkdownRenderer } from "../markdown/MarkdownRenderer.js";
 import { useTextSelection, type TextSelectionData } from "../../hooks/useTextSelection.js";
 import { useLessonAnnotations } from "../../hooks/useLessonAnnotations.js";
@@ -17,6 +17,7 @@ import { AskAvanaSelectionDialog } from "./AskAvanaSelectionDialog.js";
 import { ExplainSimplyDialog } from "./ExplainSimplyDialog.js";
 import { LessonNoteDialog } from "./LessonNoteDialog.js";
 import { ReportIssueDialog } from "./ReportIssueDialog.js";
+import { getTextNodeEntries } from "../../utils/selectionNormalization.js";
 import type { LessonAnnotationResource, ContentReportCategory } from "@avana/contracts";
 
 export interface LessonInteractiveContentProps {
@@ -90,6 +91,7 @@ export function LessonInteractiveContent({
       });
       clearSelection();
     } catch (err) {
+      /* eslint-disable-next-line no-console */
       console.error("[annotation-create-error]", err);
     }
   };
@@ -125,38 +127,6 @@ export function LessonInteractiveContent({
 
     if (!annotations || annotations.length === 0) return;
 
-    // Helper: collect content text nodes and build character index map
-    const getTextNodeEntries = () => {
-      const walker = document.createTreeWalker(
-        container,
-        NodeFilter.SHOW_TEXT,
-        null,
-      );
-
-      const entries: Array<{ node: Text; start: number; end: number }> = [];
-      let currentOffset = 0;
-      let currentNode = walker.nextNode() as Text | null;
-
-      while (currentNode) {
-        const parent = currentNode.parentElement;
-        if (parent && ["PRE", "CODE", "SCRIPT", "STYLE"].includes(parent.tagName)) {
-          currentNode = walker.nextNode() as Text | null;
-          continue;
-        }
-        const len = currentNode.textContent?.length || 0;
-        entries.push({
-          node: currentNode,
-          start: currentOffset,
-          end: currentOffset + len,
-        });
-        currentOffset += len;
-        currentNode = walker.nextNode() as Text | null;
-      }
-
-      const fullContentText = entries.map((e) => e.node.textContent || "").join("");
-      return { entries, fullContentText };
-    };
-
     // Sort annotations by startOffset descending to safely mutate DOM from bottom to top
     const sortedAnnotations = [...annotations].sort((a, b) => {
       const offA = typeof a.startOffset === "number" ? a.startOffset : 0;
@@ -168,7 +138,7 @@ export function LessonInteractiveContent({
       const targetText = ann.selectedText;
       if (!targetText || targetText.trim().length === 0) continue;
 
-      const { entries, fullContentText } = getTextNodeEntries();
+      const { entries, fullText: fullContentText } = getTextNodeEntries(container);
       if (!fullContentText || entries.length === 0) continue;
 
       let matchStart = -1;

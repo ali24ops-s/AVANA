@@ -14,6 +14,7 @@ describe("Worker Composition Root (composeWorker)", () => {
     const workerConfig = loadWorkerConfig({
       NODE_ENV: "test",
       DATABASE_URL: "postgres://mock:5432/mock",
+      GEMINI_API_KEY: "AIzaSy-test-key-worker",
     });
 
     const worker = await composeWorker(workerConfig, {

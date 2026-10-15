@@ -329,7 +329,7 @@ describe("GapGPTModelGateway Unit Tests", () => {
     expect(result.model).toBe("gpt-5.6-luna");
   });
 
-  it("handles request timeout cleanly with AbortController", async () => {
+  it("handles request timeout cleanly with AbortController and throws DomainError code 'timeout'", async () => {
     const mockFetch = vi.fn().mockImplementation((_url, init) => {
       return new Promise((_resolve, reject) => {
         const signal = init?.signal as AbortSignal;
@@ -345,9 +345,46 @@ describe("GapGPTModelGateway Unit Tests", () => {
       fetchFn: mockFetch as unknown as typeof fetch,
     });
 
-    await expect(gateway.complete(makeRequest())).rejects.toThrow(
-      "GapGPT API request timed out after 50ms",
+    try {
+      await gateway.complete(makeRequest());
+      expect.unreachable("Should have thrown DomainError with code timeout");
+    } catch (err) {
+      expect(err).toBeInstanceOf(DomainError);
+      expect((err as DomainError).code).toBe("timeout");
+      expect((err as DomainError).message).toContain("GapGPT API request timed out after 50ms");
+    }
+  });
+
+  it("provides actionable error when response is truncated with finish_reason: length", async () => {
+    const truncatedResponse = new Response(
+      JSON.stringify({
+        id: "chatcmpl-gapgpt-123",
+        model: "gpt-5.6-luna",
+        choices: [
+          {
+            index: 0,
+            message: { role: "assistant", content: '{"kind": "content_plan", "title": "Incomp' },
+            finish_reason: "length",
+          },
+        ],
+        usage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
     );
+
+    const gateway = new GapGPTModelGateway({
+      apiKey: FAKE_GAPGPT_KEY,
+      fetchFn: vi.fn().mockResolvedValue(truncatedResponse),
+    });
+
+    try {
+      await gateway.complete(makeRequest({ jsonSchema: { type: "content_plan" } }));
+      expect.unreachable("Should have thrown unprocessable DomainError");
+    } catch (err) {
+      expect(err).toBeInstanceOf(DomainError);
+      expect((err as DomainError).code).toBe("unprocessable");
+      expect((err as DomainError).message).toContain("finish_reason: length");
+    }
   });
 
   it("redacts API key from all network error messages", async () => {

@@ -14,6 +14,7 @@
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { createDbClient } from "@avana/database/client";
+import { Redis } from "ioredis";
 import { modules, lessons, courses } from "@avana/database/schema";
 import type { DbClient } from "@avana/database/client";
 import {
@@ -82,8 +83,6 @@ import {
 } from "../modules/study/index.js";
 import {
   createModelGateway,
-  GapGPTModelGateway,
-  OpenRouterModelGateway,
   BullMqGenerationQueue,
   GenerationService,
   type ModelGateway,
@@ -395,12 +394,20 @@ export async function composeProduction(
   const generationProgressStore = new DrizzleGenerationProgressStore(db);
   const generationProgressService = new GenerationProgressService(generationProgressStore);
   // Admin Model gateway: strictly Gemini with multi-key pool, zero fallback to external providers.
+  const geminiRedis =
+    config.generation.aiProvider !== "mock" && config.redis.url
+      ? new Redis(config.redis.url, { maxRetriesPerRequest: null, enableReadyCheck: false })
+      : undefined;
+
   const adminProvider = config.generation.aiProvider === "mock" ? "mock" : "gemini";
   const adminGateway: ModelGateway = createModelGateway({
     provider: adminProvider,
     enableFallback: false,
     geminiApiKey: config.generation.geminiApiKey,
     geminiApiKeys: config.generation.geminiApiKeys,
+    geminiKeyConfigs: config.generation.geminiKeyConfigs,
+    geminiRedis,
+    geminiQuotas: config.generation.geminiQuotas,
     geminiModel: config.generation.geminiModel,
     geminiSocksProxyUrl: config.generation.geminiSocksProxyUrl,
   });
@@ -440,24 +447,10 @@ export async function composeProduction(
   const contentPackStore = new DrizzleContentPackStore(db);
   const contentPackUsageStore = new DrizzleContentPackUsageStore(db);
 
-  // Dedicated ModelGateway for User-Facing AI (Content Generation & Ask)
-  // Strictly GapGPT (deepseek-v4-flash) or OpenRouter based on config.
-  // Zero fallback to Gemini, Cloudflare, or other external providers.
-  const userGateway: ModelGateway =
-    config.userAi.provider === "openrouter"
-      ? new OpenRouterModelGateway({
-          apiKey: config.userAi.openrouterApiKey,
-          modelName: config.userAi.openrouterModel,
-          httpReferer: config.userAi.httpReferer,
-          appTitle: config.userAi.appTitle,
-        })
-      : new GapGPTModelGateway({
-          apiKey: config.userAi.gapgptApiKey,
-          baseUrl: config.userAi.gapgptBaseUrl,
-          modelName: config.userAi.gapgptModel,
-        });
-
-  const assistantGateway: ModelGateway = userGateway;
+  // Unified central ModelGateway: user content generation and assistant/mentor
+  // use the centralized Gemini API infrastructure sharing the same key pool and rate limiter.
+  const userGateway: ModelGateway = adminGateway;
+  const assistantGateway: ModelGateway = adminGateway;
 
   const auditStore = new DrizzleAuditStore(db);
   const auditService = new AuditService(auditStore);
@@ -850,7 +843,7 @@ export async function composeProduction(
 
     worker.on("ready", () => {
       process.stdout.write(
-        `[worker] Generation worker ready on queue "${config.generation.queueName}" (admin: ${adminGateway.provider}/${adminGateway.model ?? "gemini"}, user: ${userGateway.provider}/${userGateway.model ?? "deepseek-v4-flash"})\n`,
+        `[worker] Generation worker ready on queue "${config.generation.queueName}" (admin: ${adminGateway.provider}/${adminGateway.model ?? "gemini"}, user: ${userGateway.provider}/${userGateway.model ?? "gemini"})\n`,
       );
       void adminAlertService.notifyRecovery(
         "worker.queue_error",
@@ -911,6 +904,9 @@ export async function composeProduction(
     await telegramOutboxDispatcher.stop();
     if ("destroy" in adminGateway && typeof adminGateway.destroy === "function") {
       adminGateway.destroy();
+    }
+    if (geminiRedis) {
+      await geminiRedis.quit().catch(() => {});
     }
     telegramClient.destroy();
     await close();

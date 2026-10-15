@@ -378,6 +378,14 @@ export interface StudySessionStore {
     fromDate: string,
     toDate: string,
   ): Promise<StudySessionRecord[]>;
+
+  /**
+   * Find the most recent active or closed study session for a lesson within a specific course.
+   */
+  findLatestLessonSession?(
+    userId: UserId,
+    courseId: CourseId,
+  ): Promise<StudySessionRecord | undefined>;
 }
 
 export interface FlashcardStudySessionStore {

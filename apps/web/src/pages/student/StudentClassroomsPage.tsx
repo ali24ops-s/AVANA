@@ -23,6 +23,7 @@ import { useStudentClassrooms } from "../../hooks/useStudentTeacherExams.js";
 import { JoinClassroomModal } from "../../components/student-exams/JoinClassroomModal.js";
 import { formatPersianExamDate } from "../../utils/date.js";
 import { GraduationCap, Plus, ArrowLeft, BookOpen, Calendar } from "lucide-react";
+import { AvaniAvatar } from "../../components/brand/AvaniAvatar.js";
 
 export function StudentClassroomsPage() {
   const navigate = useNavigate();
@@ -76,7 +77,7 @@ export function StudentClassroomsPage() {
           <EmptyState
             title="هنوز در هیچ کلاسی عضو نیستید"
             description="برای دسترسی به آزمون‌های کلاسی، کد دعوت ارائه‌شده توسط استاد خود را وارد کرده و در کلاس عضو شوید."
-            icon={<GraduationCap className="w-12 h-12 text-[var(--color-text-muted)]" />}
+            icon={<AvaniAvatar variant="empty" size={48} alt="آوانی" asInlineSvg={true} />}
             action={
               <Button
                 variant="primary"

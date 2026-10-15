@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useSearch } from "../../hooks/useSearch.js";
 import { Input, Badge, EmptyState } from "../ui/index.js";
+import { AvaniAvatar } from "../brand/AvaniAvatar.js";
 import { toPersianDigits } from "@avana/domain";
 import type { SearchResultItem } from "@avana/contracts";
 
@@ -155,6 +156,7 @@ export function HeaderSearch() {
     if (!hasResults) {
       return (
         <EmptyState
+          icon={<AvaniAvatar variant="confused" size={38} alt="آوانی" asInlineSvg={true} />}
           title={`نتیجه‌ای برای «${rawQuery}» پیدا نشد`}
           description="لطفاً کلمه کلیدی دیگری را جستجو کنید."
           className="py-6 px-4 border-none shadow-none bg-transparent"

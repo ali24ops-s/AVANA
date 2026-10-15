@@ -515,21 +515,22 @@ describe("RichContent & MarkdownRenderer Math & Markdown Suite", () => {
       const callout = container.querySelector('[data-callout-type="drug-application"]');
       expect(callout).toHaveAttribute("dir", "rtl");
       expect(callout).toHaveClass("w-full");
-      expect(callout).toHaveClass("overflow-hidden");
-      expect(callout).toHaveClass("rounded-2xl");
-      // Compact density & spacing
-      expect(callout).toHaveClass("px-3.5");
-      expect(callout).toHaveClass("py-2.5");
-      expect(callout).toHaveClass("my-3.5");
-      // Compact title and icon
+      expect(callout).toHaveClass("callout-ultra");
+      expect(callout).toHaveClass("border-r-[2.5px]");
+      expect(callout).toHaveClass("bg-transparent");
+      // Ultra minimal density & spacing
+      expect(callout).toHaveClass("pr-3.5");
+      expect(callout).toHaveClass("py-1");
+      expect(callout).toHaveClass("my-3");
+      // Ultra minimal title and icon
       const icon = callout?.querySelector("svg");
-      expect(icon).toHaveClass("w-4");
-      expect(icon).toHaveClass("h-4");
-      // Compact body typography
+      expect(icon).toHaveClass("w-3.5");
+      expect(icon).toHaveClass("h-3.5");
+      // Ultra minimal body typography
       const bodyWrapper = callout?.querySelector("div:last-child");
-      expect(bodyWrapper).toHaveClass("text-[13.5px]");
-      expect(bodyWrapper).toHaveClass("leading-[1.8]");
-      expect(bodyWrapper).toHaveClass("space-y-2");
+      expect(bodyWrapper).toHaveClass("text-[14px]");
+      expect(bodyWrapper).toHaveClass("leading-[1.95]");
+      expect(bodyWrapper).toHaveClass("space-y-1.5");
       expect(bodyWrapper).toHaveClass("[&>p]:!mb-0");
       expect(bodyWrapper).toHaveClass("[&>*:last-child]:!mb-0");
     });
@@ -547,9 +548,9 @@ describe("RichContent & MarkdownRenderer Math & Markdown Suite", () => {
 
       const callout = container.querySelector('[data-callout-type="key-point"]');
       expect(callout).toBeInTheDocument();
-      // Equal vertical padding top and bottom (py-2.5 sm:py-3)
-      expect(callout).toHaveClass("py-2.5");
-      expect(callout).toHaveClass("sm:py-3");
+      // Balanced minimal vertical padding (py-1 sm:py-1.5)
+      expect(callout).toHaveClass("py-1");
+      expect(callout).toHaveClass("sm:py-1.5");
       // Paragraph margin reset and last-child bottom margin elimination
       const bodyWrapper = callout?.querySelector("div:last-child");
       expect(bodyWrapper).toHaveClass("[&>*:first-child]:!mt-0");

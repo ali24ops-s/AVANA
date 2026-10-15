@@ -14,6 +14,7 @@ import {
 import { Badge } from "@avana/ui";
 import { toPersianDigits } from "@avana/domain";
 import { MarkdownRenderer } from "../markdown/MarkdownRenderer.js";
+import { AvaniAvatar } from "../brand/AvaniAvatar.js";
 import { createApiClient, getApiBaseUrl, generateUUID } from "../../lib/api/client.js";
 import { createAiAssistantApi } from "../../lib/api/ai.js";
 import { useStudySessionTracker } from "../../hooks/useStudySessionTracker.js";
@@ -601,8 +602,8 @@ export function StudyAssistantChat({
       >
         {messages.length === 0 ? (
           <div className="h-full flex flex-col justify-center items-center text-center p-4 space-y-4 my-auto">
-            <div className="w-12 h-12 rounded-card bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shadow-xs">
-              <Sparkles className="w-6 h-6 animate-pulse" />
+            <div className="w-14 h-14 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shadow-xs">
+              <AvaniAvatar variant="idea" size={42} alt="آوانی" asInlineSvg={true} />
             </div>
             <div className="space-y-1.5 max-w-sm">
               <p className="text-sm font-bold text-[var(--color-text)]">
@@ -651,7 +652,7 @@ export function StudyAssistantChat({
             >
               {/* Avatar */}
               <div
-                className={`w-7 h-7 rounded-button flex items-center justify-center shrink-0 text-xs shadow-xs mt-0.5 ${
+                className={`w-7 h-7 rounded-button flex items-center justify-center shrink-0 text-xs shadow-xs mt-0.5 overflow-hidden ${
                   msg.role === "user"
                     ? "bg-primary text-white"
                     : "bg-primary/10 text-primary border border-primary/20"
@@ -660,7 +661,7 @@ export function StudyAssistantChat({
                 {msg.role === "user" ? (
                   <User className="w-4 h-4" />
                 ) : (
-                  <Sparkles className="w-4 h-4" />
+                  <AvaniAvatar variant="explaining" size={24} alt="آوانی" asInlineSvg={true} />
                 )}
               </div>
 
@@ -696,8 +697,8 @@ export function StudyAssistantChat({
         {/* Loading Bubble */}
         {isLoading && (
           <div className="flex gap-3">
-            <div className="w-7 h-7 rounded-button bg-primary/10 text-primary border border-primary/20 flex items-center justify-center shrink-0 shadow-xs mt-0.5">
-              <Loader2 className="w-4 h-4 animate-spin" />
+            <div className="w-7 h-7 rounded-button bg-primary/10 text-primary border border-primary/20 flex items-center justify-center shrink-0 shadow-xs mt-0.5 overflow-hidden">
+              <AvaniAvatar variant="processing" size={22} alt="در حال پردازش" asInlineSvg={true} />
             </div>
             <div className="bg-[var(--color-surface-warm)] border border-[var(--color-border)] rounded-card rounded-tl-none p-3.5 text-xs text-[var(--color-text-muted)] flex items-center gap-2 shadow-xs">
               <span className="w-2 h-2 rounded-full bg-primary animate-ping shrink-0" />

@@ -892,5 +892,95 @@ mark[data-mark-pos="single"] {
   margin: 0;
 }
 
+/* ======================================================================
+   AVANA Ultra Minimal Educational Callout System (Concept C)
+   ====================================================================== */
+.lesson-callout.callout-ultra {
+  border-right-style: solid !important;
+  border-right-width: 2.5px !important;
+  background-color: transparent !important;
+  border-top-width: 0 !important;
+  border-bottom-width: 0 !important;
+  border-left-width: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  border-right-color: var(--ultra-accent, #94a3b8) !important;
+}
 
+.lesson-callout[data-callout-type="warning"],
+.lesson-callout[data-callout-type="tip"],
+.lesson-callout[data-callout-type="educational-tip"] {
+  --ultra-accent: #d97706;
+}
 
+.lesson-callout[data-callout-type="common-mistake"] {
+  --ultra-accent: #e11d48;
+}
+
+.lesson-callout[data-callout-type="contraindication"] {
+  --ultra-accent: #dc2626;
+}
+
+.lesson-callout[data-callout-type="clinical-point"] {
+  --ultra-accent: #059669;
+}
+
+.lesson-callout[data-callout-type="drug-application"],
+.lesson-callout[data-callout-type="understanding"] {
+  --ultra-accent: #0284c7;
+}
+
+.lesson-callout[data-callout-type="key-point"] {
+  --ultra-accent: #0d9488;
+}
+
+.lesson-callout[data-callout-type="important"] {
+  --ultra-accent: #7c3aed;
+}
+
+.lesson-callout[data-callout-type="supplementary"] {
+  --ultra-accent: #6366f1;
+}
+
+.dark .lesson-callout[data-callout-type="warning"],
+.dark .lesson-callout[data-callout-type="tip"],
+.dark .lesson-callout[data-callout-type="educational-tip"] {
+  --ultra-accent: #fbbf24;
+}
+
+.dark .lesson-callout[data-callout-type="common-mistake"] {
+  --ultra-accent: #fb7185;
+}
+
+.dark .lesson-callout[data-callout-type="contraindication"] {
+  --ultra-accent: #f87171;
+}
+
+.dark .lesson-callout[data-callout-type="clinical-point"] {
+  --ultra-accent: #34d399;
+}
+
+.dark .lesson-callout[data-callout-type="drug-application"],
+.dark .lesson-callout[data-callout-type="understanding"] {
+  --ultra-accent: #38bdf8;
+}
+
+.dark .lesson-callout[data-callout-type="key-point"] {
+  --ultra-accent: #2dd4bf;
+}
+
+.dark .lesson-callout[data-callout-type="important"] {
+  --ultra-accent: #a78bfa;
+}
+
+.dark .lesson-callout[data-callout-type="supplementary"] {
+  --ultra-accent: #818cf8;
+}
+
+.lesson-callout.callout-ultra .callout-ultra-icon {
+  color: var(--ultra-accent, #64748b) !important;
+}
+
+.lesson-callout.callout-ultra .callout-ultra-pip {
+  background-color: var(--ultra-accent, #94a3b8) !important;
+}

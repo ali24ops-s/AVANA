@@ -44,6 +44,7 @@ import {
   Ticket,
   Percent,
 } from "lucide-react";
+import { AvaniAvatar } from "../components/brand/AvaniAvatar.js";
 import {
   resolveSubscriptionPlanType,
   resolveGiftCreditAmount,
@@ -546,8 +547,13 @@ export function CardToCardPaymentPage() {
       {isSuccess ? (
         /* 2. Success View with Celebratory Message */
         <div className="py-12 px-6 sm:px-10 rounded-3xl bg-[var(--color-surface)] border border-emerald-200 dark:border-emerald-800 text-center space-y-6 animate-in fade-in zoom-in-95 duration-300 shadow-xs">
-          <div className="w-20 h-20 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 flex items-center justify-center mx-auto shadow-sm">
-            <PartyPopper className="w-10 h-10" />
+          <div className="w-24 h-24 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 flex items-center justify-center mx-auto shadow-sm">
+            <AvaniAvatar
+              variant={isWalletTopupProduct ? "processing" : "celebrating"}
+              size={76}
+              alt={isWalletTopupProduct ? "درخواست با موفقیت ثبت شد" : "فعال‌سازی با موفقیت انجام شد"}
+              asInlineSvg={true}
+            />
           </div>
 
           <div className="space-y-2 max-w-lg mx-auto">
@@ -561,8 +567,8 @@ export function CardToCardPaymentPage() {
               {isWalletTopupProduct
                 ? "درخواست شارژ کیف پول با موفقیت ثبت شد و پس از بررسی و تأیید ادمین، کیف پول شما شارژ خواهد شد."
                 : isSpecialExamProduct
-                ? "آزمون ویژه شما با موفقیت ساخته شد! 🎯"
-                : "اشتراک شما با موفقیت فعال شد! ⚡"}
+                ? "آزمون ویژه شما با موفقیت ساخته شد!"
+                : "اشتراک شما با موفقیت فعال شد!"}
             </h2>
             {!isWalletTopupProduct && (
               <p className="text-xs sm:text-sm text-[var(--color-text-secondary)] leading-relaxed">

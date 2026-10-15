@@ -33,6 +33,7 @@ import type {
   ProgressStore,
   SubCourseGroupStore,
 } from "./learning-store.js";
+import type { StudySessionStore } from "../study/study-store.js";
 import type { AuditService } from "../../observability/audit-service.js";
 import type { EntitlementService } from "../commerce/entitlement-service.js";
 
@@ -48,6 +49,7 @@ export interface LearningRouteOptions {
   auditService?: AuditService;
   systemOrganizationId?: OrganizationId;
   entitlementService?: EntitlementService;
+  studySessionStore?: StudySessionStore;
 }
 
 export const learningRoutes: FastifyPluginAsync<LearningRouteOptions> = async (
@@ -66,6 +68,7 @@ export const learningRoutes: FastifyPluginAsync<LearningRouteOptions> = async (
     auditService,
     systemOrganizationId,
     entitlementService,
+    studySessionStore,
   } = opts;
 
   const { requireAuth } = makeAuthMiddleware({ sessionService, userStore });
@@ -80,6 +83,7 @@ export const learningRoutes: FastifyPluginAsync<LearningRouteOptions> = async (
     systemOrganizationId,
     entitlementService,
     subCourseGroupStore,
+    studySessionStore,
   );
 
   /**

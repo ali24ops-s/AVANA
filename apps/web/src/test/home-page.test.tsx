@@ -2562,7 +2562,8 @@ describe("HomePage Component", () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByText("سلام سارا 👋")).toBeInTheDocument();
+        expect(screen.getByText("سلام سارا")).toBeInTheDocument();
+        expect(screen.getByAltText("آوانی")).toBeInTheDocument();
       });
       expect(screen.queryByText(/احمدی/)).not.toBeInTheDocument();
     });
@@ -2589,7 +2590,8 @@ describe("HomePage Component", () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByText("سلام علی 👋")).toBeInTheDocument();
+        expect(screen.getByText("سلام علی")).toBeInTheDocument();
+        expect(screen.getByAltText("آوانی")).toBeInTheDocument();
       });
       expect(screen.queryByText(/محمدلو/)).not.toBeInTheDocument();
     });
@@ -2613,7 +2615,8 @@ describe("HomePage Component", () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByText("سلام student 👋")).toBeInTheDocument();
+        expect(screen.getByText("سلام student")).toBeInTheDocument();
+        expect(screen.getByAltText("آوانی")).toBeInTheDocument();
       });
       expect(screen.queryByText(/undefined/)).not.toBeInTheDocument();
     });
@@ -2639,7 +2642,8 @@ describe("HomePage Component", () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByText("سلام کاربر 👋")).toBeInTheDocument();
+        expect(screen.getByText("سلام کاربر")).toBeInTheDocument();
+        expect(screen.getByAltText("آوانی")).toBeInTheDocument();
       });
       expect(screen.queryByText(/undefined/)).not.toBeInTheDocument();
     });

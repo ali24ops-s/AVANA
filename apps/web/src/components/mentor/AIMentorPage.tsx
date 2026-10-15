@@ -23,6 +23,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { useStudySessionTracker } from "../../hooks/useStudySessionTracker.js";
+import { AvaniAvatar } from "../brand/AvaniAvatar.js";
 import { RichContent } from "../markdown/MarkdownRenderer.js";
 
 // ─── Types ───────────────────────────────────────────────
@@ -581,14 +582,14 @@ export function AIMentorPage({
                   >
                     {/* Avatar */}
                     <div
-                      className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                      className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden ${
                         msg.role === "ai"
-                          ? "bg-gradient-to-br from-indigo-500 to-purple-600"
+                          ? "bg-teal-500/10 border border-teal-500/20"
                           : "bg-[var(--color-background)] border border-[var(--color-border)]"
                       }`}
                     >
                       {msg.role === "ai" ? (
-                        <Sparkles className="w-4 h-4 text-white" />
+                        <AvaniAvatar variant="explaining" size={26} alt="آوانی" asInlineSvg={true} />
                       ) : (
                         <span className="text-xs font-bold">SP</span>
                       )}

@@ -35,6 +35,7 @@ import type {
   LessonProgressRecord,
   SubCourseGroupStore,
 } from "./learning-store.js";
+import type { StudySessionStore } from "../study/study-store.js";
 import type { AuditService } from "../../observability/audit-service.js";
 import type { EntitlementService } from "../commerce/entitlement-service.js";
 
@@ -100,6 +101,9 @@ export type CourseLearnResponse = {
     total_lessons: number;
     completed_lessons: number;
     progress_percent: number;
+    last_studied_lesson_id?: string | null;
+    last_studied_module_id?: string | null;
+    last_studied_at?: string | null;
   };
   preview?: {
     preview_lesson_id: string | null;
@@ -141,6 +145,7 @@ export class LearningService {
     private readonly systemOrganizationId?: OrganizationId,
     private readonly entitlementService?: EntitlementService,
     private readonly subCourseGroupStore?: SubCourseGroupStore,
+    private readonly studySessionStore?: StudySessionStore,
   ) {}
 
   /**
@@ -398,6 +403,48 @@ export class LearningService {
 
     const isOfficialCourse = course.isOfficial === true || isSystemCourse;
 
+    // Resolve last studied lesson for this user & course (PR Resume Position)
+    let lastStudiedLessonId: string | null = null;
+    let lastStudiedModuleId: string | null = null;
+    let lastStudiedAt: string | null = null;
+
+    if (this.studySessionStore?.findLatestLessonSession) {
+      const latestSession = await this.studySessionStore.findLatestLessonSession(
+        actor.userId,
+        courseId,
+      );
+      if (latestSession && latestSession.lessonId) {
+        // Ensure the session's lesson is active and exists in this course
+        const matchingLesson = activeLessons.find(
+          (l) => l.id === latestSession.lessonId,
+        );
+        if (matchingLesson) {
+          lastStudiedLessonId = matchingLesson.id;
+          lastStudiedModuleId = matchingLesson.moduleId;
+          lastStudiedAt = latestSession.lastActivityAt || latestSession.startedAt;
+        }
+      }
+    }
+
+    // Fallback: If no study_session was recorded yet, check latest completed lesson
+    if (!lastStudiedLessonId && progressRecords.length > 0) {
+      const completedRecords = progressRecords
+        .filter((pr) => pr.completed && pr.completedAt)
+        .sort(
+          (a, b) =>
+            new Date(b.completedAt!).getTime() - new Date(a.completedAt!).getTime(),
+        );
+      for (const cr of completedRecords) {
+        const matchingLesson = activeLessons.find((l) => l.id === cr.lessonId);
+        if (matchingLesson) {
+          lastStudiedLessonId = matchingLesson.id;
+          lastStudiedModuleId = matchingLesson.moduleId;
+          lastStudiedAt = cr.completedAt;
+          break;
+        }
+      }
+    }
+
     return {
       request_id: requestId,
       course: {
@@ -425,6 +472,9 @@ export class LearningService {
           totalLessons > 0
             ? Math.round((completedLessons / totalLessons) * 100)
             : 0,
+        last_studied_lesson_id: lastStudiedLessonId,
+        last_studied_module_id: lastStudiedModuleId,
+        last_studied_at: lastStudiedAt,
       },
       preview: {
         preview_lesson_id:

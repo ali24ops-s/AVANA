@@ -10,6 +10,7 @@ import {
   User,
 } from "lucide-react";
 import { RichContent } from "../../markdown/MarkdownRenderer.js";
+import { AvaniAvatar } from "../../brand/AvaniAvatar.js";
 
 interface AIMentorProps {
   lessonTitle: string;
@@ -213,14 +214,14 @@ export function AIMentor({ lessonTitle }: AIMentorProps) {
             >
               {/* Avatar */}
               <div
-                className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden ${
                   message.type === "ai"
-                    ? "bg-gradient-to-br from-indigo-500 to-purple-500"
+                    ? "bg-teal-500/10 border border-teal-500/20"
                     : "bg-[var(--color-background)]"
                 }`}
               >
                 {message.type === "ai" ? (
-                  <Sparkles className="w-3.5 h-3.5 text-white" />
+                  <AvaniAvatar variant="explaining" size={22} alt="آوانی" asInlineSvg={true} />
                 ) : (
                   <User className="w-3.5 h-3.5 text-[var(--color-text-muted)]" />
                 )}
@@ -257,8 +258,8 @@ export function AIMentor({ lessonTitle }: AIMentorProps) {
               exit={{ opacity: 0 }}
               className="flex gap-2"
             >
-              <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center">
-                <Sparkles className="w-3.5 h-3.5 text-white" />
+              <div className="w-7 h-7 rounded-lg bg-teal-500/10 border border-teal-500/20 flex items-center justify-center overflow-hidden">
+                <AvaniAvatar variant="processing" size={20} alt="در حال پردازش" asInlineSvg={true} />
               </div>
               <div className="bg-[var(--color-background)] rounded-xl p-3">
                 <div className="flex gap-1.5">

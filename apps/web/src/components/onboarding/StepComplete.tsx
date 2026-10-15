@@ -1,5 +1,6 @@
 import { motion } from "framer-motion";
 import { Sparkles, ArrowRight, Target, BookOpen, Gauge } from "lucide-react";
+import { AvaniAvatar } from "../brand/AvaniAvatar.js";
 
 interface StepCompleteProps {
   onNext: () => void;
@@ -17,13 +18,13 @@ export function StepComplete({ onNext }: StepCompleteProps) {
       >
         <motion.div
           animate={{
-            scale: [1, 1.2, 1],
-            rotate: [0, 5, -5, 0],
+            scale: [1, 1.05, 1],
+            rotate: [0, 2, -2, 0],
           }}
-          transition={{ duration: 2, repeat: Infinity }}
-          className="text-7xl"
+          transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
+          className="flex justify-center"
         >
-          ✨
+          <AvaniAvatar variant="celebrating" size={80} alt="آوانی" asInlineSvg={true} />
         </motion.div>
 
         <div>

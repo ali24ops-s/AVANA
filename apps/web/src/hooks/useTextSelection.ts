@@ -9,6 +9,12 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import {
+  getTextNodeEntries,
+  getCharacterOffsetInContainer,
+  expandOffsetsToWordBoundaries,
+  createRangeFromOffsets,
+} from "../utils/selectionNormalization.js";
 
 export interface TextSelectionData {
   selectedText: string;
@@ -19,69 +25,10 @@ export interface TextSelectionData {
   rect: DOMRect;
 }
 
-/**
- * Calculates the character offset of a node + offset relative to a root container.
- */
-function getCharacterOffsetInContainer(
-  container: Node,
-  targetNode: Node,
-  targetOffset: number,
-): number {
-  let charCount = 0;
-  const walker = document.createTreeWalker(
-    container,
-    NodeFilter.SHOW_TEXT,
-    null,
-  );
-
-  let currentNode = walker.nextNode();
-  while (currentNode) {
-    const parent = currentNode.parentElement;
-    if (parent && ["PRE", "CODE", "SCRIPT", "STYLE"].includes(parent.tagName)) {
-      currentNode = walker.nextNode();
-      continue;
-    }
-    if (currentNode === targetNode) {
-      return charCount + targetOffset;
-    }
-    charCount += currentNode.textContent?.length || 0;
-    currentNode = walker.nextNode();
-  }
-
-  // Target node might be an element containing text nodes
-  if (container.contains(targetNode) && targetNode !== container) {
-    let offset = 0;
-    const innerWalker = document.createTreeWalker(
-      container,
-      NodeFilter.SHOW_TEXT,
-      null,
-    );
-    let innerNode = innerWalker.nextNode();
-    while (innerNode) {
-      const parent = innerNode.parentElement;
-      if (parent && ["PRE", "CODE", "SCRIPT", "STYLE"].includes(parent.tagName)) {
-        innerNode = innerWalker.nextNode();
-        continue;
-      }
-      if (
-        targetNode.contains(innerNode) ||
-        targetNode.compareDocumentPosition(innerNode) &
-          Node.DOCUMENT_POSITION_FOLLOWING
-      ) {
-        return offset;
-      }
-      offset += innerNode.textContent?.length || 0;
-      innerNode = innerWalker.nextNode();
-    }
-    return offset;
-  }
-
-  return charCount;
-}
-
 export function useTextSelection(containerRef: React.RefObject<HTMLElement | null>) {
   const [selectionData, setSelectionData] = useState<TextSelectionData | null>(null);
   const isMouseDownRef = useRef(false);
+  const isNormalizingRef = useRef(false);
   const lastSelectionRef = useRef<{
     selectedText: string;
     startOffset: number;
@@ -90,7 +37,7 @@ export function useTextSelection(containerRef: React.RefObject<HTMLElement | nul
   } | null>(null);
 
   const updateSelection = useCallback(() => {
-    if (isMouseDownRef.current) return;
+    if (isMouseDownRef.current || isNormalizingRef.current) return;
 
     const sel = window.getSelection();
     if (!sel || sel.isCollapsed || !sel.rangeCount) {
@@ -124,8 +71,9 @@ export function useTextSelection(containerRef: React.RefObject<HTMLElement | nul
       return;
     }
 
-    const text = (sel.toString() || range.toString()).trim();
-    if (!text || text.length === 0) {
+    // Extract canonical text entries and unified content string
+    const { entries, fullText } = getTextNodeEntries(container);
+    if (!fullText || entries.length === 0) {
       if (lastSelectionRef.current !== null) {
         lastSelectionRef.current = null;
         setSelectionData(null);
@@ -133,8 +81,88 @@ export function useTextSelection(containerRef: React.RefObject<HTMLElement | nul
       return;
     }
 
-    // Get Bounding Client Rect for positioning
-    const rect = range.getBoundingClientRect();
+    // Calculate raw character offsets within container
+    const rawStart = getCharacterOffsetInContainer(
+      container,
+      range.startContainer,
+      range.startOffset,
+      entries,
+    );
+    const rawEnd = getCharacterOffsetInContainer(
+      container,
+      range.endContainer,
+      range.endOffset,
+      entries,
+    );
+
+    if (rawStart === rawEnd) {
+      if (lastSelectionRef.current !== null) {
+        lastSelectionRef.current = null;
+        setSelectionData(null);
+      }
+      return;
+    }
+
+    // Normalize to full word boundaries
+    const { startOffset, endOffset, selectedText } = expandOffsetsToWordBoundaries(
+      fullText,
+      rawStart,
+      rawEnd,
+    );
+
+    const trimmed = selectedText.trim();
+    if (!trimmed || trimmed.length === 0) {
+      if (lastSelectionRef.current !== null) {
+        lastSelectionRef.current = null;
+        setSelectionData(null);
+      }
+      return;
+    }
+
+    // Construct snapped DOM Range if boundaries expanded
+    let effectiveRange = range;
+    let snappedRange: Range | null = null;
+    if (startOffset !== rawStart || endOffset !== rawEnd) {
+      snappedRange = createRangeFromOffsets(container, startOffset, endOffset, entries);
+      if (snappedRange) {
+        effectiveRange = snappedRange;
+        try {
+          isNormalizingRef.current = true;
+          sel.removeAllRanges();
+          sel.addRange(snappedRange);
+        } catch {
+          // Gracefully continue in environments where addRange is restricted/mocked
+        } finally {
+          setTimeout(() => {
+            isNormalizingRef.current = false;
+          }, 0);
+        }
+      }
+    }
+
+    // Determine bounding rect for floating toolbar positioning
+    let rect: DOMRect;
+    if (typeof effectiveRange.getBoundingClientRect === "function") {
+      rect = effectiveRange.getBoundingClientRect();
+      if (rect.width === 0 && rect.height === 0 && typeof range.getBoundingClientRect === "function") {
+        rect = range.getBoundingClientRect();
+      }
+    } else if (typeof range.getBoundingClientRect === "function") {
+      rect = range.getBoundingClientRect();
+    } else {
+      rect = {
+        top: 0,
+        bottom: 0,
+        left: 0,
+        right: 0,
+        width: 0,
+        height: 0,
+        x: 0,
+        y: 0,
+        toJSON: () => {},
+      } as DOMRect;
+    }
+
     if (rect.width === 0 && rect.height === 0) {
       if (lastSelectionRef.current !== null) {
         lastSelectionRef.current = null;
@@ -143,20 +171,11 @@ export function useTextSelection(containerRef: React.RefObject<HTMLElement | nul
       return;
     }
 
-    // Compute canonical offsets and surrounding context
-    const fullText = container.textContent || "";
-    const startOffset = getCharacterOffsetInContainer(
-      container,
-      range.startContainer,
-      range.startOffset,
-    );
-    const endOffset = startOffset + text.length;
-
     // Check if selection is identical to previous selection
     const prev = lastSelectionRef.current;
     if (
       prev &&
-      prev.selectedText === text &&
+      prev.selectedText === selectedText &&
       prev.startOffset === startOffset &&
       prev.endOffset === endOffset &&
       Math.abs(prev.rect.top - rect.top) < 1 &&
@@ -169,7 +188,7 @@ export function useTextSelection(containerRef: React.RefObject<HTMLElement | nul
     }
 
     lastSelectionRef.current = {
-      selectedText: text,
+      selectedText,
       startOffset,
       endOffset,
       rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
@@ -179,7 +198,7 @@ export function useTextSelection(containerRef: React.RefObject<HTMLElement | nul
     const suffix = fullText.slice(endOffset, Math.min(fullText.length, endOffset + 40));
 
     setSelectionData({
-      selectedText: text,
+      selectedText,
       prefix,
       suffix,
       startOffset,
@@ -221,6 +240,7 @@ export function useTextSelection(containerRef: React.RefObject<HTMLElement | nul
     };
 
     const handleSelectionChange = () => {
+      if (isNormalizingRef.current) return;
       const activeEl = document.activeElement as HTMLElement | null;
       if (activeEl?.closest('[role="toolbar"]') || activeEl?.closest('[role="dialog"]')) {
         return;

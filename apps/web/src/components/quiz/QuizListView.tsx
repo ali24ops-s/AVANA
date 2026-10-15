@@ -11,6 +11,7 @@ import { createStudyApi } from "../../lib/api/study.js";
 import { QuizExperience } from "./QuizExperience.js";
 import type { QuizResource } from "@avana/contracts";
 import { toPersianDigits } from "@avana/domain";
+import { AvaniAvatar } from "../brand/AvaniAvatar.js";
 
 export interface QuizListViewProps {
   organizationId: string;
@@ -110,7 +111,7 @@ export function QuizListView({
 
       {quizzes.length === 0 ? (
         <EmptyState
-          icon={<HelpCircle className="w-8 h-8 text-[var(--color-text-muted)]" />}
+          icon={<AvaniAvatar variant="empty" size={44} alt="آوانی" asInlineSvg={true} />}
           title="هنوز آزمونی منتشر نشده است"
           description="آزمون‌های ایجادشده از محتوای آموزشی پس از انتشار توسط مدیر دوره در اینجا قرار می‌گیرند."
         />

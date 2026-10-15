@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { Clock, CalendarDays, Zap, ArrowRight, Sparkles } from "lucide-react";
+import { AvaniAvatar } from "../brand/AvaniAvatar.js";
 
 interface StepWelcomeProps {
   data: { examTiming: string };
@@ -57,9 +58,9 @@ export function StepWelcome({ data, onUpdate, onNext }: StepWelcomeProps) {
           initial={{ scale: 0 }}
           animate={{ scale: 1 }}
           transition={{ type: "spring", delay: 0.2 }}
-          className="text-5xl mb-4"
+          className="flex justify-center mb-4"
         >
-          👋
+          <AvaniAvatar variant="wave" size={64} alt="آوانی" asInlineSvg={true} />
         </motion.div>
         <h2 className="text-3xl font-bold">Hello!</h2>
         <p className="text-xl text-[var(--color-text-muted)]">

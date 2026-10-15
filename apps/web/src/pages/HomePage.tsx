@@ -53,6 +53,7 @@ import { ExamDeleteConfirmModal } from "../components/courses/ExamDeleteConfirmM
 import { CourseCard } from "../components/avana/CourseCard.js";
 import { StudyActivityHeatmap } from "../components/dashboard/StudyActivityHeatmap.js";
 import { StudentClassroomExamsWidget } from "../components/dashboard/StudentClassroomExamsWidget.js";
+import { AvaniAvatar } from "../components/brand/AvaniAvatar.js";
 import type { CourseResource } from "@avana/contracts";
 
 export function HomePage() {
@@ -171,8 +172,9 @@ export function HomePage() {
       {/* 1. Welcome Greeting Header & Date Badge */}
       <div className="flex flex-col gap-1.5 sm:gap-2">
         <div className="flex items-center justify-center sm:justify-between gap-3 flex-wrap sm:flex-nowrap">
-          <h2 className="text-xl sm:text-2xl md:text-3xl font-extrabold text-[var(--color-text)] tracking-tight text-center sm:text-right">
-            سلام {userFirstName} 👋
+          <h2 className="text-xl sm:text-2xl md:text-3xl font-extrabold text-[var(--color-text)] tracking-tight text-center sm:text-right flex items-center justify-center sm:justify-start gap-2">
+            <span>سلام {userFirstName}</span>
+            <AvaniAvatar variant="wave" size={44} alt="آوانی" className="inline-block align-middle shrink-0" />
           </h2>
           <div className="bg-[var(--color-surface)] px-3 py-1 sm:px-4 sm:py-1.5 rounded-full border border-[var(--color-border)] shadow-xs text-xs md:text-sm text-[var(--color-text)] flex items-center gap-1.5 shrink-0">
             <Calendar className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-primary" />
@@ -1265,7 +1267,13 @@ function HeroCoursesCarousel({
 
         <div className="z-10 w-full md:w-1/3 flex justify-center">
           <div className="w-32 h-32 md:w-40 md:h-40 rounded-full border border-[var(--color-border)] shadow-card overflow-hidden relative bg-[var(--color-surface-warm)] flex items-center justify-center group">
-            <Sparkles className="w-16 h-16 md:w-20 md:h-20 text-primary group-hover:scale-110 transition-transform duration-500" />
+            <AvaniAvatar
+              variant="empty"
+              size={88}
+              alt="آوانی - در انتظار اولین دوره"
+              asInlineSvg={true}
+              className="group-hover:scale-105 transition-transform duration-500"
+            />
           </div>
         </div>
       </section>

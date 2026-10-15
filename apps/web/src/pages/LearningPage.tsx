@@ -208,10 +208,22 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
 
   const rawLessonId = searchParams.get("lessonId");
 
+  // Keep auxiliary local storage updated for fast instant load
+  useEffect(() => {
+    if (selectedLessonId && courseId && typeof window !== "undefined" && window.localStorage) {
+      try {
+        const localKey = `avana:last_lesson:${user?.id ?? "guest"}:${courseId}`;
+        window.localStorage.setItem(localKey, selectedLessonId);
+      } catch {
+        // Ignore quota/private mode errors
+      }
+    }
+  }, [selectedLessonId, courseId, user?.id]);
+
   useEffect(() => {
     if (!data) return;
 
-    // Direct lesson navigation from Library or deep links
+    // 1. Priority 1: Direct lesson navigation from deep links (?lessonId=...)
     if (rawLessonId) {
       const targetModule = data.modules.find((module) =>
         module.lessons.some((lesson) => lesson.id === rawLessonId),
@@ -223,13 +235,52 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
       }
     }
 
+    // If an existing valid selection is already held in state, preserve it across re-renders
+    const currentSelectionValid = data.modules.some((module) =>
+      module.lessons.some((lesson) => lesson.id === selectedLessonId),
+    );
+    if (currentSelectionValid) {
+      return;
+    }
+
+    // 2. Priority 2: Resume study from last position saved on server
+    const serverLastLessonId = data.progress.last_studied_lesson_id;
+    if (serverLastLessonId) {
+      const resumeModule = data.modules.find((module) =>
+        module.lessons.some((lesson) => lesson.id === serverLastLessonId),
+      );
+      if (resumeModule) {
+        setSelectedLessonId(serverLastLessonId);
+        setExpandedModules((prev) => new Set([...prev, resumeModule.id]));
+        return;
+      }
+    }
+
+    // Auxiliary local storage resume check (if server position was not yet available)
+    if (typeof window !== "undefined" && window.localStorage && courseId) {
+      try {
+        const localKey = `avana:last_lesson:${user?.id ?? "guest"}:${courseId}`;
+        const localLessonId = window.localStorage.getItem(localKey);
+        if (localLessonId) {
+          const localModule = data.modules.find((module) =>
+            module.lessons.some((lesson) => lesson.id === localLessonId),
+          );
+          if (localModule) {
+            setSelectedLessonId(localLessonId);
+            setExpandedModules((prev) => new Set([...prev, localModule.id]));
+            return;
+          }
+        }
+      } catch {
+        // Ignore local storage errors
+      }
+    }
+
+    // 3. Priority 3 & 4: Fallback to first available lesson of first available module
     const firstModule = data.modules.find(
       (module) => module.lessons.length > 0,
     );
-    const selectionExists = data.modules.some((module) =>
-      module.lessons.some((lesson) => lesson.id === selectedLessonId),
-    );
-    if (!selectionExists && firstModule) {
+    if (firstModule && firstModule.lessons.length > 0) {
       const defaultLessonId =
         (data as any).preview?.preview_lesson_id ?? firstModule.lessons[0].id;
       setSelectedLessonId(defaultLessonId);
@@ -238,7 +289,7 @@ export function LearningPage({ initialCourseId }: { initialCourseId?: string } =
       );
       setExpandedModules(new Set([containingMod ? containingMod.id : firstModule.id]));
     }
-  }, [data, rawLessonId, selectedLessonId]);
+  }, [data, rawLessonId, selectedLessonId, courseId, user?.id]);
 
   // --- Mutation: mark lesson as completed (optimistic UI) ---
   const completeMutation = useMutation({

@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { TrophyIcon, RefreshIcon } from "./ExamIcons.js";
 import { RichContent } from "../markdown/MarkdownRenderer.js";
+import { AvaniAvatar } from "../brand/AvaniAvatar.js";
 import { Button, Card, Badge } from "@avana/ui";
 import {
   evaluateQuestionAnswer,
@@ -225,11 +226,16 @@ export function ExamResultView({
       {/* Top Banner Result Card */}
       <Card className="border border-[var(--color-border)] p-6 sm:p-8 text-center space-y-6 shadow-xs bg-[var(--color-surface)]">
         <div
-          className={`w-20 h-20 rounded-2xl flex items-center justify-center mx-auto text-white shadow-xs ${
-            isPassing ? "bg-[#3d8f6e]" : "bg-[#c2853f]"
+          className={`w-24 h-24 rounded-2xl flex items-center justify-center mx-auto shadow-xs ${
+            isPassing ? "bg-[#e8f5e9] border border-[#a5d6a7]" : "bg-[#fff8e1] border border-[#ffe082]"
           }`}
         >
-          <TrophyIcon className="w-10 h-10" />
+          <AvaniAvatar
+            variant={isPassing ? "success" : "encouraging"}
+            size={72}
+            alt={isPassing ? "آزمون با موفقیت گذرانده شد" : "نیاز به تمرین و مرور مجدد"}
+            asInlineSvg={true}
+          />
         </div>
 
         <div>

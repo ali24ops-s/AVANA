@@ -22,7 +22,13 @@ import type {
   CompletionRequest,
   CompletionResult,
 } from "./types.js";
-import { GeminiKeyPool, type GeminiKeySlot } from "./gemini-key-pool.js";
+import {
+  GeminiKeyPool,
+  type GeminiKeySlot,
+  type KeySlotConfig,
+} from "./gemini-key-pool.js";
+import type { GeminiRateLimiterOptions } from "./gemini-rate-limiter.js";
+import type { Redis } from "ioredis";
 import { SocksProxyAgent } from "socks-proxy-agent";
 import { createSocksProxyFetch, type SocksProxyFetchOptions } from "./socks-fetch.js";
 
@@ -35,8 +41,14 @@ export interface GeminiModelGatewayOptions {
   apiKey?: string;
   /** Optional array of API keys. */
   apiKeys?: string[];
+  /** Optional structured key slot configurations with project IDs. */
+  keyConfigs?: KeySlotConfig[];
   /** Optional pre-configured GeminiKeyPool. */
   keyPool?: GeminiKeyPool;
+  /** Optional Redis instance for distributed state and rate limiting. */
+  redis?: Redis;
+  /** Optional quota configuration for RPM, TPM, RPD. */
+  quotas?: GeminiRateLimiterOptions;
   /** Configured Gemini model. */
   modelName?: string;
   /** Request timeout in milliseconds. */
@@ -419,20 +431,35 @@ export class GeminiModelGateway implements ModelGateway {
   constructor(options: GeminiModelGatewayOptions) {
     if (options.keyPool) {
       this.keyPool = options.keyPool;
+    } else if (options.keyConfigs && options.keyConfigs.length > 0) {
+      this.keyPool = new GeminiKeyPool(options.keyConfigs, {
+        redis: options.redis,
+        quotas: options.quotas,
+      });
     } else if (options.apiKeys && options.apiKeys.length > 0) {
-      this.keyPool = new GeminiKeyPool(options.apiKeys);
+      this.keyPool = new GeminiKeyPool(options.apiKeys, {
+        redis: options.redis,
+        quotas: options.quotas,
+      });
     } else if (options.apiKey && options.apiKey.trim().length > 0) {
-      this.keyPool = new GeminiKeyPool([options.apiKey]);
+      this.keyPool = new GeminiKeyPool([options.apiKey], {
+        redis: options.redis,
+        quotas: options.quotas,
+      });
     } else {
       const envKeys = [
         ...(process.env.GEMINI_API_KEYS ? process.env.GEMINI_API_KEYS.split(",") : []),
         process.env.GEMINI_API_KEY_1,
         process.env.GEMINI_API_KEY_2,
+        process.env.GEMINI_API_KEY_3,
         process.env.GEMINI_API_KEY,
       ].filter((k): k is string => Boolean(k && k.trim().length > 0));
 
       if (envKeys.length > 0) {
-        this.keyPool = new GeminiKeyPool(envKeys);
+        this.keyPool = new GeminiKeyPool(envKeys, {
+          redis: options.redis,
+          quotas: options.quotas,
+        });
       } else {
         throw new DomainError(
           "unprocessable",
@@ -472,6 +499,13 @@ export class GeminiModelGateway implements ModelGateway {
     if (this.proxyAgent) {
       this.proxyAgent.destroy();
     }
+  }
+
+  /**
+   * Return the underlying GeminiKeyPool instance.
+   */
+  getKeyPool(): GeminiKeyPool {
+    return this.keyPool;
   }
 
   /**
@@ -784,14 +818,24 @@ export class GeminiModelGateway implements ModelGateway {
       ? adaptToGeminiJsonSchema(req.jsonSchema)
       : null;
 
+    const isExplicitJson =
+      Boolean(req.jsonSchema) ||
+      (req as { responseFormat?: unknown }).responseFormat === "json" ||
+      (req as { responseFormat?: { type?: string } }).responseFormat?.type === "json_object";
+
+    const generationConfig: Record<string, unknown> = {
+      temperature: req.temperature ?? 0.2,
+      ...(req.maxTokens ? { maxOutputTokens: req.maxTokens } : {}),
+      ...(adaptedSchema ? { responseSchema: adaptedSchema } : {}),
+    };
+
+    if (isExplicitJson) {
+      generationConfig.responseMimeType = "application/json";
+    }
+
     const requestBody: Record<string, unknown> = {
       contents,
-      generationConfig: {
-        responseMimeType: "application/json",
-        temperature: req.temperature ?? 0.2,
-        ...(req.maxTokens ? { maxOutputTokens: req.maxTokens } : {}),
-        ...(adaptedSchema ? { responseSchema: adaptedSchema } : {}),
-      },
+      generationConfig,
     };
 
     if (systemParts.length > 0) {
@@ -800,14 +844,32 @@ export class GeminiModelGateway implements ModelGateway {
       };
     }
 
+    const promptChars = req.messages.reduce(
+      (acc, m) => acc + (m.content ? m.content.length : 0),
+      0,
+    );
+    const estimatedTokens = Math.ceil(promptChars / 3.5) + (req.maxTokens ?? 2048);
+    const isInteractive =
+      req.stage === "interactive" ||
+      req.stage === "assistant" ||
+      (req as { priority?: string }).priority === "high";
+
     const url = `${GEMINI_API_BASE_URL}/${encodeURIComponent(this.modelName)}:generateContent`;
     const maxTotalAttempts = 3;
     let lastError: Error | null = null;
 
     for (let attempt = 0; attempt < maxTotalAttempts; attempt++) {
       let slot: GeminiKeySlot;
+      let reservationId: string | undefined;
       try {
-        slot = this.keyPool.acquireKey();
+        const acquired = await this.keyPool.acquireKeySlotAsync({
+          model: this.modelName,
+          isInteractive,
+          estimatedTokens,
+          correlationId: req.correlationId || req.jobId,
+        });
+        slot = acquired.slot;
+        reservationId = acquired.reservationId;
       } catch (poolErr) {
         if (lastError && poolErr instanceof DomainError && poolErr.code === "rate_limit_exceeded") {
           throw lastError;
@@ -844,6 +906,19 @@ export class GeminiModelGateway implements ModelGateway {
         clearTimeout(attemptTimer);
         durationMs = Date.now() - startTime;
         const isTimeout = attemptController.signal.aborted;
+        if (reservationId) {
+          if (isTimeout) {
+            // Under timeout uncertainty, retain prompt token consumption in rate limiter
+            // to prevent burst rate limit violations on provider's side.
+            const promptOnlyTokens = Math.ceil(promptChars / 3.5);
+            await this.keyPool.reportSuccessAsync(slot.id, {
+              reservationId,
+              actualTokens: promptOnlyTokens > 0 ? promptOnlyTokens : estimatedTokens,
+            });
+          } else {
+            await this.keyPool.releaseReservationAsync(slot.id, reservationId);
+          }
+        }
         const rawErr = isTimeout
           ? `Gemini API request timed out after ${this.timeoutMs}ms`
           : (fetchErr instanceof Error ? fetchErr.message : String(fetchErr));
@@ -887,7 +962,12 @@ export class GeminiModelGateway implements ModelGateway {
 
       // 3. Handle successful HTTP response (200-299)
       if (response.status >= 200 && response.status < 300) {
-        this.keyPool.reportSuccess(slot.id);
+        const parsed = this.parseResponse(responseText);
+        const actualTokens = (parsed.usage?.inputTokens ?? 0) + (parsed.usage?.outputTokens ?? 0);
+        await this.keyPool.reportSuccessAsync(slot.id, {
+          reservationId,
+          actualTokens: actualTokens > 0 ? actualTokens : undefined,
+        });
         this.logRequestEvent({
           event: "success",
           slotId: slot.id,
@@ -899,7 +979,7 @@ export class GeminiModelGateway implements ModelGateway {
           req,
         });
 
-        return this.parseResponse(responseText);
+        return parsed;
       }
 
       // 4. Handle non-200 HTTP response
@@ -909,7 +989,9 @@ export class GeminiModelGateway implements ModelGateway {
 
       // Case A: Transient server error (500, 502, 503, 504)
       if (classification.reason === "server_error") {
-        this.keyPool.reportFailure(slot.id, "server_error");
+        await this.keyPool.reportFailureAsync(slot.id, "server_error", undefined, {
+          reservationId,
+        });
 
         if (attempt < maxTotalAttempts - 1) {
           const delayMs = this.calculateBackoffMs(attempt);
@@ -950,7 +1032,12 @@ export class GeminiModelGateway implements ModelGateway {
 
       // Case B: Key rotation switch (401, 403 quota/invalid, 429 rate/quota)
       if (classification.type === "switch" && classification.reason) {
-        this.keyPool.reportFailure(slot.id, classification.reason, classification.cooldownMs);
+        await this.keyPool.reportFailureAsync(
+          slot.id,
+          classification.reason,
+          classification.cooldownMs,
+          { reservationId },
+        );
         this.logRequestEvent({
           event: "failover",
           slotId: slot.id,
@@ -965,9 +1052,10 @@ export class GeminiModelGateway implements ModelGateway {
           req,
         });
 
-        const hasOtherHealthyKeys = this.keyPool
-          .getSlotsSummary()
-          .some((s) => s.state === "healthy" && s.id !== slot.id);
+        const hasOtherHealthyKeys = await this.keyPool.hasOtherHealthyProjectsAsync(
+          slot.id,
+          classification.reason,
+        );
 
         if (hasOtherHealthyKeys && attempt < maxTotalAttempts - 1) {
           continue;
@@ -978,6 +1066,9 @@ export class GeminiModelGateway implements ModelGateway {
       }
 
       // Case C: Non-retryable error (400, 403 permission, 404)
+      if (reservationId) {
+        await this.keyPool.releaseReservationAsync(slot.id, reservationId);
+      }
       this.logRequestEvent({
         event: "error",
         slotId: slot.id,
@@ -1015,7 +1106,18 @@ export class GeminiModelGateway implements ModelGateway {
     latencyMs: number | null;
     reason?: string;
   }> {
-    const slot = this.keyPool.acquireKey();
+    let slot: GeminiKeySlot | undefined;
+    try {
+      slot = this.keyPool.acquireKey();
+    } catch {
+      return {
+        status: "unhealthy",
+        provider: "gemini",
+        model: this.modelName,
+        latencyMs: null,
+        reason: "All Gemini API key slots are currently exhausted or unavailable",
+      };
+    }
     const key = slot?.apiKey;
     const startTime = Date.now();
     const url = `${GEMINI_API_BASE_URL}/${this.modelName}`;

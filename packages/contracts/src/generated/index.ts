@@ -315,6 +315,9 @@ export type CourseLearnProgress = {
   total_lessons: number;
   completed_lessons: number;
   progress_percent: number;
+  last_studied_lesson_id?: string | null;
+  last_studied_module_id?: string | null;
+  last_studied_at?: string | null;
 };
 
 export type CourseLearnResponse = {

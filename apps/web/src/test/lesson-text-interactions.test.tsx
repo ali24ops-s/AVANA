@@ -426,7 +426,7 @@ describe("Lesson Text Interaction & Selection Feature Suite", () => {
     });
 
     it("creates highlight immediately and renders mark without requiring page reload", async () => {
-      let createdAnnotation: any = null;
+      let createdAnnotation: Record<string, unknown> | null = null;
       vi.spyOn(globalThis, "fetch").mockImplementation((url, opts) => {
         const urlStr = String(url);
         if (urlStr.includes("/annotations") && opts?.method === "POST") {
@@ -1212,6 +1212,317 @@ describe("Lesson Text Interaction & Selection Feature Suite", () => {
 
       // Text content remains fully intact without corruption
       expect(container.textContent).toContain("تجویز داروی سفتریاکسون وریدی شروع شد.");
+    });
+  });
+
+  describe("8. Automatic Word-Boundary Selection Normalization in Interactive Reader", () => {
+    it("snaps single-character selection to the full word when highlighting, persisting and rendering the full word", async () => {
+      let createdAnnotation: Record<string, unknown> | null = null;
+      vi.spyOn(globalThis, "fetch").mockImplementation((url, opts) => {
+        const urlStr = String(url);
+        if (urlStr.includes("/annotations") && opts?.method === "POST") {
+          const body = opts?.body ? JSON.parse(opts.body as string) : {};
+          createdAnnotation = {
+            id: "ann-snapped-1",
+            userId: "user-1",
+            lessonId: "lesson-snap",
+            type: "highlight",
+            color: "default",
+            ...body,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            text: () => Promise.resolve(JSON.stringify(createdAnnotation)),
+          } as unknown as Response);
+        }
+        if (urlStr.includes("/annotations")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            text: () =>
+              Promise.resolve(
+                JSON.stringify({ items: createdAnnotation ? [createdAnnotation] : [] }),
+              ),
+          } as unknown as Response);
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          text: () => Promise.resolve(JSON.stringify({})),
+        } as unknown as Response);
+      });
+
+      const lessonMarkdown = "بررسی مکانیسم اثر داروهای ضد فشار خون.";
+
+      const { container } = render(
+        <QueryClientProvider client={queryClient}>
+          <LessonInteractiveContent
+            lessonId="lesson-snap"
+            courseId="course-1"
+            content={lessonMarkdown}
+          />
+        </QueryClientProvider>,
+      );
+
+      // Simulate partial selection of only 'م' in 'مکانیسم'
+      const p = container.querySelector("p");
+      expect(p).toBeInTheDocument();
+      if (p && p.firstChild) {
+        // "بررسی " is 6 chars. 'م' of "مکانیسم" is at index 6..7
+        const range = document.createRange();
+        range.setStart(p.firstChild, 6);
+        range.setEnd(p.firstChild, 7);
+        range.getBoundingClientRect = () =>
+          ({
+            width: 15,
+            height: 20,
+            top: 100,
+            bottom: 120,
+            left: 50,
+            right: 65,
+            x: 50,
+            y: 100,
+            toJSON: () => {},
+          }) as DOMRect;
+
+        const mockSel = {
+          isCollapsed: false,
+          rangeCount: 1,
+          getRangeAt: () => range,
+          toString: () => "م",
+          removeAllRanges: vi.fn(),
+          addRange: vi.fn(),
+        };
+        vi.spyOn(window, "getSelection").mockReturnValue(mockSel as unknown as Selection);
+        document.dispatchEvent(new Event("selectionchange"));
+      }
+
+      // Floating toolbar should show "هایلایت"
+      const highlightBtn = await screen.findByText("هایلایت");
+      fireEvent.click(highlightBtn.closest("button") || highlightBtn);
+
+      // Verify the API received the normalized full word "مکانیسم"
+      await waitFor(() => {
+        expect(createdAnnotation).not.toBeNull();
+        expect(createdAnnotation.selectedText).toBe("مکانیسم");
+        expect(createdAnnotation.startOffset).toBe(6);
+        expect(createdAnnotation.endOffset).toBe(13);
+      });
+
+      // Verify the DOM rendered the highlight mark wrapping the full word "مکانیسم"
+      await waitFor(() => {
+        const mark = container.querySelector("mark[data-avana-annotation='ann-snapped-1']");
+        expect(mark).toBeInTheDocument();
+        expect(mark?.textContent).toBe("مکانیسم");
+      });
+    });
+
+    it("snaps partial selection to full word when creating note, showing full word in dialog and note mark", async () => {
+      let createdAnnotation: Record<string, unknown> | null = null;
+      vi.spyOn(globalThis, "fetch").mockImplementation((url, opts) => {
+        const urlStr = String(url);
+        if (urlStr.includes("/annotations") && opts?.method === "POST") {
+          const body = opts?.body ? JSON.parse(opts.body as string) : {};
+          createdAnnotation = {
+            id: "note-snapped-1",
+            userId: "user-1",
+            lessonId: "lesson-snap",
+            type: "note",
+            color: "default",
+            ...body,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            text: () => Promise.resolve(JSON.stringify(createdAnnotation)),
+          } as unknown as Response);
+        }
+        if (urlStr.includes("/annotations")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            text: () =>
+              Promise.resolve(
+                JSON.stringify({ items: createdAnnotation ? [createdAnnotation] : [] }),
+              ),
+          } as unknown as Response);
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          text: () => Promise.resolve(JSON.stringify({})),
+        } as unknown as Response);
+      });
+
+      const lessonMarkdown = "درمان با فارماکولوژی بالینی ارتباط مستقیم دارد.";
+
+      const { container } = render(
+        <QueryClientProvider client={queryClient}>
+          <LessonInteractiveContent
+            lessonId="lesson-snap"
+            courseId="course-1"
+            content={lessonMarkdown}
+          />
+        </QueryClientProvider>,
+      );
+
+      // Simulate partial selection of "فارما" (index 9..14 in "فارماکولوژی")
+      const p = container.querySelector("p");
+      if (p && p.firstChild) {
+        const range = document.createRange();
+        range.setStart(p.firstChild, 9);
+        range.setEnd(p.firstChild, 14);
+        range.getBoundingClientRect = () =>
+          ({
+            width: 50,
+            height: 20,
+            top: 100,
+            bottom: 120,
+            left: 50,
+            right: 100,
+            x: 50,
+            y: 100,
+            toJSON: () => {},
+          }) as DOMRect;
+
+        const mockSel = {
+          isCollapsed: false,
+          rangeCount: 1,
+          getRangeAt: () => range,
+          toString: () => "فارما",
+          removeAllRanges: vi.fn(),
+          addRange: vi.fn(),
+        };
+        vi.spyOn(window, "getSelection").mockReturnValue(mockSel as unknown as Selection);
+        document.dispatchEvent(new Event("selectionchange"));
+      }
+
+      // Click "یادداشت" in floating toolbar
+      const noteBtn = await screen.findByText("یادداشت");
+      fireEvent.click(noteBtn.closest("button") || noteBtn);
+
+      // Dialog should open and display the full snapped word "فارماکولوژی"
+      expect(await screen.findByText("یادداشت روی متن")).toBeInTheDocument();
+      expect(screen.getByText("فارماکولوژی")).toBeInTheDocument();
+
+      // Enter note and save
+      const textarea = screen.getByPlaceholderText(/نکته، جمع‌بندی یا تحلیل خود درباره این بخش را بنویسید/);
+      fireEvent.change(textarea, { target: { value: "مبحث مهم آزمون پره‌انترنی" } });
+      fireEvent.click(screen.getByRole("button", { name: "ذخیره یادداشت" }));
+
+      // Verify the note mark was rendered wrapping the entire word "فارماکولوژی"
+      await waitFor(() => {
+        const noteMark = container.querySelector("mark[data-avana-annotation='note-snapped-1']");
+        expect(noteMark).toBeInTheDocument();
+        expect(noteMark?.textContent).toBe("فارماکولوژی");
+        expect(noteMark).toHaveClass("avana-note");
+      });
+    });
+
+    it("handles Persian ZWNJ word selection snapping to full compound word without touching adjacent word", async () => {
+      let createdAnnotation: Record<string, unknown> | null = null;
+      vi.spyOn(globalThis, "fetch").mockImplementation((url, opts) => {
+        const urlStr = String(url);
+        if (urlStr.includes("/annotations") && opts?.method === "POST") {
+          const body = opts?.body ? JSON.parse(opts.body as string) : {};
+          createdAnnotation = {
+            id: "ann-zwnj-1",
+            userId: "user-1",
+            lessonId: "lesson-snap",
+            type: "highlight",
+            color: "default",
+            ...body,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            text: () => Promise.resolve(JSON.stringify(createdAnnotation)),
+          } as unknown as Response);
+        }
+        if (urlStr.includes("/annotations")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            text: () =>
+              Promise.resolve(
+                JSON.stringify({ items: createdAnnotation ? [createdAnnotation] : [] }),
+              ),
+          } as unknown as Response);
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          text: () => Promise.resolve(JSON.stringify({})),
+        } as unknown as Response);
+      });
+
+      const lessonMarkdown = "نیمه‌عمر دارو در بیماران کلیوی افزایش می‌یابد.";
+
+      const { container } = render(
+        <QueryClientProvider client={queryClient}>
+          <LessonInteractiveContent
+            lessonId="lesson-snap"
+            courseId="course-1"
+            content={lessonMarkdown}
+          />
+        </QueryClientProvider>,
+      );
+
+      // Select only "عمر" from "نیمه‌عمر دارو" (indices 5..8)
+      const p = container.querySelector("p");
+      if (p && p.firstChild) {
+        const range = document.createRange();
+        range.setStart(p.firstChild, 5);
+        range.setEnd(p.firstChild, 8);
+        range.getBoundingClientRect = () =>
+          ({
+            width: 30,
+            height: 20,
+            top: 100,
+            bottom: 120,
+            left: 50,
+            right: 80,
+            x: 50,
+            y: 100,
+            toJSON: () => {},
+          }) as DOMRect;
+
+        const mockSel = {
+          isCollapsed: false,
+          rangeCount: 1,
+          getRangeAt: () => range,
+          toString: () => "عمر",
+          removeAllRanges: vi.fn(),
+          addRange: vi.fn(),
+        };
+        vi.spyOn(window, "getSelection").mockReturnValue(mockSel as unknown as Selection);
+        document.dispatchEvent(new Event("selectionchange"));
+      }
+
+      // Click highlight
+      const highlightBtn = await screen.findByText("هایلایت");
+      fireEvent.click(highlightBtn.closest("button") || highlightBtn);
+
+      // Verify created annotation is exactly "نیمه‌عمر", not "دارو"
+      await waitFor(() => {
+        expect(createdAnnotation).not.toBeNull();
+        expect(createdAnnotation.selectedText).toBe("نیمه‌عمر");
+        expect(createdAnnotation.selectedText.includes("دارو")).toBe(false);
+      });
+
+      // Verify DOM highlight wraps only "نیمه‌عمر"
+      await waitFor(() => {
+        const mark = container.querySelector("mark[data-avana-annotation='ann-zwnj-1']");
+        expect(mark).toBeInTheDocument();
+        expect(mark?.textContent).toBe("نیمه‌عمر");
+      });
     });
   });
 });

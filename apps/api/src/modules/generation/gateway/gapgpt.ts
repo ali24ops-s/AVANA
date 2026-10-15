@@ -217,7 +217,7 @@ export class GapGPTModelGateway implements ModelGateway {
         clearTimeout(attemptTimer);
         if (attemptController.signal.aborted) {
           throw new DomainError(
-            "unprocessable",
+            "timeout",
             `GapGPT API request timed out after ${this.timeoutMs}ms`,
           );
         }
@@ -233,7 +233,7 @@ export class GapGPTModelGateway implements ModelGateway {
           fetchErr instanceof Error ? fetchErr.message : String(fetchErr),
         );
         throw new DomainError(
-          "unprocessable",
+          "service_unavailable",
           `GapGPT API network error: ${sanitizedErr}`,
         );
       } finally {
@@ -358,16 +358,26 @@ export class GapGPTModelGateway implements ModelGateway {
       );
     }
 
+    const finishReason = choice?.finish_reason ?? "stop";
     let outputText = rawText.trim();
     if (req.jsonSchema) {
-      // Validate that it parses as JSON and clean markdown code fences
-      const parsedObj = cleanAndParseGapGPTJson(outputText);
-      outputText = JSON.stringify(parsedObj);
+      try {
+        // Validate that it parses as JSON and clean markdown code fences
+        const parsedObj = cleanAndParseGapGPTJson(outputText);
+        outputText = JSON.stringify(parsedObj);
+      } catch (parseErr) {
+        if (finishReason === "length") {
+          throw new DomainError(
+            "unprocessable",
+            `GapGPT output was truncated due to token limit (finish_reason: length): ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`,
+          );
+        }
+        throw parseErr;
+      }
     }
 
     const inputTokens = data.usage?.prompt_tokens ?? 0;
     const outputTokens = data.usage?.completion_tokens ?? 0;
-    const finishReason = choice?.finish_reason ?? "stop";
     const model = data.model ?? this.modelName;
 
     return {

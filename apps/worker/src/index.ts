@@ -16,17 +16,19 @@ import { composeWorker } from "./compose.js";
 import { createGenerationWorker } from "./processors/generation-processor.js";
 
 export function validateWorkerConfig(config: WorkerConfig): void {
-  const isGapGpt = config.userAi.provider === "gapgpt";
+  if (config.generation.aiProvider === "mock") {
+    return;
+  }
+
   const hasKey = Boolean(
-    isGapGpt
-      ? config.userAi.gapgptApiKey && config.userAi.gapgptApiKey.trim().length > 0
-      : config.userAi.openrouterApiKey && config.userAi.openrouterApiKey.trim().length > 0,
+    (config.generation.geminiKeyConfigs && config.generation.geminiKeyConfigs.length > 0) ||
+    (config.generation.geminiApiKey && config.generation.geminiApiKey.trim().length > 0) ||
+    (config.generation.geminiApiKeys && config.generation.geminiApiKeys.length > 0),
   );
 
   if (!hasKey) {
-    const missingVar = isGapGpt ? "GAPGPT_API_KEY" : "OPENROUTER_API_KEY";
     throw new Error(
-      `Configuration error: ${missingVar} is missing or empty. Cannot start worker.`,
+      "Configuration error: GEMINI_API_KEY or GEMINI_API_KEY_1..10 is missing or empty. Cannot start worker.",
     );
   }
 }
@@ -34,23 +36,20 @@ export function validateWorkerConfig(config: WorkerConfig): void {
 async function main(): Promise<void> {
   const config = loadWorkerConfig();
 
-  const isGapGpt = config.userAi.provider === "gapgpt";
-  const activeModel = isGapGpt
-    ? config.userAi.gapgptModel
-    : config.userAi.openrouterModel;
+  const aiProvider = config.generation.aiProvider === "mock" ? "mock" : "gemini";
+  const activeModel = config.generation.geminiModel;
 
   // Safe startup diagnostics — NEVER logs the actual API key
-  process.stdout.write(`[worker] AI provider: ${config.userAi.provider}\n`);
+  process.stdout.write(`[worker] AI provider: ${aiProvider}\n`);
   process.stdout.write(`[worker] AI model: ${activeModel}\n`);
   process.stdout.write(`[worker] AI fallback: disabled\n`);
 
   const hasKey = Boolean(
-    isGapGpt
-      ? config.userAi.gapgptApiKey && config.userAi.gapgptApiKey.trim().length > 0
-      : config.userAi.openrouterApiKey && config.userAi.openrouterApiKey.trim().length > 0,
+    (config.generation.geminiKeyConfigs && config.generation.geminiKeyConfigs.length > 0) ||
+    (config.generation.geminiApiKey && config.generation.geminiApiKey.trim().length > 0) ||
+    (config.generation.geminiApiKeys && config.generation.geminiApiKeys.length > 0),
   );
-  const providerLabel = isGapGpt ? "GapGPT" : "OpenRouter";
-  process.stdout.write(`[worker] ${providerLabel} API key configured: ${hasKey}\n`);
+  process.stdout.write(`[worker] Gemini API key configured: ${hasKey}\n`);
 
   validateWorkerConfig(config);
 

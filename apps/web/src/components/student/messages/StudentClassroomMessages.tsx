@@ -11,6 +11,7 @@ import { StudentSendMessageModal } from "./StudentSendMessageModal.js";
 import { StudentConversationDetailModal } from "./StudentConversationDetailModal.js";
 import { useStudentConversations } from "../../../hooks/useStudentMessages.js";
 import { toPersianDigits } from "@avana/domain";
+import { AvaniAvatar } from "../../brand/AvaniAvatar.js";
 import {
   MessageSquare,
   Plus,
@@ -92,7 +93,13 @@ export function StudentClassroomMessages({
         </div>
       ) : conversations.length === 0 ? (
         <Card className="p-8 text-center border border-[var(--color-border)] rounded-2xl bg-[var(--color-surface)]">
-          <MessageSquare className="w-12 h-12 text-[var(--color-text-muted)] mx-auto mb-3 opacity-50" />
+          <AvaniAvatar
+            variant="empty"
+            size={56}
+            alt="آوانی"
+            asInlineSvg={true}
+            className="mx-auto mb-3"
+          />
           <h3 className="text-base font-bold text-[var(--color-text)]">
             هنوز پیامی برای استاد این کلاس ارسال نکرده‌اید
           </h3>

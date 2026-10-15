@@ -390,6 +390,7 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
       auditService: opts.auditService,
       systemOrganizationId: opts.config.systemOrganizationId as OrganizationId,
       entitlementService,
+      studySessionStore: opts.studySessionStore,
     });
   }
 
@@ -624,6 +625,7 @@ export const v1Routes: FastifyPluginAsync<Partial<V1RouteOptions>> = async (
   ) {
     const assistantGateway =
       opts.assistantGateway ??
+      opts.gateway ??
       (opts.config.userAi.provider === "openrouter"
         ? new OpenRouterModelGateway({
             apiKey: opts.config.userAi.openrouterApiKey,

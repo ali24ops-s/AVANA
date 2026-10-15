@@ -42,10 +42,6 @@ import { WalletService } from "../modules/wallet/wallet-service.js";
 import { hashToken } from "../modules/identity/session-service.js";
 import { GeminiModelGateway } from "../modules/generation/gateway/gemini.js";
 import {
-  OpenRouterModelGateway,
-  DEFAULT_OPENROUTER_USER_AI_MODEL,
-} from "../modules/generation/gateway/openrouter.js";
-import {
   GapGPTModelGateway,
   DEFAULT_GAPGPT_USER_AI_MODEL,
 } from "../modules/generation/gateway/gapgpt.js";
@@ -985,17 +981,16 @@ describe("AI Provider Architecture & Request-Path Isolation Tests", () => {
       expect(askRes.json().answer).toBe("پاسخ تست HTTP GapGPT");
     });
 
-    it("composeLocalDev wires GapGPT for user gateway & ask, and strictly Gemini for admin gateway", async () => {
+    it("composeLocalDev wires Gemini for user gateway & ask, and strictly Gemini for admin gateway", async () => {
       const config = loadApiConfig();
       const { v1Options } = await composeLocalDev(config);
 
-      expect(v1Options.gateway).toBeInstanceOf(GapGPTModelGateway);
-      expect(v1Options.gateway?.provider).toBe("gapgpt");
-      expect(v1Options.gateway?.model).toBe("deepseek-v4-flash");
+      expect(v1Options.gateway).toBeInstanceOf(GeminiModelGateway);
+      expect(v1Options.gateway?.provider).toBe("gemini");
 
-      expect(v1Options.assistantGateway).toBeInstanceOf(GapGPTModelGateway);
-      expect(v1Options.assistantGateway?.provider).toBe("gapgpt");
-      expect(v1Options.assistantGateway?.model).toBe("deepseek-v4-flash");
+      expect(v1Options.assistantGateway).toBeInstanceOf(GeminiModelGateway);
+      expect(v1Options.assistantGateway?.provider).toBe("gemini");
+      expect(v1Options.assistantGateway).toBe(v1Options.adminGateway);
 
       expect(v1Options.adminGateway).toBeInstanceOf(GeminiModelGateway);
       expect(v1Options.adminGateway).not.toBeInstanceOf(FallbackModelGateway);
@@ -1024,7 +1019,7 @@ describe("AI Provider Architecture & Request-Path Isolation Tests", () => {
       expect(v1Options.adminGateway?.provider).toBe("gemini");
     });
 
-    it("composeProduction forces adminGateway to Gemini even if global config has other providers and fallback enabled", async () => {
+    it("composeProduction forces adminGateway, userGateway, and assistantGateway to Gemini with shared quota", async () => {
       const baseConfig = loadApiConfig();
       const overriddenConfig = {
         ...baseConfig,
@@ -1045,8 +1040,11 @@ describe("AI Provider Architecture & Request-Path Isolation Tests", () => {
         expect(v1Options.adminGateway).toBeInstanceOf(GeminiModelGateway);
         expect(v1Options.adminGateway).not.toBeInstanceOf(FallbackModelGateway);
         expect(v1Options.adminGateway?.provider).toBe("gemini");
-        expect(v1Options.gateway).toBeInstanceOf(GapGPTModelGateway);
-        expect(v1Options.assistantGateway).toBeInstanceOf(GapGPTModelGateway);
+        expect(v1Options.gateway).toBeInstanceOf(GeminiModelGateway);
+        expect(v1Options.gateway?.provider).toBe("gemini");
+        expect(v1Options.gateway).toBe(v1Options.adminGateway);
+        expect(v1Options.assistantGateway).toBeInstanceOf(GeminiModelGateway);
+        expect(v1Options.assistantGateway).toBe(v1Options.adminGateway);
       } finally {
         await close();
       }

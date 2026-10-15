@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 120" width="100" height="120" fill="none">
+    <g id="idea-bulb">
+      <circle cx="50" cy="10" r="5" fill="#FFB300" />
+      <path d="M 48 15 L 52 15 L 51 17 L 49 17 Z" fill="#E65100" />
+      <line x1="50" y1="2" x2="50" y2="0" stroke="#FFB300" stroke-width="1.6" stroke-linecap="round" />
+      <line x1="43" y1="5" x2="41" y2="3" stroke="#FFB300" stroke-width="1.6" stroke-linecap="round" />
+      <line x1="57" y1="5" x2="59" y2="3" stroke="#FFB300" stroke-width="1.6" stroke-linecap="round" />
+    </g>
+
+    <defs>
+      <linearGradient id="av-idea-left-facet" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#26A69A" />
+        <stop offset="100%" stop-color="#008080" />
+      </linearGradient>
+      <linearGradient id="av-idea-right-facet" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#004D40" />
+        <stop offset="100%" stop-color="#00332C" />
+      </linearGradient>
+      <linearGradient id="av-idea-lower-left" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#008080" />
+        <stop offset="100%" stop-color="#00796B" />
+      </linearGradient>
+      <linearGradient id="av-idea-lower-right" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#004D40" />
+        <stop offset="100%" stop-color="#00332C" />
+      </linearGradient>
+    </defs>
+    <g id="av-idea-feet">
+      <path d="M 37 98 L 37 108 C 37 112 30 112 30 108 C 30 103 33 99 37 98 Z" fill="#004D40" />
+      <path d="M 63 98 L 63 108 C 63 112 70 112 70 108 C 70 103 67 99 63 98 Z" fill="#004D40" />
+    </g>
+    <g id="av-idea-lower-triangle">
+      <path d="M 50 48 L 18 97 C 19 99 23 99 28 99 L 50 99 Z" fill="url(#av-idea-lower-left)" />
+      <path d="M 50 48 L 50 99 L 72 99 C 77 99 81 99 82 97 Z" fill="url(#av-idea-lower-right)" />
+    </g>
+    <g id="av-idea-upper-triangle">
+      <path d="M 50 78 L 16 23 C 18 20 22 20 28 20 L 50 20 Z" fill="url(#av-idea-left-facet)" />
+      <path d="M 50 78 L 50 20 L 72 20 C 78 20 82 20 84 23 Z" fill="url(#av-idea-right-facet)" />
+    </g>
+    <path d="M 50 82 L 46 75 L 54 75 Z" fill="#FF7043" />
+
+
+  <path d="M 32 64 C 27 68 22 75 22 81 C 22 84 25.5 85 27 82 C 29 77 34 70 36 65 Z" fill="#008080" />
+  <circle cx="24.5" cy="81.5" r="2.8" fill="#008080" />
+
+    <path d="M 67 65 C 71 58 75 49 76 39 C 76 36 80 37 80 40 C 79 48 74 58 69 67 Z" fill="#004D40" />
+    <circle cx="77" cy="38" r="3.2" fill="#004D40" />
+
+    <g id="avani-face">
+      <path d="M 36 29 L 64 29 C 67 29 69 32 68 36 L 64 53 C 63 56 61 58 58 60 L 50 64 L 42 60 C 39 58 37 56 36 53 L 32 36 C 31 32 33 29 36 29 Z" fill="#FFFDF9" stroke="rgba(0,0,0,0.03)" stroke-width="0.5" />
+      <ellipse cx="37" cy="50" rx="3.5" ry="2" fill="#FF8A80" opacity="0.65" />
+      <ellipse cx="63" cy="50" rx="3.5" ry="2" fill="#FF8A80" opacity="0.65" />
+
+      <circle cx="43" cy="42" r="2.8" fill="#1A2226" />
+      <circle cx="42" cy="41" r="0.9" fill="#FFFFFF" />
+      <circle cx="57" cy="42" r="2.8" fill="#1A2226" />
+      <circle cx="56" cy="41" r="0.9" fill="#FFFFFF" />
+
+      <path d="M 46 50 Q 50 56 54 50" fill="none" stroke="#1A2226" stroke-width="2" stroke-linecap="round" />
+    </g>
+
+  </svg>

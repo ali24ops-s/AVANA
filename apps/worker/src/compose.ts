@@ -11,6 +11,7 @@
  */
 
 import { createDbClient } from "@avana/database/client";
+import { Redis } from "ioredis";
 import { defaultPolicy } from "@avana/domain";
 import {
   DrizzleDocumentStore,
@@ -28,8 +29,6 @@ import { DrizzleCourseStore } from "@avana/api/courses/drizzle-stores";
 import { GenerationRecoveryService } from "@avana/api/generation/generation-recovery-service";
 import {
   createModelGateway,
-  GapGPTModelGateway,
-  OpenRouterModelGateway,
   type ModelGateway,
 } from "@avana/api/generation/gateway";
 import { GenerationService } from "@avana/api/generation/generation-service";
@@ -82,31 +81,27 @@ export async function composeWorker(
   const walletStore = new DrizzleWalletStore(db);
 
   // Admin Model gateway: strictly Gemini with multi-key pool, zero fallback to external providers.
+  const geminiRedis =
+    config.generation.aiProvider !== "mock" && config.redis.url
+      ? new Redis(config.redis.url, { maxRetriesPerRequest: null, enableReadyCheck: false })
+      : undefined;
+
   const adminProvider = config.generation.aiProvider === "mock" ? "mock" : "gemini";
   const adminGateway: ModelGateway = createModelGateway({
     provider: adminProvider,
     enableFallback: false,
     geminiApiKey: config.generation.geminiApiKey,
     geminiApiKeys: config.generation.geminiApiKeys,
+    geminiKeyConfigs: config.generation.geminiKeyConfigs,
+    geminiRedis,
+    geminiQuotas: config.generation.geminiQuotas,
     geminiModel: config.generation.geminiModel,
     geminiSocksProxyUrl: config.generation.geminiSocksProxyUrl,
   });
 
-  // User-facing content generation gateway: GapGPT (deepseek-v4-flash) or OpenRouter
-  // Zero fallback to Gemini, Cloudflare, or other external providers.
-  const userGateway: ModelGateway =
-    config.userAi.provider === "openrouter"
-      ? new OpenRouterModelGateway({
-          apiKey: config.userAi.openrouterApiKey,
-          modelName: config.userAi.openrouterModel,
-          httpReferer: config.userAi.httpReferer,
-          appTitle: config.userAi.appTitle,
-        })
-      : new GapGPTModelGateway({
-          apiKey: config.userAi.gapgptApiKey,
-          baseUrl: config.userAi.gapgptBaseUrl,
-          modelName: config.userAi.gapgptModel,
-        });
+  // Unified central ModelGateway: user content generation
+  // uses the centralized Gemini API infrastructure sharing the same key pool and rate limiter.
+  const userGateway: ModelGateway = adminGateway;
 
   // Audit service.
   const auditStore = new DrizzleAuditStore(db);
@@ -218,6 +213,9 @@ export async function composeWorker(
   const workerClose = async () => {
     if ("destroy" in adminGateway && typeof adminGateway.destroy === "function") {
       adminGateway.destroy();
+    }
+    if (geminiRedis) {
+      await geminiRedis.quit().catch(() => {});
     }
     await close();
   };

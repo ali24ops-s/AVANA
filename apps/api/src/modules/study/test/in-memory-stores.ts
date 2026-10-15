@@ -829,6 +829,28 @@ export class InMemoryStudySessionStore implements StudySessionStore {
       .map((s) => ({ ...s }));
   }
 
+  async findLatestLessonSession(
+    userId: UserId,
+    courseId: CourseId,
+  ): Promise<StudySessionRecord | undefined> {
+    const matching = Array.from(this.sessions.values())
+      .reverse()
+      .filter(
+        (s) =>
+          s.userId === userId &&
+          s.courseId === courseId &&
+          s.activityType === "lesson" &&
+          Boolean(s.lessonId),
+      )
+      .sort(
+        (a, b) =>
+          new Date(b.lastActivityAt || b.startedAt).getTime() -
+          new Date(a.lastActivityAt || a.startedAt).getTime(),
+      );
+
+    return matching[0] ? { ...matching[0] } : undefined;
+  }
+
   insert(record: StudySessionRecord): void {
     this.sessions.set(record.id, { ...record });
   }

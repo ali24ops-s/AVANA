@@ -10,7 +10,7 @@
 
 import { DomainError } from "@avana/domain";
 import { MockModelGateway } from "./mock.js";
-import { GeminiModelGateway } from "./gemini.js";
+import { GeminiModelGateway, DEFAULT_GEMINI_MODEL } from "./gemini.js";
 import {
   CloudflareModelGateway,
   DEFAULT_CLOUDFLARE_AI_MODEL,
@@ -32,12 +32,21 @@ import {
 } from "./openrouter.js";
 import { FallbackModelGateway } from "./fallback.js";
 import type { ModelGateway } from "./types.js";
+import type { Redis } from "ioredis";
+import type { KeySlotConfig } from "./gemini-key-pool.js";
+import type { GeminiRateLimiterOptions } from "./gemini-rate-limiter.js";
 
 export type { ModelGateway, ModelProvider } from "./types.js";
 export type { CompletionRequest, CompletionResult } from "./types.js";
 export { MockModelGateway } from "./mock.js";
 export { GeminiModelGateway } from "./gemini.js";
 export { GeminiKeyPool } from "./gemini-key-pool.js";
+export type { KeySlotConfig } from "./gemini-key-pool.js";
+export {
+  GeminiRateLimiter,
+  type GeminiRateLimiterOptions,
+  type ProjectQuotaConfig,
+} from "./gemini-rate-limiter.js";
 export { CloudflareModelGateway, DEFAULT_CLOUDFLARE_AI_MODEL } from "./cloudflare.js";
 export { GroqModelGateway, DEFAULT_GROQ_MODEL } from "./groq.js";
 export {
@@ -73,6 +82,9 @@ export interface CreateModelGatewayOptions {
   disableFallback?: boolean;
   geminiApiKey?: string;
   geminiApiKeys?: string[];
+  geminiKeyConfigs?: KeySlotConfig[];
+  geminiRedis?: Redis;
+  geminiQuotas?: GeminiRateLimiterOptions;
   geminiModel?: string;
   geminiSocksProxyUrl?: string;
   cloudflareAccountId?: string;
@@ -122,6 +134,9 @@ export function createModelGateway(
   let provider: string | undefined;
   let key: string | undefined = apiKey;
   let keysOption: string[] | undefined;
+  let geminiKeyConfigsOption: KeySlotConfig[] | undefined;
+  let geminiRedisOption: Redis | undefined;
+  let geminiQuotasOption: GeminiRateLimiterOptions | undefined;
   let modelName: string | undefined = model;
   let geminiSocksProxyUrlOption: string | undefined;
   let cfAccountId: string | undefined;
@@ -147,6 +162,9 @@ export function createModelGateway(
     provider = providerOrOptions.provider;
     key = providerOrOptions.geminiApiKey ?? key;
     keysOption = providerOrOptions.geminiApiKeys;
+    geminiKeyConfigsOption = providerOrOptions.geminiKeyConfigs;
+    geminiRedisOption = providerOrOptions.geminiRedis;
+    geminiQuotasOption = providerOrOptions.geminiQuotas;
     modelName = providerOrOptions.geminiModel ?? modelName;
     geminiSocksProxyUrlOption = providerOrOptions.geminiSocksProxyUrl;
     cfAccountId = providerOrOptions.cloudflareAccountId;
@@ -235,8 +253,10 @@ export function createModelGateway(
         );
       }
     } else if (p === "gemini") {
+      const resolvedKeyConfigs = geminiKeyConfigsOption;
       let resolvedKeys: string[] = keysOption ? [...keysOption] : [];
       if (
+        !resolvedKeyConfigs &&
         resolvedKeys.length === 0 &&
         (requestedProvider === "gemini" ? key : undefined) &&
         key &&
@@ -244,30 +264,42 @@ export function createModelGateway(
       ) {
         resolvedKeys.push(key.trim());
       }
-      if (resolvedKeys.length === 0) {
+      if (!resolvedKeyConfigs && resolvedKeys.length === 0) {
         const envKeys = [
           ...(process.env.GEMINI_API_KEYS
             ? process.env.GEMINI_API_KEYS.split(",")
             : []),
           process.env.GEMINI_API_KEY_1,
           process.env.GEMINI_API_KEY_2,
+          process.env.GEMINI_API_KEY_3,
           process.env.GEMINI_API_KEY,
         ].filter((k): k is string => Boolean(k && k.trim().length > 0));
         resolvedKeys = envKeys;
       }
 
-      if (resolvedKeys.length > 0) {
-        const resolvedModel =
+      if ((resolvedKeyConfigs && resolvedKeyConfigs.length > 0) || resolvedKeys.length > 0) {
+        const rawModel =
           (requestedProvider === "gemini" ? modelName : undefined) ||
           process.env.GEMINI_MODEL ||
-          "gemini-3.5-flash-lite";
+          DEFAULT_GEMINI_MODEL;
+
+        if (rawModel && rawModel !== DEFAULT_GEMINI_MODEL) {
+          throw new DomainError(
+            "bad_request",
+            `Invalid Gemini model: "${rawModel}". Only "${DEFAULT_GEMINI_MODEL}" is supported for Gemini in AVANA.`,
+          );
+        }
+        const resolvedModel = DEFAULT_GEMINI_MODEL;
 
         const resolvedProxyUrl =
           geminiSocksProxyUrlOption || process.env.GEMINI_SOCKS_PROXY_URL;
 
         instantiatedGateways.push(
           new GeminiModelGateway({
-            apiKeys: resolvedKeys,
+            keyConfigs: resolvedKeyConfigs,
+            apiKeys: resolvedKeyConfigs ? undefined : resolvedKeys,
+            redis: geminiRedisOption,
+            quotas: geminiQuotasOption,
             modelName: resolvedModel,
             socksProxyUrl: resolvedProxyUrl?.trim() || undefined,
           }),

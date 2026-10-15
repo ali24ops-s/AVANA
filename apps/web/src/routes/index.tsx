@@ -111,6 +111,9 @@ import { StudentExamDetailPage } from "../pages/student/StudentExamDetailPage.js
 import { StudentExamTakingPage } from "../pages/student/StudentExamTakingPage.js";
 import { StudentExamResultsPage } from "../pages/student/StudentExamResultsPage.js";
 
+// Design Preview Imports (Isolated evaluation routes)
+import { StickerSystemPreviewPage } from "../design-preview/avana-stickers/StickerSystemPreviewPage.js";
+
 const getRouterBasename = () => {
   if (typeof window !== "undefined") {
     // If running under /AVANA subpath (e.g. GitHub Pages https://<user>.github.io/AVANA/)
@@ -208,6 +211,10 @@ export const router = createBrowserRouter(
     {
       path: "/blog/tag/:slug",
       element: <BlogTagPage />,
+    },
+    {
+      path: "/design-preview/stickers",
+      element: <StickerSystemPreviewPage />,
     },
 
     // Anatomy Lesson POC Route (Directly viewable in AVANA AuthenticatedShell without authentication barriers)

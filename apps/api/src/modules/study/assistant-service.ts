@@ -180,9 +180,22 @@ export class StudyAssistantService {
         correlationId,
         organizationId: targetOrgId,
         documentId: "00000000-0000-0000-0000-000000000000" as DocumentId,
+        stage: "interactive",
       });
     } catch (err: unknown) {
       if (err instanceof DomainError) {
+        if (err.code === "rate_limit_exceeded") {
+          throw new DomainError(
+            "rate_limit_exceeded",
+            "سهمیه هوش مصنوعی موقتاً تکمیل است، لطفاً کمی بعد دوباره تلاش کنید.",
+          );
+        }
+        if (err.code === "service_unavailable") {
+          throw new DomainError(
+            "service_unavailable",
+            "سرویس هوش مصنوعی موقتاً در دسترس نیست، لطفاً کمی بعد دوباره تلاش کنید.",
+          );
+        }
         throw err;
       }
       const errMessage = err instanceof Error ? err.message : String(err);

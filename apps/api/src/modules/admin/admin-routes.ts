@@ -1187,7 +1187,7 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
         name: "Gemini",
         id: "gemini",
         status: activeProvider === "gemini" ? "active" : "inactive",
-        model: process.env.GEMINI_MODEL || "gemini-3.6-flash",
+        model: process.env.GEMINI_MODEL || "gemini-3.5-flash-lite",
         priority: 1,
         health: "unknown",
       },
@@ -1457,7 +1457,7 @@ export const adminRoutes: FastifyPluginAsync<AdminRouteOptions> = async (
     ).toLowerCase();
     const activeModel =
       activeProvider === "gemini"
-        ? process.env.GEMINI_MODEL || "gemini-3.6-flash"
+        ? process.env.GEMINI_MODEL || "gemini-3.5-flash-lite"
         : activeProvider === "gapgpt"
           ? process.env.GAPGPT_MODEL || "gpt-5.6-luna"
           : activeProvider === "groq"

@@ -91,6 +91,15 @@ export type ApiConfig = {
     queueName: string;
     geminiApiKey?: string;
     geminiApiKeys: string[];
+    geminiKeyConfigs: Array<{ id: string; apiKey: string; projectId: string }>;
+    geminiQuotas: {
+      defaultRpm: number;
+      defaultTpm: number;
+      defaultRpd: number;
+      interactiveReservedPercent: number;
+      projectQuotas: Record<string, { rpm?: number; tpm?: number; rpd?: number }>;
+      failClosed: boolean;
+    };
     geminiModel: string;
     geminiSocksProxyUrl?: string;
     cloudflareAccountId?: string;
@@ -179,6 +188,123 @@ function parseGeminiApiKeys(env: NodeJS.ProcessEnv): string[] {
   }
 
   return keys;
+}
+
+export const CANONICAL_GEMINI_MODEL = "gemini-3.5-flash-lite";
+
+function parseGeminiModel(env: NodeJS.ProcessEnv): string {
+  const envModel = env.GEMINI_MODEL?.trim();
+  if (envModel && envModel !== CANONICAL_GEMINI_MODEL) {
+    throw new Error(
+      `Invalid GEMINI_MODEL: "${envModel}". Only "${CANONICAL_GEMINI_MODEL}" is supported for Gemini in AVANA.`,
+    );
+  }
+  return CANONICAL_GEMINI_MODEL;
+}
+
+function parseGeminiKeyConfigs(
+  env: NodeJS.ProcessEnv,
+): Array<{ id: string; apiKey: string; projectId: string }> {
+  const configs: Array<{ id: string; apiKey: string; projectId: string }> = [];
+  const seenKeys = new Set<string>();
+  const defaultProjectId = env.GEMINI_PROJECT_ID?.trim() || "default-gemini-project";
+
+  // 1. Indexed keys (GEMINI_API_KEY_1..10)
+  for (let i = 1; i <= 10; i++) {
+    const key = env[`GEMINI_API_KEY_${i}`];
+    if (key && key.trim().length > 0) {
+      const trimmedKey = key.trim();
+      if (!seenKeys.has(trimmedKey)) {
+        seenKeys.add(trimmedKey);
+        const projectId = env[`GEMINI_PROJECT_ID_${i}`]?.trim() || defaultProjectId;
+        configs.push({
+          id: `key-${i}`,
+          apiKey: trimmedKey,
+          projectId,
+        });
+      }
+    }
+  }
+
+  // 2. Comma-separated keys (GEMINI_API_KEYS)
+  if (env.GEMINI_API_KEYS && env.GEMINI_API_KEYS.trim().length > 0) {
+    const splitKeys = env.GEMINI_API_KEYS.split(",")
+      .map((k) => k.trim())
+      .filter((k) => k.length > 0);
+
+    for (let idx = 0; idx < splitKeys.length; idx++) {
+      const splitKey = splitKeys[idx];
+      if (!seenKeys.has(splitKey)) {
+        seenKeys.add(splitKey);
+        const keyNum = configs.length + 1;
+        const projectId =
+          env[`GEMINI_PROJECT_ID_${keyNum}`]?.trim() || defaultProjectId;
+        configs.push({
+          id: `key-${keyNum}`,
+          apiKey: splitKey,
+          projectId,
+        });
+      }
+    }
+  }
+
+  // 3. Single legacy key (GEMINI_API_KEY)
+  if (env.GEMINI_API_KEY && env.GEMINI_API_KEY.trim().length > 0) {
+    const trimmed = env.GEMINI_API_KEY.trim();
+    if (!seenKeys.has(trimmed)) {
+      seenKeys.add(trimmed);
+      const projectId = env.GEMINI_PROJECT_ID?.trim() || defaultProjectId;
+      configs.push({
+        id: `key-${configs.length + 1}`,
+        apiKey: trimmed,
+        projectId,
+      });
+    }
+  }
+
+  return configs;
+}
+
+function parseGeminiQuotas(env: NodeJS.ProcessEnv): {
+  defaultRpm: number;
+  defaultTpm: number;
+  defaultRpd: number;
+  interactiveReservedPercent: number;
+  projectQuotas: Record<string, { rpm?: number; tpm?: number; rpd?: number }>;
+  failClosed: boolean;
+} {
+  const defaultRpm = env.GEMINI_QUOTA_RPM ? parseInt(env.GEMINI_QUOTA_RPM, 10) : 15;
+  const defaultTpm = env.GEMINI_QUOTA_TPM ? parseInt(env.GEMINI_QUOTA_TPM, 10) : 1_000_000;
+  const defaultRpd = env.GEMINI_QUOTA_RPD ? parseInt(env.GEMINI_QUOTA_RPD, 10) : 1500;
+  const interactiveReservedPercent = env.GEMINI_INTERACTIVE_RESERVED_PERCENT
+    ? parseInt(env.GEMINI_INTERACTIVE_RESERVED_PERCENT, 10)
+    : 10;
+  const failClosed = env.GEMINI_RATE_LIMITER_FAIL_CLOSED !== "false";
+
+  const projectQuotas: Record<string, { rpm?: number; tpm?: number; rpd?: number }> = {};
+  for (let i = 1; i <= 10; i++) {
+    const projId = env[`GEMINI_PROJECT_ID_${i}`]?.trim() || env.GEMINI_PROJECT_ID?.trim();
+    if (!projId) continue;
+    const rpm = env[`GEMINI_PROJECT_${i}_RPM`];
+    const tpm = env[`GEMINI_PROJECT_${i}_TPM`];
+    const rpd = env[`GEMINI_PROJECT_${i}_RPD`];
+    if (rpm || tpm || rpd) {
+      projectQuotas[projId] = {
+        ...(rpm ? { rpm: parseInt(rpm, 10) } : {}),
+        ...(tpm ? { tpm: parseInt(tpm, 10) } : {}),
+        ...(rpd ? { rpd: parseInt(rpd, 10) } : {}),
+      };
+    }
+  }
+
+  return {
+    defaultRpm: isNaN(defaultRpm) ? 15 : defaultRpm,
+    defaultTpm: isNaN(defaultTpm) ? 1_000_000 : defaultTpm,
+    defaultRpd: isNaN(defaultRpd) ? 1500 : defaultRpd,
+    interactiveReservedPercent: isNaN(interactiveReservedPercent) ? 10 : interactiveReservedPercent,
+    projectQuotas,
+    failClosed,
+  };
 }
 
 function parseSocksProxyUrl(val?: string): string | undefined {
@@ -472,6 +598,7 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
       verificationSecret: getOptionalString(
         env,
         "VERIFICATION_SECRET",
+        // eslint-disable-next-line no-secrets/no-secrets
         "avana_verification_hmac_secret_2026_dev_key",
       ),
     },
@@ -494,7 +621,9 @@ export function loadApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
       queueName: getOptionalString(env, "AI_GENERATION_QUEUE", "content_generate"),
       geminiApiKey: env.GEMINI_API_KEY,
       geminiApiKeys: parseGeminiApiKeys(env),
-      geminiModel: getOptionalString(env, "GEMINI_MODEL", "gemini-3.6-flash"),
+      geminiKeyConfigs: parseGeminiKeyConfigs(env),
+      geminiQuotas: parseGeminiQuotas(env),
+      geminiModel: parseGeminiModel(env),
       geminiSocksProxyUrl: parseSocksProxyUrl(env.GEMINI_SOCKS_PROXY_URL),
       cloudflareAccountId: env.CLOUDFLARE_ACCOUNT_ID,
       cloudflareApiToken: env.CLOUDFLARE_API_TOKEN,

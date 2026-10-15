@@ -2414,6 +2414,21 @@ components:
           type: integer
           minimum: 0
           maximum: 100
+        last_studied_lesson_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        last_studied_module_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        last_studied_at:
+          type:
+            - string
+            - "null"
+          format: date-time
 
     CourseContentResponse:
       type: object

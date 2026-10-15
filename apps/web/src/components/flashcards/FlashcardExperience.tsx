@@ -27,6 +27,7 @@ import {
   isFlashcardGraduatedInSession,
 } from "@avana/domain";
 import { RichContent } from "../markdown/MarkdownRenderer.js";
+import { AvaniAvatar } from "../brand/AvaniAvatar.js";
 
 export interface FlashcardExperienceProps {
   organizationId: string;
@@ -751,8 +752,8 @@ export function FlashcardExperience({
     return (
       <div className="w-full h-full h-[100dvh] flex items-center justify-center p-4 overflow-y-auto">
         <Card variant="solid" className="max-w-lg w-full p-6 sm:p-10 bg-[var(--color-surface)] rounded-[16px] border border-[var(--color-border)] text-center space-y-6 shadow-[var(--shadow-card)]">
-          <div className="w-16 h-16 rounded-[12px] bg-[var(--color-primary-soft)] text-[var(--color-primary)] border border-[var(--color-primary-muted)] flex items-center justify-center mx-auto">
-            <Sparkles className="w-8 h-8" />
+          <div className="w-20 h-20 rounded-2xl bg-[var(--color-primary-soft)] text-[var(--color-primary)] border border-[var(--color-primary-muted)] flex items-center justify-center mx-auto shadow-xs">
+            <AvaniAvatar variant="learning" size={60} alt="آوانی" asInlineSvg={true} />
           </div>
           <div>
             <h3 className="text-xl font-bold text-[var(--color-text)]">
@@ -811,8 +812,8 @@ export function FlashcardExperience({
     return (
       <div className="w-full h-full h-[100dvh] flex items-center justify-center p-4 overflow-y-auto">
         <Card variant="solid" className="max-w-xl w-full p-6 sm:p-8 bg-[var(--color-surface)] rounded-[16px] border border-[var(--color-border)] text-center space-y-6 shadow-[var(--shadow-card)]">
-          <div className="w-20 h-20 rounded-full bg-[var(--color-primary-soft)] text-[var(--color-primary)] border border-[var(--color-primary-muted)] flex items-center justify-center mx-auto shadow-sm">
-            <Award className="w-10 h-10" />
+          <div className="w-24 h-24 rounded-full bg-[var(--color-primary-soft)] text-[var(--color-primary)] border border-[var(--color-primary-muted)] flex items-center justify-center mx-auto shadow-sm">
+            <AvaniAvatar variant="celebrating" size={76} alt="آوانی" asInlineSvg={true} />
           </div>
 
           <div>

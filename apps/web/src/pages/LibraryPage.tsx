@@ -18,6 +18,7 @@ import {
 import { useLibraryResources } from "../hooks/useLibrary.js";
 import { CourseLibraryCard } from "../components/library/CourseLibraryCard.js";
 import { PaywallModal } from "../components/commerce/index.js";
+import { AvaniAvatar } from "../components/brand/AvaniAvatar.js";
 import {
   Button,
   Input,
@@ -457,7 +458,14 @@ export function LibraryPage() {
         {/* Empty Result State */}
         {!isLoading && !isError && courses.length === 0 && (
           <EmptyState
-            icon={<LibraryIcon className="w-10 h-10 text-[var(--color-text-muted)]" />}
+            icon={
+              <AvaniAvatar
+                variant={isSearchActive ? "confused" : "empty"}
+                size={48}
+                alt="آوانی"
+                asInlineSvg={true}
+              />
+            }
             title="هیچ دوره‌ای یافت نشد"
             description={
               isSearchActive

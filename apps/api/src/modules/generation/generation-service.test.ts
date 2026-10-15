@@ -974,5 +974,52 @@ describe("GenerationService", () => {
       expect(geminiAttempts).toBeGreaterThanOrEqual(2);
       expect(mockGeminiGateway.provider).toBe("gemini");
     });
+
+    it("passes maxTokens: 4096 in planning and does NOT retry provider timeout", async () => {
+      const docId = randomUUID() as DocumentId;
+      const organizationId = randomUUID() as OrganizationId;
+      const doc = makeDocument({ id: docId, pageCount: 2 }, organizationId);
+      await documentStore.create(doc);
+      const chunks = makeChunks(docId, organizationId, 3);
+      await chunkStore.createMany(chunks);
+
+      let gatewayCallCount = 0;
+      let capturedMaxTokens: number | undefined;
+
+      const timingOutGateway = {
+        provider: "gapgpt" as const,
+        model: "deepseek-v4-flash",
+        complete: async (req: Parameters<MockModelGateway["complete"]>[0]) => {
+          gatewayCallCount++;
+          if (req.stage === "planning") {
+            capturedMaxTokens = req.maxTokens;
+            throw new DomainError("timeout", "GapGPT API request timed out after 180000ms");
+          }
+          const defaultGateway = new MockModelGateway();
+          return defaultGateway.complete(req);
+        },
+      };
+
+      const testService = new GenerationService(
+        contentStore,
+        citationStore,
+        timingOutGateway as unknown as MockModelGateway,
+        documentStore,
+        chunkStore,
+        new RoleBasedPolicy(),
+        auditService,
+      );
+
+      await expect(
+        testService.generateForDocument(actor, organizationId, docId, {
+          types: ["lesson"],
+        }),
+      ).rejects.toThrow("GapGPT API request timed out after 180000ms");
+
+      // Crucial assertion: Planning must have specified maxTokens: 4096
+      expect(capturedMaxTokens).toBe(4096);
+      // Crucial assertion: The gateway must NOT be called twice (no retry loop for timeout)
+      expect(gatewayCallCount).toBe(1);
+    });
   });
 });

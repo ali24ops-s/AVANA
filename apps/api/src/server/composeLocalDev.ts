@@ -56,8 +56,6 @@ import {
 } from "../modules/study/index.js";
 import {
   createModelGateway,
-  GapGPTModelGateway,
-  OpenRouterModelGateway,
   InMemoryGenerationQueue,
   GenerationService,
   type ModelGateway,
@@ -200,27 +198,15 @@ export async function composeLocalDev(
       enableFallback: false,
       geminiApiKey: config.generation.geminiApiKey,
       geminiApiKeys: config.generation.geminiApiKeys,
+      geminiKeyConfigs: config.generation.geminiKeyConfigs,
+      geminiQuotas: config.generation.geminiQuotas,
       geminiModel: config.generation.geminiModel,
+      geminiSocksProxyUrl: config.generation.geminiSocksProxyUrl,
     });
 
-  // Dedicated ModelGateway for User-Facing AI (Content Generation & Ask)
-  // Strictly GapGPT (deepseek-v4-flash) or OpenRouter based on config.
-  // Zero fallback to Gemini, Cloudflare, or other external providers.
-  const userGateway: ModelGateway =
-    options?.userGateway ??
-    (config.userAi.provider === "openrouter"
-      ? new OpenRouterModelGateway({
-          apiKey: config.userAi.openrouterApiKey,
-          modelName: config.userAi.openrouterModel,
-          httpReferer: config.userAi.httpReferer,
-          appTitle: config.userAi.appTitle,
-        })
-      : new GapGPTModelGateway({
-          apiKey: config.userAi.gapgptApiKey,
-          baseUrl: config.userAi.gapgptBaseUrl,
-          modelName: config.userAi.gapgptModel,
-        }));
-
+  // Unified central ModelGateway: user content generation and assistant/mentor
+  // use the centralized Gemini API infrastructure sharing the same key pool and rate limiter.
+  const userGateway: ModelGateway = options?.userGateway ?? adminGateway;
   const assistantGateway: ModelGateway = userGateway;
 
   const auditStore = new InMemoryAuditStore();

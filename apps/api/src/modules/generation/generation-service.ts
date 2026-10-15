@@ -522,14 +522,17 @@ export class GenerationService {
         lastErr = err;
         // Do NOT retry provider-level DomainErrors (gateway is sole retry owner)
         if (
-          err instanceof DomainError &&
-          (err.code === "service_unavailable" ||
-            err.code === "rate_limit_exceeded" ||
-            err.code === "bad_request" ||
-            err.code === "not_found" ||
-            err.code === "conflict" ||
-            err.code === "unauthorized" ||
-            err.code === "forbidden")
+          (err instanceof DomainError &&
+            (err.code === "service_unavailable" ||
+              err.code === "rate_limit_exceeded" ||
+              err.code === "too_many_requests" ||
+              err.code === "timeout" ||
+              err.code === "bad_request" ||
+              err.code === "not_found" ||
+              err.code === "conflict" ||
+              err.code === "unauthorized" ||
+              err.code === "forbidden")) ||
+          (err instanceof Error && err.message.toLowerCase().includes("timed out"))
         ) {
           throw err;
         }
@@ -854,6 +857,7 @@ export class GenerationService {
               { role: "user", content: prompt },
             ],
             jsonSchema: { type: "content_plan" },
+            maxTokens: 4096,
             correlationId,
             organizationId,
             documentId,

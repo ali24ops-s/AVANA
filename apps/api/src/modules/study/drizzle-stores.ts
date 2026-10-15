@@ -1431,6 +1431,27 @@ export class DrizzleStudySessionStore implements StudySessionStore {
 
     return rows.map(toStudySessionRecord);
   }
+
+  async findLatestLessonSession(
+    userId: UserId,
+    courseId: CourseId,
+  ): Promise<StudySessionRecord | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(studySessions)
+      .where(
+        and(
+          eq(studySessions.userId, userId),
+          eq(studySessions.courseId, courseId),
+          eq(studySessions.activityType, "lesson"),
+          isNotNull(studySessions.lessonId),
+        ),
+      )
+      .orderBy(sql`${studySessions.lastActivityAt} DESC, ${studySessions.startedAt} DESC`)
+      .limit(1);
+
+    return row ? toStudySessionRecord(row) : undefined;
+  }
 }
 
 // ---------------------------------------------------------------------------
