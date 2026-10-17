@@ -975,7 +975,7 @@ describe("GenerationService", () => {
       expect(mockGeminiGateway.provider).toBe("gemini");
     });
 
-    it("passes maxTokens: 4096 in planning and does NOT retry provider timeout", async () => {
+    it("omits maxTokens in planning to delegate to model/API default and does NOT retry provider timeout", async () => {
       const docId = randomUUID() as DocumentId;
       const organizationId = randomUUID() as OrganizationId;
       const doc = makeDocument({ id: docId, pageCount: 2 }, organizationId);
@@ -1016,9 +1016,60 @@ describe("GenerationService", () => {
         }),
       ).rejects.toThrow("GapGPT API request timed out after 180000ms");
 
-      // Crucial assertion: Planning must have specified maxTokens: 4096
-      expect(capturedMaxTokens).toBe(4096);
+      // Crucial assertion: Planning must omit fixed local maxTokens (undefined)
+      expect(capturedMaxTokens).toBeUndefined();
       // Crucial assertion: The gateway must NOT be called twice (no retry loop for timeout)
+      expect(gatewayCallCount).toBe(1);
+    });
+
+    it("does NOT retry GEMINI_RESPONSE_TRUNCATED in planning and rejects immediately", async () => {
+      const docId = randomUUID() as DocumentId;
+      const organizationId = randomUUID() as OrganizationId;
+      const doc = makeDocument({ id: docId, pageCount: 2 }, organizationId);
+      await documentStore.create(doc);
+      const chunks = makeChunks(docId, organizationId, 3);
+      await chunkStore.createMany(chunks);
+
+      let gatewayCallCount = 0;
+      let capturedMaxTokens: number | undefined;
+
+      const truncatedGateway = {
+        provider: "gemini" as const,
+        model: "gemini-3.5-flash-lite",
+        complete: async (req: Parameters<MockModelGateway["complete"]>[0]) => {
+          gatewayCallCount++;
+          if (req.stage === "planning") {
+            capturedMaxTokens = req.maxTokens;
+            throw new DomainError(
+              "unprocessable",
+              "GEMINI_RESPONSE_TRUNCATED: Model response truncated due to MAX_TOKENS limit (stage: planning, model: gemini-3.5-flash-lite, outputTokens: 4080).",
+            );
+          }
+          const defaultGateway = new MockModelGateway();
+          return defaultGateway.complete(req);
+        },
+      };
+
+      const testService = new GenerationService(
+        contentStore,
+        citationStore,
+        truncatedGateway as unknown as MockModelGateway,
+        documentStore,
+        chunkStore,
+        new RoleBasedPolicy(),
+        auditService,
+      );
+
+      await expect(
+        testService.generateForDocument(actor, organizationId, docId, {
+          types: ["lesson"],
+        }),
+      ).rejects.toThrow(/GEMINI_RESPONSE_TRUNCATED: Model response truncated due to MAX_TOKENS limit/);
+
+      // Crucial assertions:
+      // 1. maxTokens passed was undefined (delegating to model limit)
+      expect(capturedMaxTokens).toBeUndefined();
+      // 2. Gateway must NOT be called a second time (fail fast without wasting duplicate tokens)
       expect(gatewayCallCount).toBe(1);
     });
   });

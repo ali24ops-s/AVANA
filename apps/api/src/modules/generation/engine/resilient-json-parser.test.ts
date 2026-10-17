@@ -400,6 +400,106 @@ describe("ResilientJsonParser (cleanAndParseJson)", () => {
       // An unparseable non-JSON garbage string throws DomainError
       expect(() => cleanAndParseJson("Some completely non-json text with no braces", "lesson")).toThrow(DomainError);
     });
+
+    it("safely extracts JSON with nested markdown code fences (```chemical, ```reaction) surrounded by chatter", () => {
+      const rawWithInnerFences = [
+        "در ادامه درسنامه آموزشی شیمی دارویی آماده است:",
+        "```json",
+        "{",
+        '  "kind": "session",',
+        '  "title": "شیمی دارویی بی‌حس‌کننده‌های موضعی",',
+        '  "contentMarkdown": "# لیدوکائین\\n\\nساختار شیمیایی:\\n```chemical\\nsmiles: CCN(CC)CC(=O)Nc1c(C)cccc1C\\n```\\n\\nواکنش هیدرولیز:\\n```reaction\\nA + B -> C\\n```\\n\\nتوضیحات تکمیلی.",',
+        '  "citationChunkIds": ["chunk-chem-1"]',
+        "}",
+        "```",
+        "امیدوارم این محتوا مفید باشد.",
+      ].join("\n");
+
+      const parsed = cleanAndParseJson<{
+        kind: string;
+        title: string;
+        contentMarkdown: string;
+        citationChunkIds: string[];
+      }>(rawWithInnerFences, "session");
+
+      expect(parsed.kind).toBe("session");
+      expect(parsed.title).toBe("شیمی دارویی بی‌حس‌کننده‌های موضعی");
+      expect(parsed.contentMarkdown).toContain("```chemical\nsmiles: CCN(CC)CC(=O)Nc1c(C)cccc1C\n```");
+      expect(parsed.contentMarkdown).toContain("```reaction\nA + B -> C\n```");
+      expect(parsed.citationChunkIds).toEqual(["chunk-chem-1"]);
+    });
+
+    it("safely parses educational content containing SMILES stereochemistry, LaTeX math, and Persian/English quotes", () => {
+      const rawChemJson = JSON.stringify({
+        kind: "session",
+        title: "خواص فیزیکوشیمیایی و فرمولاسیون",
+        contentMarkdown:
+          "ضریب تقسیم \\log P و ثابت تفکیک pK_a پارامترهای حیاتی در داروهای «شیمی دارویی ۱» هستند. " +
+          "ایزومر \"trans\" با ساختار smiles: F/C=C\\F پایدارتر است. " +
+          "تغییر انرژی آزاد بر اساس رابطه \\Delta G = -RT \\ln K_d محاسبه می‌شود.",
+        citationChunkIds: ["chunk-chem-2"],
+      });
+
+      const parsed = cleanAndParseJson<{
+        kind: string;
+        title: string;
+        contentMarkdown: string;
+        citationChunkIds: string[];
+      }>(rawChemJson, "session");
+
+      expect(parsed.title).toBe("خواص فیزیکوشیمیایی و فرمولاسیون");
+      expect(parsed.contentMarkdown).toContain("\\log P");
+      expect(parsed.contentMarkdown).toContain("\\Delta G");
+      expect(parsed.contentMarkdown).toContain("smiles: F/C=C\\F");
+      expect(parsed.contentMarkdown).toContain("«شیمی دارویی ۱»");
+    });
+
+    it("recovers quizzes with internal quotes in questions, choices, and explanations in malformed fallback", () => {
+      // Malformed JSON (missing closing braces) to force Attempt 5 fallback
+      const malformedQuizJson = `{
+  "kind": "quizzes",
+  "questions": [
+    {
+      "sessionIndex": 1,
+      "question": "کدام دارو به عنوان \\"آگونیست کامل\\" گیرنده \\beta_2 شناخته می‌شود؟",
+      "questionType": "multiple_choice",
+      "choices": [
+        "داروی \\"سالبوتامول\\"",
+        "داروی \\"پروپرانولول\\"",
+        "داروی \\"آتنولول\\"",
+        "هیچ‌کدام"
+      ],
+      "correctAnswer": "داروی \\"سالبوتامول\\"",
+      "explanation": "سالبوتامول یک \\"آگونیست اختصاصی\\" برای گیرنده \\beta_2 در عضلات صاف برونش است.",
+      "citationChunkIds": ["chunk-q-1"]
+    }
+  ]
+`;
+
+      const parsed = cleanAndParseJson<{
+        kind: string;
+        questions: Array<{
+          sessionIndex?: number;
+          question: string;
+          choices: string[];
+          correctAnswer: string;
+          explanation: string;
+        }>;
+      }>(malformedQuizJson, "quiz");
+
+      expect(parsed.kind).toBe("quizzes_batch");
+      expect(parsed.questions).toHaveLength(1);
+      expect(parsed.questions[0].question).toContain('"آگونیست کامل"');
+      expect(parsed.questions[0].question).toContain("\\beta_2");
+      expect(parsed.questions[0].choices[0]).toBe('داروی "سالبوتامول"');
+      expect(parsed.questions[0].correctAnswer).toBe('داروی "سالبوتامول"');
+      expect(parsed.questions[0].explanation).toContain('"آگونیست اختصاصی"');
+    });
+
+    it("throws appropriate DomainError for truly unparseable truncated input without valid content", () => {
+      const truncatedRaw = '{"kind": "quiz", "questions": [{"unclosed": true';
+      expect(() => cleanAndParseJson(truncatedRaw, "quiz")).toThrowError(DomainError);
+    });
   });
 });
 

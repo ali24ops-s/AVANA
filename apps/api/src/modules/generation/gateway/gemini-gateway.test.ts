@@ -678,4 +678,170 @@ describe("Gemini Structured Output (adaptToGeminiJsonSchema)", () => {
     expect(validated.sections[0].title).toBe(samplePayloadFromSchema.sections[0].title);
     expect(validated.sections[0].keyPoints).toEqual(samplePayloadFromSchema.sections[0].keyPoints);
   });
+
+  describe("MAX_TOKENS finishReason handling", () => {
+    it("throws clear diagnostic DomainError when Gemini response is truncated due to MAX_TOKENS", async () => {
+      const mockFetch = vi.fn(async () => {
+        return new Response(
+          JSON.stringify({
+            candidates: [
+              {
+                content: {
+                  parts: [{ text: '{"kind": "session", "title": "مقدمه بر شیمی دارویی", "contentMarkdown": "# بخش اول' }],
+                  role: "model",
+                },
+                finishReason: "MAX_TOKENS",
+              },
+            ],
+            usageMetadata: {
+              promptTokenCount: 500,
+              candidatesTokenCount: 4096,
+              totalTokenCount: 4596,
+            },
+            modelVersion: "gemini-3.5-flash-lite",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      });
+
+      const gateway = new GeminiModelGateway({
+        apiKey: FAKE_API_KEY,
+        fetchFn: mockFetch as unknown as typeof fetch,
+      });
+
+      await expect(
+        gateway.complete(makeRequest({ stage: "planning" })),
+      ).rejects.toThrow(/GEMINI_RESPONSE_TRUNCATED: Model response truncated due to MAX_TOKENS limit \(stage: planning/);
+    });
+
+    it("throws diagnostic DomainError when Gemini response is truncated due to finishReason: LENGTH or empty parts", async () => {
+      const mockFetch = vi.fn(async () => {
+        return new Response(
+          JSON.stringify({
+            candidates: [
+              {
+                content: {
+                  parts: [],
+                },
+                finishReason: "length",
+              },
+            ],
+            usageMetadata: {
+              promptTokenCount: 500,
+              candidatesTokenCount: 8192,
+              totalTokenCount: 8692,
+            },
+            modelVersion: "gemini-3.5-flash-lite",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      });
+
+      const gateway = new GeminiModelGateway({
+        apiKey: FAKE_API_KEY,
+        fetchFn: mockFetch as unknown as typeof fetch,
+      });
+
+      await expect(
+        gateway.complete(makeRequest({ stage: "flashcard" })),
+      ).rejects.toThrow(/GEMINI_RESPONSE_TRUNCATED: Model response truncated due to MAX_TOKENS limit \(stage: flashcard/);
+    });
+
+    it("throws diagnostic DomainError when Gemini response is blocked by safety policy", async () => {
+      const mockFetch = vi.fn(async () => {
+        return new Response(
+          JSON.stringify({
+            candidates: [
+              {
+                finishReason: "SAFETY",
+              },
+            ],
+            modelVersion: "gemini-3.5-flash-lite",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      });
+
+      const gateway = new GeminiModelGateway({
+        apiKey: FAKE_API_KEY,
+        fetchFn: mockFetch as unknown as typeof fetch,
+      });
+
+      await expect(
+        gateway.complete(makeRequest({ stage: "quiz" })),
+      ).rejects.toThrow(/GEMINI_RESPONSE_BLOCKED: Model response blocked by provider policy/);
+    });
+
+    it("successfully returns complete text when finishReason is STOP", async () => {
+      const mockFetch = vi.fn(async () => {
+        return new Response(
+          JSON.stringify({
+            candidates: [
+              {
+                content: {
+                  parts: [{ text: '{"status": "complete"}' }],
+                  role: "model",
+                },
+                finishReason: "STOP",
+              },
+            ],
+            usageMetadata: {
+              promptTokenCount: 100,
+              candidatesTokenCount: 50,
+              totalTokenCount: 150,
+            },
+            modelVersion: "gemini-3.5-flash-lite",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      });
+
+      const gateway = new GeminiModelGateway({
+        apiKey: FAKE_API_KEY,
+        fetchFn: mockFetch as unknown as typeof fetch,
+      });
+
+      const res = await gateway.complete(makeRequest({ stage: "lesson" }));
+      expect(res.text).toBe('{"status": "complete"}');
+      expect(res.finishReason).toBe("STOP");
+    });
+
+    it("omits maxOutputTokens from generationConfig when req.maxTokens is undefined", async () => {
+      let capturedBody: Record<string, unknown> = {};
+      const mockFetch = vi.fn(async (_url: string, init?: RequestInit) => {
+        capturedBody = JSON.parse(init?.body as string);
+        return makeSuccessResponse();
+      });
+
+      const gateway = new GeminiModelGateway({
+        apiKey: FAKE_API_KEY,
+        fetchFn: mockFetch as unknown as typeof fetch,
+      });
+
+      // When maxTokens is undefined (e.g. in stage: planning)
+      await gateway.complete(makeRequest({ maxTokens: undefined, stage: "planning" }));
+
+      const genConfig = capturedBody.generationConfig as Record<string, unknown>;
+      expect(genConfig).toBeDefined();
+      expect(genConfig.maxOutputTokens).toBeUndefined();
+    });
+
+    it("includes maxOutputTokens in generationConfig only when req.maxTokens is explicitly provided", async () => {
+      let capturedBody: Record<string, unknown> = {};
+      const mockFetch = vi.fn(async (_url: string, init?: RequestInit) => {
+        capturedBody = JSON.parse(init?.body as string);
+        return makeSuccessResponse();
+      });
+
+      const gateway = new GeminiModelGateway({
+        apiKey: FAKE_API_KEY,
+        fetchFn: mockFetch as unknown as typeof fetch,
+      });
+
+      await gateway.complete(makeRequest({ maxTokens: 2048, stage: "lesson" }));
+
+      const genConfig = capturedBody.generationConfig as Record<string, unknown>;
+      expect(genConfig.maxOutputTokens).toBe(2048);
+    });
+  });
 });

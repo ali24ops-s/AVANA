@@ -531,8 +531,12 @@ export class GenerationService {
               err.code === "not_found" ||
               err.code === "conflict" ||
               err.code === "unauthorized" ||
-              err.code === "forbidden")) ||
-          (err instanceof Error && err.message.toLowerCase().includes("timed out"))
+              err.code === "forbidden" ||
+              (err.code === "unprocessable" &&
+                err.message.includes("GEMINI_RESPONSE_TRUNCATED")))) ||
+          (err instanceof Error &&
+            (err.message.toLowerCase().includes("timed out") ||
+              err.message.includes("GEMINI_RESPONSE_TRUNCATED")))
         ) {
           throw err;
         }
@@ -857,7 +861,6 @@ export class GenerationService {
               { role: "user", content: prompt },
             ],
             jsonSchema: { type: "content_plan" },
-            maxTokens: 4096,
             correlationId,
             organizationId,
             documentId,

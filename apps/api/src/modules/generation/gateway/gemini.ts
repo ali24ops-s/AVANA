@@ -724,7 +724,10 @@ export class GeminiModelGateway implements ModelGateway {
   /**
    * Parse structured Gemini completion response.
    */
-  private parseResponse(responseText: string): CompletionResult {
+  private parseResponse(
+    responseText: string,
+    req?: CompletionRequest,
+  ): CompletionResult {
     let data: {
       candidates?: Array<{
         content?: {
@@ -754,6 +757,37 @@ export class GeminiModelGateway implements ModelGateway {
     const part = candidate?.content?.parts?.[0];
     const rawText = part?.text;
 
+    const inputTokens = data.usageMetadata?.promptTokenCount ?? 0;
+    const outputTokens = data.usageMetadata?.candidatesTokenCount ?? 0;
+    const finishReason = candidate?.finishReason ?? "STOP";
+    const normalizedFinishReason = finishReason.toUpperCase();
+    const model = data.modelVersion ?? this.modelName;
+    const responseLength = rawText ? rawText.length : 0;
+
+    if (normalizedFinishReason === "MAX_TOKENS" || normalizedFinishReason === "LENGTH") {
+      process.stderr.write(
+        `[GENERATION] gemini_truncated_response: stage=${req?.stage ?? "unknown"} model=${model} finishReason=${finishReason} inputTokens=${inputTokens} outputTokens=${outputTokens} responseLength=${responseLength}\n`,
+      );
+      throw new DomainError(
+        "unprocessable",
+        `GEMINI_RESPONSE_TRUNCATED: Model response truncated due to MAX_TOKENS limit (stage: ${req?.stage ?? "unknown"}, model: ${model}, outputTokens: ${outputTokens}, responseLength: ${responseLength}).`,
+      );
+    }
+
+    if (
+      normalizedFinishReason === "SAFETY" ||
+      normalizedFinishReason === "RECITATION" ||
+      normalizedFinishReason === "LANGUAGE"
+    ) {
+      process.stderr.write(
+        `[GENERATION] gemini_blocked_response: stage=${req?.stage ?? "unknown"} model=${model} finishReason=${finishReason}\n`,
+      );
+      throw new DomainError(
+        "unprocessable",
+        `GEMINI_RESPONSE_BLOCKED: Model response blocked by provider policy (stage: ${req?.stage ?? "unknown"}, model: ${model}, reason: ${finishReason}).`,
+      );
+    }
+
     if (!rawText || rawText.trim().length === 0) {
       throw new DomainError(
         "unprocessable",
@@ -761,10 +795,9 @@ export class GeminiModelGateway implements ModelGateway {
       );
     }
 
-    const inputTokens = data.usageMetadata?.promptTokenCount ?? 0;
-    const outputTokens = data.usageMetadata?.candidatesTokenCount ?? 0;
-    const finishReason = candidate?.finishReason ?? "STOP";
-    const model = data.modelVersion ?? this.modelName;
+    process.stdout.write(
+      `[GENERATION] gemini_response_metrics: stage=${req?.stage ?? "unknown"} model=${model} finishReason=${finishReason} inputTokens=${inputTokens} outputTokens=${outputTokens} responseLength=${responseLength}\n`,
+    );
 
     return {
       text: rawText.trim(),
@@ -962,7 +995,27 @@ export class GeminiModelGateway implements ModelGateway {
 
       // 3. Handle successful HTTP response (200-299)
       if (response.status >= 200 && response.status < 300) {
-        const parsed = this.parseResponse(responseText);
+        let parsed: CompletionResult;
+        try {
+          parsed = this.parseResponse(responseText, req);
+        } catch (parseErr) {
+          if (reservationId) {
+            try {
+              const data = JSON.parse(responseText);
+              const inTok = data.usageMetadata?.promptTokenCount ?? 0;
+              const outTok = data.usageMetadata?.candidatesTokenCount ?? 0;
+              const actual = inTok + outTok;
+              await this.keyPool.reportSuccessAsync(slot.id, {
+                reservationId,
+                actualTokens: actual > 0 ? actual : undefined,
+              });
+            } catch {
+              await this.keyPool.releaseReservationAsync(slot.id, reservationId);
+            }
+          }
+          throw parseErr;
+        }
+
         const actualTokens = (parsed.usage?.inputTokens ?? 0) + (parsed.usage?.outputTokens ?? 0);
         await this.keyPool.reportSuccessAsync(slot.id, {
           reservationId,

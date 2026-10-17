@@ -497,6 +497,121 @@ export class AdminAlertService {
   }
 
   /**
+   * Send notification for a newly created support ticket with inline button to view details.
+   */
+  async notifySupportTicketCreated(details: {
+    ticketId: string;
+    title: string;
+    category?: string;
+    priority?: string;
+    userName?: string;
+    userId?: string;
+    createdAt?: string;
+  }): Promise<boolean> {
+    const time = details.createdAt ?? new Date().toISOString();
+    const lines = [
+      "🎫 تیکت پشتیبانی جدید",
+      "",
+      `عنوان: ${details.title}`,
+      `دسته‌بندی: ${this.translateTicketCategory(details.category)}`,
+      `اولویت: ${this.translateTicketPriority(details.priority)}`,
+      `کاربر: ${details.userName || "کاربر آوانا"}`,
+      `زمان: ${time}`,
+      `شناسه: ${details.ticketId}`,
+    ];
+
+    const replyMarkup: TelegramInlineKeyboardMarkup = {
+      inline_keyboard: [
+        [
+          { text: "🎫 مشاهده تیکت", callback_data: `tkt:v:${details.ticketId}` },
+        ],
+      ],
+    };
+
+    return this.sendAlert(
+      {
+        category: "support_ticket.created",
+        title: "تیکت پشتیبانی جدید",
+        severity: "info",
+        customText: lines.join("\n"),
+        replyMarkup,
+        timestamp: time,
+      },
+      `ticket:created:${details.ticketId}`,
+      { idempotencyKey: `ticket:created:${details.ticketId}` },
+    );
+  }
+
+  /**
+   * Send notification when user replies to an existing ticket.
+   */
+  async notifySupportTicketUserReplied(details: {
+    ticketId: string;
+    title?: string;
+    userName?: string;
+    snippet?: string;
+    createdAt?: string;
+  }): Promise<boolean> {
+    const time = details.createdAt ?? new Date().toISOString();
+    const lines = [
+      "💬 پاسخ جدید در تیکت پشتیبانی",
+      "",
+    ];
+    if (details.title) {
+      lines.push(`تیکت: ${details.title}`);
+    }
+    lines.push(`ارسال‌کننده: ${details.userName || "کاربر آوانا"}`);
+    if (details.snippet) {
+      lines.push(`متن: ${details.snippet}`);
+    }
+    lines.push(`زمان: ${time}`);
+    lines.push(`شناسه: ${details.ticketId}`);
+
+    const replyMarkup: TelegramInlineKeyboardMarkup = {
+      inline_keyboard: [
+        [
+          { text: "🎫 مشاهده تیکت", callback_data: `tkt:v:${details.ticketId}` },
+        ],
+      ],
+    };
+
+    return this.sendAlert(
+      {
+        category: "support_ticket.replied",
+        title: "پاسخ جدید در تیکت",
+        severity: "info",
+        customText: lines.join("\n"),
+        replyMarkup,
+        timestamp: time,
+      },
+      `ticket:replied:${details.ticketId}:${Date.now()}`,
+    );
+  }
+
+  private translateTicketCategory(cat?: string): string {
+    switch (cat) {
+      case "courses": return "دوره‌های آموزشی";
+      case "exams": return "آزمون‌ها";
+      case "flashcards": return "فلش‌کارت‌ها";
+      case "study_planner": return "برنامه‌ریزی درسی";
+      case "payment": return "مالی و پرداخت";
+      case "account": return "حساب کاربری";
+      case "technical": return "فنی و سامانه";
+      default: return cat || "عمومی";
+    }
+  }
+
+  private translateTicketPriority(prio?: string): string {
+    switch (prio) {
+      case "urgent": return "🔴 فوری";
+      case "high": return "🟠 بالا";
+      case "medium": return "🟡 متوسط";
+      case "low": return "🟢 کم";
+      default: return prio || "متوسط";
+    }
+  }
+
+  /**
    * Main alert sender with cooldown checks and safe formatting.
    */
   async sendAlert(

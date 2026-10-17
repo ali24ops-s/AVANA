@@ -60,33 +60,61 @@ export function cleanAndParseJson<T>(text: string, typeDesc: string): T {
   }
 
   let jsonStr = text.trim();
+
+  // Strip outer markdown code fence (```json ... ```) while safely preserving any inner
+  // code blocks (e.g. ```chemical ... ```, ```reaction ... ```, or ```chart ... ```).
   if (jsonStr.startsWith("```")) {
-    const jsonBlockMatch =
-      jsonStr.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i) ||
-      jsonStr.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-    if (jsonBlockMatch && jsonBlockMatch[1]) {
-      jsonStr = jsonBlockMatch[1].trim();
+    const firstNewline = jsonStr.indexOf("\n");
+    const lastFence = jsonStr.lastIndexOf("```");
+    if (firstNewline !== -1 && lastFence > firstNewline) {
+      jsonStr = jsonStr.slice(firstNewline + 1, lastFence).trim();
+    } else {
+      const jsonBlockMatch = jsonStr.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+      if (jsonBlockMatch && jsonBlockMatch[1]) {
+        jsonStr = jsonBlockMatch[1].trim();
+      }
     }
   } else if (!jsonStr.startsWith("{") && !jsonStr.startsWith("[")) {
-    const jsonBlockMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-    if (jsonBlockMatch && jsonBlockMatch[1]) {
-      jsonStr = jsonBlockMatch[1].trim();
-    } else {
-      const firstBrace = jsonStr.indexOf("{");
-      const lastBrace = jsonStr.lastIndexOf("}");
-      const firstBracket = jsonStr.indexOf("[");
-      const lastBracket = jsonStr.lastIndexOf("]");
+    const firstBrace = jsonStr.indexOf("{");
+    const firstBracket = jsonStr.indexOf("[");
+    const firstJsonChar =
+      firstBrace !== -1 && firstBracket !== -1
+        ? Math.min(firstBrace, firstBracket)
+        : firstBrace !== -1
+          ? firstBrace
+          : firstBracket;
 
-      if (
-        firstBracket !== -1 &&
-        lastBracket !== -1 &&
-        lastBracket > firstBracket &&
-        (firstBrace === -1 || firstBracket < firstBrace)
-      ) {
-        jsonStr = jsonStr.slice(firstBracket, lastBracket + 1).trim();
-      } else if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-        jsonStr = jsonStr.slice(firstBrace, lastBrace + 1).trim();
+    const firstFence = jsonStr.indexOf("```");
+    // If a markdown code fence starts BEFORE the first JSON object/array:
+    if (firstFence !== -1 && (firstJsonChar === -1 || firstFence < firstJsonChar)) {
+      const fenceNewline = jsonStr.indexOf("\n", firstFence);
+      const lastFence = jsonStr.lastIndexOf("```");
+      if (lastFence > firstFence) {
+        jsonStr = jsonStr
+          .slice(fenceNewline !== -1 ? fenceNewline + 1 : firstFence + 3, lastFence)
+          .trim();
       }
+    }
+
+    // Extract outermost JSON boundaries ({...} or [...])
+    const newFirstBrace = jsonStr.indexOf("{");
+    const newLastBrace = jsonStr.lastIndexOf("}");
+    const newFirstBracket = jsonStr.indexOf("[");
+    const newLastBracket = jsonStr.lastIndexOf("]");
+
+    if (
+      newFirstBracket !== -1 &&
+      newLastBracket !== -1 &&
+      newLastBracket > newFirstBracket &&
+      (newFirstBrace === -1 || newFirstBracket < newFirstBrace)
+    ) {
+      jsonStr = jsonStr.slice(newFirstBracket, newLastBracket + 1).trim();
+    } else if (
+      newFirstBrace !== -1 &&
+      newLastBrace !== -1 &&
+      newLastBrace > newFirstBrace
+    ) {
+      jsonStr = jsonStr.slice(newFirstBrace, newLastBrace + 1).trim();
     }
   }
 
@@ -427,6 +455,72 @@ export function cleanAndParseJson<T>(text: string, typeDesc: string): T {
   }
 
   if (typeDesc.includes("quiz")) {
+    // 1. Structured snippet extraction (tolerant of quotes inside question/choices/explanation)
+    const questionSnippets = jsonStr.split(
+      /(?=\{\s*(?:"sessionIndex"|"question"|"choices"|"correctAnswer"|"explanation"))/,
+    );
+    if (questionSnippets.length > 0) {
+      const questions = questionSnippets
+        .map((block) => {
+          const qMatch =
+            block.match(/"question"\s*:\s*"((?:[^"\\]|\\.)*)"/) ||
+            block.match(/"question"\s*:\s*"([\s\S]*?)"(?=\s*,\s*"|\s*}|$)/);
+          if (!qMatch) return null;
+
+          const cMatch = block.match(/"choices"\s*:\s*\[([\s\S]*?)\]/);
+          const aMatch =
+            block.match(/"correctAnswer"\s*:\s*"((?:[^"\\]|\\.)*)"/) ||
+            block.match(/"correctAnswer"\s*:\s*"([\s\S]*?)"(?=\s*,\s*"|\s*}|$)/);
+          const expMatch =
+            block.match(/"explanation"\s*:\s*"((?:[^"\\]|\\.)*)"/) ||
+            block.match(/"explanation"\s*:\s*"([\s\S]*?)"(?=\s*,\s*"|\s*}|$)/);
+          const idxMatch = block.match(/"sessionIndex"\s*:\s*(\d+)/);
+          const citMatch = block.match(/"citationChunkIds"\s*:\s*(\[[^\]]*\])/);
+
+          const rawChoices = cMatch ? cMatch[1] : "";
+          const choices = [
+            ...rawChoices.matchAll(/"((?:[^"\\]|\\.)*)"/g),
+          ].map((m) => safeUnescapeMarkdown(m[1]));
+
+          let citations: string[] = [];
+          if (citMatch && citMatch[1]) {
+            try {
+              citations = JSON.parse(citMatch[1]);
+            } catch {
+              citations = [...citMatch[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+            }
+          }
+
+          const correctAnswer = aMatch ? safeUnescapeMarkdown(aMatch[1]) : "";
+          const explanation = expMatch ? safeUnescapeMarkdown(expMatch[1]) : "";
+
+          return {
+            sessionIndex: idxMatch ? parseInt(idxMatch[1], 10) : undefined,
+            question: safeUnescapeMarkdown(qMatch[1]),
+            questionType: "multiple_choice" as const,
+            choices:
+              choices.length >= 4
+                ? choices
+                : choices.length > 0
+                  ? choices
+                  : [correctAnswer, "گزینه انحرافی ۱", "گزینه انحرافی ۲", "گزینه انحرافی ۳"],
+            correctAnswer,
+            explanation,
+            citationChunkIds: citations,
+          };
+        })
+        .filter((q): q is NonNullable<typeof q> => Boolean(q && q.question && q.correctAnswer));
+
+      if (questions.length > 0) {
+        return {
+          kind: "quizzes_batch",
+          questions,
+          citationChunkIds: [],
+        } as T;
+      }
+    }
+
+    // 2. Fallback to legacy monolithic matchAll if snippet extraction yielded nothing
     const qMatches = [
       ...jsonStr.matchAll(
         /(?:{\s*"sessionIndex"\s*:\s*(\d+)\s*,)?[\s\S]*?"question"\s*:\s*"([^"]+)"[\s\S]*?"choices"\s*:\s*\[([\s\S]*?)\][\s\S]*?"correctAnswer"\s*:\s*"([^"]+)"[\s\S]*?"explanation"\s*:\s*"([^"]+)"/g,

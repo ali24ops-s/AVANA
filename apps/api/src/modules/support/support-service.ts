@@ -17,9 +17,11 @@ import {
   type TicketStatus,
   auditFeedbackResponded,
   auditTicketCategoryChanged,
+  auditTicketCreated,
   auditTicketPriorityChanged,
   auditTicketReplied,
   auditTicketStatusChanged,
+  auditTicketUserReplied,
 } from "@avana/domain";
 import type {
   FeedbackRecord,
@@ -312,6 +314,19 @@ export class SupportService {
       attachmentUrl: input.attachmentUrl?.trim() || null,
     });
 
+    if (this.auditService) {
+      await this.auditService.emit([
+        auditTicketCreated(
+          actor.userId,
+          record.id,
+          record.category,
+          record.priority,
+          record.title,
+          record.userName,
+        ),
+      ]);
+    }
+
     return toSupportTicketItem(record);
   }
 
@@ -420,6 +435,18 @@ export class SupportService {
         status: "in_progress",
         lastActivityAt: new Date(),
       });
+    }
+
+    if (this.auditService) {
+      await this.auditService.emit([
+        auditTicketUserReplied(
+          actor.userId,
+          ticketId,
+          message.id,
+          message.body.slice(0, 100),
+          message.senderName,
+        ),
+      ]);
     }
 
     return toSupportMessageItem(message);

@@ -81,6 +81,8 @@ export type AuditAction =
   | "wallet.refunded"
   | "user.registered"
   | "teacher.requested"
+  | "support_ticket.created"
+  | "support_ticket.replied"
   | "referral.attached"
   | "referral.qualified"
   | "referral.rewarded"
@@ -935,6 +937,43 @@ export function auditTicketCategoryChanged(
     entityType: "support_ticket",
     entityId: ticketId,
     details: { oldCategory, newCategory },
+    createdAt: utcNow(),
+  };
+}
+
+export function auditTicketCreated(
+  actorId: UserId,
+  ticketId: string,
+  category: string,
+  priority: string,
+  title: string,
+  userName?: string,
+): AuditEvent {
+  return {
+    actorId,
+    organizationId: null,
+    action: "support_ticket.created",
+    entityType: "support_ticket",
+    entityId: ticketId,
+    details: { category, priority, title, userName },
+    createdAt: utcNow(),
+  };
+}
+
+export function auditTicketUserReplied(
+  actorId: UserId,
+  ticketId: string,
+  messageId: string,
+  snippet?: string,
+  userName?: string,
+): AuditEvent {
+  return {
+    actorId,
+    organizationId: null,
+    action: "support_ticket.replied",
+    entityType: "support_ticket",
+    entityId: ticketId,
+    details: { messageId, snippet, userName },
     createdAt: utcNow(),
   };
 }

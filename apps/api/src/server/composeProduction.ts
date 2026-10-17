@@ -598,6 +598,23 @@ export async function composeProduction(
             cooldownKey: `teacher.rejected:${event.entityId}`,
           },
         );
+      } else if (event.action === "support_ticket.created") {
+        void adminAlertService.notifySupportTicketCreated({
+          ticketId: event.entityId,
+          title: String(event.details?.title ?? "تیکت جدید"),
+          category: typeof event.details?.category === "string" ? event.details.category : undefined,
+          priority: typeof event.details?.priority === "string" ? event.details.priority : undefined,
+          userName: typeof event.details?.userName === "string" ? event.details.userName : undefined,
+          userId: event.actorId || undefined,
+          createdAt: event.createdAt,
+        });
+      } else if (event.action === "support_ticket.replied") {
+        void adminAlertService.notifySupportTicketUserReplied({
+          ticketId: event.entityId,
+          userName: typeof event.details?.userName === "string" ? event.details.userName : undefined,
+          snippet: typeof event.details?.snippet === "string" ? event.details.snippet : undefined,
+          createdAt: event.createdAt,
+        });
       }
     }
   });
@@ -621,7 +638,14 @@ export async function composeProduction(
     auditService,
   );
 
-  // AVANA Ops Bot: Inbound polling commands (/status, /queues, /errors) + Callback actions
+  const supportStore = new DrizzleSupportStore(db);
+  const supportService = new SupportService(
+    supportStore,
+    notificationService,
+    auditService,
+  );
+
+  // AVANA Ops Bot: Inbound polling commands (/status, /queues, /errors, /payments, /tickets) + Callback actions
   const telegramOpsBot = new TelegramOpsBot({
     enabled: config.telegram.enabled,
     botToken: config.telegram.botToken,
@@ -630,6 +654,8 @@ export async function composeProduction(
     telegramClient,
     adminStore,
     adminService,
+    supportStore,
+    supportService,
     auditService,
     generationQueue: queue.getRawQueue(),
     workerHealthChecker: () =>
@@ -659,13 +685,6 @@ export async function composeProduction(
       enabled: config.commerce.mockPaymentEnabled,
     });
   }
-
-  const supportStore = new DrizzleSupportStore(db);
-  const supportService = new SupportService(
-    supportStore,
-    notificationService,
-    auditService,
-  );
 
   const classroomStore = new DrizzleClassroomStore(db);
   const classroomMemberStore = new DrizzleClassroomMemberStore(db);

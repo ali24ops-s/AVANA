@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { EventEmitter } from "node:events";
 import type https from "node:https";
-import { TelegramClient } from "../observability/telegram-client.js";
+import { TelegramClient, type TelegramInlineKeyboardMarkup } from "../observability/telegram-client.js";
 import { AdminAlertService } from "../observability/admin-alert-service.js";
 import { AuditService } from "../observability/audit-service.js";
 import { InMemoryAuditStore } from "../observability/test/in-memory-stores.js";
@@ -17,6 +17,8 @@ import { InMemoryAdminStore } from "../modules/admin/in-memory-stores.js";
 import { AdminService } from "../modules/admin/admin-service.js";
 import { InMemoryWalletStore } from "../modules/wallet/wallet-store.js";
 import { WalletService } from "../modules/wallet/wallet-service.js";
+import { InMemorySupportStore } from "../modules/support/in-memory-stores.js";
+import { SupportService } from "../modules/support/support-service.js";
 
 describe("Telegram Operational Alerts Test Suite", () => {
   // =========================================================================
@@ -3183,6 +3185,1046 @@ describe("Telegram Operational Alerts Test Suite", () => {
       await auditService.emit([sampleEvent]);
       // Cooldown in AdminAlertService suppressed duplicate Telegram alert!
       expect(sentCount).toBe(1);
+    });
+  });
+
+  // =========================================================================
+  // 11. Support Ticket Management in TelegramOpsBot & Alerts
+  // =========================================================================
+  describe("Support Ticket Management in TelegramOpsBot", () => {
+    const adminChatId = "629710703";
+    const unauthorizedChatId = "999888777";
+    const adminUserId = asUserId("00000000-0000-0000-0000-000000000001");
+    const normalUserId = asUserId("00000000-0000-0000-0000-000000000002");
+
+    function setupSupportTestEnv() {
+      const sentMessages: Array<{ text: string; chatId?: string; replyMarkup?: any }> = [];
+      const answeredCallbacks: Array<{ id: string; text?: string }> = [];
+
+      const mockClient = {
+        isConfigured: vi.fn().mockReturnValue(true),
+        getAdminChatId: vi.fn().mockReturnValue(adminChatId),
+        sendMessage: vi.fn().mockImplementation(async (text: string, overrideChatId?: string, replyMarkup?: any) => {
+          sentMessages.push({ text, chatId: overrideChatId ?? adminChatId, replyMarkup });
+          return { sent: true, messageId: sentMessages.length };
+        }),
+        editMessageText: vi.fn().mockImplementation(async (opts: any) => {
+          sentMessages.push({ text: opts.text, chatId: opts.overrideChatId ?? adminChatId, replyMarkup: opts.replyMarkup });
+          return { ok: true };
+        }),
+        answerCallbackQuery: vi.fn().mockImplementation(async (opts: any) => {
+          answeredCallbacks.push({ id: opts.callbackQueryId, text: opts.text });
+          return { ok: true };
+        }),
+        setMyCommands: vi.fn().mockResolvedValue({ ok: true }),
+      } as unknown as TelegramClient;
+
+      const adminStore = {
+        listUsers: vi.fn().mockImplementation(async (params?: any) => {
+          if (params?.role === "platform_admin" || params?.search === adminUserId || !params) {
+            return {
+              totalCount: 1,
+              users: [
+                {
+                  id: adminUserId,
+                  email: "admin@avana.test",
+                  name: "مدیر سیستم",
+                  role: "platform_admin",
+                },
+              ],
+            };
+          }
+          return { totalCount: 0, users: [] };
+        }),
+      } as unknown as import("../modules/admin/admin-store.js").AdminStore;
+
+      const auditStore = new InMemoryAuditStore();
+      const auditService = new AuditService(auditStore);
+      const supportStore = new InMemorySupportStore();
+      const supportService = new SupportService(supportStore, undefined, auditService);
+
+      return {
+        mockClient,
+        adminStore,
+        supportStore,
+        supportService,
+        auditService,
+        sentMessages,
+        answeredCallbacks,
+      };
+    }
+
+    type BotWithPending = { pendingTicketReplies: Map<string, { expiresAt: number; ticketId: string }> };
+
+    it("1. displays ticket counts by status and action buttons on /tickets", async () => {
+      const { mockClient, adminStore, supportStore, supportService, sentMessages } = setupSupportTestEnv();
+      const { TelegramOpsBot } = await import("../observability/telegram-ops-bot.js");
+
+      const bot = new TelegramOpsBot({
+        enabled: true,
+        botToken: "test-token",
+        adminChatId,
+        telegramClient: mockClient,
+        adminStore,
+        supportStore,
+        supportService,
+        adminUserId,
+      });
+
+      // Seed 2 open tickets, 1 closed ticket
+      const userActor: Actor = { userId: normalUserId, role: "student" };
+      await supportService.createTicket(userActor, {
+        title: "مشکل در ثبت‌نام",
+        category: "account",
+        priority: "high",
+        description: "سلام، من نمی‌توانم ثبت‌نام کنم.",
+      });
+      const t2 = await supportService.createTicket(userActor, {
+        title: "سوال درباره آزمون",
+        category: "exams",
+        priority: "medium",
+        description: "آیا آزمون جامع نمره منفی دارد؟",
+      });
+      const adminActor: Actor = { userId: adminUserId, role: "platform_admin" };
+      await supportService.updateTicketStatus(adminActor, t2.id, "closed");
+
+      // Send /tickets command
+      await bot.handleUpdate({
+        update_id: 1,
+        message: {
+          message_id: 101,
+          date: Math.floor(Date.now() / 1000),
+          chat: { id: Number(adminChatId), type: "private" },
+          text: "/tickets",
+        },
+      });
+
+      expect(sentMessages.length).toBe(1);
+      const msg = sentMessages[0];
+      expect(msg.text).toContain("مدیریت تیکت‌های پشتیبانی آوانا");
+      expect(msg.text).toContain("نیازمند بررسی اولیه (جدید): ۱");
+      expect(msg.text).toContain("بسته‌شده: ۱");
+
+      // Check inline buttons
+      const buttons = msg.replyMarkup?.inline_keyboard;
+      expect(buttons).toBeDefined();
+      expect(buttons[0][0].callback_data).toBe("tkt:l:open:1");
+      expect(buttons[1][0].callback_data).toBe("tkt:l:closed:1");
+    });
+
+    it("2. renders paginated list of tickets and supports page switching", async () => {
+      const { mockClient, adminStore, supportStore, supportService, sentMessages } = setupSupportTestEnv();
+      const { TelegramOpsBot } = await import("../observability/telegram-ops-bot.js");
+
+      const bot = new TelegramOpsBot({
+        enabled: true,
+        botToken: "test-token",
+        adminChatId,
+        telegramClient: mockClient,
+        adminStore,
+        supportStore,
+        supportService,
+        adminUserId,
+      });
+
+      const userActor: Actor = { userId: normalUserId, role: "student" };
+      // Create 6 tickets to have 2 pages (5 per page)
+      for (let i = 1; i <= 6; i++) {
+        await supportService.createTicket(userActor, {
+          title: `تیکت شماره ${i}`,
+          category: "courses",
+          description: `متن تیکت پشتیبانی شماره ${i}`,
+        });
+      }
+
+      // Click open tickets list page 1
+      await bot.handleUpdate({
+        update_id: 2,
+        callback_query: {
+          id: "cq-1",
+          from: { id: Number(adminChatId), is_bot: false, first_name: "Admin" },
+          message: {
+            message_id: 102,
+            date: Math.floor(Date.now() / 1000),
+            chat: { id: Number(adminChatId), type: "private" },
+            text: "menu",
+          },
+          data: "tkt:l:open:1",
+        },
+      });
+
+      expect(sentMessages.length).toBe(1);
+      const page1Msg = sentMessages[0];
+      expect(page1Msg.text).toContain("فهرست تیکت‌های باز");
+      expect(page1Msg.text).toContain("صفحه ۱ از ۲");
+      expect(page1Msg.text).toContain("تیکت شماره");
+
+      // Check next page button is present
+      const navRow = page1Msg.replyMarkup?.inline_keyboard?.find((r: Array<{ callback_data?: string }>) =>
+        r.some((b: { callback_data?: string }) => b.callback_data === "tkt:l:open:2"),
+      );
+      expect(navRow).toBeDefined();
+
+      // Click page 2
+      await bot.handleUpdate({
+        update_id: 3,
+        callback_query: {
+          id: "cq-2",
+          from: { id: Number(adminChatId), is_bot: false, first_name: "Admin" },
+          message: {
+            message_id: 103,
+            date: Math.floor(Date.now() / 1000),
+            chat: { id: Number(adminChatId), type: "private" },
+            text: "page1",
+          },
+          data: "tkt:l:open:2",
+        },
+      });
+
+      expect(sentMessages.length).toBe(2);
+      const page2Msg = sentMessages[1];
+      expect(page2Msg.text).toContain("صفحه ۲ از ۲");
+    });
+
+    it("3. renders empty state when no tickets in selected status", async () => {
+      const { mockClient, adminStore, supportStore, supportService, sentMessages } = setupSupportTestEnv();
+      const { TelegramOpsBot } = await import("../observability/telegram-ops-bot.js");
+
+      const bot = new TelegramOpsBot({
+        enabled: true,
+        botToken: "test-token",
+        adminChatId,
+        telegramClient: mockClient,
+        adminStore,
+        supportStore,
+        supportService,
+        adminUserId,
+      });
+
+      // No tickets in closed status
+      await bot.handleUpdate({
+        update_id: 4,
+        callback_query: {
+          id: "cq-empty",
+          from: { id: Number(adminChatId), is_bot: false, first_name: "Admin" },
+          message: {
+            message_id: 104,
+            date: Math.floor(Date.now() / 1000),
+            chat: { id: Number(adminChatId), type: "private" },
+            text: "list",
+          },
+          data: "tkt:l:closed:1",
+        },
+      });
+
+      expect(sentMessages.length).toBe(1);
+      expect(sentMessages[0].text).toContain("هیچ تیکتی در این وضعیت وجود ندارد");
+    });
+
+    it("4. displays ticket details with chronological conversation history without duplicating initial description", async () => {
+      const { mockClient, adminStore, supportStore, supportService, sentMessages } = setupSupportTestEnv();
+      const { TelegramOpsBot } = await import("../observability/telegram-ops-bot.js");
+
+      const bot = new TelegramOpsBot({
+        enabled: true,
+        botToken: "test-token",
+        adminChatId,
+        telegramClient: mockClient,
+        adminStore,
+        supportStore,
+        supportService,
+        adminUserId,
+      });
+
+      const userActor: Actor = { userId: normalUserId, role: "student" };
+      const initialDesc = "این متن پیام اولیه کاربر است.";
+      const ticket = await supportService.createTicket(userActor, {
+        title: "بررسی قطعی دسترسی",
+        category: "technical",
+        priority: "high",
+        description: initialDesc,
+      });
+
+      // Admin replies from web
+      const adminActor: Actor = { userId: adminUserId, role: "platform_admin" };
+      await supportService.sendAdminMessage(adminActor, ticket.id, {
+        body: "پاسخ پشتیبانی: دسترسی بررسی شد.",
+      });
+
+      // User replies
+      await supportService.sendUserMessage(userActor, ticket.id, {
+        body: "ممنون، مشکل حل شد.",
+      });
+
+      // Click to view ticket details: tkt:v:<id>
+      await bot.handleUpdate({
+        update_id: 5,
+        callback_query: {
+          id: "cq-view",
+          from: { id: Number(adminChatId), is_bot: false, first_name: "Admin" },
+          message: {
+            message_id: 105,
+            date: Math.floor(Date.now() / 1000),
+            chat: { id: Number(adminChatId), type: "private" },
+            text: "ticket-item",
+          },
+          data: `tkt:v:${ticket.id}`,
+        },
+      });
+
+      expect(sentMessages.length).toBe(1);
+      const detailsMsg = sentMessages[0].text;
+      expect(detailsMsg).toContain("جزئیات تیکت پشتیبانی");
+      expect(detailsMsg).toContain("بررسی قطعی دسترسی");
+      expect(detailsMsg).toContain("این متن پیام اولیه کاربر است.");
+      expect(detailsMsg).toContain("پاسخ پشتیبانی: دسترسی بررسی شد.");
+      expect(detailsMsg).toContain("ممنون، مشکل حل شد.");
+
+      // Verify that initial description appears only once in conversation history
+      const occurrences = (detailsMsg.match(/این متن پیام اولیه کاربر است/g) || []).length;
+      expect(occurrences).toBe(1);
+    });
+
+    it("5. truncates very long conversation history to respect Telegram 4096 character limit", async () => {
+      const { mockClient, adminStore, supportStore, supportService, sentMessages } = setupSupportTestEnv();
+      const { TelegramOpsBot } = await import("../observability/telegram-ops-bot.js");
+
+      const bot = new TelegramOpsBot({
+        enabled: true,
+        botToken: "test-token",
+        adminChatId,
+        telegramClient: mockClient,
+        adminStore,
+        supportStore,
+        supportService,
+        adminUserId,
+      });
+
+      const userActor: Actor = { userId: normalUserId, role: "student" };
+      const longText = "الف".repeat(1000);
+      const ticket = await supportService.createTicket(userActor, {
+        title: "تیکت با متون طولانی",
+        category: "technical",
+        description: longText,
+      });
+
+      // Add 4 more long messages
+      for (let i = 0; i < 4; i++) {
+        await supportService.sendUserMessage(userActor, ticket.id, {
+          body: `پیام طولانی ${i}: ${"ب".repeat(800)}`,
+        });
+      }
+
+      await bot.handleUpdate({
+        update_id: 6,
+        callback_query: {
+          id: "cq-long",
+          from: { id: Number(adminChatId), is_bot: false, first_name: "Admin" },
+          data: `tkt:v:${ticket.id}`,
+        },
+      });
+
+      expect(sentMessages.length).toBe(1);
+      // Ensure delivered message length is strictly <= 4096 (under safety threshold of 3900)
+      expect(sentMessages[0].text.length).toBeLessThanOrEqual(4000);
+    });
+
+    it("6. starts reply session and successfully sends admin response via supportService.sendAdminMessage", async () => {
+      const { mockClient, adminStore, supportStore, supportService, sentMessages } = setupSupportTestEnv();
+      const { TelegramOpsBot } = await import("../observability/telegram-ops-bot.js");
+
+      const bot = new TelegramOpsBot({
+        enabled: true,
+        botToken: "test-token",
+        adminChatId,
+        telegramClient: mockClient,
+        adminStore,
+        supportStore,
+        supportService,
+        adminUserId,
+      });
+
+      const userActor: Actor = { userId: normalUserId, role: "student" };
+      const ticket = await supportService.createTicket(userActor, {
+        title: "نیاز به راهنمایی",
+        category: "account",
+        description: "لطفاً حساب من را فعال کنید.",
+      });
+
+      // 1. Admin clicks Reply button: tkt:r:<id>
+      await bot.handleUpdate({
+        update_id: 7,
+        callback_query: {
+          id: "cq-reply-click",
+          from: { id: Number(adminChatId), is_bot: false, first_name: "Admin" },
+          message: {
+            message_id: 107,
+            date: Math.floor(Date.now() / 1000),
+            chat: { id: Number(adminChatId), type: "private" },
+            text: "view",
+          },
+          data: `tkt:r:${ticket.id}`,
+        },
+      });
+
+      expect(sentMessages.length).toBe(1);
+      expect(sentMessages[0].text).toContain("ارسال پاسخ به تیکت پشتیبانی");
+      expect(sentMessages[0].text).toContain("مهلت ارسال: ۱۰ دقیقه");
+      expect(sentMessages[0].replyMarkup?.inline_keyboard[0][0].callback_data).toBe("tkt:cr");
+
+      // 2. Admin sends response text
+      const replyBody = "حساب کاربری شما با موفقیت فعال گردید.";
+      await bot.handleUpdate({
+        update_id: 8,
+        message: {
+          message_id: 108,
+          date: Math.floor(Date.now() / 1000),
+          chat: { id: Number(adminChatId), type: "private" },
+          text: replyBody,
+        },
+      });
+
+      // Two more messages sent: success notification, and refreshed ticket details
+      expect(sentMessages.length).toBe(3);
+      expect(sentMessages[1].text).toContain("پاسخ شما با موفقیت ثبت شد");
+      expect(sentMessages[2].text).toContain("جزئیات تیکت پشتیبانی");
+      expect(sentMessages[2].text).toContain(replyBody);
+
+      // Verify canonical state in supportService: ticket status is now answered
+      const adminActor: Actor = { userId: adminUserId, role: "platform_admin" };
+      const refreshed = await supportService.getTicketDetails(adminActor, ticket.id);
+      expect(refreshed.status).toBe("answered");
+      expect(refreshed.messages?.some((m) => m.body === replyBody && m.senderRole === "admin")).toBe(true);
+    });
+
+    it("7. fails reply if non-text message is sent and retains pending session", async () => {
+      const { mockClient, adminStore, supportStore, supportService, sentMessages } = setupSupportTestEnv();
+      const { TelegramOpsBot } = await import("../observability/telegram-ops-bot.js");
+
+      const bot = new TelegramOpsBot({
+        enabled: true,
+        botToken: "test-token",
+        adminChatId,
+        telegramClient: mockClient,
+        adminStore,
+        supportStore,
+        supportService,
+        adminUserId,
+      });
+
+      const userActor: Actor = { userId: normalUserId, role: "student" };
+      const ticket = await supportService.createTicket(userActor, {
+        title: "تیکت تست فایل",
+        category: "payment",
+        description: "رسید پرداخت ضمیمه شد.",
+      });
+
+      // Start reply session
+      await bot.handleUpdate({
+        update_id: 9,
+        callback_query: {
+          id: "cq-r-2",
+          from: { id: Number(adminChatId), is_bot: false, first_name: "Admin" },
+          data: `tkt:r:${ticket.id}`,
+        },
+      });
+
+      // Send non-text message (e.g. photo or empty text)
+      await bot.handleUpdate({
+        update_id: 10,
+        message: {
+          message_id: 110,
+          date: Math.floor(Date.now() / 1000),
+          chat: { id: Number(adminChatId), type: "private" },
+          text: "", // empty text
+        },
+      });
+
+      expect(sentMessages.length).toBe(2);
+      expect(sentMessages[1].text).toContain("لطفاً پاسخ خود را فقط به صورت متن");
+
+      // Verify pending session was NOT lost: next text message should successfully submit
+      await bot.handleUpdate({
+        update_id: 11,
+        message: {
+          message_id: 111,
+          date: Math.floor(Date.now() / 1000),
+          chat: { id: Number(adminChatId), type: "private" },
+          text: "پاسخ متنی اصلاح‌شده",
+        },
+      });
+
+      expect(sentMessages.length).toBe(4);
+      expect(sentMessages[2].text).toContain("پاسخ شما با موفقیت ثبت شد");
+    });
+
+    it("8. cleans up expired reply session after 10 minutes TTL", async () => {
+      const { mockClient, adminStore, supportStore, supportService, sentMessages } = setupSupportTestEnv();
+      const { TelegramOpsBot } = await import("../observability/telegram-ops-bot.js");
+
+      const bot = new TelegramOpsBot({
+        enabled: true,
+        botToken: "test-token",
+        adminChatId,
+        telegramClient: mockClient,
+        adminStore,
+        supportStore,
+        supportService,
+        adminUserId,
+      });
+
+      const userActor: Actor = { userId: normalUserId, role: "student" };
+      const ticket = await supportService.createTicket(userActor, {
+        title: "تیکت انقضا",
+        category: "other",
+        description: "متن توضیحات تیکت آزمایشی",
+      });
+
+      await bot.handleUpdate({
+        update_id: 12,
+        callback_query: {
+          id: "cq-exp",
+          from: { id: Number(adminChatId), is_bot: false, first_name: "Admin" },
+          data: `tkt:r:${ticket.id}`,
+        },
+      });
+
+      // Manually simulate expiration by setting expiresAt in the past
+      const pendingMap = (bot as unknown as BotWithPending).pendingTicketReplies;
+      const pending = pendingMap.get(adminChatId);
+      expect(pending).toBeDefined();
+      if (pending) {
+        pending.expiresAt = Date.now() - 1000; // Expired 1 second ago
+      }
+
+      // Try sending message after expiration
+      await bot.handleUpdate({
+        update_id: 13,
+        message: {
+          message_id: 113,
+          date: Math.floor(Date.now() / 1000),
+          chat: { id: Number(adminChatId), type: "private" },
+          text: "متن دیررسیده",
+        },
+      });
+
+      expect(sentMessages.length).toBe(2);
+      expect(sentMessages[1].text).toContain("مهلت زمانی پاسخ به این تیکت (۱۰ دقیقه) به پایان رسیده است");
+      expect(pendingMap.has(adminChatId)).toBe(false);
+    });
+
+    it("9. cancels reply session explicitly with /cancel command and with tkt:cr button", async () => {
+      const { mockClient, adminStore, supportStore, supportService, sentMessages } = setupSupportTestEnv();
+      const { TelegramOpsBot } = await import("../observability/telegram-ops-bot.js");
+
+      const bot = new TelegramOpsBot({
+        enabled: true,
+        botToken: "test-token",
+        adminChatId,
+        telegramClient: mockClient,
+        adminStore,
+        supportStore,
+        supportService,
+        adminUserId,
+      });
+
+      const userActor: Actor = { userId: normalUserId, role: "student" };
+      const ticket = await supportService.createTicket(userActor, {
+        title: "تیکت لغو",
+        category: "other",
+        description: "متن توضیحات تیکت آزمایشی",
+      });
+
+      // 1. Cancel via /cancel command
+      await bot.handleUpdate({
+        update_id: 14,
+        callback_query: {
+          id: "cq-cancel-1",
+          from: { id: Number(adminChatId), is_bot: false, first_name: "Admin" },
+          data: `tkt:r:${ticket.id}`,
+        },
+      });
+
+      await bot.handleUpdate({
+        update_id: 15,
+        message: {
+          message_id: 115,
+          date: Math.floor(Date.now() / 1000),
+          chat: { id: Number(adminChatId), type: "private" },
+          text: "/cancel",
+        },
+      });
+
+      expect(sentMessages.length).toBe(2);
+      expect(sentMessages[1].text).toContain("عملیات پاسخ به تیکت لغو شد");
+
+      // 2. Cancel via tkt:cr inline button
+      await bot.handleUpdate({
+        update_id: 16,
+        callback_query: {
+          id: "cq-cancel-2",
+          from: { id: Number(adminChatId), is_bot: false, first_name: "Admin" },
+          data: `tkt:r:${ticket.id}`,
+        },
+      });
+
+      await bot.handleUpdate({
+        update_id: 17,
+        callback_query: {
+          id: "cq-cancel-btn",
+          from: { id: Number(adminChatId), is_bot: false, first_name: "Admin" },
+          data: "tkt:cr",
+        },
+      });
+
+      expect(sentMessages.length).toBe(4);
+      expect(sentMessages[3].text).toContain("عملیات پاسخ به تیکت لغو شد");
+      expect((bot as unknown as BotWithPending).pendingTicketReplies.has(adminChatId)).toBe(false);
+    });
+
+    it("10. cancels pending reply session when a new command like /status or /tickets is invoked", async () => {
+      const { mockClient, adminStore, supportStore, supportService, sentMessages } = setupSupportTestEnv();
+      const { TelegramOpsBot } = await import("../observability/telegram-ops-bot.js");
+
+      const bot = new TelegramOpsBot({
+        enabled: true,
+        botToken: "test-token",
+        adminChatId,
+        telegramClient: mockClient,
+        adminStore,
+        supportStore,
+        supportService,
+        adminUserId,
+      });
+
+      const userActor: Actor = { userId: normalUserId, role: "student" };
+      const ticket = await supportService.createTicket(userActor, {
+        title: "تیکت تست جابجایی دستور",
+        category: "courses",
+        description: "متن توضیحات تیکت آزمایشی",
+      });
+
+      // Start reply
+      await bot.handleUpdate({
+        update_id: 18,
+        callback_query: {
+          id: "cq-new-cmd",
+          from: { id: Number(adminChatId), is_bot: false, first_name: "Admin" },
+          data: `tkt:r:${ticket.id}`,
+        },
+      });
+      expect((bot as unknown as BotWithPending).pendingTicketReplies.has(adminChatId)).toBe(true);
+
+      // Invoke /status command instead of replying
+      await bot.handleUpdate({
+        update_id: 19,
+        message: {
+          message_id: 119,
+          date: Math.floor(Date.now() / 1000),
+          chat: { id: Number(adminChatId), type: "private" },
+          text: "/status",
+        },
+      });
+
+      // Pending reply session was cleared and /status was rendered
+      expect((bot as unknown as BotWithPending).pendingTicketReplies.has(adminChatId)).toBe(false);
+      expect(sentMessages.length).toBe(2);
+      expect(sentMessages[1].text).toContain("وضعیت کلی سیستم آوانا");
+    });
+
+    it("11. retains pending session and provides clear error when recording admin response fails", async () => {
+      const { mockClient, adminStore, supportStore, supportService, sentMessages } = setupSupportTestEnv();
+      const { TelegramOpsBot } = await import("../observability/telegram-ops-bot.js");
+
+      // Spy and make sendAdminMessage reject once
+      vi.spyOn(supportService, "sendAdminMessage").mockRejectedValueOnce(new Error("Database connection lost"));
+
+      const bot = new TelegramOpsBot({
+        enabled: true,
+        botToken: "test-token",
+        adminChatId,
+        telegramClient: mockClient,
+        adminStore,
+        supportStore,
+        supportService,
+        adminUserId,
+      });
+
+      const userActor: Actor = { userId: normalUserId, role: "student" };
+      const ticket = await supportService.createTicket(userActor, {
+        title: "تیکت تست خطا",
+        category: "payment",
+        description: "متن توضیحات تیکت آزمایشی",
+      });
+
+      // Start reply
+      await bot.handleUpdate({
+        update_id: 20,
+        callback_query: {
+          id: "cq-err",
+          from: { id: Number(adminChatId), is_bot: false, first_name: "Admin" },
+          data: `tkt:r:${ticket.id}`,
+        },
+      });
+
+      // Send text
+      await bot.handleUpdate({
+        update_id: 21,
+        message: {
+          message_id: 121,
+          date: Math.floor(Date.now() / 1000),
+          chat: { id: Number(adminChatId), type: "private" },
+          text: "پاسخ اول ناموفق",
+        },
+      });
+
+      expect(sentMessages.length).toBe(2);
+      expect(sentMessages[1].text).toContain("خطا در ثبت پاسخ");
+      expect(sentMessages[1].text).toContain("وضعیت پاسخگویی برای این تیکت همچنان فعال است");
+
+      // State is still active
+      expect((bot as unknown as BotWithPending).pendingTicketReplies.has(adminChatId)).toBe(true);
+
+      // Now retry, and it succeeds
+      await bot.handleUpdate({
+        update_id: 22,
+        message: {
+          message_id: 122,
+          date: Math.floor(Date.now() / 1000),
+          chat: { id: Number(adminChatId), type: "private" },
+          text: "پاسخ دوم موفق",
+        },
+      });
+
+      expect(sentMessages.length).toBe(4);
+      expect(sentMessages[2].text).toContain("پاسخ شما با موفقیت ثبت شد");
+      expect((bot as unknown as BotWithPending).pendingTicketReplies.has(adminChatId)).toBe(false);
+    });
+
+    it("12. supports independent reply session state for different chats", async () => {
+      const { mockClient, adminStore, supportStore, supportService } = setupSupportTestEnv();
+      const { TelegramOpsBot } = await import("../observability/telegram-ops-bot.js");
+
+      const bot = new TelegramOpsBot({
+        enabled: true,
+        botToken: "test-token",
+        adminChatId,
+        telegramClient: mockClient,
+        adminStore,
+        supportStore,
+        supportService,
+        adminUserId,
+      });
+
+      const map = (bot as unknown as BotWithPending).pendingTicketReplies;
+      map.set("chat-1", { ticketId: "uuid-1", expiresAt: Date.now() + 60000 });
+      map.set("chat-2", { ticketId: "uuid-2", expiresAt: Date.now() + 60000 });
+
+      expect(map.get("chat-1")?.ticketId).toBe("uuid-1");
+      expect(map.get("chat-2")?.ticketId).toBe("uuid-2");
+
+      map.delete("chat-1");
+      expect(map.has("chat-1")).toBe(false);
+      expect(map.has("chat-2")).toBe(true);
+    });
+
+    it("13. silently ignores unauthorized chats for /tickets and ticket callbacks", async () => {
+      const { mockClient, adminStore, supportStore, supportService, sentMessages } = setupSupportTestEnv();
+      const { TelegramOpsBot } = await import("../observability/telegram-ops-bot.js");
+
+      const bot = new TelegramOpsBot({
+        enabled: true,
+        botToken: "test-token",
+        adminChatId,
+        telegramClient: mockClient,
+        adminStore,
+        supportStore,
+        supportService,
+        adminUserId,
+      });
+
+      // Unauthorized chat sends /tickets
+      await bot.handleUpdate({
+        update_id: 23,
+        message: {
+          message_id: 123,
+          date: Math.floor(Date.now() / 1000),
+          chat: { id: Number(unauthorizedChatId), type: "private" },
+          text: "/tickets",
+        },
+      });
+
+      // Unauthorized chat sends callback
+      await bot.handleUpdate({
+        update_id: 24,
+        callback_query: {
+          id: "cq-unauth",
+          from: { id: Number(unauthorizedChatId), is_bot: false, first_name: "Hacker" },
+          message: {
+            message_id: 124,
+            date: Math.floor(Date.now() / 1000),
+            chat: { id: Number(unauthorizedChatId), type: "private" },
+            text: "view",
+          },
+          data: "tkt:l:open:1",
+        },
+      });
+
+      // Zero messages sent to unauthorized chat
+      expect(sentMessages.length).toBe(0);
+    });
+
+    it("14. safely handles invalid/forged UUID and callback data", async () => {
+      const { mockClient, adminStore, supportStore, supportService, sentMessages, answeredCallbacks } = setupSupportTestEnv();
+      const { TelegramOpsBot } = await import("../observability/telegram-ops-bot.js");
+
+      const bot = new TelegramOpsBot({
+        enabled: true,
+        botToken: "test-token",
+        adminChatId,
+        telegramClient: mockClient,
+        adminStore,
+        supportStore,
+        supportService,
+        adminUserId,
+      });
+
+      // Forged non-UUID callback: tkt:v:not-a-valid-uuid
+      await bot.handleUpdate({
+        update_id: 25,
+        callback_query: {
+          id: "cq-forged",
+          from: { id: Number(adminChatId), is_bot: false, first_name: "Admin" },
+          data: "tkt:v:not-a-valid-uuid",
+        },
+      });
+
+      expect(answeredCallbacks.some((c) => c.id === "cq-forged")).toBe(true);
+      expect(sentMessages.length).toBe(0); // Safely dropped
+    });
+
+    it("15. closes ticket canonically via supportService.updateTicketStatus and explains invalid transition", async () => {
+      const { mockClient, adminStore, supportStore, supportService, sentMessages } = setupSupportTestEnv();
+      const { TelegramOpsBot } = await import("../observability/telegram-ops-bot.js");
+
+      const bot = new TelegramOpsBot({
+        enabled: true,
+        botToken: "test-token",
+        adminChatId,
+        telegramClient: mockClient,
+        adminStore,
+        supportStore,
+        supportService,
+        adminUserId,
+      });
+
+      const userActor: Actor = { userId: normalUserId, role: "student" };
+      const ticket = await supportService.createTicket(userActor, {
+        title: "تیکت برای بستن",
+        category: "account",
+        description: "این تیکت باید بسته شود.",
+      });
+
+      // Click Close ticket button: tkt:c:<id>
+      await bot.handleUpdate({
+        update_id: 26,
+        callback_query: {
+          id: "cq-close",
+          from: { id: Number(adminChatId), is_bot: false, first_name: "Admin" },
+          data: `tkt:c:${ticket.id}`,
+        },
+      });
+
+      expect(sentMessages.length).toBe(2);
+      expect(sentMessages[0].text).toContain("با موفقیت بسته شد");
+      expect(sentMessages[1].text).toContain("بسته شده");
+
+      // Verify canonical state
+      const adminActor: Actor = { userId: adminUserId, role: "platform_admin" };
+      const closed = await supportService.getTicketDetails(adminActor, ticket.id);
+      expect(closed.status).toBe("closed");
+
+      // Clicking close again informs admin it is already closed
+      await bot.handleUpdate({
+        update_id: 27,
+        callback_query: {
+          id: "cq-close-again",
+          from: { id: Number(adminChatId), is_bot: false, first_name: "Admin" },
+          data: `tkt:c:${ticket.id}`,
+        },
+      });
+
+      expect(sentMessages.length).toBe(3);
+      expect(sentMessages[2].text).toContain("این تیکت قبلاً بسته شده است");
+    });
+
+    it("16. blocks sending replies to closed tickets", async () => {
+      const { mockClient, adminStore, supportStore, supportService, sentMessages } = setupSupportTestEnv();
+      const { TelegramOpsBot } = await import("../observability/telegram-ops-bot.js");
+
+      const bot = new TelegramOpsBot({
+        enabled: true,
+        botToken: "test-token",
+        adminChatId,
+        telegramClient: mockClient,
+        adminStore,
+        supportStore,
+        supportService,
+        adminUserId,
+      });
+
+      const userActor: Actor = { userId: normalUserId, role: "student" };
+      const ticket = await supportService.createTicket(userActor, {
+        title: "تیکت بسته شده",
+        category: "technical",
+        description: "متن توضیحات تیکت آزمایشی",
+      });
+      const adminActor: Actor = { userId: adminUserId, role: "platform_admin" };
+      await supportService.updateTicketStatus(adminActor, ticket.id, "closed");
+
+      // Attempt to reply to closed ticket
+      await bot.handleUpdate({
+        update_id: 28,
+        callback_query: {
+          id: "cq-rep-closed",
+          from: { id: Number(adminChatId), is_bot: false, first_name: "Admin" },
+          data: `tkt:r:${ticket.id}`,
+        },
+      });
+
+      expect(sentMessages.length).toBe(1);
+      expect(sentMessages[0].text).toContain("این تیکت بسته شده است و امکان ارسال پاسخ به آن وجود ندارد");
+      expect((bot as unknown as BotWithPending).pendingTicketReplies.has(adminChatId)).toBe(false);
+    });
+
+    it("17. sends alert on support ticket creation with inline button to view ticket", async () => {
+      const sentAlerts: Array<{ text: string; replyMarkup?: TelegramInlineKeyboardMarkup }> = [];
+      const mockClient = {
+        isConfigured: vi.fn().mockReturnValue(true),
+        getAdminChatId: vi.fn().mockReturnValue(adminChatId),
+        sendMessage: vi.fn().mockImplementation(async (text: string, _override?: string, replyMarkup?: TelegramInlineKeyboardMarkup) => {
+          sentAlerts.push({ text, replyMarkup });
+          return { sent: true };
+        }),
+      } as unknown as TelegramClient;
+
+      const alertService = new AdminAlertService({
+        enabled: true,
+        telegramClient: mockClient,
+      });
+
+      const ticketId = randomUUID();
+      const res = await alertService.notifySupportTicketCreated({
+        ticketId,
+        title: "خطا در بارگذاری دوره‌ها",
+        category: "courses",
+        priority: "high",
+        userName: "محمد رضایی",
+      });
+
+      expect(res).toBe(true);
+      expect(sentAlerts.length).toBe(1);
+      expect(sentAlerts[0].text).toContain("تیکت پشتیبانی جدید");
+      expect(sentAlerts[0].text).toContain("خطا در بارگذاری دوره‌ها");
+      expect(sentAlerts[0].text).toContain("محمد رضایی");
+      expect(sentAlerts[0].text).toContain("دوره‌های آموزشی");
+      expect(sentAlerts[0].replyMarkup?.inline_keyboard[0][0].callback_data).toBe(`tkt:v:${ticketId}`);
+    });
+
+    it("18. sends alert on support ticket reply with inline button to view ticket", async () => {
+      const sentAlerts: Array<{ text: string; replyMarkup?: TelegramInlineKeyboardMarkup }> = [];
+      const mockClient = {
+        isConfigured: vi.fn().mockReturnValue(true),
+        getAdminChatId: vi.fn().mockReturnValue(adminChatId),
+        sendMessage: vi.fn().mockImplementation(async (text: string, _override?: string, replyMarkup?: TelegramInlineKeyboardMarkup) => {
+          sentAlerts.push({ text, replyMarkup });
+          return { sent: true };
+        }),
+      } as unknown as TelegramClient;
+
+      const alertService = new AdminAlertService({
+        enabled: true,
+        telegramClient: mockClient,
+      });
+
+      const ticketId = randomUUID();
+      const res = await alertService.notifySupportTicketUserReplied({
+        ticketId,
+        title: "مشکل ورود به سایت",
+        userName: "سارا احمدی",
+        snippet: "کد تأیید پیامک نمی‌شود.",
+      });
+
+      expect(res).toBe(true);
+      expect(sentAlerts.length).toBe(1);
+      expect(sentAlerts[0].text).toContain("پاسخ جدید در تیکت پشتیبانی");
+      expect(sentAlerts[0].text).toContain("سارا احمدی");
+      expect(sentAlerts[0].text).toContain("کد تأیید پیامک نمی‌شود.");
+      expect(sentAlerts[0].replyMarkup?.inline_keyboard[0][0].callback_data).toBe(`tkt:v:${ticketId}`);
+    });
+
+    it("19. failure in alerting does not fail ticket creation in supportService", async () => {
+      const { auditService, supportStore } = setupSupportTestEnv();
+
+      // Listen to auditService and simulate a crashing alert handler
+      auditService.addListener(() => {
+        throw new Error("Telegram API Network Failure");
+      });
+
+      const service = new SupportService(supportStore, undefined, auditService);
+      const userActor: Actor = { userId: normalUserId, role: "student" };
+
+      // Ticket creation MUST succeed even if audit listener fails
+      const ticket = await service.createTicket(userActor, {
+        title: "تیکت مقاوم به خطای اعلان",
+        category: "technical",
+        description: "این تیکت حتی اگر تلگرام قطع باشد باید با موفقیت ثبت شود.",
+      });
+
+      expect(ticket).toBeDefined();
+      expect(ticket.id).toBeDefined();
+      expect(ticket.title).toBe("تیکت مقاوم به خطای اعلان");
+    });
+
+    it("20. strictly requires valid platform_admin actor and denies execution if no admin exists", async () => {
+      const { mockClient, supportStore, supportService, sentMessages } = setupSupportTestEnv();
+      const { TelegramOpsBot } = await import("../observability/telegram-ops-bot.js");
+
+      // Empty adminStore with no platform_admin user
+      const emptyAdminStore = {
+        listUsers: vi.fn().mockResolvedValue({ totalCount: 0, users: [] }),
+      } as unknown as import("../modules/admin/admin-store.js").AdminStore;
+
+      const bot = new TelegramOpsBot({
+        enabled: true,
+        botToken: "test-token",
+        adminChatId,
+        telegramClient: mockClient,
+        adminStore: emptyAdminStore,
+        supportStore,
+        supportService,
+        adminUserId: undefined, // No admin user configured or in DB
+      });
+
+      const userActor: Actor = { userId: normalUserId, role: "student" };
+      const ticket = await supportService.createTicket(userActor, {
+        title: "تیکت تست دسترسی",
+        category: "other",
+        description: "متن توضیحات تیکت آزمایشی",
+      });
+
+      // Attempt to view ticket
+      await bot.handleUpdate({
+        update_id: 29,
+        callback_query: {
+          id: "cq-no-admin",
+          from: { id: Number(adminChatId), is_bot: false, first_name: "Admin" },
+          data: `tkt:v:${ticket.id}`,
+        },
+      });
+
+      expect(sentMessages.length).toBe(1);
+      expect(sentMessages[0].text).toContain("هیچ حساب کاربری معتبری با نقش مدیر ارشد (platform_admin)");
     });
   });
 });
